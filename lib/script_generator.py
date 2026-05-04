@@ -115,7 +115,7 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 units_md=step1_md,
-                supported_durations=self._resolve_supported_durations(caps) or [4, 8],
+                supported_durations=self._resolve_supported_durations(caps),
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
@@ -205,7 +205,7 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 units_md=step1_md,
-                supported_durations=self._resolve_supported_durations(None) or [4, 8],
+                supported_durations=self._resolve_supported_durations(None),
                 max_refs=self._resolve_max_refs(None),
                 max_duration=self._resolve_max_duration(None),
                 aspect_ratio=self._resolve_aspect_ratio(),
@@ -254,13 +254,13 @@ class ScriptGenerator:
             logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
             return None
 
-    def _resolve_supported_durations(self, caps: dict | None = None) -> list[int] | None:
-        """优先取 resolver caps；否则回落到 project.json → registry 直读。"""
+    def _resolve_supported_durations(self, caps: dict | None = None) -> list[int]:
+        """从 caps → project.json → registry 三级解析；都拿不到抛 ValueError。"""
         if caps and caps.get("supported_durations"):
             return list(caps["supported_durations"])
         durations = self.project_json.get("_supported_durations")
         if durations and isinstance(durations, list):
-            return durations
+            return list(durations)
         video_backend = self.project_json.get("video_backend")
         if video_backend and isinstance(video_backend, str) and "/" in video_backend:
             provider_id, model_id = video_backend.split("/", 1)
@@ -269,16 +269,19 @@ class ScriptGenerator:
                 model_info = provider_meta.models.get(model_id)
                 if model_info and model_info.supported_durations:
                     return list(model_info.supported_durations)
-        return None
+        raise ValueError(
+            f"supported_durations 无法解析：caps={bool(caps)}, video_backend={video_backend!r}；请确保 model 配置完整"
+        )
 
     def _resolve_max_duration(self, caps: dict | None = None) -> int | None:
         """单次视频生成最长秒数；派生自 max(supported_durations)。"""
         if caps and caps.get("max_duration") is not None:
             return int(caps["max_duration"])
-        durations = self._resolve_supported_durations(caps)
-        if durations:
-            return max(durations)
-        return None
+        try:
+            durations = self._resolve_supported_durations(caps)
+        except ValueError:
+            return None
+        return max(durations)
 
     def _resolve_aspect_ratio(self) -> str:
         """解析项目的 aspect_ratio，向后兼容。"""

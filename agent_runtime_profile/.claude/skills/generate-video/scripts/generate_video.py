@@ -105,11 +105,12 @@ def parse_scene_ids(scenes_arg: str) -> list:
     return [s.strip() for s in scenes_arg.split(",") if s.strip()]
 
 
-DEFAULT_DURATIONS_FALLBACK = [4, 8]
-
-
 def get_supported_durations(project: dict) -> list[int]:
-    """从项目配置或 registry 获取当前视频模型支持的时长列表。"""
+    """从项目配置或 registry 获取当前视频模型支持的时长列表。
+
+    与 lib/script_generator._resolve_supported_durations 的 fail-loud 契约对齐：
+    解析不出来直接抛错，绝不回退到硬编码默认。
+    """
     durations = project.get("_supported_durations")
     if durations and isinstance(durations, list):
         return durations
@@ -126,29 +127,10 @@ def get_supported_durations(project: dict) -> list[int]:
                 if model_info and model_info.supported_durations:
                     return list(model_info.supported_durations)
         except ImportError:
-            pass  # registry 不可用时（如独立运行），回退到 DEFAULT_DURATIONS_FALLBACK
-    return DEFAULT_DURATIONS_FALLBACK
-
-
-def validate_duration(duration: int, supported_durations: list[int] | None = None) -> str:
-    """
-    验证并返回有效的时长参数。
-
-    Args:
-        duration: 输入的时长（秒）
-        supported_durations: 当前视频模型支持的时长列表
-
-    Returns:
-        有效的时长字符串
-    """
-    valid = supported_durations or DEFAULT_DURATIONS_FALLBACK
-    if duration in valid:
-        return str(duration)
-    # 向上取整到最近的有效值
-    for d in sorted(valid):
-        if d >= duration:
-            return str(d)
-    return str(max(valid))
+            pass
+    raise ValueError(
+        "supported_durations 无法解析：project 缺 _supported_durations 且 video_backend 不在 PROVIDER_REGISTRY 中"
+    )
 
 
 # ============================================================================
@@ -300,7 +282,9 @@ def _build_video_specs(
             print(f"  🎬 {item_id}: single 模式")
 
         duration = item.get("duration_seconds", default_duration)
-        duration_str = validate_duration(duration, supported)
+        if duration not in supported:
+            raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported} 内")
+        duration_str = str(duration)
 
         specs.append(
             BatchTaskSpec(
@@ -656,7 +640,9 @@ def generate_scene_video(script_filename: str, scene_id: str) -> Path:
     default_duration = project.get("default_duration") or (4 if content_mode == "narration" else 8)
     duration = item.get("duration_seconds", default_duration)
     supported = get_supported_durations(project)
-    duration_str = validate_duration(duration, supported)
+    if duration not in supported:
+        raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported} 内")
+    duration_str = str(duration)
 
     print(f"🎬 正在生成视频: 场景/片段 {scene_id}")
     print("   预计等待时间: 1-6 分钟")

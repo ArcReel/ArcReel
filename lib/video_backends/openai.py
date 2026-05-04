@@ -83,7 +83,7 @@ class OpenAIVideoBackend:
         kwargs: dict = {
             "prompt": request.prompt,
             "model": self._model,
-            "seconds": _map_duration(request.duration_seconds),
+            "seconds": str(request.duration_seconds),
         }
         size = _resolve_size(request.resolution, request.aspect_ratio)
         if size is not None:
@@ -160,15 +160,6 @@ class OpenAIVideoBackend:
     async def _download_content_with_retry(self, video_id: str):
         """单独重试内容下载，避免因下载失败重新触发视频生成。"""
         return await self._client.videos.download_content(video_id)
-
-
-def _map_duration(seconds: int) -> str:
-    if seconds <= 4:
-        return "4"
-    elif seconds <= 8:
-        return "8"
-    else:
-        return "12"
 
 
 def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:

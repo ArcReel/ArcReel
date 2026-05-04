@@ -99,6 +99,7 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
+                "_supported_durations": [4, 6, 8],
             },
         )
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
@@ -155,6 +156,7 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
+                "_supported_durations": [4, 6, 8],
             },
         )
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
@@ -187,6 +189,7 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
+                "_supported_durations": [4, 6, 8],
             },
         )
         _write(project_path / "drafts" / "episode_10" / "step1_segments.md", "E10S01 | 片段")
@@ -217,6 +220,7 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
+                "_supported_durations": [4, 6, 8],
             },
         )
         _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
@@ -244,6 +248,7 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
+                "_supported_durations": [4, 6, 8],
             },
         )
         _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
@@ -264,3 +269,18 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path)  # 无 backend
         with pytest.raises(RuntimeError, match="TextGenerator 未初始化"):
             await generator.generate(1)
+
+
+def test_resolve_supported_durations_raises_when_unset(tmp_path):
+    """caps、project.json、registry 三处都查不到时应抛 ValueError，不再 silent fallback。"""
+    project_dir = tmp_path / "p"
+    project_dir.mkdir()
+    (project_dir / "project.json").write_text(
+        '{"video_backend": "nonexistent-provider/nonexistent-model"}', encoding="utf-8"
+    )
+    sg = ScriptGenerator.__new__(ScriptGenerator)
+    sg.project_path = project_dir
+    sg.project_json = {"video_backend": "nonexistent-provider/nonexistent-model"}
+
+    with pytest.raises(ValueError, match="supported_durations"):
+        sg._resolve_supported_durations(None)

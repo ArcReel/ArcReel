@@ -19,6 +19,7 @@ def reference_project(tmp_path: Path) -> Path:
           "title": "t",
           "content_mode": "narration",
           "generation_mode": "reference_video",
+          "_supported_durations": [4, 8],
           "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
           "style": "国漫",
           "style_description": "水墨",
@@ -171,11 +172,11 @@ def test_build_prompt_injects_max_duration_from_registry(
     assert "当前视频模型上限" in prompt
 
 
-def test_build_prompt_no_video_backend_skips_max_duration_segment(tmp_path: Path):
-    """project.json 缺 video_backend 时，_resolve_max_duration 返回 None，prompt 不插入"模型上限"段。
+def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
+    """project.json 缺 video_backend 且无 _supported_durations 时，build_prompt 应抛 ValueError。
 
-    设计意图：真实能力未知时不强行给一个误导性上限；仅 supported_durations fallback [4,8]
-    作为允许列表继续展示。
+    设计意图（重新设计后）：supported_durations 是单一真相源，必须由 model 配置或显式声明提供；
+    没有就 fail loud，避免向 LLM 注入兜底 [4, 8] 误导生成。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -203,11 +204,8 @@ def test_build_prompt_no_video_backend_skips_max_duration_segment(tmp_path: Path
     (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
-    prompt = gen.build_prompt(episode=1)
-    # supported_durations fallback 的 "4/8s" 允许列表仍展示
-    assert "4/8s" in prompt
-    # 但"模型上限 X 秒"段缺失（因为 _resolve_max_duration 返 None）
-    assert "当前视频模型上限" not in prompt
+    with pytest.raises(ValueError, match="supported_durations"):
+        gen.build_prompt(episode=1)
 
 
 @pytest.mark.asyncio
@@ -239,6 +237,7 @@ def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
                 "title": "t",
                 "content_mode": "narration",
                 "generation_mode": "storyboard",  # 项目级是 storyboard
+                "_supported_durations": [4, 8],
                 "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
                 "style": "s",
                 "style_description": "d",

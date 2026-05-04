@@ -111,15 +111,6 @@ class GeminiVideoBackend:
     def video_capabilities(self) -> VideoCapabilities:
         return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
 
-    @staticmethod
-    def _normalize_duration(duration_seconds: int) -> str:
-        """标准化为 Veo 支持的离散时长值: '4', '6', '8'。"""
-        if duration_seconds <= 4:
-            return "4"
-        if duration_seconds <= 6:
-            return "6"
-        return "8"
-
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
         operation = await self._create_task(request)
@@ -132,8 +123,8 @@ class GeminiVideoBackend:
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._video_model)
 
-        # 2. duration 标准化为 Veo 支持的离散值并转字符串
-        duration_str = self._normalize_duration(request.duration_seconds)
+        # 2. duration 透传（由模型 supported_durations 校验，不在 backend 做桶映射）
+        duration_str = str(request.duration_seconds)
 
         # 3. 构建配置
         config_params: dict = {

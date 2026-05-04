@@ -1,8 +1,6 @@
 import { API } from "@/api";
 import type { CustomProviderInfo, MediaType, ProviderInfo } from "@/types";
 
-export const DEFAULT_DURATIONS: readonly number[] = [4, 6, 8];
-
 const CUSTOM_PREFIX = "custom-";
 
 // ---------------------------------------------------------------------------
