@@ -253,7 +253,6 @@ function DurationSelector({
           <div className="flex items-center gap-2 px-1 py-1">
             <input
               type="range"
-              role="slider"
               aria-label={t("duration_selector_aria")}
               aria-valuetext={t("duration_seconds_value_text", { value: seconds })}
               min={durationOptions[0]}

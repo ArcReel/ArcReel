@@ -391,7 +391,6 @@ function DurationSlider({
       </button>
       <input
         type="range"
-        role="slider"
         aria-label={ariaLabel}
         aria-valuetext={value === null ? autoLabel : t("duration_seconds_value_text", { value })}
         min={min}
