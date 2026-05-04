@@ -211,7 +211,7 @@ function DurationSelector({
     return (
       <span className="inline-flex items-center gap-0.5 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300">
         <Clock aria-hidden="true" className="h-3 w-3" />
-        {seconds}s
+        {t("duration_seconds_value_text", { value: seconds })}
         {isIncompatible && (
           <span aria-label={incompatibleLabel} title={incompatibleLabel} className="ml-0.5 text-amber-400">
             ⚠

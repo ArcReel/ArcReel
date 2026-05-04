@@ -34,7 +34,7 @@ uv run alembic revision --autogenerate -m "desc"     # 生成迁移
 pnpm lint        # ESLint，CI frontend-tests 第一段，含 jsx-a11y 规则
 pnpm check       # typecheck + vitest
 pnpm build       # 生产构建，含 typecheck
-# CI 等价：pnpm lint && pnpm check —— push 前两条都要绿
+# CI 等价：pnpm lint && pnpm check，push 前两条都要绿
 ```
 
 ## 架构要点
