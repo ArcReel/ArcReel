@@ -42,8 +42,8 @@ importers:
         specifier: ^1.11.0
         version: 1.11.0(react@19.2.5)
       pnpm:
-        specifier: ^10.33.0
-        version: 10.33.0
+        specifier: ^10.33.2
+        version: 10.33.2
       react:
         specifier: ^19.2.5
         version: 19.2.5
@@ -3737,8 +3737,8 @@ packages:
   pkg-types@1.3.1:
     resolution: {integrity: sha512-/Jm5M4RvtBFVkKWRu2BLUTNP8/M2a+UwuAX+ae4770q1qVGtfjG+WTCupoZixokjmHiry8uI+dlY8KXYV5HVVQ==}
 
-  pnpm@10.33.0:
-    resolution: {integrity: sha512-EFaLtKavtYyes2MNqQzJUWQXq+vT+rvmc58K55VyjaFJHp21pUTHatjrdXD1xLs9bGN7LLQb/c20f6gjyGSTGQ==}
+  pnpm@10.33.2:
+    resolution: {integrity: sha512-qQ+vb+6rca1sblf5Tg/hoS9dzCLNdU20CulZPraj4LaxLjVAIYuzeuCDQEsfLObbKkEh6XmCm0r/lLmfSdoc+A==}
     engines: {node: '>=18.12'}
     hasBin: true
 
@@ -9205,7 +9205,7 @@ snapshots:
       mlly: 1.8.2
       pathe: 2.0.3
 
-  pnpm@10.33.0: {}
+  pnpm@10.33.2: {}
 
   points-on-curve@0.2.0: {}
 
