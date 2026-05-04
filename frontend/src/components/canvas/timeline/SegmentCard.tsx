@@ -255,6 +255,7 @@ function DurationSelector({
               type="range"
               role="slider"
               aria-label={t("duration_selector_aria")}
+              aria-valuetext={`${seconds}秒`}
               min={durationOptions[0]}
               max={durationOptions[durationOptions.length - 1]}
               step={1}

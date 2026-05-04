@@ -392,6 +392,7 @@ function DurationSlider({
         type="range"
         role="slider"
         aria-label={ariaLabel}
+        aria-valuetext={value === null ? autoLabel : `${value}秒`}
         min={min}
         max={max}
         step={1}
