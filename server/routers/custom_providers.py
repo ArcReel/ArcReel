@@ -92,13 +92,9 @@ class ModelInput(BaseModel):
 
         d = self.model_dump()
         durations = self.supported_durations
-        if durations is None:
-            try:
-                if endpoint_to_media_type(self.endpoint) == "video":
-                    durations = infer_supported_durations(self.model_id)
-            except ValueError:
-                # 未知 endpoint 由后续校验报错；这里保持 None
-                pass
+        if durations is None and endpoint_to_media_type(self.endpoint) == "video":
+            # endpoint 经 EndpointType 校验，值必在 ENDPOINT_REGISTRY 内，无需 ValueError 兜底
+            durations = infer_supported_durations(self.model_id)
         d["supported_durations"] = json.dumps(durations) if durations is not None else None
         return d
 
