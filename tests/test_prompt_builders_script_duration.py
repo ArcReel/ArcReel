@@ -18,6 +18,11 @@ class TestFormatDurationConstraint:
         assert "[4, 6, 8]" in text
         assert "默认使用 6 秒" in text
 
+    def test_default_duration_must_be_in_supported(self):
+        """default_duration 不在 supported 集合时应抛错，避免 prompt 自相矛盾。"""
+        with pytest.raises(ValueError, match="default_duration=6 不在"):
+            _format_duration_constraint([4, 8], default_duration=6)
+
     def test_continuous_range_uses_min_max_phrasing(self):
         """长度 ≥5 且连续整数 → 用 'min 到 max 整数任选' 文案。"""
         text = _format_duration_constraint([3, 4, 5, 6, 7, 8, 9, 10], default_duration=None)
@@ -35,5 +40,5 @@ class TestBuildersRequireDurations:
     """删除 fallback 后，传 None / 空 list 不应再被静默回填。"""
 
     def test_format_constraint_rejects_empty(self):
-        with pytest.raises((ValueError, AssertionError, IndexError)):
+        with pytest.raises(ValueError, match="supported_durations 不能为空"):
             _format_duration_constraint([], default_duration=None)

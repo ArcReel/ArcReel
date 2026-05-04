@@ -57,35 +57,38 @@ def test_backfill_video_endpoints_with_null_durations(alembic_cfg: Config, backf
 
     db_path = alembic_cfg.attributes["_test_db_path"]
     engine = sa.create_engine(f"sqlite:///{db_path}")
-    with engine.begin() as conn:
-        conn.execute(
-            sa.text(
-                "INSERT INTO custom_provider "
-                "(id, display_name, discovery_format, base_url, api_key, created_at, updated_at) "
-                "VALUES (1, 'P', 'openai', 'https://x', 'k', '2026-05-04 00:00:00', '2026-05-04 00:00:00')"
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO custom_provider "
+                    "(id, display_name, discovery_format, base_url, api_key, created_at, updated_at) "
+                    "VALUES (1, 'P', 'openai', 'https://x', 'k', '2026-05-04 00:00:00', '2026-05-04 00:00:00')"
+                )
             )
-        )
-        # 四条：video endpoint 且 NULL → 应被回填；text endpoint 不动；非 NULL 也不动
-        conn.execute(
-            sa.text(
-                "INSERT INTO custom_provider_model "
-                "(id, provider_id, model_id, display_name, endpoint, is_default, is_enabled, "
-                "supported_durations, created_at, updated_at) VALUES "
-                "(1, 1, 'sora-2-pro', 'X', 'openai-video', 0, 1, NULL, '2026-05-04 00:00:00', '2026-05-04 00:00:00'),"
-                "(2, 1, 'unknown-foo', 'Y', 'openai-video', 0, 1, NULL, '2026-05-04 00:00:00', '2026-05-04 00:00:00'),"
-                "(3, 1, 'gpt-4o', 'Z', 'openai-chat', 0, 1, NULL, '2026-05-04 00:00:00', '2026-05-04 00:00:00'),"
-                "(4, 1, 'sora-2', 'W', 'openai-video', 0, 1, '[1,2,3]', '2026-05-04 00:00:00', '2026-05-04 00:00:00')"
+            # 四条：video endpoint 且 NULL → 应被回填；text endpoint 不动；非 NULL 也不动
+            conn.execute(
+                sa.text(
+                    "INSERT INTO custom_provider_model "
+                    "(id, provider_id, model_id, display_name, endpoint, is_default, is_enabled, "
+                    "supported_durations, created_at, updated_at) VALUES "
+                    "(1, 1, 'sora-2-pro', 'X', 'openai-video', 0, 1, NULL, '2026-05-04 00:00:00', '2026-05-04 00:00:00'),"
+                    "(2, 1, 'unknown-foo', 'Y', 'openai-video', 0, 1, NULL, '2026-05-04 00:00:00', '2026-05-04 00:00:00'),"
+                    "(3, 1, 'gpt-4o', 'Z', 'openai-chat', 0, 1, NULL, '2026-05-04 00:00:00', '2026-05-04 00:00:00'),"
+                    "(4, 1, 'sora-2', 'W', 'openai-video', 0, 1, '[1,2,3]', '2026-05-04 00:00:00', '2026-05-04 00:00:00')"
+                )
             )
-        )
 
-    # 2. 升级到 backfill
-    command.upgrade(alembic_cfg, backfill_revision_id)
+        # 2. 升级到 backfill
+        command.upgrade(alembic_cfg, backfill_revision_id)
 
-    # 3. 断言
-    with engine.begin() as conn:
-        rows = conn.execute(
-            sa.text("SELECT model_id, supported_durations FROM custom_provider_model ORDER BY id")
-        ).fetchall()
+        # 3. 断言
+        with engine.begin() as conn:
+            rows = conn.execute(
+                sa.text("SELECT model_id, supported_durations FROM custom_provider_model ORDER BY id")
+            ).fetchall()
+    finally:
+        engine.dispose()
     by_id = {r[0]: r[1] for r in rows}
 
     # sora-2-pro 命中第一条预设：[4, 8, 12]

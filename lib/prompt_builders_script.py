@@ -40,6 +40,11 @@ def _format_duration_constraint(supported_durations: list[int], default_duration
         body = f"从 [{durations_str}] 秒中选择"
 
     if default_duration is not None:
+        if default_duration not in sorted_d:
+            raise ValueError(
+                f"default_duration={default_duration} 不在 supported_durations={sorted_d} 内，"
+                "调用方必须保证默认值合法（否则 prompt 会自相矛盾）"
+            )
         return f"时长：{body}，默认使用 {default_duration} 秒"
     return f"时长：{body}，根据内容节奏自行决定"
 

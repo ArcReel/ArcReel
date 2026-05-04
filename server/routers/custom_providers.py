@@ -84,7 +84,8 @@ class ModelInput(BaseModel):
     def to_db_dict(self) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
 
-        视频类 endpoint 且 supported_durations 缺省时，由 duration_presets 启发式填补。
+        视频类 endpoint：supported_durations 缺省（None）或显式传 []（空列表，下游视为非法）时，
+        统一归一为缺省并由 duration_presets 启发式填补。
         非视频类 endpoint 保持 None。
         """
         from lib.custom_provider.duration_presets import infer_supported_durations
@@ -92,7 +93,11 @@ class ModelInput(BaseModel):
 
         d = self.model_dump()
         durations = self.supported_durations
-        if durations is None and endpoint_to_media_type(self.endpoint) == "video":
+        is_video = endpoint_to_media_type(self.endpoint) == "video"
+        # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
+        if is_video and durations is not None and len(durations) == 0:
+            durations = None
+        if durations is None and is_video:
             # endpoint 经 EndpointType 校验，值必在 ENDPOINT_REGISTRY 内，无需 ValueError 兜底
             durations = infer_supported_durations(self.model_id)
         d["supported_durations"] = json.dumps(durations) if durations is not None else None

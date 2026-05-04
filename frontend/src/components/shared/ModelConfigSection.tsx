@@ -369,6 +369,7 @@ function DurationSlider({
   ariaLabel: string;
   autoLabel: string;
 }) {
+  const { t } = useTranslation("dashboard");
   const min = options[0];
   const max = options[options.length - 1];
   const sliderValue = value === null ? min : value;
@@ -392,7 +393,7 @@ function DurationSlider({
         type="range"
         role="slider"
         aria-label={ariaLabel}
-        aria-valuetext={value === null ? autoLabel : `${value}秒`}
+        aria-valuetext={value === null ? autoLabel : t("duration_seconds_value_text", { value })}
         min={min}
         max={max}
         step={1}
@@ -401,7 +402,7 @@ function DurationSlider({
         className="flex-1 min-w-[120px]"
       />
       <span className="min-w-[2.5rem] text-right text-xs text-gray-300">
-        {value === null ? autoLabel : `${value}s`}
+        {value === null ? autoLabel : t("duration_seconds_value_text", { value })}
       </span>
     </div>
   );

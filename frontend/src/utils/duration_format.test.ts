@@ -4,6 +4,7 @@ import {
   isContinuousIntegerRange,
   compactRangeFormat,
   formatDurationsLabel,
+  DurationParseError,
 } from "./duration_format";
 
 describe("parseDurationInput", () => {
@@ -28,24 +29,62 @@ describe("parseDurationInput", () => {
     expect(parseDurationInput("   ")).toBeNull();
   });
 
-  it("非法片段抛错", () => {
-    expect(() => parseDurationInput("abc")).toThrow();
-    expect(() => parseDurationInput("4, abc")).toThrow();
-    expect(() => parseDurationInput("10-3")).toThrow();
-    expect(() => parseDurationInput("0-5")).toThrow(); // 0 非正
-    expect(() => parseDurationInput("-3")).toThrow();
-    expect(() => parseDurationInput("4--6")).toThrow();
+  it("仅含分隔符的输入抛错（empty_after_split）", () => {
+    // 防止 "," / ", ," 等被静默解析为 []
+    const cases = [",", ", ,", " , , ", ",,,"];
+    for (const c of cases) {
+      expect(() => parseDurationInput(c)).toThrow(DurationParseError);
+      try {
+        parseDurationInput(c);
+      } catch (e) {
+        expect((e as DurationParseError).code).toBe("empty_after_split");
+      }
+    }
+  });
+
+  it("非法片段抛带 code 的 DurationParseError", () => {
+    const expectCode = (input: string, code: string) => {
+      try {
+        parseDurationInput(input);
+        throw new Error(`${input} 未抛错`);
+      } catch (e) {
+        expect(e).toBeInstanceOf(DurationParseError);
+        expect((e as DurationParseError).code).toBe(code);
+      }
+    };
+    expectCode("abc", "unparseable");
+    expectCode("4, abc", "unparseable");
+    expectCode("10-3", "range_inverted");
+    expectCode("0-5", "non_positive");
+    expectCode("-3", "unparseable");
+    expectCode("4--6", "unparseable");
   });
 
   it("拒绝过大区间", () => {
-    expect(() => parseDurationInput("1-100")).toThrow(/区间过大/);
+    try {
+      parseDurationInput("1-100");
+    } catch (e) {
+      expect((e as DurationParseError).code).toBe("range_too_large");
+    }
   });
 
   it("拒绝超出单值上限 60 秒", () => {
-    expect(() => parseDurationInput("99999")).toThrow(/不能超过/);
-    expect(() => parseDurationInput("4, 100")).toThrow(/不能超过/);
-    // 99 - 4 = 95 > MAX_RANGE_SPAN(30)，区间过大优先；hi 越界亦可
-    expect(() => parseDurationInput("4-99")).toThrow(/不能超过|过大/);
+    try {
+      parseDurationInput("99999");
+    } catch (e) {
+      expect((e as DurationParseError).code).toBe("exceeds_max");
+    }
+    try {
+      parseDurationInput("4, 100");
+    } catch (e) {
+      expect((e as DurationParseError).code).toBe("exceeds_max");
+    }
+    // 99 - 4 = 95 > MAX_RANGE_SPAN(30)，range_too_large 优先
+    try {
+      parseDurationInput("4-99");
+    } catch (e) {
+      expect(["range_too_large", "exceeds_max"]).toContain((e as DurationParseError).code);
+    }
   });
 
   it("60 作为单值仍合法", () => {

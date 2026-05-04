@@ -16,7 +16,12 @@ import { priceLabel, urlPreviewFor, toggleDefaultReducer, type DiscoveryFormat }
 import { EndpointSelect } from "./EndpointSelect";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
-import { compactRangeFormat, parseDurationInput } from "@/utils/duration_format";
+import {
+  compactRangeFormat,
+  parseDurationInput,
+  DurationParseError,
+  type DurationParseErrorCode,
+} from "@/utils/duration_format";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -90,7 +95,14 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
   const trimmed = r.supported_durations_text.trim();
   let supported_durations: number[] | null = null;
   if (trimmed) {
-    supported_durations = parseDurationInput(trimmed);
+    // 解析失败时不让 throw 冒泡到提交链路：UI 已用红色提示阻止用户保存非法格式；
+    // 万一用户绕过 UI 警告强行点击保存，这里把无效输入降级为 null（让后端按 preset 兜底）
+    // 而不是炸掉整个表单提交。校验前端在 validateModels() 里再次拦截。
+    try {
+      supported_durations = parseDurationInput(trimmed);
+    } catch {
+      supported_durations = null;
+    }
   }
   return {
     model_id: r.model_id,
@@ -111,6 +123,15 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
 // DurationsInputRow — 视频模型行内的 supported_durations 输入
 // ---------------------------------------------------------------------------
 
+const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
+  empty_after_split: "supported_durations_err_empty_after_split",
+  non_positive: "supported_durations_err_non_positive",
+  exceeds_max: "supported_durations_err_exceeds_max",
+  range_too_large: "supported_durations_err_range_too_large",
+  range_inverted: "supported_durations_err_range_inverted",
+  unparseable: "supported_durations_err_unparseable",
+};
+
 function DurationsInputRow({
   value,
   onChange,
@@ -119,19 +140,23 @@ function DurationsInputRow({
   onChange: (v: string) => void;
 }) {
   const { t } = useTranslation("dashboard");
-  const [error, setError] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleChange = (next: string) => {
     onChange(next);
     if (!next.trim()) {
-      setError(null);
+      setErrorMsg(null);
       return;
     }
     try {
       parseDurationInput(next);
-      setError(null);
+      setErrorMsg(null);
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof DurationParseError) {
+        setErrorMsg(t(DURATION_ERROR_KEY[e.code], e.params));
+      } else {
+        setErrorMsg(t(DURATION_ERROR_KEY.unparseable, { seg: "" }));
+      }
     }
   };
 
@@ -150,9 +175,9 @@ function DurationsInputRow({
           className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
         />
       </div>
-      {error ? (
+      {errorMsg ? (
         <p className="text-xs text-red-400">
-          {t("supported_durations_invalid", { message: error })}
+          {t("supported_durations_invalid", { message: errorMsg })}
         </p>
       ) : (
         <p className="text-xs text-gray-500">{t("supported_durations_help")}</p>

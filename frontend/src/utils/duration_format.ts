@@ -8,30 +8,51 @@
 const MAX_RANGE_SPAN = 30;
 const MAX_SINGLE_VALUE = 60;
 
+export type DurationParseErrorCode =
+  | "empty_after_split"
+  | "non_positive"
+  | "exceeds_max"
+  | "range_too_large"
+  | "range_inverted"
+  | "unparseable";
+
+export class DurationParseError extends Error {
+  constructor(
+    public readonly code: DurationParseErrorCode,
+    public readonly params: Record<string, string | number> = {},
+  ) {
+    super(`${code}:${JSON.stringify(params)}`);
+    this.name = "DurationParseError";
+  }
+}
+
 /**
  * 解析用户输入的逗号分隔时长文本，支持区间简写。
  *
  * 规则：
- *   - 逗号分隔片段；每段 trim
- *   - 单值：^\d+$（必须正整数）
+ *   - 逗号分隔片段；每段 trim 后过滤空段
+ *   - 单值：^\d+$（必须正整数，≤ MAX_SINGLE_VALUE）
  *   - 区间：^(\d+)-(\d+)$；min ≤ max 且跨度 ≤ MAX_RANGE_SPAN
  *   - 输出去重升序
- * @returns 解析得到的 list；输入为空白则 null
- * @throws Error 当存在非法片段
+ * @returns 解析得到的 list；输入为纯空白则 null
+ * @throws DurationParseError 当存在非法片段或仅由分隔符组成
  */
 export function parseDurationInput(text: string): number[] | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
 
   const segments = trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+  if (segments.length === 0) {
+    throw new DurationParseError("empty_after_split", { input: trimmed });
+  }
   const result = new Set<number>();
 
   for (const seg of segments) {
     if (/^\d+$/.test(seg)) {
       const n = parseInt(seg, 10);
-      if (n <= 0) throw new Error(`非法片段 '${seg}'：必须是正整数`);
+      if (n <= 0) throw new DurationParseError("non_positive", { seg });
       if (n > MAX_SINGLE_VALUE) {
-        throw new Error(`非法片段 '${seg}'：单值不能超过 ${MAX_SINGLE_VALUE} 秒`);
+        throw new DurationParseError("exceeds_max", { seg, max: MAX_SINGLE_VALUE });
       }
       result.add(n);
       continue;
@@ -40,18 +61,18 @@ export function parseDurationInput(text: string): number[] | null {
     if (m) {
       const lo = parseInt(m[1], 10);
       const hi = parseInt(m[2], 10);
-      if (lo <= 0 || hi <= 0) throw new Error(`非法片段 '${seg}'：必须是正整数`);
-      if (hi < lo) throw new Error(`非法片段 '${seg}'：区间右端必须 ≥ 左端`);
+      if (lo <= 0 || hi <= 0) throw new DurationParseError("non_positive", { seg });
+      if (hi < lo) throw new DurationParseError("range_inverted", { seg });
       if (hi - lo > MAX_RANGE_SPAN) {
-        throw new Error(`非法片段 '${seg}'：区间过大（>${MAX_RANGE_SPAN}）`);
+        throw new DurationParseError("range_too_large", { seg, max_span: MAX_RANGE_SPAN });
       }
       if (hi > MAX_SINGLE_VALUE) {
-        throw new Error(`非法片段 '${seg}'：单值不能超过 ${MAX_SINGLE_VALUE} 秒`);
+        throw new DurationParseError("exceeds_max", { seg, max: MAX_SINGLE_VALUE });
       }
       for (let i = lo; i <= hi; i++) result.add(i);
       continue;
     }
-    throw new Error(`无法解析片段 '${seg}'`);
+    throw new DurationParseError("unparseable", { seg });
   }
 
   return [...result].sort((a, b) => a - b);
