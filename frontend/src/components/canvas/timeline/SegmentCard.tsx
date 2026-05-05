@@ -22,6 +22,11 @@ import { useCostStore } from "@/stores/cost-store";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import { formatCost } from "@/utils/cost-format";
+import {
+  isStructuredImagePrompt,
+  isStructuredVideoPrompt,
+  mergePromptPatch,
+} from "@/utils/prompt-shape";
 import type {
   NarrationSegment,
   DramaScene,
@@ -83,74 +88,6 @@ function getPropNames(segment: Segment, _mode: "narration" | "drama"): string[] 
   return segment.props ?? [];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isStructuredImagePromptValue(value: unknown): value is ImagePrompt {
-  if (!isRecord(value) || typeof value.scene !== "string") {
-    return false;
-  }
-
-  const composition = value.composition;
-  if (!isRecord(composition)) {
-    return false;
-  }
-
-  return (
-    typeof composition.shot_type === "string" &&
-    typeof composition.lighting === "string" &&
-    typeof composition.ambiance === "string"
-  );
-}
-
-function isStructuredVideoPromptValue(value: unknown): value is VideoPrompt {
-  if (
-    !isRecord(value) ||
-    typeof value.action !== "string" ||
-    typeof value.camera_motion !== "string" ||
-    typeof value.ambiance_audio !== "string"
-  ) {
-    return false;
-  }
-
-  const dialogue = value.dialogue;
-  if (dialogue === undefined) {
-    return true;
-  }
-  if (!Array.isArray(dialogue)) {
-    return false;
-  }
-
-  return dialogue.every(
-    (item) =>
-      isRecord(item) &&
-      typeof item.speaker === "string" &&
-      typeof item.line === "string"
-  );
-}
-
-function mergePromptPatch<T extends Record<string, unknown>>(
-  base: T,
-  patch: Record<string, unknown>
-): T {
-  const merged: Record<string, unknown> = { ...base };
-
-  for (const [k, v] of Object.entries(patch)) {
-    if (
-      isRecord(v) &&
-      isRecord(base[k]) &&
-      !Array.isArray(v) &&
-      !Array.isArray(base[k])
-    ) {
-      merged[k] = { ...(base[k]), ...v };
-    } else {
-      merged[k] = v;
-    }
-  }
-
-  return merged as T;
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -171,7 +108,7 @@ interface SegmentCardProps {
     segmentId: string,
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
-  ) => void;
+  ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
@@ -193,7 +130,7 @@ function DurationSelector({
 }: {
   seconds: number;
   segmentId: string;
-  onUpdatePrompt?: (segmentId: string, field: string, value: unknown) => void;
+  onUpdatePrompt?: (segmentId: string, field: string, value: unknown) => void | Promise<void>;
   durationOptions?: number[];
 }) {
   const { t } = useTranslation("dashboard");
@@ -235,7 +172,7 @@ function DurationSelector({
               role="radio"
               aria-checked={d === seconds}
               onClick={() => {
-                onUpdatePrompt(segmentId, "duration_seconds", d);
+                void onUpdatePrompt(segmentId, "duration_seconds", d);
                 setOpen(false);
               }}
               className={`rounded px-3 py-1.5 text-xs font-medium transition-colors focus-ring ${
@@ -288,7 +225,7 @@ function TextColumn({
 }: {
   segment: Segment;
   contentMode: "narration" | "drama";
-  onUpdateNote?: (value: string) => void;
+  onUpdateNote?: (value: string) => void | Promise<void>;
 }) {
   const { t } = useTranslation("dashboard");
   const [noteDraft, setNoteDraft] = useState(segment.note ?? "");
@@ -304,7 +241,7 @@ function TextColumn({
   const handleNoteBlur = () => {
     if (noteDraft !== committedRef.current) {
       committedRef.current = noteDraft;
-      onUpdateNote?.(noteDraft);
+      void onUpdateNote?.(noteDraft);
     }
   };
 
@@ -382,15 +319,15 @@ function PromptColumn({
   segment: Segment;
   contentMode: "narration" | "drama";
   segmentId: string;
-  onUpdatePrompt?: (segmentId: string, field: string, value: unknown) => void;
+  onUpdatePrompt?: (segmentId: string, field: string, value: unknown) => void | Promise<void>;
 }) {
   const { t } = useTranslation("dashboard");
   const { image_prompt, video_prompt } = segment;
   const imgLabelId = useId();
   const vidLabelId = useId();
 
-  const isStructuredImage = isStructuredImagePromptValue(image_prompt);
-  const isStructuredVideo = isStructuredVideoPromptValue(video_prompt);
+  const isStructuredImage = isStructuredImagePrompt(image_prompt);
+  const isStructuredVideo = isStructuredVideoPrompt(video_prompt);
 
   // ---- String fallback state (only used when prompts are plain strings) ----
   const promptToStr = (p: unknown, key: string): string => {
@@ -458,7 +395,7 @@ function PromptColumn({
         base as unknown as Record<string, unknown>,
         patch as Record<string, unknown>
       ) as unknown as ImagePrompt;
-      onUpdatePrompt?.(segmentId, "image_prompt", merged);
+      void onUpdatePrompt?.(segmentId, "image_prompt", merged);
       return merged;
     });
   };
@@ -473,13 +410,13 @@ function PromptColumn({
         base as unknown as Record<string, unknown>,
         patch as Record<string, unknown>
       ) as unknown as VideoPrompt;
-      onUpdatePrompt?.(segmentId, "video_prompt", merged);
+      void onUpdatePrompt?.(segmentId, "video_prompt", merged);
       return merged;
     });
   };
 
   const fireString = (field: string, value: string) => {
-    onUpdatePrompt?.(segmentId, field, value);
+    void onUpdatePrompt?.(segmentId, field, value);
   };
 
   return (
@@ -741,7 +678,7 @@ export function SegmentCard({
     if (changes.scenes !== undefined) patch.scenes = changes.scenes;
     if (changes.props !== undefined) patch.props = changes.props;
     if (Object.keys(patch).length > 0) {
-      onUpdatePrompt(segmentId, patch);
+      void onUpdatePrompt(segmentId, patch);
     }
     setRefsModalOpen(false);
   };

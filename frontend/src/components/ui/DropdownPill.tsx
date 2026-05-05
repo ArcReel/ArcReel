@@ -33,9 +33,22 @@ export function DropdownPill<T extends string>({
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-1 rounded-full bg-gray-800 px-2.5 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-700"
+        className="focus-ring inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs transition-colors"
+        style={{
+          background: "oklch(0.225 0.003 285 / 0.55)",
+          border: "1px solid var(--color-hairline-soft)",
+          color: "var(--color-text-2)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "oklch(0.26 0.004 285 / 0.7)";
+          e.currentTarget.style.color = "var(--color-text)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "oklch(0.225 0.003 285 / 0.55)";
+          e.currentTarget.style.color = "var(--color-text-2)";
+        }}
       >
-        {label && <span className="text-gray-500">{label}</span>}
+        {label && <span style={{ color: "var(--color-text-4)" }}>{label}</span>}
         <span>{display(value)}</span>
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -48,25 +61,47 @@ export function DropdownPill<T extends string>({
         align="start"
         sideOffset={4}
         width="min-w-[140px]"
-        className="overflow-hidden rounded-lg border border-gray-700 py-1 shadow-xl"
+        className="overflow-hidden rounded-lg py-1 shadow-xl"
+        style={{
+          background:
+            "linear-gradient(180deg, oklch(0.21 0.005 285 / 0.96), oklch(0.18 0.004 285 / 0.96))",
+          border: "1px solid var(--color-hairline)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}
       >
-        {options.map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => {
-              onChange(opt);
-              setOpen(false);
-            }}
-            className={`flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors ${
-              opt === value
-                ? "bg-indigo-600/20 text-indigo-400"
-                : "text-gray-300 hover:bg-gray-800"
-            }`}
-          >
-            {display(opt)}
-          </button>
-        ))}
+        {options.map((opt) => {
+          const isActive = opt === value;
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => {
+                onChange(opt);
+                setOpen(false);
+              }}
+              className="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors"
+              style={{
+                background: isActive ? "var(--color-accent-dim)" : "transparent",
+                color: isActive ? "var(--color-accent-2)" : "var(--color-text-2)",
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.background = "oklch(1 0 0 / 0.04)";
+                  e.currentTarget.style.color = "var(--color-text)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = "var(--color-text-2)";
+                }
+              }}
+            >
+              {display(opt)}
+            </button>
+          );
+        })}
       </Popover>
     </div>
   );

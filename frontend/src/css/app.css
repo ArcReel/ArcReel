@@ -1,14 +1,4 @@
-:root {
-    --ink-950: #05080d;
-    --ink-900: #0b1320;
-    --ink-850: #111b2e;
-    --ink-800: #16243a;
-    --line-soft: rgba(255, 255, 255, 0.1);
-    --line-strong: rgba(52, 231, 197, 0.35);
-    --brand: #11d3ac;
-    --brand-soft: rgba(17, 211, 172, 0.15);
-    --warn: #f0a93e;
-}
+@reference "../index.css";
 
 * {
     box-sizing: border-box;
@@ -16,21 +6,27 @@
 
 body {
     margin: 0;
-    font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    font-family: var(--font-sans);
 }
 
+/* 全应用 shell 背景：复合 radial + linear 梯度（与 index.css 保持一致；
+ * 旧实现把 .app-shell 设为 transparent，因 class 优先级高于 body 规则，
+ * 导致 body 上同名规则被覆盖、整页变成默认透明背景，视觉上"颜色失踪"。
+ * 这里直接在 .app-shell 上落地最终背景，避免歧义。 */
 .app-shell {
     background:
-        radial-gradient(circle at 0% 0%, rgba(17, 211, 172, 0.12), transparent 30%),
-        radial-gradient(circle at 100% 100%, rgba(240, 169, 62, 0.1), transparent 32%),
-        linear-gradient(160deg, var(--ink-950), var(--ink-900));
+        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
+        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
+        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+    background-attachment: fixed;
 }
 
+/* 大标题 / Landing display */
 .app-title,
 .landing-shell h1,
 .landing-shell h2,
 .landing-shell h3 {
-    font-family: "Trebuchet MS", "Avenir Next", "PingFang SC", sans-serif;
+    font-family: var(--font-display);
 }
 
 .app-frame {
@@ -38,21 +34,23 @@ body {
 }
 
 .app-sidebar {
-    border-right: 1px solid var(--line-soft);
-    background: linear-gradient(185deg, rgba(8, 16, 29, 0.95), rgba(7, 12, 23, 0.8));
+    border-right: 1px solid var(--color-hairline);
+    background: linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5));
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .app-panel {
-    border: 1px solid var(--line-soft);
-    background: linear-gradient(180deg, rgba(19, 32, 52, 0.72), rgba(12, 20, 33, 0.62));
+    border: 1px solid var(--color-hairline-soft);
+    background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.72), oklch(0.18 0.010 265 / 0.62));
     backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
 
 .app-panel-strong {
-    border: 1px solid var(--line-strong);
-    background: linear-gradient(180deg, rgba(19, 32, 52, 0.92), rgba(10, 20, 32, 0.84));
-    box-shadow: 0 20px 40px rgba(4, 10, 17, 0.45);
+    border: 1px solid var(--color-hairline-strong);
+    background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.92), oklch(0.16 0.010 265 / 0.84));
+    box-shadow: 0 20px 40px oklch(0 0 0 / 0.45);
 }
 
 .app-menu-item {
@@ -72,8 +70,8 @@ body {
     position: absolute;
     inset: 0;
     background-image:
-        linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+        linear-gradient(to right, oklch(1 0 0 / 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, oklch(1 0 0 / 0.04) 1px, transparent 1px);
     background-size: 28px 28px;
     opacity: 0.25;
     pointer-events: none;
@@ -99,7 +97,6 @@ body {
         transform: translateY(-8px);
         opacity: 0;
     }
-
     to {
         transform: translateY(0);
         opacity: 1;
@@ -108,17 +105,17 @@ body {
 
 .landing-shell {
     background:
-        radial-gradient(circle at 14% 11%, rgba(17, 211, 172, 0.14), transparent 34%),
-        radial-gradient(circle at 88% 16%, rgba(236, 95, 193, 0.12), transparent 32%),
-        linear-gradient(180deg, #07090f, #0b1220);
+        radial-gradient(circle at 14% 11%, oklch(0.76 0.09 295 / 0.16), transparent 34%),
+        radial-gradient(circle at 88% 16%, oklch(0.70 0.12 320 / 0.14), transparent 32%),
+        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
 }
 
 .landing-grid {
     position: absolute;
     inset: 0;
     background-image:
-        linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+        linear-gradient(to right, oklch(1 0 0 / 0.045) 1px, transparent 1px),
+        linear-gradient(to bottom, oklch(1 0 0 / 0.045) 1px, transparent 1px);
     background-size: 50px 50px;
     mask-image: radial-gradient(circle at 50% 42%, #000 26%, transparent 86%);
     opacity: 0.22;
@@ -128,8 +125,8 @@ body {
     position: absolute;
     inset: 0;
     background-image:
-        linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+        linear-gradient(to right, oklch(1 0 0 / 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, oklch(1 0 0 / 0.06) 1px, transparent 1px);
     background-size: 96px 96px;
     transform: perspective(1000px) rotateX(42deg) translateY(42%);
     transform-origin: center bottom;
@@ -140,10 +137,10 @@ body {
 .landing-slogan {
     letter-spacing: 0.01em;
     text-wrap: balance;
-    color: #f8fafc;
+    color: var(--color-text);
     text-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.08),
-        0 14px 32px rgba(0, 0, 0, 0.5);
+        0 1px 0 oklch(1 0 0 / 0.08),
+        0 14px 32px oklch(0 0 0 / 0.5);
 }
 
 .landing-orb {
@@ -157,7 +154,7 @@ body {
 .landing-orb-a {
     width: 380px;
     height: 380px;
-    background: rgba(17, 211, 172, 0.3);
+    background: oklch(0.76 0.09 295 / 0.3);
     top: 22%;
     left: 8%;
     animation: float-a 8s ease-in-out infinite;
@@ -166,32 +163,20 @@ body {
 .landing-orb-b {
     width: 320px;
     height: 320px;
-    background: rgba(240, 169, 62, 0.24);
+    background: oklch(0.70 0.12 320 / 0.24);
     right: 10%;
     top: 14%;
     animation: float-b 9s ease-in-out infinite;
 }
 
 @keyframes float-a {
-    0%,
-    100% {
-        transform: translateY(0);
-    }
-
-    50% {
-        transform: translateY(-18px);
-    }
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-18px); }
 }
 
 @keyframes float-b {
-    0%,
-    100% {
-        transform: translate(0, 0);
-    }
-
-    50% {
-        transform: translate(12px, -14px);
-    }
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(12px, -14px); }
 }
 
 @media (max-width: 1024px) {

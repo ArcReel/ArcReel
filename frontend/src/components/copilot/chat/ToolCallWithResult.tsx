@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { cn } from "./utils";
 import { StreamMarkdown } from "../StreamMarkdown";
 import type { ContentBlock, TodoItem } from "@/types";
 
@@ -85,32 +84,35 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
   }
 
   // -- colours ---------------------------------------------------------------
-  const borderClass = isError
-    ? "border-red-500/30"
+  const containerStyle: React.CSSProperties = isError
+    ? {
+        border: "1px solid oklch(0.70 0.18 25 / 0.3)",
+        background: "oklch(0.70 0.18 25 / 0.06)",
+      }
     : isSkill
-      ? "border-purple-400/30"
-      : "border-white/15";
-
-  const bgClass = isError
-    ? "bg-red-500/5"
-    : isSkill
-      ? "bg-purple-500/10"
-      : "bg-ink-800/50";
+      ? {
+          border: "1px solid var(--color-accent-soft)",
+          background: "var(--color-accent-dim)",
+        }
+      : {
+          border: "1px solid var(--color-hairline-soft)",
+          background: "oklch(0.21 0.012 265 / 0.5)",
+        };
 
   const labelColor = isError
-    ? "text-red-400"
+    ? "var(--color-danger)"
     : isSkill
-      ? "text-purple-400"
-      : "text-amber-400";
+      ? "var(--color-accent-2)"
+      : "var(--color-warn)";
 
   // -- status indicator ------------------------------------------------------
   const statusIcon = hasResult ? (isError ? "\u2717" : "\u2713") : "\u2026";
 
   const statusColor = hasResult
     ? isError
-      ? "text-red-400"
-      : "text-emerald-400"
-    : "text-slate-500";
+      ? "var(--color-danger)"
+      : "var(--color-good)"
+    : "var(--color-text-4)";
 
   // -- summary text ----------------------------------------------------------
   const summary = isSkill
@@ -118,26 +120,47 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
     : getToolSummary(toolName, block.input);
 
   return (
-    <div className={cn("my-1.5 rounded-lg border overflow-hidden min-w-0", borderClass, bgClass)}>
+    <div
+      className="my-1.5 min-w-0 overflow-hidden rounded-lg"
+      style={containerStyle}
+    >
       {/* Header button */}
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-2.5 py-1.5 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
+        className="flex w-full items-center justify-between px-2.5 py-1.5 text-left transition-colors"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "oklch(1 0 0 / 0.04)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
       >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-          <span className={cn("text-[10px] font-semibold uppercase shrink-0", labelColor)}>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <span
+            className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: labelColor }}
+          >
             {toolName}
           </span>
-          <span className="text-[11px] text-slate-300 truncate">
+          <span
+            className="num truncate text-[11px]"
+            style={{ color: "var(--color-text-2)" }}
+          >
             {summary}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
-          <span className={cn("text-xs font-medium", statusColor)}>
+        <div className="ml-1.5 flex shrink-0 items-center gap-1.5">
+          <span
+            className="text-xs font-medium"
+            style={{ color: statusColor }}
+          >
             {statusIcon}
           </span>
-          <span className="text-[10px] text-slate-500">
+          <span
+            className="text-[10px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
             {isExpanded ? "\u25BC" : "\u25B6"}
           </span>
         </div>
@@ -145,24 +168,42 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
 
       {/* Expandable detail sections */}
       {isExpanded && (
-        <div className="border-t border-white/10">
+        <div style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
           {/* Tool Input */}
-          <div className="px-2.5 py-2 bg-ink-900/30">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+          <div
+            className="px-2.5 py-2"
+            style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
+          >
+            <div
+              className="mb-1 text-[10px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-4)" }}
+            >
               输入参数
             </div>
-            <pre className="text-[11px] text-slate-300 whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
+            <pre
+              className="num max-h-32 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
+              style={{ color: "var(--color-text-2)" }}
+            >
               {JSON.stringify(block.input, null, 2)}
             </pre>
           </div>
 
           {/* Skill Content (only for Skill tool) */}
           {hasSkillContent && (
-            <div className="px-2.5 py-2 border-t border-purple-400/10 bg-purple-900/10">
-              <div className="text-[10px] uppercase tracking-wide text-purple-400 mb-1">
+            <div
+              className="px-2.5 py-2"
+              style={{
+                borderTop: "1px solid var(--color-accent-soft)",
+                background: "var(--color-accent-dim)",
+              }}
+            >
+              <div
+                className="mb-1 text-[10px] uppercase tracking-wide"
+                style={{ color: "var(--color-accent-2)" }}
+              >
                 Skill 内容
               </div>
-              <div className="max-h-48 overflow-y-auto text-xs overflow-hidden">
+              <div className="max-h-48 overflow-hidden overflow-y-auto text-xs">
                 <StreamMarkdown content={block.skill_content!} />
               </div>
             </div>
@@ -171,22 +212,28 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           {/* Tool Result */}
           {hasResult && (
             <div
-              className={cn(
-                "px-2.5 py-2 border-t",
-                isError
-                  ? "border-red-400/20 bg-red-900/10"
-                  : "border-white/10 bg-ink-900/50",
-              )}
+              className="px-2.5 py-2"
+              style={{
+                borderTop: isError
+                  ? "1px solid oklch(0.70 0.18 25 / 0.25)"
+                  : "1px solid var(--color-hairline-soft)",
+                background: isError
+                  ? "oklch(0.70 0.18 25 / 0.08)"
+                  : "oklch(0.16 0.010 265 / 0.5)",
+              }}
             >
               <div
-                className={cn(
-                  "text-[10px] uppercase tracking-wide mb-1",
-                  isError ? "text-red-400" : "text-slate-500",
-                )}
+                className="mb-1 text-[10px] uppercase tracking-wide"
+                style={{
+                  color: isError ? "var(--color-danger)" : "var(--color-text-4)",
+                }}
               >
                 {isError ? "执行失败" : "执行结果"}
               </div>
-              <pre className="text-[11px] text-slate-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+              <pre
+                className="num max-h-48 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
+                style={{ color: "var(--color-text-2)" }}
+              >
                 {typeof block.result === "string"
                   ? block.result
                   : JSON.stringify(block.result, null, 2)}
@@ -210,20 +257,35 @@ function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
   const completed = todos.filter((t) => t.status === "completed").length;
   const hasResult = block.result !== undefined;
   const statusIcon = hasResult ? "\u2713" : "\u2026";
-  const statusColor = hasResult ? "text-emerald-400" : "text-slate-500";
+  const statusColor = hasResult ? "var(--color-good)" : "var(--color-text-4)";
 
   return (
-    <div className="my-1.5 rounded-lg border border-white/15 bg-ink-800/50 overflow-hidden min-w-0">
-      <div className="px-2.5 py-1.5 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-          <span className="text-[10px] font-semibold uppercase shrink-0 text-slate-500">
+    <div
+      className="my-1.5 min-w-0 overflow-hidden rounded-lg"
+      style={{
+        border: "1px solid var(--color-hairline-soft)",
+        background: "oklch(0.21 0.012 265 / 0.5)",
+      }}
+    >
+      <div className="flex items-center justify-between px-2.5 py-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <span
+            className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-text-4)" }}
+          >
             TodoWrite
           </span>
-          <span className="text-[11px] text-slate-300 truncate">
+          <span
+            className="truncate text-[11px]"
+            style={{ color: "var(--color-text-2)" }}
+          >
             {total > 0 ? `任务清单 ${completed}/${total} 完成` : "任务清单已更新"}
           </span>
         </div>
-        <span className={cn("text-xs font-medium shrink-0 ml-1.5", statusColor)}>
+        <span
+          className="ml-1.5 shrink-0 text-xs font-medium"
+          style={{ color: statusColor }}
+        >
           {statusIcon}
         </span>
       </div>

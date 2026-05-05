@@ -31,8 +31,6 @@ export function DialogueListEditor({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] text-gray-500">{t("dialogue_label")}</span>
-
       {dialogue.map((d, i) => (
         <div key={i} className="flex items-start gap-1.5">
           <input

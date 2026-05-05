@@ -1,15 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { SegmentCard } from "./SegmentCard";
 import { GridSegmentGroup } from "./GridSegmentGroup";
 import { PreprocessingView } from "./PreprocessingView";
-import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { ShotSplitView } from "./ShotSplitView";
+import { EpisodeHeader } from "./EpisodeHeader";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
-import { formatCost, totalBreakdown } from "@/utils/cost-format";
+import { useTasksStore } from "@/stores/tasks-store";
 import { API } from "@/api";
 import { effectiveMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -21,10 +20,6 @@ import type {
   DramaScene,
   ProjectData,
 } from "@/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 type Segment = NarrationSegment | DramaScene;
 
@@ -49,8 +44,7 @@ function groupBySegmentBreak(segments: Segment[]): Segment[][] {
   return groups;
 }
 
-/** Compute grid size for a group based on scene count and aspect ratio.
- *  Mirrors backend calculate_grid_layout + chunking logic in grids.py. */
+/** Compute grid layout. Mirrors backend calculate_grid_layout. */
 function computeGridSize(
   count: number,
   aspectRatio: string = "9:16",
@@ -83,13 +77,8 @@ function computeGridSize(
   }
 
   const batchCount = count > cellCount ? Math.ceil(count / cellCount) : 1;
-
   return { gridSize, rows, cols, cellCount, batchCount };
 }
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 interface TimelineCanvasProps {
   projectName: string;
@@ -104,7 +93,7 @@ interface TimelineCanvasProps {
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
     scriptFile?: string,
-  ) => void;
+  ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
   onGenerateGrid?: (episode: number, scriptFile: string, sceneIds?: string[]) => void;
@@ -113,16 +102,9 @@ interface TimelineCanvasProps {
   onRestoreVideo?: () => Promise<void> | void;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 /**
- * Main canvas container that renders a vertical list of SegmentCards for
- * the currently selected episode.
- *
- * Shows episode header (title, segment count, duration), followed by the
- * full timeline of segment cards with spacing.
+ * 集工作区：EpisodeHeader + Tab 切换（预处理 / 剧本时间线）+ 分镜分屏（非 grid 模式）
+ * 或 GridSegmentGroup 列表（grid 模式）。
  */
 export function TimelineCanvas({
   projectName,
@@ -141,7 +123,6 @@ export function TimelineCanvas({
   onRestoreVideo,
 }: TimelineCanvasProps) {
   const { t } = useTranslation("dashboard");
-  const scrollRef = useRef<HTMLDivElement>(null);
   const contentMode = projectData?.content_mode ?? "narration";
 
   const hasScript = Boolean(episodeScript);
@@ -151,6 +132,7 @@ export function TimelineCanvas({
 
   // Auto-switch to timeline when script becomes available
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- script 就绪时自动切到 timeline tab，是 navigation 驱动的有意切换
     if (hasScript) setActiveTab("timeline");
   }, [hasScript]);
 
@@ -164,14 +146,15 @@ export function TimelineCanvas({
     debouncedFetch(projectName);
   }, [projectName, episodeScript?.episode, debouncedFetch]);
 
-  // Determine aspect ratio — use project config if available, otherwise defaults
-  const aspectRatio =
+  // 解析 aspect ratio（仅支持 9:16 / 16:9 两档，3:4/1:1 也回退到 16:9）
+  const rawAspect =
     typeof projectData?.aspect_ratio === "string"
       ? projectData.aspect_ratio
       : projectData?.aspect_ratio?.storyboard ??
         (contentMode === "narration" ? "9:16" : "16:9");
+  const aspectRatio: "9:16" | "16:9" =
+    rawAspect === "9:16" || rawAspect === "16:9" ? rawAspect : "16:9";
 
-  // Pick the correct array (segments for narration, scenes for drama)
   const segments = useMemo<Segment[]>(
     () =>
       !episodeScript || !projectData
@@ -181,12 +164,27 @@ export function TimelineCanvas({
           : ((episodeScript as DramaEpisodeScript).scenes ?? []),
     [contentMode, episodeScript, projectData],
   );
-  const segmentIndexMap = useMemo(
-    () =>
-      new Map(
-        segments.map((segment, index) => [getSegmentId(segment, contentMode), index]),
+
+  // 任务派生 loading
+  const tasks = useTasksStore((s) => s.tasks);
+  const isGenerating = useCallback(
+    (taskType: "storyboard" | "video", segmentId: string): boolean =>
+      tasks.some(
+        (t) =>
+          t.task_type === taskType &&
+          t.project_name === projectName &&
+          t.resource_id === segmentId &&
+          (t.status === "queued" || t.status === "running"),
       ),
-    [contentMode, segments],
+    [tasks, projectName],
+  );
+  const generatingStoryboard = useCallback(
+    (segId: string) => isGenerating("storyboard", segId),
+    [isGenerating],
+  );
+  const generatingVideo = useCallback(
+    (segId: string) => isGenerating("video", segId),
+    [isGenerating],
   );
 
   // Grid mode state
@@ -204,32 +202,27 @@ export function TimelineCanvas({
 
   const refreshGrids = useCallback(() => {
     if (!isGridMode || !projectName) return;
-    API.listGrids(projectName).then((data) => {
-      setGrids(data);
-      setGridsVersion((v) => v + 1);
-    }).catch(() => {/* silently ignore */});
+    API.listGrids(projectName)
+      .then((data) => {
+        setGrids(data);
+        setGridsVersion((v) => v + 1);
+      })
+      .catch(() => {});
   }, [isGridMode, projectName]);
 
-  // Fetch grids list for the current episode when in grid mode
-  // Also re-fetch when gridsRevision changes (triggered by grid_ready SSE events)
   useEffect(() => {
     refreshGrids();
   }, [refreshGrids, episodeScript, gridsRevision]);
 
-  /**
-   * Find all grid IDs whose scene_ids are a subset of the given group.
-   * Handles batched grids: a group with 32 scenes may have 4 grids of ~9 each.
-   * Deduplicates by scene_ids key — keeps only the newest grid per unique batch.
-   */
   function getGridIdsForGroup(groupScenes: Segment[]): string[] {
     const groupIdSet = new Set(groupScenes.map((s) => getSegmentId(s, contentMode)));
-    const matched = grids.filter((g) =>
-      g.episode === episode &&
-      g.scene_ids.length > 0 &&
-      g.scene_ids.every((id) => groupIdSet.has(id)),
+    const matched = grids.filter(
+      (g) =>
+        g.episode === episode &&
+        g.scene_ids.length > 0 &&
+        g.scene_ids.every((id) => groupIdSet.has(id)),
     );
-    // Deduplicate: for grids with identical scene_ids, keep the newest one
-    const byKey = new Map<string, typeof matched[number]>();
+    const byKey = new Map<string, (typeof matched)[number]>();
     for (const g of matched) {
       const key = [...g.scene_ids].sort().join(",");
       const existing = byKey.get(key);
@@ -247,9 +240,7 @@ export function TimelineCanvas({
       if (!onGenerateGrid || !scriptFile) return;
       const sceneIds = groupScenes.map((s) => getSegmentId(s, contentMode));
       setGeneratingGridGroups((prev) => new Set(prev).add(groupIndex));
-      // Fire and let the toast/task system handle the result
       onGenerateGrid(episode, scriptFile, sceneIds);
-      // Clear loading after a short delay (actual progress tracked via task queue)
       setTimeout(() => {
         setGeneratingGridGroups((prev) => {
           const next = new Set(prev);
@@ -272,259 +263,225 @@ export function TimelineCanvas({
     }, 3000);
   }, [onGenerateGrid, scriptFile, episode, refreshGrids]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual 的 useVirtualizer 返回非 memoizable 函数，与 React Compiler 不兼容，属已知第三方库限制
-  const virtualizer = useVirtualizer({
-    count: segments.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 200,
-    overscan: 5,
-    measureElement: (element) => element?.getBoundingClientRect().height ?? 200,
-  });
-  const prepareScrollTarget = useCallback(
-    (target: { id: string }) => {
-      const index = segmentIndexMap.get(target.id);
-      if (index == null) {
-        return false;
-      }
-      virtualizer.scrollToIndex(index, { align: "center" });
-      return true;
-    },
-    [segmentIndexMap, virtualizer],
-  );
-
-  // Respond to agent-triggered scroll targets for segments
-  useScrollTarget("segment", { prepareTarget: prepareScrollTarget });
-
   // Empty state — no episode selected or no content at all
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
-      <div className="flex h-full items-center justify-center text-gray-500">
+      <div
+        className="flex h-full items-center justify-center"
+        style={{ color: "var(--color-text-4)" }}
+      >
         {t("select_episode_hint")}
       </div>
     );
   }
 
-  // Compute total duration from actual segments if available
   const totalDuration =
     episodeScript?.duration_seconds ??
     segments.reduce((sum, s) => sum + s.duration_seconds, 0);
 
-  const virtualItems = virtualizer.getVirtualItems();
+  // 若有 currentEpisodeMeta 用其值；否则构造一个最小 EpisodeMeta 用于 header
+  const epMeta =
+    currentEpisodeMeta ??
+    ({
+      episode,
+      title: episodeTitle ?? episodeScript?.title ?? "",
+      script_file: scriptFile ?? "",
+      scenes_count: segments.length,
+      duration_seconds: totalDuration,
+      status: hasScript ? "in_production" : "draft",
+    } as const);
+
+  const handleUpdatePrompt = (
+    segId: string,
+    fieldOrPatch: string | Record<string, unknown>,
+    value?: unknown,
+  ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
+  const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
+  const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto">
-      <div className="p-4">
-        {/* ---- Episode header ---- */}
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-gray-100">
-            {episodeScript
-              ? `E${episodeScript.episode}: ${episodeScript.title}`
-              : `E${episode}${episodeTitle ? `: ${episodeTitle}` : ""}`}
-          </h2>
-          {episodeScript && (
-            <p className="text-xs text-gray-500">
-              {contentMode === "narration"
-                ? t("segment_count", { count: segments.length })
-                : t("scene_count_label", { count: segments.length })} · ~{totalDuration}s
-            </p>
-          )}
-          {episodeCost && (
-            <div className="mt-2 flex items-center gap-4 rounded-lg bg-gray-900 border border-gray-800 px-3 py-2 text-xs tabular-nums">
-              <span className="text-gray-600">{t("cost_estimate_short")}</span>
-              <span className="text-gray-500">{t("cost_storyboard_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.image)}</span></span>
-              <span className="text-gray-500">{t("cost_video_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.video)}</span></span>
-              <span className="text-gray-500">{t("cost_total_short")} <span className="font-medium text-amber-400">{formatCost(totalBreakdown(episodeCost.totals.estimate))}</span></span>
-              <span className="text-gray-700">|</span>
-              <span className="text-gray-600">{t("cost_actual_short")}</span>
-              <span className="text-gray-500">{t("cost_storyboard_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.actual.image)}</span></span>
-              <span className="text-gray-500">{t("cost_video_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.actual.video)}</span></span>
-              <span className="text-gray-500">{t("cost_total_short")} <span className="font-medium text-emerald-400">{formatCost(totalBreakdown(episodeCost.totals.actual))}</span></span>
-            </div>
-          )}
-        </div>
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* 集 header */}
+      <EpisodeHeader
+        ep={epMeta}
+        segmentCount={segments.length}
+        totalDuration={totalDuration}
+        episodeCost={episodeCost ?? undefined}
+      />
 
-        {/* ---- Tab bar (only when draft exists) ---- */}
+      {/* Tab bar + 批量按钮 */}
+      <div
+        className="flex items-center gap-0.5 px-5"
+        style={{
+          borderBottom: "1px solid var(--color-hairline)",
+          background: "oklch(0.19 0.012 250 / 0.5)",
+        }}
+      >
         {showTabs && (
-          <div className="mb-4 flex gap-0 border-b border-gray-800">
+          <button
+            type="button"
+            onClick={() => setActiveTab("preprocessing")}
+            className="relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors focus-ring"
+            style={{
+              color:
+                activeTab === "preprocessing"
+                  ? "var(--color-text)"
+                  : "var(--color-text-3)",
+            }}
+          >
+            {t("tab_preprocessing")}
+            {activeTab === "preprocessing" && (
+              <span
+                aria-hidden="true"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
+                style={{ background: "var(--color-accent)" }}
+              />
+            )}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => hasScript && setActiveTab("timeline")}
+          disabled={!hasScript}
+          className="relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors focus-ring disabled:cursor-not-allowed"
+          style={{
+            color:
+              activeTab === "timeline"
+                ? "var(--color-text)"
+                : !hasScript
+                  ? "var(--color-text-4)"
+                  : "var(--color-text-3)",
+          }}
+        >
+          {t("tab_timeline")}
+          {activeTab === "timeline" && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
+              style={{ background: "var(--color-accent)" }}
+            />
+          )}
+        </button>
+        <span className="flex-1" />
+
+        {activeTab === "timeline" && hasScript && !isGridMode && (
+          <div className="mr-1 inline-flex items-center gap-1.5">
+            {/* 设计稿示例：批量按钮（暂不实现批量逻辑，仅占位入口） */}
             <button
               type="button"
-              onClick={() => setActiveTab("preprocessing")}
-              className={`border-b-2 px-4 py-2 text-sm transition-colors focus-ring rounded-t ${
-                activeTab === "preprocessing"
-                  ? "border-indigo-500 text-indigo-400 font-medium"
-                  : "border-transparent text-gray-500 hover:text-gray-300"
-              }`}
+              className="sv-navbtn inline-flex items-center gap-1.5"
+              disabled
+              title={t("batch_generate_storyboards")}
             >
-              {t("preprocessing_tab")}
+              <Sparkles className="h-3 w-3" />
+              <span>{t("batch_generate_storyboards")}</span>
             </button>
             <button
               type="button"
-              onClick={() => hasScript && setActiveTab("timeline")}
-              disabled={!hasScript}
-              className={`border-b-2 px-4 py-2 text-sm transition-colors focus-ring rounded-t ${
-                activeTab === "timeline"
-                  ? "border-indigo-500 text-indigo-400 font-medium"
-                  : !hasScript
-                    ? "border-transparent text-gray-700 cursor-not-allowed"
-                    : "border-transparent text-gray-500 hover:text-gray-300"
-              }`}
+              className="sv-navbtn inline-flex items-center gap-1.5"
+              disabled
+              title={t("batch_generate_videos")}
             >
-              {t("timeline_tab")}
+              <Sparkles className="h-3 w-3" />
+              <span>{t("batch_generate_videos")}</span>
             </button>
           </div>
         )}
 
-        {/* ---- Tab content ---- */}
-        {activeTab === "preprocessing" && hasDraft ? (
-          <PreprocessingView
-            projectName={projectName}
-            episode={episode}
-            contentMode={contentMode}
-          />
-        ) : episodeScript ? (
-          isGridMode && segmentGroups.length > 0 ? (
-            /* ---- Grid mode: grouped segments without virtualization ---- */
-            <div>
-              {/* Batch generate all grids button */}
-              {onGenerateGrid && scriptFile && (
-                <div className="mb-4">
-                  <motion.button
-                    type="button"
-                    onClick={handleGenerateAllGrids}
-                    disabled={generatingAllGrids}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                      generatingAllGrids
-                        ? "border-blue-700 text-blue-400 opacity-70 cursor-not-allowed"
-                        : "border-blue-600 text-blue-400 hover:bg-blue-600/10"
-                    }`}
-                    animate={
-                      generatingAllGrids
-                        ? { opacity: [0.7, 1, 0.7] }
-                        : { opacity: 1 }
-                    }
-                    transition={
-                      generatingAllGrids
-                        ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
-                        : { duration: 0.3 }
-                    }
-                  >
-                    <AnimatePresence mode="wait" initial={false}>
-                      {generatingAllGrids ? (
-                        <motion.span
-                          key="loader"
-                          initial={{ opacity: 0, rotate: -90 }}
-                          animate={{ opacity: 1, rotate: 0 }}
-                          exit={{ opacity: 0, rotate: 90 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        </motion.span>
-                      ) : (
-                        <motion.span
-                          key="sparkles"
-                          initial={{ opacity: 0, scale: 0.5 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.5 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <Sparkles className="h-4 w-4" />
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                    {generatingAllGrids ? t("submitting") : t("generate_all_grids")}
-                  </motion.button>
-                </div>
-              )}
-
-              {segmentGroups.map((group, groupIdx) => {
-                const gridResult = computeGridSize(group.length, aspectRatio);
-                return (
-                  <GridSegmentGroup
-                    key={groupIdx}
-                    groupIndex={groupIdx}
-                    scenes={group}
-                    gridSize={gridResult.gridSize}
-                    sceneCount={group.length}
-                    batchCount={gridResult.batchCount}
-                    onGenerateGrid={() => handleGenerateGroupGrid(groupIdx, group)}
-                    generatingGrid={generatingGridGroups.has(groupIdx)}
-                    gridIds={getGridIdsForGroup(group)}
-                    projectName={projectName}
-                    onGridRegenerated={refreshGrids}
-                    gridsVersion={gridsVersion}
-                  >
-                    {group.map((segment) => {
-                      const segId = getSegmentId(segment, contentMode);
-                      return (
-                        <div id={`segment-${segId}`} key={segId}>
-                          <SegmentCard
-                            segment={segment}
-                            contentMode={contentMode}
-                            aspectRatio={aspectRatio}
-                            characters={projectData.characters}
-                            scenes={projectData.scenes ?? {}}
-                            props={projectData.props ?? {}}
-                            projectName={projectName}
-                            durationOptions={durationOptions}
-                            isGridMode
-                            onUpdatePrompt={onUpdatePrompt && ((id, fieldOrPatch, value) => onUpdatePrompt(id, fieldOrPatch, value, scriptFile))}
-                            onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
-                            onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
-                            onRestoreStoryboard={onRestoreStoryboard}
-                            onRestoreVideo={onRestoreVideo}
-                          />
-                        </div>
-                      );
-                    })}
-                  </GridSegmentGroup>
-                );
-              })}
-            </div>
-          ) : (
-            /* ---- Normal mode: virtualized flat list ---- */
-            <div
-              className="relative"
-              style={{ height: `${virtualizer.getTotalSize()}px` }}
+        {activeTab === "timeline" && hasScript && isGridMode && onGenerateGrid && scriptFile && (
+          <div className="mr-1 inline-flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleGenerateAllGrids}
+              disabled={generatingAllGrids}
+              className="sv-navbtn inline-flex items-center gap-1.5"
             >
-              {virtualItems.map((virtualItem) => {
-                const segment = segments[virtualItem.index];
-                const segId = getSegmentId(segment, contentMode);
-                return (
-                  <div
-                    id={`segment-${segId}`}
-                    key={segId}
-                    data-index={virtualItem.index}
-                    ref={virtualizer.measureElement}
-                    className="absolute left-0 top-0 w-full"
-                    style={{
-                      transform: `translateY(${virtualItem.start}px)`,
-                      paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
-                    }}
-                  >
-                    <SegmentCard
-                      segment={segment}
-                      contentMode={contentMode}
-                      aspectRatio={aspectRatio}
-                      characters={projectData.characters}
-                      scenes={projectData.scenes ?? {}}
-                      props={projectData.props ?? {}}
-                      projectName={projectName}
-                      durationOptions={durationOptions}
-                      onUpdatePrompt={onUpdatePrompt && ((id, fieldOrPatch, value) => onUpdatePrompt(id, fieldOrPatch, value, scriptFile))}
-                      onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
-                      onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
-                      onRestoreStoryboard={onRestoreStoryboard}
-                      onRestoreVideo={onRestoreVideo}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )
-        ) : null}
+              {generatingAllGrids ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              <span>
+                {generatingAllGrids ? t("submitting") : t("generate_all_grids")}
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
 
-        {/* Bottom spacer for scroll comfort */}
-        <div className="h-16" />
+      {/* 主体 */}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {activeTab === "preprocessing" && hasDraft ? (
+          <div className="h-full overflow-y-auto p-4">
+            <PreprocessingView
+              projectName={projectName}
+              episode={episode}
+              contentMode={contentMode}
+            />
+          </div>
+        ) : episodeScript && !isGridMode && segments.length > 0 ? (
+          <ShotSplitView
+            segments={segments}
+            contentMode={contentMode}
+            aspectRatio={aspectRatio}
+            projectName={projectName}
+            isGridMode={false}
+            onUpdatePrompt={handleUpdatePrompt}
+            onGenerateStoryboard={handleGenSb}
+            onGenerateVideo={handleGenVid}
+            onRestoreStoryboard={onRestoreStoryboard}
+            onRestoreVideo={onRestoreVideo}
+            generatingStoryboard={generatingStoryboard}
+            generatingVideo={generatingVideo}
+          />
+        ) : episodeScript && isGridMode && segmentGroups.length > 0 ? (
+          /* Grid mode 保留原有 GridSegmentGroup + SegmentCard 渲染（短期内不重构） */
+          <div className="h-full overflow-y-auto p-4">
+            {segmentGroups.map((group, groupIdx) => {
+              const gridResult = computeGridSize(group.length, aspectRatio);
+              return (
+                <GridSegmentGroup
+                  key={groupIdx}
+                  groupIndex={groupIdx}
+                  scenes={group}
+                  gridSize={gridResult.gridSize}
+                  sceneCount={group.length}
+                  batchCount={gridResult.batchCount}
+                  onGenerateGrid={() => handleGenerateGroupGrid(groupIdx, group)}
+                  generatingGrid={generatingGridGroups.has(groupIdx)}
+                  gridIds={getGridIdsForGroup(group)}
+                  projectName={projectName}
+                  onGridRegenerated={refreshGrids}
+                  gridsVersion={gridsVersion}
+                >
+                  {group.map((segment) => {
+                    const segId = getSegmentId(segment, contentMode);
+                    return (
+                      <div id={`segment-${segId}`} key={segId}>
+                        <SegmentCard
+                          segment={segment}
+                          contentMode={contentMode}
+                          aspectRatio={aspectRatio}
+                          characters={projectData.characters}
+                          scenes={projectData.scenes ?? {}}
+                          props={projectData.props ?? {}}
+                          projectName={projectName}
+                          durationOptions={durationOptions}
+                          isGridMode
+                          onUpdatePrompt={handleUpdatePrompt}
+                          onGenerateStoryboard={handleGenSb}
+                          onGenerateVideo={handleGenVid}
+                          onRestoreStoryboard={onRestoreStoryboard}
+                          onRestoreVideo={onRestoreVideo}
+                        />
+                      </div>
+                    );
+                  })}
+                </GridSegmentGroup>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -108,7 +108,16 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
         id={MENU_ID}
         role="listbox"
         aria-label="技能命令菜单"
-        className="absolute bottom-full left-0 right-0 mb-1 max-h-52 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl"
+        className="absolute bottom-full left-0 right-0 mb-1 max-h-52 overflow-y-auto rounded-lg py-1"
+        style={{
+          border: "1px solid var(--color-hairline)",
+          background:
+            "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))",
+          boxShadow:
+            "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline-soft)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}
       >
         {filtered.map((skill, i) => {
           const fallback = SKILL_META_FALLBACK[skill.name];
@@ -132,17 +141,39 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
                 onSelect(`/${skill.name}`);
               }}
               onMouseEnter={() => setActiveIndex(i)}
-              className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                isActive ? "bg-gray-800" : "hover:bg-gray-800"
-              }`}
+              className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] transition-colors"
+              style={{
+                background: isActive ? "var(--color-accent-dim)" : "transparent",
+              }}
             >
-              <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-400" />
+              <Icon
+                className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                style={{ color: isActive ? "var(--color-accent-2)" : "var(--color-accent)" }}
+              />
               <div className="min-w-0">
-                <span className="font-medium text-gray-200">
-                  {label && <>{label}<span className="ml-1.5 text-gray-500">/{skill.name}</span></>}
+                <span
+                  className="font-medium"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {label && (
+                    <>
+                      {label}
+                      <span
+                        className="ml-1.5"
+                        style={{ color: "var(--color-text-4)" }}
+                      >
+                        /{skill.name}
+                      </span>
+                    </>
+                  )}
                   {!label && <>/{skill.name}</>}
                 </span>
-                <p className="truncate text-xs text-gray-500">{skill.description}</p>
+                <p
+                  className="truncate text-[11px]"
+                  style={{ color: "var(--color-text-3)" }}
+                >
+                  {skill.description}
+                </p>
               </div>
             </button>
           );

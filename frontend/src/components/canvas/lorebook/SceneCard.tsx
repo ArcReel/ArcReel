@@ -27,6 +27,14 @@ interface SceneCardProps {
   generating?: boolean;
 }
 
+const FIELD_STYLE: React.CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
+  border: "1px solid var(--color-hairline)",
+  color: "var(--color-text)",
+  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
+};
+
 // ---------------------------------------------------------------------------
 // SceneCard
 // ---------------------------------------------------------------------------
@@ -77,7 +85,6 @@ export function SceneCard({
     setImgError(false);
   }, [scene.scene_sheet, sheetFp]);
 
-  // Auto-resize textarea.
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const descId = useId();
 
@@ -103,7 +110,7 @@ export function SceneCard({
 
   return (
     <div
-      className="bg-gray-900 border border-gray-800 rounded-xl p-5"
+      className="relative overflow-hidden rounded-xl p-5"
       data-workspace-editing={isEditing || isDirty ? "true" : undefined}
       onFocusCapture={() => setIsEditing(true)}
       onBlurCapture={(event) => {
@@ -113,10 +120,44 @@ export function SceneCard({
         }
         setIsEditing(false);
       }}
+      style={{
+        background:
+          "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))",
+        border: "1px solid var(--color-hairline-soft)",
+        boxShadow:
+          "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 12px 30px -12px oklch(0 0 0 / 0.4)",
+      }}
     >
-      {/* ---- Header: name + actions ---- */}
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="min-w-0 flex-1 truncate text-lg font-bold text-white">{name}</h3>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-5 top-0 h-px"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+        }}
+      />
+
+      {/* ---- Header: type chip + name + actions ---- */}
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span
+            aria-hidden
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
+            style={{
+              background: "var(--color-accent-dim)",
+              border: "1px solid var(--color-accent-soft)",
+              color: "var(--color-accent-2)",
+            }}
+          >
+            <Landmark className="h-3.5 w-3.5" />
+          </span>
+          <h3
+            className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            {name}
+          </h3>
+        </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
@@ -124,7 +165,8 @@ export function SceneCard({
             disabled={uploadingSheet}
             title={t("assets:upload_sheet")}
             aria-label={t("assets:upload_sheet")}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+            className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
+            style={{ color: "var(--color-text-3)" }}
           >
             <Upload className="h-3 w-3" />
             <span>{t("assets:upload_sheet_short")}</span>
@@ -156,30 +198,39 @@ export function SceneCard({
 
       {/* ---- Image area ---- */}
       <div className="mb-4">
-        <PreviewableImageFrame
-          src={sheetUrl && !imgError ? sheetUrl : null}
-          alt={`${name} ${t("scene_design")}`}
+        <CapsLabel>{t("scene_design")}</CapsLabel>
+        <div
+          className="mt-1.5 overflow-hidden rounded-lg"
+          style={{ border: "1px solid var(--color-hairline-soft)" }}
         >
-          <AspectFrame ratio="16:9">
-            {sheetUrl && !imgError ? (
-              <img
-                src={sheetUrl}
-                alt={`${name} ${t("scene_design")}`}
-                className="h-full w-full object-cover"
-                onError={() => setImgError(true)}
-              />
-            ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-                <Landmark className="h-10 w-10" />
-                <span className="text-xs">{t("click_to_generate")}</span>
-              </div>
-            )}
-          </AspectFrame>
-        </PreviewableImageFrame>
+          <PreviewableImageFrame
+            src={sheetUrl && !imgError ? sheetUrl : null}
+            alt={`${name} ${t("scene_design")}`}
+          >
+            <AspectFrame ratio="16:9">
+              {sheetUrl && !imgError ? (
+                <img
+                  src={sheetUrl}
+                  alt={`${name} ${t("scene_design")}`}
+                  className="h-full w-full object-cover"
+                  onError={() => setImgError(true)}
+                />
+              ) : (
+                <div
+                  className="flex h-full w-full flex-col items-center justify-center gap-2"
+                  style={{ color: "var(--color-text-4)" }}
+                >
+                  <Landmark className="h-10 w-10" />
+                  <span className="text-xs">{t("click_to_generate")}</span>
+                </div>
+              )}
+            </AspectFrame>
+          </PreviewableImageFrame>
+        </div>
       </div>
 
       {/* ---- Description ---- */}
-      <label htmlFor={descId} className="text-xs font-medium text-gray-400">{t("description")}</label>
+      <CapsLabel htmlFor={descId}>{t("description")}</CapsLabel>
       <textarea
         ref={textareaRef}
         id={descId}
@@ -187,7 +238,8 @@ export function SceneCard({
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}
         rows={2}
-        className="mb-3 w-full resize-none overflow-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring"
+        className="focus-ring mt-1.5 mb-3 w-full resize-none overflow-hidden rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
+        style={FIELD_STYLE}
         placeholder={t("scene_desc_placeholder")}
       />
 
@@ -195,7 +247,14 @@ export function SceneCard({
         <button
           type="button"
           onClick={handleSave}
-          className="mb-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+          className="focus-ring mb-3 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform"
+          style={{
+            color: "oklch(0.14 0 0)",
+            background:
+              "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            boxShadow:
+              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+          }}
         >
           {t("common:save")}
         </button>
@@ -208,5 +267,27 @@ export function SceneCard({
         className="w-full justify-center"
       />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Small utilities
+// ---------------------------------------------------------------------------
+
+function CapsLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  htmlFor?: string;
+}) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+      style={{ color: "var(--color-text-4)" }}
+    >
+      {children}
+    </label>
   );
 }

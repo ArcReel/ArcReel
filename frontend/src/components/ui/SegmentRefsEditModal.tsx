@@ -1,6 +1,15 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ExternalLink, MapPin, Puzzle, Search, User, X } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  Link2,
+  MapPin,
+  Puzzle,
+  Search,
+  User,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
@@ -9,6 +18,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { Character, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
 import { colorForName } from "@/utils/color";
+import { WARM_TONE } from "@/utils/severity-tone";
 
 type Asset = Character | Scene | Prop;
 
@@ -39,6 +49,9 @@ interface SegmentRefsEditModalProps {
   projectName: string;
   onManageClick?: (kind: AssetKind) => void;
 }
+
+const PANEL_BG =
+  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
 
 function arraysEqualUnordered(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -153,21 +166,85 @@ export function SegmentRefsEditModal({
       <div
         aria-hidden="true"
         onClick={onClose}
-        className="absolute inset-0 bg-black/70"
+        className="absolute inset-0"
+        style={{
+          background: "oklch(0 0 0 / 0.65)",
+          backdropFilter: "blur(2px)",
+          WebkitBackdropFilter: "blur(2px)",
+        }}
       />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("segment_refs_edit_title")}
-        className="relative flex max-h-[80vh] w-[640px] max-w-[96vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl"
+        className="relative flex max-h-[80vh] w-[680px] max-w-[96vw] flex-col overflow-hidden rounded-2xl"
+        style={{
+          background: PANEL_BG,
+          border: "1px solid var(--color-hairline)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+          boxShadow:
+            "0 24px 60px -12px oklch(0 0 0 / 0.6), inset 0 1px 0 oklch(1 0 0 / 0.05)",
+        }}
       >
-        <div className="flex items-center gap-2 border-b border-gray-800 px-4 py-3">
-          <h3 className="flex-1 text-sm font-semibold text-white">
-            {t("segment_refs_edit_title")}
-          </h3>
-          <div className="flex w-32 items-center gap-2 rounded border border-gray-700 bg-gray-800 px-3 py-1.5 sm:w-48">
-            <Search className="h-3.5 w-3.5 text-gray-500" aria-hidden="true" />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+          }}
+        />
+
+        {/* Header */}
+        <div
+          className="flex items-center gap-3 px-5 py-4"
+          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        >
+          <span
+            aria-hidden
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
+            style={{
+              background:
+                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid var(--color-accent-soft)",
+              color: "var(--color-accent-2)",
+              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+            }}
+          >
+            <Link2 className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3
+              className="display-serif truncate text-[15px] font-semibold tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
+              {t("segment_refs_edit_title")}
+            </h3>
+            <div
+              className="num text-[10px] uppercase"
+              style={{
+                color: "var(--color-text-4)",
+                letterSpacing: "1.0px",
+              }}
+            >
+              References · Scope
+            </div>
+          </div>
+
+          <div
+            className="flex w-44 items-center gap-2 rounded-md px-2.5 py-1.5 sm:w-52"
+            style={{
+              background: "oklch(0.16 0.010 265 / 0.6)",
+              border: "1px solid var(--color-hairline)",
+            }}
+          >
+            <Search
+              className="h-3.5 w-3.5 shrink-0"
+              style={{ color: "var(--color-text-4)" }}
+              aria-hidden="true"
+            />
             <input
               type="search"
               value={query}
@@ -176,20 +253,32 @@ export function SegmentRefsEditModal({
               aria-label={t("segment_refs_search_placeholder")}
               autoComplete="off"
               spellCheck={false}
-              className="flex-1 bg-transparent text-sm text-gray-200 outline-none"
+              className="focus-ring min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+              style={{ color: "var(--color-text)" }}
             />
           </div>
+
           <button
             type="button"
             onClick={onClose}
             aria-label={t("segment_refs_close")}
-            className="rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+            className="focus-ring grid h-7 w-7 place-items-center rounded-md transition-colors"
+            style={{ color: "var(--color-text-3)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.background = "transparent";
+            }}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-3">
+        {/* Body */}
+        <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
           <Section
             title={t("segment_refs_badge_character")}
             kind="character"
@@ -237,11 +326,20 @@ export function SegmentRefsEditModal({
           />
         </div>
 
-        <div className="flex items-center gap-2 border-t border-gray-800 px-4 py-3">
+        {/* Footer */}
+        <div
+          className="flex items-center gap-2 px-5 py-3"
+          style={{
+            borderTop: "1px solid var(--color-hairline-soft)",
+            background: "oklch(0.17 0.010 250 / 0.5)",
+          }}
+        >
           <span
-            className={`flex-1 text-xs ${
-              hasChanges ? "text-amber-400" : "text-gray-400"
-            }`}
+            className="num flex-1 text-[11px] uppercase"
+            style={{
+              letterSpacing: "0.8px",
+              color: hasChanges ? WARM_TONE.color : "var(--color-text-4)",
+            }}
           >
             {hasChanges
               ? t("segment_refs_changes_pending")
@@ -250,7 +348,20 @@ export function SegmentRefsEditModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded bg-gray-800 px-3 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+            className="focus-ring rounded-md px-3 py-1.5 text-[12px] transition-colors"
+            style={{
+              color: "var(--color-text-3)",
+              border: "1px solid var(--color-hairline)",
+              background: "oklch(0.22 0.011 265 / 0.5)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.background = "oklch(0.26 0.013 265 / 0.7)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
+            }}
           >
             {t("segment_refs_cancel")}
           </button>
@@ -258,7 +369,21 @@ export function SegmentRefsEditModal({
             type="button"
             disabled={!hasChanges}
             onClick={handleSave}
-            className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+            className="focus-ring rounded-md px-3.5 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-40"
+            style={{
+              color: "oklch(0.14 0 0)",
+              background:
+                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+              boxShadow:
+                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+            }}
+            onMouseEnter={(e) => {
+              if (!e.currentTarget.disabled)
+                e.currentTarget.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
           >
             {t("segment_refs_save")}
           </button>
@@ -306,28 +431,55 @@ function Section({
   );
   return (
     <section>
-      <div className="mb-2 flex items-center gap-1.5">
-        <span className="text-gray-500">{icon}</span>
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+      <div className="mb-2 flex items-center gap-2">
+        <span style={{ color: "var(--color-text-3)" }}>{icon}</span>
+        <h4
+          className="num text-[10.5px] font-bold uppercase"
+          style={{
+            color: "var(--color-text-3)",
+            letterSpacing: "1.0px",
+          }}
+        >
           {title}
         </h4>
         {rows.length > 0 && (
-          <span className="text-[11px] tabular-nums text-gray-500">
+          <span
+            className="num text-[10.5px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
             {selectedCount}/{rows.length}
           </span>
         )}
       </div>
       {rows.length === 0 && hasQuery && (
-        <p className="px-2 py-1 text-xs text-gray-600">{searchEmptyText}</p>
+        <p
+          className="px-2 py-1 text-[11.5px]"
+          style={{ color: "var(--color-text-4)" }}
+        >
+          {searchEmptyText}
+        </p>
       )}
       {rows.length === 0 && !hasQuery && (
-        <div className="flex items-center gap-2 rounded border border-dashed border-gray-800 px-3 py-2 text-xs text-gray-500">
+        <div
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-[12px]"
+          style={{
+            border: "1px dashed var(--color-hairline)",
+            color: "var(--color-text-4)",
+          }}
+        >
           <span className="flex-1">{emptyText}</span>
           {onManageClick && (
             <button
               type="button"
               onClick={() => onManageClick(kind)}
-              className="flex items-center gap-1 text-indigo-400 transition-colors hover:text-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+              className="focus-ring inline-flex items-center gap-1 rounded transition-colors"
+              style={{ color: "var(--color-accent-2)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--color-text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--color-accent-2)";
+              }}
             >
               <span>{manageText}</span>
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -366,8 +518,26 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
     row.thumbPath ? s.getAssetFingerprint(row.thumbPath) : null,
   );
   const isCharacter = row.kind === "character";
-  const thumbShape = isCharacter ? "rounded-full" : "rounded";
+  const thumbShape = isCharacter ? "rounded-full" : "rounded-md";
   const showImage = !!row.thumbPath && !row.isStale;
+
+  const baseStyle = row.isStale
+    ? {
+        background: WARM_TONE.soft,
+        border: `1px solid ${WARM_TONE.ring}`,
+      }
+    : selected
+      ? {
+          background:
+            "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)",
+          border: "1px solid var(--color-accent-soft)",
+          boxShadow:
+            "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 4px 14px -6px var(--color-accent-glow)",
+        }
+      : {
+          background: "oklch(0.20 0.011 265 / 0.4)",
+          border: "1px solid var(--color-hairline)",
+        };
 
   return (
     <button
@@ -375,54 +545,97 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
       onClick={onToggle}
       aria-pressed={selected}
       title={row.isStale ? staleHint : row.name}
-      className={`group flex items-center gap-2 rounded border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40 ${
-        row.isStale
-          ? "border-amber-800/50 bg-amber-900/10 hover:border-amber-700"
-          : selected
-            ? "border-indigo-500/60 bg-indigo-950/40 hover:border-indigo-400"
-            : "border-gray-800 bg-gray-800/40 hover:border-gray-700 hover:bg-gray-800"
-      }`}
+      className="focus-ring group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors"
+      style={baseStyle}
+      onMouseEnter={(e) => {
+        if (row.isStale) return;
+        if (selected) {
+          e.currentTarget.style.borderColor = "var(--color-accent)";
+        } else {
+          e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
+          e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (row.isStale) {
+          e.currentTarget.style.borderColor = WARM_TONE.ring;
+          return;
+        }
+        if (selected) {
+          e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+        } else {
+          e.currentTarget.style.borderColor = "var(--color-hairline)";
+          e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.4)";
+        }
+      }}
     >
       {showImage ? (
         <img
           src={API.getFileUrl(projectName, row.thumbPath!, sheetFp)}
           alt={row.name}
-          className={`h-8 w-8 shrink-0 ${thumbShape} object-cover`}
+          className={`h-8 w-8 shrink-0 object-cover ${thumbShape}`}
         />
       ) : (
         <span
-          className={`flex h-8 w-8 shrink-0 items-center justify-center text-[10px] font-semibold text-white ${thumbShape} ${
-            row.isStale ? "bg-amber-700/40" : colorForName(row.name)
+          className={`grid h-8 w-8 shrink-0 place-items-center text-[10px] font-semibold text-white ${thumbShape} ${
+            row.isStale ? "" : colorForName(row.name)
           }`}
+          style={
+            row.isStale
+              ? { background: WARM_TONE.soft, color: WARM_TONE.color }
+              : undefined
+          }
         >
           {row.name.charAt(0)}
         </span>
       )}
       <div className="min-w-0 flex-1">
         <p
-          className={`truncate text-sm ${
+          className={`truncate text-[13px] ${
             selected ? "font-semibold" : "font-medium"
-          } ${row.isStale ? "text-amber-300" : "text-white"}`}
+          }`}
+          style={{
+            color: row.isStale ? WARM_TONE.color : "var(--color-text)",
+          }}
         >
           {row.name}
         </p>
         {row.isStale ? (
-          <p className="truncate text-[11px] text-amber-400">{staleHint}</p>
+          <p
+            className="truncate text-[11px]"
+            style={{ color: WARM_TONE.color }}
+          >
+            {staleHint}
+          </p>
         ) : (
           row.description && (
-            <p className="truncate text-[11px] text-gray-500">
+            <p
+              className="truncate text-[11px]"
+              style={{ color: "var(--color-text-4)" }}
+            >
               {row.description.split("\n")[0]}
             </p>
           )
         )}
       </div>
       <span
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
-          selected
-            ? "border-indigo-500 bg-indigo-500 text-white"
-            : "border-gray-700 bg-transparent text-gray-700 group-hover:border-gray-600 group-hover:text-gray-600"
-        }`}
         aria-hidden="true"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full transition-colors"
+        style={
+          selected
+            ? {
+                color: "oklch(0.14 0 0)",
+                background:
+                  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                border: "1px solid var(--color-accent-soft)",
+                boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.35)",
+              }
+            : {
+                color: "var(--color-text-4)",
+                background: "transparent",
+                border: "1px solid var(--color-hairline)",
+              }
+        }
       >
         <Check className="h-3 w-3" strokeWidth={3} />
       </span>

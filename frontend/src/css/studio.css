@@ -3,27 +3,36 @@
 
 /* Prompt 编辑器 */
 .prompt-editor {
-  @apply font-mono text-sm bg-gray-800 rounded-lg p-3 text-gray-200;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  background: oklch(0.20 0.011 265 / 0.6);
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  color: var(--color-text);
 }
 
-/* 强调色 — 低饱和度纯色 */
+/* 强调色 */
 .accent-gradient {
-  @apply bg-indigo-600;
+  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
+  color: oklch(0.14 0 0);
 }
 
-/* 强调色文字 */
 .accent-gradient-text {
-  @apply text-indigo-400;
+  color: var(--color-accent-2);
 }
 
 /* 片段卡片 */
 .segment-card {
-  @apply bg-gray-900 border border-gray-800 rounded-xl;
+  background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35));
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: 0.75rem;
 }
 
 /* 面板底色 */
 .studio-panel {
-  @apply bg-gray-900 border-gray-800;
+  background: var(--color-bg-grad-a);
+  border-color: var(--color-hairline);
 }
 
 /* 呼吸灯动画 — 用于任务雷达 */
@@ -46,42 +55,64 @@
   animation: progress-pulse 1.5s ease-in-out infinite;
 }
 
+/* shot status pulse */
+@keyframes shot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-shot-pulse {
+  animation: shot-pulse 1.8s ease-in-out infinite;
+}
+
+/* shimmer 占位 */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.08), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+
 @keyframes workspace-focus-flash {
   0% {
-    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
     background-color: transparent;
   }
   12% {
     box-shadow:
-      0 0 0 1px rgba(125, 211, 252, 0.78),
-      0 0 0 10px rgba(56, 189, 248, 0.12),
-      0 18px 36px rgba(15, 23, 42, 0.38);
-    background-color: rgba(59, 130, 246, 0.08);
+      0 0 0 1px oklch(0.88 0.05 295 / 0.78),
+      0 0 0 10px oklch(0.76 0.09 295 / 0.12),
+      0 18px 36px oklch(0 0 0 / 0.38);
+    background-color: oklch(0.76 0.09 295 / 0.08);
   }
   32% {
-    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
     background-color: transparent;
   }
   46% {
     box-shadow:
-      0 0 0 1px rgba(250, 204, 21, 0.68),
-      0 0 0 9px rgba(245, 158, 11, 0.12),
-      0 16px 34px rgba(17, 24, 39, 0.34);
-    background-color: rgba(245, 158, 11, 0.08);
+      0 0 0 1px oklch(0.80 0.12 70 / 0.68),
+      0 0 0 9px oklch(0.80 0.12 70 / 0.12),
+      0 16px 34px oklch(0 0 0 / 0.34);
+    background-color: oklch(0.80 0.12 70 / 0.08);
   }
   66% {
-    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
     background-color: transparent;
   }
   82% {
     box-shadow:
-      0 0 0 1px rgba(129, 140, 248, 0.72),
-      0 0 0 8px rgba(99, 102, 241, 0.12),
-      0 14px 28px rgba(17, 24, 39, 0.28);
-    background-color: rgba(99, 102, 241, 0.08);
+      0 0 0 1px oklch(0.78 0.10 155 / 0.72),
+      0 0 0 8px oklch(0.78 0.10 155 / 0.12),
+      0 14px 28px oklch(0 0 0 / 0.28);
+    background-color: oklch(0.78 0.10 155 / 0.08);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
     background-color: transparent;
   }
 }
@@ -89,4 +120,44 @@
 .workspace-focus-flash {
   animation: workspace-focus-flash 2.4s ease-in-out forwards;
   will-change: box-shadow, background-color;
+}
+
+/* 通用按钮：sv-navbtn */
+.sv-navbtn {
+  font-size: 0.71875rem;
+  padding: 4px 10px;
+  border-radius: 5px;
+  color: var(--color-text-2);
+  border: 1px solid var(--color-hairline);
+  background: oklch(0.22 0.011 265 / 0.5);
+  transition: background .12s, color .12s;
+  cursor: pointer;
+}
+.sv-navbtn:hover {
+  background: oklch(0.26 0.013 265 / 0.7);
+  color: var(--color-text);
+}
+.sv-navbtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 提示词 textarea — 中性低 chroma 背景，与玻璃面板协调 */
+.prompt-ta {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.78125rem;
+  line-height: 1.65;
+  color: var(--color-text);
+  background: linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4));
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  resize: vertical;
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.03);
+  outline: none;
+}
+.prompt-ta:focus {
+  border-color: var(--color-accent-soft);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
 }

@@ -30,6 +30,14 @@ interface CharacterCardProps {
   generating?: boolean;
 }
 
+const FIELD_STYLE: React.CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
+  border: "1px solid var(--color-hairline)",
+  color: "var(--color-text)",
+  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
+};
+
 export function CharacterCard({
   name,
   character,
@@ -167,7 +175,7 @@ export function CharacterCard({
 
   return (
     <div
-      className="rounded-xl border border-gray-800 bg-gray-900 p-5"
+      className="relative overflow-hidden rounded-xl p-5"
       data-workspace-editing={isEditing || isDirty ? "true" : undefined}
       onFocusCapture={() => setIsEditing(true)}
       onBlurCapture={(event) => {
@@ -177,9 +185,45 @@ export function CharacterCard({
         }
         setIsEditing(false);
       }}
+      style={{
+        background:
+          "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))",
+        border: "1px solid var(--color-hairline-soft)",
+        boxShadow:
+          "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 12px 30px -12px oklch(0 0 0 / 0.4)",
+      }}
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="min-w-0 flex-1 truncate text-lg font-bold text-white">{name}</h3>
+      {/* Top accent hairline */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-5 top-0 h-px"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+        }}
+      />
+
+      {/* ---- Header: type chip + name + actions ---- */}
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span
+            aria-hidden
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
+            style={{
+              background: "var(--color-accent-dim)",
+              border: "1px solid var(--color-accent-soft)",
+              color: "var(--color-accent-2)",
+            }}
+          >
+            <User className="h-3.5 w-3.5" />
+          </span>
+          <h3
+            className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            {name}
+          </h3>
+        </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
@@ -187,7 +231,8 @@ export function CharacterCard({
             disabled={uploadingSheet}
             title={t("assets:upload_sheet")}
             aria-label={t("assets:upload_sheet")}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+            className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
+            style={{ color: "var(--color-text-3)" }}
           >
             <Upload className="h-3 w-3" />
             <span>{t("assets:upload_sheet_short")}</span>
@@ -218,34 +263,42 @@ export function CharacterCard({
         </div>
       </div>
 
+      {/* ---- Image area ---- */}
       <div className="mb-4 space-y-3">
         <div>
-          <PreviewableImageFrame
-            src={sheetUrl && !imgError ? sheetUrl : null}
-            alt={`${name} ${t("character_design")}`}
+          <CapsLabel>{t("character_design")}</CapsLabel>
+          <div
+            className="mt-1.5 overflow-hidden rounded-lg"
+            style={{ border: "1px solid var(--color-hairline-soft)" }}
           >
-            <AspectFrame ratio="3:4">
-              <ImageFlipReveal
-                src={sheetUrl && !imgError ? sheetUrl : null}
-                alt={`${name} ${t("character_design")}`}
-                className="h-full w-full object-cover"
-                onError={() => setImgError(true)}
-                fallback={
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-                    <User className="h-10 w-10" />
-                    <span className="text-xs">{t("click_to_generate")}</span>
-                  </div>
-                }
-              />
-            </AspectFrame>
-          </PreviewableImageFrame>
+            <PreviewableImageFrame
+              src={sheetUrl && !imgError ? sheetUrl : null}
+              alt={`${name} ${t("character_design")}`}
+            >
+              <AspectFrame ratio="3:4">
+                <ImageFlipReveal
+                  src={sheetUrl && !imgError ? sheetUrl : null}
+                  alt={`${name} ${t("character_design")}`}
+                  className="h-full w-full object-cover"
+                  onError={() => setImgError(true)}
+                  fallback={
+                    <div
+                      className="flex h-full w-full flex-col items-center justify-center gap-2"
+                      style={{ color: "var(--color-text-4)" }}
+                    >
+                      <User className="h-10 w-10" />
+                      <span className="text-xs">{t("click_to_generate")}</span>
+                    </div>
+                  }
+                />
+              </AspectFrame>
+            </PreviewableImageFrame>
+          </div>
         </div>
 
         <div>
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-              {t("reference_image")}
-            </span>
+          <div className="flex items-center justify-between">
+            <CapsLabel>{t("reference_image")}</CapsLabel>
             {(referenceFile || hasSavedReference) && (
               <button
                 type="button"
@@ -254,7 +307,14 @@ export function CharacterCard({
                     ? clearPendingReference()
                     : fileInputRef.current?.click()
                 }
-                className="text-xs text-gray-400 transition-colors hover:text-gray-200"
+                className="focus-ring text-[11px] transition-colors"
+                style={{ color: "var(--color-text-3)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--color-text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--color-text-3)";
+                }}
               >
                 {referenceFile ? t("cancel_pending") : t("replace")}
               </button>
@@ -267,21 +327,38 @@ export function CharacterCard({
               alt={`${name} ${t("reference_image")}`}
               buttonClassName="right-2.5 top-2.5"
             >
-              <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
+              <div
+                className="relative mt-1.5 overflow-hidden rounded-lg"
+                style={{ border: "1px solid var(--color-hairline-soft)" }}
+              >
                 <img
                   src={displayedReferenceUrl}
                   alt={`${name} ${t("reference_image")}`}
                   className="h-28 w-full object-cover"
                 />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
-                  <span className="flex items-center gap-1.5 text-xs text-gray-200">
+                <div
+                  className="absolute inset-x-0 bottom-0 flex items-center justify-between px-3 py-2"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, transparent, oklch(0 0 0 / 0.65))",
+                  }}
+                >
+                  <span
+                    className="flex items-center gap-1.5 text-[11px]"
+                    style={{ color: "var(--color-text)" }}
+                  >
                     <ImagePlus className="h-3.5 w-3.5" />
                     {referenceFile ? t("unsaved_reference") : t("saved_reference")}
                   </span>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
+                    className="focus-ring rounded px-2 py-0.5 text-[11px] transition-colors"
+                    style={{
+                      background: "oklch(0 0 0 / 0.5)",
+                      color: "var(--color-text)",
+                      border: "1px solid oklch(1 0 0 / 0.1)",
+                    }}
                   >
                     {t("change")}
                   </button>
@@ -292,7 +369,20 @@ export function CharacterCard({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 bg-gray-800/50 px-3 py-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300"
+              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-4 text-sm transition-colors"
+              style={{
+                color: "var(--color-text-4)",
+                border: "1px dashed var(--color-hairline)",
+                background: "oklch(0.18 0.010 265 / 0.35)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+                e.currentTarget.style.color = "var(--color-text-2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--color-hairline)";
+                e.currentTarget.style.color = "var(--color-text-4)";
+              }}
             >
               <Upload className="h-4 w-4" />
               {t("upload_reference")}
@@ -309,7 +399,7 @@ export function CharacterCard({
         </div>
       </div>
 
-      <label htmlFor={descId} className="text-xs font-medium text-gray-400">{t("description")}</label>
+      <CapsLabel htmlFor={descId}>{t("description")}</CapsLabel>
       <textarea
         ref={textareaRef}
         id={descId}
@@ -317,31 +407,42 @@ export function CharacterCard({
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}
         rows={3}
-        className="mt-1 w-full resize-none overflow-hidden rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring"
+        className="focus-ring mt-1.5 w-full resize-none overflow-hidden rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
+        style={FIELD_STYLE}
         placeholder={t("character_desc_placeholder")}
       />
 
-      <label className="mt-3 block text-xs font-medium text-gray-400">{t("voice_style")}</label>
-      <input
-        type="text"
-        value={voiceStyle}
-        onChange={(e) => setVoiceStyle(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring"
-        placeholder={t("voice_style_example")}
-      />
+      <div className="mt-3">
+        <CapsLabel>{t("voice_style")}</CapsLabel>
+        <input
+          type="text"
+          value={voiceStyle}
+          onChange={(e) => setVoiceStyle(e.target.value)}
+          className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow]"
+          style={FIELD_STYLE}
+          placeholder={t("voice_style_example")}
+        />
+      </div>
 
       {isDirty && (
         <button
           type="button"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="focus-ring mt-3 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
+          style={{
+            color: "oklch(0.14 0 0)",
+            background:
+              "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            boxShadow:
+              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+          }}
         >
           {saving ? t("common:saving") : t("common:save")}
         </button>
       )}
 
-      <div className="mt-3">
+      <div className="mt-4">
         <GenerateButton
           onClick={() => onGenerate(name)}
           loading={generating}
@@ -350,5 +451,27 @@ export function CharacterCard({
         />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Small utilities
+// ---------------------------------------------------------------------------
+
+function CapsLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  htmlFor?: string;
+}) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+      style={{ color: "var(--color-text-4)" }}
+    >
+      {children}
+    </label>
   );
 }

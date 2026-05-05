@@ -42,7 +42,14 @@ export function AutoTextarea({
       onInput={resize}
       placeholder={placeholder}
       rows={2}
-      className={`w-full resize-none overflow-hidden bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-2 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring ${className ?? ""}`}
+      className={`focus-ring w-full resize-none overflow-hidden rounded-lg px-2.5 py-2 font-mono text-xs outline-none ${className ?? ""}`}
+      style={{
+        background:
+          "linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4))",
+        border: "1px solid var(--color-hairline-soft)",
+        color: "var(--color-text)",
+        boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
+      }}
     />
   );
 }

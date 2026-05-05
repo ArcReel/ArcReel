@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Package } from "lucide-react";
 import { GalleryToolbar } from "./GalleryToolbar";
 import { PropCard } from "./PropCard";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
@@ -8,6 +9,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { Prop } from "@/types";
+import { GalleryEmptyState } from "./GalleryEmptyState";
 
 interface Props {
   projectName: string;
@@ -44,24 +46,23 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col overflow-y-auto">
       <GalleryToolbar
         title={t("dashboard:props")}
         count={entries.length}
         onAdd={() => setAdding(true)}
         onPickFromLibrary={() => setPicking(true)}
       />
-      <div className="p-4">
+      <div className="px-5 py-5">
         {entries.length === 0 ? (
-          <button
-            type="button"
+          <GalleryEmptyState
+            icon={<Package className="h-6 w-6" />}
+            label={t("dashboard:props")}
+            hint={t("dashboard:no_props_hint_clickable")}
             onClick={() => setAdding(true)}
-            className="w-full rounded-lg border border-dashed border-gray-700 py-16 text-center text-sm text-gray-500 transition-colors hover:border-indigo-500/60 hover:bg-gray-900/50 hover:text-gray-300 focus-ring"
-          >
-            {t("dashboard:no_props_hint_clickable")}
-          </button>
+          />
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
             {entries.map(([name, prop]) => (
               <PropCard key={name} name={name} prop={prop} projectName={projectName}
                 onUpdate={onUpdateProp}

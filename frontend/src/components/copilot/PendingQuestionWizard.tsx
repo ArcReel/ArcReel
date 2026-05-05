@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Sparkles } from "lucide-react";
+
+const OTHER_TEXTAREA_MAX_PX = 160;
 import type { PendingQuestion } from "@/types";
-import { cn } from "./chat/utils";
 import {
   buildAnswersPayload,
   buildQuestionOptions,
@@ -28,6 +30,7 @@ export function PendingQuestionWizard({
   const [questionCustomAnswers, setQuestionCustomAnswers] = useState<Record<string, string>>({});
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [visitedQuestionIndexes, setVisitedQuestionIndexes] = useState<number[]>([]);
+  const otherTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const initialAnswers: Record<string, string | string[]> = {};
@@ -83,6 +86,19 @@ export function PendingQuestionWizard({
       );
     });
   }, [pendingQuestions, questionAnswers, questionCustomAnswers]);
+
+  // Re-measure the "other" textarea height whenever the visible question or its
+  // backing draft changes. Lets the textarea grow upward as the user types and
+  // restores correct height when navigating back to a step with an existing draft.
+  useEffect(() => {
+    const el = otherTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, OTHER_TEXTAREA_MAX_PX);
+    el.style.height = `${next}px`;
+    el.style.overflowY =
+      el.scrollHeight > OTHER_TEXTAREA_MAX_PX ? "auto" : "hidden";
+  }, [currentQuestionAnswer, currentQuestionCustomAnswer, currentQuestionKey]);
 
   if (pendingQuestions.length === 0) {
     return null;
@@ -149,76 +165,197 @@ export function PendingQuestionWizard({
 
   return (
     <form
-      className="border-t border-amber-300/20 bg-gradient-to-b from-amber-500/8 to-transparent px-3 py-3"
+      className="relative px-3 py-3"
+      style={{
+        borderTop: "1px solid var(--color-accent-soft)",
+        background:
+          "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.10), transparent 60%), oklch(0.18 0.010 265 / 0.6)",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+      }}
       onSubmit={handleSubmit}
     >
-      <div className="flex max-h-[min(34rem,52vh)] min-h-0 flex-col gap-3 rounded-xl border border-amber-300/20 bg-gray-950/60 p-3 shadow-[0_0_0_1px_rgba(251,191,36,0.04)]">
-        <div className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-300">
-          需要你的选择
+      {/* Top-edge accent bar — softly glows to mark this region as "system asks" */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-0 right-0 top-0 h-px"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent, var(--color-accent), transparent)",
+          opacity: 0.6,
+        }}
+      />
+
+      <div className="flex max-h-[min(30rem,50vh)] min-h-0 flex-col gap-2.5">
+        {/* Header line: sparkle + label + step counter */}
+        <div className="flex shrink-0 items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Sparkles
+              className="h-3 w-3"
+              style={{ color: "var(--color-accent)" }}
+            />
+            <span
+              className="text-[10px] font-semibold uppercase"
+              style={{
+                color: "var(--color-accent-2)",
+                letterSpacing: "0.18em",
+              }}
+            >
+              需要你的选择
+            </span>
+          </div>
+          <span
+            className="num text-[10px]"
+            style={{ color: "var(--color-text-4)", letterSpacing: "0.06em" }}
+          >
+            {`${String(normalizedQuestionIndex + 1).padStart(2, "0")} / ${String(totalQuestions).padStart(2, "0")}`}
+          </span>
         </div>
 
-        <div className="shrink-0 flex items-center gap-2 overflow-x-auto pb-1">
-          {pendingQuestions.map((question, questionIndex) => {
-            const isActiveStep = questionIndex === normalizedQuestionIndex;
-            const isVisitedStep = isActiveStep || visitedQuestionIndexes.includes(questionIndex);
-
-            return (
-              <button
-                key={`${pendingQuestion.question_id}-step-${questionIndex}`}
-                type="button"
-                onClick={() => handleSelectQuestionStep(questionIndex)}
-                disabled={answeringQuestion || !isVisitedStep}
-                className={cn(
-                  "shrink-0 rounded-full border px-3 py-1 text-xs transition-colors",
-                  isActiveStep
-                    ? "border-amber-300/60 bg-amber-300/20 text-amber-100"
-                    : isVisitedStep
-                      ? "border-white/20 bg-white/5 text-slate-200 hover:bg-white/10"
-                      : "cursor-not-allowed border-white/10 bg-white/5 text-slate-500",
-                )}
-              >
-                {`${questionIndex + 1}. ${question.header || `问题 ${questionIndex + 1}`}`}
-              </button>
-            );
-          })}
-        </div>
-
-        <p className="text-xs text-slate-400">
-          {`问题 ${normalizedQuestionIndex + 1}/${totalQuestions}`}
-        </p>
+        {/* Step progress — thin segmented bar replaces verbose pills */}
+        {totalQuestions > 1 && (
+          <div className="flex shrink-0 items-center gap-1">
+            {pendingQuestions.map((question, questionIndex) => {
+              const isActiveStep = questionIndex === normalizedQuestionIndex;
+              const isVisitedStep = isActiveStep || visitedQuestionIndexes.includes(questionIndex);
+              return (
+                <button
+                  key={`${pendingQuestion.question_id}-step-${questionIndex}`}
+                  type="button"
+                  onClick={() => handleSelectQuestionStep(questionIndex)}
+                  disabled={answeringQuestion || !isVisitedStep}
+                  title={`${questionIndex + 1}. ${question.header || `问题 ${questionIndex + 1}`}`}
+                  aria-label={`${questionIndex + 1}. ${question.header || `问题 ${questionIndex + 1}`}`}
+                  className="h-[3px] flex-1 rounded-full transition-all disabled:cursor-not-allowed"
+                  style={{
+                    background: isActiveStep
+                      ? "var(--color-accent)"
+                      : isVisitedStep
+                        ? "var(--color-accent-soft)"
+                        : "oklch(0.30 0.012 265 / 0.4)",
+                    boxShadow: isActiveStep
+                      ? "0 0 8px var(--color-accent-glow)"
+                      : "none",
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
 
         {currentQuestion && (
           <section
-            className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-amber-300/20 bg-white/[0.03] p-3 pr-2"
+            className="min-h-0 flex-1 overflow-y-auto pr-1"
             data-testid="pending-question-scroll-area"
           >
-            <div className="mb-2 flex items-center gap-2">
-              {currentQuestion.header && (
-                <span className="rounded-full bg-amber-300/15 px-2 py-0.5 text-[11px] text-amber-200">
-                  {currentQuestion.header}
+            {/* Question hero — accent left bar + display-serif text */}
+            <div
+              className="relative pl-3 pr-1"
+              style={{
+                borderLeft: "2px solid var(--color-accent)",
+              }}
+            >
+              <div className="mb-1 flex items-center gap-2">
+                {currentQuestion.header && (
+                  <span
+                    className="text-[10.5px] font-semibold uppercase"
+                    style={{
+                      color: "var(--color-accent-2)",
+                      letterSpacing: "0.12em",
+                    }}
+                  >
+                    {currentQuestion.header}
+                  </span>
+                )}
+                <span
+                  className="text-[10px]"
+                  style={{
+                    color: "var(--color-text-4)",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  {currentQuestion.header ? "· " : ""}
+                  {currentQuestion.multiSelect ? "可多选" : "单选"}
                 </span>
-              )}
-              <span className="text-xs text-slate-400">
-                {currentQuestion.multiSelect ? "可多选" : "单选"}
-              </span>
+              </div>
+              <p
+                className="display-serif text-[14px] font-semibold leading-[1.45]"
+                style={{ color: "var(--color-text)" }}
+              >
+                {currentQuestion.question || "请选择一个选项"}
+              </p>
             </div>
 
-            <p className="mb-3 text-sm leading-6 text-slate-100">
-              {currentQuestion.question || "请选择一个选项"}
-            </p>
-
-            <div className="space-y-2">
+            {/* Options — quiet rows separated by hairlines, not stacked boxes */}
+            <div
+              className="mt-3 overflow-hidden rounded-lg"
+              style={{
+                border: "1px solid var(--color-hairline-soft)",
+                background: "oklch(0.16 0.010 265 / 0.45)",
+              }}
+            >
               {currentQuestionOptions.map((option, optionIndex) => {
                 const checked = currentQuestion.multiSelect
                   ? Array.isArray(currentQuestionAnswer) && currentQuestionAnswer.includes(option.value)
                   : currentQuestionAnswer === option.value;
+                const isLast = optionIndex === currentQuestionOptions.length - 1;
 
                 return (
                   <label
                     key={`${currentQuestionKey}-${optionIndex}`}
-                    className="block cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 transition-colors hover:bg-white/8"
+                    className="relative block cursor-pointer transition-colors"
+                    style={{
+                      borderBottom: isLast
+                        ? "none"
+                        : "1px solid var(--color-hairline-soft)",
+                      background: checked ? "var(--color-accent-dim)" : "transparent",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!checked)
+                        e.currentTarget.style.background = "oklch(1 0 0 / 0.03)";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!checked) e.currentTarget.style.background = "transparent";
+                    }}
                   >
-                    <div className="flex items-start gap-2">
+                    {/* Selected state: tiny accent left rail */}
+                    {checked && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 w-[2px]"
+                        style={{
+                          background: "var(--color-accent)",
+                          boxShadow: "0 0 8px var(--color-accent-glow)",
+                        }}
+                      />
+                    )}
+
+                    <div className="flex items-start gap-2.5 px-3 py-2">
+                      {/* Custom indicator — replaces native radio/checkbox visuals */}
+                      <span
+                        className="mt-[3px] grid h-[14px] w-[14px] shrink-0 place-items-center"
+                        style={{
+                          borderRadius: currentQuestion.multiSelect ? "3px" : "9999px",
+                          border: `1.5px solid ${checked ? "var(--color-accent)" : "var(--color-hairline-strong)"}`,
+                          background: checked
+                            ? "var(--color-accent)"
+                            : "transparent",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {checked && (
+                          <span
+                            className="block"
+                            style={{
+                              width: currentQuestion.multiSelect ? "8px" : "5px",
+                              height: currentQuestion.multiSelect ? "8px" : "5px",
+                              borderRadius: currentQuestion.multiSelect ? "1px" : "9999px",
+                              background: "oklch(0.14 0 0)",
+                            }}
+                          />
+                        )}
+                      </span>
+
                       <input
                         type={currentQuestion.multiSelect ? "checkbox" : "radio"}
                         name={`assistant-question-${pendingQuestion.question_id}-${currentQuestionKey}`}
@@ -232,12 +369,21 @@ export function PendingQuestionWizard({
                           }
                           setSingleQuestionAnswer(currentQuestionKey, option.value);
                         }}
-                        className="mt-1"
+                        className="sr-only"
                       />
-                      <div className="min-w-0">
-                        <div className="text-sm text-slate-100">{option.label}</div>
+
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className="text-[12.5px] font-medium leading-[1.4]"
+                          style={{ color: checked ? "var(--color-text)" : "var(--color-text-2)" }}
+                        >
+                          {option.label}
+                        </div>
                         {option.description && (
-                          <div className="mt-1 text-xs leading-5 text-slate-400">
+                          <div
+                            className="mt-0.5 text-[11px] leading-[1.5]"
+                            style={{ color: "var(--color-text-3)" }}
+                          >
                             {option.description}
                           </div>
                         )}
@@ -248,24 +394,64 @@ export function PendingQuestionWizard({
               })}
             </div>
 
-            {isOtherSelected(currentQuestion, currentQuestionAnswer) && (
-              <div className="mt-3">
-                <input
-                  type="text"
-                  value={currentQuestionCustomAnswer}
-                  onChange={(event) => setCustomQuestionAnswer(currentQuestionKey, event.target.value)}
-                  placeholder="请输入其他内容"
-                  disabled={answeringQuestion}
-                  className="w-full rounded-lg border border-amber-300/30 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition-colors focus:border-amber-300/60"
-                />
-              </div>
-            )}
           </section>
         )}
 
-        <div className="shrink-0 space-y-3">
+        {/* Other-input — anchored above the action bar; textarea grows upward
+         * as the user types (max 160px, then internal scroll). Sits outside the
+         * scrollable section so it stays visible while options scroll. */}
+        {currentQuestion && isOtherSelected(currentQuestion, currentQuestionAnswer) && (
+          <div className="shrink-0">
+            <div
+              className="mb-1 flex items-center gap-1.5 text-[10px] uppercase"
+              style={{
+                color: "var(--color-accent-2)",
+                letterSpacing: "0.14em",
+              }}
+            >
+              <span
+                className="inline-block h-[2px] w-3 rounded-full"
+                style={{ background: "var(--color-accent)" }}
+              />
+              自行输入
+            </div>
+            <textarea
+              ref={otherTextareaRef}
+              value={currentQuestionCustomAnswer}
+              onChange={(event) => {
+                setCustomQuestionAnswer(currentQuestionKey, event.target.value);
+                const el = event.currentTarget;
+                el.style.height = "auto";
+                const next = Math.min(el.scrollHeight, OTHER_TEXTAREA_MAX_PX);
+                el.style.height = `${next}px`;
+                el.style.overflowY =
+                  el.scrollHeight > OTHER_TEXTAREA_MAX_PX ? "auto" : "hidden";
+              }}
+              placeholder="请输入其他内容"
+              disabled={answeringQuestion}
+              rows={2}
+              className="w-full resize-none rounded-md px-3 py-2 text-[12.5px] leading-[1.55] outline-none transition-colors focus-ring"
+              style={{
+                border: "1px solid var(--color-accent-soft)",
+                background: "oklch(0.16 0.010 265 / 0.7)",
+                color: "var(--color-text)",
+                maxHeight: `${OTHER_TEXTAREA_MAX_PX}px`,
+                overflowY: "hidden",
+              }}
+            />
+          </div>
+        )}
+
+        <div className="shrink-0 space-y-2">
           {error && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            <div
+              className="rounded-md px-2.5 py-1.5 text-[11.5px]"
+              style={{
+                border: "1px solid oklch(0.70 0.18 25 / 0.3)",
+                background: "oklch(0.70 0.18 25 / 0.12)",
+                color: "oklch(0.85 0.10 25)",
+              }}
+            >
               {error}
             </div>
           )}
@@ -275,27 +461,54 @@ export function PendingQuestionWizard({
               type="button"
               onClick={handlePreviousQuestion}
               disabled={answeringQuestion || isFirstQuestion}
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+              className="text-[12px] transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-30"
+              style={{
+                color: "var(--color-text-3)",
+                letterSpacing: "0.04em",
+              }}
+              onMouseEnter={(e) => {
+                if (!isFirstQuestion && !answeringQuestion)
+                  e.currentTarget.style.color = "var(--color-text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--color-text-3)";
+              }}
             >
-              上一步
+              ← 上一步
             </button>
 
             {isLastQuestion ? (
               <button
                 type="submit"
                 disabled={answeringQuestion || !allQuestionsReady}
-                className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-medium text-gray-950 transition-colors hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-amber-300/40 disabled:text-gray-300"
+                className="rounded-lg px-4 py-2 text-[12.5px] font-semibold transition-all focus-ring disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  color: "oklch(0.14 0 0)",
+                  background:
+                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                  boxShadow:
+                    "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                  letterSpacing: "0.04em",
+                }}
               >
-                {answeringQuestion ? "提交中..." : "完成并提交"}
+                {answeringQuestion ? "提交中…" : "完成并提交 →"}
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleNextQuestion}
                 disabled={answeringQuestion || !currentQuestionReady}
-                className="rounded-lg bg-white/10 px-3 py-2 text-sm font-medium text-slate-100 transition-colors hover:bg-white/15 disabled:cursor-not-allowed disabled:bg-white/5 disabled:text-slate-500"
+                className="rounded-lg px-4 py-2 text-[12.5px] font-semibold transition-all focus-ring disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  color: "oklch(0.14 0 0)",
+                  background:
+                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                  boxShadow:
+                    "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                  letterSpacing: "0.04em",
+                }}
               >
-                下一题
+                下一题 →
               </button>
             )}
           </div>

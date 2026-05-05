@@ -35,18 +35,44 @@ export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = messageType === "user";
   const isSystem = messageType === "system";
 
-  const containerClass = isUser
-    ? "ml-4 bg-neon-500/15 border-neon-400/25"
+  const containerStyle: React.CSSProperties = isUser
+    ? {
+        marginLeft: "auto",
+        maxWidth: "85%",
+        background:
+          "linear-gradient(180deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.06))",
+        border: "1px solid var(--color-accent-soft)",
+      }
     : isSystem
-      ? "bg-slate-800/30 border-slate-600/20"
-      : "bg-white/5 border-white/10";
+      ? {
+          background: "oklch(0.22 0.011 265 / 0.5)",
+          border: "1px solid var(--color-hairline-soft)",
+        }
+      : {
+          background: "oklch(0.21 0.012 265 / 0.5)",
+          border: "1px solid var(--color-hairline-soft)",
+        };
+
+  const labelStyle: React.CSSProperties = {
+    color: isUser ? "var(--color-accent-2)" : "var(--color-text-4)",
+    letterSpacing: "0.06em",
+  };
 
   return (
-    <article className={cn("rounded-xl px-3 py-2 border min-w-0", containerClass)}>
-      <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">
+    <article
+      className={cn("rounded-xl px-2.5 py-1.5 min-w-0")}
+      style={containerStyle}
+    >
+      <div
+        className="mb-1 text-[10px] font-semibold uppercase"
+        style={labelStyle}
+      >
         {getRoleLabel(messageType)}
       </div>
-      <div className="text-sm text-slate-100 leading-6 min-w-0 overflow-hidden">
+      <div
+        className="min-w-0 overflow-hidden text-[12.5px] leading-[1.55]"
+        style={{ color: "var(--color-text)" }}
+      >
         {blocks.map((block, index) => (
           <ContentBlockRenderer
             key={block.id ?? index}

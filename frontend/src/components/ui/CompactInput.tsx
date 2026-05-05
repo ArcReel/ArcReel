@@ -16,13 +16,25 @@ export function CompactInput({
 }: CompactInputProps) {
   return (
     <div className={`flex items-center gap-2 ${className ?? ""}`}>
-      <span className="shrink-0 text-[11px] text-gray-500">{label}</span>
+      <span
+        className="shrink-0 text-[11px]"
+        style={{ color: "var(--color-text-4)" }}
+      >
+        {label}
+      </span>
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="min-w-0 flex-1 rounded bg-gray-800 border border-gray-700 px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring"
+        className="focus-ring min-w-0 flex-1 rounded-md px-2 py-1 text-xs outline-none"
+        style={{
+          background:
+            "linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4))",
+          border: "1px solid var(--color-hairline-soft)",
+          color: "var(--color-text)",
+          boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
+        }}
       />
     </div>
   );

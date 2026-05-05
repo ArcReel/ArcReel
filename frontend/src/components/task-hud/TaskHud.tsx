@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { activateOnEnterSpace } from "@/utils/a11y";
 import { voidPromise } from "@/utils/async";
 import { motion, AnimatePresence } from "framer-motion";
-import { Image, Video, Check, X, Loader2, ChevronDown } from "lucide-react";
+import { Image, Video, Check, X, Loader2, ChevronDown, Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useAppStore } from "@/stores/app-store";
@@ -12,33 +12,70 @@ import type { TaskItem } from "@/types";
 import { Popover } from "@/components/ui/Popover";
 
 // ---------------------------------------------------------------------------
-// Task status icon — visual indicator per task state
+// Theme tokens — v3 cool oklch + accent purple
+// ---------------------------------------------------------------------------
+
+const PANEL_BG =
+  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
+
+const STATUS_COLORS: Record<TaskItem["status"], string> = {
+  running: "var(--color-accent-2)",
+  queued: "var(--color-text-4)",
+  succeeded: "var(--color-good)",
+  failed: "oklch(0.72 0.18 25)",
+  cancelled: "var(--color-text-3)",
+};
+
+// ---------------------------------------------------------------------------
+// Task status icon
 // ---------------------------------------------------------------------------
 
 function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
   switch (status) {
     case "running":
-      return <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" />;
+      return (
+        <Loader2
+          className="h-3.5 w-3.5 animate-spin"
+          style={{ color: STATUS_COLORS.running }}
+        />
+      );
     case "queued":
-      return <div className="h-2 w-2 rounded-full bg-gray-500" />;
+      return (
+        <span
+          aria-hidden
+          className="h-2 w-2 rounded-full"
+          style={{
+            background: STATUS_COLORS.queued,
+            boxShadow: "0 0 4px oklch(1 0 0 / 0.1)",
+          }}
+        />
+      );
     case "succeeded":
-      return <Check className="h-3.5 w-3.5 text-emerald-400" />;
+      return <Check className="h-3.5 w-3.5" style={{ color: STATUS_COLORS.succeeded }} />;
     case "failed":
-      return <X className="h-3.5 w-3.5 text-red-400" />;
+      return <X className="h-3.5 w-3.5" style={{ color: STATUS_COLORS.failed }} />;
     case "cancelled":
-      return <X className="h-3.5 w-3.5 text-gray-400" />;
+      return <X className="h-3.5 w-3.5" style={{ color: STATUS_COLORS.cancelled }} />;
   }
 }
 
 // ---------------------------------------------------------------------------
-// RunningProgressBar — 运行中任务的动态进度条
+// RunningProgressBar
 // ---------------------------------------------------------------------------
 
 function RunningProgressBar() {
   return (
-    <div className="relative mt-1 h-0.5 w-full overflow-hidden rounded-full bg-gray-800">
+    <div
+      className="relative mt-1 h-0.5 w-full overflow-hidden rounded-full"
+      style={{ background: "oklch(0.16 0.010 265 / 0.7)" }}
+    >
       <motion.div
-        className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-indigo-500"
+        className="absolute inset-y-0 left-0 w-1/3 rounded-full"
+        style={{
+          background:
+            "linear-gradient(90deg, var(--color-accent-soft), var(--color-accent), var(--color-accent-soft))",
+          boxShadow: "0 0 6px var(--color-accent-glow)",
+        }}
         animate={{ x: ["0%", "200%"] }}
         transition={{
           duration: 1.5,
@@ -51,7 +88,7 @@ function RunningProgressBar() {
 }
 
 // ---------------------------------------------------------------------------
-// TaskRow — 单个任务条目（含完成高亮、失败展开、运行进度条）
+// TaskRow
 // ---------------------------------------------------------------------------
 
 function TaskRow({
@@ -76,21 +113,12 @@ function TaskRow({
     cancelled: t("cancelled_status"),
   };
 
-  const statusColor: Record<TaskItem["status"], string> = {
-    running: "text-indigo-400",
-    queued: "text-gray-500",
-    succeeded: "text-emerald-400",
-    failed: "text-red-400",
-    cancelled: "text-gray-400",
-  };
-
-  // 根据状态确定行背景样式
   const rowBg =
     task.status === "failed"
-      ? "bg-red-500/10"
+      ? "oklch(0.30 0.10 25 / 0.18)"
       : task.status === "succeeded" && !isFading
-        ? "bg-emerald-500/10"
-        : "";
+        ? "oklch(0.30 0.10 155 / 0.12)"
+        : "transparent";
 
   const isErrorExpanded = expandedErrorId === task.task_id;
   const hasError = task.status === "failed" && task.error_message;
@@ -107,31 +135,59 @@ function TaskRow({
       transition={{ duration: isFading ? 0.4 : 0.2 }}
       className="overflow-hidden"
     >
-      {/* 主行内容 */}
       <div
-        className={`flex items-center gap-2 px-3 py-1.5 text-sm ${rowBg} ${
-          hasError ? "cursor-pointer hover:bg-red-500/15" : ""
+        className={`flex items-center gap-2 px-3 py-1.5 text-[12px] ${
+          hasError ? "cursor-pointer" : ""
         }`}
+        style={{ background: rowBg, transition: "background-color .12s ease" }}
         role={hasError ? "button" : undefined}
         tabIndex={hasError ? 0 : undefined}
         onClick={hasError ? () => onToggleError(task.task_id) : undefined}
         onKeyDown={hasError ? activateOnEnterSpace(() => onToggleError(task.task_id)) : undefined}
+        onMouseEnter={(e) => {
+          if (hasError)
+            e.currentTarget.style.background = "oklch(0.30 0.10 25 / 0.28)";
+        }}
+        onMouseLeave={(e) => {
+          if (hasError) e.currentTarget.style.background = rowBg;
+        }}
       >
         <TaskStatusIcon status={task.status} />
-        <span className="font-mono text-xs text-gray-400">
+        <span
+          className="num text-[10.5px]"
+          style={{ color: "var(--color-text-3)" }}
+        >
           {task.resource_id}
         </span>
-        <span className="flex-1 truncate text-gray-300">{task.task_type}</span>
-        <span className={`text-xs ${statusColor[task.status]}`}>
+        <span
+          className="flex-1 truncate"
+          style={{ color: "var(--color-text-2)" }}
+        >
+          {task.task_type}
+        </span>
+        <span
+          className="text-[10.5px]"
+          style={{ color: STATUS_COLORS[task.status] }}
+        >
           {statusLabel[task.status]}
         </span>
         {task.status === "queued" && onCancel && (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onCancel(task.task_id);
             }}
-            className="ml-1 rounded px-1 py-0.5 text-xs text-gray-500 hover:bg-gray-700 hover:text-gray-300"
+            className="focus-ring ml-1 rounded px-1 py-0.5 text-[10.5px] transition-colors"
+            style={{ color: "var(--color-text-4)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "oklch(0.72 0.18 25)";
+              e.currentTarget.style.background = "oklch(0.30 0.10 25 / 0.18)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-4)";
+              e.currentTarget.style.background = "transparent";
+            }}
             title={t("cancel_task")}
             aria-label={t("cancel_this_task")}
           >
@@ -139,25 +195,27 @@ function TaskRow({
           </button>
         )}
         {task.status === "cancelled" && task.cancelled_by === "cascade" && (
-          <span className="ml-1 text-xs text-gray-500">{t("cascade_label")}</span>
+          <span
+            className="ml-1 text-[10.5px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
+            {t("cascade_label")}
+          </span>
         )}
         {hasError && (
           <ChevronDown
-            className={`h-3 w-3 text-gray-500 transition-transform ${
-              isErrorExpanded ? "rotate-180" : ""
-            }`}
+            className={`h-3 w-3 transition-transform ${isErrorExpanded ? "rotate-180" : ""}`}
+            style={{ color: "var(--color-text-4)" }}
           />
         )}
       </div>
 
-      {/* 运行中任务的进度条 */}
       {task.status === "running" && (
         <div className="px-3 pb-1">
           <RunningProgressBar />
         </div>
       )}
 
-      {/* 失败任务的错误详情展开区域 */}
       <AnimatePresence>
         {hasError && isErrorExpanded && (
           <motion.div
@@ -167,7 +225,14 @@ function TaskRow({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className="mx-3 mb-1.5 rounded bg-red-500/5 px-2 py-1.5 text-xs text-red-300/80">
+            <div
+              className="mx-3 mb-1.5 rounded px-2 py-1.5 text-[10.5px]"
+              style={{
+                background: "oklch(0.30 0.10 25 / 0.10)",
+                color: "oklch(0.85 0.10 25)",
+                border: "1px solid oklch(0.45 0.18 25 / 0.30)",
+              }}
+            >
               {task.error_message}
             </div>
           </motion.div>
@@ -178,7 +243,7 @@ function TaskRow({
 }
 
 // ---------------------------------------------------------------------------
-// ChannelSection — 按图片/视频通道分组，含自动淡出逻辑
+// ChannelSection
 // ---------------------------------------------------------------------------
 
 function ChannelSection({
@@ -188,42 +253,34 @@ function ChannelSection({
   onCancel,
 }: {
   title: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   tasks: TaskItem[];
   onCancel?: (taskId: string) => void;
 }) {
   const { t } = useTranslation("dashboard");
-  // 跟踪正在淡出的任务 ID
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
-  // 跟踪已完全淡出（应隐藏）的任务 ID
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  // 保存定时器引用以便清理
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-
-  // 失败任务错误详情展开状态
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
 
   const toggleError = useCallback((taskId: string) => {
     setExpandedErrorId((prev) => (prev === taskId ? null : taskId));
   }, []);
 
-  // 监听任务状态变化，为 succeeded/cancelled 任务设置自动淡出
   useEffect(() => {
     const autoFadeTasks = tasks.filter(
-      (t) =>
-        (t.status === "succeeded" || t.status === "cancelled") &&
-        !fadingIds.has(t.task_id) &&
-        !hiddenIds.has(t.task_id),
+      (task) =>
+        (task.status === "succeeded" || task.status === "cancelled") &&
+        !fadingIds.has(task.task_id) &&
+        !hiddenIds.has(task.task_id),
     );
 
     for (const task of autoFadeTasks) {
       if (timersRef.current.has(task.task_id)) continue;
 
-      // 3 秒后开始淡出动画
       const fadeTimer = setTimeout(() => {
         setFadingIds((prev) => new Set(prev).add(task.task_id));
 
-        // 淡出动画完成后（400ms）标记为隐藏
         const hideTimer = setTimeout(() => {
           setHiddenIds((prev) => new Set(prev).add(task.task_id));
           timersRef.current.delete(task.task_id);
@@ -237,29 +294,49 @@ function ChannelSection({
 
     const timers = timersRef.current;
     return () => {
-      // 组件卸载时清理所有定时器
       for (const timer of timers.values()) {
         clearTimeout(timer);
       }
     };
   }, [tasks, fadingIds, hiddenIds]);
 
-  const running = tasks.filter((t) => t.status === "running");
-  const queued = tasks.filter((t) => t.status === "queued");
+  const running = tasks.filter((task) => task.status === "running");
+  const queued = tasks.filter((task) => task.status === "queued");
   const recent = tasks
-    .filter((t) => t.status === "succeeded" || t.status === "failed" || t.status === "cancelled")
-    .filter((t) => !hiddenIds.has(t.task_id))
+    .filter(
+      (task) =>
+        task.status === "succeeded" ||
+        task.status === "failed" ||
+        task.status === "cancelled",
+    )
+    .filter((task) => !hiddenIds.has(task.task_id))
     .slice(0, 5);
 
   const visible = [...running, ...queued, ...recent];
 
   return (
     <div>
-      <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-400">
-        <Icon className="h-3.5 w-3.5" />
+      <div
+        className="flex items-center gap-2 px-3 py-2 text-[10.5px] font-bold uppercase"
+        style={{
+          color: "var(--color-text-4)",
+          letterSpacing: "0.8px",
+          background: "oklch(0.18 0.010 265 / 0.6)",
+        }}
+      >
+        <Icon className="h-3.5 w-3.5" style={{ color: "var(--color-text-3)" }} />
         {title}
         {running.length > 0 && (
-          <span className="ml-auto text-indigo-400">
+          <span
+            className="num ml-auto rounded px-1.5 py-px text-[10px]"
+            style={{
+              color: "var(--color-accent-2)",
+              background: "var(--color-accent-dim)",
+              border: "1px solid var(--color-accent-soft)",
+              letterSpacing: 0,
+              textTransform: "none",
+            }}
+          >
             {t("running_count", { count: running.length })}
           </span>
         )}
@@ -277,14 +354,42 @@ function ChannelSection({
         ))}
       </AnimatePresence>
       {visible.length === 0 && (
-        <div className="px-3 py-2 text-xs text-gray-600">{t("no_tasks")}</div>
+        <div
+          className="px-3 py-2 text-[11px] italic"
+          style={{ color: "var(--color-text-4)" }}
+        >
+          {t("no_tasks")}
+        </div>
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// TaskHud — 弹出面板，实时展示任务队列状态
+// Stat pill
+// ---------------------------------------------------------------------------
+
+function StatPill({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span style={{ color: "var(--color-text-4)" }}>{label}</span>
+      <span className="num" style={{ color, fontWeight: 600 }}>
+        {value}
+      </span>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TaskHud
 // ---------------------------------------------------------------------------
 
 export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
@@ -294,11 +399,13 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
 
   const [cancelConfirm, setCancelConfirm] = useState<{
     taskId?: string;
-    preview?: { task: { task_id: string; task_type: string; resource_id: string }; cascaded: { task_id: string; task_type: string; resource_id: string }[] };
+    preview?: {
+      task: { task_id: string; task_type: string; resource_id: string };
+      cascaded: { task_id: string; task_type: string; resource_id: string }[];
+    };
     allCount?: number;
     projectName?: string;
   } | null>(null);
-
   const [cancelling, setCancelling] = useState(false);
 
   const handleCancelSingle = useCallback(async (taskId: string) => {
@@ -311,7 +418,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
   }, []);
 
   const handleCancelAll = useCallback(async () => {
-    const queuedTask = tasks.find((t) => t.status === "queued");
+    const queuedTask = tasks.find((task) => task.status === "queued");
     if (!queuedTask) return;
     const projectName = queuedTask.project_name;
     try {
@@ -339,100 +446,223 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
 
   useEscapeClose(() => setCancelConfirm(null), Boolean(cancelConfirm));
 
-  const imageTasks = tasks.filter((t) => t.media_type === "image");
-  const videoTasks = tasks.filter((t) => t.media_type === "video");
+  const imageTasks = tasks.filter((task) => task.media_type === "image");
+  const videoTasks = tasks.filter((task) => task.media_type === "video");
 
   return (
     <Popover
       open={taskHudOpen}
       onClose={() => setTaskHudOpen(false)}
       anchorRef={anchorRef}
-      sideOffset={4}
-      width="w-80"
-      className="rounded-lg border border-gray-800 shadow-xl"
+      sideOffset={6}
+      width="w-[22rem]"
+      backgroundColor="transparent"
+      className="overflow-hidden rounded-xl"
+      style={{
+        background: PANEL_BG,
+        border: "1px solid var(--color-hairline)",
+        backdropFilter: "blur(14px)",
+        WebkitBackdropFilter: "blur(14px)",
+        boxShadow:
+          "0 24px 60px -12px oklch(0 0 0 / 0.55), inset 0 1px 0 oklch(1 0 0 / 0.05)",
+      }}
     >
       <motion.div
-        initial={{ opacity: 0, y: -8 }}
+        initial={{ opacity: 0, y: -6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.15 }}
       >
-        {/* 统计栏 */}
-          <div className="flex gap-3 border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
-            <span>
-              {t("queued_label")}{" "}
-              <strong className="text-gray-200">{stats.queued}</strong>
-            </span>
-            <span>
-              {t("running_label")}{" "}
-              <strong className="text-indigo-400">{stats.running}</strong>
-            </span>
-            <span>
-              {t("completed_label")}{" "}
-              <strong className="text-emerald-400">{stats.succeeded}</strong>
-            </span>
-            <span>
-              {t("failed_label")}{" "}
-              <strong className="text-red-400">{stats.failed}</strong>
-            </span>
-            {stats.cancelled > 0 && (
-              <span>
-                {t("cancelled_label")}{" "}
-                <strong className="text-gray-400">{stats.cancelled}</strong>
-              </span>
-            )}
-            {stats.queued > 0 && (
-              <button
-                onClick={voidPromise(handleCancelAll)}
-                className="ml-auto text-xs text-gray-500 hover:text-red-400"
-                aria-label={t("cancel_all_queued_aria")}
-              >
-                {t("cancel_all")}
-              </button>
-            )}
+        {/* Header */}
+        <div
+          className="relative flex items-center gap-2 px-4 py-3"
+          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-px"
+            style={{
+              background:
+                "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+            }}
+          />
+          <span
+            aria-hidden
+            className="grid h-7 w-7 place-items-center rounded-lg"
+            style={{
+              background:
+                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid var(--color-accent-soft)",
+              color: "var(--color-accent-2)",
+              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+            }}
+          >
+            <Activity className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <div
+              className="display-serif text-[14px] font-semibold tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
+              {t("task_hud_title")}
+            </div>
+            <div
+              className="num text-[10px] uppercase"
+              style={{
+                color: "var(--color-text-4)",
+                letterSpacing: "1.2px",
+              }}
+            >
+              QUEUE · WORKER STATUS
+            </div>
           </div>
+        </div>
 
-          {/* 双通道 */}
-          <div className="max-h-80 divide-y divide-gray-800/50 overflow-y-auto">
-            <ChannelSection title={t("image_channel")} icon={Image} tasks={imageTasks} onCancel={voidPromise(handleCancelSingle)} />
-            <ChannelSection title={t("video_channel")} icon={Video} tasks={videoTasks} onCancel={voidPromise(handleCancelSingle)} />
-          </div>
+        {/* Stats bar */}
+        <div
+          className="flex items-center gap-3 px-4 py-2 text-[11px]"
+          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        >
+          <StatPill
+            label={t("queued_label")}
+            value={stats.queued}
+            color="var(--color-text)"
+          />
+          <StatPill
+            label={t("running_label")}
+            value={stats.running}
+            color={STATUS_COLORS.running}
+          />
+          <StatPill
+            label={t("completed_label")}
+            value={stats.succeeded}
+            color={STATUS_COLORS.succeeded}
+          />
+          <StatPill
+            label={t("failed_label")}
+            value={stats.failed}
+            color={STATUS_COLORS.failed}
+          />
+          {stats.cancelled > 0 && (
+            <StatPill
+              label={t("cancelled_label")}
+              value={stats.cancelled}
+              color={STATUS_COLORS.cancelled}
+            />
+          )}
+          {stats.queued > 0 && (
+            <button
+              type="button"
+              onClick={voidPromise(handleCancelAll)}
+              className="focus-ring ml-auto rounded px-1.5 py-0.5 text-[10.5px] transition-colors"
+              style={{ color: "var(--color-text-4)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "oklch(0.72 0.18 25)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--color-text-4)";
+              }}
+              aria-label={t("cancel_all_queued_aria")}
+            >
+              {t("cancel_all")}
+            </button>
+          )}
+        </div>
 
-          {/* 取消确认面板 */}
-          {cancelConfirm && (
-            <div className="border-t border-gray-800 px-3 py-2" role="alertdialog" aria-label={t("cancel_confirm_aria")}>
-              <p className="text-xs text-gray-300">
-                {cancelConfirm.preview
-                  ? cancelConfirm.preview.cascaded.length > 0
-                    ? t("cancel_cascade_msg", { count: cancelConfirm.preview.cascaded.length })
-                    : t("cancel_single_confirm")
-                  : t("cancel_all_confirm", { count: cancelConfirm.allCount })}
-              </p>
-              {cancelConfirm.preview && cancelConfirm.preview.cascaded.length > 0 && (
-                <ul className="mt-1 max-h-20 overflow-y-auto text-xs text-gray-500">
-                  {cancelConfirm.preview.cascaded.map((t) => (
-                    <li key={t.task_id}>
-                      {t.task_type} / {t.resource_id}
+        {/* Channels */}
+        <div
+          className="max-h-80 overflow-y-auto"
+          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        >
+          <ChannelSection
+            title={t("image_channel")}
+            icon={Image}
+            tasks={imageTasks}
+            onCancel={voidPromise(handleCancelSingle)}
+          />
+          <div
+            className="h-px"
+            style={{ background: "var(--color-hairline-soft)" }}
+          />
+          <ChannelSection
+            title={t("video_channel")}
+            icon={Video}
+            tasks={videoTasks}
+            onCancel={voidPromise(handleCancelSingle)}
+          />
+        </div>
+
+        {/* Cancel confirmation */}
+        {cancelConfirm && (
+          <div
+            className="px-4 py-3"
+            role="alertdialog"
+            aria-label={t("cancel_confirm_aria")}
+            style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
+          >
+            <p
+              className="text-[12px]"
+              style={{ color: "var(--color-text-2)" }}
+            >
+              {cancelConfirm.preview
+                ? cancelConfirm.preview.cascaded.length > 0
+                  ? t("cancel_cascade_msg", {
+                      count: cancelConfirm.preview.cascaded.length,
+                    })
+                  : t("cancel_single_confirm")
+                : t("cancel_all_confirm", { count: cancelConfirm.allCount })}
+            </p>
+            {cancelConfirm.preview &&
+              cancelConfirm.preview.cascaded.length > 0 && (
+                <ul
+                  className="num mt-1.5 max-h-20 overflow-y-auto text-[10.5px]"
+                  style={{ color: "var(--color-text-4)" }}
+                >
+                  {cancelConfirm.preview.cascaded.map((task) => (
+                    <li key={task.task_id}>
+                      {task.task_type} / {task.resource_id}
                     </li>
                   ))}
                 </ul>
               )}
-              <div className="mt-2 flex gap-2">
-                <button
-                  onClick={voidPromise(confirmCancel)}
-                  disabled={cancelling}
-                  className="rounded bg-red-600/80 px-2 py-0.5 text-xs text-white hover:bg-red-600 disabled:opacity-50"
-                >
-                  {cancelling ? t("cancelling") : t("confirm_cancel")}
-                </button>
-                <button
-                  onClick={() => setCancelConfirm(null)}
-                  className="rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700"
-                >
-                  {t("go_back")}
-                </button>
-              </div>
+            <div className="mt-2.5 flex gap-2">
+              <button
+                type="button"
+                onClick={voidPromise(confirmCancel)}
+                disabled={cancelling}
+                className="focus-ring rounded px-2.5 py-1 text-[11px] font-medium transition-transform disabled:opacity-50"
+                style={{
+                  color: "oklch(0.98 0 0)",
+                  background:
+                    "linear-gradient(135deg, oklch(0.55 0.20 25), oklch(0.45 0.18 25))",
+                  boxShadow:
+                    "inset 0 1px 0 oklch(1 0 0 / 0.18), 0 4px 14px -4px oklch(0.40 0.18 25 / 0.5)",
+                }}
+              >
+                {cancelling ? t("cancelling") : t("confirm_cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCancelConfirm(null)}
+                className="focus-ring rounded px-2.5 py-1 text-[11px] transition-colors"
+                style={{
+                  color: "var(--color-text-3)",
+                  border: "1px solid var(--color-hairline)",
+                  background: "oklch(0.22 0.011 265 / 0.5)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--color-text)";
+                  e.currentTarget.style.background = "oklch(0.26 0.013 265 / 0.7)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--color-text-3)";
+                  e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
+                }}
+              >
+                {t("go_back")}
+              </button>
             </div>
-          )}
+          </div>
+        )}
       </motion.div>
     </Popover>
   );

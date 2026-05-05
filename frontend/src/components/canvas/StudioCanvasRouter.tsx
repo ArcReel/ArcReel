@@ -8,6 +8,7 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
+import { SourceFilesPage } from "./SourceFilesPage";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
@@ -403,6 +404,10 @@ export function StudioCanvasRouter() {
         <Redirect to="/scenes" />
       </Route>
 
+      <Route path="/source">
+        <SourceFilesPage projectName={currentProjectName} />
+      </Route>
+
       <Route path="/characters">
         <CharactersPage
           projectName={currentProjectName}
@@ -489,7 +494,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={voidPromise(handleUpdatePrompt)}
+                    onUpdatePrompt={handleUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
                     onGenerateGrid={voidPromise(handleGenerateGrid)}
