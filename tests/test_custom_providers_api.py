@@ -1469,3 +1469,87 @@ class TestGetProviderCredentials:
     def test_returns_404_for_unknown_provider(self, client: TestClient):
         resp = client.get("/api/v1/custom-providers/99999/credentials")
         assert resp.status_code == 404
+
+
+class TestSupportedDurationsAutoFill:
+    """video endpoint 模型创建时若未传 supported_durations，应由预设表自动填充。"""
+
+    def test_create_video_model_without_durations_autofills(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "test-cp",
+                "discovery_format": "openai",
+                "base_url": "https://example.com/v1",
+                "api_key": "sk-test",
+                "models": [
+                    {
+                        "model_id": "sora-2-pro",
+                        "display_name": "Sora 2 Pro",
+                        "endpoint": "openai-video",
+                        "is_default": True,
+                        "is_enabled": True,
+                        # 注意：不传 supported_durations
+                    }
+                ],
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        provider_id = resp.json()["id"]
+
+        resp = client.get(f"/api/v1/custom-providers/{provider_id}")
+        assert resp.status_code == 200
+        model = resp.json()["models"][0]
+        assert model["supported_durations"] == [4, 8, 12]
+
+    def test_create_video_model_user_provided_durations_kept(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "test-cp-2",
+                "discovery_format": "openai",
+                "base_url": "https://example.com/v1",
+                "api_key": "sk-test",
+                "models": [
+                    {
+                        "model_id": "sora-2-pro",
+                        "display_name": "Sora 2 Pro",
+                        "endpoint": "openai-video",
+                        "is_default": True,
+                        "is_enabled": True,
+                        "supported_durations": [6, 10, 12, 16, 20],
+                    }
+                ],
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        provider_id = resp.json()["id"]
+
+        resp = client.get(f"/api/v1/custom-providers/{provider_id}")
+        model = resp.json()["models"][0]
+        assert model["supported_durations"] == [6, 10, 12, 16, 20]
+
+    def test_text_endpoint_does_not_get_durations(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "test-cp-3",
+                "discovery_format": "openai",
+                "base_url": "https://example.com/v1",
+                "api_key": "sk-test",
+                "models": [
+                    {
+                        "model_id": "gpt-4o",
+                        "display_name": "GPT 4o",
+                        "endpoint": "openai-chat",
+                        "is_default": True,
+                        "is_enabled": True,
+                    }
+                ],
+            },
+        )
+        assert resp.status_code == 201
+        provider_id = resp.json()["id"]
+        resp = client.get(f"/api/v1/custom-providers/{provider_id}")
+        model = resp.json()["models"][0]
+        assert model["supported_durations"] is None

@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { ImageIcon, Film, Clock, Edit3 } from "lucide-react";
 import { API } from "@/api";
-import { DEFAULT_DURATIONS } from "@/utils/provider-models";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AvatarStack } from "@/components/ui/AvatarStack";
 import { ClueStack } from "@/components/ui/ClueStack";
@@ -27,6 +26,7 @@ import {
   isStructuredVideoPrompt,
   mergePromptPatch,
 } from "@/utils/prompt-shape";
+import { isContinuousIntegerRange } from "@/utils/duration_format";
 import type {
   NarrationSegment,
   DramaScene,
@@ -126,7 +126,7 @@ function DurationSelector({
   seconds,
   segmentId,
   onUpdatePrompt,
-  durationOptions = DEFAULT_DURATIONS as number[],
+  durationOptions = [],
 }: {
   seconds: number;
   segmentId: string;
@@ -137,24 +137,53 @@ function DurationSelector({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
 
+  const isIncompatible = durationOptions.length > 0 && !durationOptions.includes(seconds);
+  const incompatibleLabel = t("duration_incompatible_warning", {
+    value: seconds,
+    supported: durationOptions.join(", "),
+  });
+
+  // 只读模式
   if (!onUpdatePrompt) {
     return (
       <span className="inline-flex items-center gap-0.5 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300">
         <Clock aria-hidden="true" className="h-3 w-3" />
-        {seconds}s
+        {t("duration_seconds_value_text", { value: seconds })}
+        {isIncompatible && (
+          <span aria-label={incompatibleLabel} title={incompatibleLabel} className="ml-0.5 text-amber-400">
+            ⚠
+          </span>
+        )}
       </span>
     );
   }
+
+  const useSlider = isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
+  // 当上层未提供任何可选时长（比如 model 没配 supported_durations），按钮不应弹出空 popover
+  const noOptions = durationOptions.length === 0;
 
   return (
     <>
       <button
         ref={ref}
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-600 focus-ring"
+        type="button"
+        onClick={() => !noOptions && setOpen((o) => !o)}
+        disabled={noOptions}
+        aria-disabled={noOptions || undefined}
+        title={noOptions ? t("duration_no_options") : undefined}
+        className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs focus-ring ${
+          noOptions ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-600"
+        } ${
+          isIncompatible ? "bg-amber-900/40 text-amber-200" : "bg-gray-700 text-gray-300"
+        }`}
       >
         <Clock aria-hidden="true" className="h-3 w-3" />
-        {seconds}s
+        {t("duration_seconds_value_text", { value: seconds })}
+        {isIncompatible && (
+          <span aria-label={incompatibleLabel} title={incompatibleLabel} className="ml-0.5">
+            ⚠
+          </span>
+        )}
       </button>
       <Popover
         open={open}
@@ -165,26 +194,45 @@ function DurationSelector({
         align="start"
         sideOffset={6}
       >
-        <div className="flex gap-1" role="radiogroup" aria-label={t("duration_selector_aria")}>
-          {durationOptions.map((d) => (
-            <button
-              key={d}
-              role="radio"
-              aria-checked={d === seconds}
-              onClick={() => {
-                void onUpdatePrompt(segmentId, "duration_seconds", d);
-                setOpen(false);
+        {useSlider ? (
+          <div className="flex items-center gap-2 px-1 py-1">
+            <input
+              type="range"
+              aria-label={t("duration_selector_aria")}
+              aria-valuetext={t("duration_seconds_value_text", { value: seconds })}
+              min={durationOptions[0]}
+              max={durationOptions[durationOptions.length - 1]}
+              step={1}
+              value={seconds}
+              onChange={(e) => {
+                void onUpdatePrompt(segmentId, "duration_seconds", parseInt(e.target.value, 10));
               }}
-              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors focus-ring ${
-                d === seconds
-                  ? "bg-indigo-600 text-white"
-                  : "text-gray-300 hover:bg-gray-700"
-              }`}
-            >
-              {d}s
-            </button>
-          ))}
-        </div>
+              className="w-40"
+            />
+            <span className="min-w-[2rem] text-right text-xs text-gray-200">
+              {t("duration_seconds_value_text", { value: seconds })}
+            </span>
+          </div>
+        ) : (
+          <div className="flex gap-1" role="radiogroup" aria-label={t("duration_selector_aria")}>
+            {durationOptions.map((d) => (
+              <button
+                key={d}
+                role="radio"
+                aria-checked={d === seconds}
+                onClick={() => {
+                  void onUpdatePrompt(segmentId, "duration_seconds", d);
+                  setOpen(false);
+                }}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors focus-ring ${
+                  d === seconds ? "bg-indigo-600 text-white" : "text-gray-300 hover:bg-gray-700"
+                }`}
+              >
+                {t("duration_seconds_value_text", { value: d })}
+              </button>
+            ))}
+          </div>
+        )}
       </Popover>
     </>
   );

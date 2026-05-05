@@ -6,6 +6,7 @@ import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import { formatDurationsLabel } from "@/utils/duration_format";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 // ---------------------------------------------------------------------------
@@ -194,6 +195,13 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
                 {m.is_default && (
                   <span className="rounded bg-indigo-600/30 px-1.5 py-0.5 text-xs text-indigo-300">
                     {t("default_label")}
+                  </span>
+                )}
+                {m.supported_durations && m.supported_durations.length > 0 && (
+                  <span className="text-xs text-gray-500">
+                    {t("supported_durations_summary", {
+                      value: formatDurationsLabel(m.supported_durations),
+                    })}
                   </span>
                 )}
                 {!m.is_enabled && (

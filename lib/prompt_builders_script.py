@@ -24,11 +24,29 @@ def _format_asset_names(assets: dict) -> str:
 
 
 def _format_duration_constraint(supported_durations: list[int], default_duration: int | None) -> str:
-    """根据参数生成时长约束描述。"""
-    durations_str = ", ".join(str(d) for d in supported_durations)
+    """根据参数生成时长约束描述。
+
+    长度 ≥5 且为连续整数集时，输出 "min 到 max 秒间整数任选"；否则按列表逐个列出。
+    """
+    if not supported_durations:
+        raise ValueError("supported_durations 不能为空：调用方必须提供 model 的合法时长列表")
+
+    sorted_d = sorted(set(supported_durations))
+    is_continuous = len(sorted_d) >= 5 and all(sorted_d[i] == sorted_d[i - 1] + 1 for i in range(1, len(sorted_d)))
+    if is_continuous:
+        body = f"{sorted_d[0]} 到 {sorted_d[-1]} 秒间整数任选"
+    else:
+        durations_str = ", ".join(str(d) for d in sorted_d)
+        body = f"从 [{durations_str}] 秒中选择"
+
     if default_duration is not None:
-        return f"时长：从 [{durations_str}] 秒中选择，默认使用 {default_duration} 秒"
-    return f"时长：从 [{durations_str}] 秒中选择，根据内容节奏自行决定"
+        if default_duration not in sorted_d:
+            raise ValueError(
+                f"default_duration={default_duration} 不在 supported_durations={sorted_d} 内，"
+                "调用方必须保证默认值合法（否则 prompt 会自相矛盾）"
+            )
+        return f"时长：{body}，默认使用 {default_duration} 秒"
+    return f"时长：{body}，根据内容节奏自行决定"
 
 
 def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
@@ -48,7 +66,7 @@ def build_narration_prompt(
     scenes: dict,
     props: dict,
     segments_md: str,
-    supported_durations: list[int] | None = None,
+    supported_durations: list[int],
     default_duration: int | None = None,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
@@ -115,7 +133,7 @@ def build_narration_prompt(
 segments 为片段拆分表，每行是一个片段，包含：
 - 片段 ID：格式为 E{{集数}}S{{序号}}
 - 小说原文：必须原样保留到 novel_text 字段
-- {_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
+- {_format_duration_constraint(supported_durations, default_duration)}
 - 是否有对话：用于判断是否需要填写 video_prompt.dialogue
 - 是否为 segment_break：场景切换点，需设置 segment_break 为 true
 
@@ -175,7 +193,7 @@ def build_drama_prompt(
     scenes: dict,
     props: dict,
     scenes_md: str,
-    supported_durations: list[int] | None = None,
+    supported_durations: list[int],
     default_duration: int | None = None,
     aspect_ratio: str = "16:9",
     target_language: str = "中文",
@@ -242,7 +260,7 @@ def build_drama_prompt(
 shots 为分镜拆分表，每行是一个分镜，包含：
 - 分镜 ID：格式为 E{{集数}}S{{序号}}
 - 分镜描述：剧本改编后的分镜内容
-- {_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
+- {_format_duration_constraint(supported_durations, default_duration)}
 - 场景类型：剧情、动作、对话等
 - 是否为 segment_break：场景切换点，需设置 segment_break 为 true
 

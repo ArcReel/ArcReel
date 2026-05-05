@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import { DEFAULT_DURATIONS, lookupSupportedDurations, lookupResolutions } from "@/utils/provider-models";
+import { lookupSupportedDurations, lookupResolutions } from "@/utils/provider-models";
+import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { ImageModelDualSelect } from "./ImageModelDualSelect";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
@@ -93,11 +94,11 @@ export function ModelConfigSection({
   // reflect that model's real supported_durations, not the generic fallback.
   const effectiveVideoBackend = value.videoBackend || globalDefaults.video || "";
 
-  // Compute supported durations based on current effective video backend (pre-sorted)
-  const supportedDurations = useMemo<readonly number[]>(() => {
-    const raw = !effectiveVideoBackend
-      ? DEFAULT_DURATIONS
-      : (lookupSupportedDurations(providers, effectiveVideoBackend, customProviders) ?? DEFAULT_DURATIONS);
+  // 找不到 supported_durations 时返回 null（隐藏整个时长卡片，不再用 [4,6,8] 兜底）
+  const supportedDurations = useMemo<readonly number[] | null>(() => {
+    if (!effectiveVideoBackend) return null;
+    const raw = lookupSupportedDurations(providers, effectiveVideoBackend, customProviders);
+    if (!raw || raw.length === 0) return null;
     return [...raw].sort((a, b) => a - b);
   }, [providers, effectiveVideoBackend, customProviders]);
 
@@ -105,10 +106,10 @@ export function ModelConfigSection({
   const handleVideoChange = (next: string) => {
     const effectiveNext = next || globalDefaults.video || "";
     const nextDurations = effectiveNext
-      ? (lookupSupportedDurations(providers, effectiveNext, customProviders) ?? DEFAULT_DURATIONS)
-      : DEFAULT_DURATIONS;
+      ? (lookupSupportedDurations(providers, effectiveNext, customProviders) ?? null)
+      : null;
     const shouldReset =
-      value.defaultDuration !== null && !nextDurations.includes(value.defaultDuration);
+      value.defaultDuration !== null && (!nextDurations || !nextDurations.includes(value.defaultDuration));
     onChange({
       ...value,
       videoBackend: next,
@@ -168,48 +169,27 @@ export function ModelConfigSection({
             onChange({ ...value, videoResolution: v }),
           )}
 
-          {/* Duration picker (nested inside video card) */}
-          {showDuration && (
+          {/* Duration picker — 找不到 supported_durations 时不渲染 */}
+          {showDuration && supportedDurations && supportedDurations.length > 0 && (
             <>
               <div className="mt-3 mb-2 text-xs text-gray-400">{t("duration_label")}</div>
-              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("duration_label")}>
-                {/* Auto button */}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={value.defaultDuration === null}
-                  aria-label={t("duration_auto")}
-                  tabIndex={value.defaultDuration === null ? 0 : -1}
-                  onClick={() => handleDurationClick(null)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                    value.defaultDuration === null
-                      ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                      : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                  }`}
-                >
-                  {t("duration_auto")}
-                </button>
-
-                {/* Per-duration buttons */}
-                {supportedDurations.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    role="radio"
-                    aria-checked={value.defaultDuration === d}
-                    aria-label={`${d}s`}
-                    tabIndex={value.defaultDuration === d ? 0 : -1}
-                    onClick={() => handleDurationClick(d)}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                      value.defaultDuration === d
-                        ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                        : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                    }`}
-                  >
-                    {d}s
-                  </button>
-                ))}
-              </div>
+              {isContinuousIntegerRange(supportedDurations) && supportedDurations.length >= 5 ? (
+                <DurationSlider
+                  options={supportedDurations}
+                  value={value.defaultDuration}
+                  onChange={handleDurationClick}
+                  ariaLabel={t("duration_label")}
+                  autoLabel={t("duration_auto")}
+                />
+              ) : (
+                <DurationButtonGroup
+                  options={supportedDurations}
+                  value={value.defaultDuration}
+                  onChange={handleDurationClick}
+                  ariaLabel={t("duration_label")}
+                  autoLabel={t("duration_auto")}
+                />
+              )}
             </>
           )}
         </div>
@@ -316,6 +296,114 @@ export function ModelConfigSection({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Duration sub-components
+// ---------------------------------------------------------------------------
+
+function DurationButtonGroup({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+  autoLabel,
+}: {
+  options: readonly number[];
+  value: number | null;
+  onChange: (next: number | null) => void;
+  ariaLabel: string;
+  autoLabel: string;
+}) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={ariaLabel}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === null}
+        aria-label={autoLabel}
+        tabIndex={value === null ? 0 : -1}
+        onClick={() => onChange(null)}
+        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          value === null
+            ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+            : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+        }`}
+      >
+        {autoLabel}
+      </button>
+      {options.map((d) => (
+        <button
+          key={d}
+          type="button"
+          role="radio"
+          aria-checked={value === d}
+          aria-label={t("duration_seconds_value_text", { value: d })}
+          tabIndex={value === d ? 0 : -1}
+          onClick={() => onChange(d)}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+            value === d
+              ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+              : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+          }`}
+        >
+          {t("duration_seconds_value_text", { value: d })}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DurationSlider({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+  autoLabel,
+}: {
+  options: readonly number[];
+  value: number | null;
+  onChange: (next: number | null) => void;
+  ariaLabel: string;
+  autoLabel: string;
+}) {
+  const { t } = useTranslation("dashboard");
+  const min = options[0];
+  const max = options[options.length - 1];
+  const sliderValue = value === null ? min : value;
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === null}
+        aria-label={autoLabel}
+        onClick={() => onChange(null)}
+        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          value === null
+            ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+            : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+        }`}
+      >
+        {autoLabel}
+      </button>
+      <input
+        type="range"
+        aria-label={ariaLabel}
+        aria-valuetext={value === null ? autoLabel : t("duration_seconds_value_text", { value })}
+        min={min}
+        max={max}
+        step={1}
+        value={sliderValue}
+        onChange={(e) => onChange(parseInt(e.target.value, 10))}
+        className="flex-1 min-w-[120px]"
+      />
+      <span className="min-w-[2.5rem] text-right text-xs text-gray-300">
+        {value === null ? autoLabel : t("duration_seconds_value_text", { value })}
+      </span>
     </div>
   );
 }

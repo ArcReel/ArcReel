@@ -52,3 +52,21 @@ async def test_resolution_string_passed_through(tmp_path):
 
     cfg_call = backend._types.GenerateVideosConfig.call_args
     assert cfg_call.kwargs["resolution"] == "1080p"
+
+
+@pytest.mark.parametrize("seconds", [3, 4, 5, 6, 7, 8, 10, 12, 15])
+@pytest.mark.asyncio
+async def test_duration_passthrough_str(tmp_path, seconds):
+    """删除 _normalize_duration 后，duration_seconds 应原值（str）透传到 SDK config。"""
+    backend = _make_backend()
+    req = VideoGenerationRequest(
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=seconds,
+    )
+    with pytest.raises(RuntimeError):
+        await backend._create_task(req)
+
+    cfg_call = backend._types.GenerateVideosConfig.call_args
+    assert cfg_call.kwargs["duration_seconds"] == str(seconds)

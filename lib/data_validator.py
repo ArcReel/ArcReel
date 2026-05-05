@@ -41,7 +41,6 @@ class DataValidator:
     """数据验证器"""
 
     VALID_CONTENT_MODES = {"narration", "drama", "reference_video"}
-    VALID_DURATIONS = {4, 6, 8}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
     VALID_SHOT_DURATION_RANGE = (1, 15)
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
@@ -347,8 +346,8 @@ class DataValidator:
             duration = segment.get("duration_seconds")
             if duration is None:
                 warnings.append(f"{prefix}: 缺少 duration_seconds，将使用默认值 4")
-            elif duration not in self.VALID_DURATIONS:
-                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须是 {self.VALID_DURATIONS}")
+            elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须为正整数")
 
             if not segment.get("novel_text"):
                 errors.append(f"{prefix}: 缺少必填字段 novel_text")
@@ -429,8 +428,8 @@ class DataValidator:
             duration = scene.get("duration_seconds")
             if duration is None:
                 warnings.append(f"{prefix}: 缺少 duration_seconds，将使用默认值 8")
-            elif duration not in self.VALID_DURATIONS:
-                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须是 {self.VALID_DURATIONS}")
+            elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须为正整数")
 
             chars_in_scene = scene.get("characters_in_scene")
             if chars_in_scene is None:

@@ -84,3 +84,62 @@ describe("SegmentCard", () => {
     expect(video).toHaveAttribute("preload", "metadata");
   }, 10_000);
 });
+
+describe("SegmentCard — duration incompatible warning", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+  });
+
+  it("当 segment.duration_seconds 不在 durationOptions 内时显示 ⚠ 角标（只读模式）", () => {
+    render(
+      <SegmentCard
+        segment={makeSegment({ duration_seconds: 6 })}
+        contentMode="narration"
+        aspectRatio="9:16"
+        characters={{}}
+        scenes={{}}
+        props={{}}
+        projectName="p"
+        durationOptions={[4, 8, 12]}
+      />,
+    );
+    const warning = screen.getByLabelText(/不在模型支持范围|not in model-supported/i);
+    expect(warning).toBeInTheDocument();
+  });
+
+  it("当 segment.duration_seconds 在 durationOptions 内时不显示角标", () => {
+    render(
+      <SegmentCard
+        segment={makeSegment({ duration_seconds: 4 })}
+        contentMode="narration"
+        aspectRatio="9:16"
+        characters={{}}
+        scenes={{}}
+        props={{}}
+        projectName="p"
+        durationOptions={[4, 8, 12]}
+      />,
+    );
+    expect(
+      screen.queryByLabelText(/不在模型支持范围|not in model-supported/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("durationOptions 为空（无 supported_durations 信号）时不显示角标", () => {
+    render(
+      <SegmentCard
+        segment={makeSegment({ duration_seconds: 6 })}
+        contentMode="narration"
+        aspectRatio="9:16"
+        characters={{}}
+        scenes={{}}
+        props={{}}
+        projectName="p"
+      />,
+    );
+    expect(
+      screen.queryByLabelText(/不在模型支持范围|not in model-supported/i),
+    ).not.toBeInTheDocument();
+  });
+});
