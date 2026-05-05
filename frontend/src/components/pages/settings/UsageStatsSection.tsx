@@ -13,10 +13,12 @@ export function UsageStatsSection() {
   const [timeRange, setTimeRange] = useState(7);
   const [providerFilter, setProviderFilter] = useState<string>("");
 
-  const percentFmt = useMemo(
-    () => new Intl.NumberFormat(i18n.language === "zh" ? "zh-CN" : "en-US", { style: "percent", maximumFractionDigits: 0 }),
-    [i18n.language],
-  );
+  const percentFmt = useMemo(() => {
+    const lang = i18n.language.split("-")[0];
+    const localeMap: Record<string, string> = { zh: "zh-CN", en: "en-US", vi: "vi-VN" };
+    const locale = localeMap[lang] ?? "en-US";
+    return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
+  }, [i18n.language]);
 
   const TIME_RANGES = useMemo(
     () => [
