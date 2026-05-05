@@ -512,7 +512,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                 letterSpacing: "1.2px",
               }}
             >
-              QUEUE · WORKER STATUS
+              {t("task_hud_subtitle")}
             </div>
           </div>
         </div>

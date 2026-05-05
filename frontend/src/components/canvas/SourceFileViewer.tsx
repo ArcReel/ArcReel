@@ -122,9 +122,11 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
             />
             <ToolbarButton
               onClick={() => {
+                if (saving) return;
                 setEditing(false);
                 setEditContent(content);
               }}
+              disabled={saving}
               icon={<X className="h-3.5 w-3.5" />}
               label={t("common:cancel")}
             />
@@ -150,6 +152,8 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
         {editing ? (
           <textarea
             aria-labelledby={filenameHeadingId}
+            aria-busy={saving}
+            readOnly={saving}
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
             className="focus-ring h-full w-full resize-none rounded-lg p-4 font-mono text-[13px] leading-[1.7] outline-none"

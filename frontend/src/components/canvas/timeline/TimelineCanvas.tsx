@@ -6,6 +6,7 @@ import { GridSegmentGroup } from "./GridSegmentGroup";
 import { PreprocessingView } from "./PreprocessingView";
 import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
@@ -27,6 +28,16 @@ function getSegmentId(segment: Segment, mode: "narration" | "drama"): string {
   return mode === "narration"
     ? (segment as NarrationSegment).segment_id
     : (segment as DramaScene).scene_id;
+}
+
+/**
+ * Registers segment scroll target for grid mode (where ShotSplitView's own
+ * registration is absent). All grid SegmentCard wrappers carry id="segment-...",
+ * so we only need to register the listener here — no prepareTarget needed.
+ */
+function GridScrollTargetRegistrar() {
+  useScrollTarget("segment");
+  return null;
 }
 
 /** Group segments by segment_break into contiguous groups. */
@@ -437,6 +448,7 @@ export function TimelineCanvas({
         ) : episodeScript && isGridMode && segmentGroups.length > 0 ? (
           /* Grid mode 保留原有 GridSegmentGroup + SegmentCard 渲染（短期内不重构） */
           <div className="h-full overflow-y-auto p-4">
+            <GridScrollTargetRegistrar />
             {segmentGroups.map((group, groupIdx) => {
               const gridResult = computeGridSize(group.length, aspectRatio);
               return (

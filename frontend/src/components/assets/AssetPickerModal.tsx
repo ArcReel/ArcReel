@@ -21,7 +21,7 @@ const PANEL_BG =
   "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
 
 export function AssetPickerModal({ type, existingNames, onClose, onImport }: Props) {
-  const { t } = useTranslation("assets");
+  const { t } = useTranslation(["assets", "dashboard"]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(q, 250);
@@ -168,7 +168,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                 letterSpacing: "1.0px",
               }}
             >
-              Library · {type.toUpperCase()}
+              {t("dashboard:eyebrow_library", { type: t(`type.${type}`) })}
             </div>
           </div>
 
@@ -188,6 +188,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={t("search_placeholder")}
+              aria-label={t("search_placeholder")}
               className="focus-ring min-w-0 flex-1 bg-transparent text-[13px] outline-none"
               style={{ color: "var(--color-text)" }}
             />

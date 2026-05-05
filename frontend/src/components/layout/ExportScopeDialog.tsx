@@ -131,7 +131,7 @@ export function ExportScopeDialog({
                   letterSpacing: "1.0px",
                 }}
               >
-                Export · Scope
+                {t("dashboard:eyebrow_export_scope")}
               </div>
             </div>
           </div>

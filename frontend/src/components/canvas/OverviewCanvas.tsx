@@ -339,6 +339,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                         className="relative h-1.5 overflow-hidden rounded-full"
                         style={{ background: "oklch(0.16 0.010 265 / 0.7)" }}
                         role="progressbar"
+                        aria-label={t("progress_aria_label", { label: labels[key] })}
                         aria-valuenow={pct}
                         aria-valuemin={0}
                         aria-valuemax={100}
@@ -420,6 +421,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                       { label: t("video"), value: formatCost(projectTotals.estimate.video) },
                     ]}
                     total={formatCost(totalBreakdown(projectTotals.estimate))}
+                    totalLabel={t("cost_total_short")}
                     accent="warm"
                   />
                   <CostColumn
@@ -439,6 +441,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                         .filter((r): r is { label: string; value: string } => r !== null),
                     ]}
                     total={formatCost(totalBreakdown(projectTotals.actual))}
+                    totalLabel={t("cost_total_short")}
                     accent="good"
                   />
                 </div>
@@ -561,11 +564,13 @@ function CostColumn({
   label,
   rows,
   total,
+  totalLabel,
   accent,
 }: {
   label: string;
   rows: { label: string; value: string }[];
   total: string;
+  totalLabel: string;
   accent: "warm" | "good";
 }) {
   const accentColor =
@@ -606,7 +611,7 @@ function CostColumn({
               letterSpacing: "0.8px",
             }}
           >
-            Total
+            {totalLabel}
           </dt>
           <dd
             className="flex-1 text-right text-[14px] font-semibold"

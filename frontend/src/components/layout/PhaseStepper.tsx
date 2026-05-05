@@ -30,8 +30,8 @@ export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
           const nextIsActive = currentIdx === idx + 1;
           return (
             <div key={phase} className="flex items-center">
-              <button
-                type="button"
+              <div
+                aria-current={isActive ? "step" : undefined}
                 className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors"
                 style={
                   isActive
@@ -62,7 +62,7 @@ export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
                   {idx + 1}
                 </span>
                 <span className="whitespace-nowrap">{t(phase)}</span>
-              </button>
+              </div>
               {idx < PHASES.length - 1 && (
                 <div
                   aria-hidden="true"

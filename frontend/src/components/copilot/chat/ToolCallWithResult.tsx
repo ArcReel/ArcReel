@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { StreamMarkdown } from "../StreamMarkdown";
 import type { ContentBlock, TodoItem } from "@/types";
 
@@ -70,6 +70,7 @@ interface ToolCallWithResultProps {
  */
 export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const detailsId = useId();
 
   const toolName = block.name || "Tool";
   const isSkill = toolName === "Skill";
@@ -128,6 +129,8 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+        aria-controls={detailsId}
         className="flex w-full items-center justify-between px-2.5 py-1.5 text-left transition-colors"
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(1 0 0 / 0.04)";
@@ -168,7 +171,10 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
 
       {/* Expandable detail sections */}
       {isExpanded && (
-        <div style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
+        <div
+          id={detailsId}
+          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+        >
           {/* Tool Input */}
           <div
             className="px-2.5 py-2"

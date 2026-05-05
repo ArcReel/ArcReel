@@ -410,7 +410,7 @@ export function ProjectsPage() {
           sections={[
             { key: "blocking", title: t("dashboard:blocking_issues"), severity: "blocking", items: importDiagnostics.blocking },
             { key: "auto_fixed", title: t("dashboard:auto_fixed_issues"), severity: "auto_fixed", items: importDiagnostics.auto_fixable },
-            { key: "warnings", title: t("common:error"), severity: "warnings", items: importDiagnostics.warnings },
+            { key: "warnings", title: t("dashboard:diagnostics_warnings"), severity: "warnings", items: importDiagnostics.warnings },
           ]}
           onClose={() => setImportDiagnostics(null)}
         />

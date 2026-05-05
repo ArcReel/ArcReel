@@ -15,7 +15,7 @@ export function CompactInput({
   className,
 }: CompactInputProps) {
   return (
-    <div className={`flex items-center gap-2 ${className ?? ""}`}>
+    <label className={`flex items-center gap-2 ${className ?? ""}`}>
       <span
         className="shrink-0 text-[11px]"
         style={{ color: "var(--color-text-4)" }}
@@ -36,6 +36,6 @@ export function CompactInput({
           boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
         }}
       />
-    </div>
+    </label>
   );
 }

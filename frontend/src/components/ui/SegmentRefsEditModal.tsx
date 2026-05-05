@@ -229,7 +229,7 @@ export function SegmentRefsEditModal({
                 letterSpacing: "1.0px",
               }}
             >
-              References · Scope
+              {t("eyebrow_segment_refs")}
             </div>
           </div>
 

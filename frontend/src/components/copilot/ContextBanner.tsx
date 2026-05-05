@@ -1,7 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { X, User, MapPin, Puzzle, Film } from "lucide-react";
 
 export function ContextBanner() {
+  const { t } = useTranslation("dashboard");
   const { focusedContext, setFocusedContext } = useAppStore();
 
   if (!focusedContext) return null;
@@ -41,7 +43,7 @@ export function ContextBanner() {
           e.currentTarget.style.background = "transparent";
           e.currentTarget.style.color = "var(--color-text-4)";
         }}
-        aria-label="清除上下文"
+        aria-label={t("context_clear")}
       >
         <X className="h-3 w-3" />
       </button>

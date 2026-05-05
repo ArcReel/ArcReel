@@ -1,5 +1,6 @@
 import { useLocation } from "wouter";
 import { Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
@@ -17,6 +18,7 @@ interface StudioLayoutProps {
  * 工作台三栏布局壳：顶栏 + （侧栏 / 主区 / 助手面板）。
  */
 export function StudioLayout({ children }: StudioLayoutProps) {
+  const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
@@ -74,8 +76,8 @@ export function StudioLayout({ children }: StudioLayoutProps) {
             "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px var(--color-accent-glow)",
           transitionDelay: assistantPanelOpen ? "0ms" : "200ms",
         }}
-        title="展开助手面板"
-        aria-label="展开助手面板"
+        title={t("open_assistant_panel")}
+        aria-label={t("open_assistant_panel")}
       >
         <Sparkles className="h-5 w-5" />
       </button>
