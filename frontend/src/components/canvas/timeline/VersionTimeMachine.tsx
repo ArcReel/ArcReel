@@ -12,7 +12,7 @@ interface VersionTimeMachineProps {
   resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
-  /** Icon-only 触发按钮，隐藏文字与展开箭头（卡片头部窄空间使用）。 */
+  /** Icon-only trigger button: hides label and chevron for narrow card headers. */
   iconOnly?: boolean;
 }
 

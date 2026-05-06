@@ -133,7 +133,7 @@
   transition: background .12s, color .12s;
   cursor: pointer;
 }
-.sv-navbtn:hover {
+.sv-navbtn:not(:disabled):hover {
   background: oklch(0.26 0.013 265 / 0.7);
   color: var(--color-text);
 }

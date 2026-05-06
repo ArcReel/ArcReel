@@ -18,12 +18,13 @@ interface AgentHandoffHintProps {
 
 export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintProps) {
   const { t } = useTranslation("dashboard");
+  // 不订阅 assistantPanelOpen —— 避免触发时调用 setAssistantPanelOpen(true) 让 effect cleanup 清掉计时器
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
-  const setAssistantPanelOpen = useAppStore((s) => s.setAssistantPanelOpen);
 
   const [visible, setVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const lastSeenTrigger = useRef<number>(-1);
+  // 用 "<scope>:<triggerKey>" 复合 key 去重，避免切项目后新 triggerKey 撞到上个项目最后值导致不显示
+  const lastSeenComposite = useRef<string>("");
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -43,8 +44,9 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (triggerKey <= 0) return;
-    if (triggerKey === lastSeenTrigger.current) return;
-    lastSeenTrigger.current = triggerKey;
+    const composite = `${sessionKey}:${triggerKey}`;
+    if (composite === lastSeenComposite.current) return;
+    lastSeenComposite.current = composite;
     try {
       if (sessionStorage.getItem(sessionKey) === "1") return;
       sessionStorage.setItem(sessionKey, "1");
@@ -53,8 +55,10 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
     }
     setLeaving(false);
     setVisible(true);
-    if (!assistantPanelOpen) {
-      setAssistantPanelOpen(true);
+    // 通过 getState() 直接读 + 写，不订阅，避免重新触发 effect
+    const store = useAppStore.getState();
+    if (!store.assistantPanelOpen) {
+      store.setAssistantPanelOpen(true);
     }
     clearTimers();
     dismissTimer.current = setTimeout(() => {
@@ -62,7 +66,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
       fadeTimer.current = setTimeout(() => setVisible(false), 320);
     }, AUTO_DISMISS_MS);
     return clearTimers;
-  }, [triggerKey, sessionKey, assistantPanelOpen, setAssistantPanelOpen, clearTimers]);
+  }, [triggerKey, sessionKey, clearTimers]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleDismiss = useCallback(() => {

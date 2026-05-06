@@ -393,8 +393,9 @@ export function AgentCopilot() {
               e.currentTarget.style.color = "var(--color-text-3)";
             }}
             title={t("collapse_panel")}
+            aria-label={t("collapse_panel")}
           >
-            <PanelRightClose className="h-4 w-4" />
+            <PanelRightClose aria-hidden className="h-4 w-4" />
           </button>
           <div
             className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
@@ -440,8 +441,9 @@ export function AgentCopilot() {
               e.currentTarget.style.color = "var(--color-text-3)";
             }}
             title={t("new_session")}
+            aria-label={t("new_session")}
           >
-            <Plus className="h-4 w-4" />
+            <Plus aria-hidden className="h-4 w-4" />
           </button>
         </div>
       </div>

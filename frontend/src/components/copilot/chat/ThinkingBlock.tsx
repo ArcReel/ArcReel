@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 // ---------------------------------------------------------------------------
@@ -12,6 +12,7 @@ interface ThinkingBlockProps {
 export function ThinkingBlock({ thinking }: ThinkingBlockProps) {
   const { t } = useTranslation("dashboard");
   const [isExpanded, setIsExpanded] = useState(false);
+  const detailsId = useId();
 
   if (!thinking) {
     return null;
@@ -28,6 +29,8 @@ export function ThinkingBlock({ thinking }: ThinkingBlockProps) {
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+        aria-controls={detailsId}
         className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors"
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(0.76 0.09 295 / 0.18)";
@@ -51,6 +54,7 @@ export function ThinkingBlock({ thinking }: ThinkingBlockProps) {
       </button>
       {isExpanded && (
         <div
+          id={detailsId}
           className="px-3 py-2"
           style={{ borderTop: "1px solid var(--color-accent-soft)" }}
         >

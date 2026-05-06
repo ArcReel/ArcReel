@@ -149,8 +149,8 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
           className="space-y-0.5 px-3 py-1.5"
           style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
         >
-          {todos.map((todo) => (
-            <TodoRow key={`${todo.content}-${todo.status}`} todo={todo} />
+          {todos.map((todo, idx) => (
+            <TodoRow key={`${idx}-${todo.content}-${todo.status}`} todo={todo} />
           ))}
         </div>
       )}

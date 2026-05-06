@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ImageIcon,
@@ -97,6 +97,18 @@ function DurationPill({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
 
+  // 拖动 slider 期间用本地 state 跟随；松手 / 失焦 / 键盘抬起时再提交一次
+  // 避免 onChange 每像素一次 onUpdatePrompt 产生并发写请求 + 乱序落库
+  const [draftSeconds, setDraftSeconds] = useState<number | null>(null);
+  const displaySeconds = draftSeconds ?? seconds;
+  const commitDraft = useCallback(() => {
+    if (draftSeconds == null) return;
+    if (draftSeconds !== seconds) {
+      void onUpdatePrompt?.(segmentId, "duration_seconds", draftSeconds);
+    }
+    setDraftSeconds(null);
+  }, [draftSeconds, seconds, segmentId, onUpdatePrompt]);
+
   const editable = !!onUpdatePrompt;
   const noOptions = durationOptions.length === 0;
   const isIncompatible =
@@ -180,25 +192,35 @@ function DurationPill({
             <input
               type="range"
               aria-label={t("duration_selector_aria")}
-              aria-valuetext={t("duration_seconds_value_text", { value: seconds })}
+              aria-valuetext={t("duration_seconds_value_text", { value: displaySeconds })}
               min={durationOptions[0]}
               max={durationOptions[durationOptions.length - 1]}
               step={1}
-              value={seconds}
-              onChange={(e) => {
-                void onUpdatePrompt(
-                  segmentId,
-                  "duration_seconds",
-                  parseInt(e.target.value, 10),
-                );
+              value={displaySeconds}
+              onChange={(e) => setDraftSeconds(parseInt(e.target.value, 10))}
+              onPointerUp={commitDraft}
+              onKeyUp={(e) => {
+                if (
+                  e.key === "ArrowLeft" ||
+                  e.key === "ArrowRight" ||
+                  e.key === "ArrowUp" ||
+                  e.key === "ArrowDown" ||
+                  e.key === "Home" ||
+                  e.key === "End" ||
+                  e.key === "PageUp" ||
+                  e.key === "PageDown"
+                ) {
+                  commitDraft();
+                }
               }}
+              onBlur={commitDraft}
               className="theme-slider w-40"
             />
             <span
               className="num min-w-[2.25rem] text-right text-[11.5px]"
               style={{ color: "var(--color-text-2)" }}
             >
-              {t("duration_seconds_value_text", { value: seconds })}
+              {t("duration_seconds_value_text", { value: displaySeconds })}
             </span>
           </div>
         ) : (
@@ -710,22 +732,10 @@ export function ShotDetail({
             type="button"
             onClick={handleCancel}
             disabled={saving}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] text-[var(--color-text-3)] transition-colors [&:not(:disabled)]:hover:bg-[oklch(0.26_0.013_265_/_0.7)] [&:not(:disabled)]:hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
             style={{
-              color: "var(--color-text-3)",
               border: "1px solid var(--color-hairline)",
               background: "oklch(0.22 0.011 265 / 0.5)",
-            }}
-            onMouseEnter={(e) => {
-              if (!saving) {
-                e.currentTarget.style.color = "var(--color-text)";
-                e.currentTarget.style.background =
-                  "oklch(0.26 0.013 265 / 0.7)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--color-text-3)";
-              e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
             }}
           >
             <Undo2 className="h-3.5 w-3.5" />
@@ -735,19 +745,13 @@ export function ShotDetail({
             type="button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-60"
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform [&:not(:disabled)]:hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               color: "oklch(0.14 0 0)",
               background:
                 "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
               boxShadow:
                 "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
-            }}
-            onMouseEnter={(e) => {
-              if (!saving) e.currentTarget.style.transform = "translateY(-1px)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
             }}
           >
             {saving ? (

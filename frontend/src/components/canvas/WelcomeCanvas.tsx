@@ -297,11 +297,11 @@ export function WelcomeCanvas({
             </div>
             <div className="space-y-2">
               {[
-                { icon: FileText, text: t("ai_will_analyze_desc") },
-                { icon: Sparkles, text: t("overview_gen_desc") },
-              ].map(({ icon: Icon, text }) => (
+                { id: "analyze", icon: FileText, textKey: "ai_will_analyze_desc" as const },
+                { id: "overview", icon: Sparkles, textKey: "overview_gen_desc" as const },
+              ].map(({ id, icon: Icon, textKey }) => (
                 <div
-                  key={text}
+                  key={id}
                   className="flex items-start gap-3 rounded-xl px-3.5 py-2.5"
                   style={{
                     border: "1px solid var(--color-hairline-soft)",
@@ -325,7 +325,7 @@ export function WelcomeCanvas({
                     className="text-[12px] leading-relaxed"
                     style={{ color: "var(--color-text-2)" }}
                   >
-                    {text}
+                    {t(textKey)}
                   </span>
                 </div>
               ))}

@@ -48,10 +48,14 @@ export function StudioLayout({ children }: StudioLayoutProps) {
               : "1px solid transparent",
           }}
         >
-          {/* 始终渲染但收起时透明 + 不响应交互，保持内部状态 */}
+          {/* 始终渲染但收起时透明 + 不可达，保持内部状态；invisible + aria-hidden 防止 Tab 仍可聚焦内部控件 */}
           <div
+            aria-hidden={!assistantPanelOpen}
+            inert={!assistantPanelOpen}
             className={`h-full transition-opacity duration-200 ${
-              assistantPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
+              assistantPanelOpen
+                ? "opacity-100"
+                : "pointer-events-none invisible opacity-0"
             }`}
           >
             <AgentCopilot />
