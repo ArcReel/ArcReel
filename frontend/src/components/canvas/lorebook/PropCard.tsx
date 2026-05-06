@@ -137,8 +137,8 @@ export function PropCard({
         }}
       />
 
-      {/* ---- Header: 第一排 icon+name+version；第二排 upload+library ---- */}
-      <div className="mb-4 flex flex-col gap-1.5">
+      {/* ---- Header: 第一排 icon+name；第二排所有动作右对齐 ---- */}
+      <div className="mb-4 flex flex-col gap-2">
         <div className="flex items-center gap-2.5">
           <span
             aria-hidden
@@ -157,14 +157,8 @@ export function PropCard({
           >
             {name}
           </h3>
-          <VersionTimeMachine
-            projectName={projectName}
-            resourceType="props"
-            resourceId={name}
-            onRestore={onRestoreVersion}
-          />
         </div>
-        <div className="flex items-center gap-1 pl-[2.375rem]">
+        <div className="flex items-center justify-end gap-0.5">
           <button
             type="button"
             onClick={() => sheetInputRef.current?.click()}
@@ -192,6 +186,12 @@ export function PropCard({
             initialDescription={prop.description}
             sheetPath={prop.prop_sheet}
             showLabel
+          />
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="props"
+            resourceId={name}
+            onRestore={onRestoreVersion}
           />
         </div>
       </div>
