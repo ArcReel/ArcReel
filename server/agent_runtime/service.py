@@ -865,7 +865,7 @@ class AssistantService:
         for msg in buffer or []:
             if not isinstance(msg, dict):
                 continue
-            if msg.get("type") != "user" or msg.get("local_echo"):
+            if not AssistantService._is_real_user_message(msg):
                 continue
             text = AssistantService._extract_plain_user_content(msg)
             if text:

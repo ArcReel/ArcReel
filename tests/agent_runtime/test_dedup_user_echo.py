@@ -216,3 +216,47 @@ def test_user_message_not_lost_when_transcript_is_empty(tmp_path):
         buffer_real_user_texts=set(),  # buffer 还没收到 sdk user
     )
     assert is_dup is False, "echo must be preserved when no real user exists anywhere"
+
+
+def test_collect_buffer_skips_subagent_user(tmp_path):
+    """Subagent / sidechain user msg with same plain text must NOT poison dedup set.
+
+    Without _is_real_user_message gating, a subagent-injected user payload whose
+    text equals the operator's echo would silently dedup the echo.
+    """
+    service = AssistantService(project_root=tmp_path)
+    buffer = [
+        {
+            "type": "user",
+            "uuid": "sub-1",
+            "isSidechain": True,
+            "content": "hi",
+        },
+        {"type": "user", "uuid": "sub-2", "parentToolUseId": "t1", "content": "hi"},
+    ]
+    assert service._collect_buffer_real_user_texts(buffer) == set()
+
+
+def test_echo_not_dedup_when_only_subagent_user_in_buffer(tmp_path):
+    """End-to-end of the gating fix: echo survives when sole same-text user is sidechain."""
+    service = AssistantService(project_root=tmp_path)
+    buffer = [
+        {
+            "type": "user",
+            "uuid": "sub-1",
+            "isSidechain": True,
+            "content": "hi",
+        },
+        {"type": "user", "content": "hi", "local_echo": True},
+    ]
+    texts = service._collect_buffer_real_user_texts(buffer)
+    echo = buffer[1]
+    is_dup = service._is_buffer_duplicate(
+        echo,
+        "user",
+        transcript_uuids=set(),
+        tail_fps=set(),
+        history_messages=[],
+        buffer_real_user_texts=texts,
+    )
+    assert is_dup is False
