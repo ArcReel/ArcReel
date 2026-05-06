@@ -893,6 +893,7 @@ export default {
   'speaker_placeholder': 'Người nói',
   'line_placeholder': 'Câu thoại',
   'add_dialogue': 'Thêm đối thoại',
+  'dialogue_remove': 'Xoá đối thoại',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

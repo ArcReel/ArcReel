@@ -165,7 +165,15 @@ function DurationPill({
         width="w-auto"
         align="start"
         sideOffset={6}
+        backgroundColor="oklch(0.21 0.012 265 / 0.98)"
         className="rounded-lg p-2"
+        style={{
+          border: "1px solid var(--color-hairline)",
+          boxShadow:
+            "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline-soft)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}
       >
         {useSlider ? (
           <div className="flex items-center gap-2 px-1 py-1">
@@ -184,7 +192,7 @@ function DurationPill({
                   parseInt(e.target.value, 10),
                 );
               }}
-              className="w-40"
+              className="theme-slider w-40"
             />
             <span
               className="num min-w-[2.25rem] text-right text-[11.5px]"

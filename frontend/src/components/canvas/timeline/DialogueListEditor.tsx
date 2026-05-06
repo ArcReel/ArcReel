@@ -38,19 +38,22 @@ export function DialogueListEditor({
             value={d.speaker}
             onChange={(e) => update(i, { speaker: e.target.value })}
             placeholder={t("speaker_placeholder")}
-            className="w-16 shrink-0 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-indigo-400 placeholder-gray-600 focus:border-indigo-500 focus-ring"
+            className="dlg-input dlg-input--speaker w-16 shrink-0"
           />
           <input
             type="text"
             value={d.line}
             onChange={(e) => update(i, { line: e.target.value })}
             placeholder={t("line_placeholder")}
-            className="min-w-0 flex-1 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus-ring"
+            className="dlg-input min-w-0 flex-1"
           />
           <button
             type="button"
             onClick={() => remove(i)}
-            className="shrink-0 rounded p-0.5 text-gray-600 hover:bg-gray-800 hover:text-red-400"
+            aria-label={t("dialogue_remove")}
+            title={t("dialogue_remove")}
+            className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+            style={{ color: "var(--color-text-4)" }}
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -60,7 +63,8 @@ export function DialogueListEditor({
       <button
         type="button"
         onClick={add}
-        className="inline-flex items-center gap-1 self-start rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+        className="focus-ring inline-flex items-center gap-1 self-start rounded-md px-2 py-1 text-[11.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+        style={{ color: "var(--color-text-3)" }}
       >
         <Plus className="h-3 w-3" />
         {t("add_dialogue")}

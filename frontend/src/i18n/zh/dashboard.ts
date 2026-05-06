@@ -913,6 +913,7 @@ export default {
   'speaker_placeholder': '角色',
   'line_placeholder': '台词',
   'add_dialogue': '添加对话',
+  'dialogue_remove': '删除对话',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

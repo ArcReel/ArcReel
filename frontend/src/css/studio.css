@@ -161,3 +161,68 @@
   border-color: var(--color-accent-soft);
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
 }
+
+/* 主题化 range slider — 用 accent 色填充已选区段 */
+.theme-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: oklch(0.30 0.010 265 / 0.7);
+  outline: none;
+  cursor: pointer;
+}
+.theme-slider:focus-visible {
+  box-shadow: 0 0 0 3px var(--color-accent-dim);
+}
+.theme-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
+  border: 1px solid var(--color-accent-soft);
+  box-shadow: 0 2px 6px -2px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
+  cursor: pointer;
+  margin-top: -5px;
+}
+.theme-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
+  border: 1px solid var(--color-accent-soft);
+  box-shadow: 0 2px 6px -2px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
+  cursor: pointer;
+}
+.theme-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: oklch(0.30 0.010 265 / 0.7);
+}
+
+/* 对话编辑器输入框 — 与玻璃面板协调的中性低 chroma 背景 */
+.dlg-input {
+  padding: 5px 10px;
+  font-size: 0.78125rem;
+  line-height: 1.4;
+  color: var(--color-text);
+  background: linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45));
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: 6px;
+  outline: none;
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.03);
+  transition: border-color .12s, box-shadow .12s;
+}
+.dlg-input::placeholder {
+  color: var(--color-text-4);
+}
+.dlg-input:focus {
+  border-color: var(--color-accent-soft);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
+}
+.dlg-input--speaker {
+  color: var(--color-accent-2);
+  font-weight: 500;
+}

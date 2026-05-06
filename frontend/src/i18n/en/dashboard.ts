@@ -912,6 +912,7 @@ export default {
   'speaker_placeholder': 'Speaker',
   'line_placeholder': 'Line',
   'add_dialogue': 'Add Dialogue',
+  'dialogue_remove': 'Remove dialogue',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 
