@@ -52,7 +52,7 @@
 
 ### 1.1 写入路径变化
 
-```
+```text
 batched (现状)：
   ClaudeSDKClient (subprocess)
     ├─ wire stream → message_buffer (in-memory, cap=100)
@@ -81,7 +81,7 @@ eager 模式下：
 
 ### 1.2 重连路径
 
-```
+```text
 SSE reconnect (前端 reload)
   → AssistantService.stream_events(session_id)
     → if status != running: emit_completed_snapshot (DB only)
@@ -260,7 +260,7 @@ return ClaudeAgentOptions(
 
 ## §6 测试矩阵
 
-```
+```text
 tests/agent_runtime/
 ├── test_session_store_e2e.py（已存在）
 │   + test_eager_flush_persists_per_frame

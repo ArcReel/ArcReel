@@ -40,11 +40,14 @@
 - [ ] **Step 1: 收紧版本约束**
 
 把 `pyproject.toml` 中：
-```
+
+```toml
 "claude-agent-sdk>=0.1.59",
 ```
+
 改为：
-```
+
+```toml
 "claude-agent-sdk>=0.1.73",
 ```
 
@@ -143,7 +146,8 @@ Expected: `ImportError` 或 `cannot import name 'session_store_flush_mode'`
 Edit `lib/agent_session_store/__init__.py`：
 
 1. 在文件顶端 import 段加入 `import logging`（紧接现有 `import os`）
-2. 紧接现有 `_VALID_MODES = frozenset({"db", "off", ""})` 之后添加：
+1. 紧接现有 `_VALID_MODES = frozenset({"db", "off", ""})` 之后添加：
+
 ```python
 logger = logging.getLogger("arcreel.session_store")
 
@@ -151,7 +155,8 @@ _FLUSH_ENV_VAR = "ARCREEL_SDK_SESSION_STORE_FLUSH"
 _VALID_FLUSH_MODES = frozenset({"eager", "batched"})
 ```
 
-3. 在文件末尾 `__all__` 之前新增函数：
+1. 在文件末尾 `__all__` 之前新增函数：
+
 ```python
 def session_store_flush_mode() -> str:
     """Return SDK ClaudeAgentOptions.session_store_flush value.
@@ -173,7 +178,8 @@ def session_store_flush_mode() -> str:
     return "eager"
 ```
 
-4. 把 `session_store_flush_mode` 加入 `__all__`，最终 `__all__` 改为：
+1. 把 `session_store_flush_mode` 加入 `__all__`，最终 `__all__` 改为：
+
 ```python
 __all__ = [
     "AgentSessionEntry",
@@ -925,7 +931,7 @@ Expected:
 
 - [ ] **Step 4: 手动验收 2 - 服务重启后 partial 可见**
 
-发送一条会触发长 turn 的消息 → 等 turn 跑到一半 → `pkill -9 uvicorn` → 重启 server → 前端刷新进入会话。
+发送一条会触发长 turn 的消息 → 等 turn 跑到一半 → `pkill -f "uvicorn server.app:app.*--port 1241"`（仅杀本次实例，避免误伤其他 uvicorn）→ 重启 server → 前端刷新进入会话。
 Expected:
 - 看到中断前已生成的 partial transcript
 - 会话状态显示 `interrupted`

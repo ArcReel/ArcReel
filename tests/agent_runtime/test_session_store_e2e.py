@@ -133,11 +133,12 @@ async def test_partial_transcript_visible_after_simulated_crash(session_factory,
 
 
 @pytest.mark.asyncio
-async def test_eager_persistence_independent_of_buffer(session_factory, tmp_path: Path):
-    """长 turn 跨 buffer 驱逐：DB 应有完整 user/assistant 序列。
+async def test_eager_multi_append_round_trip(session_factory, tmp_path: Path):
+    """多次 eager-style append 后，DB 应能还原完整 user/assistant 序列。
 
-    DbSessionStore 的 append 调用与 in-memory buffer 完全解耦。本测试
-    验证多次单条 append（模拟 SDK eager 模式）后 load 能拼出完整序列。
+    本测试只覆盖 DbSessionStore 的多次 append/load 回环，不覆盖
+    ManagedSession.message_buffer 驱逐或 reload 恢复路径 —— 那些回归
+    属于 service / session_manager 层。
     """
     store = DbSessionStore(session_factory, user_id="long-turn")
     project_cwd = tmp_path / "projects" / "long_demo"
