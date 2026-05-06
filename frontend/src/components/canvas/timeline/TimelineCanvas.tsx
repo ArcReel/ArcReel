@@ -444,6 +444,7 @@ export function TimelineCanvas({
             onRestoreVideo={onRestoreVideo}
             generatingStoryboard={generatingStoryboard}
             generatingVideo={generatingVideo}
+            durationOptions={durationOptions}
           />
         ) : episodeScript && isGridMode && segmentGroups.length > 0 ? (
           /* Grid mode 保留原有 GridSegmentGroup + SegmentCard 渲染（短期内不重构） */

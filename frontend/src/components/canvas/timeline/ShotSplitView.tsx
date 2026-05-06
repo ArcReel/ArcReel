@@ -23,6 +23,7 @@ interface ShotSplitViewProps {
   onRestoreVideo?: () => Promise<void> | void;
   generatingStoryboard?: (segmentId: string) => boolean;
   generatingVideo?: (segmentId: string) => boolean;
+  durationOptions?: number[];
 }
 
 function getSegmentId(seg: Segment, mode: "narration" | "drama"): string {
@@ -47,6 +48,7 @@ export function ShotSplitView({
   onRestoreVideo,
   generatingStoryboard,
   generatingVideo,
+  durationOptions,
 }: ShotSplitViewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [collapsed, setCollapsed] = useState(
@@ -118,6 +120,7 @@ export function ShotSplitView({
         onRestoreVideo={onRestoreVideo}
         generatingStoryboard={generatingStoryboard?.(segmentId)}
         generatingVideo={generatingVideo?.(segmentId)}
+        durationOptions={durationOptions}
       />
     </div>
   );

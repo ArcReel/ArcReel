@@ -23,11 +23,13 @@ import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { NotesDrawer } from "./NotesDrawer";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
+import { Popover } from "@/components/ui/Popover";
 import { useCostStore } from "@/stores/cost-store";
 import {
   isStructuredImagePrompt,
   isStructuredVideoPrompt,
 } from "@/utils/prompt-shape";
+import { isContinuousIntegerRange } from "@/utils/duration_format";
 
 type Segment = NarrationSegment | DramaScene;
 type ImagePromptValue = ImagePrompt | string;
@@ -56,6 +58,7 @@ interface ShotDetailProps {
   onRestoreVideo?: () => Promise<void> | void;
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
+  durationOptions?: number[];
 }
 
 function getNovelText(seg: Segment, mode: "narration" | "drama"): string {
@@ -77,6 +80,165 @@ interface DraftState {
 // 任何字段顺序差异都来自我们自己的 setter 或上游同一构造路径，键序一致。
 const stableSig = (value: unknown): string => JSON.stringify(value ?? null);
 
+interface DurationPillProps {
+  seconds: number;
+  segmentId: string;
+  durationOptions: number[];
+  onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
+}
+
+function DurationPill({
+  seconds,
+  segmentId,
+  durationOptions,
+  onUpdatePrompt,
+}: DurationPillProps) {
+  const { t } = useTranslation("dashboard");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLButtonElement>(null);
+
+  const editable = !!onUpdatePrompt;
+  const noOptions = durationOptions.length === 0;
+  const isIncompatible =
+    durationOptions.length > 0 && !durationOptions.includes(seconds);
+  const incompatibleLabel = t("duration_incompatible_warning", {
+    value: seconds,
+    supported: durationOptions.join(", "),
+  });
+  const useSlider =
+    isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
+
+  const baseClass =
+    "inline-flex items-center gap-1.5 rounded-md px-2 py-[3px] text-[11.5px] focus-ring";
+  const baseStyle: React.CSSProperties = {
+    background: isIncompatible
+      ? "oklch(0.32 0.10 75 / 0.35)"
+      : "oklch(0.22 0.011 265 / 0.6)",
+    border: isIncompatible
+      ? "1px solid oklch(0.65 0.12 75 / 0.5)"
+      : "1px solid var(--color-hairline-soft)",
+    color: isIncompatible ? "oklch(0.85 0.12 80)" : "var(--color-text-2)",
+  };
+
+  if (!editable) {
+    return (
+      <span className={baseClass} style={baseStyle}>
+        <span style={{ color: "var(--color-text-4)" }}>⏱</span>
+        <span className="num">
+          {t("duration_seconds_value_text", { value: seconds })}
+        </span>
+        {isIncompatible && (
+          <span aria-label={incompatibleLabel} title={incompatibleLabel}>
+            ⚠
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        onClick={() => !noOptions && setOpen((o) => !o)}
+        disabled={noOptions}
+        aria-disabled={noOptions || undefined}
+        title={noOptions ? t("duration_no_options") : undefined}
+        className={`${baseClass} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
+        style={baseStyle}
+      >
+        <span style={{ color: "var(--color-text-4)" }}>⏱</span>
+        <span className="num">
+          {t("duration_seconds_value_text", { value: seconds })}
+        </span>
+        {isIncompatible && (
+          <span aria-label={incompatibleLabel} title={incompatibleLabel}>
+            ⚠
+          </span>
+        )}
+      </button>
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={ref}
+        width="w-auto"
+        align="start"
+        sideOffset={6}
+        className="rounded-lg p-2"
+      >
+        {useSlider ? (
+          <div className="flex items-center gap-2 px-1 py-1">
+            <input
+              type="range"
+              aria-label={t("duration_selector_aria")}
+              aria-valuetext={t("duration_seconds_value_text", { value: seconds })}
+              min={durationOptions[0]}
+              max={durationOptions[durationOptions.length - 1]}
+              step={1}
+              value={seconds}
+              onChange={(e) => {
+                void onUpdatePrompt(
+                  segmentId,
+                  "duration_seconds",
+                  parseInt(e.target.value, 10),
+                );
+              }}
+              className="w-40"
+            />
+            <span
+              className="num min-w-[2.25rem] text-right text-[11.5px]"
+              style={{ color: "var(--color-text-2)" }}
+            >
+              {t("duration_seconds_value_text", { value: seconds })}
+            </span>
+          </div>
+        ) : (
+          <div
+            className="flex flex-wrap gap-1"
+            role="radiogroup"
+            aria-label={t("duration_selector_aria")}
+          >
+            {durationOptions.map((d) => {
+              const checked = d === seconds;
+              return (
+                <button
+                  key={d}
+                  role="radio"
+                  type="button"
+                  aria-checked={checked}
+                  onClick={() => {
+                    void onUpdatePrompt(segmentId, "duration_seconds", d);
+                    setOpen(false);
+                  }}
+                  className="num rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors focus-ring"
+                  style={
+                    checked
+                      ? {
+                          background:
+                            "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                          color: "oklch(0.14 0 0)",
+                          boxShadow:
+                            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 6px -2px var(--color-accent-glow)",
+                        }
+                      : {
+                          background: "oklch(0.22 0.011 265 / 0.5)",
+                          color: "var(--color-text-2)",
+                          border: "1px solid var(--color-hairline-soft)",
+                        }
+                  }
+                >
+                  {t("duration_seconds_value_text", { value: d })}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Popover>
+    </>
+  );
+}
+
 export function ShotDetail({
   segment,
   segmentId,
@@ -95,6 +257,7 @@ export function ShotDetail({
   onRestoreVideo,
   generatingStoryboard,
   generatingVideo,
+  durationOptions = [],
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
@@ -450,19 +613,12 @@ export function ShotDetail({
         >
           {segmentId}
         </span>
-        <span
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-[3px] text-[11.5px]"
-          style={{
-            background: "oklch(0.22 0.011 265 / 0.6)",
-            border: "1px solid var(--color-hairline-soft)",
-            color: "var(--color-text-2)",
-          }}
-        >
-          <span style={{ color: "var(--color-text-4)" }}>⏱</span>
-          <span className="num">
-            {t("duration_seconds_value_text", { value: segment.duration_seconds ?? 0 })}
-          </span>
-        </span>
+        <DurationPill
+          seconds={segment.duration_seconds ?? 0}
+          segmentId={segmentId}
+          durationOptions={durationOptions}
+          onUpdatePrompt={onUpdatePrompt}
+        />
         <StatusBadge status={status} />
         {sceneType && (
           <span
