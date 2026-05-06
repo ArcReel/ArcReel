@@ -62,3 +62,26 @@ def test_store_uses_session_factory_seam(monkeypatch, tmp_path):
     assert isinstance(store, DbSessionStore)
     # Test the user_id seam took effect
     assert store._user_id == "test-user"
+
+
+def test_flush_mode_passed_to_options_default(monkeypatch, tmp_path):
+    """No env → ClaudeAgentOptions.session_store_flush == 'eager'."""
+    monkeypatch.delenv("ARCREEL_SDK_SESSION_STORE_FLUSH", raising=False)
+    sm = _build_sm(tmp_path)
+
+    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd.mkdir(parents=True)
+
+    options = sm._build_options(project_name="demo")
+    assert options.session_store_flush == "eager"
+
+
+def test_flush_mode_passed_to_options_batched(monkeypatch, tmp_path):
+    """env=batched → options.session_store_flush == 'batched'."""
+    monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE_FLUSH", "batched")
+    sm = _build_sm(tmp_path)
+    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd.mkdir(parents=True)
+
+    options = sm._build_options(project_name="demo")
+    assert options.session_store_flush == "batched"

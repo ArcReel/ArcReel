@@ -562,6 +562,8 @@ class SessionManager:
                 ],
             }
 
+        from lib.agent_session_store import session_store_flush_mode
+
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self.DEFAULT_SETTING_SOURCES,
@@ -577,6 +579,7 @@ class SessionManager:
             can_use_tool=can_use_tool,
             hooks=hooks,
             session_store=self._build_session_store(),
+            session_store_flush=session_store_flush_mode(),
         )
 
     @staticmethod
