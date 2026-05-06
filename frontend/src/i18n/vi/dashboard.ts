@@ -155,6 +155,8 @@ export default {
   'ai_analyzing': 'AI đang phân tích...',
   'extracting_metadata_desc': 'Đang trích xuất tóm tắt, thể loại, chủ đề và bối cảnh thế giới',
   'analysis_complete': 'Phân tích hoàn tất',
+  'thinking_process_label': 'Suy nghĩ',
+  'task_in_progress_default': 'Đang xử lý',
   'agent_handoff_headline': 'Sẵn sàng',
   'agent_handoff_subtitle': 'Trò chuyện với trợ lý để bắt đầu sản xuất video.',
   'agent_handoff_dismiss': 'Đã hiểu',

@@ -156,6 +156,8 @@ export default {
   'ai_analyzing': 'AI 分析中...',
   'extracting_metadata_desc': '正在提取故事梗概、题材、主题和世界观设定',
   'analysis_complete': '分析完成',
+  'thinking_process_label': '思考过程',
+  'task_in_progress_default': '任务进行中',
   'agent_handoff_headline': '准备就绪',
   'agent_handoff_subtitle': '与智能体对话，开启视频制作。',
   'agent_handoff_dismiss': '知道了',

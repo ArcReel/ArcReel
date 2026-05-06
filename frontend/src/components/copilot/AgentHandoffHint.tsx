@@ -25,8 +25,20 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
   const [leaving, setLeaving] = useState(false);
   const lastSeenTrigger = useRef<number>(-1);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sessionKey = `arc:agent-handoff:${storageScope}`;
+
+  const clearTimers = useCallback(() => {
+    if (dismissTimer.current) {
+      clearTimeout(dismissTimer.current);
+      dismissTimer.current = null;
+    }
+    if (fadeTimer.current) {
+      clearTimeout(fadeTimer.current);
+      fadeTimer.current = null;
+    }
+  }, []);
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -44,25 +56,20 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
     if (!assistantPanelOpen) {
       setAssistantPanelOpen(true);
     }
-    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    clearTimers();
     dismissTimer.current = setTimeout(() => {
       setLeaving(true);
-      setTimeout(() => setVisible(false), 320);
+      fadeTimer.current = setTimeout(() => setVisible(false), 320);
     }, AUTO_DISMISS_MS);
-    return () => {
-      if (dismissTimer.current) clearTimeout(dismissTimer.current);
-    };
-  }, [triggerKey, sessionKey, assistantPanelOpen, setAssistantPanelOpen]);
+    return clearTimers;
+  }, [triggerKey, sessionKey, assistantPanelOpen, setAssistantPanelOpen, clearTimers]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleDismiss = useCallback(() => {
-    if (dismissTimer.current) {
-      clearTimeout(dismissTimer.current);
-      dismissTimer.current = null;
-    }
+    clearTimers();
     setLeaving(true);
-    setTimeout(() => setVisible(false), 280);
-  }, []);
+    fadeTimer.current = setTimeout(() => setVisible(false), 280);
+  }, [clearTimers]);
 
   useEffect(() => {
     if (!visible) return;

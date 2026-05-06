@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 // ---------------------------------------------------------------------------
 // ThinkingBlock – collapsible display of Claude's thinking / reasoning.
@@ -9,6 +10,7 @@ interface ThinkingBlockProps {
 }
 
 export function ThinkingBlock({ thinking }: ThinkingBlockProps) {
+  const { t } = useTranslation("dashboard");
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (!thinking) {
@@ -38,7 +40,7 @@ export function ThinkingBlock({ thinking }: ThinkingBlockProps) {
           className="text-[11.5px] font-medium uppercase tracking-wide"
           style={{ color: "var(--color-accent-2)" }}
         >
-          思考过程
+          {t("thinking_process_label")}
         </span>
         <span
           className="text-[11px]"

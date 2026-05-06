@@ -52,6 +52,8 @@ function SessionSelector({
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] transition-colors focus-ring"
         style={{ color: "var(--color-text-3)" }}
         onMouseEnter={(e) => {
@@ -123,7 +125,7 @@ function SessionSelector({
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); if (confirm(t("confirm_delete_session"))) onDelete(session.id); }}
-                    className="shrink-0 rounded p-0.5 opacity-0 transition-all group-hover:opacity-100"
+                    className="focus-ring shrink-0 rounded p-0.5 opacity-0 transition-all group-hover:opacity-100 focus-visible:opacity-100"
                     style={{ color: "var(--color-text-4)" }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = "var(--color-danger)";
@@ -132,6 +134,7 @@ function SessionSelector({
                       e.currentTarget.style.color = "var(--color-text-4)";
                     }}
                     title={t("delete_session")}
+                    aria-label={t("delete_session")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

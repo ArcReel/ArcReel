@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Check, Circle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { Turn, TodoItem } from "@/types";
 
@@ -49,6 +50,7 @@ interface TodoListPanelProps {
 }
 
 export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
+  const { t } = useTranslation("dashboard");
   const [collapsed, setCollapsed] = useState(false);
 
   const todos = useMemo(
@@ -65,7 +67,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
   const total = todos.length;
   const progressPercent = Math.round((completedCount / total) * 100);
   const currentTask = todos.find((t) => t.status === "in_progress");
-  const headerLabel = currentTask?.activeForm ?? "任务进行中";
+  const headerLabel = currentTask?.activeForm ?? t("task_in_progress_default");
 
   return (
     <div

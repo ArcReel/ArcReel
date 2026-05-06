@@ -288,7 +288,7 @@ export function TimelineCanvas({
 
   const totalDuration =
     episodeScript?.duration_seconds ??
-    segments.reduce((sum, s) => sum + s.duration_seconds, 0);
+    segments.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
 
   // 若有 currentEpisodeMeta 用其值；否则构造一个最小 EpisodeMeta 用于 header
   const epMeta =

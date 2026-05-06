@@ -464,7 +464,7 @@ export function ShotDetail({
               className="display-serif m-0 text-[13px]"
               style={{ lineHeight: 1.65, color: "var(--color-text)" }}
             >
-              {novelText || t("detail_dialogue_empty")}
+              {novelText || t("no_original_text")}
             </p>
           </div>
         </div>

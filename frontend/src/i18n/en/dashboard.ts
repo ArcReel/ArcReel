@@ -155,6 +155,8 @@ export default {
   'ai_analyzing': 'AI Analyzing...',
   'extracting_metadata_desc': 'Extracting synopsis, genre, theme, and world settings',
   'analysis_complete': 'Analysis complete',
+  'thinking_process_label': 'Thinking',
+  'task_in_progress_default': 'In progress',
   'agent_handoff_headline': 'Ready to roll',
   'agent_handoff_subtitle': 'Chat with the agent to start producing your video.',
   'agent_handoff_dismiss': 'Got it',

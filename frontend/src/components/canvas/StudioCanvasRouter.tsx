@@ -94,7 +94,12 @@ export function StudioCanvasRouter() {
       setResolvedDurationOptions(undefined);
       return;
     }
-    if (!currentProjectName) return;
+    if (!currentProjectName) {
+      setResolvedDurationOptions(undefined);
+      return;
+    }
+    // 切项目时先清空旧值，避免在新项目的 /video-capabilities 返回前继续沿用上个项目的时长选项
+    setResolvedDurationOptions(undefined);
     let disposed = false;
     API.getVideoCapabilities(currentProjectName)
       .then((caps) => {
