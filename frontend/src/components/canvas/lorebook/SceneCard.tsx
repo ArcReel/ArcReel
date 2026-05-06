@@ -137,9 +137,9 @@ export function SceneCard({
         }}
       />
 
-      {/* ---- Header: type chip + name + actions ---- */}
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      {/* ---- Header: 第一排 icon+name+version；第二排 upload+library ---- */}
+      <div className="mb-4 flex flex-col gap-1.5">
+        <div className="flex items-center gap-2.5">
           <span
             aria-hidden
             className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
@@ -157,8 +157,14 @@ export function SceneCard({
           >
             {name}
           </h3>
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="scenes"
+            resourceId={name}
+            onRestore={onRestoreVersion}
+          />
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex items-center gap-1 pl-[2.375rem]">
           <button
             type="button"
             onClick={() => sheetInputRef.current?.click()}
@@ -186,12 +192,6 @@ export function SceneCard({
             initialDescription={scene.description}
             sheetPath={scene.scene_sheet}
             showLabel
-          />
-          <VersionTimeMachine
-            projectName={projectName}
-            resourceType="scenes"
-            resourceId={name}
-            onRestore={onRestoreVersion}
           />
         </div>
       </div>
