@@ -626,6 +626,11 @@ class AssistantService:
         if buffer is None:
             buffer = self.session_manager.get_buffered_messages(session_id)
 
+        # Pre-scan buffer for real (non-echo) user texts; used as dedup fallback
+        # when the DB transcript momentarily lags the in-memory buffer (eager
+        # flush is fire-and-forget + SDK coalesces frames under a slow store).
+        buffer_real_user_texts = self._collect_buffer_real_user_texts(buffer or [])
+
         for msg in buffer or []:
             if not isinstance(msg, dict):
                 continue
@@ -641,7 +646,14 @@ class AssistantService:
             if self._is_real_user_message(msg):
                 tail_fps.clear()
 
-            if not self._is_buffer_duplicate(msg, msg_type, transcript_uuids, tail_fps, history_messages):
+            if not self._is_buffer_duplicate(
+                msg,
+                msg_type,
+                transcript_uuids,
+                tail_fps,
+                history_messages,
+                buffer_real_user_texts,
+            ):
                 # A local_echo that survived dedup is a genuinely new round;
                 # clear tail fingerprints so the upcoming assistant reply
                 # isn't falsely matched against a prior round's content.
@@ -658,16 +670,29 @@ class AssistantService:
         transcript_uuids: set[str],
         tail_fps: set[str],
         history_messages: list[dict[str, Any]],
+        buffer_real_user_texts: set[str] | None = None,
     ) -> bool:
-        """Check if a groupable buffer message duplicates a transcript message."""
+        """Check if a groupable buffer message duplicates a transcript message.
+
+        ``buffer_real_user_texts`` is a pre-scan of the same buffer the caller
+        is iterating; an echo that lacks a transcript-side match still gets
+        deduped if the buffer itself already carries a same-text real user
+        (covers eager flush's DB-lag window when SDK coalesces frames under
+        a slow store).
+        """
         # 1. UUID dedup
         uuid = msg.get("uuid")
         if uuid and uuid in transcript_uuids:
             return True
 
-        # 2. Local echo dedup
-        if msg.get("local_echo") and self._echo_in_transcript(msg, history_messages):
-            return True
+        # 2. Local echo dedup — transcript first, buffer fallback
+        if msg.get("local_echo"):
+            if self._echo_in_transcript(msg, history_messages):
+                return True
+            if buffer_real_user_texts:
+                echo_text = self._extract_plain_user_content(msg)
+                if echo_text and echo_text in buffer_real_user_texts:
+                    return True
 
         # 3. Content fingerprint dedup (fallback for UUID-less buffer messages)
         if not uuid and msg_type in {"assistant", "result"}:
@@ -827,6 +852,25 @@ class AssistantService:
         return True
 
     _extract_plain_user_content = staticmethod(extract_plain_user_content)
+
+    @staticmethod
+    def _collect_buffer_real_user_texts(buffer: list[dict[str, Any]] | None) -> set[str]:
+        """Pre-scan buffer for plain text of all real (non-echo) user messages.
+
+        Used by _is_buffer_duplicate as a fallback dedup source when the DB
+        transcript is momentarily behind the in-memory buffer (eager flush is
+        fire-and-forget; SDK may coalesce frames under slow store).
+        """
+        texts: set[str] = set()
+        for msg in buffer or []:
+            if not isinstance(msg, dict):
+                continue
+            if not AssistantService._is_real_user_message(msg):
+                continue
+            text = AssistantService._extract_plain_user_content(msg)
+            if text:
+                texts.add(text)
+        return texts
 
     @staticmethod
     def _parse_iso_datetime(value: Any) -> datetime | None:
