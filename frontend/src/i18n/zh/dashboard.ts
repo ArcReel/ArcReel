@@ -260,7 +260,7 @@ export default {
   'phase_production': '制作',
   'phase_completed': '完成',
   'episode_status_label_draft': '草稿',
-  'episode_status_label_scripted': '已分镜',
+  'episode_status_label_scripted': '已成稿',
   'episode_status_label_in_production': '制作中',
   'episode_status_label_completed': '已完成',
   'episode_status_label_missing': '缺失',

@@ -313,7 +313,7 @@ export function ShotList({
                   <div className="mt-1 flex items-center gap-1.5">
                     <StatusBadge status={status} />
                     <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
-                      {seg.duration_seconds ?? 0}s
+                      {t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}
                     </span>
                     {versions > 0 && (
                       <span

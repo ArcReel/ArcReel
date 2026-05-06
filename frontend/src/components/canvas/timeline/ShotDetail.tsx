@@ -460,7 +460,9 @@ export function ShotDetail({
           }}
         >
           <span style={{ color: "var(--color-text-4)" }}>⏱</span>
-          <span className="num">{segment.duration_seconds}s</span>
+          <span className="num">
+            {t("duration_seconds_value_text", { value: segment.duration_seconds ?? 0 })}
+          </span>
         </span>
         <StatusBadge status={status} />
         {sceneType && (
