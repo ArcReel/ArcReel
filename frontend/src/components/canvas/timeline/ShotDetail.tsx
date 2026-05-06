@@ -71,10 +71,9 @@ function getSceneType(seg: Segment, mode: "narration" | "drama"): string {
 interface DraftState {
   image_prompt: ImagePromptValue;
   video_prompt: VideoPromptValue;
-  note: string;
 }
 
-// 字段集合稳定（ImagePrompt/VideoPrompt/string/note），JSON.stringify 即可作等值签名：
+// 字段集合稳定（ImagePrompt/VideoPrompt/string），JSON.stringify 即可作等值签名：
 // 任何字段顺序差异都来自我们自己的 setter 或上游同一构造路径，键序一致。
 const stableSig = (value: unknown): string => JSON.stringify(value ?? null);
 
@@ -109,16 +108,16 @@ export function ShotDetail({
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
   // 在切镜头时硬重置整个组件，所以这里只需处理"上游同字段静默更新"的情况。
+  // 备注不进入草稿，由 NotesDrawer 收起时直接落库。
   const [draft, setDraft] = useState<DraftState>(() => ({
     image_prompt: ip,
     video_prompt: vp,
-    note,
   }));
   const [saving, setSaving] = useState(false);
 
   const upstreamSig = useMemo(
-    () => stableSig({ ip, vp, note }),
-    [ip, vp, note],
+    () => stableSig({ ip, vp }),
+    [ip, vp],
   );
   const baselineSigRef = useRef(upstreamSig);
   const draftRef = useRef(draft);
@@ -129,10 +128,10 @@ export function ShotDetail({
   useEffect(() => {
     if (baselineSigRef.current === upstreamSig) return;
     if (stableSig(draftRef.current) === baselineSigRef.current) {
-      setDraft({ image_prompt: ip, video_prompt: vp, note });
+      setDraft({ image_prompt: ip, video_prompt: vp });
     }
     baselineSigRef.current = upstreamSig;
-  }, [upstreamSig, ip, vp, note]);
+  }, [upstreamSig, ip, vp]);
 
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
@@ -147,9 +146,8 @@ export function ShotDetail({
       stableSig(draft.video_prompt) !== stableSig(vp)
     )
       patch.video_prompt = draft.video_prompt;
-    if (draft.note !== note) patch.note = draft.note;
     return patch;
-  }, [draft, ip, vp, note]);
+  }, [draft, ip, vp]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
@@ -199,7 +197,8 @@ export function ShotDetail({
   };
 
   const handleNotesCommit = (value: string) => {
-    setDraft((d) => ({ ...d, note: value }));
+    if (value === note) return;
+    void onUpdatePrompt?.(segmentId, "note", value);
   };
 
   const handleSave = async () => {
@@ -215,7 +214,7 @@ export function ShotDetail({
 
   const handleCancel = () => {
     if (saving) return;
-    setDraft({ image_prompt: ip, video_prompt: vp, note });
+    setDraft({ image_prompt: ip, video_prompt: vp });
   };
 
   const sbEstimate = useMemo(
@@ -476,80 +475,6 @@ export function ShotDetail({
         )}
         <span className="flex-1" />
 
-        {dirty && (
-          <div className="flex items-center gap-1.5">
-            <span
-              role="status"
-              aria-live="polite"
-              className="num hidden text-[10px] uppercase sm:inline"
-              style={{
-                letterSpacing: "1.0px",
-                color: "var(--color-accent-2)",
-              }}
-            >
-              {t("shot_detail_unsaved")}
-            </span>
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={saving}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                color: "var(--color-text-3)",
-                border: "1px solid var(--color-hairline)",
-                background: "oklch(0.22 0.011 265 / 0.5)",
-              }}
-              onMouseEnter={(e) => {
-                if (!saving) {
-                  e.currentTarget.style.color = "var(--color-text)";
-                  e.currentTarget.style.background =
-                    "oklch(0.26 0.013 265 / 0.7)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--color-text-3)";
-                e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
-              }}
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-              <span>{t("shot_detail_cancel")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSave()}
-              disabled={saving}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-60"
-              style={{
-                color: "oklch(0.14 0 0)",
-                background:
-                  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-                boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
-              }}
-              onMouseEnter={(e) => {
-                if (!saving) e.currentTarget.style.transform = "translateY(-1px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
-              }}
-            >
-              {saving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Check className="h-3.5 w-3.5" />
-              )}
-              <span>
-                {saving ? t("shot_detail_saving") : t("shot_detail_save")}
-              </span>
-            </button>
-            <span
-              aria-hidden
-              className="mx-1 h-4 w-px"
-              style={{ background: "var(--color-hairline-soft)" }}
-            />
-          </div>
-        )}
-
         <div className="flex items-center gap-1.5">
           <span
             className="num text-[10.5px]"
@@ -582,11 +507,96 @@ export function ShotDetail({
           </button>
           <NotesDrawer
             shotId={segmentId}
-            value={draft.note}
+            value={note}
             onCommit={handleNotesCommit}
           />
         </div>
       </div>
+
+      {dirty && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 px-5 py-2"
+          style={{
+            background:
+              "linear-gradient(180deg, var(--color-accent-dim), oklch(0.20 0.012 270 / 0.35))",
+            borderBottom: "1px solid var(--color-accent-soft)",
+          }}
+        >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 rounded-full"
+            style={{
+              background: "var(--color-accent)",
+              boxShadow: "0 0 6px var(--color-accent-glow)",
+            }}
+          />
+          <span
+            className="num text-[10.5px] uppercase"
+            style={{
+              letterSpacing: "1.0px",
+              color: "var(--color-accent-2)",
+            }}
+          >
+            {t("shot_detail_unsaved")}
+          </span>
+          <span className="flex-1" />
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={saving}
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              color: "var(--color-text-3)",
+              border: "1px solid var(--color-hairline)",
+              background: "oklch(0.22 0.011 265 / 0.5)",
+            }}
+            onMouseEnter={(e) => {
+              if (!saving) {
+                e.currentTarget.style.color = "var(--color-text)";
+                e.currentTarget.style.background =
+                  "oklch(0.26 0.013 265 / 0.7)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
+            }}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            <span>{t("shot_detail_cancel")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              color: "oklch(0.14 0 0)",
+              background:
+                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+              boxShadow:
+                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+            }}
+            onMouseEnter={(e) => {
+              if (!saving) e.currentTarget.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
+          >
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Check className="h-3.5 w-3.5" />
+            )}
+            <span>
+              {saving ? t("shot_detail_saving") : t("shot_detail_save")}
+            </span>
+          </button>
+        </div>
+      )}
 
       <ResponsiveDetailGrid
         left={leftColumn}
