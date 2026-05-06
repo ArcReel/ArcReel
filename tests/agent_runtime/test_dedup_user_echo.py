@@ -93,3 +93,47 @@ def test_existing_signature_backward_compat(tmp_path):
     service = AssistantService(project_root=tmp_path)
     # uuid dedup 路径：transcript 已有 uuid → True
     assert service._is_buffer_duplicate({"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []) is True
+
+
+def test_build_projector_dedups_echo_when_buffer_has_real_user(tmp_path):
+    """集成：history 空 + buffer = [echo, sdk_user_msg] → projector 单条 user。"""
+    import asyncio
+
+    from server.agent_runtime.models import SessionMeta
+
+    service = AssistantService(project_root=tmp_path)
+
+    class _StubAdapter:
+        async def read_raw_messages(self, sid, project_cwd):
+            return []  # transcript 空，模拟 batched 模式 turn 进行中
+
+    service.transcript_adapter = _StubAdapter()  # type: ignore[assignment]
+
+    buffer = [
+        {"type": "user", "content": "你好", "local_echo": True},
+        {"type": "user", "content": "你好", "uuid": "user-uuid-1"},
+    ]
+
+    class _SmStub:
+        sessions: dict = {}
+
+        def get_buffered_messages(self, sid):
+            return buffer
+
+    service.session_manager = _SmStub()  # type: ignore[assignment]
+
+    meta = SessionMeta(
+        id="sid-1",
+        project_name="proj",
+        title="",
+        status="running",
+        created_at="2026-01-01T00:00:00",
+        updated_at="2026-01-01T00:00:00",
+    )
+
+    async def _go():
+        return await service._build_projector(meta, "sid-1")
+
+    projector = asyncio.run(_go())
+    user_turns = [t for t in projector.turns if t.get("type") == "user"]
+    assert len(user_turns) == 1, f"expected 1 user turn, got {len(user_turns)}: {user_turns}"

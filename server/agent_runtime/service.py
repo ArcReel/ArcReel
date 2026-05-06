@@ -626,6 +626,11 @@ class AssistantService:
         if buffer is None:
             buffer = self.session_manager.get_buffered_messages(session_id)
 
+        # Pre-scan buffer for real (non-echo) user texts; used as dedup fallback
+        # when the DB transcript momentarily lags the in-memory buffer (eager
+        # flush is fire-and-forget + SDK coalesces frames under a slow store).
+        buffer_real_user_texts = self._collect_buffer_real_user_texts(buffer or [])
+
         for msg in buffer or []:
             if not isinstance(msg, dict):
                 continue
@@ -641,7 +646,14 @@ class AssistantService:
             if self._is_real_user_message(msg):
                 tail_fps.clear()
 
-            if not self._is_buffer_duplicate(msg, msg_type, transcript_uuids, tail_fps, history_messages):
+            if not self._is_buffer_duplicate(
+                msg,
+                msg_type,
+                transcript_uuids,
+                tail_fps,
+                history_messages,
+                buffer_real_user_texts,
+            ):
                 # A local_echo that survived dedup is a genuinely new round;
                 # clear tail fingerprints so the upcoming assistant reply
                 # isn't falsely matched against a prior round's content.
