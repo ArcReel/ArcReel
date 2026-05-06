@@ -246,7 +246,7 @@ export default {
   'toggle_task_panel': '切换任务面板',
   'export_project_zip': '导出当前项目 ZIP',
   'exporting_zip': '导出中...',
-  'export_zip': '导出 ZIP',
+  'export_zip': '导出',
   'config_incomplete': '配置不完整',
   'export_diagnostics_title': '导出诊断',
   'export_diagnostics_description': '导出已完成预检查并生成 ZIP。以下问题在导出包中被检测到。',

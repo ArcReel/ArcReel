@@ -245,7 +245,7 @@ export default {
   'toggle_task_panel': 'Bật/tắt bảng tác vụ',
   'export_project_zip': 'Xuất ZIP dự án hiện tại',
   'exporting_zip': 'Đang xuất...',
-  'export_zip': 'Xuất ZIP',
+  'export_zip': 'Xuất',
   'config_incomplete': 'Cấu hình chưa đầy đủ',
   'export_diagnostics_title': 'Chẩn đoán xuất',
   'export_diagnostics_description': 'Hoàn tất kiểm tra trước xuất và đã tạo ZIP. Phát hiện các vấn đề sau trong gói xuất.',

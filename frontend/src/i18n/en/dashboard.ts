@@ -245,7 +245,7 @@ export default {
   'toggle_task_panel': 'Toggle task panel',
   'export_project_zip': 'Export current project ZIP',
   'exporting_zip': 'Exporting...',
-  'export_zip': 'Export ZIP',
+  'export_zip': 'Export',
   'config_incomplete': 'Configuration incomplete',
   'export_diagnostics_title': 'Export Diagnostics',
   'export_diagnostics_description': 'Export pre-check complete and ZIP generated. The following issues were detected in the export package.',
