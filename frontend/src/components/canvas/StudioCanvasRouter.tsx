@@ -63,6 +63,9 @@ export function StudioCanvasRouter() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [globalVideoBackend, setGlobalVideoBackend] = useState("");
+  const [resolvedDurationOptions, setResolvedDurationOptions] = useState<
+    number[] | undefined
+  >(undefined);
 
   useEffect(() => {
     let disposed = false;
@@ -77,11 +80,37 @@ export function StudioCanvasRouter() {
     return () => { disposed = true; };
   }, []);
 
-  const durationOptions = useMemo(() => {
+  // 已配置 backend 时本地 lookup 即可（同步、零延迟）；未配置时调后端
+  // /video-capabilities，让 ConfigResolver 自动 fallback 到 PROVIDER_REGISTRY
+  // 第一个 ready 的 default video model（与生成路径用同一套规则，避免 FE/BE 漂移）。
+  const localDurationOptions = useMemo(() => {
     const backend = currentProjectData?.video_backend || globalVideoBackend;
     if (!backend) return undefined;
     return lookupSupportedDurations(providers, backend, customProviders);
   }, [providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
+
+  useEffect(() => {
+    if (localDurationOptions !== undefined) {
+      setResolvedDurationOptions(undefined);
+      return;
+    }
+    if (!currentProjectName) return;
+    let disposed = false;
+    API.getVideoCapabilities(currentProjectName)
+      .then((caps) => {
+        if (disposed) return;
+        setResolvedDurationOptions(caps.supported_durations);
+      })
+      .catch(() => {
+        if (disposed) return;
+        setResolvedDurationOptions(undefined);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [currentProjectName, localDurationOptions]);
+
+  const durationOptions = localDurationOptions ?? resolvedDurationOptions;
 
   // 从任务队列派生 loading 状态（替代本地 state）
   const tasks = useTasksStore((s) => s.tasks);

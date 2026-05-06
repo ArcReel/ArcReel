@@ -373,6 +373,21 @@ class API {
     });
   }
 
+  /** 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。 */
+  static async getVideoCapabilities(name: string): Promise<{
+    provider_id: string;
+    model: string;
+    supported_durations: number[];
+    max_duration: number;
+    max_reference_images: number;
+    source: "registry" | "custom";
+    default_duration?: number | null;
+    content_mode?: string | null;
+    generation_mode?: string | null;
+  }> {
+    return this.request(`/projects/${encodeURIComponent(name)}/video-capabilities`);
+  }
+
   static async requestExportToken(
     projectName: string,
     scope: "full" | "current" = "full"
