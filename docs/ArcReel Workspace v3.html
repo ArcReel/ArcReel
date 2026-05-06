@@ -1,0 +1,1508 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>ArcReel · 工作台</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:wght@400&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      /* Refined cinematic palette — cooler, warmer tonal variance for depth */
+      --bg:        oklch(0.168 0.009 265);
+      --bg-grad-a: oklch(0.182 0.011 270);
+      --bg-grad-b: oklch(0.148 0.009 260);
+      --surface-2: oklch(0.250 0.012 265);
+      --panel-2:   var(--surface-2);
+
+      --hairline:       oklch(0.40 0.012 265 / 0.35);
+      --hairline-strong: oklch(0.45 0.014 265 / 0.55);
+      --hairline-soft:  oklch(0.40 0.012 265 / 0.18);
+
+      --text:      oklch(0.975 0.004 265);
+      --text-2:    oklch(0.820 0.008 265);
+      --text-3:    oklch(0.640 0.010 265);
+      --text-4:    oklch(0.490 0.010 265);
+
+      --accent:    oklch(0.76 0.09 295);
+      --accent-2:  oklch(0.88 0.05 295);
+      --accent-soft: oklch(0.76 0.09 295 / 0.22);
+      --accent-dim: oklch(0.76 0.09 295 / 0.12);
+      --accent-glow: oklch(0.76 0.09 295 / 0.35);
+
+      --good:      oklch(0.78 0.10 155);
+
+      --font-sans: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+      --font-display: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: var(--bg); color: var(--text);
+      font-family: var(--font-sans); font-size: 13px; line-height: 1.4;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    }
+    body {
+      background:
+        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
+        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
+        linear-gradient(180deg, var(--bg-grad-a), var(--bg-grad-b));
+      background-attachment: fixed;
+    }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+    input, textarea { font: inherit; color: inherit; background: transparent; border: 0; outline: 0; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: oklch(0.42 0.010 265 / 0.35); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-thumb:hover { background: oklch(0.55 0.012 265 / 0.55); border: 2px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    .num, .mono { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+    .noise { pointer-events: none; position: fixed; inset: 0; opacity: 0.035; mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+    .app { display: grid; grid-template-rows: 48px 1fr; height: 100vh; width: 100vw; overflow: hidden; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+    .display-serif { font-family: var(--font-display); }
+
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  </style>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <div id="root" class="app"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useRef } = React;
+
+    // ---------- Icons ----------
+    const I = ({ d, size = 16, stroke = 1.5, fill = "none" }) => (
+      <svg width={size} height={size} viewBox="0 0 16 16" fill={fill} stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {typeof d === 'string' ? <path d={d} /> : d}
+      </svg>
+    );
+    const Icons = {
+      back: <I d="M10 3 5 8l5 5" />,
+      chevronDown: <I d="M4 6l4 4 4-4" />,
+      chevronRight: <I d="M6 4l4 4-4 4" />,
+      bell: <I d={<><path d="M4 11h8l-1-1V7a3 3 0 1 0-6 0v3l-1 1z" /><path d="M7 13a1 1 0 0 0 2 0" /></>} />,
+      activity: <I d="M1 8h3l2-5 4 10 2-5h3" />,
+      download: <I d={<><path d="M8 2v8" /><path d="M5 7l3 3 3-3" /><path d="M3 13h10" /></>} />,
+      plus: <I d={<><path d="M8 3v10" /><path d="M3 8h10" /></>} />,
+      search: <I d={<><circle cx="7" cy="7" r="4" /><path d="M10 10l3 3" /></>} />,
+      sparkle: <I d={<><path d="M8 2v3M8 11v3M2 8h3M11 8h3" /><path d="M4.5 4.5l2 2M11.5 11.5l-2-2M4.5 11.5l2-2M11.5 4.5l-2 2" /></>} />,
+      send: <I d={<><path d="M2 8l11-5-3 11-3-4z" /><path d="M7 10l3-3" /></>} />,
+      attach: <I d="M10 4 5.5 8.5a2 2 0 0 0 2.8 2.8L13 6.5a3.5 3.5 0 1 0-5-5L3.5 6" />,
+      expand: <I d="M2 2h4M2 2v4M10 2h4M14 2v4M2 10v4M2 14h4M10 14h4M14 10v4" />,
+      layers: <I d={<><path d="M8 2l6 3-6 3-6-3z" /><path d="M2 8l6 3 6-3M2 11l6 3 6-3" /></>} />,
+      grid: <I d={<><rect x="2" y="2" width="5" height="5" /><rect x="9" y="2" width="5" height="5" /><rect x="2" y="9" width="5" height="5" /><rect x="9" y="9" width="5" height="5" /></>} />,
+      film: <I d={<><rect x="2" y="2" width="12" height="12" rx="1.5" /><path d="M5 2v12M11 2v12M2 5h3M2 8h3M2 11h3M11 5h3M11 8h3M11 11h3" /></>} />,
+      users: <I d={<><circle cx="6" cy="6" r="2.2"/><path d="M2 13c.8-2.2 2.5-3 4-3s3.2.8 4 3"/><circle cx="11" cy="6" r="1.8"/><path d="M14 13c-.6-1.6-1.8-2.2-3-2.4"/></>} />,
+      scene: <I d={<><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M6 3v10M10 3v10" /></>} />,
+      bookOpen: <I d={<><path d="M8 4v10"/><path d="M8 4s-2-1.5-5-1v10c3-.5 5 1 5 1s2-1.5 5-1V3c-3-.5-5 1-5 1z"/></>} />,
+      wand: <I d={<><path d="M3 13l8-8"/><path d="M9 3l1 1M12 6l1 1M2 9l1 1"/></>} />,
+      sliders: <I d={<><path d="M3 4h10M3 8h10M3 12h10"/><circle cx="6" cy="4" r="1.5" fill="var(--panel-2)"/><circle cx="11" cy="8" r="1.5" fill="var(--panel-2)"/><circle cx="5" cy="12" r="1.5" fill="var(--panel-2)"/></>} />,
+      note: <I d={<><path d="M3 2.5h7l3 3V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z"/><path d="M10 2.5v3h3"/><path d="M5 8h6M5 10.5h4"/></>} />,
+      box: <I d={<><path d="M2 5l6-3 6 3v6l-6 3-6-3z"/><path d="M2 5l6 3 6-3"/><path d="M8 8v6"/></>} />,
+    };
+
+    // ---------- Data (aligned with project: 赡养人类 / reference_video mode) ----------
+    const EPISODES = [
+      { n: 1, title: "赡养人类", shots: 5, dur: 40, status: 'active', cost: 0.40, progress: 20 },
+    ];
+    const PHASES = [
+      { n: 1, name: "准备中" }, { n: 2, name: "世界观" },
+      { n: 3, name: "剧本创作" }, { n: 4, name: "制作中", active: true }, { n: 5, name: "已完成" },
+    ];
+    // Reference assets — from project.json (10 chars / 11 scenes / 13 props)
+    const REFS = [
+      { id:'ref_huatang',  kind:'character', name:'滑膛',     hue: 220 },
+      { id:'ref_zhu',      kind:'character', name:'朱汉杨',   hue: 240 },
+      { id:'ref_xu',       kind:'character', name:'许雪萍',   hue: 10  },
+      { id:'ref_chige',    kind:'character', name:'齿哥',     hue: 35  },
+      { id:'ref_observer', kind:'character', name:'第一地球观察员', hue: 200 },
+      { id:'ref_painter',  kind:'character', name:'流浪画家', hue: 60  },
+      { id:'ref_picker',   kind:'character', name:'拾荒女',   hue: 145 },
+      { id:'ref_homeless', kind:'character', name:'流浪汉',   hue: 30  },
+      { id:'ref_guoer',    kind:'character', name:'果儿',     hue: 350 },
+      { id:'ref_laoke',    kind:'character', name:'老克',     hue: 250 },
+      { id:'ref_hall',     kind:'scene',     name:'总统大厅', hue: 45  },
+      { id:'ref_dump',     kind:'scene',     name:'垃圾场',   hue: 80  },
+      { id:'ref_bridge',   kind:'scene',     name:'桥下窝棚', hue: 25  },
+      { id:'ref_square',   kind:'scene',     name:'春花广场', hue: 270 },
+      { id:'ref_park',     kind:'scene',     name:'公园小树林', hue: 155 },
+      { id:'ref_school',   kind:'scene',     name:'射击学校', hue: 200 },
+      { id:'ref_warehouse',kind:'scene',     name:'豪赌仓库', hue: 12  },
+      { id:'ref_street',   kind:'scene',     name:'林荫道城市街', hue: 215 },
+      { id:'ref_ship',     kind:'scene',     name:'哥哥飞船环绕夜空', hue: 235 },
+      { id:'ref_e1home',   kind:'scene',     name:'第一地球穷人住宅', hue: 5 },
+      { id:'ref_terminal', kind:'scene',     name:'终产者的地球', hue: 165 },
+      { id:'ref_revolver', kind:'prop',      name:'大鼻子左轮手枪', hue: 250 },
+      { id:'ref_saw',      kind:'prop',      name:'齿哥利锯', hue: 18 },
+      { id:'ref_ring',     kind:'prop',      name:'钻戒',     hue: 230 },
+      { id:'ref_photo',    kind:'prop',      name:'委托照片', hue: 250 },
+      { id:'ref_case',     kind:'prop',      name:'黑色百万元手提箱', hue: 0 },
+      { id:'ref_painting', kind:'prop',      name:'贫瘠系列之二', hue: 50 },
+      { id:'ref_sniper',   kind:'prop',      name:'L专业狙击步枪', hue: 145 },
+      { id:'ref_nano',     kind:'prop',      name:'纳米丝戒指', hue: 200 },
+      { id:'ref_pill',     kind:'prop',      name:'空气售货机药丸', hue: 215 },
+      { id:'ref_truck',    kind:'prop',      name:'资源转换车', hue: 50 },
+      { id:'ref_fire',     kind:'prop',      name:'百元钞票火堆', hue: 80 },
+      { id:'ref_amp',      kind:'prop',      name:'超等智力放大器', hue: 280 },
+      { id:'ref_unit',     kind:'prop',      name:'执法单元', hue: 0 },
+    ];
+    const REF_KIND = {
+      character: { label:'角色', color:'oklch(0.74 0.11 25)',  dot:'oklch(0.80 0.11 25)' },
+      scene:     { label:'场景', color:'oklch(0.76 0.09 220)', dot:'oklch(0.82 0.09 220)' },
+      prop:      { label:'道具', color:'oklch(0.78 0.10 140)', dot:'oklch(0.82 0.10 140)' },
+    };
+
+    // SHOTS — DramaScene shape from lib/script_models.py
+    //   image_prompt: { scene, composition: { shot_type, lighting, ambiance } }
+    //   video_prompt: { action, camera_motion, ambiance_audio, dialogue: [{speaker,line}] }
+    //   generated_assets: { storyboard_image, video_clip, status: pending|storyboard_ready|completed }
+    // Shot types & camera motions match canonical enums in types/script.ts.
+    const SHOT_TYPE_ZH = {
+      'Extreme Close-up':'极特写','Close-up':'特写','Medium Close-up':'中近景',
+      'Medium Shot':'中景','Medium Long Shot':'中远景','Long Shot':'远景',
+      'Extreme Long Shot':'极远景','Over-the-shoulder':'过肩','Point-of-view':'主观',
+    };
+    const CAM_ZH = {
+      'Static':'固定','Pan Left':'左摇','Pan Right':'右摇',
+      'Tilt Up':'上仰','Tilt Down':'下俯','Zoom In':'推近',
+      'Zoom Out':'拉远','Tracking Shot':'跟随',
+    };
+
+    const SHOTS = [
+      {
+        id: 'E1S1', dur: 8, hue: 45, scene_type: '总统大厅 · 入场',
+        characters: ['ref_huatang'], scenes: ['ref_hall'], props: [],
+        novel_text: '镜头推向总统大厅的镶金大门，服务生双手拉开厚重门扉，内部光线倾泻而出。滑膛迈步走进大厅，左手探入夹克内侧拉开枪套按扣。',
+        notes: '入场镜头，强调权力空间与杀手警觉性的对比。',
+        image_prompt: {
+          scene: '五星级酒店宴会厅外：服务生双手拉住总统大厅巨大的镶金厚重大门把它向内拉开，门外冷夜与门内吊灯暖金光形成强烈反差。职业杀手滑膛立于门口，三十出头，深灰色普通运动夹克，神色冷峻。',
+          composition: { shot_type:'Medium Long Shot', lighting:'门内暖金光外溢，门外冷夜', ambiance:'紧张、权力压迫感' },
+        },
+        video_prompt: {
+          action: '服务生缓慢拉开沉重大门，滑膛静立不动，只有左手短暂探入夹克内侧，轻轻拉开左腋下枪套按扣。',
+          camera_motion:'Tracking Shot', ambiance_audio:'门扉转动、脚步声、远处低语', dialogue: [],
+        },
+        generated_assets: { storyboard_image: null, video_clip: null, status: 'pending' },
+        storyboard_versions: 0, video_versions: 0,
+        cost: { storyboardEst: 0.001, videoEst: 0.40, storyboardAct: null, videoAct: null },
+      },
+      {
+        id: 'E1S2', dur: 8, hue: 235, scene_type: '落地窗前 · 仰望',
+        characters: ['ref_huatang','ref_zhu','ref_xu'], scenes: ['ref_hall','ref_ship'], props: [],
+        novel_text: '总统大厅中央空旷，十三名身影聚在落地窗前仰望。窗外哥哥飞船缓缓横移，滑膛立于大厅靠里位置扫过人群。',
+        notes: '已完成 → 分镜与视频均就绪',
+        image_prompt: {
+          scene: '俯瞰穿过落地窗看向夜空：十三名西装精英背向镜头并排站立仰望，窗外哥哥飞船的银色星环静静悬浮于云层之上。滑膛独自立于大厅靠里位置，影子被吊灯拉长。',
+          composition: { shot_type:'Long Shot', lighting:'室内吊灯暖橙 + 窗外宇宙蓝光', ambiance:'宏大、宿命降临' },
+        },
+        video_prompt: {
+          action: '十三名精英聚在落地窗前仰望天空，哥哥飞船的银色星环缓缓横移。滑膛立于大厅靠里位置，目光扫过人群。',
+          camera_motion:'Pan Right', ambiance_audio:'低沉震动、衣料摩擦、远处低语',
+          dialogue: [{ speaker:'朱汉杨', line:'他们终于到了。' }],
+        },
+        generated_assets: { storyboard_image: 'storyboards/E1S2_v1.png', video_clip: 'videos/E1S2_v1.mp4', status: 'completed' },
+        storyboard_versions: 2, video_versions: 1,
+        cost: { storyboardEst: 0.001, videoEst: 0.40, storyboardAct: 0.001, videoAct: 0.40 },
+      },
+      {
+        id: 'E1S3', dur: 8, hue: 35, scene_type: '圆桌 · 落座',
+        characters: ['ref_huatang','ref_zhu','ref_xu'], scenes: ['ref_hall'], props: ['ref_ring'],
+        novel_text: '十三位精英回到圆桌旁，朱汉杨居首落座，许雪萍在侧。特写朱汉杨手指搭桌沿，钻戒闪出柔光，滑膛在对面缓缓坐下。',
+        notes: '生成中：分镜完成，视频队列中…',
+        image_prompt: {
+          scene: '圆桌中近景：十三位精英围坐巨型红木圆桌旁，朱汉杨居首位双手交叠搭桌沿，无名指上的钻戒折射柔暖灯光。许雪萍居其右，神色凝重。滑膛位于桌对面，目光低垂。',
+          composition: { shot_type:'Medium Close-up', lighting:'吊灯主光，桌面反光柔和', ambiance:'克制、暗流涌动' },
+        },
+        video_prompt: {
+          action: '十三位精英回到圆桌旁，朱汉杨居首落座，许雪萍在侧。镜头推向特写：朱汉杨手指搭在桌沿，钻戒闪出柔光，滑膛在对面缓缓坐下。',
+          camera_motion:'Zoom In', ambiance_audio:'椅子轻响、布料摩擦、低语',
+          dialogue: [{ speaker:'朱汉杨', line:'请坐，滑膛先生。' },{ speaker:'滑膛', line:'说吧。' }],
+        },
+        generated_assets: { storyboard_image: 'storyboards/E1S3_v1.png', video_clip: null, status: 'storyboard_ready' },
+        storyboard_versions: 1, video_versions: 0,
+        cost: { storyboardEst: 0.001, videoEst: 0.40, storyboardAct: 0.001, videoAct: null },
+      },
+      {
+        id: 'E1S4', dur: 8, hue: 30, scene_type: '圆桌 · 委托照片',
+        characters: ['ref_huatang','ref_zhu'], scenes: ['ref_hall'], props: ['ref_photo'],
+        novel_text: '朱汉杨起身越过圆桌将三张委托照片推到滑膛面前。俯拍：照片在桌面上并排摊开，三张蓬头垢面的脸孔在粗颗粒画面中显现。',
+        notes: '',
+        image_prompt: {
+          scene: '俯拍桌面：三张老式宝丽来委托照片在红木桌面上并排摊开，每张照片中央是一名蓬头垢面的人物特写。朱汉杨的手刚松开照片边缘缩回，滑膛的左手停在桌沿即将取过。',
+          composition: { shot_type:'Close-up', lighting:'桌面冷顶光，照片反光低', ambiance:'宿命委托' },
+        },
+        video_prompt: {
+          action: '朱汉杨起身越过圆桌，将三张委托照片推到滑膛面前。俯拍：照片在桌面上并排摊开，三张蓬头垢面的脸孔在粗颗粒画面中显现。',
+          camera_motion:'Tilt Down', ambiance_audio:'纸张摩擦、桌面轻响',
+          dialogue: [{ speaker:'朱汉杨', line:'这三个人。' }],
+        },
+        generated_assets: { storyboard_image: null, video_clip: null, status: 'pending' },
+        storyboard_versions: 0, video_versions: 0,
+        cost: { storyboardEst: 0.001, videoEst: 0.40, storyboardAct: null, videoAct: null },
+      },
+      {
+        id: 'E1S5', dur: 8, hue: 215, scene_type: '滑膛 · 凝视',
+        characters: ['ref_huatang'], scenes: ['ref_hall'], props: ['ref_photo'],
+        novel_text: '滑膛低头扫视桌上委托照片，目光在年轻女性那张停驻片刻。随后在吊灯光晕下抬眼，眼神微动后旋即恢复冷峻。',
+        notes: '',
+        image_prompt: {
+          scene: '过肩 → 极特写：从滑膛肩后看向桌上三张委托照片，焦点逐渐缩到中间一张年轻女性的肖像。镜头继续推到滑膛的面部特写，吊灯光晕在他眼眶上形成一条细高光。',
+          composition: { shot_type:'Extreme Close-up', lighting:'吊灯顶光，眼神高光', ambiance:'冷峻、克制' },
+        },
+        video_prompt: {
+          action: '滑膛低头扫视桌上委托照片，目光在年轻女性那张停驻片刻。随后抬眼，眼神微动后旋即恢复冷峻。',
+          camera_motion:'Static', ambiance_audio:'呼吸、远处人声', dialogue: [],
+        },
+        generated_assets: { storyboard_image: null, video_clip: null, status: 'pending' },
+        storyboard_versions: 0, video_versions: 0,
+        cost: { storyboardEst: 0.001, videoEst: 0.40, storyboardAct: null, videoAct: null },
+      },
+    ];
+
+    // ---------- Status helper ----------
+    function statusOf(shot) {
+      const s = shot.generated_assets?.status;
+      if (s === 'completed') return 'ready';
+      if (s === 'storyboard_ready') return 'storyboard';
+      return 'pending';
+    }
+
+    // ---------- Top bar ----------
+    function TopBar() {
+      return (
+        <div style={{
+          display:'grid', gridTemplateColumns: '256px 1fr auto', alignItems:'center',
+          height: 48, padding:'0 14px 0 16px', borderBottom:'1px solid var(--hairline)',
+          background:'linear-gradient(180deg, oklch(0.21 0.011 265 / 0.85), oklch(0.19 0.010 265 / 0.75))',
+          backdropFilter:'blur(16px) saturate(1.1)', WebkitBackdropFilter:'blur(16px) saturate(1.1)',
+          position:'relative', zIndex: 20,
+          boxShadow:'0 1px 0 0 oklch(1 0 0 / 0.02) inset',
+        }}>
+          <div style={{display:'flex', alignItems:'center', gap:10, minWidth:0}}>
+            <button style={{display:'inline-flex', alignItems:'center', gap:6, padding:'4px 8px', borderRadius:6, color:'var(--text-3)', fontSize:12}}>
+              {Icons.back}<span>项目</span>
+            </button>
+            <div style={{height:16, width:1, background:'var(--hairline)'}} />
+            <ModeMenu/>
+          </div>
+
+          <div style={{display:'flex', justifyContent:'center'}}>
+            <div style={{
+              display:'inline-flex', alignItems:'center', gap:1,
+              background:'oklch(0.17 0.010 265 / 0.6)', border:'1px solid var(--hairline)',
+              borderRadius:999, padding:3,
+              boxShadow:'inset 0 1px 2px oklch(0 0 0 / 0.25)',
+            }}>
+              {PHASES.map((p, i) => (
+                <React.Fragment key={p.n}>
+                  <button style={{
+                    display:'inline-flex', alignItems:'center', gap:6,
+                    padding:'4px 12px', borderRadius:999, fontSize:12, fontWeight:500,
+                    color: p.active ? 'var(--text)' : 'var(--text-3)',
+                    background: p.active ? 'linear-gradient(180deg, oklch(0.30 0.012 265), oklch(0.26 0.012 265))' : 'transparent',
+                    boxShadow: p.active ? '0 0 0 1px var(--hairline-strong), 0 1px 2px oklch(0 0 0 / 0.3)' : 'none',
+                  }}>
+                    <span style={{
+                      width:15, height:15, borderRadius:8, display:'inline-grid', placeItems:'center',
+                      fontSize:10, fontWeight:700,
+                      background: p.active ? 'var(--accent)' : 'oklch(0.32 0.012 265)',
+                      color: p.active ? 'oklch(0.12 0 0)' : 'var(--text-3)',
+                      boxShadow: p.active ? '0 0 8px -1px var(--accent-glow)' : 'none',
+                    }} className="num">{p.n}</span>
+                    <span>{p.name}</span>
+                  </button>
+                  {i < PHASES.length - 1 && (
+                    <div style={{width:6, height:1, background: p.active || PHASES[i+1]?.active ? 'var(--accent-soft)' : 'var(--hairline-soft)', marginInline:2}} />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div style={{display:'flex', alignItems:'center', gap:4}}>
+            <button className="tb-btn">{Icons.bell}</button>
+            <div style={{
+              display:'inline-flex', alignItems:'center', gap:8, padding:'5px 10px', borderRadius:7,
+              background:'oklch(0.22 0.011 265 / 0.5)', border:'1px solid var(--hairline-soft)',
+            }}>
+              <span className="num" style={{fontSize:11.5, color:'var(--text-4)'}}>¥0.22</span>
+              <span style={{width:2, height:10, borderRadius:1, background:'var(--hairline)'}} />
+              <span className="num" style={{fontSize:11.5, color:'var(--text-2)', fontWeight:500}}>$192.83</span>
+            </div>
+            <button className="tb-btn">{Icons.activity}</button>
+            <div style={{height:18, width:1, background:'var(--hairline)', margin:'0 4px'}}/>
+            <button style={{
+              display:'inline-flex', alignItems:'center', gap:6, padding:'6px 12px 6px 10px', borderRadius:7,
+              background:'linear-gradient(180deg, oklch(0.82 0.09 295), oklch(0.72 0.09 295))',
+              color:'oklch(0.15 0 0)', fontSize:12, fontWeight:600,
+              boxShadow:'inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--accent-glow)',
+            }}>
+              {Icons.download}<span>导出</span>
+            </button>
+          </div>
+          <style>{`
+            .tb-btn { width: 30px; height: 30px; border-radius: 7px; display: inline-grid; place-items: center; color: var(--text-3); transition: background .15s, color .15s; }
+            .tb-btn:hover { background: oklch(0.28 0.012 265 / 0.6); color: var(--text); }
+          `}</style>
+        </div>
+      );
+    }
+
+    // ---------- Sidebar (episode-focused) ----------
+    function Sidebar({ activeNav, onNav, activeEp, onSelectEp }) {
+      const [search, setSearch] = useState('');
+      const [collapsed, setCollapsed] = useState(false);
+
+      const sections = [
+        { key:'overview', label:'项目概览', icon: Icons.layers },
+        { key:'script', label:'源文件', icon: Icons.bookOpen },
+        { key:'characters', label:'角色集', icon: Icons.users, meta:10 },
+        { key:'scenes', label:'场景库', icon: Icons.scene, meta:11 },
+        { key:'props', label:'道具库', icon: Icons.box, meta:13 },
+      ];
+
+      return (
+        <aside style={{
+          width: collapsed ? 64 : 256,
+          transition: 'width .18s ease',
+          borderRight:'1px solid var(--hairline)',
+          background:'linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5))',
+          display:'flex', flexDirection:'column', overflow:'hidden',
+          boxShadow:'inset -1px 0 0 oklch(1 0 0 / 0.015)',
+        }}>
+          {/* Workspace sections (not per-character; those live on a dedicated page) */}
+          <div style={{padding:'10px 10px 6px'}}>
+            {sections.map(s => {
+              const active = activeNav===s.key;
+              return (
+              <button key={s.key}
+                onClick={()=>onNav(s.key)}
+                title={collapsed ? s.label : ''}
+                style={{
+                  display:'flex', alignItems:'center', gap:10, width:'100%',
+                  padding:'6px 9px', borderRadius:7, marginBottom:1,
+                  background: active ? 'linear-gradient(90deg, var(--accent-soft), var(--accent-dim) 70%, transparent)' : 'transparent',
+                  color: active ? 'var(--text)' : 'var(--text-2)',
+                  position:'relative',
+                  transition:'background .12s',
+                }}
+                onMouseEnter={e=>{ if(!active) e.currentTarget.style.background='oklch(0.26 0.012 265 / 0.5)'; }}
+                onMouseLeave={e=>{ if(!active) e.currentTarget.style.background='transparent'; }}
+              >
+                {active && <span style={{position:'absolute', left:-1, top:7, bottom:7, width:2, borderRadius:2, background:'var(--accent)', boxShadow:'0 0 8px var(--accent-glow)'}}/>}
+                <span style={{color: active ? 'var(--accent-2)' : 'var(--text-3)', flexShrink:0, width:16, display:'grid', placeItems:'center'}}>{s.icon}</span>
+                {!collapsed && <>
+                  <span style={{flex:1, textAlign:'left', fontSize:13, fontWeight: active ? 600 : 500, letterSpacing:-0.05}}>{s.label}</span>
+                  {s.meta != null && (
+                    <span className="num" style={{fontSize:10.5, color: active?'var(--text-3)':'var(--text-4)', padding:'1px 5px', borderRadius:3, background: active?'oklch(0 0 0 / 0.2)':'transparent'}}>{s.meta}</span>
+                  )}
+                </>}
+              </button>
+            );})}
+          </div>
+
+          <div style={{height:1, background:'var(--hairline-soft)', margin:'4px 14px'}}/>
+
+          {/* Episodes */}
+          {!collapsed ? (
+            <>
+              <div style={{padding:'10px 14px 6px', display:'flex', alignItems:'center', gap:8}}>
+                <span style={{fontSize:10.5, fontWeight:700, letterSpacing:0.8, color:'var(--text-4)', textTransform:'uppercase'}}>分集</span>
+                <span className="num" style={{fontSize:10, color:'var(--text-4)'}}>{EPISODES.length}</span>
+                <span style={{flex:1}}/>
+                <button style={{width:20, height:20, borderRadius:4, display:'grid', placeItems:'center', color:'var(--text-3)', background:'oklch(0.28 0.012 250 / 0.6)'}}>{Icons.plus}</button>
+              </div>
+
+              <div style={{padding:'0 10px 8px'}}>
+                <div style={{
+                  display:'flex', alignItems:'center', gap:7, padding:'5px 9px', borderRadius:7,
+                  background:'oklch(0.16 0.010 250 / 0.6)', border:'1px solid var(--hairline)',
+                }}>
+                  <span style={{color:'var(--text-4)'}}>{Icons.search}</span>
+                  <input value={search} onChange={e=>setSearch(e.target.value)}
+                    placeholder="搜索集名或编号…"
+                    style={{flex:1, fontSize:12, color:'var(--text)', minWidth:0}}/>
+                </div>
+              </div>
+
+              <div style={{flex:1, overflowY:'auto', padding:'0 8px 10px'}}>
+                {EPISODES.filter(e => !search || e.title.includes(search) || String(e.n).includes(search)).map(ep => (
+                  <EpisodeItem key={ep.n} ep={ep} active={ep.n===activeEp} onClick={()=>onSelectEp(ep.n)} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div style={{flex:1, overflowY:'auto', padding:'6px 10px'}}>
+              {EPISODES.map(ep => (
+                <button key={ep.n} onClick={()=>onSelectEp(ep.n)} title={`E${ep.n} · ${ep.title}`}
+                  style={{
+                    display:'flex', alignItems:'center', justifyContent:'center', width:'100%', height:36,
+                    borderRadius:7, marginBottom:3,
+                    background: ep.n===activeEp ? 'var(--accent-dim)' : 'transparent',
+                    color: ep.n===activeEp ? 'var(--accent-2)' : 'var(--text-3)',
+                    fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600,
+                  }}>E{ep.n}</button>
+              ))}
+            </div>
+          )}
+
+          {/* Footer / collapse */}
+          <div style={{
+            padding:'8px 10px', borderTop:'1px solid var(--hairline)',
+            display:'flex', alignItems:'center', gap:8,
+            background:'oklch(0.17 0.010 250 / 0.6)',
+          }}>
+            <button onClick={()=>setCollapsed(c=>!c)} style={{
+              width:28, height:28, borderRadius:6, display:'grid', placeItems:'center',
+              color:'var(--text-3)', background:'oklch(0.24 0.012 250 / 0.5)',
+            }}>{collapsed ? Icons.chevronRight : Icons.back}</button>
+
+          </div>
+        </aside>
+      );
+    }
+
+    function EpisodeItem({ ep, active, onClick }) {
+      const statusColor = {
+        done: 'oklch(0.74 0.08 155)',
+        active: 'var(--accent)',
+        draft: 'oklch(0.60 0.02 250)',
+        idea: 'oklch(0.46 0.01 250)',
+      }[ep.status];
+      const statusLabel = {
+        done: '已完成', active: '制作中', draft: '草稿', idea: '构思',
+      }[ep.status];
+
+      return (
+        <button onClick={onClick} style={{
+          display:'grid', gridTemplateColumns:'auto 1fr auto', gap:10, alignItems:'center',
+          width:'100%', padding:'8px 10px', borderRadius:8, marginBottom:3,
+          background: active ? 'linear-gradient(180deg, oklch(0.26 0.018 290 / 0.55), oklch(0.22 0.015 280 / 0.4))' : 'transparent',
+          border: active ? '1px solid var(--accent-soft)' : '1px solid transparent',
+          boxShadow: active ? '0 0 0 1px var(--accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.04)' : 'none',
+          textAlign:'left', position:'relative',
+          transition:'background .12s, border-color .12s',
+        }}
+        onMouseEnter={e=>{ if(!active) e.currentTarget.style.background='oklch(0.24 0.012 265 / 0.4)'; }}
+        onMouseLeave={e=>{ if(!active) e.currentTarget.style.background='transparent'; }}
+        >
+          <div style={{
+            width:34, height:34, borderRadius:6, flexShrink:0,
+            background: active
+              ? `linear-gradient(135deg, var(--accent) 0%, oklch(0.45 0.12 285) 100%)`
+              : 'linear-gradient(180deg, oklch(0.28 0.013 265), oklch(0.24 0.012 265))',
+            display:'flex', alignItems:'center', justifyContent:'center', position:'relative',
+            fontFamily:'var(--font-mono)', fontSize:11, fontWeight:700, lineHeight:1, whiteSpace:'nowrap',
+            color: active ? 'oklch(0.14 0 0)' : 'var(--text-3)',
+            boxShadow: active
+              ? 'inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 2px 6px -2px var(--accent-glow)'
+              : 'inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px var(--hairline-soft)',
+          }}>{`E${ep.n}`}</div>
+
+          <div style={{minWidth:0}}>
+            <div style={{
+              fontSize:13, fontWeight: active?600:500, color: active ? 'var(--text)' : 'var(--text-2)',
+              whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+            }}>{ep.title}</div>
+            <div style={{display:'flex', alignItems:'center', gap:6, marginTop:3}}>
+              <span style={{display:'inline-flex', alignItems:'center', gap:4, fontSize:10.5, color:'var(--text-4)'}}>
+                <span style={{width:5, height:5, borderRadius:3, background:statusColor,
+                  animation: ep.status==='active'?'pulse 1.8s infinite':'none'}}/>
+                {statusLabel}
+              </span>
+              {ep.shots > 0 && (
+                <>
+                  <span style={{width:2, height:2, background:'var(--hairline)', borderRadius:1}}/>
+                  <span className="num" style={{fontSize:10.5, color:'var(--text-4)'}}>{ep.shots} · {Math.floor(ep.dur/60)}:{String(ep.dur%60).padStart(2,'0')}</span>
+                </>
+              )}
+            </div>
+            {ep.progress != null && (
+              <div style={{height:2, borderRadius:1, background:'oklch(0.22 0.010 265)', marginTop:5, overflow:'hidden'}}>
+                <div style={{width:`${ep.progress}%`, height:'100%', background:'linear-gradient(90deg, var(--accent), var(--accent-2))', boxShadow:'0 0 6px var(--accent-glow)'}}/>
+              </div>
+            )}
+          </div>
+
+          {ep.cost && <span className="num" style={{fontSize:10.5, color: active?'var(--accent-2)':'var(--text-4)', alignSelf:'start', paddingTop:2}}>${ep.cost.toFixed(2)}</span>}
+        </button>
+      );
+    }
+
+    // ---------- Episode header ----------
+    function EpisodeHeader({ ep }) {
+      return (
+        <div style={{
+          padding:'18px 24px 16px', borderBottom:'1px solid var(--hairline)',
+          background:'linear-gradient(180deg, oklch(0.22 0.014 290 / 0.4), oklch(0.20 0.012 250 / 0.15))',
+          display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap:20, flexWrap:'wrap',
+        }}>
+          <div style={{minWidth:0, flex:'1 1 240px'}}>
+            <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:8, flexWrap:'wrap'}}>
+              <span style={{
+                fontSize:10.5, fontWeight:600, letterSpacing:0.8, color:'var(--accent-2)', textTransform:'uppercase',
+                padding:'2px 8px', borderRadius:4, background:'var(--accent-dim)',
+                fontFamily:'var(--font-mono)',
+              }}>EP · {String(ep.n).padStart(2,'0')}</span>
+              <span className="num" style={{fontSize:11, color:'var(--text-4)'}}>{ep.shots} 片段 · ~{ep.dur}s</span>
+              <span style={{width:3, height:3, background:'var(--hairline)', borderRadius:2}} />
+              <span style={{display:'inline-flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-3)'}}>
+                <span style={{width:5, height:5, borderRadius:3, background:'var(--accent)', animation:'pulse 1.8s infinite'}}/>
+                制作中 · {ep.progress}%
+              </span>
+            </div>
+            <h1 className="display-serif" style={{margin:0, fontSize:26, fontWeight:500, letterSpacing:-0.4, lineHeight:1.15, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{ep.title}</h1>
+          </div>
+
+          <div style={{display:'flex', gap:0, alignItems:'stretch', flexShrink:0}}>
+            {[
+              { k:'预估', v:'$2.01', meta:'5×($0.001+$0.40)' },
+              { k:'已花', v:'$0.40', meta:'1 视频 · 2 分镜' },
+              { k:'剩余', v:'$1.61', accent:true },
+            ].map((s, i) => (
+              <div key={s.k} style={{padding:'6px 14px', borderLeft: i===0?'none':'1px solid var(--hairline-soft)', minWidth: 88}}>
+                <div style={{fontSize:10, color:'var(--text-4)', textTransform:'uppercase', letterSpacing:0.8, fontWeight:600}}>{s.k}</div>
+                <div className="num" style={{fontSize:14, fontWeight:600, marginTop:2, color: s.accent ? 'var(--accent-2)' : 'var(--text)'}}>{s.v}</div>
+                {s.meta && <div className="num" style={{fontSize:10.5, color:'var(--text-4)', marginTop:1}}>{s.meta}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- Shot content building blocks ----------
+    function PlaceholderImage({ label, aspect = '3/4', seed=1, loading=false }) {
+      const hue = 220 + seed * 20;
+      return (
+        <div style={{
+          aspectRatio: aspect, width:'100%', position:'relative',
+          background: `linear-gradient(135deg, oklch(0.38 0.05 ${hue}), oklch(0.18 0.02 ${hue+40}))`,
+          borderRadius: 8, overflow:'hidden', display:'grid', placeItems:'center',
+          boxShadow:'inset 0 0 0 1px oklch(1 0 0 / 0.05)',
+        }}>
+          <div style={{position:'absolute', inset:0, backgroundImage:'repeating-linear-gradient(45deg, oklch(1 0 0 / 0.025) 0 6px, transparent 6px 16px)'}}/>
+          <div style={{position:'absolute', inset:0, background:'radial-gradient(circle at 30% 30%, oklch(1 0 0 / 0.08), transparent 50%)'}}/>
+          {loading && (
+            <div style={{position:'absolute', inset:0,
+              background:'linear-gradient(90deg, transparent, oklch(1 0 0 / 0.08), transparent)',
+              backgroundSize:'200% 100%', animation:'shimmer 1.8s linear infinite'}}/>
+          )}
+          <div style={{fontFamily:'var(--font-mono)', fontSize:10, color:'oklch(0.95 0 0 / 0.5)', letterSpacing:1, textAlign:'center', padding:8, position:'relative'}}>{label}</div>
+        </div>
+      );
+    }
+
+    function StatusBadge({ status }) {
+      const config = {
+        ready: { label:'已完成', color:'var(--good)', bg:'oklch(0.74 0.08 155 / 0.12)' },
+        storyboard: { label:'分镜就绪', color:'var(--accent-2)', bg:'var(--accent-dim)' },
+        pending: { label:'待生成', color:'var(--text-4)', bg:'oklch(0.30 0.01 250 / 0.4)' },
+      }[status] || { label:'—', color:'var(--text-4)', bg:'transparent' };
+      return (
+        <span style={{
+          display:'inline-flex', alignItems:'center', gap:5,
+          padding:'2px 7px', borderRadius:4, fontSize:10.5, fontWeight:500,
+          color: config.color, background: config.bg,
+          border:'1px solid transparent',
+        }}>
+          <span style={{width:5, height:5, borderRadius:3, background:config.color}}/>
+          {config.label}
+        </span>
+      );
+    }
+
+    // ---------- Split view (only layout) ----------
+    function ShotSplitView({ shots }) {
+      const [selected, setSelected] = useState(1);
+      const shot = shots[selected];
+      const [activeV, setActiveV] = useState(Math.max(1, shot.storyboard_versions || 1));
+      const [activeVid, setActiveVid] = useState(1);
+      const [listCollapsed, setListCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1100);
+      // keep version in sync when switching shot
+      useEffect(()=>{ setActiveV(Math.max(1, shot.storyboard_versions || 1)); setActiveVid(1); }, [selected]);
+
+      if (listCollapsed) {
+        return (
+          <div style={{display:'grid', gridTemplateColumns:'44px 1fr', height:'100%', overflow:'hidden', minWidth:0}}>
+            <div style={{
+              borderRight:'1px solid var(--hairline)',
+              background:'oklch(0.19 0.011 265 / 0.5)',
+              display:'flex', flexDirection:'column', alignItems:'center', padding:'10px 0', gap:6, overflowY:'auto',
+            }}>
+              <button onClick={()=>setListCollapsed(false)} title="展开分镜列表" style={{
+                width:28, height:28, borderRadius:6, display:'grid', placeItems:'center',
+                background:'oklch(0.24 0.012 265 / 0.5)', border:'1px solid var(--hairline-soft)', color:'var(--text-3)',
+              }}>{Icons.chevronRight}</button>
+              <div style={{fontSize:9.5, fontWeight:700, letterSpacing:1.2, color:'var(--text-4)', textTransform:'uppercase', writingMode:'vertical-rl', transform:'rotate(180deg)', marginTop:6}}>SHOTS · {shots.length}</div>
+              <div style={{flex:1, display:'flex', flexDirection:'column', gap:4, alignItems:'center', marginTop:4}}>
+                {shots.map((s, i) => (
+                  <button key={s.id} onClick={()=>setSelected(i)} title={s.id} style={{
+                    width:28, height:28, borderRadius:5,
+                    fontFamily:'var(--font-mono)', fontSize:9.5, fontWeight:700,
+                    color: i===selected ? 'oklch(0.14 0 0)' : 'var(--text-3)',
+                    background: i===selected ? 'linear-gradient(180deg, var(--accent-2), var(--accent))' : 'oklch(0.22 0.011 265 / 0.5)',
+                    border:'1px solid var(--hairline-soft)',
+                  }}>{s.id.replace('E1','').replace('U','U')}</button>
+                ))}
+              </div>
+            </div>
+            <ShotDetail key={shot.id} shot={shot} activeV={activeV} setActiveV={setActiveV}
+              activeVid={activeVid} setActiveVid={setActiveVid}
+              selected={selected} count={shots.length}
+              onPrev={()=>setSelected(i=>Math.max(0,i-1))}
+              onNext={()=>setSelected(i=>Math.min(shots.length-1,i+1))} />
+          </div>
+        );
+      }
+
+      return (
+        <div style={{display:'grid', gridTemplateColumns:'260px minmax(0, 1fr)', height:'100%', overflow:'hidden', minWidth:0}}>
+          {/* Shot list */}
+          <div style={{
+            borderRight:'1px solid var(--hairline)',
+            background:'linear-gradient(180deg, oklch(0.19 0.011 265 / 0.5), oklch(0.17 0.010 265 / 0.35))',
+            overflowY:'auto', padding:'12px 10px', minWidth:0,
+          }}>
+            <div style={{display:'flex', alignItems:'center', gap:8, padding:'4px 8px 8px'}}>
+              <span style={{fontSize:10.5, fontWeight:700, letterSpacing:0.8, color:'var(--text-4)', textTransform:'uppercase'}}>分镜</span>
+              <span className="num" style={{fontSize:10, color:'var(--text-4)'}}>{shots.length}</span>
+              <span style={{flex:1}}/>
+              <button onClick={()=>setListCollapsed(true)} title="折叠" style={{fontSize:11, color:'var(--text-4)', padding:'3px 5px', borderRadius:4}}>‹</button>
+              <button style={{fontSize:11, color:'var(--text-3)', display:'inline-flex', alignItems:'center', gap:4, padding:'3px 7px', borderRadius:4, background:'oklch(0.24 0.012 265 / 0.5)', border:'1px solid var(--hairline-soft)'}}>
+                {Icons.plus}<span>添加</span>
+              </button>
+            </div>
+
+            <div style={{padding:'0 4px 10px'}}>
+              <div style={{
+                display:'flex', alignItems:'center', gap:6,
+                padding:'5px 9px', borderRadius:6,
+                background:'oklch(0.20 0.011 265 / 0.55)',
+                border:'1px solid var(--hairline-soft)',
+              }}>
+                <span style={{color:'var(--text-4)', display:'inline-grid', placeItems:'center'}}>{Icons.search}</span>
+                <input
+                  placeholder="搜索分镜…"
+                  style={{
+                    flex:1, minWidth:0, fontSize:11.5, color:'var(--text-2)',
+                    background:'transparent', border:'none', outline:'none',
+                    fontFamily:'var(--font-sans)',
+                  }}
+                />
+              </div>
+            </div>
+
+            {shots.map((s, i) => (
+              <button key={s.id} onClick={()=>setSelected(i)} style={{
+                display:'grid', gridTemplateColumns:'auto 1fr auto', gap:10, alignItems:'center',
+                width:'100%', padding:'8px', borderRadius:8, marginBottom:3,
+                background: i===selected ? 'linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))' : 'transparent',
+                border: i===selected ? '1px solid var(--accent-soft)' : '1px solid transparent',
+                boxShadow: i===selected ? '0 0 0 1px var(--accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.4)' : 'none',
+                textAlign:'left', position:'relative',
+              }}
+              onMouseEnter={e=>{ if(i!==selected) e.currentTarget.style.background='oklch(0.24 0.012 265 / 0.4)'; }}
+              onMouseLeave={e=>{ if(i!==selected) e.currentTarget.style.background='transparent'; }}
+              >
+                {i===selected && <span style={{position:'absolute', left:-1, top:8, bottom:8, width:2, borderRadius:2, background:'var(--accent)', boxShadow:'0 0 8px var(--accent-glow)'}}/>}
+                <div style={{width:48, height:64, borderRadius:5, overflow:'hidden', position:'relative', flexShrink:0}}>
+                  <PlaceholderImage label="" aspect="3/4" seed={i+1} loading={false}/>
+                  <div style={{position:'absolute', bottom:2, left:3, right:3, display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize:9, fontWeight:700, color:'oklch(0.98 0 0)', textShadow:'0 1px 2px oklch(0 0 0 / 0.8)'}}>{s.id.replace('E1','').replace('U','U')}</span>
+                  </div>
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:12, color: i===selected?'var(--text)':'var(--text-2)', fontWeight: i===selected?600:500, lineHeight:1.4,
+                    display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden',
+                  }}>{s.novel_text}</div>
+                  <div style={{display:'flex', alignItems:'center', gap:6, marginTop:4}}>
+                    <StatusBadge status={statusOf(s)}/>
+                    <span className="num" style={{fontSize:10, color:'var(--text-4)'}}>{s.dur}s</span>
+                    {s.storyboard_versions > 0 && <span className="num" style={{fontSize:10, color:'var(--text-4)'}}>· V{s.storyboard_versions}</span>}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Detail — three columns */}
+          <ShotDetail key={shot.id} shot={shot} activeV={activeV} setActiveV={setActiveV}
+            activeVid={activeVid} setActiveVid={setActiveVid}
+            selected={selected} count={shots.length}
+            onPrev={()=>setSelected(i=>Math.max(0,i-1))}
+            onNext={()=>setSelected(i=>Math.min(shots.length-1,i+1))} />
+        </div>
+      );
+    }
+
+    // ---------- Reference chip + avatar ----------
+    function RefAvatar({ refItem: ref, size=28, withLabel=false, removable=false, onRemove }) {
+      if (!ref) return null;
+      const k = REF_KIND[ref.kind];
+      return (
+        <div style={{display:'inline-flex', alignItems:'center', gap:6}}>
+          <div style={{
+            width:size, height:size, borderRadius: ref.kind==='character' ? size/2 : 6,
+            background:`linear-gradient(135deg, oklch(0.42 0.08 ${ref.hue}), oklch(0.22 0.04 ${ref.hue+30}))`,
+            position:'relative', flexShrink:0,
+            boxShadow:`inset 0 0 0 1px oklch(1 0 0 / 0.08), 0 0 0 1.5px ${k.dot} inset`,
+            display:'grid', placeItems:'center',
+            fontSize: Math.max(9, size*0.38), color:'oklch(0.98 0 0 / 0.8)',
+            fontFamily:'var(--font-mono)', fontWeight:700, letterSpacing:0.3,
+          }}>
+            {ref.name.slice(0,1)}
+            <span style={{position:'absolute', bottom:-1, right:-1, width:7, height:7, borderRadius:4, background:k.dot, boxShadow:'0 0 0 1.5px var(--bg)'}}/>
+          </div>
+          {withLabel && (
+            <span style={{fontSize:11.5, color:'var(--text-2)', fontWeight:500}}>{ref.name}</span>
+          )}
+          {removable && (
+            <button onClick={onRemove} style={{color:'var(--text-4)', fontSize:14, lineHeight:1, padding:'0 2px'}}>×</button>
+          )}
+        </div>
+      );
+    }
+
+    // ---------- Reference picker (popover-style inline) ----------
+    function RefPicker({ onPick, existing=[] }) {
+      const [q, setQ] = useState('');
+      const groups = [['character','角色'],['scene','场景'],['prop','道具']];
+      return (
+        <div style={{
+          width: 260, padding:10, borderRadius:10,
+          background:'oklch(0.19 0.013 265 / 0.95)', backdropFilter:'blur(14px)',
+          border:'1px solid var(--hairline-strong)', boxShadow:'0 18px 40px -12px oklch(0 0 0 / 0.7)',
+        }}>
+          <div style={{display:'flex', alignItems:'center', gap:6, padding:'5px 8px', borderRadius:6,
+            background:'oklch(0.15 0.010 265 / 0.7)', border:'1px solid var(--hairline)', marginBottom:8}}>
+            <span style={{color:'var(--text-4)'}}>{Icons.search}</span>
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="搜索角色 / 场景 / 道具" style={{flex:1, fontSize:11.5}}/>
+          </div>
+          <div style={{maxHeight:260, overflowY:'auto'}}>
+            {groups.map(([kind,label]) => {
+              const items = REFS.filter(r => r.kind===kind && (!q || r.name.includes(q)));
+              if (!items.length) return null;
+              return (
+                <div key={kind} style={{marginBottom:8}}>
+                  <div style={{fontSize:9.5, fontWeight:700, color:'var(--text-4)', letterSpacing:1, textTransform:'uppercase', padding:'4px 6px', fontFamily:'var(--font-mono)'}}>{label} · {items.length}</div>
+                  {items.map(r => {
+                    const used = existing.includes(r.id);
+                    return (
+                      <button key={r.id} onClick={()=>onPick(r)} disabled={used}
+                        style={{
+                          display:'flex', alignItems:'center', gap:8, width:'100%', padding:'5px 6px', borderRadius:5,
+                          background: used ? 'oklch(0.22 0.011 265 / 0.4)' : 'transparent',
+                          opacity: used ? 0.5 : 1,
+                        }}
+                        onMouseEnter={e=>{ if(!used) e.currentTarget.style.background='oklch(0.26 0.013 265 / 0.7)'; }}
+                        onMouseLeave={e=>{ if(!used) e.currentTarget.style.background='transparent'; }}>
+                        <RefAvatar refItem={r} size={22}/>
+                        <span style={{flex:1, textAlign:'left', fontSize:12, color:'var(--text-2)'}}>{r.name}</span>
+                        {used && <span style={{fontSize:10, color:'var(--text-4)'}}>已添加</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    function ShotDetail({ shot, activeV, setActiveV, activeVid, setActiveVid, selected, count, onPrev, onNext }) {
+      const status = statusOf(shot);
+      const isEmpty = status === 'pending' && shot.storyboard_versions === 0;
+      const [notes, setNotes] = useState(shot.notes || '');
+      const [notesOpen, setNotesOpen] = useState(false);
+      useEffect(()=>{ setNotes(shot.notes || ''); }, [shot.id]);
+      const ip = shot.image_prompt || { scene:'', composition:{} };
+      const vp = shot.video_prompt || { action:'', dialogue:[] };
+
+      return (
+        <div style={{overflow:'hidden', display:'flex', flexDirection:'column', minHeight:0, minWidth:0, height:'100%', background:'radial-gradient(ellipse at top, oklch(0.20 0.012 270 / 0.35), oklch(0.17 0.010 265 / 0.2))'}}>
+          {/* Detail header */}
+          <div style={{
+            display:'flex', alignItems:'center', gap:10, padding:'12px 20px',
+            borderBottom:'1px solid var(--hairline-soft)', position:'relative',
+          }}>
+            <span style={{
+              fontFamily:'var(--font-mono)', fontSize:12, fontWeight:700,
+              padding:'4px 11px', borderRadius:6,
+              background:'linear-gradient(180deg, var(--accent-2), var(--accent))',
+              color:'oklch(0.14 0 0)', letterSpacing:0.3,
+              boxShadow:'inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px var(--accent-glow)',
+            }}>{shot.id}</span>
+            <span style={{display:'inline-flex', alignItems:'center', gap:5, fontSize:11.5, color:'var(--text-2)', padding:'3px 9px', borderRadius:5, background:'oklch(0.22 0.011 265 / 0.6)', border:'1px solid var(--hairline-soft)'}}>
+              <span style={{color:'var(--text-4)'}}>⏱</span>
+              <span className="num">{shot.dur}s</span>
+            </span>
+            <StatusBadge status={status}/>
+            <span style={{fontSize:11.5, color:'var(--text-3)', display:'inline-flex', alignItems:'center', gap:5}}>
+              <span style={{color:'var(--text-4)'}}>·</span>
+              <span>{shot.scene_type}</span>
+            </span>
+            <span style={{flex:1}}/>
+            <div style={{display:'flex', alignItems:'center', gap:6}}>
+              <span className="num" style={{fontSize:10.5, color:'var(--text-4)'}}>{selected+1} / {count}</span>
+              <button className="sv-navbtn" onClick={onPrev}>←</button>
+              <button className="sv-navbtn" onClick={onNext}>→</button>
+              <button
+                className="sv-navbtn"
+                onClick={()=>setNotesOpen(o=>!o)}
+                title="备注"
+                style={{
+                  padding:'4px 8px', display:'inline-flex', alignItems:'center', gap:5, position:'relative',
+                  color: notesOpen ? 'var(--accent-2)' : (notes ? 'var(--text-2)' : 'var(--text-3)'),
+                  background: notesOpen ? 'var(--accent-dim)' : (notes ? 'oklch(0.24 0.012 265 / 0.7)' : 'oklch(0.22 0.011 265 / 0.5)'),
+                  borderColor: notesOpen ? 'var(--accent-soft)' : 'var(--hairline)',
+                }}
+              >
+                {Icons.note}
+                {notes && !notesOpen && (
+                  <span style={{
+                    position:'absolute', top:2, right:2, width:5, height:5, borderRadius:3,
+                    background:'var(--accent)', boxShadow:'0 0 4px var(--accent-glow)',
+                  }}/>
+                )}
+              </button>
+            </div>
+            {notesOpen && (
+              <>
+                <div
+                  onClick={()=>setNotesOpen(false)}
+                  style={{position:'fixed', inset:0, zIndex:30}}
+                />
+                <div style={{
+                  position:'absolute', top:'calc(100% + 6px)', right:14, zIndex:31,
+                  width:340, maxWidth:'calc(100vw - 32px)',
+                  padding:12,
+                  background:'linear-gradient(180deg, oklch(0.21 0.012 265 / 0.98), oklch(0.18 0.010 265 / 0.98))',
+                  border:'1px solid var(--hairline)', borderRadius:10,
+                  boxShadow:'0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--hairline-soft)',
+                  backdropFilter:'blur(12px)',
+                }}>
+                  <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:8}}>
+                    <span style={{color:'var(--text-3)', display:'inline-grid', placeItems:'center'}}>{Icons.note}</span>
+                    <span style={{fontSize:11, fontWeight:700, letterSpacing:0.8, color:'var(--text-3)', textTransform:'uppercase', fontFamily:'var(--font-mono)'}}>备注</span>
+                    <span style={{flex:1}}/>
+                    <span className="num" style={{fontSize:10, color:'var(--text-4)'}}>{notes.length}</span>
+                    <button
+                      onClick={()=>setNotesOpen(false)}
+                      style={{
+                        width:20, height:20, borderRadius:4, color:'var(--text-4)',
+                        display:'grid', placeItems:'center', fontSize:14, lineHeight:1,
+                      }}
+                    >×</button>
+                  </div>
+                  <textarea
+                    value={notes}
+                    onChange={e=>setNotes(e.target.value)}
+                    autoFocus
+                    placeholder={`关于 ${shot.id} 的备注：参考、修改方向、TODO…`}
+                    style={{
+                      width:'100%', minHeight:140, resize:'vertical',
+                      padding:'10px 12px', fontSize:12.5, lineHeight:1.55,
+                      color:'var(--text-2)', background:'oklch(0.16 0.010 265 / 0.6)',
+                      border:'1px solid var(--hairline-soft)', borderRadius:7,
+                      fontFamily:'var(--font-sans)', outline:'none',
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Three columns — responsive */}
+          <ResponsiveDetailGrid>
+            {/* Col 1 — Dialog + Notes */}
+            <div data-col="left" style={{overflowY:'auto', padding:'14px 14px 20px', display:'flex', flexDirection:'column', gap:16, minHeight:0}}>
+              <div>
+                <div style={{fontSize:10.5, fontWeight:700, color:'var(--text-4)', letterSpacing:1, textTransform:'uppercase', marginBottom:8, fontFamily:'var(--font-mono)'}}>对话</div>
+                {vp.dialogue?.length ? (
+                  <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                    {vp.dialogue.map((d, i)=>(
+                      <div key={i} style={{padding:'8px 10px', borderRadius:7, background:'oklch(0.20 0.011 265 / 0.5)', border:'1px solid var(--hairline-soft)'}}>
+                        <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:4}}>
+                          <span style={{fontSize:11, fontWeight:600, color:'var(--accent-2)'}}>{d.speaker}</span>
+                        </div>
+                        <div className="display-serif" style={{fontSize:12.5, lineHeight:1.55, color:'var(--text-2)'}}>{d.line}</div>
+                      </div>
+                    ))}
+                    <button style={{fontSize:11, color:'var(--text-3)', padding:'6px 0', borderRadius:5, border:'1px dashed var(--hairline)', background:'transparent'}}>+ 添加对话</button>
+                  </div>
+                ) : (
+                  <div style={{padding:'14px 10px', borderRadius:7, border:'1px dashed var(--hairline)', textAlign:'center', color:'var(--text-4)', fontSize:11.5, fontStyle:'italic'}}>
+                    （暂无对话）
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div style={{fontSize:10.5, fontWeight:700, color:'var(--text-4)', letterSpacing:1, textTransform:'uppercase', marginBottom:8, fontFamily:'var(--font-mono)'}}>原文</div>
+                <div style={{padding:'10px 12px', background:'linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35))', border:'1px solid var(--hairline-soft)', borderLeft:`3px solid oklch(0.62 0.09 ${shot.hue})`, borderRadius:7}}>
+                  <p className="display-serif" style={{margin:0, fontSize:13, lineHeight:1.65, color:'var(--text)'}}>{shot.novel_text}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Col 2 — Prompts */}
+            <div data-col="mid" style={{overflowY:'auto', padding:'14px 20px 28px', minWidth:0, minHeight:0}}>
+              {isEmpty ? (
+                <div style={{padding:'60px 20px', textAlign:'center'}}>
+                  <div style={{color:'var(--text-4)', fontSize:13, marginBottom:16}}>这一镜还没有生成提示词。</div>
+                  <button style={{
+                    padding:'8px 14px', borderRadius:7, fontSize:12.5, fontWeight:600,
+                    color:'oklch(0.14 0 0)', background:'linear-gradient(180deg, var(--accent-2), var(--accent))',
+                    display:'inline-flex', gap:6, alignItems:'center',
+                    boxShadow:'inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--accent-glow)',
+                  }}>{Icons.sparkle}<span>智能生成提示词</span></button>
+                </div>
+              ) : <>
+                <div style={{fontSize:10.5, fontWeight:700, color:'var(--text-4)', letterSpacing:1, textTransform:'uppercase', marginBottom:10, fontFamily:'var(--font-mono)'}}>提示词</div>
+
+                <PromptSection icon={Icons.grid} title="Image Prompt · 分镜图" actions={<span className="num" style={{fontSize:10, color:'var(--text-4)'}}>{(ip.scene||'').length} 字</span>}>
+                  <textarea defaultValue={ip.scene} className="prompt-ta" placeholder="描述这一镜的画面：环境、人物、动作、构图细节…" style={{minHeight:124}}/>
+                </PromptSection>
+
+                <Collapsible title="composition · 构图" defaultOpen>
+                  <FieldRow label="shot_type">
+                    <Pill value={`${ip.composition?.shot_type || ''} · ${SHOT_TYPE_ZH[ip.composition?.shot_type] || ''}`} suffix={Icons.chevronDown}/>
+                  </FieldRow>
+                  <FieldRow label="lighting">
+                    <InputCell value={ip.composition?.lighting || ''}/>
+                  </FieldRow>
+                  <FieldRow label="ambiance">
+                    <InputCell value={ip.composition?.ambiance || ''}/>
+                  </FieldRow>
+                </Collapsible>
+
+                <div style={{height:14}}/>
+
+                <PromptSection icon={Icons.film} title="Video Prompt · 视频" actions={<span className="num" style={{fontSize:10, color:'var(--text-4)'}}>{(vp.action||'').length} 字</span>}>
+                  <textarea defaultValue={vp.action} className="prompt-ta" placeholder="描述这一镜的动作演变：从分镜图开始如何运动…" style={{minHeight:88}}/>
+                </PromptSection>
+
+                <Collapsible title="运镜 / 音效 / 对话" defaultOpen>
+                  <FieldRow label="camera_motion">
+                    <Pill value={`${vp.camera_motion || 'Static'} · ${CAM_ZH[vp.camera_motion] || ''}`} suffix={Icons.chevronDown}/>
+                  </FieldRow>
+                  <FieldRow label="ambiance_audio">
+                    <InputCell value={vp.ambiance_audio || ''}/>
+                  </FieldRow>
+                  <FieldRow label="dialogue">
+                    <div style={{display:'flex', flexDirection:'column', gap:6}}>
+                      {(vp.dialogue||[]).map((d,i)=>(
+                        <div key={i} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 8px', borderRadius:5, background:'oklch(0.20 0.011 265 / 0.5)', border:'1px solid var(--hairline-soft)', fontSize:11.5}}>
+                          <span style={{color:'var(--accent-2)', fontWeight:600, flexShrink:0}}>{d.speaker}</span>
+                          <span style={{color:'var(--text-3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{d.line}</span>
+                        </div>
+                      ))}
+                      <button style={{fontSize:11.5, color:'var(--text-3)', padding:'5px 10px', borderRadius:5, border:'1px dashed var(--hairline)', background:'transparent', textAlign:'left'}}>+ 添加台词</button>
+                    </div>
+                  </FieldRow>
+                </Collapsible>
+              </>}
+            </div>
+
+            {/* Col 3 — Image + Video */}
+            <div data-col="right" style={{overflowY:'auto', padding:'14px 18px 28px', display:'flex', flexDirection:'column', gap:16, minHeight:0}}>
+              {/* Image card */}
+              <div>
+                <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:8}}>
+                  <span style={{color:'var(--text-3)'}}>{Icons.grid}</span>
+                  <span style={{fontSize:12, fontWeight:600, color:'var(--text-2)'}}>分镜图</span>
+                  <span style={{flex:1}}/>
+                  {shot.storyboard_versions > 0 && (
+                    <button className="sv-navbtn" style={{display:'inline-flex', alignItems:'center', gap:4, padding:'3px 8px'}}>
+                      <span style={{color:'var(--text-4)'}}>⟳</span>
+                      <span>版本</span>
+                      <span style={{color:'var(--text-4)'}}>›</span>
+                    </button>
+                  )}
+                </div>
+                {shot.storyboard_versions > 0 ? (
+                  <>
+                    <div style={{position:'relative', borderRadius:10, overflow:'hidden', boxShadow:'0 16px 40px -16px oklch(0 0 0 / 0.7), 0 0 0 1px var(--hairline)'}}>
+                      <PlaceholderImage label={`${shot.id} · V${activeV}`} aspect="3/4" seed={selected*3+activeV} loading={false}/>
+                      <div style={{position:'absolute', top:8, left:8, right:8, display:'flex', gap:5, alignItems:'center'}}>
+                        <div style={{display:'inline-flex', gap:2, background:'oklch(0.08 0 0 / 0.55)', padding:3, borderRadius:5, backdropFilter:'blur(10px)', border:'1px solid oklch(1 0 0 / 0.08)'}}>
+                          {Array.from({length:shot.storyboard_versions}).map((_,i)=>(
+                            <button key={i} onClick={()=>setActiveV(i+1)} className="num" style={{
+                              minWidth:22, height:18, padding:'0 6px', borderRadius:3, fontSize:10.5,
+                              color: activeV===i+1 ? 'oklch(0.14 0 0)' : 'oklch(0.95 0 0 / 0.85)',
+                              background: activeV===i+1 ? 'linear-gradient(180deg, var(--accent-2), var(--accent))' : 'transparent',
+                              boxShadow: activeV===i+1 ? 'inset 0 1px 0 oklch(1 0 0 / 0.3)' : 'none',
+                              fontWeight:600,
+                            }}>V{i+1}</button>
+                          ))}
+                        </div>
+                        <span style={{flex:1}}/>
+                        <button style={{width:26, height:26, borderRadius:5, background:'oklch(0.08 0 0 / 0.55)', color:'oklch(0.95 0 0)', border:'1px solid oklch(1 0 0 / 0.08)', display:'grid', placeItems:'center', backdropFilter:'blur(10px)'}}>{Icons.expand}</button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{aspectRatio:'3/4', borderRadius:10, border:'1px dashed var(--hairline)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8, background:'oklch(0.18 0.010 265 / 0.4)'}}>
+                    <div style={{color:'var(--text-4)'}}>{Icons.grid}</div>
+                    <div style={{fontSize:11.5, color:'var(--text-4)'}}>尚未生成</div>
+                  </div>
+                )}
+                <button style={{
+                  marginTop:10, width:'100%',
+                  padding:'10px 14px', borderRadius:8, fontSize:13, fontWeight:600,
+                  color:'oklch(0.14 0 0)',
+                  background:'linear-gradient(180deg, var(--accent-2), var(--accent))',
+                  display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6,
+                  boxShadow:'inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--accent-glow)',
+                }}>{Icons.wand}<span>{shot.storyboard_versions>0?'重新生成分镜':'生成分镜'}</span><span className="num" style={{fontSize:11, opacity:0.7, marginLeft:4}}>~${(shot.cost?.storyboardEst ?? 0.001).toFixed(3)}</span></button>
+              </div>
+
+              {/* Video card */}
+              <div>
+                <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:8}}>
+                  <span style={{color:'var(--text-3)'}}>{Icons.film}</span>
+                  <span style={{fontSize:12, fontWeight:600, color:'var(--text-2)'}}>视频</span>
+                  <span style={{flex:1}}/>
+                  {shot.video_versions > 0 && (
+                    <button className="sv-navbtn" style={{display:'inline-flex', alignItems:'center', gap:4, padding:'3px 8px'}}>
+                      <span style={{color:'var(--text-4)'}}>⟳</span>
+                      <span>版本</span>
+                      <span style={{color:'var(--text-4)'}}>›</span>
+                    </button>
+                  )}
+                </div>
+                {shot.video_versions > 0 ? (
+                  <div style={{position:'relative', borderRadius:10, overflow:'hidden', boxShadow:'0 16px 40px -16px oklch(0 0 0 / 0.7), 0 0 0 1px var(--hairline)'}}>
+                    <PlaceholderImage label="" aspect="3/4" seed={selected*7+1}/>
+                    <div style={{position:'absolute', inset:0, background:'radial-gradient(circle at center, transparent 40%, oklch(0 0 0 / 0.3))', display:'grid', placeItems:'center'}}>
+                      <div style={{
+                        width:52, height:52, borderRadius:26,
+                        background:'oklch(0.1 0 0 / 0.55)', backdropFilter:'blur(12px)',
+                        border:'1px solid oklch(1 0 0 / 0.15)',
+                        display:'grid', placeItems:'center', color:'oklch(0.98 0 0)',
+                      }}>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l10-5.5z"/></svg>
+                      </div>
+                    </div>
+                    {/* Fake controls bar */}
+                    <div style={{position:'absolute', left:10, right:10, bottom:10, display:'flex', alignItems:'center', gap:8, padding:'5px 8px', borderRadius:6, background:'oklch(0.08 0 0 / 0.6)', backdropFilter:'blur(10px)', border:'1px solid oklch(1 0 0 / 0.08)'}}>
+                      <span style={{color:'oklch(0.98 0 0)', fontSize:11}}>▶</span>
+                      <div style={{flex:1, height:2, borderRadius:1, background:'oklch(1 0 0 / 0.15)'}}><div style={{width:'35%', height:'100%', background:'var(--accent)', borderRadius:1}}/></div>
+                      <span className="num" style={{fontSize:10, color:'oklch(0.95 0 0 / 0.8)'}}>{shot.dur}s</span>
+                      <span style={{color:'oklch(0.98 0 0 / 0.7)', fontSize:11}}>🔊</span>
+                      <span style={{color:'oklch(0.98 0 0 / 0.7)', fontSize:11}}>⋮</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{aspectRatio:'3/4', borderRadius:10, border:'1px dashed var(--hairline)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8, background:'oklch(0.18 0.010 265 / 0.4)'}}>
+                    <div style={{color:'var(--text-4)'}}>{Icons.film}</div>
+                    <div style={{fontSize:11.5, color:'var(--text-4)'}}>尚未生成</div>
+                  </div>
+                )}
+                <button style={{
+                  marginTop:10, width:'100%',
+                  padding:'10px 14px', borderRadius:8, fontSize:13, fontWeight:600,
+                  color:'oklch(0.14 0 0)',
+                  background:'linear-gradient(180deg, var(--accent-2), var(--accent))',
+                  display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6,
+                  boxShadow:'inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--accent-glow)',
+                  opacity: shot.storyboard_versions>0 ? 1 : 0.5,
+                }} disabled={shot.storyboard_versions===0} title={shot.storyboard_versions===0?'先生成分镜图':''}>{Icons.wand}<span>{shot.video_versions>0?'重新生成视频':'生成视频'}</span><span className="num" style={{fontSize:11, opacity:0.7, marginLeft:4}}>~${(shot.cost?.videoEst ?? 0.4).toFixed(2)}</span></button>
+              </div>
+            </div>
+          </ResponsiveDetailGrid>
+
+          <style>{`
+            .sv-navbtn { font-size:11.5px; padding:4px 10px; border-radius:5px; color:var(--text-2); border:1px solid var(--hairline); background:oklch(0.22 0.011 265 / 0.5); transition:background .12s; cursor:pointer; }
+            .sv-navbtn:hover { background:oklch(0.26 0.013 265 / 0.7); color:var(--text); }
+            .prompt-ta { width:100%; padding:10px 12px; font-size:12.5px; line-height:1.65; color:var(--text); background:linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45)); border:1px solid var(--hairline); border-radius:8; font-family:var(--font-sans); resize:vertical; box-shadow:inset 0 1px 2px oklch(0 0 0 / 0.2); }
+            .prompt-ta:focus { outline:none; border-color:var(--accent); box-shadow:inset 0 1px 2px oklch(0 0 0 / 0.2), 0 0 0 3px var(--accent-dim); }
+            @keyframes refbox-in { from { opacity:0; transform:scale(0.98); } to { opacity:1; transform:scale(1); } }
+          `}</style>
+        </div>
+      );
+    }
+
+
+    function PromptSection({ icon, title, actions, children }) {      return (
+        <div style={{marginBottom:14}}>
+          <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:8}}>
+            <span style={{color:'var(--text-3)', display:'inline-grid', placeItems:'center'}}>{icon}</span>
+            <span style={{fontSize:12.5, fontWeight:600, color:'var(--text-2)', letterSpacing:0.2}}>{title}</span>
+            <span style={{flex:1}}/>
+            {actions}
+          </div>
+          {children}
+        </div>
+      );
+    }
+
+    // ---------- Responsive 3-column detail grid ----------
+    function ResponsiveDetailGrid({ children }) {
+      const [w, setW] = useState(0);
+      const roRef = useRef(null);
+      const setRef = React.useCallback((el) => {
+        if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+        if (!el) return;
+        setW(el.getBoundingClientRect().width);
+        const ro = new ResizeObserver(entries => {
+          for (const e of entries) setW(e.contentRect.width);
+        });
+        ro.observe(el);
+        roRef.current = ro;
+      }, []);
+
+      // Breakpoints:
+      //  >= 980: classic 3 cols (left | mid | right)
+      //  640-979: 2 cols — left as tab, mid + right side by side (mid becomes a tab-picker)
+      //  < 640: single column stacked
+      const narrow = w < 980;
+      const tight = w < 640;
+
+      const [activeTab, setActiveTab] = useState('mid'); // left | mid
+      const kids = React.Children.toArray(children);
+      const byCol = { left: null, mid: null, right: null };
+      kids.forEach(k => { const key = k.props?.['data-col']; if (key) byCol[key] = k; });
+
+      if (!narrow) {
+        return (
+          <div ref={setRef} style={{flex:1, overflow:'hidden', display:'grid', gridTemplateColumns:'220px minmax(280px,1fr) 340px', minHeight:0}}>
+            {React.cloneElement(byCol.left, { style:{...byCol.left.props.style, borderRight:'1px solid var(--hairline-soft)'} })}
+            {byCol.mid}
+            {React.cloneElement(byCol.right, { style:{...byCol.right.props.style, borderLeft:'1px solid var(--hairline-soft)'} })}
+          </div>
+        );
+      }
+
+      if (tight) {
+        // Stacked — tabs to pick which col
+        const tabs = [
+          { k:'left', label:'剧本 / 对话' },
+          { k:'mid',  label:'提示词' },
+          { k:'right',label:'分镜 / 视频' },
+        ];
+        return (
+          <div ref={setRef} style={{flex:1, overflow:'hidden', display:'flex', flexDirection:'column', minHeight:0}}>
+            <div style={{display:'flex', gap:2, padding:'8px 12px', borderBottom:'1px solid var(--hairline-soft)', background:'oklch(0.20 0.011 265 / 0.3)'}}>
+              {tabs.map(x => (
+                <button key={x.k} onClick={()=>setActiveTab(x.k)} style={{
+                  padding:'6px 12px', fontSize:11.5, fontWeight:500, borderRadius:6,
+                  color: activeTab===x.k ? 'var(--accent-2)' : 'var(--text-3)',
+                  background: activeTab===x.k ? 'var(--accent-dim)' : 'transparent',
+                  border: activeTab===x.k ? '1px solid var(--accent-soft)' : '1px solid transparent',
+                }}>{x.label}</button>
+              ))}
+            </div>
+            <div style={{flex:1, minHeight:0, overflow:'hidden', display:'flex', flexDirection:'column'}}>
+              {byCol[activeTab] && React.cloneElement(byCol[activeTab], { style:{...byCol[activeTab].props.style, flex:1, minHeight:0, height:'auto'} })}
+            </div>
+          </div>
+        );
+      }
+
+      // narrow (640–979): mid + right side by side; left as drawer tab
+      const leftOpen = activeTab === 'left';
+      return (
+        <div ref={setRef} style={{flex:1, overflow:'hidden', display:'flex', flexDirection:'column', minHeight:0}}>
+          <div style={{display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderBottom:'1px solid var(--hairline-soft)', background:'oklch(0.20 0.011 265 / 0.3)'}}>
+            <button onClick={()=>setActiveTab(leftOpen?'mid':'left')} style={{
+              padding:'5px 10px', fontSize:11.5, fontWeight:500, borderRadius:6,
+              color: leftOpen ? 'var(--accent-2)' : 'var(--text-3)',
+              background: leftOpen ? 'var(--accent-dim)' : 'oklch(0.22 0.011 265 / 0.5)',
+              border: '1px solid ' + (leftOpen ? 'var(--accent-soft)' : 'var(--hairline-soft)'),
+              display:'inline-flex', alignItems:'center', gap:5,
+            }}>{leftOpen?'×':'☰'} 剧本 / 对话 / 备注</button>
+            <span style={{flex:1}}/>
+          </div>
+          <div style={{flex:1, minHeight:0, display:'grid', gridTemplateColumns: leftOpen ? '260px minmax(0,1fr)' : 'minmax(0,1fr) 300px', overflow:'hidden'}}>
+            {leftOpen
+              ? <>{React.cloneElement(byCol.left, { style:{...byCol.left.props.style, borderRight:'1px solid var(--hairline-soft)'} })}{byCol.mid}</>
+              : <>{byCol.mid}{React.cloneElement(byCol.right, { style:{...byCol.right.props.style, borderLeft:'1px solid var(--hairline-soft)'} })}</>
+            }
+          </div>
+        </div>
+      );
+    }
+
+    function Collapsible({ title, defaultOpen, children }) {
+      const [open, setOpen] = useState(!!defaultOpen);
+      return (
+        <div style={{marginBottom:10}}>
+          <button onClick={()=>setOpen(o=>!o)} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 2px', color:'var(--text-3)', width:'100%'}}>
+            <span style={{transform: open?'none':'rotate(-90deg)', transition:'transform .15s', display:'inline-grid', placeItems:'center'}}>{Icons.chevronDown}</span>
+            <span style={{fontSize:12, fontWeight:600, letterSpacing:0.2}}>{title}</span>
+          </button>
+          {open && <div style={{padding:'6px 0 4px 20px', display:'flex', flexDirection:'column', gap:8}}>{children}</div>}
+        </div>
+      );
+    }
+
+    function FieldRow({ label, children }) {
+      return (
+        <div style={{display:'grid', gridTemplateColumns:'64px 1fr', alignItems:'center', gap:10}}>
+          <span style={{fontSize:11.5, color:'var(--text-4)'}}>{label}</span>
+          <div>{children}</div>
+        </div>
+      );
+    }
+
+    function Pill({ value, suffix }) {
+      return (
+        <button style={{
+          display:'inline-flex', alignItems:'center', gap:6,
+          padding:'5px 10px', borderRadius:6, fontSize:12, color:'var(--text-2)',
+          background:'oklch(0.22 0.011 265 / 0.55)', border:'1px solid var(--hairline)',
+        }}>
+          <span>{value}</span>
+          {suffix && <span style={{color:'var(--text-4)'}}>{suffix}</span>}
+        </button>
+      );
+    }
+
+    function InputCell({ value }) {
+      return (
+        <input defaultValue={value} style={{
+          width:'100%', padding:'6px 10px', borderRadius:6, fontSize:12,
+          color:'var(--text)',
+          background:'oklch(0.18 0.010 265 / 0.55)',
+          border:'1px solid var(--hairline-soft)',
+          fontFamily:'var(--font-sans)',
+        }}/>
+      );
+    }
+
+
+    // ---------- Project menu (project switcher) ----------
+    const PROJECT_INFO = { name: '赡养人类', mode_label: 'DRAMA · 9:16', desc: '刘慈欣 · 赡养人类' };
+    function ModeMenu() {
+      const [open, setOpen] = useState(false);
+      const ref = useRef(null);
+      useEffect(() => {
+        if (!open) return;
+        const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+      }, [open]);
+      return (
+        <div ref={ref} style={{position:'relative'}}>
+          <button onClick={()=>setOpen(o=>!o)} style={{
+            display:'flex', alignItems:'center', gap:9, padding:'3px 8px 3px 4px', borderRadius:7, minWidth:0,
+            background: open ? 'oklch(0.26 0.012 265 / 0.5)' : 'transparent',
+          }}
+          onMouseEnter={e=>!open && (e.currentTarget.style.background='oklch(0.26 0.012 265 / 0.5)')}
+          onMouseLeave={e=>!open && (e.currentTarget.style.background='transparent')}>
+            <div style={{
+              width:24, height:24, borderRadius:6, position:'relative',
+              background:'linear-gradient(135deg, var(--accent) 0%, oklch(0.55 0.12 260) 100%)',
+              display:'grid', placeItems:'center', fontSize:11.5, fontWeight:700, color:'oklch(0.12 0 0)',
+              boxShadow:'inset 0 1px 0 oklch(1 0 0 / 0.25), inset 0 -1px 0 oklch(0 0 0 / 0.15), 0 0 0 1px oklch(1 0 0 / 0.08), 0 2px 10px -2px var(--accent-glow)',
+              fontFamily:'var(--font-display)',
+            }}>A</div>
+            <div style={{minWidth:0, textAlign:'left'}}>
+              <div className="display-serif" style={{fontSize:13.5, fontWeight:600, lineHeight:1.15, whiteSpace:'nowrap', letterSpacing:-0.1}}>{PROJECT_INFO.name}</div>
+              <div style={{fontSize:10, color:'var(--text-4)', lineHeight:1.1, marginTop:2, letterSpacing:0.2, textTransform:'uppercase', fontWeight:500}}>{PROJECT_INFO.mode_label}</div>
+            </div>
+            <span style={{color:'var(--text-4)', marginLeft:2, transition:'transform .15s', transform: open?'rotate(180deg)':'none'}}>{Icons.chevronDown}</span>
+          </button>
+          {open && (
+            <div style={{
+              position:'absolute', top:'calc(100% + 6px)', left:0, minWidth:280, padding:6,
+              background:'oklch(0.20 0.011 265 / 0.98)', backdropFilter:'blur(20px) saturate(1.2)',
+              border:'1px solid var(--hairline-strong)', borderRadius:10, zIndex:50,
+              boxShadow:'0 14px 40px -10px oklch(0 0 0 / 0.6), 0 0 0 1px oklch(1 0 0 / 0.04)',
+            }}>
+              <div style={{fontSize:9.5, fontWeight:700, color:'var(--text-4)', letterSpacing:1.2, textTransform:'uppercase', padding:'6px 10px 4px', fontFamily:'var(--font-mono)'}}>当前项目</div>
+              <div style={{display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:7, background:'var(--accent-dim)', border:'1px solid var(--accent)'}}>
+                <div style={{width:30, height:30, borderRadius:6, display:'grid', placeItems:'center', flexShrink:0, background:'var(--accent)', color:'oklch(0.12 0 0)', fontFamily:'var(--font-display)', fontWeight:700, fontSize:14}}>A</div>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{display:'flex', alignItems:'center', gap:6}}>
+                    <span style={{fontSize:13, fontWeight:600, color:'var(--accent-2)'}}>{PROJECT_INFO.name}</span>
+                    <span style={{fontSize:9.5, fontWeight:700, padding:'1px 5px', borderRadius:3, background:'var(--accent)', color:'oklch(0.12 0 0)', letterSpacing:0.4, fontFamily:'var(--font-mono)'}}>当前</span>
+                  </div>
+                  <div style={{fontSize:10.5, color:'var(--text-4)', marginTop:2, lineHeight:1.3}}>{PROJECT_INFO.desc} · DRAMA · 9:16</div>
+                </div>
+              </div>
+              <div style={{height:1, background:'var(--hairline-soft)', margin:'4px 6px'}}/>
+              <button style={{width:'100%', textAlign:'left', padding:'7px 10px', fontSize:12, color:'var(--text-3)', borderRadius:6, display:'flex', alignItems:'center', gap:8}}
+                onMouseEnter={e=>e.currentTarget.style.background='oklch(0.26 0.012 265 / 0.55)'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <span style={{color:'var(--text-4)'}}>{Icons.plus}</span><span>新建项目…</span>
+              </button>
+              <button style={{width:'100%', textAlign:'left', padding:'7px 10px', fontSize:12, color:'var(--text-3)', borderRadius:6, display:'flex', alignItems:'center', gap:8}}
+                onMouseEnter={e=>e.currentTarget.style.background='oklch(0.26 0.012 265 / 0.55)'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <span style={{color:'var(--text-4)'}}>{Icons.sliders}</span><span>项目设置…</span>
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+
+    function MainPane({ activeEp }) {
+      const ep = EPISODES.find(e => e.n === activeEp) || EPISODES[0];
+      const [tab, setTab] = useState('timeline');
+
+      if (ep.status === 'idea' || ep.status === 'draft') {
+        return (
+          <main style={{flex:1, display:'grid', placeItems:'center', background:'oklch(0.19 0.012 250 / 0.3)'}}>
+            <div style={{textAlign:'center', maxWidth:360}}>
+              <div className="display-serif" style={{fontSize:28, fontWeight:500, marginBottom:8}}>E{ep.n} · {ep.title}</div>
+              <div style={{color:'var(--text-3)', fontSize:13, marginBottom:20, lineHeight:1.6}}>
+                这一集还没开始制作。从剧本开始，或让智能体帮你起草。
+              </div>
+              <button style={{
+                padding:'10px 18px', borderRadius:8, background:'var(--accent)', color:'oklch(0.12 0 0)',
+                fontWeight:600, fontSize:13, display:'inline-flex', gap:6, alignItems:'center',
+                boxShadow:'0 6px 20px -6px var(--accent)',
+              }}>{Icons.wand}<span>开始创作 E{ep.n}</span></button>
+            </div>
+          </main>
+        );
+      }
+
+      const tabs = [
+        { key:'pre', label:'预处理' },
+        { key:'timeline', label:'剧本时间线' },
+      ];
+
+      return (
+        <main style={{flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0}}>
+          <EpisodeHeader ep={ep}/>
+
+          <div style={{
+            display:'flex', alignItems:'center', gap:2, padding:'0 20px',
+            borderBottom:'1px solid var(--hairline)', background:'oklch(0.19 0.012 250 / 0.5)',
+          }}>
+            {tabs.map(t => (
+              <button key={t.key} onClick={()=>setTab(t.key)} style={{
+                padding:'10px 14px', fontSize:12.5, fontWeight:500,
+                color: tab===t.key ? 'var(--text)' : 'var(--text-3)', position:'relative',
+              }}>
+                {t.label}
+                {tab===t.key && <span style={{position:'absolute', bottom:-1, left:10, right:10, height:2, background:'var(--accent)', borderRadius:2}}/>}
+              </button>
+            ))}
+            <span style={{flex:1}}/>
+
+            <div style={{display:'inline-flex', alignItems:'center', gap:6, marginRight:4}}>
+              <button className="sv-navbtn" style={{display:'inline-flex', alignItems:'center', gap:5}}>{Icons.sparkle}<span>批量生成分镜图</span></button>
+              <button className="sv-navbtn" style={{display:'inline-flex', alignItems:'center', gap:5}}>{Icons.sparkle}<span>批量生成视频</span></button>
+            </div>
+          </div>
+
+          <div style={{flex:1, overflow:'hidden', background:'oklch(0.18 0.011 250 / 0.25)', minHeight:0}}>
+            <ShotSplitView shots={SHOTS}/>
+          </div>
+        </main>
+      );
+    }
+
+    // ---------- Right: AI assistant (mock only, compact) ----------
+    function AIPane() {
+      const [collapsed, setCollapsed] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return window.innerWidth < 1280;
+      });
+      if (collapsed) {
+        return (
+          <aside style={{
+            width:48, borderLeft:'1px solid var(--hairline)', flexShrink:0,
+            background:'oklch(0.19 0.011 250 / 0.5)',
+            display:'flex', flexDirection:'column', alignItems:'center', padding:'10px 0', gap:8,
+          }}>
+            <button onClick={()=>setCollapsed(false)} style={{
+              width:30, height:30, borderRadius:7, display:'grid', placeItems:'center',
+              background:'linear-gradient(135deg, var(--accent), oklch(0.60 0.10 280))',
+              color:'oklch(0.12 0 0)',
+              boxShadow:'0 0 0 1px oklch(1 0 0 / 0.1), 0 2px 10px -2px var(--accent)',
+            }}>{Icons.sparkle}</button>
+            <div style={{writingMode:'vertical-rl', transform:'rotate(180deg)', fontSize:10.5, color:'var(--text-4)', letterSpacing:1, textTransform:'uppercase', marginTop:8}}>AI</div>
+          </aside>
+        );
+      }
+      return (
+        <aside style={{
+          width:380, flexShrink:0,
+          display:'flex', flexDirection:'column',
+          background:'oklch(0.19 0.011 250 / 0.5)',
+          borderLeft:'1px solid var(--hairline)', overflow:'hidden',
+        }}>
+          <div style={{padding:'10px 14px', borderBottom:'1px solid var(--hairline)', display:'flex', alignItems:'center', gap:10}}>
+            <div style={{
+              width:24, height:24, borderRadius:6,
+              background:'linear-gradient(135deg, var(--accent), oklch(0.60 0.10 280))',
+              display:'grid', placeItems:'center', color:'oklch(0.12 0 0)',
+            }}>{Icons.sparkle}</div>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontSize:13, fontWeight:600, lineHeight:1.1}}>ArcReel 智能体</div>
+              <div style={{fontSize:10.5, color:'var(--text-4)', lineHeight:1.1, marginTop:2, display:'flex', alignItems:'center', gap:5}}>
+                <span style={{width:6, height:6, borderRadius:3, background:'oklch(0.70 0.09 155)', boxShadow:'0 0 8px oklch(0.70 0.09 155)'}}/>
+                connected · claude-sonnet-4
+              </div>
+            </div>
+            <button onClick={()=>setCollapsed(true)} style={{width:26, height:26, borderRadius:5, display:'grid', placeItems:'center', color:'var(--text-3)'}}>{Icons.chevronRight}</button>
+          </div>
+
+          <div style={{flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:14}}>
+            <div style={{fontSize:12.5, color:'var(--text-2)', lineHeight:1.6}}>
+              已为 <b style={{color:'var(--text)'}}>E1U2</b> 生成完成 reference_videos/E1U2.mp4，选用：@总统大厅 / @哥哥飞船 / @滑膛。
+            </div>
+            <div style={{display:'flex', justifyContent:'flex-end'}}>
+              <div style={{maxWidth:'85%', padding:'8px 12px', borderRadius:10, borderBottomRightRadius:3, background:'var(--accent-dim)', border:'1px solid var(--accent)', color:'var(--accent-2)', fontSize:12.5}}>
+                把 E1U3 的“钻戒柔光”再加强一点
+              </div>
+            </div>
+            <div style={{fontSize:12.5, color:'var(--text-2)', lineHeight:1.6}}>
+              已更新 <b style={{color:'var(--text)'}}>E1U3</b> 的提示词，正在重新生成…
+            </div>
+          </div>
+
+          <div style={{padding:'10px 14px', borderTop:'1px solid var(--hairline)'}}>
+            <div style={{background:'oklch(0.16 0.010 250 / 0.7)', border:'1px solid var(--hairline)', borderRadius:10, padding:'10px 12px'}}>
+              <textarea placeholder="输入消息，输入 / 查看可用技能…" rows={2}
+                style={{width:'100%', resize:'none', fontSize:12.5, color:'var(--text)', fontFamily:'var(--font-sans)', lineHeight:1.55}}/>
+              <div style={{display:'flex', alignItems:'center', gap:6, marginTop:6}}>
+                <button style={{color:'var(--text-4)', padding:4, borderRadius:5}}>{Icons.attach}</button>
+                <span style={{flex:1}}/>
+                <span style={{fontSize:10.5, color:'var(--text-4)', fontFamily:'var(--font-mono)'}}>⌘⏎</span>
+                <button style={{width:28, height:28, borderRadius:6, background:'var(--accent)', color:'oklch(0.12 0 0)', display:'grid', placeItems:'center'}}>{Icons.send}</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      );
+    }
+
+    // ---------- App ----------
+    function App() {
+      const [activeNav, setActiveNav] = useState('overview');
+      const [activeEp, setActiveEp] = useState(1);
+      return (
+        <>
+          <TopBar/>
+          <div style={{display:'flex', overflow:'hidden', minHeight:0}}>
+            <Sidebar activeNav={activeNav} onNav={setActiveNav} activeEp={activeEp} onSelectEp={setActiveEp}/>
+            <MainPane activeEp={activeEp}/>
+            <AIPane/>
+          </div>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
