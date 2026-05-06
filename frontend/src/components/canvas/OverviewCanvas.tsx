@@ -12,6 +12,7 @@ import { errMsg } from "@/utils/async";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { ConflictModal, type ConflictResolution } from "./ConflictModal";
+import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 
 interface OverviewCanvasProps {
   projectName: string;
@@ -44,6 +45,21 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     suggestedName: string;
     resolve: (d: ConflictResolution) => void;
   } | null>(null);
+
+  // 在「欢迎页 → 概览页」首次切换时触发一次智能体引导动画。
+  // 仅当本次会话内 showWelcome 由 true 变为 false 才递增 trigger，
+  // 加载已有概览的项目不会触发；AgentHandoffHint 内还有 sessionStorage
+  // 防 reload 重复。
+  const [handoffTrigger, setHandoffTrigger] = useState(0);
+  const wasWelcomeRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!projectData) return;
+    const isWelcome = !projectData.overview && (projectData.episodes?.length ?? 0) === 0;
+    if (wasWelcomeRef.current === true && !isWelcome) {
+      setHandoffTrigger((k) => k + 1);
+    }
+    wasWelcomeRef.current = isWelcome;
+  }, [projectData]);
 
   const refreshProject = useCallback(
     async () => {
@@ -546,6 +562,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           onResolve={conflictPrompt.resolve}
         />
       )}
+      <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} />
     </div>
   );
 }
