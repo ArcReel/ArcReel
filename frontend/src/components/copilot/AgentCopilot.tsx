@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useId } from "react";
 import { voidCall, voidPromise } from "@/utils/async";
 import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -43,6 +43,7 @@ function SessionSelector({
   const { sessions, currentSessionId, isDraftSession } = useAssistantStore();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const displayTitle = isDraftSession ? t("new_session") : (currentSession?.title || formatTime(currentSession?.created_at, t));
@@ -54,6 +55,7 @@ function SessionSelector({
         onClick={() => setOpen(!open)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] transition-colors focus-ring"
         style={{ color: "var(--color-text-3)" }}
         onMouseEnter={(e) => {
@@ -90,7 +92,7 @@ function SessionSelector({
             WebkitBackdropFilter: "blur(12px)",
           }}
         >
-          <div className="max-h-60 overflow-y-auto py-1">
+          <div id={listboxId} role="listbox" className="max-h-60 overflow-y-auto py-1">
             {sessions.map((session) => {
               const isActive = session.id === currentSessionId;
               const title = session.title || formatTime(session.created_at, t);

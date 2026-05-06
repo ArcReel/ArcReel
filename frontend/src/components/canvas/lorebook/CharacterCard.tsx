@@ -305,14 +305,7 @@ export function CharacterCard({
                     ? clearPendingReference()
                     : fileInputRef.current?.click()
                 }
-                className="focus-ring text-[11px] transition-colors"
-                style={{ color: "var(--color-text-3)" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--color-text)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--color-text-3)";
-                }}
+                className="focus-ring text-[11px] text-[var(--color-text-3)] transition-colors hover:text-[var(--color-text)]"
               >
                 {referenceFile ? t("cancel_pending") : t("replace")}
               </button>
@@ -367,20 +360,8 @@ export function CharacterCard({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-4 text-sm transition-colors"
-              style={{
-                color: "var(--color-text-4)",
-                border: "1px dashed var(--color-hairline)",
-                background: "oklch(0.18 0.010 265 / 0.35)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--color-accent-soft)";
-                e.currentTarget.style.color = "var(--color-text-2)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--color-hairline)";
-                e.currentTarget.style.color = "var(--color-text-4)";
-              }}
+              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-4 text-sm text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+              style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
             >
               <Upload className="h-4 w-4" />
               {t("upload_reference")}
