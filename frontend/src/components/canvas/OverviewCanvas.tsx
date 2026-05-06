@@ -131,14 +131,10 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   }, [projectName, refreshProject]);
 
   if (!projectData) {
-    return (
-      <div
-        className="flex h-full items-center justify-center text-[12px]"
-        style={{ color: "var(--color-text-4)" }}
-      >
-        {t("loading_project_data")}
-      </div>
-    );
+    // 项目数据加载期间保留同结构的空容器（不渲染居中 loading 文字），
+    // 避免「居中提示 → 顶端内容」的位置跳跃造成闪动；StudioLayout 的外壳
+    // 仍然可见，加载完成后内容平滑出现。
+    return <div className="h-full overflow-y-auto" aria-busy="true" />;
   }
 
   const status = projectData.status;
