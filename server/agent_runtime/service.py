@@ -829,6 +829,25 @@ class AssistantService:
     _extract_plain_user_content = staticmethod(extract_plain_user_content)
 
     @staticmethod
+    def _collect_buffer_real_user_texts(buffer: list[dict[str, Any]] | None) -> set[str]:
+        """Pre-scan buffer for plain text of all real (non-echo) user messages.
+
+        Used by _is_buffer_duplicate as a fallback dedup source when the DB
+        transcript is momentarily behind the in-memory buffer (eager flush is
+        fire-and-forget; SDK may coalesce frames under slow store).
+        """
+        texts: set[str] = set()
+        for msg in buffer or []:
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("type") != "user" or msg.get("local_echo"):
+                continue
+            text = AssistantService._extract_plain_user_content(msg)
+            if text:
+                texts.add(text)
+        return texts
+
+    @staticmethod
     def _parse_iso_datetime(value: Any) -> datetime | None:
         if not isinstance(value, str) or not value.strip():
             return None
