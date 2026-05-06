@@ -658,16 +658,29 @@ class AssistantService:
         transcript_uuids: set[str],
         tail_fps: set[str],
         history_messages: list[dict[str, Any]],
+        buffer_real_user_texts: set[str] | None = None,
     ) -> bool:
-        """Check if a groupable buffer message duplicates a transcript message."""
+        """Check if a groupable buffer message duplicates a transcript message.
+
+        ``buffer_real_user_texts`` is a pre-scan of the same buffer the caller
+        is iterating; an echo that lacks a transcript-side match still gets
+        deduped if the buffer itself already carries a same-text real user
+        (covers eager flush's DB-lag window when SDK coalesces frames under
+        a slow store).
+        """
         # 1. UUID dedup
         uuid = msg.get("uuid")
         if uuid and uuid in transcript_uuids:
             return True
 
-        # 2. Local echo dedup
-        if msg.get("local_echo") and self._echo_in_transcript(msg, history_messages):
-            return True
+        # 2. Local echo dedup — transcript first, buffer fallback
+        if msg.get("local_echo"):
+            if self._echo_in_transcript(msg, history_messages):
+                return True
+            if buffer_real_user_texts:
+                echo_text = self._extract_plain_user_content(msg)
+                if echo_text and echo_text in buffer_real_user_texts:
+                    return True
 
         # 3. Content fingerprint dedup (fallback for UUID-less buffer messages)
         if not uuid and msg_type in {"assistant", "result"}:

@@ -56,3 +56,40 @@ def test_collect_buffer_real_user_texts_skips_invalid_entries(tmp_path):
     ]
     texts = service._collect_buffer_real_user_texts(buffer)
     assert texts == {"ok"}
+
+
+def test_echo_dedup_when_buffer_has_same_text_real_user(tmp_path):
+    """eager 慢 store 兜底：history 还没本轮 user，buffer 已有 echo + sdk user。"""
+    service = AssistantService(project_root=tmp_path)
+    echo = {"type": "user", "content": "hi", "local_echo": True}
+    is_dup = service._is_buffer_duplicate(
+        echo,
+        "user",
+        transcript_uuids=set(),
+        tail_fps=set(),
+        history_messages=[],
+        buffer_real_user_texts={"hi"},
+    )
+    assert is_dup is True
+
+
+def test_echo_preserved_when_no_real_user_anywhere(tmp_path):
+    """正向兜底：history 空 + buffer 不含真实 user → echo 必须保留。"""
+    service = AssistantService(project_root=tmp_path)
+    echo = {"type": "user", "content": "hi", "local_echo": True}
+    is_dup = service._is_buffer_duplicate(
+        echo,
+        "user",
+        transcript_uuids=set(),
+        tail_fps=set(),
+        history_messages=[],
+        buffer_real_user_texts=set(),
+    )
+    assert is_dup is False
+
+
+def test_existing_signature_backward_compat(tmp_path):
+    """旧调用（5 个位置参数）保持工作 — 不破坏 test_assistant_service_more 回归。"""
+    service = AssistantService(project_root=tmp_path)
+    # uuid dedup 路径：transcript 已有 uuid → True
+    assert service._is_buffer_duplicate({"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []) is True
