@@ -968,6 +968,7 @@ export default {
   'batch_generate_storyboards': 'Batch generate storyboards',
   'batch_generate_videos': 'Batch generate videos',
   'shot_search_placeholder': 'Search shots…',
+  'shots_collapsed_label': 'SHOTS · {{count}}',
   'shots_section_title': 'Shots',
   'shot_list_collapse': 'Collapse',
   'shot_list_expand': 'Expand shot list',

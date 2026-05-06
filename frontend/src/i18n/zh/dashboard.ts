@@ -969,6 +969,7 @@ export default {
   'batch_generate_storyboards': '批量生成分镜图',
   'batch_generate_videos': '批量生成视频',
   'shot_search_placeholder': '搜索分镜…',
+  'shots_collapsed_label': '分镜 · {{count}}',
   'shots_section_title': '分镜',
   'shot_list_collapse': '折叠',
   'shot_list_expand': '展开分镜列表',

@@ -227,16 +227,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     onClick={() => void handleRegenerate()}
                     disabled={regenerating}
                     title={t("regen_overview_title")}
-                    className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ color: "var(--color-text-3)" }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
-                      e.currentTarget.style.color = "var(--color-text)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "transparent";
-                      e.currentTarget.style.color = "var(--color-text-3)";
-                    }}
+                    className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-3)]"
                   >
                     <RefreshCw
                       className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`}

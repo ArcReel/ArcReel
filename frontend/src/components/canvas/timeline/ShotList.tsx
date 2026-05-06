@@ -118,7 +118,7 @@ export function ShotList({
             fontFamily: "var(--font-mono)",
           }}
         >
-          SHOTS · {segments.length}
+          {t("shots_collapsed_label", { count: segments.length })}
         </div>
         <div className="mt-1 flex flex-1 flex-col items-center gap-1">
           {segments.map((s, i) => {
@@ -238,26 +238,21 @@ export function ShotList({
                 onClick={() => onSelect(originalIndex)}
                 ref={virtualizer.measureElement}
                 data-index={virt.index}
-                className="absolute left-0 right-0 grid w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors focus-ring"
+                className={`absolute left-0 right-0 grid w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors focus-ring ${
+                  active ? "" : "hover:bg-[oklch(0.24_0.012_265_/_0.4)]"
+                }`}
                 style={{
                   gridTemplateColumns: "auto 1fr",
                   transform: `translateY(${virt.start}px)`,
                   background: active
                     ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
-                    : "transparent",
+                    : undefined,
                   border: active
                     ? "1px solid var(--color-accent-soft)"
                     : "1px solid transparent",
                   boxShadow: active
                     ? "0 0 0 1px var(--color-accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
                     : "none",
-                }}
-                onMouseEnter={(e) => {
-                  if (!active)
-                    e.currentTarget.style.background = "oklch(0.24 0.012 265 / 0.4)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) e.currentTarget.style.background = "transparent";
                 }}
               >
                 {active && (
