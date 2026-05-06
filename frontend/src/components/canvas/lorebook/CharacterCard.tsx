@@ -203,39 +203,36 @@ export function CharacterCard({
         }}
       />
 
-      {/* ---- Header: 第一排 icon+name；第二排所有动作右对齐 ---- */}
-      <div className="mb-4 flex flex-col gap-2">
-        <div className="flex items-center gap-2.5">
-          <span
-            aria-hidden
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
-            style={{
-              background: "var(--color-accent-dim)",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-            }}
-          >
-            <User className="h-3.5 w-3.5" />
-          </span>
-          <h3
-            className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
-          >
-            {name}
-          </h3>
-        </div>
-        <div className="flex items-center justify-end gap-0.5">
+      {/* ---- Header: 单排 icon + name + icon-only 工具栏 ---- */}
+      <div className="mb-4 flex items-center gap-2.5">
+        <span
+          aria-hidden
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
+          style={{
+            background: "var(--color-accent-dim)",
+            border: "1px solid var(--color-accent-soft)",
+            color: "var(--color-accent-2)",
+          }}
+        >
+          <User className="h-3.5 w-3.5" />
+        </span>
+        <h3
+          className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
+          style={{ color: "var(--color-text)" }}
+        >
+          {name}
+        </h3>
+        <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
             onClick={() => sheetInputRef.current?.click()}
             disabled={uploadingSheet}
             title={t("assets:upload_sheet")}
             aria-label={t("assets:upload_sheet")}
-            className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
+            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
             style={{ color: "var(--color-text-3)" }}
           >
-            <Upload className="h-3 w-3" />
-            <span>{t("assets:upload_sheet_short")}</span>
+            <Upload className="h-3.5 w-3.5" />
           </button>
           <input
             ref={sheetInputRef}
@@ -252,13 +249,14 @@ export function CharacterCard({
             initialDescription={character.description}
             initialVoiceStyle={character.voice_style ?? ""}
             sheetPath={character.character_sheet}
-            showLabel
+            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
           />
           <VersionTimeMachine
             projectName={projectName}
             resourceType="characters"
             resourceId={name}
             onRestore={onRestoreVersion}
+            iconOnly
           />
         </div>
       </div>
