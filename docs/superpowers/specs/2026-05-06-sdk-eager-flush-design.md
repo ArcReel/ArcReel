@@ -297,12 +297,27 @@ tests/agent_runtime/
 │       — history 空、buffer 只有 echo 自身 → 必须保留
 │
 └── test_session_manager_store_injection.py（已存在）
-    + test_eager_mode_passed_to_options
+    + test_flush_mode_passed_to_options_default
         — 默认环境下 ClaudeAgentOptions.session_store_flush == "eager"
-    + test_batched_mode_via_env_passes_through
+    + test_flush_mode_passed_to_options_batched
         — ARCREEL_SDK_SESSION_STORE_FLUSH=batched → "batched"
-    + test_unknown_mode_falls_back_to_eager_with_warning
-        — 设非法值 → 警告 + eager
+    + test_flush_mode_passed_to_options_when_store_off
+        — store=off + flush 默认：session_store is None，flush 仍透传 "eager"
+
+tests/agent_session_store/
+└── test_flush_mode.py（新文件 — flush parser 单测）
+    + test_default_is_eager
+        — 未设 env → "eager"
+    + test_explicit_batched
+        — env=batched → "batched"
+    + test_eager_explicit
+        — env=eager → "eager"
+    + test_case_insensitive
+        — env=BATCHED → "batched"
+    + test_empty_treated_as_eager
+        — env="" → "eager"
+    + test_unknown_falls_back_to_eager_with_warning
+        — 非法值 → 警告 + "eager"
 ```
 
 **回归保护**：`tests/test_assistant_service_more.py::test_merge_and_dedup_helpers`（已有）必须保持绿色，dedup 重构不能破坏老路径。

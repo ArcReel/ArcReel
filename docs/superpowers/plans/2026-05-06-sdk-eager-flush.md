@@ -242,6 +242,24 @@ def test_flush_mode_passed_to_options_batched(monkeypatch, tmp_path):
 
     options = sm._build_options(project_name="demo")
     assert options.session_store_flush == "batched"
+
+
+def test_flush_mode_passed_to_options_when_store_off(monkeypatch, tmp_path):
+    """store=off + default flush → options.session_store is None, flush still 'eager'.
+
+    锁住回滚组合：禁用 DB store 不应阻断 options 构造，且 flush 模式仍透传
+    （SDK 0.1.73 不要求 store 必须存在）。
+    """
+    monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE", "off")
+    monkeypatch.delenv("ARCREEL_SDK_SESSION_STORE_FLUSH", raising=False)
+    sm = _build_sm(tmp_path)
+
+    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd.mkdir(parents=True)
+
+    options = sm._build_options(project_name="demo")
+    assert options.session_store is None
+    assert options.session_store_flush == "eager"
 ```
 
 - [ ] **Step 2: 跑测试，验证失败**
@@ -279,7 +297,7 @@ return ClaudeAgentOptions(
 - [ ] **Step 4: 跑测试，验证通过**
 
 Run: `uv run python -m pytest tests/agent_runtime/test_session_manager_store_injection.py -v`
-Expected: 全绿（4 已有 + 2 新增）
+Expected: 全绿（4 已有 + 3 新增：default / batched / when_store_off）
 
 - [ ] **Step 5: lint**
 
