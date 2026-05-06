@@ -142,6 +142,8 @@ function TaskRow({
         style={{ background: rowBg, transition: "background-color .12s ease" }}
         role={hasError ? "button" : undefined}
         tabIndex={hasError ? 0 : undefined}
+        aria-expanded={hasError ? isErrorExpanded : undefined}
+        aria-controls={hasError ? `task-error-${task.task_id}` : undefined}
         onClick={hasError ? () => onToggleError(task.task_id) : undefined}
         onKeyDown={hasError ? activateOnEnterSpace(() => onToggleError(task.task_id)) : undefined}
         onMouseEnter={(e) => {
@@ -226,6 +228,7 @@ function TaskRow({
             className="overflow-hidden"
           >
             <div
+              id={`task-error-${task.task_id}`}
               className="mx-3 mb-1.5 rounded px-2 py-1.5 text-[10.5px]"
               style={{
                 background: "oklch(0.30 0.10 25 / 0.10)",

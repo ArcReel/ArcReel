@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 import type { NarrationSegment, DramaScene } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
-import { StatusBadge, statusFromAssets } from "./StatusBadge";
+import { StatusBadge, statusFromAssets } from "@/components/canvas/timeline/StatusBadge";
 
 type Segment = NarrationSegment | DramaScene;
 
@@ -180,7 +180,10 @@ export function ShotList({
         </button>
         <button
           type="button"
-          className="sv-navbtn inline-flex items-center gap-1 px-2"
+          disabled
+          aria-disabled="true"
+          title={t("add_episode_unavailable")}
+          className="sv-navbtn inline-flex items-center gap-1 px-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-3 w-3" />
           <span>{t("add_episode")}</span>
@@ -200,9 +203,11 @@ export function ShotList({
             style={{ color: "var(--color-text-4)" }}
           />
           <input
+            type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("shot_search_placeholder")}
+            aria-label={t("shot_search_placeholder")}
             className="min-w-0 flex-1 bg-transparent text-[11.5px] outline-none focus-ring"
             style={{ color: "var(--color-text-2)" }}
           />

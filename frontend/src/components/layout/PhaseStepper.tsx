@@ -11,11 +11,11 @@ interface PhaseStepperProps {
  * 当前阶段高亮 accent 紫色，已完成阶段显示弱化的连接线。
  */
 export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("dashboard");
   const currentIdx = PHASES.findIndex((p) => p === currentPhase);
 
   return (
-    <nav aria-label={t("dashboard:workflow_phases")}>
+    <nav aria-label={t("workflow_phases")}>
       <div
         className="inline-flex items-center gap-px rounded-full p-[3px]"
         style={{
@@ -61,7 +61,7 @@ export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
                 >
                   {idx + 1}
                 </span>
-                <span className="whitespace-nowrap">{t(phase)}</span>
+                <span className="whitespace-nowrap">{t(`phase_${phase}`)}</span>
               </div>
               {idx < PHASES.length - 1 && (
                 <div

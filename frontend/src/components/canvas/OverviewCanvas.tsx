@@ -369,6 +369,8 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             {/* Cost loading / error */}
             {costLoading && (
               <div
+                role="status"
+                aria-live="polite"
                 className="rounded-2xl px-5 py-3 text-[12px] animate-pulse"
                 style={{
                   border: "1px solid var(--color-hairline-soft)",
@@ -381,6 +383,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             )}
             {costError && (
               <div
+                role="alert"
                 className="rounded-2xl px-5 py-3 text-[12px]"
                 style={{
                   border: "1px solid oklch(0.45 0.18 25 / 0.4)",
@@ -432,7 +435,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                       ...(["characters", "scenes", "props"] as const)
                         .map((kind) => {
                           const bucket = projectTotals.actual[kind];
-                          if (!bucket) return null;
+                          if (bucket == null) return null;
                           return {
                             label: t(`actual_${kind}`),
                             value: formatCost(bucket),
@@ -510,7 +513,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                         <span style={{ color: "var(--color-text-4)" }}>
                           {t("segments_and_status", {
                             count: ep.scenes_count ?? "?",
-                            status: ep.status ?? "draft",
+                            status: t(`episode_status_label_${ep.status ?? "draft"}`),
                           })}
                         </span>
                         {epCost && (

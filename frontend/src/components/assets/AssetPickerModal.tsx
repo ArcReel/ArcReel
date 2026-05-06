@@ -220,7 +220,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
               className="col-span-4 px-4 py-12 text-center text-[12px]"
               style={{ color: "var(--color-text-4)" }}
             >
-              {t("search_placeholder")}…
+              {debouncedQ ? t("no_results") : t("search_hint")}
             </div>
           )}
           {assetsWithUrl.map(({ asset: a, url }) => {
