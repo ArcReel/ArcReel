@@ -137,3 +137,82 @@ def test_build_projector_dedups_echo_when_buffer_has_real_user(tmp_path):
     projector = asyncio.run(_go())
     user_turns = [t for t in projector.turns if t.get("type") == "user"]
     assert len(user_turns) == 1, f"expected 1 user turn, got {len(user_turns)}: {user_turns}"
+
+
+def test_echo_with_same_text_as_prior_round_round_aware(tmp_path):
+    """上一轮 user 文本与本轮相同 → 取决于 transcript 是否含本轮 user。
+
+    Case B: history 只有上一轮 + 已 result → echo 不应被 dedup
+    Case A: history 含本轮 user (eager 已 flush) → echo 应被 dedup
+    """
+    service = AssistantService(project_root=tmp_path)
+    echo = {
+        "type": "user",
+        "content": "继续",
+        "local_echo": True,
+        "timestamp": "2026-05-06T01:00:00Z",
+    }
+
+    # Case B: 上一轮已 result → echo 是新一轮，不应 dedup
+    history_prior_complete = [
+        {
+            "type": "user",
+            "content": "继续",
+            "timestamp": "2026-05-06T00:00:00Z",
+            "uuid": "old",
+        },
+        {
+            "type": "assistant",
+            "content": [{"type": "text", "text": "好"}],
+            "uuid": "old-a",
+        },
+        {"type": "result", "subtype": "success"},
+    ]
+    assert (
+        service._is_buffer_duplicate(
+            echo,
+            "user",
+            transcript_uuids={"old", "old-a"},
+            tail_fps=set(),
+            history_messages=history_prior_complete,
+            buffer_real_user_texts=set(),
+        )
+        is False
+    )
+
+    # Case A: history 含本轮 user (eager 已写入) → echo 应 dedup
+    history_with_current = [
+        *history_prior_complete,
+        {
+            "type": "user",
+            "content": "继续",
+            "timestamp": "2026-05-06T01:00:01Z",  # 比 echo 晚
+            "uuid": "current",
+        },
+    ]
+    assert (
+        service._is_buffer_duplicate(
+            echo,
+            "user",
+            transcript_uuids={"old", "old-a", "current"},
+            tail_fps=set(),
+            history_messages=history_with_current,
+            buffer_real_user_texts=set(),
+        )
+        is True
+    )
+
+
+def test_user_message_not_lost_when_transcript_is_empty(tmp_path):
+    """关键回归 - "user 消失"：transcript 为空 + buffer 只有 echo → echo 必须保留。"""
+    service = AssistantService(project_root=tmp_path)
+    echo = {"type": "user", "content": "你好", "local_echo": True}
+    is_dup = service._is_buffer_duplicate(
+        echo,
+        "user",
+        transcript_uuids=set(),
+        tail_fps=set(),
+        history_messages=[],
+        buffer_real_user_texts=set(),  # buffer 还没收到 sdk user
+    )
+    assert is_dup is False, "echo must be preserved when no real user exists anywhere"
