@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
+from lib.agent_session_store import session_store_flush_mode
 from lib.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
@@ -561,8 +562,6 @@ class SessionManager:
                     ),
                 ],
             }
-
-        from lib.agent_session_store import session_store_flush_mode
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),

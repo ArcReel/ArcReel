@@ -5,13 +5,16 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Literal
 
 from lib.agent_session_store.models import AgentSessionEntry, AgentSessionSummary
 
 _ENV_VAR = "ARCREEL_SDK_SESSION_STORE"
 _VALID_MODES = frozenset({"db", "off", ""})
 
-logger = logging.getLogger("arcreel.session_store")
+logger = logging.getLogger("arcreel.session_store.config")
+
+FlushMode = Literal["eager", "batched"]
 
 _FLUSH_ENV_VAR = "ARCREEL_SDK_SESSION_STORE_FLUSH"
 _VALID_FLUSH_MODES = frozenset({"eager", "batched"})
@@ -50,7 +53,7 @@ def is_known_session_store_mode(mode: str) -> bool:
     return mode in _VALID_MODES
 
 
-def session_store_flush_mode() -> str:
+def session_store_flush_mode() -> FlushMode:
     """Return SDK ClaudeAgentOptions.session_store_flush value.
 
     Defaults to "eager" so transcript writes are durable across crashes
