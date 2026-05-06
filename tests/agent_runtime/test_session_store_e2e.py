@@ -77,3 +77,98 @@ async def test_append_then_list_then_load_via_sdk_helpers(session_factory, tmp_p
     assert len(raw_adapted) == 2
     timestamps = sorted(r["timestamp"] for r in raw_adapted if r["timestamp"])
     assert timestamps == ["2026-05-01T00:00:00Z", "2026-05-01T00:00:01Z"]
+
+
+@pytest.mark.asyncio
+async def test_partial_transcript_visible_after_simulated_crash(session_factory, tmp_path: Path):
+    """eager flush durability：partial transcript 在进程"重启"后仍可读。
+
+    模拟"服务进程崩溃"= 丢弃所有 in-memory 状态，仅保留 DB；新建 store
+    实例（模拟新进程）继续读，验证之前 append 的 entries 完全可达。
+    """
+    store = DbSessionStore(session_factory, user_id="crash-recover")
+    project_cwd = tmp_path / "projects" / "crash_demo"
+    project_cwd.mkdir(parents=True)
+    sid = "11111111-2222-3333-4444-555555555555"
+    key = {"project_key": make_project_key(project_cwd), "session_id": sid}
+
+    # 模拟"turn 进行中" eager flush 写入两条 entry（user + 部分 assistant）
+    await store.append(
+        key,
+        [
+            {
+                "type": "user",
+                "uuid": "1",
+                "timestamp": "2026-05-06T10:00:00Z",
+                "message": {"content": "long task"},
+            },
+        ],
+    )
+    await store.append(
+        key,
+        [
+            {
+                "type": "assistant",
+                "uuid": "2",
+                "parentUuid": "1",
+                "timestamp": "2026-05-06T10:00:01Z",
+                "message": {"content": "starting..."},
+            },
+        ],
+    )
+
+    # 模拟新进程：drop in-memory state, rebuild store
+    store_after_restart = DbSessionStore(session_factory, user_id="crash-recover")
+
+    raw = await store_after_restart.load(key)
+    assert raw is not None and len(raw) == 2
+
+    from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
+
+    adapter = SdkTranscriptAdapter(store=store_after_restart)
+    msgs = await adapter.read_raw_messages(sid, project_cwd=str(project_cwd))
+    assert len(msgs) == 2
+    assert any(m.get("type") == "user" for m in msgs)
+    assert any(m.get("type") == "assistant" for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_eager_persistence_independent_of_buffer(session_factory, tmp_path: Path):
+    """长 turn 跨 buffer 驱逐：DB 应有完整 user/assistant 序列。
+
+    DbSessionStore 的 append 调用与 in-memory buffer 完全解耦。本测试
+    验证多次单条 append（模拟 SDK eager 模式）后 load 能拼出完整序列。
+    """
+    store = DbSessionStore(session_factory, user_id="long-turn")
+    project_cwd = tmp_path / "projects" / "long_demo"
+    project_cwd.mkdir(parents=True)
+    sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    key = {"project_key": make_project_key(project_cwd), "session_id": sid}
+
+    # 模拟 SDK eager 模式分多次 append（每个完整 frame 一次）
+    frames = []
+    for i in range(20):
+        if i == 0:
+            frames.append(
+                {
+                    "type": "user",
+                    "uuid": str(i),
+                    "timestamp": f"2026-05-06T10:00:{i:02d}Z",
+                    "message": {"content": f"f{i}"},
+                }
+            )
+        else:
+            frames.append(
+                {
+                    "type": "assistant",
+                    "uuid": str(i),
+                    "parentUuid": str(i - 1),
+                    "timestamp": f"2026-05-06T10:00:{i:02d}Z",
+                    "message": {"content": f"f{i}"},
+                }
+            )
+    for f in frames:
+        await store.append(key, [f])
+
+    raw = await store.load(key)
+    assert raw is not None and len(raw) == 20
