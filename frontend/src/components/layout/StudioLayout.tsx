@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { Sparkles } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
@@ -79,7 +79,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         title={t("open_assistant_panel")}
         aria-label={t("open_assistant_panel")}
       >
-        <Sparkles className="h-5 w-5" />
+        <Bot className="h-5 w-5" />
       </button>
     </div>
   );

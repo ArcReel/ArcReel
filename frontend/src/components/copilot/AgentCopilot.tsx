@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { voidCall, voidPromise } from "@/utils/async";
-import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, Sparkles, X } from "lucide-react";
+import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { ImageLightbox } from "@/components/ui/ImageLightbox";
@@ -401,7 +401,7 @@ export function AgentCopilot() {
               color: "oklch(0.12 0 0)",
             }}
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            <Bot className="h-3.5 w-3.5" />
           </div>
           {isRunning ? (
             <span
