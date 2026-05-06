@@ -10,6 +10,7 @@ import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageStatsSection } from "./settings/UsageStatsSection";
+import { SUPPORTED_LANGUAGES, LANGUAGE_DISPLAY_LABELS, type SupportedLanguage } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,10 +118,13 @@ export function SystemConfigPage() {
           <button
             type="button"
             onClick={() => {
-              const nextLang = i18n.language.startsWith("zh") ? "en" : "zh";
-              void i18n.changeLanguage(nextLang);
+              const current = i18n.language.split("-")[0] as SupportedLanguage;
+              const idx = SUPPORTED_LANGUAGES.indexOf(current);
+              const nextIdx = idx === -1 ? 0 : (idx + 1) % SUPPORTED_LANGUAGES.length;
+              void i18n.changeLanguage(SUPPORTED_LANGUAGES[nextIdx]);
             }}
             className="flex w-full items-center gap-3 px-4 py-2.5 text-sm border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200 transition-colors focus-ring focus-visible:ring-inset"
+            title={LANGUAGE_DISPLAY_LABELS[(i18n.language.split("-")[0] as SupportedLanguage)] ?? i18n.language}
           >
             <Languages className="h-4 w-4" />
             <span className="flex-1 text-left">{t("dashboard:language_setting")}</span>

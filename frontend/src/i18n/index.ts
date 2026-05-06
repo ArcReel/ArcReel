@@ -18,6 +18,22 @@ import zhErrors from './zh/errors';
 import zhTemplates from './zh/templates';
 import zhAssets from './zh/assets';
 
+import viCommon from './vi/common';
+import viAuth from './vi/auth';
+import viDashboard from './vi/dashboard';
+import viErrors from './vi/errors';
+import viTemplates from './vi/templates';
+import viAssets from './vi/assets';
+
+export const SUPPORTED_LANGUAGES = ['zh', 'en', 'vi'] as const;
+export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
+
+export const LANGUAGE_DISPLAY_LABELS: Record<SupportedLanguage, string> = {
+  zh: '中文',
+  en: 'English',
+  vi: 'Tiếng Việt',
+};
+
 const resources = {
   en: {
     common: enCommon,
@@ -35,6 +51,14 @@ const resources = {
     templates: zhTemplates,
     assets: zhAssets,
   },
+  vi: {
+    common: viCommon,
+    auth: viAuth,
+    dashboard: viDashboard,
+    errors: viErrors,
+    templates: viTemplates,
+    assets: viAssets,
+  },
 };
 
 voidCall(i18n
@@ -43,6 +67,7 @@ voidCall(i18n
   .init({
     resources,
     fallbackLng: 'zh',
+    supportedLngs: SUPPORTED_LANGUAGES as unknown as string[],
     debug: false,
     interpolation: {
       escapeValue: false,
