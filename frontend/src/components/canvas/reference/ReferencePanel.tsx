@@ -17,10 +17,9 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Plus, X, ZoomIn } from "lucide-react";
-import { assetColor } from "./asset-colors";
+import { Plus } from "lucide-react";
 import { MentionPicker, type MentionCandidate } from "./MentionPicker";
-import { ImageLightbox } from "@/components/ui/ImageLightbox";
+import { RefChip } from "./RefChip";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { SHEET_FIELD, type AssetKind, type ReferenceResource } from "@/types/reference-video";
@@ -32,7 +31,11 @@ const refId = (r: ReferenceResource): string => `${r.type}:${r.name}`;
 const refNameFromId = (id: string): string => id.slice(id.indexOf(":") + 1);
 
 type BucketEntry = Partial<Record<"character_sheet" | "scene_sheet" | "prop_sheet", string>>;
-const sheetOf = (bucket: Record<string, unknown> | undefined, kind: AssetKind, name: string): string | null =>
+const sheetOf = (
+  bucket: Record<string, unknown> | undefined,
+  kind: AssetKind,
+  name: string,
+): string | null =>
   (bucket?.[name] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
 
 export interface ReferencePanelProps {
@@ -44,86 +47,36 @@ export interface ReferencePanelProps {
   onAdd: (ref: ReferenceResource) => void;
 }
 
-interface PillProps {
+interface SortableChipProps {
   refItem: ReferenceResource;
-  projectName: string;
-  imagePath: string | null;
-  thumbFingerprint: number | null;
+  index: number;
+  imageUrl: string | null;
   onRemove: (ref: ReferenceResource) => void;
-  onOpenLightbox: (url: string, name: string) => void;
 }
 
-const Pill = memo(function Pill({
+const SortableChip = memo(function SortableChip({
   refItem,
-  projectName,
-  imagePath,
-  thumbFingerprint,
+  index,
+  imageUrl,
   onRemove,
-  onOpenLightbox,
-}: PillProps) {
-  const { t } = useTranslation("dashboard");
+}: SortableChipProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: refId(refItem),
   });
-  const palette = assetColor(refItem.type);
-  const thumbUrl = imagePath ? API.getFileUrl(projectName, imagePath, thumbFingerprint) : null;
-
-  // Vertical card：thumbnail 上 + name 下。去掉 [图N] 索引（顺序即 [图N]，冗余文本没收益），
-  // 名称去掉 @（数据就是名，@ 仅用于 prompt 里的引用语法）。拖拽握把 + 删除按钮在 hover 时浮现，
-  // 静息态干净。
   return (
-    <div
+    <RefChip
       ref={setNodeRef}
+      kind={refItem.type}
+      name={refItem.name}
+      imageUrl={imageUrl}
+      index={index}
+      removable
+      onRemove={() => onRemove(refItem)}
+      dragAttributes={attributes as unknown as Record<string, unknown>}
+      dragListeners={listeners as unknown as Record<string, unknown>}
+      isDragging={isDragging}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`group/pill relative flex w-[88px] flex-col items-center gap-1.5 rounded-md border p-2 ${palette.bgClass} ${palette.borderClass} ${isDragging ? "opacity-60" : ""}`}
-    >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label={t("reference_panel_drag_aria", { name: refItem.name })}
-        className="absolute left-1 top-1 z-10 cursor-grab rounded bg-black/40 p-0.5 text-gray-200 opacity-0 transition group-hover/pill:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-ring"
-      >
-        <GripVertical className="h-3 w-3" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => onRemove(refItem)}
-        aria-label={t("reference_panel_remove_aria", { name: refItem.name })}
-        className="absolute right-1 top-1 z-10 rounded-full bg-black/50 p-0.5 text-gray-200 opacity-0 transition hover:text-red-400 group-hover/pill:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-ring"
-      >
-        <X className="h-3 w-3" aria-hidden="true" />
-      </button>
-      {thumbUrl ? (
-        <button
-          type="button"
-          onClick={() => onOpenLightbox(thumbUrl, refItem.name)}
-          aria-label={t("reference_panel_zoom_aria", { name: refItem.name })}
-          className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded bg-gray-900 ring-1 ring-gray-800 transition hover:ring-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
-        >
-          <img src={thumbUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover/pill:opacity-100"
-          >
-            <ZoomIn className="h-4 w-4 text-white" />
-          </span>
-        </button>
-      ) : (
-        <div
-          aria-hidden="true"
-          className={`flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded bg-gray-900 text-[11px] ${palette.textClass} ring-1 ring-gray-800`}
-        >
-          {refItem.name.slice(0, 1)}
-        </div>
-      )}
-      <span
-        className={`w-full truncate text-center text-[11px] ${palette.textClass}`}
-        title={refItem.name}
-      >
-        {refItem.name}
-      </span>
-    </div>
+    />
   );
 });
 
@@ -136,18 +89,13 @@ export function ReferencePanel({
 }: ReferencePanelProps) {
   const { t } = useTranslation("dashboard");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
-  // addButton 作为 floating-ui 的 reference 元素参与定位；用 state（而非 ref）
-  // 是因为挂载后必须触发 re-render，以便 MentionPicker 的 setReference effect
-  // 能感知元素变更。同一元素也作为 outside-pointerdown 的例外目标（anchorElement）。
+  // addButton 作为 floating-ui 的 reference 元素参与定位；用 state（而非 ref）是
+  // 因为挂载后必须触发 re-render，以便 MentionPicker 的 setReference effect 能
+  // 感知元素变更。同一元素也作为 outside-pointerdown 的例外目标（anchorElement）。
   const [addButtonEl, setAddButtonEl] = useState<HTMLButtonElement | null>(null);
-  // Fine-grained subscriptions: depend on the specific slices we actually read,
-  // so unrelated changes to currentProjectData don't force candidates to rebuild.
   const characters = useProjectsStore((s) => s.currentProjectData?.characters);
   const scenes = useProjectsStore((s) => s.currentProjectData?.scenes);
   const props = useProjectsStore((s) => s.currentProjectData?.props);
-  // 直接订阅整个 fingerprints map —— store 的 getAssetFingerprint 是 stable 闭包，
-  // 放进 useMemo deps 无法驱动缩略图 cache-bust（regenerate 角色图后 pillData 不会重算）。
   const assetFingerprints = useProjectsStore((s) => s.assetFingerprints);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -171,8 +119,8 @@ export function ReferencePanel({
     return out;
   }, [existingKeys, characters, scenes, props]);
 
-  // 一次性派生每个 pill 的 imagePath + fingerprint，避免 Pill 订阅 store。
-  const pillData = useMemo(() => {
+  // 一次性派生每个 chip 的 imageUrl，避免每个 chip 订阅 store。
+  const chipData = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
       character: characters,
       scene: scenes,
@@ -180,13 +128,11 @@ export function ReferencePanel({
     };
     return references.map((r) => {
       const imagePath = sheetOf(buckets[r.type], r.type, r.name);
-      return {
-        ref: r,
-        imagePath,
-        fingerprint: imagePath ? (assetFingerprints[imagePath] ?? null) : null,
-      };
+      const fingerprint = imagePath ? (assetFingerprints[imagePath] ?? null) : null;
+      const imageUrl = imagePath ? API.getFileUrl(projectName, imagePath, fingerprint) : null;
+      return { ref: r, imageUrl };
     });
-  }, [references, characters, scenes, props, assetFingerprints]);
+  }, [references, characters, scenes, props, assetFingerprints, projectName]);
 
   const handleAddClick = () => setPickerOpen((v) => !v);
 
@@ -201,8 +147,7 @@ export function ReferencePanel({
     onReorder(arrayMove(references, fromIndex, toIndex));
   };
 
-  // Keyboard drag announcements for screen readers. dnd-kit fires these on
-  // Space pickup / arrow-key move / Space drop / Esc cancel.
+  // Keyboard drag announcements for screen readers.
   const announcements = useMemo<Announcements>(() => {
     const locate = (id: string) => ({
       name: refNameFromId(id),
@@ -230,30 +175,22 @@ export function ReferencePanel({
     [t],
   );
 
-  const openLightbox = (url: string, name: string) => setLightbox({ url, name });
-
   return (
-    <div className="relative border-b border-gray-800 bg-gray-950/40 p-2">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wide text-gray-500">
-          {t("reference_panel_title")}
+    <div className="relative flex-shrink-0 border-b border-[var(--color-hairline-soft)] bg-[oklch(0.20_0.011_265_/_0.35)] px-3 py-2.5">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-gray-500">
+          {t("reference_strip_label")}
         </span>
-        <button
-          ref={setAddButtonEl}
-          type="button"
-          onClick={handleAddClick}
-          aria-label={t("reference_panel_add")}
-          aria-expanded={pickerOpen}
-          aria-controls={PICKER_ID}
-          className="inline-flex items-center gap-1 rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] text-gray-300 hover:border-indigo-500 hover:text-indigo-300"
-        >
-          <Plus className="h-3 w-3" />
-          {t("reference_panel_add")}
-        </button>
+        <span className="font-mono text-[10px] tabular-nums text-gray-500">
+          {references.length}
+        </span>
+        <span className="flex-1" />
+        <span className="text-[10px] text-gray-500">{t("reference_strip_order_hint")}</span>
       </div>
-      {references.length === 0 ? (
-        <p className="text-xs text-gray-500">{t("reference_panel_empty")}</p>
-      ) : (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {references.length === 0 && (
+          <span className="text-xs italic text-gray-500">{t("reference_strip_empty")}</span>
+        )}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -261,22 +198,30 @@ export function ReferencePanel({
           accessibility={{ announcements, screenReaderInstructions }}
         >
           <SortableContext items={references.map(refId)} strategy={horizontalListSortingStrategy}>
-            <div className="flex flex-wrap gap-2">
-              {pillData.map((d) => (
-                <Pill
-                  key={refId(d.ref)}
-                  refItem={d.ref}
-                  projectName={projectName}
-                  imagePath={d.imagePath}
-                  thumbFingerprint={d.fingerprint}
-                  onRemove={onRemove}
-                  onOpenLightbox={openLightbox}
-                />
-              ))}
-            </div>
+            {chipData.map((d, i) => (
+              <SortableChip
+                key={refId(d.ref)}
+                refItem={d.ref}
+                index={i}
+                imageUrl={d.imageUrl}
+                onRemove={onRemove}
+              />
+            ))}
           </SortableContext>
         </DndContext>
-      )}
+        <button
+          ref={setAddButtonEl}
+          type="button"
+          onClick={handleAddClick}
+          aria-label={t("reference_strip_add")}
+          aria-expanded={pickerOpen}
+          aria-controls={PICKER_ID}
+          className="focus-ring inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-hairline-strong)] bg-[oklch(0.22_0.011_265_/_0.55)] px-2.5 py-1 text-xs text-gray-300 transition-colors hover:border-[var(--color-accent-soft)] hover:text-gray-100"
+        >
+          <Plus className="h-3 w-3" aria-hidden="true" />
+          <span>{t("reference_strip_add")}</span>
+        </button>
+      </div>
       {pickerOpen && (
         <MentionPicker
           open
@@ -291,9 +236,6 @@ export function ReferencePanel({
           }}
           onClose={() => setPickerOpen(false)}
         />
-      )}
-      {lightbox && (
-        <ImageLightbox src={lightbox.url} alt={lightbox.name} onClose={() => setLightbox(null)} />
       )}
     </div>
   );
