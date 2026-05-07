@@ -141,6 +141,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               type="button"
               onClick={() => setLocation(item.path)}
               title={collapsed ? item.label : ""}
+              aria-label={collapsed ? item.label : undefined}
               className="relative mb-px flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors focus-ring hover:bg-[oklch(0.26_0.012_265/0.5)]"
               style={{
                 background: active
