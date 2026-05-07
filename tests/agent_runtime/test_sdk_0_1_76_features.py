@@ -61,3 +61,64 @@ class TestApiErrorStatusInStatusPayload:
             result_message=result_message,
         )
         assert "api_error_status" not in payload
+
+
+class TestResultErrorLogging:
+    """result 消息错误路径写结构化 logger.warning，含 api_error_status。"""
+
+    @pytest.mark.asyncio
+    async def test_logger_warning_emitted_on_error_with_api_status(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path,
+    ):
+        from unittest.mock import MagicMock
+
+        service = AssistantService(project_root=tmp_path)
+        projector = MagicMock()
+        projector.apply_message.return_value = {}  # 无 patch/delta/question
+
+        result_message: dict[str, Any] = {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "api_error_status": 429,
+            "stop_reason": "api_error",
+        }
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.service"):
+            events, terminal = await service._dispatch_live_message(
+                message=result_message,
+                projector=projector,
+                session_id="sess-err",
+            )
+        assert terminal is True
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(getattr(r, "api_error_status", None) == 429 for r in warnings), (
+            f"expected a warning with api_error_status=429, got {[r.__dict__ for r in warnings]}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_warning_on_completed_result(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path,
+    ):
+        from unittest.mock import MagicMock
+
+        service = AssistantService(project_root=tmp_path)
+        projector = MagicMock()
+        projector.apply_message.return_value = {}
+
+        result_message: dict[str, Any] = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+        }
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.service"):
+            await service._dispatch_live_message(
+                message=result_message,
+                projector=projector,
+                session_id="sess-ok",
+            )
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert not warnings, f"unexpected warnings on completed result: {warnings}"

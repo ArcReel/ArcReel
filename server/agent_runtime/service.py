@@ -538,11 +538,23 @@ class AssistantService:
                 return events, True
 
         if msg_type == "result":
+            status = self._resolve_result_status(message)
+            if status == "error":
+                logger.warning(
+                    "assistant session result error",
+                    extra={
+                        "session_id": session_id,
+                        "subtype": message.get("subtype"),
+                        "is_error": message.get("is_error"),
+                        "api_error_status": message.get("api_error_status"),  # SDK 0.1.76+
+                        "stop_reason": message.get("stop_reason"),
+                    },
+                )
             events.append(
                 self._sse_event(
                     "status",
                     self._build_status_event_payload(
-                        status=self._resolve_result_status(message),
+                        status=status,
                         session_id=session_id,
                         result_message=message,
                     ),
