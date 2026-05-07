@@ -294,14 +294,21 @@ function ChannelSection({
 
       timersRef.current.set(task.task_id, fadeTimer);
     }
+  }, [tasks, fadingIds, hiddenIds]);
 
+  // Cleanup-on-unmount only: 不要把这段并到上面的调度 effect 里——
+  // 上面 deps 含 tasks/fadingIds/hiddenIds，每次 tasks 变更都会清掉所有
+  // 在飞的 fade/hide timer，但 timersRef 的 key 仍存在，下一次调度会被
+  // 跳过，导致已成功任务永远不 fade。
+  useEffect(() => {
     const timers = timersRef.current;
     return () => {
       for (const timer of timers.values()) {
         clearTimeout(timer);
       }
+      timers.clear();
     };
-  }, [tasks, fadingIds, hiddenIds]);
+  }, []);
 
   const running = tasks.filter((task) => task.status === "running");
   const queued = tasks.filter((task) => task.status === "queued");

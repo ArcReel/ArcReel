@@ -220,12 +220,14 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             <span className="flex-1" />
             <button
               type="button"
-              className="grid h-5 w-5 place-items-center rounded focus-ring"
+              disabled
+              aria-disabled="true"
+              className="grid h-5 w-5 place-items-center rounded focus-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background: "oklch(0.28 0.012 250 / 0.6)",
                 color: "var(--color-text-3)",
               }}
-              title={t("dashboard:add_episode")}
+              title={t("dashboard:add_episode_unavailable")}
               aria-label={t("dashboard:add_episode")}
             >
               <Plus className="h-3 w-3" />
@@ -276,7 +278,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         </>
       ) : (
         <div className="flex-1 overflow-y-auto px-2.5 py-1.5">
-          {episodes.map((ep) => (
+          {filteredEps.map((ep) => (
             <button
               key={ep.episode}
               type="button"

@@ -10,7 +10,7 @@ export function ContextBanner() {
 
   const icons = { character: User, scene: MapPin, prop: Puzzle, segment: Film };
   const Icon = icons[focusedContext.type];
-  const labels: Record<string, string> = { character: "角色", scene: "场景", prop: "道具", segment: "片段" };
+  const labelKey = `context_label_${focusedContext.type}` as const;
 
   return (
     <div
@@ -24,7 +24,7 @@ export function ContextBanner() {
         className="h-3.5 w-3.5"
         style={{ color: "var(--color-accent)" }}
       />
-      <span style={{ color: "var(--color-text-3)" }}>{labels[focusedContext.type]}:</span>
+      <span style={{ color: "var(--color-text-3)" }}>{t(labelKey)}:</span>
       <span
         className="font-medium"
         style={{ color: "var(--color-accent-2)" }}

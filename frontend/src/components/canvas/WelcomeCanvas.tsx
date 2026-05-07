@@ -464,6 +464,8 @@ export function WelcomeCanvas({
       {/* UPLOADING */}
       {phase === "uploading" && (
         <div
+          role="status"
+          aria-live="polite"
           className="rounded-2xl p-12 text-center"
           style={{
             border: "1px solid var(--color-hairline-soft)",
@@ -493,6 +495,8 @@ export function WelcomeCanvas({
       {/* ANALYZING */}
       {phase === "analyzing" && (
         <div
+          role="status"
+          aria-live="polite"
           className="relative overflow-hidden rounded-2xl p-12 text-center"
           style={{
             border: "1px solid var(--color-accent-soft)",
@@ -546,6 +550,8 @@ export function WelcomeCanvas({
       {/* DONE */}
       {phase === "done" && (
         <div
+          role="status"
+          aria-live="polite"
           className="rounded-2xl p-12 text-center"
           style={{
             border: "1px solid oklch(0.78 0.10 155 / 0.35)",

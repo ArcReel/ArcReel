@@ -312,7 +312,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                   className="num text-[10.5px] uppercase tracking-[0.18em]"
                   style={{ color: "var(--color-text-4)" }}
                 >
-                  TXT · MD · DOCX · EPUB · PDF
+                  {ALLOWED_EXTENSIONS.map((e) => e.replace(/^\./, "").toUpperCase()).join(" · ")}
                 </p>
               </div>
               <span

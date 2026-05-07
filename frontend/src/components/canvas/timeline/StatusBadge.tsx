@@ -7,17 +7,17 @@ const CONFIG: Record<ShotStatus, { color: string; bg: string; labelKey: string }
   ready: {
     color: "var(--color-good)",
     bg: "oklch(0.74 0.08 155 / 0.12)",
-    labelKey: "dashboard:shot_status_ready",
+    labelKey: "shot_status_ready",
   },
   storyboard: {
     color: "var(--color-accent-2)",
     bg: "var(--color-accent-dim)",
-    labelKey: "dashboard:shot_status_storyboard",
+    labelKey: "shot_status_storyboard",
   },
   pending: {
     color: "var(--color-text-4)",
     bg: "oklch(0.30 0.01 250 / 0.4)",
-    labelKey: "dashboard:shot_status_pending",
+    labelKey: "shot_status_pending",
   },
 };
 
@@ -28,7 +28,7 @@ export function statusFromAssets(assetStatus: AssetStatus | undefined | null): S
 }
 
 export function StatusBadge({ status }: { status: ShotStatus }) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("dashboard");
   const cfg = CONFIG[status];
   return (
     <span

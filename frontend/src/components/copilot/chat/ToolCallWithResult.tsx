@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { StreamMarkdown } from "../StreamMarkdown";
 import type { ContentBlock, TodoItem } from "@/types";
 
@@ -69,6 +70,7 @@ interface ToolCallWithResultProps {
  *                 content rendered as markdown.
  */
 export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
+  const { t } = useTranslation("dashboard");
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
 
@@ -184,7 +186,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
               className="mb-1 text-[10px] uppercase tracking-wide"
               style={{ color: "var(--color-text-4)" }}
             >
-              输入参数
+              {t("tool_call_input_label")}
             </div>
             <pre
               className="num max-h-32 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
@@ -207,7 +209,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
                 className="mb-1 text-[10px] uppercase tracking-wide"
                 style={{ color: "var(--color-accent-2)" }}
               >
-                Skill 内容
+                {t("tool_call_skill_content_label")}
               </div>
               <div className="max-h-48 overflow-hidden overflow-y-auto text-xs">
                 <StreamMarkdown content={block.skill_content!} />
@@ -234,7 +236,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
                   color: isError ? "var(--color-danger)" : "var(--color-text-4)",
                 }}
               >
-                {isError ? "执行失败" : "执行结果"}
+                {isError ? t("tool_call_error_label") : t("tool_call_result_label")}
               </div>
               <pre
                 className="num max-h-48 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
@@ -257,10 +259,11 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
 // ---------------------------------------------------------------------------
 
 function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
+  const { t } = useTranslation("dashboard");
   const input = block.input;
   const todos: TodoItem[] = Array.isArray(input?.todos) ? (input.todos as TodoItem[]) : [];
   const total = todos.length;
-  const completed = todos.filter((t) => t.status === "completed").length;
+  const completed = todos.filter((td) => td.status === "completed").length;
   const hasResult = block.result !== undefined;
   const statusIcon = hasResult ? "\u2713" : "\u2026";
   const statusColor = hasResult ? "var(--color-good)" : "var(--color-text-4)";
@@ -285,7 +288,9 @@ function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
             className="truncate text-[11px]"
             style={{ color: "var(--color-text-2)" }}
           >
-            {total > 0 ? `任务清单 ${completed}/${total} 完成` : "任务清单已更新"}
+            {total > 0
+              ? t("tool_call_todo_summary", { completed, total })
+              : t("tool_call_todo_updated")}
           </span>
         </div>
         <span

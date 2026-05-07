@@ -503,6 +503,8 @@ export function AgentCopilot() {
 
       {!pendingQuestion && (error || attachError) && (
         <div
+          role="alert"
+          aria-live="assertive"
           className="px-3 py-2 text-[11.5px]"
           style={{
             borderTop: "1px solid oklch(0.70 0.18 25 / 0.3)",

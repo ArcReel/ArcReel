@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Check, Circle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -52,6 +52,7 @@ interface TodoListPanelProps {
 export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
   const { t } = useTranslation("dashboard");
   const [collapsed, setCollapsed] = useState(false);
+  const listId = useId();
 
   const todos = useMemo(
     () => extractLatestTodos(turns, draftTurn),
@@ -83,6 +84,8 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
       <button
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
+        aria-expanded={!collapsed}
+        aria-controls={listId}
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors"
         style={{ color: "var(--color-text-2)" }}
         onMouseEnter={(e) => {
@@ -146,6 +149,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
       {/* Expanded task list */}
       {!collapsed && (
         <div
+          id={listId}
           className="space-y-0.5 px-3 py-1.5"
           style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
         >

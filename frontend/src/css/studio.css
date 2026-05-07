@@ -312,7 +312,10 @@
   .agent-handoff-arc,
   .agent-handoff-orb,
   .agent-handoff-tail-line,
-  .agent-handoff-tail-arrow {
+  .agent-handoff-tail-arrow,
+  .animate-shot-pulse,
+  .animate-shimmer,
+  .workspace-focus-flash {
     animation: none !important;
   }
   .agent-handoff-card { opacity: 1; }

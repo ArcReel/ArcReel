@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Sparkles } from "lucide-react";
 
 const OTHER_TEXTAREA_MAX_PX = 160;
@@ -25,6 +26,7 @@ export function PendingQuestionWizard({
   error,
   onSubmitAnswers,
 }: PendingQuestionWizardProps) {
+  const { t } = useTranslation("dashboard");
   const pendingQuestions = pendingQuestion.questions;
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string | string[]>>({});
   const [questionCustomAnswers, setQuestionCustomAnswers] = useState<Record<string, string>>({});
@@ -201,7 +203,7 @@ export function PendingQuestionWizard({
                 letterSpacing: "0.18em",
               }}
             >
-              需要你的选择
+              {t("pending_question_wizard_label")}
             </span>
           </div>
           <span
@@ -224,8 +226,8 @@ export function PendingQuestionWizard({
                   type="button"
                   onClick={() => handleSelectQuestionStep(questionIndex)}
                   disabled={answeringQuestion || !isVisitedStep}
-                  title={`${questionIndex + 1}. ${question.header || `问题 ${questionIndex + 1}`}`}
-                  aria-label={`${questionIndex + 1}. ${question.header || `问题 ${questionIndex + 1}`}`}
+                  title={`${questionIndex + 1}. ${question.header || t("pending_question_wizard_step_question", { number: questionIndex + 1 })}`}
+                  aria-label={`${questionIndex + 1}. ${question.header || t("pending_question_wizard_step_question", { number: questionIndex + 1 })}`}
                   className="h-[3px] flex-1 rounded-full transition-all disabled:cursor-not-allowed"
                   style={{
                     background: isActiveStep
@@ -275,14 +277,16 @@ export function PendingQuestionWizard({
                   }}
                 >
                   {currentQuestion.header ? "· " : ""}
-                  {currentQuestion.multiSelect ? "可多选" : "单选"}
+                  {currentQuestion.multiSelect
+                    ? t("pending_question_wizard_multi_select")
+                    : t("pending_question_wizard_single_select")}
                 </span>
               </div>
               <p
                 className="display-serif text-[14px] font-semibold leading-[1.45]"
                 style={{ color: "var(--color-text)" }}
               >
-                {currentQuestion.question || "请选择一个选项"}
+                {currentQuestion.question || t("pending_question_wizard_select_option")}
               </p>
             </div>
 
@@ -413,7 +417,7 @@ export function PendingQuestionWizard({
                 className="inline-block h-[2px] w-3 rounded-full"
                 style={{ background: "var(--color-accent)" }}
               />
-              自行输入
+              {t("pending_question_wizard_other_label")}
             </div>
             <textarea
               ref={otherTextareaRef}
@@ -427,7 +431,7 @@ export function PendingQuestionWizard({
                 el.style.overflowY =
                   el.scrollHeight > OTHER_TEXTAREA_MAX_PX ? "auto" : "hidden";
               }}
-              placeholder="请输入其他内容"
+              placeholder={t("pending_question_wizard_other_placeholder")}
               disabled={answeringQuestion}
               rows={2}
               className="w-full resize-none rounded-md px-3 py-2 text-[12.5px] leading-[1.55] outline-none transition-colors focus-ring"
@@ -474,7 +478,7 @@ export function PendingQuestionWizard({
                 e.currentTarget.style.color = "var(--color-text-3)";
               }}
             >
-              ← 上一步
+              {t("pending_question_wizard_prev")}
             </button>
 
             {isLastQuestion ? (
@@ -491,7 +495,9 @@ export function PendingQuestionWizard({
                   letterSpacing: "0.04em",
                 }}
               >
-                {answeringQuestion ? "提交中…" : "完成并提交 →"}
+                {answeringQuestion
+                  ? t("pending_question_wizard_submitting")
+                  : t("pending_question_wizard_submit")}
               </button>
             ) : (
               <button
@@ -508,7 +514,7 @@ export function PendingQuestionWizard({
                   letterSpacing: "0.04em",
                 }}
               >
-                下一题 →
+                {t("pending_question_wizard_next")}
               </button>
             )}
           </div>

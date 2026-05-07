@@ -67,6 +67,7 @@ export function CharacterCard({
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const descId = useId();
+  const voiceId = useId();
 
   const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -392,8 +393,9 @@ export function CharacterCard({
       />
 
       <div className="mt-3">
-        <CapsLabel>{t("voice_style")}</CapsLabel>
+        <CapsLabel htmlFor={voiceId}>{t("voice_style")}</CapsLabel>
         <input
+          id={voiceId}
           type="text"
           value={voiceStyle}
           onChange={(e) => setVoiceStyle(e.target.value)}
