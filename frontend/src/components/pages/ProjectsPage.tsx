@@ -408,9 +408,9 @@ export function ProjectsPage() {
           title={t("dashboard:export_diagnostics")}
           description={t("dashboard:import_success_with_diagnostics")}
           sections={[
-            { key: "blocking", title: t("dashboard:blocking_issues"), tone: "border-red-400/25 bg-red-500/10 text-red-100", items: importDiagnostics.blocking },
-            { key: "auto_fixed", title: t("dashboard:auto_fixed_issues"), tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: importDiagnostics.auto_fixable },
-            { key: "warnings", title: t("common:error"), tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: importDiagnostics.warnings },
+            { key: "blocking", title: t("dashboard:blocking_issues"), severity: "blocking", items: importDiagnostics.blocking },
+            { key: "auto_fixed", title: t("dashboard:auto_fixed_issues"), severity: "auto_fixed", items: importDiagnostics.auto_fixable },
+            { key: "warnings", title: t("dashboard:diagnostics_warnings"), severity: "warnings", items: importDiagnostics.warnings },
           ]}
           onClose={() => setImportDiagnostics(null)}
         />

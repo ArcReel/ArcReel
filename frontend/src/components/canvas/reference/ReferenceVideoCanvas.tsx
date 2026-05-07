@@ -1,20 +1,38 @@
-// frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, ChevronRight, Edit3, Loader2, Save, Sparkles, X as XIcon } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Loader2,
+  Save,
+  Scissors,
+  Sparkles,
+} from "lucide-react";
 import { UnitList } from "./UnitList";
+import { UnitRail } from "./UnitRail";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { ReferencePanel } from "./ReferencePanel";
+import { EpisodeHeader } from "./EpisodeHeader";
 import { PreprocessingView } from "@/components/canvas/timeline/PreprocessingView";
-import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
+import {
+  useReferenceVideoStore,
+  referenceVideoCacheKey,
+} from "@/stores/reference-video-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
 import { mergeReferences } from "@/utils/reference-mentions";
-import type { ReferenceResource, ReferenceVideoUnit, TaskStatus, UnitStatus } from "@/types";
+import type {
+  ReferenceResource,
+  ReferenceVideoUnit,
+  TaskStatus,
+  UnitStatus,
+} from "@/types";
 
 export interface ReferenceVideoCanvasProps {
   projectName: string;
@@ -24,39 +42,31 @@ export interface ReferenceVideoCanvasProps {
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
 
-// 预处理状态小圆点颜色。纯静态映射提到模块顶层，避免每次 render 重建对象。
-type PreprocStatus = "loading" | "error" | "empty" | "ready";
-const PREPROC_DOT_CLASS: Record<PreprocStatus, string> = {
-  loading: "bg-gray-500",
-  error: "bg-red-500",
-  empty: "bg-gray-500",
-  ready: "bg-emerald-500",
-};
+// 容器宽度断点（px，对应设计稿的响应式行为）。
+//   < LIST_RAIL_BREAKPOINT — 左侧 UnitList 收成 56px rail（带 flyout 触发）
+//   < STACK_PREVIEW_BREAKPOINT — 中右合栏，预览叠成 sub-tab
+const LIST_RAIL_BREAKPOINT = 1100;
+const STACK_PREVIEW_BREAKPOINT = 880;
+// 三栏布局下右栏宽度——主区更宽时给预览更大的呼吸空间。
+const PREVIEW_COL_NARROW = 320;
+const PREVIEW_COL_WIDE = 360;
+const WIDE_BREAKPOINT = 1280;
 
-// 视频 Tab 标签旁的状态小圆点配色——和 UnitList 的 STATUS_DOT 约定一致：
-// 运行中的任务给一个显眼的暖色，完成为 emerald，失败红，未生成灰（等同 pending）。
-const VIDEO_DOT_CLASS: Record<UnitStatus, string> = {
-  pending: "bg-gray-500",
-  running: "bg-amber-400 animate-pulse",
-  ready: "bg-emerald-500",
-  failed: "bg-red-500",
-};
-
-/** 草稿 map 的复合键：`unit_id` 格式 `E{episode}U{n}` 在不同项目下会重复，所以必须
- *  把 project+episode 一同编入 key，否则切换项目会误把旧项目的未保存草稿应用到新项目
- *  同名 unit 上，造成跨项目数据污染。与 store 侧的 `_debounceKey` 约定一致。 */
+// Compound key avoids cross-project draft bleed: E{ep}U{n} repeats across projects.
 function draftKey(projectName: string, episode: number, unitId: string): string {
   return `${projectName}::${episode}::${unitId}`;
 }
 
-/** Toast an error with tone="error". Optional `format` wraps the normalized
- *  message (e.g. an i18n template); without it the raw message is shown. */
 function toastError(e: unknown, format?: (msg: string) => string): void {
   const msg = errMsg(e);
   useAppStore.getState().pushToast(format ? format(msg) : msg, "error");
 }
 
-export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: ReferenceVideoCanvasProps) {
+export function ReferenceVideoCanvas({
+  projectName,
+  episode,
+  episodeTitle,
+}: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
   const loadUnits = useReferenceVideoStore((s) => s.loadUnits);
@@ -73,8 +83,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
 
-  // Draft prompts keyed by unit_id — 只在 textarea 内容偏离服务端值时保留一条 entry。
-  // 切换 unit 不清空，便于用户在多个 unit 间来回编辑而不丢失输入。
+  // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
@@ -95,35 +104,17 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     [units, selectedUnitId],
   );
 
-  // 默认选中第一个 unit；selectedUnitId 是全局单例（非 per-episode），
-  // 切换 episode 后可能残留上一集的 unit_id，这里统一用 "是否在当前 units 里" 做合法性校验。
+  // selectedUnitId is a global singleton; validate against current episode's units.
   useEffect(() => {
     if (units.length > 0 && !selected) {
       select(units[0].unit_id);
     }
   }, [units, selected, select]);
 
-  // #370 optimistic UI：任务队列走 3s 轮询（useTasksSSE.POLL_INTERVAL_MS=3000），
-  // 点击按钮到 `relevantTasks` 刷出队列记录之间存在最长 3 秒空窗期。POST 前把
-  // unit_id 登记到本地 set，按钮立即显示 busy；`generating` 派生把"optimistic 置位
-  // 且队列无对应行"视为真值——happy path 下终态任务在 pageSize 200 窗口里按
-  // updated_at DESC 保留，hasQueueRow 持续为 true，set 遗留项永远不再激活。
-  // 边界：若任务量或其他类型 churn 把该行挤出 200 条窗口，hasQueueRow 回落到
-  // false，遗留项会重新激活，按钮卡在 busy 直到切换 unit 或刷新。对单会话
-  // 典型规模（十到数百 unit）可接受；相比显式 pruning，派生逻辑更简单。
+  // Optimistic UI: POST 前置位 → 队列接力 → 队列窗口换出后失效。
   const [optimisticUnitIds, setOptimisticUnitIds] = useState<Set<string>>(() => new Set());
 
-  // #370 任务失败 toast：转变驱动（transition detection），不是状态驱动。
-  //
-  // 每轮 poll 记下每个 task_id 的上一次 status；只有当**上一轮不是 failed、这一轮
-  // 是 failed** 时才算"刚刚发生失败"，冒泡一次 toast。首次看到一个 task 就已经是
-  // failed 的（例如进页面时队列里的历史失败记录），prev 为 undefined——被视为我们
-  // 没有观测到转变，保持沉默。任务后续轮询里一直是 failed，prev==="failed" 也不再
-  // 触发（天然去重，不需要额外 toastedIds set）。
-  //
-  // 设计抉择：故意不为"3 秒轮询间隔内快速失败"的任务补齐——那种场景 POST 的 info
-  // toast（"已加入生成队列"）已经告诉了用户，任务队列 HUD 也会显示状态；拿不到
-  // transition 就不 toast，换来"历史失败静默"的正确语义。
+  // Toast on transition into failed (prev !== failed && next === failed).
   const prevTaskStatusRef = useRef<Map<string, TaskStatus>>(new Map());
   useEffect(() => {
     const prev = prevTaskStatusRef.current;
@@ -144,19 +135,41 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     prevTaskStatusRef.current = next;
   }, [relevantTasks, t]);
 
-  // "optimistic 置位 且 队列尚无对应行" OR "队列里就在 queued/running"——
-  // 前者覆盖 POST→首次 poll 的 3s 空窗，后者覆盖正常运行期。队列接力后
-  // 前半项天然失效，无需显式 pruning。
-  const generating = useMemo(() => {
-    if (!selected) return false;
-    const hasQueueRow = relevantTasks.some((tk) => tk.resource_id === selected.unit_id);
-    if (optimisticUnitIds.has(selected.unit_id) && !hasQueueRow) return true;
-    return relevantTasks.some(
-      (tk) =>
-        tk.resource_id === selected.unit_id &&
-        (tk.status === "queued" || tk.status === "running"),
-    );
-  }, [relevantTasks, selected, optimisticUnitIds]);
+  const tasksByUnit = useMemo(() => {
+    const map = new Map<string, (typeof relevantTasks)[number]>();
+    for (const tk of relevantTasks) map.set(tk.resource_id, tk);
+    return map;
+  }, [relevantTasks]);
+
+  const statusMap = useMemo<Record<string, UnitStatus>>(() => {
+    const map: Record<string, UnitStatus> = {};
+    for (const u of units) {
+      let st: UnitStatus = u.generated_assets.video_clip ? "ready" : "pending";
+      const queueRow = tasksByUnit.get(u.unit_id);
+      if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
+      else if (queueRow?.status === "failed") st = "failed";
+      else if (optimisticUnitIds.has(u.unit_id) && !queueRow) st = "running";
+      map[u.unit_id] = st;
+    }
+    return map;
+  }, [units, tasksByUnit, optimisticUnitIds]);
+
+  const generating = !!(selected && statusMap[selected.unit_id] === "running");
+
+  const failureMessage = useMemo(() => {
+    if (!selected) return null;
+    if (statusMap[selected.unit_id] !== "failed") return null;
+    return tasksByUnit.get(selected.unit_id)?.error_message ?? null;
+  }, [selected, statusMap, tasksByUnit]);
+
+  const dirtyMap = useMemo<Record<string, boolean>>(() => {
+    const map: Record<string, boolean> = {};
+    for (const u of units) {
+      const v = drafts[draftKey(projectName, episode, u.unit_id)];
+      if (v !== undefined && v !== unitPromptText(u)) map[u.unit_id] = true;
+    }
+    return map;
+  }, [units, drafts, projectName, episode]);
 
   const handleAdd = useCallback(async () => {
     try {
@@ -166,8 +179,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     }
   }, [addUnit, projectName, episode]);
 
-  // 小屏（<@4xl，容器 <896px）时把 editor / preview 压成 tab。@4xl+ 三栏时此状态被 CSS 忽略。
-  const [smallTab, setSmallTab] = useState<"editor" | "preview">("editor");
+  const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
   const handleGenerate = useCallback(
     async (unitId: string) => {
@@ -177,8 +189,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
         next.add(unitId);
         return next;
       });
-      // 小屏模式下自动切到视频 Tab，让用户看到任务进入排队态；@4xl+ 下此 state 被 CSS 忽略。
-      setSmallTab("preview");
+      setStackTab("preview");
       try {
         const { deduped } = await generate(projectName, episode, unitId);
         useAppStore
@@ -200,11 +211,21 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     [generate, projectName, episode, t],
   );
 
+  const handleBatchGenerate = useCallback(async () => {
+    const targets = units.filter((u) => statusMap[u.unit_id] === "pending");
+    if (targets.length === 0) {
+      useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
+      return;
+    }
+    for (const u of targets) {
+      // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
+      await handleGenerate(u.unit_id);
+    }
+  }, [units, statusMap, handleGenerate, t]);
+
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
-  // Draft 管理：每次输入只更新本地 drafts，不触发网络请求。草稿与服务端值一致时
-  // 自动清除该条目，避免"回退到原值后仍显示未保存"的误判。
   const handlePromptChange = useCallback(
     (next: string) => {
       if (!selected) return;
@@ -229,18 +250,8 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     return drafts[draftKey(projectName, episode, selected.unit_id)] ?? base;
   }, [selected, drafts, projectName, episode]);
 
-  const isDirty = !!(
-    selected &&
-    (() => {
-      const v = drafts[draftKey(projectName, episode, selected.unit_id)];
-      return v !== undefined && v !== unitPromptText(selected);
-    })()
-  );
+  const isDirty = !!(selected && dirtyMap[selected.unit_id]);
 
-  // 全局"是否有任何未保存草稿"——用于 beforeunload 保护。
-  // 复合键下无法再通过 units.find 精确匹配（跨 episode/project 的 entry 对当前 units
-  // 不可见），所以只要 drafts 非空就视作有未保存改动——reasonable upper bound：
-  // handlePromptChange 会在文本回到 baseText 时自动清除 entry，实际残留都是真正 dirty 的。
   const hasAnyDraft = Object.keys(drafts).length > 0;
 
   const handleSave = useCallback(async () => {
@@ -256,7 +267,6 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
         prompt: draftText,
         references: nextRefs,
       });
-      // 仅当草稿未被进一步改动时才清除——否则保存期间继续输入的新文字会被一起丢弃。
       setDrafts((d) => {
         if (d[key] !== draftText) return d;
         const copy = { ...d };
@@ -270,14 +280,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     }
   }, [selected, drafts, project, patchUnit, projectName, episode]);
 
-  // 引用增删/排序保持即时保存；但若当前 unit 有未保存的 prompt 草稿，把它一并带上，
-  // 让"调序顺便 persist 草稿"成为一种自然的存档路径，并避免后端 prompt 滞后于 refs。
-  //
-  // 注：这里刻意不用 mergeReferences(draftText, nextRefs) 去派生 references：
-  //   - 与 main 分支既有契约一致（旧路径也是直发 `{prompt: pendingPrompt, references: nextRefs}`）；
-  //   - 用户在 panel 侧显式移除某个 ref 但 draft 中仍保留同名 @mention 时，merge 会把
-  //     该 ref 重新追加，等同于悄悄抹掉 panel 的移除意图。
-  //   - @mention 与 references 之间的最终一致性由 `handleSave` 负责。
+  // Reference reorder/add/remove flushes immediately, carrying any pending prompt draft.
   const patchReferencesAtomic = useCallback(
     (unitId: string, nextRefs: ReferenceResource[]) => {
       const key = draftKey(projectName, episode, unitId);
@@ -291,8 +294,6 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
       void patchUnit(projectName, episode, unitId, body)
         .then(() => {
           if (!hasDraft) return;
-          // 同 handleSave 的竞态守卫：draftText 是请求启动时的快照；若请求返回前用户继续
-          // 输入，d[key] 已改变，这里就不应清除——否则 textarea 回退到旧服务端值。
           setDrafts((d) => {
             if (d[key] !== draftText) return d;
             const copy = { ...d };
@@ -318,7 +319,9 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const handleRemoveRef = useCallback(
     (ref: ReferenceResource) => {
       if (!selected) return;
-      const next = selected.references.filter((r) => !(r.name === ref.name && r.type === ref.type));
+      const next = selected.references.filter(
+        (r) => !(r.name === ref.name && r.type === ref.type),
+      );
       patchReferencesAtomic(selected.unit_id, next);
     },
     [patchReferencesAtomic, selected],
@@ -334,51 +337,30 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     [patchReferencesAtomic, selected],
   );
 
-  // 预处理二级页面：默认 false（主编辑视图）；true 时整个 Canvas 内容替换为 PreprocessingView。
-  // 切换 episode 或 project 时都自动退回主视图（切项目而 episode 号相同会复用组件实例，
-  // 残留在预处理页会被误解为新项目也在预处理中）——用 render-phase setState 对比而非
-  // useEffect，避免 react-hooks/set-state-in-effect lint 规则阻断。
-  const [showPreproc, setShowPreproc] = useState(false);
+  // Reset tab to units on project/episode change (render-time derived-state pattern).
+  const [tab, setTab] = useState<"units" | "preproc">("units");
   const [lastEpisode, setLastEpisode] = useState(episode);
   const [lastProject, setLastProject] = useState(projectName);
   if (lastEpisode !== episode || lastProject !== projectName) {
     setLastEpisode(episode);
     setLastProject(projectName);
-    setShowPreproc(false);
+    setTab("units");
   }
 
-  // 预处理入口 / 二级页 header 上呈现的状态：loading / error / empty / ready。
-  // 用 store.loading + store.error + units.length 综合推导，集中在一处，入口和 header 共用。
-  const preprocStatus: PreprocStatus = loading
+  const preprocStatus: "loading" | "error" | "empty" | "ready" = loading
     ? "loading"
     : error
       ? "error"
       : units.length === 0
         ? "empty"
         : "ready";
-  const preprocLabel: Record<PreprocStatus, string> = useMemo(
-    () => ({
-      loading: t("reference_preproc_status_loading"),
-      error: t("reference_preproc_status_error"),
-      empty: t("reference_preproc_status_empty"),
-      ready: t("reference_units_split_complete", { count: units.length }),
-    }),
-    [t, units.length],
-  );
+  const preprocDot: Record<typeof preprocStatus, string> = {
+    loading: "bg-gray-500",
+    error: "bg-red-500",
+    empty: "bg-gray-500",
+    ready: "bg-emerald-500",
+  };
 
-  // 视频 Tab 状态圆点：综合 optimistic / 队列 / 视频产物 / 队列失败记录派生。
-  // pending ← 新建未生成；running ← 任意迹象（optimistic or queued/running task）；
-  // ready ← video_clip 已有；failed ← 当前 unit 最近一条任务是 failed。
-  const videoStatus: UnitStatus = useMemo(() => {
-    if (!selected) return "pending";
-    if (generating) return "running";
-    if (selected.generated_assets.video_clip) return "ready";
-    const latestTask = relevantTasks.find((tk) => tk.resource_id === selected.unit_id);
-    if (latestTask?.status === "failed") return "failed";
-    return "pending";
-  }, [selected, generating, relevantTasks]);
-
-  // 任一 unit 有未保存草稿时，离开页面需警告。用 browser 默认弹框（不支持自定义文案）。
   useEffect(() => {
     if (!hasAnyDraft) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -389,265 +371,403 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasAnyDraft]);
 
-  // 二级页 header（独占整个 Canvas）：顶部返回按钮一行 + page title 行（左 title / 右 toolbar）。
-  // edit/save/cancel toolbar 通过 PreprocessingView 的 renderToolbar slot 抬升到 header 右侧。
-  if (showPreproc) {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="border-b border-gray-800 px-4 py-2">
+  const workbenchRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(1200);
+  useLayoutEffect(() => {
+    if (!workbenchRef.current) return;
+    const el = workbenchRef.current;
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const w = e.contentRect.width;
+        // jsdom 下 contentRect.width 恒为 0；同像素值不重复 setState 避免亚像素抖动。
+        if (w > 0) setContainerWidth((prev) => (prev === w ? prev : w));
+      }
+    });
+    ro.observe(el);
+    const initial = el.getBoundingClientRect().width;
+    if (initial > 0) setContainerWidth(initial);
+    return () => ro.disconnect();
+  }, []);
+  const listMode: "rail" | "full" = containerWidth < LIST_RAIL_BREAKPOINT ? "rail" : "full";
+  const stackPreview = containerWidth < STACK_PREVIEW_BREAKPOINT;
+  const listColW = listMode === "rail" ? 56 : 320;
+  const previewColW = containerWidth < WIDE_BREAKPOINT ? PREVIEW_COL_NARROW : PREVIEW_COL_WIDE;
+  const gridCols = stackPreview
+    ? `${listColW}px minmax(0, 1fr)`
+    : `${listColW}px minmax(0, 1fr) ${previewColW}px`;
+  const [listFlyoutOpen, setListFlyoutOpen] = useState(false);
+
+  const segCost = useCostStore((s) =>
+    selected ? s._segmentIndex.get(selected.unit_id) : undefined,
+  );
+  const estimatedCost = segCost?.estimate.video;
+  const actualCost = segCost?.actual.video;
+
+  const selectedIndex = selected ? units.findIndex((u) => u.unit_id === selected.unit_id) : -1;
+  const goPrev = useCallback(() => {
+    if (selectedIndex <= 0) return;
+    select(units[selectedIndex - 1].unit_id);
+  }, [select, units, selectedIndex]);
+  const goNext = useCallback(() => {
+    if (selectedIndex < 0 || selectedIndex >= units.length - 1) return;
+    select(units[selectedIndex + 1].unit_id);
+  }, [select, units, selectedIndex]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <EpisodeHeader episode={episode} title={episodeTitle ?? `E${episode}`} units={units} />
+
+      {/* Tab + 批量生成 */}
+      <div
+        role="tablist"
+        aria-label={t("reference_main_tab_aria")}
+        className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "units"}
+          onClick={() => setTab("units")}
+          className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
+            tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+          }`}
+        >
+          {t("reference_tab_units")}
+          {tab === "units" && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+            />
+          )}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "preproc"}
+          onClick={() => setTab("preproc")}
+          className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
+            tab === "preproc" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+          }`}
+        >
+          <span>{t("reference_tab_preprocess")}</span>
+          {preprocStatus === "loading" ? (
+            <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-4)]" aria-hidden="true" />
+          ) : (
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 rounded-full ${preprocDot[preprocStatus]}`}
+            />
+          )}
+          {tab === "preproc" && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+            />
+          )}
+        </button>
+        <span className="flex-1" />
+        {tab === "units" && (
           <button
             type="button"
-            onClick={() => setShowPreproc(false)}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus-ring"
+            onClick={() => void handleBatchGenerate()}
+            disabled={units.length === 0 || generating}
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("reference_preproc_back")}
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{t("reference_batch_generate")}</span>
           </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-5">
+        )}
+      </div>
+
+      {error && tab === "units" && (
+        <p
+          role="alert"
+          className="border-b border-[var(--color-hairline-soft)] bg-red-500/10 px-5 py-2 text-xs text-red-400"
+        >
+          {error}
+        </p>
+      )}
+
+      {tab === "preproc" ? (
+        <div className="min-h-0 flex-1 overflow-auto bg-[oklch(0.18_0.011_250_/_0.25)]">
+          <div className="mx-auto w-full max-w-3xl px-6 py-5">
             <PreprocessingView
               projectName={projectName}
               episode={episode}
               contentMode="reference_video"
               compact
-              renderToolbar={({ editing, saving, startEdit, save, cancel }) => (
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-lg font-semibold text-gray-100">
-                      {t("reference_preproc_page_title", { episode })}
-                      {episodeTitle ? <span className="text-gray-400">: {episodeTitle}</span> : null}
-                    </h2>
-                    <p className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                      <span className={`h-1.5 w-1.5 rounded-full ${PREPROC_DOT_CLASS[preprocStatus]}`} aria-hidden="true" />
-                      <span>{preprocLabel[preprocStatus]}</span>
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {editing ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={save}
-                          disabled={saving}
-                          className="inline-flex items-center gap-1 rounded border border-emerald-600/40 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300 transition hover:border-emerald-500 hover:text-emerald-200 disabled:opacity-50 focus-ring"
-                        >
-                          {saving ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                          ) : (
-                            <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                          )}
-                          {saving ? t("common:saving") : t("common:save")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={cancel}
-                          className="inline-flex items-center gap-1 rounded border border-gray-800 bg-gray-900 px-2.5 py-1 text-xs text-gray-400 transition hover:text-gray-200 focus-ring"
-                        >
-                          <XIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                          {t("common:cancel")}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={startEdit}
-                        className="inline-flex items-center gap-1 rounded border border-gray-800 bg-gray-900 px-2.5 py-1 text-xs text-gray-300 transition hover:border-indigo-500 hover:text-indigo-300 focus-ring"
-                      >
-                        <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
-                        {t("common:edit")}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
             />
           </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="@container flex h-full flex-col">
-      <div className="px-4 py-3">
-        <h2 className="text-lg font-semibold text-gray-100">
-          <span translate="no">E{episode}</span>
-          {episodeTitle ? `: ${episodeTitle}` : ""}
-        </h2>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-          <span>{t("reference_units_count", { count: units.length })}</span>
-          <span aria-hidden="true" className="text-gray-700">·</span>
-          {/* 预处理入口：inline link 风格而非独立 chip——降低视觉权重的同时把状态色 + 文案 + chevron
-              合到副标题行，点击进入二级页面。 */}
-          <button
-            type="button"
-            onClick={() => setShowPreproc(true)}
-            className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-gray-400 transition-colors hover:text-gray-200 focus-ring"
-          >
-            {preprocStatus === "loading" ? (
-              <Loader2 className="h-3 w-3 animate-spin text-gray-500" aria-hidden="true" />
+      ) : (
+        <div
+          ref={workbenchRef}
+          className="relative min-h-0 flex-1 overflow-hidden bg-[oklch(0.18_0.011_250_/_0.25)]"
+        >
+          <div className="grid h-full min-h-0" style={{ gridTemplateColumns: gridCols }}>
+            {/* 左：UnitList / UnitRail */}
+            {listMode === "full" ? (
+              <UnitList
+                units={units}
+                selectedId={selectedUnitId}
+                onSelect={select}
+                onAdd={onAdd}
+                dirtyMap={dirtyMap}
+                statusMap={statusMap}
+              />
             ) : (
-              <span className={`h-1.5 w-1.5 rounded-full ${PREPROC_DOT_CLASS[preprocStatus]}`} aria-hidden="true" />
+              <UnitRail
+                units={units}
+                selectedId={selectedUnitId}
+                onSelect={select}
+                onExpand={() => setListFlyoutOpen(true)}
+                dirtyMap={dirtyMap}
+                statusMap={statusMap}
+              />
             )}
-            <span>{preprocLabel[preprocStatus]}</span>
-            <ChevronRight className="h-3 w-3" aria-hidden="true" />
-          </button>
-        </div>
-        {error && (
-          <p role="alert" className="mt-1 text-xs text-red-400">
-            {error}
-          </p>
-        )}
-      </div>
-      {/* 外层 grid：<@md(448px) 单列；@md+ 双栏 (UnitList | 右侧 wrapper)。
-          断点选 @md 是因为 agent chat 占右半屏时中栏常在 500-700px 区间，@2xl(672px) 错过太多场景。
-          单列模式显式两行：UnitList 固 40%（不超过，最少 160px），editor wrapper 拿剩余 1fr——
-          否则两个子元素只有 1 个定义行、第二个落进隐式 auto 行，flex-1 链塌到 0，
-          textarea 在窄屏完全不可见（#368 后续回归）。@md+ 切回 2 列 × 1 行。 */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(160px,40%)_minmax(0,1fr)] overflow-hidden @md:grid-cols-[minmax(200px,30%)_1fr] @md:grid-rows-[minmax(0,1fr)]">
-        <UnitList
-          units={units}
-          selectedId={selectedUnitId}
-          onSelect={select}
-          onAdd={onAdd}
-        />
-        {/* 右侧 wrapper：<@4xl 用 flex column (toolbar + active panel)；@4xl+ 转 grid：
-            顶部 toolbar 行跨两列，下一行是 editor | preview。`display:contents` 在容器查询
-            + grid 下浏览器支持不稳定，改用 grid-template-rows 让 toolbar 占自己一行。 */}
-        <div className="flex min-h-0 flex-col overflow-hidden @4xl:grid @4xl:grid-cols-[1fr_minmax(260px,32%)] @4xl:grid-rows-[auto_minmax(0,1fr)]">
-          {/* 统一工具条：左 = tab（仅 <@4xl）；右 = [保存(dirty 时)] + [生成视频]。
-              把操作按钮浮到 tab 栏后，用户在任一 tab、任一屏宽下都能触发生成。 */}
-          <div className="flex items-center gap-2 border-b border-gray-800 px-2 py-1 @4xl:col-span-2">
-            <div
-              role="tablist"
-              aria-label={t("reference_tab_aria")}
-              className="flex gap-0 @4xl:hidden"
-            >
-              <button
-                type="button"
-                role="tab"
-                id="reference-tab-editor-btn"
-                aria-controls="reference-tab-editor"
-                aria-selected={smallTab === "editor"}
-                onClick={() => setSmallTab("editor")}
-                className={`relative rounded-t border-b-2 px-3 py-1.5 text-xs transition-colors focus-ring ${
-                  smallTab === "editor"
-                    ? "border-indigo-500 font-medium text-indigo-400"
-                    : "border-transparent text-gray-500 hover:text-gray-300"
-                }`}
-              >
-                {t("reference_tab_editor")}
-                {isDirty && (
-                  <span
-                    aria-label={t("reference_tab_dirty_aria")}
-                    className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-400 align-middle"
-                  />
-                )}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                id="reference-tab-preview-btn"
-                aria-controls="reference-tab-preview"
-                aria-selected={smallTab === "preview"}
-                onClick={() => setSmallTab("preview")}
-                className={`relative rounded-t border-b-2 px-3 py-1.5 text-xs transition-colors focus-ring ${
-                  smallTab === "preview"
-                    ? "border-indigo-500 font-medium text-indigo-400"
-                    : "border-transparent text-gray-500 hover:text-gray-300"
-                }`}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  {t("reference_tab_preview")}
-                  <span
-                    aria-label={t(`reference_video_status_${videoStatus}`)}
-                    className={`inline-block h-1.5 w-1.5 rounded-full align-middle ${VIDEO_DOT_CLASS[videoStatus]}`}
-                  />
-                </span>
-              </button>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              {isDirty && (
-                <button
-                  type="button"
-                  onClick={() => void handleSave()}
-                  disabled={saving}
-                  className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-indigo-600 bg-indigo-600/10 px-3 py-1 text-xs font-medium text-indigo-300 transition-colors hover:bg-indigo-600/20 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving ? (
-                    <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-                  ) : (
-                    <Save aria-hidden="true" className="h-3.5 w-3.5" />
+
+            {/* 中：UnitHeader + Editor / Preview（stackPreview 时叠 sub-tab） */}
+            <div className="flex min-h-0 flex-col overflow-hidden bg-[radial-gradient(ellipse_at_top,oklch(0.20_0.012_270_/_0.35),oklch(0.17_0.010_265_/_0.2))]">
+              {selected ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-hairline-soft)] px-4 py-2.5">
+                    <span
+                      translate="no"
+                      className="rounded px-2.5 py-1 font-mono text-xs font-bold tracking-wider text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_2px_6px_-2px_var(--color-accent-glow)]"
+                    >
+                      {selected.unit_id}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
+                      <Clock className="h-3 w-3" aria-hidden="true" />
+                      <span className="font-mono tabular-nums">{selected.duration_seconds}s</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
+                      <Scissors className="h-3 w-3" aria-hidden="true" />
+                      <span className="font-mono tabular-nums">
+                        {t("reference_unit_shots_count", { count: selected.shots.length })}
+                      </span>
+                    </span>
+                    <span className="flex-1" />
+                    {selectedIndex >= 0 && (
+                      <span className="font-mono text-[10.5px] tabular-nums text-[var(--color-text-4)]">
+                        {selectedIndex + 1} / {units.length}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={goPrev}
+                      disabled={selectedIndex <= 0}
+                      aria-label={t("reference_unit_prev")}
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      disabled={selectedIndex < 0 || selectedIndex >= units.length - 1}
+                      aria-label={t("reference_unit_next")}
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  {stackPreview && (
+                    <div
+                      role="tablist"
+                      aria-label={t("reference_tab_aria")}
+                      className="flex items-center gap-0 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.4)] px-5"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={stackTab === "editor"}
+                        onClick={() => setStackTab("editor")}
+                        className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
+                          stackTab === "editor"
+                            ? "text-[var(--color-text)]"
+                            : "text-[var(--color-text-3)]"
+                        }`}
+                      >
+                        <Scissors className="h-3 w-3" aria-hidden="true" />
+                        <span>{t("reference_tab_editor")}</span>
+                        {isDirty && (
+                          <span
+                            aria-label={t("reference_tab_dirty_aria")}
+                            className="h-1.5 w-1.5 rounded-full bg-amber-400"
+                          />
+                        )}
+                        {stackTab === "editor" && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                          />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={stackTab === "preview"}
+                        onClick={() => setStackTab("preview")}
+                        className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
+                          stackTab === "preview"
+                            ? "text-[var(--color-text)]"
+                            : "text-[var(--color-text-3)]"
+                        }`}
+                      >
+                        <span>{t("reference_tab_preview")}</span>
+                        {statusMap[selected.unit_id] === "running" && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 motion-safe:animate-pulse" />
+                        )}
+                        {statusMap[selected.unit_id] === "ready" && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        )}
+                        {statusMap[selected.unit_id] === "failed" && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                        )}
+                        {stackTab === "preview" && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                          />
+                        )}
+                      </button>
+                    </div>
                   )}
-                  {saving ? t("common:saving") : t("common:save")}
-                </button>
-              )}
-              {selected && (
-                <button
-                  type="button"
-                  onClick={() => onGenerateVoid(selected.unit_id)}
-                  disabled={generating}
-                  className={`focus-ring inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
-                    generating
-                      ? "border-blue-700 text-blue-400 opacity-70 cursor-not-allowed"
-                      : "border-blue-600 text-blue-400 hover:bg-blue-600/10"
-                  }`}
-                >
-                  {generating ? (
-                    <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-                  ) : (
-                    <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
-                  )}
-                  {generating ? t("reference_preview_generating") : t("reference_preview_generate")}
-                </button>
-              )}
-            </div>
-          </div>
-          <div
-            role="tabpanel"
-            id="reference-tab-editor"
-            aria-labelledby="reference-tab-editor-btn"
-            className={`min-h-0 flex-1 flex-col overflow-hidden border-r border-gray-800 bg-gray-950/30 @4xl:flex ${
-              smallTab === "editor" ? "flex" : "hidden"
-            }`}
-          >
-            {selected ? (
-              <>
-                <ReferencePanel
-                  references={selected.references}
-                  projectName={projectName}
-                  onReorder={handleReorderRefs}
-                  onRemove={handleRemoveRef}
-                  onAdd={handleAddRef}
-                />
-                <div className="flex min-h-0 flex-1 flex-col p-3">
-                  <ReferenceVideoCard
-                    key={selected.unit_id}
-                    unit={selected}
-                    projectName={projectName}
-                    episode={episode}
-                    value={currentText}
-                    onChange={handlePromptChange}
-                  />
+
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    {(!stackPreview || stackTab === "editor") && (
+                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                        <ReferencePanel
+                          references={selected.references}
+                          projectName={projectName}
+                          onReorder={handleReorderRefs}
+                          onRemove={handleRemoveRef}
+                          onAdd={handleAddRef}
+                        />
+                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+                          <ReferenceVideoCard
+                            key={selected.unit_id}
+                            unit={selected}
+                            projectName={projectName}
+                            episode={episode}
+                            value={currentText}
+                            onChange={handlePromptChange}
+                          />
+                        </div>
+                        {/* Editor bottom bar */}
+                        <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 text-[11px] ${
+                              isDirty ? "text-amber-300" : "text-[var(--color-text-4)]"
+                            }`}
+                          >
+                            {isDirty ? (
+                              <>
+                                <span
+                                  aria-hidden="true"
+                                  className="h-1.5 w-1.5 rounded-full bg-amber-400"
+                                />
+                                {t("reference_unsaved")}
+                              </>
+                            ) : (
+                              <>
+                                <span
+                                  aria-hidden="true"
+                                  className="h-1.5 w-1.5 rounded-full bg-emerald-400"
+                                />
+                                {t("reference_synced")}
+                              </>
+                            )}
+                          </span>
+                          <span className="flex-1" />
+                          <button
+                            type="button"
+                            onClick={() => void handleSave()}
+                            disabled={!isDirty || saving}
+                            className={`focus-ring inline-flex min-w-[80px] items-center justify-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold ${
+                              isDirty
+                                ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_12px_-4px_var(--color-accent-glow)]"
+                                : "border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-4)]"
+                            } disabled:cursor-not-allowed`}
+                          >
+                            {saving ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            {saving ? t("common:saving") : t("common:save")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {stackPreview && stackTab === "preview" && (
+                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,oklch(0.19_0.011_265_/_0.5),oklch(0.17_0.010_265_/_0.35))]">
+                        <UnitPreviewPanel
+                          unit={selected}
+                          projectName={projectName}
+                          status={statusMap[selected.unit_id]}
+                          errorMessage={failureMessage}
+                          estimatedCost={estimatedCost}
+                          actualCost={actualCost}
+                          onGenerate={onGenerateVoid}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-1 items-center justify-center text-xs text-[var(--color-text-4)]">
+                  {t("reference_canvas_empty")}
                 </div>
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-xs text-gray-600">
-                {t("reference_canvas_empty")}
+              )}
+            </div>
+
+            {/* 右：UnitPreviewPanel（仅大屏） */}
+            {!stackPreview && (
+              <div className="flex min-h-0 flex-col overflow-hidden border-l border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.19_0.011_265_/_0.5),oklch(0.17_0.010_265_/_0.35))]">
+                <UnitPreviewPanel
+                  unit={selected}
+                  projectName={projectName}
+                  status={selected ? statusMap[selected.unit_id] : undefined}
+                  errorMessage={failureMessage}
+                  estimatedCost={estimatedCost}
+                  actualCost={actualCost}
+                  onGenerate={onGenerateVoid}
+                />
               </div>
             )}
           </div>
-          <div
-            role="tabpanel"
-            id="reference-tab-preview"
-            aria-labelledby="reference-tab-preview-btn"
-            className={`min-h-0 overflow-hidden @4xl:block ${smallTab === "preview" ? "block" : "hidden"}`}
-          >
-            <UnitPreviewPanel unit={selected} projectName={projectName} />
-          </div>
+
+          {/* 折叠态下的展开抽屉 */}
+          {listFlyoutOpen && (
+            <>
+              <button
+                type="button"
+                aria-label={t("common:close")}
+                onClick={() => setListFlyoutOpen(false)}
+                className="absolute inset-0 z-30 bg-black/40 backdrop-blur-[2px]"
+              />
+              <div
+                className="absolute bottom-0 left-0 top-0 z-40 w-[320px] shadow-[8px_0_24px_-8px_oklch(0_0_0_/_0.6)]"
+              >
+                <UnitList
+                  units={units}
+                  selectedId={selectedUnitId}
+                  onSelect={(id) => {
+                    select(id);
+                    setListFlyoutOpen(false);
+                  }}
+                  onAdd={onAdd}
+                  dirtyMap={dirtyMap}
+                  statusMap={statusMap}
+                />
+              </div>
+            </>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

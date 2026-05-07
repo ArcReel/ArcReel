@@ -20,8 +20,11 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
     // When session is no longer running, show cancelled state instead of spinner
     if (sessionDone) {
       return (
-        <div className="my-1 flex items-center gap-1.5 text-xs text-slate-500">
-          <span>{"\u2013"}</span>
+        <div
+          className="my-1 flex items-center gap-1.5 text-[11.5px]"
+          style={{ color: "var(--color-text-4)" }}
+        >
+          <span>–</span>
           <span>{description} (已取消)</span>
         </div>
       );
@@ -29,8 +32,18 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
 
     const tokens = status === "task_progress" ? block.usage?.total_tokens : undefined;
     return (
-      <div className="my-1 flex items-center gap-1.5 text-xs text-slate-400">
-        <span className="inline-block h-3 w-3 animate-spin rounded-full border border-slate-500 border-t-transparent" />
+      <div
+        className="my-1 flex items-center gap-1.5 text-[11.5px]"
+        style={{ color: "var(--color-text-3)" }}
+      >
+        <span
+          className="inline-block h-3 w-3 animate-spin rounded-full border-t-transparent"
+          style={{
+            borderTop: "1px solid transparent",
+            border: "1px solid var(--color-accent)",
+            borderTopColor: "transparent",
+          }}
+        />
         <span>
           {status === "task_started" ? `子任务开始: ${description}` : description}
           {tokens != null && ` (tokens: ${tokens})`}
@@ -42,13 +55,17 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
   if (status === "task_notification") {
     const isCompleted = taskStatus === "completed";
     const isFailed = taskStatus === "failed";
+    const color = isFailed
+      ? "var(--color-danger)"
+      : isCompleted
+        ? "var(--color-good)"
+        : "var(--color-text-3)";
     return (
       <div
-        className={`my-1 flex items-center gap-1.5 text-xs ${
-          isFailed ? "text-red-400" : isCompleted ? "text-green-400" : "text-slate-400"
-        }`}
+        className="my-1 flex items-center gap-1.5 text-[11.5px]"
+        style={{ color }}
       >
-        <span>{isCompleted ? "\u2713" : isFailed ? "\u2717" : "\u2013"}</span>
+        <span>{isCompleted ? "✓" : isFailed ? "✗" : "–"}</span>
         <span>
           子任务{isCompleted ? "完成" : isFailed ? "失败" : "结束"}: {summary || description}
         </span>

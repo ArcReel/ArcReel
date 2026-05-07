@@ -12,6 +12,8 @@ interface VersionTimeMachineProps {
   resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
+  /** Icon-only trigger button: hides label and chevron for narrow card headers. */
+  iconOnly?: boolean;
 }
 
 function getImagePreviewHeightClass(
@@ -39,6 +41,7 @@ export function VersionTimeMachine({
   resourceType,
   resourceId,
   onRestore,
+  iconOnly = false,
 }: VersionTimeMachineProps) {
   const { t } = useTranslation("dashboard");
   const resourcePath =
@@ -185,16 +188,34 @@ export function VersionTimeMachine({
 
   return (
     <div>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-      >
-        <History className="h-3 w-3" />
-        <span>{t("version_mgmt")}</span>
-        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      </button>
+      {iconOnly ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          title={t("version_mgmt")}
+          aria-label={t("version_mgmt")}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+          style={{ color: "var(--color-text-3)" }}
+        >
+          <History className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+        >
+          <History className="h-3 w-3" />
+          <span>{t("version_mgmt")}</span>
+          {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        </button>
+      )}
 
       {open &&
         panelPos &&

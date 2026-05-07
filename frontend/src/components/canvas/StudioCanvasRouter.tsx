@@ -8,10 +8,12 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
+import { SourceFilesPage } from "./SourceFilesPage";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
+import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
@@ -62,6 +64,9 @@ export function StudioCanvasRouter() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [globalVideoBackend, setGlobalVideoBackend] = useState("");
+  const [resolvedDurationOptions, setResolvedDurationOptions] = useState<
+    number[] | undefined
+  >(undefined);
 
   useEffect(() => {
     let disposed = false;
@@ -76,11 +81,42 @@ export function StudioCanvasRouter() {
     return () => { disposed = true; };
   }, []);
 
-  const durationOptions = useMemo(() => {
+  // 已配置 backend 时本地 lookup 即可（同步、零延迟）；未配置时调后端
+  // /video-capabilities，让 ConfigResolver 自动 fallback 到 PROVIDER_REGISTRY
+  // 第一个 ready 的 default video model（与生成路径用同一套规则，避免 FE/BE 漂移）。
+  const localDurationOptions = useMemo(() => {
     const backend = currentProjectData?.video_backend || globalVideoBackend;
     if (!backend) return undefined;
     return lookupSupportedDurations(providers, backend, customProviders);
   }, [providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
+
+  useEffect(() => {
+    if (localDurationOptions !== undefined) {
+      setResolvedDurationOptions(undefined);
+      return;
+    }
+    if (!currentProjectName) {
+      setResolvedDurationOptions(undefined);
+      return;
+    }
+    // 切项目时先清空旧值，避免在新项目的 /video-capabilities 返回前继续沿用上个项目的时长选项
+    setResolvedDurationOptions(undefined);
+    let disposed = false;
+    API.getVideoCapabilities(currentProjectName)
+      .then((caps) => {
+        if (disposed) return;
+        setResolvedDurationOptions(caps.supported_durations);
+      })
+      .catch(() => {
+        if (disposed) return;
+        setResolvedDurationOptions(undefined);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [currentProjectName, localDurationOptions]);
+
+  const durationOptions = localDurationOptions ?? resolvedDurationOptions;
 
   // 从任务队列派生 loading 状态（替代本地 state）
   const tasks = useTasksStore((s) => s.tasks);
@@ -403,6 +439,10 @@ export function StudioCanvasRouter() {
         <Redirect to="/scenes" />
       </Route>
 
+      <Route path="/source">
+        <SourceFilesPage projectName={currentProjectName} />
+      </Route>
+
       <Route path="/characters">
         <CharactersPage
           projectName={currentProjectName}
@@ -475,6 +515,24 @@ export function StudioCanvasRouter() {
                     episode={epNum}
                     episodeTitle={episode?.title}
                   />
+                ) : mode === "grid" ? (
+                  <GridImageToVideoCanvas
+                    key={`${currentProjectName}::${epNum}`}
+                    projectName={currentProjectName}
+                    episode={epNum}
+                    episodeTitle={episode?.title}
+                    hasDraft={hasDraft}
+                    episodeScript={script}
+                    scriptFile={scriptFile ?? undefined}
+                    projectData={currentProjectData}
+                    durationOptions={durationOptions}
+                    onUpdatePrompt={handleUpdatePrompt}
+                    onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
+                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateGrid={handleGenerateGrid}
+                    onRestoreStoryboard={handleRestoreAsset}
+                    onRestoreVideo={handleRestoreAsset}
+                  />
                 ) : (
                   <TimelineCanvas
                     // 和 ReferenceVideoCanvas (上方) 同理：同 epNum 跨项目不 remount
@@ -489,10 +547,9 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={voidPromise(handleUpdatePrompt)}
+                    onUpdatePrompt={handleUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
-                    onGenerateGrid={voidPromise(handleGenerateGrid)}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
                   />

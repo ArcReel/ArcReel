@@ -29,6 +29,8 @@ export interface GridPreviewPanelProps {
   onRegenerated?: () => void;
   /** Changed when grids list is refreshed, triggers re-fetch of panel data. */
   refreshKey?: number;
+  /** Render in expanded state on first mount. Used by the dedicated grid preview tab. */
+  defaultExpanded?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,8 +156,9 @@ export function GridPreviewPanel({
   gridIds,
   onRegenerated,
   refreshKey = 0,
+  defaultExpanded = false,
 }: GridPreviewPanelProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [grid, setGrid] = useState<GridGeneration | null>(null);
   const [loading, setLoading] = useState(false);

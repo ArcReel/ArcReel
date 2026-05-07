@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { cn } from "./utils";
+import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { StreamMarkdown } from "../StreamMarkdown";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +27,9 @@ function extractSkillName(text: string | undefined): string {
 }
 
 export function SkillContentBlock({ text }: SkillContentBlockProps) {
+  const { t } = useTranslation("dashboard");
   const [isExpanded, setIsExpanded] = useState(false);
+  const panelId = useId();
 
   if (!text) {
     return null;
@@ -36,29 +38,56 @@ export function SkillContentBlock({ text }: SkillContentBlockProps) {
   const skillName = extractSkillName(text);
 
   return (
-    <div className="my-2 rounded-lg border border-purple-400/20 bg-purple-500/5 overflow-hidden">
+    <div
+      className="my-2 overflow-hidden rounded-lg"
+      style={{
+        border: "1px solid var(--color-accent-soft)",
+        background: "var(--color-accent-dim)",
+      }}
+    >
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-purple-500/10 transition-colors"
+        aria-expanded={isExpanded}
+        aria-controls={panelId}
+        className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "oklch(0.76 0.09 295 / 0.18)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-purple-400">
-            Skill 内容
+          <span
+            className="text-[11.5px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-accent-2)" }}
+          >
+            {t("skill_content_label")}
           </span>
-          <span className="text-xs text-slate-400">
+          <span
+            className="num text-[11px]"
+            style={{ color: "var(--color-text-3)" }}
+          >
             {skillName}
           </span>
         </div>
-        <span className="text-xs text-slate-500">
-          {isExpanded ? "\u25BC 收起" : "\u25B6 展开"}
+        <span
+          className="text-[11px]"
+          style={{ color: "var(--color-text-4)" }}
+        >
+          {isExpanded ? t("skill_content_collapse") : t("skill_content_expand")}
         </span>
       </button>
       {isExpanded && (
-        <div className={cn(
-          "px-3 py-2 border-t border-purple-400/10 bg-purple-900/10",
-          "max-h-96 overflow-y-auto",
-        )}>
+        <div
+          id={panelId}
+          className="max-h-96 overflow-y-auto px-3 py-2"
+          style={{
+            borderTop: "1px solid var(--color-accent-soft)",
+            background: "oklch(0.76 0.09 295 / 0.06)",
+          }}
+        >
           <StreamMarkdown content={text} />
         </div>
       )}

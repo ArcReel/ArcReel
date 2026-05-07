@@ -33,7 +33,7 @@ describe("UnitPreviewPanel", () => {
 
   it("shows empty-video placeholder when unit has no video_clip", () => {
     render(<UnitPreviewPanel unit={mkUnit()} />);
-    expect(screen.getAllByText(/Select a unit|选中左侧 Unit/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Not yet generated|尚未生成/)).toBeInTheDocument();
   });
 
   it("renders <video> when video_clip is present", () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, X } from "lucide-react";
+import { Library, Search, X, Check } from "lucide-react";
 import { API } from "@/api";
 import type { Asset, AssetType } from "@/types/asset";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -17,8 +17,11 @@ interface Props {
 
 const PAGE_SIZE = 50;
 
+const PANEL_BG =
+  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
+
 export function AssetPickerModal({ type, existingNames, onClose, onImport }: Props) {
-  const { t } = useTranslation("assets");
+  const { t } = useTranslation(["assets", "dashboard"]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(q, 250);
@@ -26,6 +29,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const loadMoreCtrlRef = useRef<AbortController | null>(null);
   useFocusTrap(dialogRef);
 
   useEscapeClose(onClose);
@@ -50,7 +54,10 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
         }
       }
     })();
-    return () => ctrl.abort();
+    return () => {
+      ctrl.abort();
+      loadMoreCtrlRef.current?.abort();
+    };
   }, [type, debouncedQ]);
 
   const assetsWithUrl = useMemo(
@@ -59,18 +66,33 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
   );
 
   const loadMore = async () => {
+    loadMoreCtrlRef.current?.abort();
+    const ctrl = new AbortController();
+    loadMoreCtrlRef.current = ctrl;
     setLoading(true);
-    const res = await API.listAssets({ type, q: debouncedQ || undefined, limit: PAGE_SIZE, offset: assets.length });
-    setAssets((prev) => [...prev, ...res.items]);
-    setHasMore(res.items.length === PAGE_SIZE);
-    setLoading(false);
+    try {
+      const res = await API.listAssets(
+        { type, q: debouncedQ || undefined, limit: PAGE_SIZE, offset: assets.length },
+        { signal: ctrl.signal },
+      );
+      if (!ctrl.signal.aborted) {
+        setAssets((prev) => [...prev, ...res.items]);
+        setHasMore(res.items.length === PAGE_SIZE);
+        setLoading(false);
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError" && !ctrl.signal.aborted) {
+        setLoading(false);
+      }
+    }
   };
 
   const toggle = (a: Asset, disabled: boolean) => {
     if (disabled) return;
     setSelected((prev) => {
       const next = new Map(prev);
-      if (next.has(a.id)) next.delete(a.id); else next.set(a.id, a);
+      if (next.has(a.id)) next.delete(a.id);
+      else next.set(a.id, a);
       return next;
     });
   };
@@ -83,34 +105,124 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
         type="button"
         aria-label={t("close")}
         onClick={onClose}
-        className="absolute inset-0 bg-black/70"
+        className="absolute inset-0"
+        style={{
+          background: "oklch(0 0 0 / 0.65)",
+          backdropFilter: "blur(2px)",
+          WebkitBackdropFilter: "blur(2px)",
+        }}
       />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t(titleKey)}
-        className="relative w-[720px] max-w-[96vw] max-h-[90vh] flex flex-col rounded-lg bg-gray-900 border border-gray-700 shadow-2xl"
+        className="relative flex max-h-[90vh] w-[760px] max-w-[96vw] flex-col overflow-hidden rounded-2xl"
+        style={{
+          background: PANEL_BG,
+          border: "1px solid var(--color-hairline)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+          boxShadow:
+            "0 24px 60px -12px oklch(0 0 0 / 0.6), inset 0 1px 0 oklch(1 0 0 / 0.05)",
+        }}
       >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-800">
-          <h3 className="text-sm font-semibold text-white flex-1">{t(titleKey)}</h3>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded w-48">
-            <Search className="h-3.5 w-3.5 text-gray-500" />
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)}
-              placeholder={t("search_placeholder")}
-              className="flex-1 bg-transparent text-sm text-gray-200 outline-none" />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+          }}
+        />
+
+        {/* Header */}
+        <div
+          className="flex items-center gap-3 px-5 py-4"
+          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        >
+          <span
+            aria-hidden
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
+            style={{
+              background:
+                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid var(--color-accent-soft)",
+              color: "var(--color-accent-2)",
+              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+            }}
+          >
+            <Library className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3
+              className="display-serif truncate text-[15px] font-semibold tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
+              {t(titleKey)}
+            </h3>
+            <div
+              className="num text-[10px] uppercase"
+              style={{
+                color: "var(--color-text-4)",
+                letterSpacing: "1.0px",
+              }}
+            >
+              {t("dashboard:eyebrow_library", { type: t(`type.${type}`) })}
+            </div>
           </div>
+
+          <div
+            className="flex w-52 items-center gap-2 rounded-md px-2.5 py-1.5"
+            style={{
+              background: "oklch(0.16 0.010 265 / 0.6)",
+              border: "1px solid var(--color-hairline)",
+            }}
+          >
+            <Search
+              className="h-3.5 w-3.5 shrink-0"
+              style={{ color: "var(--color-text-4)" }}
+            />
+            <input
+              type="text"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t("search_placeholder")}
+              aria-label={t("search_placeholder")}
+              className="focus-ring min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+              style={{ color: "var(--color-text)" }}
+            />
+          </div>
+
           <button
             type="button"
             onClick={onClose}
             aria-label={t("close")}
-            className="rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+            className="focus-ring grid h-7 w-7 place-items-center rounded-md transition-colors"
+            style={{ color: "var(--color-text-3)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.background = "transparent";
+            }}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 grid grid-cols-4 gap-2">
+        {/* Grid */}
+        <div className="grid flex-1 grid-cols-4 gap-2 overflow-y-auto p-3">
+          {assetsWithUrl.length === 0 && !loading && (
+            <div
+              className="col-span-4 px-4 py-12 text-center text-[12px]"
+              style={{ color: "var(--color-text-4)" }}
+            >
+              {debouncedQ ? t("no_results") : t("search_hint")}
+            </div>
+          )}
           {assetsWithUrl.map(({ asset: a, url }) => {
             const dup = existingNames.has(a.name);
             const sel = selected.has(a.id);
@@ -121,19 +233,76 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                 disabled={dup}
                 aria-pressed={sel}
                 onClick={() => toggle(a, dup)}
-                className={`relative rounded border p-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none ${
-                  dup
-                    ? "opacity-40 cursor-not-allowed border-gray-700 bg-gray-800"
+                className="focus-ring relative rounded-lg p-2 text-left transition-colors disabled:cursor-not-allowed"
+                style={{
+                  border: dup
+                    ? "1px solid var(--color-hairline-soft)"
                     : sel
-                      ? "border-indigo-500 bg-indigo-950"
-                      : "border-gray-700 bg-gray-800 hover:border-gray-600"
-                }`}
+                      ? "1px solid var(--color-accent-soft)"
+                      : "1px solid var(--color-hairline)",
+                  background: dup
+                    ? "oklch(0.20 0.011 265 / 0.3)"
+                    : sel
+                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
+                      : "oklch(0.20 0.011 265 / 0.5)",
+                  opacity: dup ? 0.4 : 1,
+                  boxShadow: sel
+                    ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-accent-glow)"
+                    : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
+                }}
+                onMouseEnter={(e) => {
+                  if (!dup && !sel) {
+                    e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
+                    e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!dup && !sel) {
+                    e.currentTarget.style.borderColor = "var(--color-hairline)";
+                    e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.5)";
+                  }
+                }}
               >
                 <AssetThumb imageUrl={url} alt={a.name} fallback="—" variant="picker" />
-                <div className="mt-1 text-xs font-semibold text-white truncate">{a.name}</div>
-                {a.description && <div className="text-[10px] text-gray-400 truncate">{a.description}</div>}
+                <div
+                  className="mt-1.5 truncate text-[12px] font-semibold"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {a.name}
+                </div>
+                {a.description && (
+                  <div
+                    className="truncate text-[10px]"
+                    style={{ color: "var(--color-text-4)" }}
+                  >
+                    {a.description}
+                  </div>
+                )}
+                {sel && (
+                  <span
+                    aria-hidden
+                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
+                    style={{
+                      color: "oklch(0.14 0 0)",
+                      background:
+                        "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                      boxShadow:
+                        "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-accent-soft)",
+                    }}
+                  >
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  </span>
+                )}
                 {dup && (
-                  <span className="absolute top-1 right-1 text-[9px] px-1 py-0.5 bg-amber-900 text-amber-200 rounded">
+                  <span
+                    className="num absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[9.5px]"
+                    style={{
+                      letterSpacing: "0.4px",
+                      color: "oklch(0.85 0.13 75)",
+                      background: "oklch(0.30 0.10 75 / 0.30)",
+                      border: "1px solid oklch(0.45 0.13 75 / 0.40)",
+                    }}
+                  >
                     {t("already_in_project")}
                   </span>
                 )}
@@ -146,7 +315,22 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                 type="button"
                 onClick={() => void loadMore()}
                 disabled={loading}
-                className="px-3 py-1 text-xs rounded bg-gray-800 text-gray-300 border border-gray-700 hover:bg-gray-700 disabled:opacity-50"
+                className="focus-ring rounded-md px-3 py-1.5 text-[11.5px] transition-colors disabled:opacity-50"
+                style={{
+                  color: "var(--color-text-3)",
+                  background: "oklch(0.22 0.011 265 / 0.5)",
+                  border: "1px solid var(--color-hairline)",
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading) {
+                    e.currentTarget.style.color = "var(--color-text)";
+                    e.currentTarget.style.background = "oklch(0.26 0.013 265 / 0.7)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--color-text-3)";
+                  e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
+                }}
               >
                 {loading ? t("loading") : t("load_more")}
               </button>
@@ -154,20 +338,69 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
           )}
         </div>
 
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-gray-800">
-          <span className="text-xs text-gray-400 flex-1">
+        {/* Footer */}
+        <div
+          className="flex items-center gap-2 px-5 py-3"
+          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+        >
+          <span
+            className="num flex-1 text-[11px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
             {t("import_count", { count: selected.size })}
           </span>
-          <button type="button" onClick={onClose} className="px-3 py-1 text-xs rounded bg-gray-800 text-gray-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className="focus-ring rounded-md px-3 py-1.5 text-[12px] transition-colors"
+            style={{
+              color: "var(--color-text-3)",
+              border: "1px solid var(--color-hairline)",
+              background: "oklch(0.22 0.011 265 / 0.5)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.background = "oklch(0.26 0.013 265 / 0.7)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
+            }}
+          >
             {t("cancel")}
           </button>
           <button
             type="button"
             disabled={selected.size === 0}
             onClick={() => onImport(Array.from(selected.keys()))}
-            className="px-3 py-1 text-xs rounded bg-indigo-600 text-white disabled:opacity-50"
+            className="focus-ring rounded-md px-4 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              color: "oklch(0.14 0 0)",
+              background:
+                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+              boxShadow:
+                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+            }}
+            onMouseEnter={(e) => {
+              if (!e.currentTarget.disabled)
+                e.currentTarget.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
           >
-            {selected.size === 0 ? t("confirm_import") : t("import_count", { count: selected.size })}
+            <span>{t("confirm_import")}</span>
+            {selected.size > 0 && (
+              <span
+                className="num ml-1.5 rounded px-1.5 py-px text-[10.5px]"
+                style={{
+                  background: "oklch(0 0 0 / 0.18)",
+                  color: "oklch(0.14 0 0)",
+                }}
+              >
+                {selected.size}
+              </span>
+            )}
           </button>
         </div>
       </div>

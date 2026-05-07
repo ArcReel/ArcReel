@@ -24,6 +24,8 @@ export default {
   "back_to_projects": "返回项目",
   "add_asset": "新增资产",
   "search_placeholder": "搜索资产...",
+  "search_hint": "输入关键词以搜索资产",
+  "no_results": "未找到匹配的资产",
   "library_empty_character": "还没有人物资产",
   "library_empty_scene": "还没有场景资产",
   "library_empty_prop": "还没有道具资产",

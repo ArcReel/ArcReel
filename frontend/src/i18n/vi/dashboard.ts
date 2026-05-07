@@ -155,6 +155,11 @@ export default {
   'ai_analyzing': 'AI đang phân tích...',
   'extracting_metadata_desc': 'Đang trích xuất tóm tắt, thể loại, chủ đề và bối cảnh thế giới',
   'analysis_complete': 'Phân tích hoàn tất',
+  'thinking_process_label': 'Suy nghĩ',
+  'task_in_progress_default': 'Đang xử lý',
+  'agent_handoff_headline': 'Sẵn sàng',
+  'agent_handoff_subtitle': 'Trò chuyện với trợ lý để bắt đầu sản xuất video.',
+  'agent_handoff_dismiss': 'Đã hiểu',
   'what_happens_next': 'Tiếp theo sẽ là gì?',
   'ai_will_analyze_desc': 'AI sẽ phân tích tiểu thuyết và trích xuất nhân vật, cảnh, đạo cụ và bối cảnh thế giới',
   'overview_gen_desc': 'Tổng quan dự án sẽ được tạo, sau đó bạn có thể bắt đầu viết kịch bản và phân cảnh',
@@ -245,7 +250,7 @@ export default {
   'toggle_task_panel': 'Bật/tắt bảng tác vụ',
   'export_project_zip': 'Xuất ZIP dự án hiện tại',
   'exporting_zip': 'Đang xuất...',
-  'export_zip': 'Xuất ZIP',
+  'export_zip': 'Xuất',
   'config_incomplete': 'Cấu hình chưa đầy đủ',
   'export_diagnostics_title': 'Chẩn đoán xuất',
   'export_diagnostics_description': 'Hoàn tất kiểm tra trước xuất và đã tạo ZIP. Phát hiện các vấn đề sau trong gói xuất.',
@@ -791,6 +796,45 @@ export default {
   'reference_tab_preview': 'Video',
   'reference_tab_aria': 'Tab bảng đơn vị tham chiếu',
 
+  // ArcReel Workbench v3 — Video Tham Chiếu
+  'reference_main_tab_aria': 'Tab chính của workspace',
+  'reference_tab_units': 'Đơn vị video',
+  'reference_tab_preprocess': 'Tiền xử lý tách',
+  'reference_batch_generate': 'Tạo hàng loạt',
+  'reference_batch_nothing_to_do': 'Tất cả đơn vị đã được tạo hoặc đang xử lý',
+  'reference_episode_header_units_one': '{{count}} đơn vị',
+  'reference_episode_header_units_other': '{{count}} đơn vị',
+  'reference_episode_header_ready': 'Sẵn sàng',
+  'reference_episode_header_estimated': 'Ước tính',
+  'reference_episode_header_actual': 'Đã chi',
+  'reference_strip_label': 'Tham chiếu',
+  'reference_strip_order_hint': 'Thứ tự = [IMG-N]',
+  'reference_strip_image_token': 'IMG-{{n}}',
+  'reference_strip_add': 'Thêm tham chiếu',
+  'reference_strip_empty': 'Chưa có tham chiếu — bấm + bên phải hoặc dùng @ trong prompt để thêm tự động',
+  'reference_unit_search_placeholder': 'Tìm kiếm đơn vị / prompt…',
+  'reference_unit_search_empty': 'Không tìm thấy đơn vị nào',
+  'reference_unit_dirty_hint': 'Chưa lưu',
+  'reference_unit_shots_count_one': '{{count}} shot',
+  'reference_unit_shots_count_other': '{{count}} shot',
+  'reference_unit_rail_expand': 'Mở rộng danh sách',
+  'reference_unit_prev': 'Đơn vị trước',
+  'reference_unit_next': 'Đơn vị sau',
+  'reference_preview_label': 'Xem trước video',
+  'reference_preview_metadata': 'Siêu dữ liệu',
+  'reference_preview_in_flight': 'Đang tạo video…',
+  'reference_preview_in_flight_meta': '{{refs}} tham chiếu · {{duration}}s',
+  'reference_preview_failed_title': 'Tạo thất bại',
+  'reference_preview_failed_unknown': 'Lỗi không xác định',
+  'reference_preview_empty_unit': 'Chưa được tạo',
+  'reference_preview_regenerate': 'Tạo lại video',
+  'reference_preview_retry': 'Thử lại',
+  'reference_meta_status': 'Trạng thái',
+  'reference_meta_cost': 'Chi phí',
+  'reference_meta_cost_spent': 'đã chi',
+  'reference_unsaved': 'Chưa lưu thay đổi',
+  'reference_synced': 'Đã đồng bộ',
+
   // Source file normalization toasts
   'source_normalized_toast': 'Đã chuẩn hóa "{{filename}}" (mã hóa nguồn: {{encoding}})',
   'source_normalized_toast_with_chapters': 'Đã chuẩn hóa "{{filename}}" ({{chapters}} chương; mã hóa nguồn: {{encoding}})',
@@ -798,7 +842,7 @@ export default {
   'source_normalized_toast_native_with_chapters': 'Đã chuẩn hóa "{{filename}}" ({{chapters}} chương)',
   'source_upload_conflict_toast': 'Tệp nguồn "{{filename}}" đã tồn tại (gợi ý đổi tên: "{{suggested}}"; thử lại từ bảng chính)',
 
-  // GridSegmentGroup
+  // Grid preview
   'grid_scene_count': '{{count}} cảnh',
   'grid_batch_count': '{{count}} lưới',
   'generating_grid': 'Đang tạo...',
@@ -893,6 +937,7 @@ export default {
   'speaker_placeholder': 'Người nói',
   'line_placeholder': 'Câu thoại',
   'add_dialogue': 'Thêm đối thoại',
+  'dialogue_remove': 'Xoá đối thoại',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 
@@ -919,4 +964,11 @@ export default {
 
   // SystemConfigPage - language
   'language_setting': 'Ngôn ngữ',
+
+  // Tab labels (timeline / grid canvas)
+  'tab_grid_preview': 'Lưới ảnh',
+  'grid_preview_summary': '{{batches}} đợt · {{cells}} ô · {{percent}}% sẵn sàng',
+  'grid_preview_batch_card_title': 'Đợt #{{index}} · {{cellCount}} ô · {{rows}}×{{cols}}',
+  'grid_preview_batch_generate': 'Tạo lưới này',
+  'grid_preview_empty_episode': 'Tập này chưa có phân cảnh — hãy chia kịch bản trong Tiền xử lý trước',
 };

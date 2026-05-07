@@ -98,27 +98,32 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(addSpy).toHaveBeenCalled());
   });
 
-  // #367: 容器宽度而非视口宽度驱动响应式布局；@4xl 以下出现 editor/preview tab。
-  it("renders with @container wrapper and editor/preview tabs for small containers", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
-    const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    expect((container.firstChild as HTMLElement).className).toMatch(/@container/);
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(2);
-    expect(tabs[0]).toHaveAttribute("aria-selected", "true"); // default editor
-  });
-
-  it("switches small-screen tab between editor and preview", async () => {
+  // 主 tab：视频单元 / 拆分预处理。默认 "视频单元"，即 UnitList 区域可见。
+  it("renders the main tab bar with 'units' selected by default", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    const [editorTab, previewTab] = screen.getAllByRole("tab");
-    fireEvent.click(previewTab);
-    expect(previewTab).toHaveAttribute("aria-selected", "true");
-    expect(editorTab).toHaveAttribute("aria-selected", "false");
-    fireEvent.click(editorTab);
-    expect(editorTab).toHaveAttribute("aria-selected", "true");
+    const tabs = screen.getAllByRole("tab");
+    // 主 tab 至少 2 个；小屏 stackPreview 还会再加 2 个 sub-tab
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    const unitsTab = screen.getByRole("tab", { name: /Video units|视频单元/ });
+    expect(unitsTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("switches main tab between units and preprocess", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+    const unitsTab = screen.getByRole("tab", { name: /Video units|视频单元/ });
+    const preprocTab = screen.getByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    fireEvent.click(preprocTab);
+    expect(preprocTab).toHaveAttribute("aria-selected", "true");
+    expect(unitsTab).toHaveAttribute("aria-selected", "false");
+    // 拆分预处理 tab 下 UnitList 不渲染
+    expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
+    fireEvent.click(unitsTab);
+    expect(unitsTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
   });
 
   // 默认选中第一个 unit，避免出现 "有 units 但 editor 区域显示占位" 的不一致状态。
@@ -136,27 +141,19 @@ describe("ReferenceVideoCanvas", () => {
     expect(ta.value).toContain("first");
   });
 
-  // #369 + 后续优化：预处理入口是 title 行内的按钮（带 unit 数），点击后主内容区切到二级页面；
-  // 返回按钮可以切回编辑态。折叠卡片已废弃。
-  it("exposes a preproc button in the header that navigates to a dedicated preproc page", async () => {
+  // v3 重构：preproc 入口从二级页面跳转改为主 tab 切换；不再有"返回编辑"按钮。
+  // 切到拆分预处理 tab 后，UnitList 被隐藏，PreprocessingView inline 渲染。
+  it("inline-renders preprocessing view via the main tab", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    const enter = screen.getByRole("button", { name: /Reference units split complete|Units 拆分已完成/ });
-    expect(enter.textContent).toMatch(/2/);
-    // 初始状态：编辑 UI 可见，预处理二级页面的返回按钮不存在
-    expect(screen.queryByRole("button", { name: /Back to editor|返回编辑/ })).not.toBeInTheDocument();
-
-    fireEvent.click(enter);
-    const back = await screen.findByRole("button", { name: /Back to editor|返回编辑/ });
-    // 二级页面下 UnitList 被隐藏（row 不再渲染）
+    const preprocTab = screen.getByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    fireEvent.click(preprocTab);
+    // tab 切换后 UnitList 被隐藏；PreprocessingView 由调用方控制 toolbar 已不再显示返回按钮（直接 inline）
+    expect(preprocTab).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
-
-    fireEvent.click(back);
-    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: /Back to editor|返回编辑/ })).not.toBeInTheDocument();
   });
 
   // #370 optimistic：任务队列 3s 轮询间隙内按钮也要立刻反馈 busy，否则用户

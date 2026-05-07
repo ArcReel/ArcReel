@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Check, Circle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { Turn, TodoItem } from "@/types";
 
@@ -49,7 +50,9 @@ interface TodoListPanelProps {
 }
 
 export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
+  const { t } = useTranslation("dashboard");
   const [collapsed, setCollapsed] = useState(false);
+  const listId = useId();
 
   const todos = useMemo(
     () => extractLatestTodos(turns, draftTurn),
@@ -65,44 +68,79 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
   const total = todos.length;
   const progressPercent = Math.round((completedCount / total) * 100);
   const currentTask = todos.find((t) => t.status === "in_progress");
-  const headerLabel = currentTask?.activeForm ?? "任务进行中";
+  const headerLabel = currentTask?.activeForm ?? t("task_in_progress_default");
 
   return (
-    <div className="mx-3 mb-1 rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
+    <div
+      className="mx-3 mb-1 overflow-hidden rounded-lg"
+      style={{
+        border: "1px solid var(--color-hairline-soft)",
+        background: "oklch(0.20 0.012 265 / 0.5)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+      }}
+    >
       {/* Header – always visible, toggles collapse */}
       <button
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/5"
+        aria-expanded={!collapsed}
+        aria-controls={listId}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors"
+        style={{ color: "var(--color-text-2)" }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "oklch(0.24 0.012 265 / 0.5)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
       >
         {/* Chevron */}
         {collapsed ? (
-          <ChevronRight className="h-3 w-3 shrink-0 text-slate-500" />
+          <ChevronRight
+            className="h-3 w-3 shrink-0"
+            style={{ color: "var(--color-text-4)" }}
+          />
         ) : (
-          <ChevronDown className="h-3 w-3 shrink-0 text-slate-500" />
+          <ChevronDown
+            className="h-3 w-3 shrink-0"
+            style={{ color: "var(--color-text-4)" }}
+          />
         )}
 
         {/* Pulse dot for in_progress */}
         {currentTask && (
           <span className="relative flex h-2 w-2 shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+            <span
+              className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+              style={{ background: "var(--color-warn)" }}
+            />
+            <span
+              className="relative inline-flex h-2 w-2 rounded-full"
+              style={{ background: "var(--color-warn)" }}
+            />
           </span>
         )}
 
         {/* Current task label */}
-        <span className="flex-1 truncate text-xs text-slate-300">
+        <span
+          className="flex-1 truncate text-[12px]"
+          style={{ color: "var(--color-text-2)" }}
+        >
           {headerLabel}
         </span>
 
         {/* Progress bar + count */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <ProgressBar
             value={progressPercent}
-            className="h-1 w-16 bg-white/10"
-            barClassName="bg-emerald-500 transition-all duration-500 ease-out"
+            className="h-1 w-16 rounded-full bg-[oklch(0.30_0.012_265_/_0.5)]"
+            barClassName="bg-(--color-good) transition-all duration-500 ease-out"
           />
-          <span className="text-[10px] tabular-nums text-slate-500">
+          <span
+            className="num text-[10px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
             {completedCount}/{total}
           </span>
         </div>
@@ -110,9 +148,13 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
 
       {/* Expanded task list */}
       {!collapsed && (
-        <div className="border-t border-white/5 px-3 py-1.5 space-y-0.5">
-          {todos.map((todo) => (
-            <TodoRow key={`${todo.content}-${todo.status}`} todo={todo} />
+        <div
+          id={listId}
+          className="space-y-0.5 px-3 py-1.5"
+          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+        >
+          {todos.map((todo, idx) => (
+            <TodoRow key={`${idx}-${todo.content}-${todo.status}`} todo={todo} />
           ))}
         </div>
       )}
@@ -128,29 +170,42 @@ function TodoRow({ todo }: { todo: TodoItem }) {
   const isCompleted = todo.status === "completed";
   const isInProgress = todo.status === "in_progress";
 
+  const labelColor = isCompleted
+    ? "var(--color-text-4)"
+    : isInProgress
+      ? "var(--color-text)"
+      : "var(--color-text-3)";
+
   return (
     <div className="flex items-center gap-2 py-0.5">
       {/* Status icon */}
       {isCompleted ? (
-        <Check className="h-3 w-3 shrink-0 text-emerald-400" />
+        <Check
+          className="h-3 w-3 shrink-0"
+          style={{ color: "var(--color-good)" }}
+        />
       ) : isInProgress ? (
         <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
-          <span className="absolute h-2 w-2 animate-ping rounded-full bg-amber-400 opacity-40" />
-          <span className="relative h-1.5 w-1.5 rounded-full bg-amber-400" />
+          <span
+            className="absolute h-2 w-2 animate-ping rounded-full opacity-40"
+            style={{ background: "var(--color-warn)" }}
+          />
+          <span
+            className="relative h-1.5 w-1.5 rounded-full"
+            style={{ background: "var(--color-warn)" }}
+          />
         </span>
       ) : (
-        <Circle className="h-3 w-3 shrink-0 text-slate-600" />
+        <Circle
+          className="h-3 w-3 shrink-0"
+          style={{ color: "var(--color-text-4)" }}
+        />
       )}
 
       {/* Label */}
       <span
-        className={
-          isCompleted
-            ? "text-xs text-slate-500 line-through"
-            : isInProgress
-              ? "text-xs text-slate-200"
-              : "text-xs text-slate-400"
-        }
+        className={`text-[12px] ${isCompleted ? "line-through" : ""}`}
+        style={{ color: labelColor }}
       >
         {todo.content}
       </span>

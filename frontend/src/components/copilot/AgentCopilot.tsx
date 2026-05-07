@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useId } from "react";
 import { voidCall, voidPromise } from "@/utils/async";
 import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -43,6 +43,7 @@ function SessionSelector({
   const { sessions, currentSessionId, isDraftSession } = useAssistantStore();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const displayTitle = isDraftSession ? t("new_session") : (currentSession?.title || formatTime(currentSession?.created_at, t));
@@ -52,7 +53,19 @@ function SessionSelector({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] transition-colors focus-ring"
+        style={{ color: "var(--color-text-3)" }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
+          e.currentTarget.style.color = "var(--color-text)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "var(--color-text-3)";
+        }}
         title={t("switch_session")}
       >
         <MessageSquare className="h-3 w-3" />
@@ -68,23 +81,44 @@ function SessionSelector({
           sideOffset={4}
           width="w-64"
           layer="assistantLocalPopover"
-          className="rounded-lg border border-gray-700 shadow-xl"
+          className="overflow-hidden rounded-lg"
+          style={{
+            border: "1px solid var(--color-hairline)",
+            background:
+              "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))",
+            boxShadow:
+              "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline-soft)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+          }}
         >
-          <div className="max-h-60 overflow-y-auto py-1">
+          <div id={listboxId} role="menu" className="max-h-60 overflow-y-auto py-1">
             {sessions.map((session) => {
               const isActive = session.id === currentSessionId;
               const title = session.title || formatTime(session.created_at, t);
               return (
                 <div
                   key={session.id}
-                  className={`group flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                  className="group flex items-center gap-2 px-3 py-2 text-[12.5px] transition-colors"
+                  style={
                     isActive
-                      ? "bg-indigo-500/10 text-indigo-300"
-                      : "text-gray-300 hover:bg-gray-800"
-                  }`}
+                      ? {
+                          background: "var(--color-accent-dim)",
+                          color: "var(--color-accent-2)",
+                        }
+                      : { color: "var(--color-text-2)" }
+                  }
+                  onMouseEnter={(e) => {
+                    if (!isActive)
+                      e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.5)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) e.currentTarget.style.background = "transparent";
+                  }}
                 >
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={() => { onSwitch(session.id); setOpen(false); }}
                     className="flex flex-1 items-center gap-2 truncate text-left"
                   >
@@ -93,9 +127,18 @@ function SessionSelector({
                   </button>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={(e) => { e.stopPropagation(); if (confirm(t("confirm_delete_session"))) onDelete(session.id); }}
-                    className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                    className="focus-ring shrink-0 rounded p-0.5 opacity-0 transition-all group-hover:opacity-100 focus-visible:opacity-100"
+                    style={{ color: "var(--color-text-4)" }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = "var(--color-danger)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = "var(--color-text-4)";
+                    }}
                     title={t("delete_session")}
+                    aria-label={t("delete_session")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -111,14 +154,17 @@ function SessionSelector({
 
 function StatusDot({ status }: { status: string }) {
   const colorMap: Record<string, string> = {
-    idle: "bg-gray-500",
-    running: "bg-amber-400",
-    completed: "bg-green-500",
-    error: "bg-red-500",
-    interrupted: "bg-gray-400",
+    idle: "var(--color-text-4)",
+    running: "var(--color-warn)",
+    completed: "var(--color-good)",
+    error: "var(--color-danger)",
+    interrupted: "var(--color-text-3)",
   };
   return (
-    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${colorMap[status] ?? "bg-gray-500"}`} />
+    <span
+      className="h-1.5 w-1.5 shrink-0 rounded-full"
+      style={{ background: colorMap[status] ?? "var(--color-text-4)" }}
+    />
   );
 }
 
@@ -327,36 +373,81 @@ export function AgentCopilot() {
   }, [allTurns.length]);
 
   return (
-    <div className="relative isolate flex h-full flex-col">
+    <div
+      className="relative isolate flex h-full flex-col"
+      style={{ background: "oklch(0.19 0.011 250 / 0.5)" }}
+    >
       {/* Header */}
-      <div className="flex h-10 items-center justify-between border-b border-gray-800 px-3">
-        <div className="flex items-center gap-2">
+      <div
+        className="flex h-12 items-center gap-2 px-3"
+        style={{ borderBottom: "1px solid var(--color-hairline)" }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <button
             type="button"
             onClick={toggleAssistantPanel}
-            className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+            className="shrink-0 rounded p-1 transition-colors focus-ring"
+            style={{ color: "var(--color-text-3)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
+              e.currentTarget.style.color = "var(--color-text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--color-text-3)";
+            }}
             title={t("collapse_panel")}
+            aria-label={t("collapse_panel")}
           >
-            <PanelRightClose className="h-4 w-4" />
+            <PanelRightClose aria-hidden className="h-4 w-4" />
           </button>
-          <Bot className="h-4 w-4 text-indigo-400" />
-          <span className="text-sm font-medium text-gray-300">{t("arcreel_agent")}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          {isRunning && (
-            <span className="flex items-center gap-1.5 text-xs text-indigo-400 mr-1">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" />
+          <div
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
+            style={{
+              background:
+                "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+              color: "oklch(0.12 0 0)",
+            }}
+          >
+            <Bot className="h-3.5 w-3.5" />
+          </div>
+          {isRunning ? (
+            <span
+              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px]"
+              style={{ color: "var(--color-accent-2)" }}
+              title={t("arcreel_agent")}
+            >
+              <span
+                className="h-1.5 w-1.5 animate-pulse rounded-full"
+                style={{ background: "var(--color-accent)" }}
+              />
               {t("thinking")}
             </span>
+          ) : (
+            <span className="display-serif min-w-0 truncate text-[13px] font-semibold leading-[1.1]">
+              {t("arcreel_agent")}
+            </span>
           )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           <SessionSelector onSwitch={voidPromise(switchSession)} onDelete={voidPromise(deleteSession)} />
           <button
             type="button"
             onClick={createNewSession}
-            className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+            className="rounded p-1 transition-colors focus-ring"
+            style={{ color: "var(--color-text-3)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
+              e.currentTarget.style.color = "var(--color-text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--color-text-3)";
+            }}
             title={t("new_session")}
+            aria-label={t("new_session")}
           >
-            <Plus className="h-4 w-4" />
+            <Plus aria-hidden className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -365,12 +456,33 @@ export function AgentCopilot() {
       <ContextBanner />
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-3 py-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
         {allTurns.length === 0 && !messagesLoading && (
-          <div className="flex h-full flex-col items-center justify-center text-center text-gray-500">
-            <Bot className="mb-3 h-8 w-8 text-gray-600" />
-            <p className="text-sm">{t("start_chat_hint")}</p>
-            <p className="mt-1 text-xs text-gray-600">
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div
+              className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
+              style={{
+                background:
+                  "linear-gradient(135deg, var(--color-accent-dim), oklch(0.22 0.011 265 / 0.6))",
+                border: "1px solid var(--color-accent-soft)",
+                boxShadow: "0 0 24px -8px var(--color-accent-glow)",
+              }}
+            >
+              <Bot
+                className="h-5 w-5"
+                style={{ color: "var(--color-accent-2)" }}
+              />
+            </div>
+            <p
+              className="display-serif text-[14px] font-semibold"
+              style={{ color: "var(--color-text)" }}
+            >
+              {t("start_chat_hint")}
+            </p>
+            <p
+              className="mt-1 text-[11.5px]"
+              style={{ color: "var(--color-text-3)" }}
+            >
               {t("quick_skill_hint")}
             </p>
           </div>
@@ -392,13 +504,25 @@ export function AgentCopilot() {
       <TodoListPanel turns={turns} draftTurn={draftTurn} />
 
       {!pendingQuestion && (error || attachError) && (
-        <div className="border-t border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="px-3 py-2 text-[11.5px]"
+          style={{
+            borderTop: "1px solid oklch(0.70 0.18 25 / 0.3)",
+            background: "oklch(0.70 0.18 25 / 0.12)",
+            color: "oklch(0.85 0.10 25)",
+          }}
+        >
           {error || attachError}
         </div>
       )}
 
       {/* Input area */}
-      <div className="border-t border-gray-800 p-3">
+      <div
+        className="p-3"
+        style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+      >
         {/* Thumbnail strip */}
         {attachedImages.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -413,13 +537,29 @@ export function AgentCopilot() {
                   <img
                     src={img.dataUrl}
                     alt={t("assistant_input")}
-                    className="h-16 w-16 rounded-md object-cover border border-gray-600"
+                    className="h-16 w-16 rounded-md object-cover"
+                    style={{ border: "1px solid var(--color-hairline)" }}
                   />
                 </button>
                 <button
                   type="button"
                   onClick={() => removeImage(img.id)}
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-gray-300 hover:bg-red-500 hover:text-white"
+                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full transition-colors focus-ring"
+                  style={{
+                    background: "oklch(0.14 0.008 265)",
+                    color: "var(--color-text-2)",
+                    border: "1px solid var(--color-hairline)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--color-danger)";
+                    e.currentTarget.style.color = "oklch(0.14 0 0)";
+                    e.currentTarget.style.borderColor = "var(--color-danger)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "oklch(0.14 0.008 265)";
+                    e.currentTarget.style.color = "var(--color-text-2)";
+                    e.currentTarget.style.borderColor = "var(--color-hairline)";
+                  }}
                   aria-label={t("remove_image")}
                 >
                   <X className="h-2.5 w-2.5" />
@@ -430,9 +570,18 @@ export function AgentCopilot() {
         )}
 
         <div
-          className={`relative flex items-end gap-2 rounded-lg border bg-gray-800 px-3 py-2 transition-colors ${
-            isDragOver ? "border-indigo-500 bg-indigo-500/10" : "border-gray-700"
-          }`}
+          className="relative flex items-end gap-2 rounded-lg px-3 py-2 transition-colors"
+          style={{
+            border: `1px solid ${isDragOver ? "var(--color-accent)" : "var(--color-hairline)"}`,
+            background: isDragOver
+              ? "var(--color-accent-dim)"
+              : "oklch(0.20 0.012 265 / 0.7)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            boxShadow: isDragOver
+              ? "0 0 0 3px var(--color-accent-soft), inset 0 1px 0 oklch(1 0 0 / 0.04)"
+              : "inset 0 1px 0 oklch(1 0 0 / 0.04)",
+          }}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -460,8 +609,11 @@ export function AgentCopilot() {
               // eslint-disable-next-line react-hooks/refs -- aria-activedescendant 需实时读取 slashMenuRef 的派生值，改用回调 prop 需修改 SlashCommandMenu 接口，超出范围
               slashMenuRef.current?.activeDescendantId
             }
-            className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none overflow-hidden"
-            style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh` }}
+            className="flex-1 resize-none overflow-hidden bg-transparent text-[13px] outline-none"
+            style={{
+              maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh`,
+              color: "var(--color-text)",
+            }}
             disabled={inputDisabled}
           />
 
@@ -470,7 +622,18 @@ export function AgentCopilot() {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={attachDisabled}
-            className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-30"
+            className="shrink-0 rounded p-1.5 transition-colors focus-ring disabled:opacity-30"
+            style={{ color: "var(--color-text-3)" }}
+            onMouseEnter={(e) => {
+              if (!attachDisabled) {
+                e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
+                e.currentTarget.style.color = "var(--color-text)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--color-text-3)";
+            }}
             title={attachedImages.length >= MAX_IMAGES ? t("max_images_hint", { count: MAX_IMAGES }) : t("attach_image")}
             aria-label={t("attach_image")}
           >
@@ -480,7 +643,14 @@ export function AgentCopilot() {
           {isRunning ? (
             <button
               onClick={voidPromise(interrupt)}
-              className="shrink-0 rounded p-1.5 text-red-400 hover:bg-gray-700"
+              className="shrink-0 rounded p-1.5 transition-colors focus-ring"
+              style={{ color: "var(--color-danger)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "oklch(0.70 0.18 25 / 0.15)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
               title={t("stop_session")}
               aria-label={t("stop_session")}
             >
@@ -490,7 +660,14 @@ export function AgentCopilot() {
             <button
               onClick={handleSend}
               disabled={(!localInput.trim() && attachedImages.length === 0) || inputDisabled}
-              className="shrink-0 rounded p-1.5 text-indigo-400 hover:bg-gray-700 disabled:opacity-30"
+              className="shrink-0 rounded-md p-1.5 transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-30"
+              style={{
+                color: "oklch(0.14 0 0)",
+                background:
+                  "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                boxShadow:
+                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",
+              }}
               title={t("send_message")}
               aria-label={t("send_message")}
             >

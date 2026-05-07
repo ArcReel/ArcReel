@@ -1,499 +1,339 @@
-
-import { useState, useEffect, useRef, useCallback } from "react";
-import { errMsg, voidCall } from "@/utils/async";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import {
+  ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  FileText,
+  LayoutDashboard,
+  BookOpen,
   Users,
-  Film,
-  Circle,
-  User,
   Landmark,
   Package,
-  LayoutDashboard,
-  Upload,
-  X,
+  Plus,
+  Search,
 } from "lucide-react";
-import { API, ConflictError } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useCostStore } from "@/stores/cost-store";
 import { useAppStore } from "@/stores/app-store";
-// ---------------------------------------------------------------------------
-// Sidebar Dot Status mapping
-// ---------------------------------------------------------------------------
-
-const STATUS_DOT_CLASSES: Record<string, string> = {
-  draft: "text-gray-600",
-  scripted: "text-indigo-500",
-  in_production: "text-amber-500",
-  completed: "text-emerald-500",
-};
-
-// ---------------------------------------------------------------------------
-// CollapsibleSection — sub-component for sidebar groups
-// ---------------------------------------------------------------------------
-
-function CollapsibleSection({
-  title,
-  icon: Icon,
-  children,
-  action,
-  defaultOpen = false,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-  action?: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  return (
-    <div className="flex flex-col">
-      <div className="group flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-300">
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="flex flex-1 items-center gap-2 focus-ring rounded"
-        >
-          {isOpen ? (
-            <ChevronDown className="h-3 w-3 shrink-0" />
-          ) : (
-            <ChevronRight className="h-3 w-3 shrink-0" />
-          )}
-          <Icon className="h-3.5 w-3.5 shrink-0" />
-          <span>{title}</span>
-        </button>
-        {action && (
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-            {action}
-          </div>
-        )}
-      </div>
-      {isOpen && <div className="pb-2">{children}</div>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// AssetThumbnail — shared thumbnail for characters (circle) and scenes/props (square)
-// ---------------------------------------------------------------------------
-
-function AssetThumbnail({
-  name,
-  sheetPath,
-  projectName,
-  shape,
-  FallbackIcon,
-}: {
-  name: string;
-  sheetPath: string | undefined;
-  projectName: string;
-  shape: "circle" | "square";
-  FallbackIcon: React.ComponentType<{ className?: string }>;
-}) {
-  const sheetFp = useProjectsStore((s) =>
-    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
-  );
-  const [imgError, setImgError] = useState(false);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 图片源变更时重置错误态，确保新 URL 正常加载
-    setImgError(false);
-  }, [sheetFp, sheetPath]);
-
-  const roundedClass = shape === "circle" ? "rounded-full" : "rounded";
-
-  if (!sheetPath || imgError) {
-    return (
-      <span className={`flex h-6 w-6 shrink-0 items-center justify-center ${roundedClass} bg-gray-700 text-gray-400`}>
-        <FallbackIcon className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-
-  return (
-    <img
-      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-      alt={name}
-      className={`h-6 w-6 shrink-0 ${roundedClass} object-cover`}
-      onError={() => setImgError(true)}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// EmptyAction — clickable empty placeholder that navigates to relevant page
-// ---------------------------------------------------------------------------
-
-function EmptyAction({ text, onClick }: { text: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full text-left px-8 py-2 text-[11px] italic text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 transition-colors"
-    >
-      {text} →
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// EmptyState — shared empty placeholder (used for source files / episodes)
-// ---------------------------------------------------------------------------
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="px-8 py-3 text-[11px] italic text-gray-600">
-      {text}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// AssetSidebar
-// ---------------------------------------------------------------------------
+import { API } from "@/api";
+import { EpisodeCard } from "./EpisodeCard";
 
 interface AssetSidebarProps {
   className?: string;
 }
 
+interface NavItem {
+  key: string;
+  path: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  meta?: number;
+}
+
+/**
+ * 工作台侧栏 v3：
+ * - 工作区导航（5 个胶囊按钮：项目概览 / 源文件 / 角色集 / 场景库 / 道具库）
+ * - 分集列表（搜索 + 卡片列表，每张卡片含缩略+状态+进度+费用）
+ * - 折叠态（64px）：仅图标 + Ex 字符
+ */
 export function AssetSidebar({ className }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
-  const tRef = useRef(t);
-  // eslint-disable-next-line react-hooks/refs -- tRef 是稳定 event-handler ref 模式，用于在回调中获取最新 t 而不触发无限 useCallback 重建
-  tRef.current = t;
-  const { currentProjectData, currentProjectName } = useProjectsStore();
-  const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
+  const { currentProjectName, currentProjectData } = useProjectsStore();
+  const debouncedFetchCost = useCostStore((s) => s.debouncedFetch);
   const [location, setLocation] = useLocation();
+  const [collapsed, setCollapsed] = useState(false);
+  const [search, setSearch] = useState("");
 
-  const characters = currentProjectData?.characters ?? {};
-  const scenes = currentProjectData?.scenes ?? {};
-  const props = currentProjectData?.props ?? {};
+  const characterCount = Object.keys(currentProjectData?.characters ?? {}).length;
+  const sceneCount = Object.keys(currentProjectData?.scenes ?? {}).length;
+  const propCount = Object.keys(currentProjectData?.props ?? {}).length;
   const episodes = currentProjectData?.episodes ?? [];
-  const projectName = currentProjectName ?? "";
 
-  // 源文件列表
-  type SourceItem = { name: string; rawFilename: string | null };
-  const [sourceFiles, setSourceFiles] = useState<SourceItem[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const loadSourceFiles = useCallback(() => {
-    if (!projectName) {
-      setSourceFiles([]);
-      return;
-    }
-    API.listFiles(projectName)
-      .then((res) => {
-        const items: SourceItem[] = (res.files.source ?? []).map((f) => ({
-          name: f.name,
-          rawFilename: f.raw_filename ?? null,
-        }));
-        setSourceFiles(items);
-      })
-      .catch(() => {
-        setSourceFiles([]);
-      });
-  }, [projectName]);
+  const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
+  const [sourceCount, setSourceCount] = useState<number>(0);
 
   useEffect(() => {
-    loadSourceFiles();
-  }, [loadSourceFiles, sourceFilesVersion]);
+    if (currentProjectName) debouncedFetchCost(currentProjectName);
+  }, [currentProjectName, debouncedFetchCost]);
 
-  // 上传源文件
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !projectName) return;
-    try {
-      await API.uploadFile(projectName, "source", file);
-      loadSourceFiles();
-      useAppStore.getState().invalidateSourceFiles();
-    } catch (err) {
-      // 侧边栏只给即时反馈，不弹冲突决策框（那个走主面板 OverviewCanvas）；
-      // 同名冲突提示建议改名，其他错误复用通用 upload_failed 前缀
-      if (err instanceof ConflictError) {
-        useAppStore.getState().pushToast(
-          tRef.current("dashboard:source_upload_conflict_toast", {
-            filename: err.existing,
-            suggested: err.suggestedName,
-          }),
-          "error",
-        );
-      } else {
-        useAppStore.getState().pushToast(
-          `${tRef.current("dashboard:upload_failed")}${errMsg(err)}`,
-          "error",
-        );
-      }
-    }
-    // 重置 input 以允许再次选择同一文件
-    e.target.value = "";
-  }, [projectName, loadSourceFiles]);
+  useEffect(() => {
+    if (!currentProjectName) return;
+    let cancelled = false;
+    API.listFiles(currentProjectName)
+      .then((res) => {
+        if (!cancelled) setSourceCount(res.files?.source?.length ?? 0);
+      })
+      .catch(() => {
+        // 失败时保留上一份成功值，避免把网络/权限错误伪装成 0
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectName, sourceFilesVersion]);
 
-  // 删除源文件
-  const handleDeleteFile = useCallback(async (filename: string) => {
-    if (!projectName) return;
-    if (!confirm(tRef.current("dashboard:confirm_delete_file", { name: filename }))) return;
-    try {
-      await API.deleteSourceFile(projectName, filename);
-      loadSourceFiles();
-      useAppStore.getState().invalidateSourceFiles();
-      // 如果当前正在查看该文件，返回概览
-      if (location === `/source/${encodeURIComponent(filename)}`) {
-        setLocation("/");
-      }
-    } catch {
-      // 静默失败
-    }
-  }, [projectName, loadSourceFiles, location, setLocation]);
+  // Derive active episode from `/episodes/:id`
+  const activeEp = useMemo(() => {
+    const m = location.match(/^\/episodes\/(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+  }, [location]);
 
-  const characterEntries = Object.entries(characters);
-  const sceneEntries = Object.entries(scenes);
-  const propEntries = Object.entries(props);
+  const navItems: NavItem[] = [
+    { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
+    {
+      key: "source",
+      path: "/source",
+      label: t("dashboard:workspace_nav_source"),
+      icon: BookOpen,
+      meta: sourceCount,
+    },
+    {
+      key: "characters",
+      path: "/characters",
+      label: t("dashboard:workspace_nav_characters"),
+      icon: Users,
+      meta: characterCount,
+    },
+    {
+      key: "scenes",
+      path: "/scenes",
+      label: t("dashboard:workspace_nav_scenes"),
+      icon: Landmark,
+      meta: sceneCount,
+    },
+    {
+      key: "props",
+      path: "/props",
+      label: t("dashboard:workspace_nav_props"),
+      icon: Package,
+      meta: propCount,
+    },
+  ];
 
-  // Check if a path is active (matches current nested location)
-  const isActive = (path: string) => location === path;
+  const isNavActive = (item: NavItem): boolean => {
+    if (item.path === "/") return location === "/";
+    return location === item.path || location.startsWith(item.path + "/");
+  };
+
+  const filteredEps = episodes.filter(
+    (ep) => !search || ep.title.includes(search) || String(ep.episode).includes(search),
+  );
 
   return (
     <aside
-      className={`flex flex-col overflow-y-auto bg-gray-900 ${className ?? ""}`}
+      className={`flex flex-col overflow-hidden ${className ?? ""}`}
+      style={{
+        width: collapsed ? 64 : 256,
+        transition: "width .18s ease",
+        borderRight: "1px solid var(--color-hairline)",
+        background:
+          "linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5))",
+        boxShadow: "inset -1px 0 0 oklch(1 0 0 / 0.015)",
+      }}
     >
-      {/* ---- Project Overview nav item ---- */}
-      <button
-        type="button"
-        onClick={() => setLocation("/")}
-        className={`flex w-full items-center gap-2 px-3 py-2.5 text-sm transition-colors focus-ring ${
-          isActive("/")
-            ? "bg-gray-800 text-white"
-            : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-        }`}
-      >
-        <LayoutDashboard className="h-4 w-4 shrink-0 text-indigo-400" />
-        <span className="font-medium">{t("dashboard:project_overview")}</span>
-      </button>
+      {/* ---- Workspace nav ---- */}
+      <div className="px-2.5 pb-1.5 pt-2.5">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = isNavActive(item);
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setLocation(item.path)}
+              title={collapsed ? item.label : ""}
+              aria-label={collapsed ? item.label : undefined}
+              className="relative mb-px flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors focus-ring hover:bg-[oklch(0.26_0.012_265/0.5)]"
+              style={{
+                background: active
+                  ? "linear-gradient(90deg, var(--color-accent-soft), var(--color-accent-dim) 70%, transparent)"
+                  : "transparent",
+                color: active ? "var(--color-text)" : "var(--color-text-2)",
+              }}
+            >
+              {active && (
+                <span
+                  className="absolute -left-px top-[7px] bottom-[7px] w-0.5 rounded"
+                  style={{
+                    background: "var(--color-accent)",
+                    boxShadow: "0 0 8px var(--color-accent-glow)",
+                  }}
+                />
+              )}
+              <span
+                className="grid w-4 shrink-0 place-items-center"
+                style={{ color: active ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+              >
+                <Icon className="h-4 w-4" />
+              </span>
+              {!collapsed && (
+                <>
+                  <span
+                    className="flex-1 text-left text-[13px]"
+                    style={{
+                      fontWeight: active ? 600 : 500,
+                      letterSpacing: "-0.05px",
+                    }}
+                  >
+                    {item.label}
+                  </span>
+                  {item.meta != null && (
+                    <span
+                      className="num rounded-[3px] px-1.5 py-px text-[10.5px]"
+                      style={{
+                        color: active ? "var(--color-text-3)" : "var(--color-text-4)",
+                        background: active ? "oklch(0 0 0 / 0.2)" : "transparent",
+                      }}
+                    >
+                      {item.meta}
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* ---- Divider ---- */}
-      <div className="mx-3 border-t border-gray-800" />
+      <div
+        className="mx-3.5 my-1 h-px"
+        style={{ background: "var(--color-hairline-soft)" }}
+      />
 
-      {/* ---- Section 1: Source Files ---- */}
-      <CollapsibleSection
-        title={t("dashboard:source_files")}
-        icon={FileText}
-        action={
-          <>
+      {/* ---- Episodes ---- */}
+      {!collapsed ? (
+        <>
+          <div className="flex items-center gap-2 px-3.5 pb-1.5 pt-2.5">
+            <span
+              className="text-[10.5px] font-bold uppercase"
+              style={{ color: "var(--color-text-4)", letterSpacing: "0.8px" }}
+            >
+              {t("dashboard:episodes_section_title")}
+            </span>
+            <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+              {episodes.length}
+            </span>
+            <span className="flex-1" />
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring"
-              title={t("dashboard:upload_source_files")}
+              disabled
+              aria-disabled="true"
+              className="grid h-5 w-5 place-items-center rounded focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+              style={{
+                background: "oklch(0.28 0.012 250 / 0.6)",
+                color: "var(--color-text-3)",
+              }}
+              title={t("dashboard:add_episode_unavailable")}
+              aria-label={t("dashboard:add_episode")}
             >
-              <Upload className="h-3.5 w-3.5" />
+              <Plus className="h-3 w-3" />
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".txt,.md,.docx,.epub,.pdf"
-              aria-label={t("dashboard:upload_asset_file_aria")}
-              onChange={(e) => voidCall(handleUpload(e))}
-              className="hidden"
-            />
-          </>
-        }
+          </div>
+
+          <div className="px-2.5 pb-2">
+            <div
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
+              style={{
+                background: "oklch(0.16 0.010 250 / 0.6)",
+                border: "1px solid var(--color-hairline)",
+              }}
+            >
+              <Search
+                className="h-3 w-3 shrink-0"
+                style={{ color: "var(--color-text-4)" }}
+              />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("dashboard:episode_search_placeholder")}
+                aria-label={t("dashboard:episode_search_placeholder")}
+                className="min-w-0 flex-1 bg-transparent text-xs outline-none focus-ring"
+                style={{ color: "var(--color-text)" }}
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-2 pb-2.5">
+            {filteredEps.length === 0 ? (
+              <div
+                className="px-2 py-6 text-center text-[11px] italic"
+                style={{ color: "var(--color-text-4)" }}
+              >
+                {episodes.length === 0
+                  ? t("dashboard:no_episodes_yet")
+                  : t("dashboard:no_episode_search_results")}
+              </div>
+            ) : (
+              filteredEps.map((ep) => (
+                <EpisodeCard
+                  key={ep.episode}
+                  ep={ep}
+                  active={ep.episode === activeEp}
+                  onClick={() => setLocation(`/episodes/${ep.episode}`)}
+                />
+              ))
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 overflow-y-auto px-2.5 py-1.5">
+          {filteredEps.map((ep) => {
+            const epLabel = t("dashboard:episode_collapsed_button_label", {
+              episode: ep.episode,
+              title: ep.title,
+            });
+            return (
+            <button
+              key={ep.episode}
+              type="button"
+              onClick={() => setLocation(`/episodes/${ep.episode}`)}
+              title={epLabel}
+              aria-label={epLabel}
+              className="num mb-[3px] flex h-9 w-full items-center justify-center rounded-md text-[11px] font-bold focus-ring"
+              style={{
+                background: ep.episode === activeEp ? "var(--color-accent-dim)" : "transparent",
+                color:
+                  ep.episode === activeEp
+                    ? "var(--color-accent-2)"
+                    : "var(--color-text-3)",
+              }}
+            >
+              E{ep.episode}
+            </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ---- Collapse footer ---- */}
+      <div
+        className="flex items-center gap-2 px-2.5 py-2"
+        style={{
+          borderTop: "1px solid var(--color-hairline)",
+          background: "oklch(0.17 0.010 250 / 0.6)",
+        }}
       >
-        {sourceFiles.length === 0 ? (
-          <EmptyState text={t("dashboard:no_files_yet")} />
-        ) : (
-          <ul>
-            {sourceFiles.map((item) => {
-              const filePath = `/source/${encodeURIComponent(item.name)}`;
-              const active = isActive(filePath);
-              return (
-                <li key={item.name}>
-                  <div
-                    className={`group flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors ${
-                      active
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setLocation(filePath)}
-                      className="flex flex-1 items-center gap-2 truncate text-left focus-ring rounded"
-                    >
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-                      <span className="truncate">{item.name}</span>
-                    </button>
-                    {item.rawFilename && (
-                      <a
-                        href={API.getFileUrl(
-                          projectName,
-                          `source/raw/${encodeURIComponent(item.rawFilename)}`,
-                        )}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={t("common:download_original")}
-                        onClick={(e) => e.stopPropagation()}
-                        className="shrink-0 rounded p-0.5 text-xs text-gray-500 opacity-60 transition-opacity hover:opacity-100 focus-ring"
-                      >
-                        📎
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); voidCall(handleDeleteFile(item.name)); }}
-                      className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 focus-ring focus-visible:opacity-100"
-                      title={t("dashboard:delete_file")}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CollapsibleSection>
-
-      {/* ---- Divider ---- */}
-      <div className="mx-3 border-t border-gray-800" />
-
-      {/* ---- Section 2: Characters ---- */}
-      <CollapsibleSection title={t("dashboard:characters")} icon={Users} defaultOpen={true}>
-        {characterEntries.length === 0 ? (
-          <EmptyAction onClick={() => setLocation("/characters")} text={t("dashboard:no_characters_hint_clickable")} />
-        ) : (
-          <ul>
-            {characterEntries.map(([name, char]) => (
-              <li key={name}>
-                <button
-                  type="button"
-                  onClick={() => setLocation("/characters")}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                    isActive("/characters")
-                      ? "bg-gray-800 text-white"
-                      : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                  }`}
-                >
-                  <AssetThumbnail
-                    name={name}
-                    sheetPath={char.character_sheet}
-                    projectName={projectName}
-                    shape="circle"
-                    FallbackIcon={User}
-                  />
-                  <span className="truncate">{name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CollapsibleSection>
-
-      <div className="mx-3 border-t border-gray-800" />
-
-      {/* ---- Section 3: Scenes ---- */}
-      <CollapsibleSection title={t("dashboard:scenes")} icon={Landmark} defaultOpen={true}>
-        {sceneEntries.length === 0 ? (
-          <EmptyAction onClick={() => setLocation("/scenes")} text={t("dashboard:no_scenes_hint_clickable")} />
-        ) : (
-          <ul>
-            {sceneEntries.map(([name, scene]) => (
-              <li key={name}>
-                <button
-                  type="button"
-                  onClick={() => setLocation("/scenes")}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                    isActive("/scenes")
-                      ? "bg-gray-800 text-white"
-                      : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                  }`}
-                >
-                  <AssetThumbnail name={name} sheetPath={scene.scene_sheet} projectName={projectName} shape="square" FallbackIcon={Landmark} />
-                  <span className="truncate">{name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CollapsibleSection>
-
-      <div className="mx-3 border-t border-gray-800" />
-
-      {/* ---- Section 4: Props ---- */}
-      <CollapsibleSection title={t("dashboard:props")} icon={Package} defaultOpen={true}>
-        {propEntries.length === 0 ? (
-          <EmptyAction onClick={() => setLocation("/props")} text={t("dashboard:no_props_hint_clickable")} />
-        ) : (
-          <ul>
-            {propEntries.map(([name, prop]) => (
-              <li key={name}>
-                <button
-                  type="button"
-                  onClick={() => setLocation("/props")}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                    isActive("/props")
-                      ? "bg-gray-800 text-white"
-                      : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                  }`}
-                >
-                  <AssetThumbnail name={name} sheetPath={prop.prop_sheet} projectName={projectName} shape="square" FallbackIcon={Package} />
-                  <span className="truncate">{name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CollapsibleSection>
-
-      {/* ---- Divider ---- */}
-      <div className="mx-3 border-t border-gray-800" />
-
-      {/* ---- Section 3: Episodes ---- */}
-      <CollapsibleSection title={t("dashboard:episodes")} icon={Film} defaultOpen={true}>
-        {episodes.length === 0 ? (
-          <EmptyState text={t("dashboard:no_episodes_yet")} />
-        ) : (
-          <ul>
-            {episodes.map((ep) => {
-              const episodePath = `/episodes/${ep.episode}`;
-              const active = isActive(episodePath);
-              const isSegmented = ep.script_status === "segmented";
-              const statusClass =
-                STATUS_DOT_CLASSES[isSegmented ? "draft" : (ep.status ?? "draft")] ??
-                STATUS_DOT_CLASSES.draft;
-
-              return (
-                <li key={ep.episode}>
-                  <button
-                    type="button"
-                    onClick={() => setLocation(episodePath)}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                      active
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                    }`}
-                  >
-                    <Circle
-                      className={`h-2.5 w-2.5 shrink-0 fill-current ${statusClass}`}
-                    />
-                    <span className="truncate">
-                      E{ep.episode}: {ep.title}
-                    </span>
-                    {isSegmented && !ep.scenes_count && (
-                      <span className="ml-auto shrink-0 rounded bg-indigo-950 px-1.5 py-0.5 text-[10px] text-indigo-400">
-                        {t("dashboard:preprocessing")}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CollapsibleSection>
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="grid h-7 w-7 place-items-center rounded-md focus-ring"
+          aria-expanded={!collapsed}
+          style={{
+            background: "oklch(0.24 0.012 250 / 0.5)",
+            color: "var(--color-text-3)",
+          }}
+          title={collapsed ? t("dashboard:sidebar_expand") : t("dashboard:sidebar_collapse")}
+          aria-label={
+            collapsed ? t("dashboard:sidebar_expand") : t("dashboard:sidebar_collapse")
+          }
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronLeft className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </div>
     </aside>
   );
 }

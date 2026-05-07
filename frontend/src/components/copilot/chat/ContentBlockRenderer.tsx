@@ -94,7 +94,8 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
       return (
         <div
           key={block.id ?? `block-${index}`}
-          className="my-1 flex items-center gap-1.5 text-xs text-amber-400"
+          className="my-1 flex items-center gap-1.5 text-[11.5px]"
+          style={{ color: "var(--color-warn)" }}
         >
           <span>{"\u25A0"}</span>
           <span>用户中断了会话</span>

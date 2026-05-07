@@ -3,31 +3,121 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-    --color-ink-950: #060a0f;
-    --color-ink-900: #0b1320;
-    --color-ink-800: #132034;
-    --color-ink-700: #22344f;
-    --color-neon-500: #11d3ac;
-    --color-neon-400: #34e7c5;
-    --color-neon-300: #6af2d8;
-    --color-amberx-500: #f0a93e;
-    --color-amberx-400: #f6be67;
-    --color-amberx-300: #ffd892;
-    --shadow-glow: 0 0 0 1px rgba(17, 211, 172, 0.28), 0 18px 40px rgba(8, 15, 25, 0.45);
+    /* 工作台基础色 — oklch 系 */
+    --color-bg: oklch(0.168 0.009 265);
+    --color-bg-grad-a: oklch(0.182 0.011 270);
+    --color-bg-grad-b: oklch(0.148 0.009 260);
+    --color-surface-2: oklch(0.250 0.012 265);
 
-    /* Studio theme colors — 工作台主题色 */
-    --color-studio-bg: #030712;
-    --color-studio-panel: #111827;
-    --color-studio-border: #1f2937;
-    --color-accent-start: #4f46e5;
-    --color-accent-end: #4f46e5;
+    /* 描边 */
+    --color-hairline: oklch(0.40 0.012 265 / 0.35);
+    --color-hairline-strong: oklch(0.45 0.014 265 / 0.55);
+    --color-hairline-soft: oklch(0.40 0.012 265 / 0.18);
 
-    /* Font families — 字体定义 */
+    /* 文字四档 */
+    --color-text: oklch(0.975 0.004 265);
+    --color-text-2: oklch(0.820 0.008 265);
+    --color-text-3: oklch(0.640 0.010 265);
+    --color-text-4: oklch(0.490 0.010 265);
+
+    /* Accent — 紫色 */
+    --color-accent: oklch(0.76 0.09 295);
+    --color-accent-2: oklch(0.88 0.05 295);
+    --color-accent-soft: oklch(0.76 0.09 295 / 0.22);
+    --color-accent-dim: oklch(0.76 0.09 295 / 0.12);
+    --color-accent-glow: oklch(0.76 0.09 295 / 0.35);
+
+    /* 状态色 */
+    --color-good: oklch(0.78 0.10 155);
+    --color-warn: oklch(0.80 0.12 70);
+    --color-danger: oklch(0.70 0.18 25);
+
+    /* 暖色调 — 警告 / stale / 暖系强调（琥珀） */
+    --color-warm: oklch(0.85 0.13 75);
+    --color-warm-bright: oklch(0.92 0.13 75);
+    --color-warm-fade: oklch(0.85 0.13 75 / 0.5);
+    --color-warm-soft: oklch(0.30 0.10 75 / 0.16);
+    --color-warm-tint: oklch(0.30 0.10 75 / 0.25);
+    --color-warm-tint-faint: oklch(0.30 0.10 75 / 0.05);
+    --color-warm-ring: oklch(0.45 0.13 75 / 0.40);
+    --color-warm-glow: oklch(0.45 0.13 75 / 0.45);
+
+    /* 危险色（高亮变体） — 用于覆盖/删除等有损动作 CTA */
+    --color-danger-2: oklch(0.85 0.10 25);
+    --color-danger-bright: oklch(0.92 0.10 25);
+    --color-danger-soft: oklch(0.30 0.10 25 / 0.16);
+    --color-danger-ring: oklch(0.45 0.18 25 / 0.40);
+    --color-danger-glow: oklch(0.45 0.18 25 / 0.45);
+
+    /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分 */
     --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
-    --font-mono: "Fira Code", "Noto Sans Mono", monospace;
+    --font-display: "Inter", "Noto Sans SC", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", "Noto Sans Mono", ui-monospace, monospace;
+
+    /* 阴影 */
+    --shadow-glow: 0 0 0 1px oklch(0.76 0.09 295 / 0.28), 0 18px 40px oklch(0 0 0 / 0.45);
+
+    /* ---- Legacy aliases — 旧组件继续可用，逐步迁移 ---- */
+    --color-ink-950: oklch(0.148 0.009 260);
+    --color-ink-900: oklch(0.168 0.009 265);
+    --color-ink-850: oklch(0.182 0.011 270);
+    --color-ink-800: oklch(0.250 0.012 265);
+    --color-ink-700: oklch(0.310 0.013 265);
+    --color-neon-500: oklch(0.76 0.09 295);
+    --color-neon-400: oklch(0.82 0.07 295);
+    --color-neon-300: oklch(0.88 0.05 295);
+    --color-amberx-500: oklch(0.78 0.13 70);
+    --color-amberx-400: oklch(0.84 0.10 70);
+    --color-amberx-300: oklch(0.90 0.08 75);
+
+    /* studio-* 旧别名映射 */
+    --color-studio-bg: var(--color-bg);
+    --color-studio-panel: var(--color-bg-grad-a);
+    --color-studio-border: var(--color-hairline);
+    --color-accent-start: var(--color-accent);
+    --color-accent-end: var(--color-accent-2);
 }
 
-/* 统一焦点指示（a11y）—— 所有可聚焦元素共用；比旧 .focus-ring（studio.css）的 ring-indigo-500/40 更明显 */
+/* 全局 body 背景 — radial+linear 复合梯度 */
+body {
+    background:
+        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
+        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
+        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+    background-attachment: fixed;
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* 数字字符（mono + tabular nums） */
+.num {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
+}
+
+/* 衬线 display 大标题 */
+.display-serif {
+    font-family: var(--font-display);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+    background: oklch(0.42 0.010 265 / 0.35);
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.55 0.012 265 / 0.55);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 统一焦点指示（a11y） */
 @utility focus-ring {
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)];
 }

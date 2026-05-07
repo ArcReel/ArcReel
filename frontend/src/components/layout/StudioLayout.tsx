@@ -1,5 +1,6 @@
 import { useLocation } from "wouter";
 import { Bot } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
@@ -9,45 +10,52 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
 
-// ---------------------------------------------------------------------------
-// StudioLayout — three-column studio workspace shell
-// ---------------------------------------------------------------------------
-
 interface StudioLayoutProps {
   children: React.ReactNode;
 }
 
+/**
+ * 工作台三栏布局壳：顶栏 + （侧栏 / 主区 / 助手面板）。
+ */
 export function StudioLayout({ children }: StudioLayoutProps) {
+  const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
 
-  // 进入工作区时连接任务 SSE 流
   useTasksSSE(currentProjectName);
   useProjectEventsSSE(currentProjectName);
 
   return (
-    <div className="flex h-screen flex-col bg-gray-950 text-gray-100">
+    <div
+      className="flex h-screen flex-col"
+      style={{ color: "var(--color-text)" }}
+    >
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
       <div className="flex flex-1 overflow-hidden">
-        <AssetSidebar className="w-[15%] min-w-50 border-r border-gray-800" />
-        <main className="flex-1 overflow-auto">
+        <AssetSidebar />
+        <main className="flex-1 overflow-hidden">
           {children}
         </main>
         <div
-          className={`shrink-0 bg-gray-900 transition-[width,min-width,border-color] duration-300 ease-in-out overflow-hidden ${
-            assistantPanelOpen ? "border-l border-gray-800" : "border-l border-transparent"
-          }`}
+          className="shrink-0 overflow-hidden transition-[width,min-width,border-color] duration-300 ease-in-out"
           style={{
-            width: assistantPanelOpen ? "40%" : "0",
-            minWidth: assistantPanelOpen ? "22.5rem" : "0",
+            width: assistantPanelOpen ? 505 : 0,
+            background: "oklch(0.19 0.011 250 / 0.5)",
+            borderLeft: assistantPanelOpen
+              ? "1px solid var(--color-hairline)"
+              : "1px solid transparent",
           }}
         >
-          {/* 始终渲染但在收起时隐藏，保持状态 */}
+          {/* 始终渲染但收起时透明 + 不可达，保持内部状态；invisible + aria-hidden 防止 Tab 仍可聚焦内部控件 */}
           <div
+            aria-hidden={!assistantPanelOpen}
+            inert={!assistantPanelOpen}
             className={`h-full transition-opacity duration-200 ${
-              assistantPanelOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+              assistantPanelOpen
+                ? "opacity-100"
+                : "pointer-events-none invisible opacity-0"
             }`}
           >
             <AgentCopilot />
@@ -55,20 +63,30 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         </div>
       </div>
 
-      {/* 悬浮助手球 — 收起时固定在右上角 */}
+      {/* 悬浮助手球：收起时显示在右上角 */}
       <button
         type="button"
         onClick={toggleAssistantPanel}
-        className={`fixed top-14 right-4 flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/20 transition-all duration-300 ease-in-out ${UI_LAYERS.workspaceFloating} ${
+        disabled={assistantPanelOpen}
+        tabIndex={assistantPanelOpen ? -1 : 0}
+        aria-hidden={assistantPanelOpen}
+        className={`fixed right-4 top-14 grid h-10 w-10 place-items-center rounded-xl transition-all duration-300 ease-in-out ${UI_LAYERS.workspaceFloating} ${
           assistantPanelOpen
-            ? "scale-0 opacity-0 pointer-events-none"
-            : "scale-100 opacity-100 hover:bg-indigo-500 cursor-pointer"
+            ? "scale-0 pointer-events-none opacity-0"
+            : "scale-100 cursor-pointer opacity-100"
         }`}
-        style={{ transitionDelay: assistantPanelOpen ? "0ms" : "200ms" }}
-        title="展开助手面板"
-        aria-label="展开助手面板"
+        style={{
+          background:
+            "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+          color: "oklch(0.12 0 0)",
+          boxShadow:
+            "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px var(--color-accent-glow)",
+          transitionDelay: assistantPanelOpen ? "0ms" : "200ms",
+        }}
+        title={t("open_assistant_panel")}
+        aria-label={t("open_assistant_panel")}
       >
-        <Bot className="h-5 w-5 text-white" />
+        <Bot className="h-5 w-5" />
       </button>
     </div>
   );

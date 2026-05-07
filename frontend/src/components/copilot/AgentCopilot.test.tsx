@@ -93,7 +93,7 @@ describe("AgentCopilot", () => {
     render(<AgentCopilot />);
 
     fireEvent.click(screen.getByLabelText("摘要"));
-    fireEvent.click(screen.getByRole("button", { name: "完成并提交" }));
+    fireEvent.click(screen.getByRole("button", { name: /完成并提交/ }));
 
     expect(answerQuestion).toHaveBeenCalledWith("q-1", {
       "输出格式是什么？": "摘要",
