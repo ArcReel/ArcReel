@@ -122,3 +122,45 @@ class TestResultErrorLogging:
             )
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert not warnings, f"unexpected warnings on completed result: {warnings}"
+
+
+class TestCanUseToolDecisionReason:
+    """0.1.74 新字段 ToolPermissionContext.decision_reason 拼到 default-deny hint。"""
+
+    @pytest.mark.asyncio
+    async def test_default_deny_includes_decision_reason(self, tmp_path):
+        from server.agent_runtime.session_manager import SessionManager
+        from server.agent_runtime.session_store import SessionMetaStore
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        sm = SessionManager(
+            project_root=tmp_path,
+            data_dir=data_dir,
+            meta_store=SessionMetaStore(),
+        )
+        callback = await sm._build_can_use_tool_callback(session_id="sess-x")
+        ctx = SimpleNamespace(decision_reason="No matching allow rule")
+        result = await callback("Bash", {"command": "rm -rf /"}, ctx)
+        assert hasattr(result, "message"), f"expected PermissionResultDeny, got {type(result)}"
+        assert "No matching allow rule" in result.message
+        assert "上游决策原因" in result.message
+
+    @pytest.mark.asyncio
+    async def test_default_deny_without_decision_reason_does_not_raise(self, tmp_path):
+        from server.agent_runtime.session_manager import SessionManager
+        from server.agent_runtime.session_store import SessionMetaStore
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        sm = SessionManager(
+            project_root=tmp_path,
+            data_dir=data_dir,
+            meta_store=SessionMetaStore(),
+        )
+        callback = await sm._build_can_use_tool_callback(session_id="sess-y")
+        ctx = SimpleNamespace()  # no decision_reason
+        result = await callback("Bash", {"command": "echo hi"}, ctx)
+        assert hasattr(result, "message")
+        assert "未授权的工具调用" in result.message
+        assert "上游决策原因" not in result.message
