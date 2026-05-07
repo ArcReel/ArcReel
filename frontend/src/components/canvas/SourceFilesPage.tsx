@@ -266,19 +266,13 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
-          className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform disabled:opacity-50"
+          className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           style={{
             color: "oklch(0.14 0 0)",
             background:
               "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
             boxShadow:
               "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
-          }}
-          onMouseEnter={(e) => {
-            if (!uploading) e.currentTarget.style.transform = "translateY(-1px)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
           }}
         >
           <Plus className="h-3.5 w-3.5" />
@@ -297,12 +291,16 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
         ) : files.length === 0 ? (
           <button
             type="button"
+            disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => {
               e.preventDefault();
+              if (uploading) return;
               setIsDragging(true);
             }}
-            onDragLeave={() => setIsDragging(false)}
+            onDragLeave={() => {
+              if (!uploading) setIsDragging(false);
+            }}
             onDrop={handleDrop}
             className="focus-ring group relative w-full overflow-hidden rounded-2xl px-8 py-16 text-center transition-colors"
             style={{
@@ -375,9 +373,12 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
           <div
             onDragOver={(e) => {
               e.preventDefault();
+              if (uploading) return;
               setIsDragging(true);
             }}
-            onDragLeave={() => setIsDragging(false)}
+            onDragLeave={() => {
+              if (!uploading) setIsDragging(false);
+            }}
             onDrop={handleDrop}
             className="rounded-2xl"
             style={{

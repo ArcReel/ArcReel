@@ -141,18 +141,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               type="button"
               onClick={() => setLocation(item.path)}
               title={collapsed ? item.label : ""}
-              className="relative mb-px flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors focus-ring"
+              className="relative mb-px flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors focus-ring hover:bg-[oklch(0.26_0.012_265/0.5)]"
               style={{
                 background: active
                   ? "linear-gradient(90deg, var(--color-accent-soft), var(--color-accent-dim) 70%, transparent)"
                   : "transparent",
                 color: active ? "var(--color-text)" : "var(--color-text-2)",
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.5)";
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = "transparent";
               }}
             >
               {active && (
@@ -322,6 +316,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           type="button"
           onClick={() => setCollapsed((c) => !c)}
           className="grid h-7 w-7 place-items-center rounded-md focus-ring"
+          aria-expanded={!collapsed}
           style={{
             background: "oklch(0.24 0.012 250 / 0.5)",
             color: "var(--color-text-3)",
