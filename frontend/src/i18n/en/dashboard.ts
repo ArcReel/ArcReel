@@ -823,6 +823,8 @@ export default {
   'skill_content_expand': '▶ Expand',
   'skill_content_collapse': '▼ Collapse',
   'list_source_files_failed': 'Failed to load source files: {{message}}',
+  'source_unsupported_extension': 'Unsupported file type: {{filename}}',
+  'upload_aborted_project_changed': 'Project changed; canceled upload of {{filename}}',
   'open_source_file_aria_label': 'Open source file {{filename}}',
   'delete_source_file_aria_label': 'Delete source file {{filename}}',
   'no_episode_search_results': 'No matching episodes',

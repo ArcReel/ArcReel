@@ -824,6 +824,8 @@ export default {
   'skill_content_expand': '▶ 展开',
   'skill_content_collapse': '▼ 收起',
   'list_source_files_failed': '读取源文件列表失败：{{message}}',
+  'source_unsupported_extension': '不支持的文件类型：{{filename}}',
+  'upload_aborted_project_changed': '已切换项目，已取消 {{filename}} 的上传',
   'open_source_file_aria_label': '打开源文件 {{filename}}',
   'delete_source_file_aria_label': '删除源文件 {{filename}}',
   'no_episode_search_results': '没有匹配的分集',

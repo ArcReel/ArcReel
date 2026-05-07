@@ -64,7 +64,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         if (!cancelled) setSourceCount(res.files?.source?.length ?? 0);
       })
       .catch(() => {
-        if (!cancelled) setSourceCount(0);
+        // 失败时保留上一份成功值，避免把网络/权限错误伪装成 0
       });
     return () => {
       cancelled = true;

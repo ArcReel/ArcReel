@@ -43,6 +43,8 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadInFlightRef = useRef(false);
+  const projectNameRef = useRef(projectName);
+  projectNameRef.current = projectName;
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
 
   useEffect(() => {
@@ -72,14 +74,27 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
 
   const handleUpload = useCallback(
     async (file: File) => {
+      // 入口处统一做扩展名校验，让拖拽 / file picker 共用一条规则；
+      // <input accept> 只是 picker 提示，不能挡未授权类型。
+      if (!ALLOWED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
+        useAppStore
+          .getState()
+          .pushToast(
+            tRef.current("dashboard:source_unsupported_extension", { filename: file.name }),
+            "error",
+          );
+        return;
+      }
       // 共享 uploading / conflictPrompt state，并发上传会让先结束的请求把
       // uploading 提前复位、后一个冲突弹窗覆盖前一个 resolve。直接拒绝并发即可。
       if (uploadInFlightRef.current) return;
       uploadInFlightRef.current = true;
+      // 启动时锁定项目身份；冲突弹窗期间用户切走后，retry 不能落到旧项目。
+      const targetProject = projectName;
       const tryUpload = async (
         onConflict?: "fail" | "replace" | "rename",
       ): Promise<void> => {
-        const res = await API.uploadFile(projectName, "source", file, null, {
+        const res = await API.uploadFile(targetProject, "source", file, null, {
           onConflict,
         });
         const filename = res.filename ?? file.name;
@@ -119,6 +134,16 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
           setConflictPrompt(null);
           if (decision === "cancel") {
             setUploading(false);
+            return;
+          }
+          if (projectNameRef.current !== targetProject) {
+            // 用户在弹窗期间切走了项目，放弃 retry 避免写错目标
+            useAppStore
+              .getState()
+              .pushToast(
+                tRef.current("dashboard:upload_aborted_project_changed", { filename: file.name }),
+                "error",
+              );
             return;
           }
           try {
@@ -172,9 +197,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
       setIsDragging(false);
       if (uploadInFlightRef.current) return;
       const file = e.dataTransfer.files[0];
-      if (file && ALLOWED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
-        void handleUpload(file);
-      }
+      if (file) void handleUpload(file);
     },
     [handleUpload],
   );
