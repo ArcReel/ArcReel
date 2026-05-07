@@ -264,7 +264,9 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                 className="px-2 py-6 text-center text-[11px] italic"
                 style={{ color: "var(--color-text-4)" }}
               >
-                {t("dashboard:no_episodes_yet")}
+                {episodes.length === 0
+                  ? t("dashboard:no_episodes_yet")
+                  : t("dashboard:no_episode_search_results")}
               </div>
             ) : (
               filteredEps.map((ep) => (
@@ -280,12 +282,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         </>
       ) : (
         <div className="flex-1 overflow-y-auto px-2.5 py-1.5">
-          {filteredEps.map((ep) => (
+          {filteredEps.map((ep) => {
+            const epLabel = t("dashboard:episode_collapsed_button_label", {
+              episode: ep.episode,
+              title: ep.title,
+            });
+            return (
             <button
               key={ep.episode}
               type="button"
               onClick={() => setLocation(`/episodes/${ep.episode}`)}
-              title={`E${ep.episode} · ${ep.title}`}
+              title={epLabel}
+              aria-label={epLabel}
               className="num mb-[3px] flex h-9 w-full items-center justify-center rounded-md text-[11px] font-bold focus-ring"
               style={{
                 background: ep.episode === activeEp ? "var(--color-accent-dim)" : "transparent",
@@ -297,7 +305,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             >
               E{ep.episode}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 

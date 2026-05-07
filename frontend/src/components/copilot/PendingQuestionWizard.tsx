@@ -315,11 +315,12 @@ export function PendingQuestionWizard({
                       background: checked ? "var(--color-accent-dim)" : "transparent",
                     }}
                     onMouseEnter={(e) => {
-                      if (!checked)
+                      if (!checked && !answeringQuestion)
                         e.currentTarget.style.background = "oklch(1 0 0 / 0.03)";
                     }}
                     onMouseLeave={(e) => {
-                      if (!checked) e.currentTarget.style.background = "transparent";
+                      if (!checked && !answeringQuestion)
+                        e.currentTarget.style.background = "transparent";
                     }}
                   >
                     {/* Selected state: tiny accent left rail */}

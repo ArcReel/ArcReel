@@ -42,6 +42,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
     resolve: (d: ConflictResolution) => void;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadInFlightRef = useRef(false);
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
 
   useEffect(() => {
@@ -51,8 +52,15 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
       .then((res) => {
         if (!cancelled) setFiles(res.files?.source ?? []);
       })
-      .catch(() => {
-        if (!cancelled) setFiles([]);
+      .catch((err) => {
+        if (cancelled) return;
+        // 不要把请求失败伪装成空态：保留上一份 files，并显式提示
+        useAppStore
+          .getState()
+          .pushToast(
+            tRef.current("dashboard:list_source_files_failed", { message: errMsg(err) }),
+            "error",
+          );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -64,6 +72,10 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
 
   const handleUpload = useCallback(
     async (file: File) => {
+      // 共享 uploading / conflictPrompt state，并发上传会让先结束的请求把
+      // uploading 提前复位、后一个冲突弹窗覆盖前一个 resolve。直接拒绝并发即可。
+      if (uploadInFlightRef.current) return;
+      uploadInFlightRef.current = true;
       const tryUpload = async (
         onConflict?: "fail" | "replace" | "rename",
       ): Promise<void> => {
@@ -128,6 +140,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
             );
         }
       } finally {
+        uploadInFlightRef.current = false;
         setUploading(false);
         useAppStore.getState().invalidateSourceFiles();
       }
@@ -157,6 +170,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
+      if (uploadInFlightRef.current) return;
       const file = e.dataTransfer.files[0];
       if (file && ALLOWED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
         void handleUpload(file);
@@ -167,6 +181,10 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (uploadInFlightRef.current) {
+        e.target.value = "";
+        return;
+      }
       const file = e.target.files?.[0];
       if (file) void handleUpload(file);
       e.target.value = "";
@@ -443,6 +461,9 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                   <button
                     type="button"
                     onClick={() => setLocation(`/source/${encodeURIComponent(file.name)}`)}
+                    aria-label={t("dashboard:open_source_file_aria_label", {
+                      filename: file.name,
+                    })}
                     className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors"
                     style={{
                       color: "var(--color-text-3)",
@@ -464,7 +485,9 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                   <button
                     type="button"
                     onClick={voidPromise(() => handleDelete(file.name))}
-                    aria-label={t("common:delete")}
+                    aria-label={t("dashboard:delete_source_file_aria_label", {
+                      filename: file.name,
+                    })}
                     className="focus-ring grid h-7 w-7 place-items-center rounded-md transition-colors"
                     style={{ color: "var(--color-text-4)" }}
                     onMouseEnter={(e) => {
