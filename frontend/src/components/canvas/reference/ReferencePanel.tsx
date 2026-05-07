@@ -12,7 +12,7 @@ import type { Announcements, DragEndEvent, ScreenReaderInstructions } from "@dnd
 import {
   SortableContext,
   arrayMove,
-  horizontalListSortingStrategy,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
 } from "@dnd-kit/sortable";
@@ -202,7 +202,7 @@ export function ReferencePanel({
           onDragEnd={onDragEnd}
           accessibility={{ announcements, screenReaderInstructions }}
         >
-          <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
+          <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
             {chipData.map((d, i) => (
               <SortableChip
                 key={refId(d.ref)}

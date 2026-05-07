@@ -135,7 +135,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
           <ProgressBar
             value={progressPercent}
             className="h-1 w-16 rounded-full bg-[oklch(0.30_0.012_265_/_0.5)]"
-            barClassName="bg-[var(--color-good)] transition-all duration-500 ease-out"
+            barClassName="bg-(--color-good) transition-all duration-500 ease-out"
           />
           <span
             className="num text-[10px]"

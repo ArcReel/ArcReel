@@ -45,13 +45,16 @@ export function UnitPreviewPanel({
     );
   }
 
-  const effectiveStatus = deriveUnitStatus(unit, status ? { [unit.unit_id]: status } : undefined);
-  const ready = effectiveStatus === "ready";
-  const failed = effectiveStatus === "failed";
-  const inFlight = effectiveStatus === "running";
-
+  const effectiveStatus = status ?? deriveUnitStatus(unit);
   const clip = unit.generated_assets.video_clip;
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip) : null;
+
+  // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
+  // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。
+  const ready = effectiveStatus === "ready" && Boolean(videoUrl);
+  const failed = effectiveStatus === "failed";
+  const inFlight =
+    effectiveStatus === "running" || (effectiveStatus === "ready" && !videoUrl);
 
   const ctaLabel = ready
     ? t("reference_preview_regenerate")

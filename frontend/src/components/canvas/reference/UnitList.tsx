@@ -157,7 +157,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
                         >
                           <span
                             aria-hidden="true"
-                            className={`h-[3px] w-[3px] rounded-full ${palette.bgClass}`}
+                            className={`h-[3px] w-[3px] rounded-full ${palette.dotClass}`}
                           />
                           {r.name}
                         </span>

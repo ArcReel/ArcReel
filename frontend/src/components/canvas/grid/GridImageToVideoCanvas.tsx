@@ -37,7 +37,11 @@ interface GridImageToVideoCanvasProps {
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateGrid?: (episode: number, scriptFile: string, sceneIds?: string[]) => void;
+  onGenerateGrid?: (
+    episode: number,
+    scriptFile: string,
+    sceneIds?: string[],
+  ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
 }
@@ -67,7 +71,6 @@ export function GridImageToVideoCanvas({
   const [activeTab, setActiveTab] = useState<GridTab>(defaultTab);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 脚本就绪时自动切到 units（与 TimelineCanvas 同行为）
     if (hasScript) setActiveTab("units");
   }, [hasScript]);
 
@@ -121,14 +124,15 @@ export function GridImageToVideoCanvas({
 
   const invalidateGrids = useAppStore((s) => s.invalidateGrids);
   const [generatingAllGrids, setGeneratingAllGrids] = useState(false);
-  const handleGenerateAllGrids = useCallback(() => {
+  const handleGenerateAllGrids = useCallback(async () => {
     if (!onGenerateGrid || !scriptFile) return;
     setGeneratingAllGrids(true);
-    onGenerateGrid(episode, scriptFile);
-    setTimeout(() => {
+    try {
+      await onGenerateGrid(episode, scriptFile);
+    } finally {
       setGeneratingAllGrids(false);
       invalidateGrids();
-    }, 3000);
+    }
   }, [onGenerateGrid, scriptFile, episode, invalidateGrids]);
 
   if (!projectData || (!episodeScript && !hasDraft)) {
@@ -142,9 +146,14 @@ export function GridImageToVideoCanvas({
     );
   }
 
+  const epDur = episodeScript?.duration_seconds;
   const totalDuration =
-    episodeScript?.duration_seconds ??
-    segments.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
+    typeof epDur === "number" && Number.isFinite(epDur)
+      ? epDur
+      : segments.reduce((sum, s) => {
+          const d = s.duration_seconds;
+          return sum + (typeof d === "number" && Number.isFinite(d) ? d : 0);
+        }, 0);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
   const epMeta =
@@ -169,6 +178,8 @@ export function GridImageToVideoCanvas({
   const renderTabButton = (key: GridTab, label: string, disabled = false) => (
     <button
       type="button"
+      role="tab"
+      aria-selected={activeTab === key}
       onClick={() => !disabled && setActiveTab(key)}
       disabled={disabled}
       className="focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed"
@@ -202,6 +213,8 @@ export function GridImageToVideoCanvas({
       />
 
       <div
+        role="tablist"
+        aria-label={t("grid_canvas_tab_aria")}
         className="flex items-center gap-0.5 px-5"
         style={{
           borderBottom: "1px solid var(--color-hairline)",
@@ -217,7 +230,7 @@ export function GridImageToVideoCanvas({
           <div className="mr-1 inline-flex items-center gap-1.5">
             <button
               type="button"
-              onClick={handleGenerateAllGrids}
+              onClick={() => void handleGenerateAllGrids()}
               disabled={generatingAllGrids}
               className="sv-navbtn inline-flex items-center gap-1.5"
             >
@@ -238,6 +251,7 @@ export function GridImageToVideoCanvas({
               className="sv-navbtn inline-flex items-center gap-1.5"
               disabled
               title={t("batch_generate_videos")}
+              aria-label={t("batch_generate_videos")}
             >
               <Sparkles className="h-3 w-3" />
               <span>{t("batch_generate_videos")}</span>

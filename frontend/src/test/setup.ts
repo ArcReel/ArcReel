@@ -11,6 +11,7 @@ voidCall(i18n.changeLanguage("zh"));
 // 交互与结构，不验位置像素。
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
+    constructor(_cb: ResizeObserverCallback) {}
     observe() {}
     unobserve() {}
     disconnect() {}

@@ -26,6 +26,8 @@ export interface AssetColorPalette {
   bgClass: string;
   /** Border class (tailwind) */
   borderClass: string;
+  /** Solid dot color (tailwind bg-*), contrasts against bgClass for inline indicators */
+  dotClass: string;
 }
 
 export const ASSET_COLORS: Record<MentionKind, AssetColorPalette> = {
@@ -33,21 +35,25 @@ export const ASSET_COLORS: Record<MentionKind, AssetColorPalette> = {
     textClass: "text-sky-300",
     bgClass: "bg-sky-500/15",
     borderClass: "border-sky-500/40",
+    dotClass: "bg-sky-300",
   },
   scene: {
     textClass: "text-emerald-300",
     bgClass: "bg-emerald-500/15",
     borderClass: "border-emerald-500/40",
+    dotClass: "bg-emerald-300",
   },
   prop: {
     textClass: "text-amber-300",
     bgClass: "bg-amber-500/15",
     borderClass: "border-amber-500/40",
+    dotClass: "bg-amber-300",
   },
   unknown: {
     textClass: "text-red-300",
     bgClass: "bg-red-500/15",
     borderClass: "border-red-500/40",
+    dotClass: "bg-red-300",
   },
 };
 

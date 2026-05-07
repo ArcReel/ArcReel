@@ -17,7 +17,11 @@ interface GridPreviewViewProps {
   segments: Segment[];
   contentMode: "narration" | "drama";
   aspectRatio: "9:16" | "16:9";
-  onGenerateGrid?: (episode: number, scriptFile: string, sceneIds?: string[]) => void;
+  onGenerateGrid?: (
+    episode: number,
+    scriptFile: string,
+    sceneIds?: string[],
+  ) => Promise<void> | void;
 }
 
 function getSegmentId(seg: Segment, mode: "narration" | "drama"): string {
@@ -39,7 +43,7 @@ export function GridPreviewView({
   const gridsRevision = useAppStore((s) => s.gridsRevision);
   const [grids, setGrids] = useState<GridGeneration[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [generatingGroups, setGeneratingGroups] = useState<Set<number>>(new Set());
+  const [generatingGroups, setGeneratingGroups] = useState<Set<string>>(new Set());
 
   const groups = useMemo(() => groupBySegmentBreak(segments), [segments]);
 
@@ -82,19 +86,21 @@ export function GridPreviewView({
   );
 
   const handleGenerateGroup = useCallback(
-    (groupIdx: number, group: Segment[]) => {
+    // group key 用 sceneIds 排序后 join，分组重排时 spinner 不会挂错卡片
+    async (groupKey: string, group: Segment[]) => {
       if (!onGenerateGrid || !scriptFile) return;
       const sceneIds = group.map((s) => getSegmentId(s, contentMode));
-      setGeneratingGroups((prev) => new Set(prev).add(groupIdx));
-      onGenerateGrid(episode, scriptFile, sceneIds);
-      setTimeout(() => {
+      setGeneratingGroups((prev) => new Set(prev).add(groupKey));
+      try {
+        await onGenerateGrid(episode, scriptFile, sceneIds);
+      } finally {
         setGeneratingGroups((prev) => {
           const next = new Set(prev);
-          next.delete(groupIdx);
+          next.delete(groupKey);
           return next;
         });
         refreshGrids();
-      }, 3000);
+      }
     },
     [onGenerateGrid, scriptFile, contentMode, episode, refreshGrids],
   );
@@ -150,10 +156,14 @@ export function GridPreviewView({
         {groups.map((group, idx) => {
           const layout = computeGridSize(group.length, aspectRatio);
           const ids = getGridIdsForGroup(group);
-          const generating = generatingGroups.has(idx);
+          const groupKey = group
+            .map((s) => getSegmentId(s, contentMode))
+            .sort()
+            .join(",");
+          const generating = generatingGroups.has(groupKey);
           return (
             <div
-              key={idx}
+              key={groupKey || idx}
               className="overflow-hidden rounded-md border"
               style={{
                 borderColor: "var(--color-hairline-soft)",
@@ -183,7 +193,7 @@ export function GridPreviewView({
                 {canGenerate && (
                   <button
                     type="button"
-                    onClick={() => handleGenerateGroup(idx, group)}
+                    onClick={() => void handleGenerateGroup(groupKey, group)}
                     disabled={generating}
                     className="sv-navbtn inline-flex items-center gap-1.5"
                   >

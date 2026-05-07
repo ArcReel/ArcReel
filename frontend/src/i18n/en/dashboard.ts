@@ -818,6 +818,10 @@ export default {
 
   // ArcReel Workbench v3 — Reference Video
   'reference_main_tab_aria': 'Workspace main tabs',
+  'grid_canvas_tab_aria': 'Grid workbench main tabs',
+  'skill_content_label': 'Skill content',
+  'skill_content_expand': '▶ Expand',
+  'skill_content_collapse': '▼ Collapse',
   'reference_tab_units': 'Video units',
   'reference_tab_preprocess': 'Splitting preprocess',
   'reference_batch_generate': 'Batch generate videos',

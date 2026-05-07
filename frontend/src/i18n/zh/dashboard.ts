@@ -819,6 +819,10 @@ export default {
 
   // ArcReel 工作台 v3 — 参考视频
   'reference_main_tab_aria': '工作台主面板切换',
+  'grid_canvas_tab_aria': '宫格工作台主面板切换',
+  'skill_content_label': 'Skill 内容',
+  'skill_content_expand': '▶ 展开',
+  'skill_content_collapse': '▼ 收起',
   'reference_tab_units': '视频单元',
   'reference_tab_preprocess': '拆分预处理',
   'reference_batch_generate': '批量生成视频',

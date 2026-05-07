@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { StreamMarkdown } from "../StreamMarkdown";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +27,7 @@ function extractSkillName(text: string | undefined): string {
 }
 
 export function SkillContentBlock({ text }: SkillContentBlockProps) {
+  const { t } = useTranslation("dashboard");
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (!text) {
@@ -58,7 +60,7 @@ export function SkillContentBlock({ text }: SkillContentBlockProps) {
             className="text-[11.5px] font-semibold uppercase tracking-wide"
             style={{ color: "var(--color-accent-2)" }}
           >
-            Skill 内容
+            {t("skill_content_label")}
           </span>
           <span
             className="num text-[11px]"
@@ -71,7 +73,7 @@ export function SkillContentBlock({ text }: SkillContentBlockProps) {
           className="text-[11px]"
           style={{ color: "var(--color-text-4)" }}
         >
-          {isExpanded ? "▼ 收起" : "▶ 展开"}
+          {isExpanded ? t("skill_content_collapse") : t("skill_content_expand")}
         </span>
       </button>
       {isExpanded && (

@@ -161,6 +161,10 @@
   border-color: var(--color-accent-soft);
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
 }
+.prompt-ta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 /* 主题化 range slider — 用 accent 色填充已选区段 */
 .theme-slider {
@@ -221,6 +225,10 @@
 .dlg-input:focus {
   border-color: var(--color-accent-soft);
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
+}
+.dlg-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .dlg-input--speaker {
   color: var(--color-accent-2);
