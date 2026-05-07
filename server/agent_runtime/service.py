@@ -538,11 +538,23 @@ class AssistantService:
                 return events, True
 
         if msg_type == "result":
+            status = self._resolve_result_status(message)
+            if status == "error":
+                logger.warning(
+                    "assistant session result error",
+                    extra={
+                        "session_id": session_id,
+                        "subtype": message.get("subtype"),
+                        "is_error": message.get("is_error"),
+                        "api_error_status": message.get("api_error_status"),  # SDK 0.1.76+
+                        "stop_reason": message.get("stop_reason"),
+                    },
+                )
             events.append(
                 self._sse_event(
                     "status",
                     self._build_status_event_payload(
-                        status=self._resolve_result_status(message),
+                        status=status,
                         session_id=session_id,
                         result_message=message,
                     ),
@@ -739,13 +751,17 @@ class AssistantService:
         if status == "error":
             is_error = True
 
-        return {
+        payload: dict[str, Any] = {
             "status": status,
             "subtype": subtype,
             "stop_reason": stop_reason,
             "is_error": is_error,
             "session_id": session_id,
         }
+        api_error_status = message.get("api_error_status")  # SDK 0.1.76+
+        if api_error_status is not None:
+            payload["api_error_status"] = api_error_status
+        return payload
 
     async def _with_session_metadata(
         self,

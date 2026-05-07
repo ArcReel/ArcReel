@@ -6,7 +6,7 @@ description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.1.73",
+    "claude-agent-sdk>=0.1.76",
     "ffmpeg-python>=0.2.0",
     "fastapi>=0.135.1",
     "google-genai>=1.65.0",

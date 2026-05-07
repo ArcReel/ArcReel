@@ -1770,9 +1770,12 @@ class SessionManager:
             # Whitelist fallback: deny any tool that was not pre-approved
             # by allowed_tools or settings.json allow rules.
             if PermissionResultDeny is not None:
+                reason = getattr(_context, "decision_reason", None)  # SDK 0.1.74+
+                reason_line = f"上游决策原因: {reason}\n" if reason else ""
                 hint = (
                     f"未授权的工具调用: {tool_name}"
                     f"({json.dumps(input_data, ensure_ascii=False)[:200]})\n"
+                    f"{reason_line}"
                     "当前 Bash 白名单仅允许以下命令:\n"
                     "  - python .claude/skills/<skill>/scripts/<script>.py <args>（必须用相对路径）\n"
                     "  - ffmpeg / ffprobe\n"
