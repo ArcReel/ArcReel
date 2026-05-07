@@ -863,7 +863,7 @@ export default {
   'source_normalized_toast_native_with_chapters': '已规范化「{{filename}}」（{{chapters}} 章）',
   'source_upload_conflict_toast': '源文件「{{filename}}」已存在（建议改名「{{suggested}}」，请在主面板重新上传）',
 
-  // GridSegmentGroup
+  // Grid preview
   'grid_scene_count': '{{count}} 场景',
   'grid_batch_count': '{{count}} 个宫格',
   'generating_grid': '生成中...',
@@ -1010,7 +1010,12 @@ export default {
   'episode_header_cost_spent': '已花',
   'episode_header_cost_remaining': '剩余',
   'tab_preprocessing': '预处理',
-  'tab_timeline': '剧本时间线',
+  'tab_timeline': '分镜',
+  'tab_grid_preview': '宫格图',
+  'grid_preview_summary': '{{batches}} 批 · {{cells}} 格 · {{percent}}% 就绪',
+  'grid_preview_batch_card_title': '批 #{{index}} · {{cellCount}} 格 · {{rows}}×{{cols}}',
+  'grid_preview_batch_generate': '生成此宫格',
+  'grid_preview_empty_episode': '该集尚无分镜，先在「预处理」中拆分剧本',
   'batch_generate_storyboards': '批量生成分镜图',
   'batch_generate_videos': '批量生成视频',
   'shot_search_placeholder': '搜索分镜…',

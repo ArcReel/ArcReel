@@ -842,7 +842,7 @@ export default {
   'source_normalized_toast_native_with_chapters': 'Đã chuẩn hóa "{{filename}}" ({{chapters}} chương)',
   'source_upload_conflict_toast': 'Tệp nguồn "{{filename}}" đã tồn tại (gợi ý đổi tên: "{{suggested}}"; thử lại từ bảng chính)',
 
-  // GridSegmentGroup
+  // Grid preview
   'grid_scene_count': '{{count}} cảnh',
   'grid_batch_count': '{{count}} lưới',
   'generating_grid': 'Đang tạo...',
@@ -964,4 +964,11 @@ export default {
 
   // SystemConfigPage - language
   'language_setting': 'Ngôn ngữ',
+
+  // Tab labels (timeline / grid canvas)
+  'tab_grid_preview': 'Lưới ảnh',
+  'grid_preview_summary': '{{batches}} đợt · {{cells}} ô · {{percent}}% sẵn sàng',
+  'grid_preview_batch_card_title': 'Đợt #{{index}} · {{cellCount}} ô · {{rows}}×{{cols}}',
+  'grid_preview_batch_generate': 'Tạo lưới này',
+  'grid_preview_empty_episode': 'Tập này chưa có phân cảnh — hãy chia kịch bản trong Tiền xử lý trước',
 };

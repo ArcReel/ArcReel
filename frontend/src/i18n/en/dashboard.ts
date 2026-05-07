@@ -862,7 +862,7 @@ export default {
   'source_normalized_toast_native_with_chapters': '"{{filename}}" normalized ({{chapters}} chapters)',
   'source_upload_conflict_toast': 'Source file "{{filename}}" already exists (suggested rename: "{{suggested}}"; retry from the main panel)',
 
-  // GridSegmentGroup
+  // Grid preview
   'grid_scene_count': '{{count}} scenes',
   'grid_batch_count': '{{count}} grids',
   'generating_grid': 'Generating...',
@@ -1009,7 +1009,12 @@ export default {
   'episode_header_cost_spent': 'Spent',
   'episode_header_cost_remaining': 'Remaining',
   'tab_preprocessing': 'Preprocessing',
-  'tab_timeline': 'Script timeline',
+  'tab_timeline': 'Shots',
+  'tab_grid_preview': 'Grids',
+  'grid_preview_summary': '{{batches}} batches · {{cells}} cells · {{percent}}% ready',
+  'grid_preview_batch_card_title': 'Batch #{{index}} · {{cellCount}} cells · {{rows}}×{{cols}}',
+  'grid_preview_batch_generate': 'Generate grid',
+  'grid_preview_empty_episode': 'No shots in this episode — split the script in Preprocessing first',
   'batch_generate_storyboards': 'Batch generate storyboards',
   'batch_generate_videos': 'Batch generate videos',
   'shot_search_placeholder': 'Search shots…',

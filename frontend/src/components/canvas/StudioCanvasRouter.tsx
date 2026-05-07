@@ -13,6 +13,7 @@ import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
+import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
@@ -514,6 +515,24 @@ export function StudioCanvasRouter() {
                     episode={epNum}
                     episodeTitle={episode?.title}
                   />
+                ) : mode === "grid" ? (
+                  <GridImageToVideoCanvas
+                    key={`${currentProjectName}::${epNum}`}
+                    projectName={currentProjectName}
+                    episode={epNum}
+                    episodeTitle={episode?.title}
+                    hasDraft={hasDraft}
+                    episodeScript={script}
+                    scriptFile={scriptFile ?? undefined}
+                    projectData={currentProjectData}
+                    durationOptions={durationOptions}
+                    onUpdatePrompt={handleUpdatePrompt}
+                    onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
+                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateGrid={voidPromise(handleGenerateGrid)}
+                    onRestoreStoryboard={handleRestoreAsset}
+                    onRestoreVideo={handleRestoreAsset}
+                  />
                 ) : (
                   <TimelineCanvas
                     // 和 ReferenceVideoCanvas (上方) 同理：同 epNum 跨项目不 remount
@@ -531,7 +550,6 @@ export function StudioCanvasRouter() {
                     onUpdatePrompt={handleUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
-                    onGenerateGrid={voidPromise(handleGenerateGrid)}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
                   />

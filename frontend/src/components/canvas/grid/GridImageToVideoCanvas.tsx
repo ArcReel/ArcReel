@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { PreprocessingView } from "./PreprocessingView";
-import { ShotSplitView } from "./ShotSplitView";
-import { EpisodeHeader } from "./EpisodeHeader";
+import { EpisodeHeader } from "../timeline/EpisodeHeader";
+import { PreprocessingView } from "../timeline/PreprocessingView";
+import { ShotSplitView } from "../timeline/ShotSplitView";
+import { GridPreviewView } from "./GridPreviewView";
+import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type {
@@ -16,8 +18,9 @@ import type {
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
+type GridTab = "preprocessing" | "grid_preview" | "units";
 
-interface TimelineCanvasProps {
+interface GridImageToVideoCanvasProps {
   projectName: string;
   episode: number;
   episodeTitle?: string;
@@ -25,6 +28,7 @@ interface TimelineCanvasProps {
   episodeScript: EpisodeScript | null;
   scriptFile?: string;
   projectData: ProjectData | null;
+  durationOptions?: number[];
   onUpdatePrompt?: (
     segmentId: string,
     fieldOrPatch: string | Record<string, unknown>,
@@ -33,12 +37,12 @@ interface TimelineCanvasProps {
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
-  durationOptions?: number[];
+  onGenerateGrid?: (episode: number, scriptFile: string, sceneIds?: string[]) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
 }
 
-export function TimelineCanvas({
+export function GridImageToVideoCanvas({
   projectName,
   episode,
   episodeTitle,
@@ -50,39 +54,37 @@ export function TimelineCanvas({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
-}: TimelineCanvasProps) {
+}: GridImageToVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
 
   const hasScript = Boolean(episodeScript);
   const showTabs = Boolean(hasDraft);
-  const defaultTab = hasScript ? "timeline" : "preprocessing";
-  const [activeTab, setActiveTab] = useState<"preprocessing" | "timeline">(defaultTab);
+  const defaultTab: GridTab = hasScript ? "units" : "preprocessing";
+  const [activeTab, setActiveTab] = useState<GridTab>(defaultTab);
 
-  // Auto-switch to timeline when script becomes available
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- script 就绪时自动切到 timeline tab，是 navigation 驱动的有意切换
-    if (hasScript) setActiveTab("timeline");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 脚本就绪时自动切到 units（与 TimelineCanvas 同行为）
+    if (hasScript) setActiveTab("units");
   }, [hasScript]);
 
   const episodeCost = useCostStore((s) =>
     episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,
   );
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
-
   useEffect(() => {
     if (!projectName) return;
     debouncedFetch(projectName);
   }, [projectName, episodeScript?.episode, debouncedFetch]);
 
-  // 解析 aspect ratio（仅支持 9:16 / 16:9 两档，3:4/1:1 也回退到 16:9）
   const rawAspect =
     typeof projectData?.aspect_ratio === "string"
       ? projectData.aspect_ratio
-      : projectData?.aspect_ratio?.storyboard ??
-        (contentMode === "narration" ? "9:16" : "16:9");
+      : (projectData?.aspect_ratio?.storyboard ??
+        (contentMode === "narration" ? "9:16" : "16:9"));
   const aspectRatio: "9:16" | "16:9" =
     rawAspect === "9:16" || rawAspect === "16:9" ? rawAspect : "16:9";
 
@@ -96,16 +98,15 @@ export function TimelineCanvas({
     [contentMode, episodeScript, projectData],
   );
 
-  // 任务派生 loading
   const tasks = useTasksStore((s) => s.tasks);
   const isGenerating = useCallback(
     (taskType: "storyboard" | "video", segmentId: string): boolean =>
       tasks.some(
-        (t) =>
-          t.task_type === taskType &&
-          t.project_name === projectName &&
-          t.resource_id === segmentId &&
-          (t.status === "queued" || t.status === "running"),
+        (tk) =>
+          tk.task_type === taskType &&
+          tk.project_name === projectName &&
+          tk.resource_id === segmentId &&
+          (tk.status === "queued" || tk.status === "running"),
       ),
     [tasks, projectName],
   );
@@ -117,6 +118,18 @@ export function TimelineCanvas({
     (segId: string) => isGenerating("video", segId),
     [isGenerating],
   );
+
+  const invalidateGrids = useAppStore((s) => s.invalidateGrids);
+  const [generatingAllGrids, setGeneratingAllGrids] = useState(false);
+  const handleGenerateAllGrids = useCallback(() => {
+    if (!onGenerateGrid || !scriptFile) return;
+    setGeneratingAllGrids(true);
+    onGenerateGrid(episode, scriptFile);
+    setTimeout(() => {
+      setGeneratingAllGrids(false);
+      invalidateGrids();
+    }, 3000);
+  }, [onGenerateGrid, scriptFile, episode, invalidateGrids]);
 
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
@@ -153,9 +166,34 @@ export function TimelineCanvas({
   const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
   const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
 
+  const renderTabButton = (key: GridTab, label: string, disabled = false) => (
+    <button
+      type="button"
+      onClick={() => !disabled && setActiveTab(key)}
+      disabled={disabled}
+      className="focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed"
+      style={{
+        color:
+          activeTab === key
+            ? "var(--color-text)"
+            : disabled
+              ? "var(--color-text-4)"
+              : "var(--color-text-3)",
+      }}
+    >
+      {label}
+      {activeTab === key && (
+        <span
+          aria-hidden="true"
+          className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
+          style={{ background: "var(--color-accent)" }}
+        />
+      )}
+    </button>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* 集 header */}
       <EpisodeHeader
         ep={epMeta}
         segmentCount={segments.length}
@@ -163,7 +201,6 @@ export function TimelineCanvas({
         episodeCost={episodeCost ?? undefined}
       />
 
-      {/* Tab bar + 批量按钮 */}
       <div
         className="flex items-center gap-0.5 px-5"
         style={{
@@ -171,64 +208,31 @@ export function TimelineCanvas({
           background: "oklch(0.19 0.012 250 / 0.5)",
         }}
       >
-        {showTabs && (
-          <button
-            type="button"
-            onClick={() => setActiveTab("preprocessing")}
-            className="relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors focus-ring"
-            style={{
-              color:
-                activeTab === "preprocessing"
-                  ? "var(--color-text)"
-                  : "var(--color-text-3)",
-            }}
-          >
-            {t("tab_preprocessing")}
-            {activeTab === "preprocessing" && (
-              <span
-                aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-                style={{ background: "var(--color-accent)" }}
-              />
-            )}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => hasScript && setActiveTab("timeline")}
-          disabled={!hasScript}
-          className="relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors focus-ring disabled:cursor-not-allowed"
-          style={{
-            color:
-              activeTab === "timeline"
-                ? "var(--color-text)"
-                : !hasScript
-                  ? "var(--color-text-4)"
-                  : "var(--color-text-3)",
-          }}
-        >
-          {t("tab_timeline")}
-          {activeTab === "timeline" && (
-            <span
-              aria-hidden="true"
-              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-              style={{ background: "var(--color-accent)" }}
-            />
-          )}
-        </button>
+        {showTabs && renderTabButton("preprocessing", t("tab_preprocessing"))}
+        {renderTabButton("grid_preview", t("tab_grid_preview"))}
+        {renderTabButton("units", t("tab_timeline"), !hasScript)}
         <span className="flex-1" />
 
-        {activeTab === "timeline" && hasScript && (
+        {activeTab === "grid_preview" && hasScript && onGenerateGrid && scriptFile && (
           <div className="mr-1 inline-flex items-center gap-1.5">
             <button
               type="button"
+              onClick={handleGenerateAllGrids}
+              disabled={generatingAllGrids}
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled
-              title={t("batch_generate_storyboards")}
             >
-              <Sparkles className="h-3 w-3" />
-              <span>{t("batch_generate_storyboards")}</span>
+              {generatingAllGrids ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              <span>{generatingAllGrids ? t("submitting") : t("generate_all_grids")}</span>
             </button>
+          </div>
+        )}
+
+        {activeTab === "units" && hasScript && (
+          <div className="mr-1 inline-flex items-center gap-1.5">
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
@@ -242,7 +246,6 @@ export function TimelineCanvas({
         )}
       </div>
 
-      {/* 主体 */}
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "preprocessing" && hasDraft ? (
           <div className="h-full overflow-y-auto p-4">
@@ -252,13 +255,23 @@ export function TimelineCanvas({
               contentMode={contentMode}
             />
           </div>
+        ) : activeTab === "grid_preview" ? (
+          <GridPreviewView
+            projectName={projectName}
+            episode={episode}
+            scriptFile={scriptFile}
+            segments={segments}
+            contentMode={contentMode}
+            aspectRatio={aspectRatio}
+            onGenerateGrid={onGenerateGrid}
+          />
         ) : episodeScript && segments.length > 0 ? (
           <ShotSplitView
             segments={segments}
             contentMode={contentMode}
             aspectRatio={aspectRatio}
             projectName={projectName}
-            isGridMode={false}
+            isGridMode
             onUpdatePrompt={handleUpdatePrompt}
             onGenerateStoryboard={handleGenSb}
             onGenerateVideo={handleGenVid}
