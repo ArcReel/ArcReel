@@ -63,7 +63,7 @@ export function GridPreviewView({
       const matched = grids.filter(
         (g) =>
           g.episode === episode &&
-          g.scene_ids.length > 0 &&
+          g.scene_ids.length === idSet.size &&
           g.scene_ids.every((id) => idSet.has(id)),
       );
       const byKey = new Map<string, (typeof matched)[number]>();
@@ -108,7 +108,7 @@ export function GridPreviewView({
         (g) =>
           g.episode === episode &&
           g.status === "completed" &&
-          g.scene_ids.length > 0 &&
+          g.scene_ids.length === ids.size &&
           g.scene_ids.every((id) => ids.has(id)),
       );
     }).length;
