@@ -205,6 +205,10 @@
   border-radius: 999px;
   background: oklch(0.30 0.010 265 / 0.7);
 }
+.theme-slider:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* 对话编辑器输入框 — 与玻璃面板协调的中性低 chroma 背景 */
 .dlg-input {
@@ -314,6 +318,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-breathe,
+  .animate-progress-pulse,
   .agent-handoff-card,
   .agent-handoff-headline,
   .agent-handoff-subtitle,

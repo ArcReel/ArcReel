@@ -145,7 +145,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
         useAppStore
           .getState()
           .pushToast(
-            tRef.current("common:delete") + ": " + errMsg(err),
+            tRef.current("dashboard:delete_failed", { message: errMsg(err) }),
             "error",
           );
       }

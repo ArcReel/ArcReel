@@ -53,7 +53,7 @@ function SessionSelector({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] transition-colors focus-ring"
@@ -92,7 +92,7 @@ function SessionSelector({
             WebkitBackdropFilter: "blur(12px)",
           }}
         >
-          <div id={listboxId} role="listbox" className="max-h-60 overflow-y-auto py-1">
+          <div id={listboxId} role="menu" className="max-h-60 overflow-y-auto py-1">
             {sessions.map((session) => {
               const isActive = session.id === currentSessionId;
               const title = session.title || formatTime(session.created_at, t);
@@ -118,6 +118,7 @@ function SessionSelector({
                 >
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={() => { onSwitch(session.id); setOpen(false); }}
                     className="flex flex-1 items-center gap-2 truncate text-left"
                   >
@@ -126,6 +127,7 @@ function SessionSelector({
                   </button>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={(e) => { e.stopPropagation(); if (confirm(t("confirm_delete_session"))) onDelete(session.id); }}
                     className="focus-ring shrink-0 rounded p-0.5 opacity-0 transition-all group-hover:opacity-100 focus-visible:opacity-100"
                     style={{ color: "var(--color-text-4)" }}

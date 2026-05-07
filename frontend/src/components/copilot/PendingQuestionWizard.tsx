@@ -432,6 +432,7 @@ export function PendingQuestionWizard({
                   el.scrollHeight > OTHER_TEXTAREA_MAX_PX ? "auto" : "hidden";
               }}
               placeholder={t("pending_question_wizard_other_placeholder")}
+              aria-label={t("pending_question_wizard_other_label")}
               disabled={answeringQuestion}
               rows={2}
               className="w-full resize-none rounded-md px-3 py-2 text-[12.5px] leading-[1.55] outline-none transition-colors focus-ring"
@@ -449,6 +450,8 @@ export function PendingQuestionWizard({
         <div className="shrink-0 space-y-2">
           {error && (
             <div
+              role="alert"
+              aria-live="assertive"
               className="rounded-md px-2.5 py-1.5 text-[11.5px]"
               style={{
                 border: "1px solid oklch(0.70 0.18 25 / 0.3)",

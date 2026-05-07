@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StreamMarkdown } from "../StreamMarkdown";
 
@@ -29,6 +29,7 @@ function extractSkillName(text: string | undefined): string {
 export function SkillContentBlock({ text }: SkillContentBlockProps) {
   const { t } = useTranslation("dashboard");
   const [isExpanded, setIsExpanded] = useState(false);
+  const panelId = useId();
 
   if (!text) {
     return null;
@@ -47,6 +48,8 @@ export function SkillContentBlock({ text }: SkillContentBlockProps) {
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+        aria-controls={panelId}
         className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors"
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(0.76 0.09 295 / 0.18)";
@@ -78,6 +81,7 @@ export function SkillContentBlock({ text }: SkillContentBlockProps) {
       </button>
       {isExpanded && (
         <div
+          id={panelId}
           className="max-h-96 overflow-y-auto px-3 py-2"
           style={{
             borderTop: "1px solid var(--color-accent-soft)",

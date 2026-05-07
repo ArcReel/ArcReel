@@ -247,9 +247,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                 style={{ color: "var(--color-text-4)" }}
               />
               <input
+                type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("dashboard:episode_search_placeholder")}
+                aria-label={t("dashboard:episode_search_placeholder")}
                 className="min-w-0 flex-1 bg-transparent text-xs outline-none focus-ring"
                 style={{ color: "var(--color-text)" }}
               />
