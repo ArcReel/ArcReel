@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Scissors, Search } from "lucide-react";
 import { assetColor } from "./asset-colors";
+import { StatusBadge, deriveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
 
 export interface UnitListProps {
@@ -14,59 +15,6 @@ export interface UnitListProps {
   /** Optional per-unit derived status for color/label. Falls back to
    *  `video_clip ? 'ready' : 'pending'` based on persisted assets. */
   statusMap?: Record<string, UnitStatus>;
-}
-
-const STATUS_CONF: Record<
-  UnitStatus,
-  { i18nKey: string; color: string; bg: string; pulse: boolean }
-> = {
-  pending: {
-    i18nKey: "reference_status_pending",
-    color: "text-[var(--color-text-4)]",
-    bg: "bg-[oklch(0.30_0.01_250_/_0.4)]",
-    pulse: false,
-  },
-  running: {
-    i18nKey: "reference_status_running",
-    color: "text-amber-300",
-    bg: "bg-amber-500/15",
-    pulse: true,
-  },
-  ready: {
-    i18nKey: "reference_status_ready",
-    color: "text-emerald-300",
-    bg: "bg-emerald-500/15",
-    pulse: false,
-  },
-  failed: {
-    i18nKey: "reference_status_failed",
-    color: "text-red-300",
-    bg: "bg-red-500/15",
-    pulse: false,
-  },
-};
-
-function StatusBadge({ status }: { status: UnitStatus }) {
-  const { t } = useTranslation("dashboard");
-  const conf = STATUS_CONF[status];
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${conf.color} ${conf.bg}`}
-    >
-      <span
-        aria-hidden="true"
-        className={`h-1 w-1 rounded-full ${conf.color.replace("text-", "bg-")} ${conf.pulse ? "motion-safe:animate-pulse" : ""}`}
-      />
-      {t(conf.i18nKey)}
-    </span>
-  );
-}
-
-function deriveStatus(
-  unit: ReferenceVideoUnit,
-  statusMap?: Record<string, UnitStatus>,
-): UnitStatus {
-  return statusMap?.[unit.unit_id] ?? (unit.generated_assets.video_clip ? "ready" : "pending");
 }
 
 function promptPreview(unit: ReferenceVideoUnit): string {
@@ -111,6 +59,8 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
         <label className="flex items-center gap-1.5 rounded-md border border-[var(--color-hairline-soft)] bg-[oklch(0.20_0.011_265_/_0.55)] px-2 py-1.5">
           <Search className="h-3 w-3 text-[var(--color-text-4)]" aria-hidden="true" />
           <input
+            type="search"
+            autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("reference_unit_search_placeholder")}
@@ -135,7 +85,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
           className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
         >
           {filtered.map((u) => {
-            const status = deriveStatus(u, statusMap);
+            const status = deriveUnitStatus(u, statusMap);
             const selected = u.unit_id === selectedId;
             const dirty = !!dirtyMap?.[u.unit_id];
             return (
@@ -197,11 +147,11 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
                 </p>
                 {u.references.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-0.5">
-                    {u.references.slice(0, 5).map((r, idx) => {
+                    {u.references.slice(0, 5).map((r) => {
                       const palette = assetColor(r.type);
                       return (
                         <span
-                          key={`${r.type}-${r.name}-${idx}`}
+                          key={`${r.type}:${r.name}`}
                           className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${palette.textClass} ${palette.bgClass}`}
                           translate="no"
                         >

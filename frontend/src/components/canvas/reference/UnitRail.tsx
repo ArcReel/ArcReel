@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { LayoutGrid } from "lucide-react";
+import { STATUS_CONF, deriveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
 
 export interface UnitRailProps {
@@ -9,27 +10,6 @@ export interface UnitRailProps {
   onExpand: () => void;
   dirtyMap?: Record<string, boolean>;
   statusMap?: Record<string, UnitStatus>;
-}
-
-const STATUS_DOT: Record<UnitStatus, string> = {
-  pending: "bg-[var(--color-text-4)]",
-  running: "bg-amber-400 motion-safe:animate-pulse",
-  ready: "bg-emerald-400",
-  failed: "bg-red-400",
-};
-
-const STATUS_LABEL_KEY: Record<UnitStatus, string> = {
-  pending: "reference_status_pending",
-  running: "reference_status_running",
-  ready: "reference_status_ready",
-  failed: "reference_status_failed",
-};
-
-function deriveStatus(
-  unit: ReferenceVideoUnit,
-  statusMap?: Record<string, UnitStatus>,
-): UnitStatus {
-  return statusMap?.[unit.unit_id] ?? (unit.generated_assets.video_clip ? "ready" : "pending");
 }
 
 /**
@@ -55,7 +35,8 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
         {units.map((u) => {
           const sel = u.unit_id === selectedId;
           const dirty = !!dirtyMap?.[u.unit_id];
-          const status = deriveStatus(u, statusMap);
+          const status = deriveUnitStatus(u, statusMap);
+          const conf = STATUS_CONF[status];
           // Strip the leading E{episode} from the unit id so the rail shows just `U{n}`.
           const shortId = u.unit_id.replace(/^E\d+/, "");
           return (
@@ -63,7 +44,7 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
               key={u.unit_id}
               type="button"
               onClick={() => onSelect(u.unit_id)}
-              title={`${u.unit_id} · ${t(STATUS_LABEL_KEY[status])}`}
+              title={`${u.unit_id} · ${t(conf.i18nKey)}`}
               className={`focus-ring relative flex w-full flex-col items-center gap-1 rounded-md py-2 ${
                 sel
                   ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_290_/_0.5),oklch(0.22_0.015_280_/_0.35))]"
@@ -86,7 +67,10 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
               >
                 {shortId}
               </span>
-              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 rounded-full ${conf.dotClass} ${conf.pulse ? "motion-safe:animate-pulse" : ""}`}
+              />
               {dirty && (
                 <span
                   aria-label={t("reference_unit_dirty_hint")}

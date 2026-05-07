@@ -1,84 +1,35 @@
 import { useTranslation } from "react-i18next";
 import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react";
 import { API } from "@/api";
-import type { ReferenceVideoUnit, UnitStatus } from "@/types";
+import { formatCost } from "@/utils/cost-format";
+import { StatusBadge, deriveUnitStatus } from "./unit-status";
+import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
 
 export interface UnitPreviewPanelProps {
   unit: ReferenceVideoUnit | null;
   projectName?: string;
-  /** Composite UI status — combines persisted state, queue, and optimistic flags. */
+  /** Composite UI status — combines persisted state, queue, and optimistic flags.
+   *  When omitted, falls back to `video_clip ? 'ready' : 'pending'`. */
   status?: UnitStatus;
-  /** True while the unit is in flight (queued / running / optimistic). */
-  generating?: boolean;
   /** Latest task error message (if any) for the failed state. */
   errorMessage?: string | null;
-  /** Estimated cost for this unit in USD (optional; rendered as $X.XX next to the CTA). */
-  estimatedCost?: number;
-  /** Actual already-spent cost in USD; rendered in the metadata block. */
-  actualCost?: number;
+  /** Estimated cost for this unit (optional; rendered next to the CTA). */
+  estimatedCost?: CostBreakdown;
+  /** Actual already-spent cost; rendered in the metadata block. */
+  actualCost?: CostBreakdown;
   onGenerate?: (unitId: string) => void;
 }
 
-const STATUS_CONF: Record<
-  UnitStatus,
-  { i18nKey: string; color: string; bg: string; pulse: boolean }
-> = {
-  pending: {
-    i18nKey: "reference_status_pending",
-    color: "text-[var(--color-text-4)]",
-    bg: "bg-[oklch(0.30_0.01_250_/_0.4)]",
-    pulse: false,
-  },
-  running: {
-    i18nKey: "reference_status_running",
-    color: "text-amber-300",
-    bg: "bg-amber-500/15",
-    pulse: true,
-  },
-  ready: {
-    i18nKey: "reference_status_ready",
-    color: "text-emerald-300",
-    bg: "bg-emerald-500/15",
-    pulse: false,
-  },
-  failed: {
-    i18nKey: "reference_status_failed",
-    color: "text-red-300",
-    bg: "bg-red-500/15",
-    pulse: false,
-  },
-};
-
-function StatusBadge({ status }: { status: UnitStatus }) {
-  const { t } = useTranslation("dashboard");
-  const conf = STATUS_CONF[status];
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[10.5px] font-medium ${conf.color} ${conf.bg}`}
-    >
-      <span
-        aria-hidden="true"
-        className={`h-[5px] w-[5px] rounded-full ${conf.color.replace("text-", "bg-")} ${
-          conf.pulse ? "motion-safe:animate-pulse" : ""
-        }`}
-      />
-      {t(conf.i18nKey)}
-    </span>
-  );
-}
-
-function deriveStatus(unit: ReferenceVideoUnit, override?: UnitStatus, generating?: boolean): UnitStatus {
-  if (override) return override;
-  if (generating) return "running";
-  if (unit.generated_assets.video_clip) return "ready";
-  return "pending";
+function hasCost(b: CostBreakdown | undefined): boolean {
+  if (!b) return false;
+  for (const v of Object.values(b)) if (v > 0) return true;
+  return false;
 }
 
 export function UnitPreviewPanel({
   unit,
   projectName,
   status,
-  generating,
   errorMessage,
   estimatedCost,
   actualCost,
@@ -94,10 +45,10 @@ export function UnitPreviewPanel({
     );
   }
 
-  const effectiveStatus = deriveStatus(unit, status, generating);
+  const effectiveStatus = deriveUnitStatus(unit, status ? { [unit.unit_id]: status } : undefined);
   const ready = effectiveStatus === "ready";
   const failed = effectiveStatus === "failed";
-  const inFlight = effectiveStatus === "running" || generating;
+  const inFlight = effectiveStatus === "running";
 
   const clip = unit.generated_assets.video_clip;
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip) : null;
@@ -116,7 +67,7 @@ export function UnitPreviewPanel({
           {t("reference_preview_label")}
         </span>
         <span className="flex-1" />
-        <StatusBadge status={effectiveStatus} />
+        <StatusBadge status={effectiveStatus} size="md" />
       </div>
 
       <div
@@ -133,6 +84,8 @@ export function UnitPreviewPanel({
               src={videoUrl}
               aria-label={t("reference_preview_video_aria", { id: unit.unit_id })}
               controls
+              preload="metadata"
+              playsInline
               className="h-full w-full object-contain"
             />
             <div
@@ -216,9 +169,9 @@ export function UnitPreviewPanel({
                 <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
               )}
               <span>{ctaLabel}</span>
-              {estimatedCost != null && (
+              {hasCost(estimatedCost) && (
                 <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">
-                  ~${estimatedCost.toFixed(2)}
+                  ≈ {formatCost(estimatedCost)}
                 </span>
               )}
             </>
@@ -247,13 +200,13 @@ export function UnitPreviewPanel({
           </dd>
           <dt className="text-[var(--color-text-4)]">{t("reference_meta_status")}</dt>
           <dd>
-            <StatusBadge status={effectiveStatus} />
+            <StatusBadge status={effectiveStatus} size="md" />
           </dd>
-          {actualCost != null && actualCost > 0 && (
+          {hasCost(actualCost) && (
             <>
               <dt className="text-[var(--color-text-4)]">{t("reference_meta_cost")}</dt>
               <dd className="font-mono tabular-nums text-emerald-300">
-                ${actualCost.toFixed(2)}
+                {formatCost(actualCost)}
                 <span className="ml-1 text-[var(--color-text-4)]">
                   {t("reference_meta_cost_spent")}
                 </span>

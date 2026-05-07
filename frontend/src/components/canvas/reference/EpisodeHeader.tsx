@@ -1,25 +1,13 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useCostStore } from "@/stores/cost-store";
-import type { CostBreakdown } from "@/types";
+import { formatCost } from "@/utils/cost-format";
 import type { ReferenceVideoUnit } from "@/types";
 
 export interface EpisodeHeaderProps {
   episode: number;
   title: string;
   units: ReferenceVideoUnit[];
-}
-
-/** Sum across all currencies into a single USD-equivalent number for the
- *  episode header card. We don't currency-convert here — for ArcReel's typical
- *  single-currency cost data, this is effectively `breakdown.USD ?? 0`. When
- *  multi-currency data is present, we still render `$` as the unit and the
- *  caller can refine later. */
-function sumBreakdown(b: CostBreakdown | undefined): number {
-  if (!b) return 0;
-  let total = 0;
-  for (const v of Object.values(b)) total += v;
-  return total;
 }
 
 export function EpisodeHeader({ episode, title, units }: EpisodeHeaderProps) {
@@ -31,13 +19,17 @@ export function EpisodeHeader({ episode, title, units }: EpisodeHeaderProps) {
     const ready = units.filter((u) => !!u.generated_assets.video_clip).length;
     const totalDur = units.reduce((s, u) => s + u.duration_seconds, 0);
     const percent = total > 0 ? Math.round((ready / total) * 100) : 0;
-    const estimated = sumBreakdown(epCost?.totals.estimate.video);
-    const actual = sumBreakdown(epCost?.totals.actual.video);
-    return { total, ready, totalDur, percent, estimated, actual };
+    return {
+      total,
+      ready,
+      totalDur,
+      percent,
+      estimated: formatCost(epCost?.totals.estimate.video),
+      actual: formatCost(epCost?.totals.actual.video),
+    };
   }, [units, epCost]);
 
   const epLabel = `EP · ${String(episode).padStart(2, "0")}`;
-  const fmtUsd = (n: number) => `$${n.toFixed(2)}`;
 
   return (
     <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.22_0.014_290_/_0.4),oklch(0.20_0.012_250_/_0.15))] px-6 py-4">
@@ -84,13 +76,13 @@ export function EpisodeHeader({ episode, title, units }: EpisodeHeaderProps) {
             {
               key: "estimated",
               label: t("reference_episode_header_estimated"),
-              value: fmtUsd(stats.estimated),
+              value: stats.estimated,
               accent: false,
             },
             {
               key: "actual",
               label: t("reference_episode_header_actual"),
-              value: fmtUsd(stats.actual),
+              value: stats.actual,
               accent: true,
             },
           ] as const

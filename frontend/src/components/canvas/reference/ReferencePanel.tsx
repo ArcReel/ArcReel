@@ -102,7 +102,8 @@ export function ReferencePanel({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const existingKeys = useMemo(() => new Set(references.map(refId)), [references]);
+  const sortableIds = useMemo(() => references.map(refId), [references]);
+  const existingKeys = useMemo(() => new Set(sortableIds), [sortableIds]);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
@@ -178,18 +179,22 @@ export function ReferencePanel({
   return (
     <div className="relative flex-shrink-0 border-b border-[var(--color-hairline-soft)] bg-[oklch(0.20_0.011_265_/_0.35)] px-3 py-2.5">
       <div className="mb-2 flex items-center gap-2">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-gray-500">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-4)]">
           {t("reference_strip_label")}
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-gray-500">
+        <span className="font-mono text-[10px] tabular-nums text-[var(--color-text-4)]">
           {references.length}
         </span>
         <span className="flex-1" />
-        <span className="text-[10px] text-gray-500">{t("reference_strip_order_hint")}</span>
+        <span className="text-[10px] text-[var(--color-text-4)]">
+          {t("reference_strip_order_hint")}
+        </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {references.length === 0 && (
-          <span className="text-xs italic text-gray-500">{t("reference_strip_empty")}</span>
+          <span className="text-xs italic text-[var(--color-text-4)]">
+            {t("reference_strip_empty")}
+          </span>
         )}
         <DndContext
           sensors={sensors}
@@ -197,7 +202,7 @@ export function ReferencePanel({
           onDragEnd={onDragEnd}
           accessibility={{ announcements, screenReaderInstructions }}
         >
-          <SortableContext items={references.map(refId)} strategy={horizontalListSortingStrategy}>
+          <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
             {chipData.map((d, i) => (
               <SortableChip
                 key={refId(d.ref)}
@@ -216,7 +221,7 @@ export function ReferencePanel({
           aria-label={t("reference_strip_add")}
           aria-expanded={pickerOpen}
           aria-controls={PICKER_ID}
-          className="focus-ring inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-hairline-strong)] bg-[oklch(0.22_0.011_265_/_0.55)] px-2.5 py-1 text-xs text-gray-300 transition-colors hover:border-[var(--color-accent-soft)] hover:text-gray-100"
+          className="focus-ring inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-hairline-strong)] bg-[oklch(0.22_0.011_265_/_0.55)] px-2.5 py-1 text-xs text-[var(--color-text-3)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text)]"
         >
           <Plus className="h-3 w-3" aria-hidden="true" />
           <span>{t("reference_strip_add")}</span>

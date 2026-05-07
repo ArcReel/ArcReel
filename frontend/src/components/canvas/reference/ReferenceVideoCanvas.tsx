@@ -1,4 +1,3 @@
-// frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
@@ -29,7 +28,6 @@ import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
 import { mergeReferences } from "@/utils/reference-mentions";
 import type {
-  CostBreakdown,
   ReferenceResource,
   ReferenceVideoUnit,
   TaskStatus,
@@ -54,25 +52,14 @@ const PREVIEW_COL_NARROW = 320;
 const PREVIEW_COL_WIDE = 360;
 const WIDE_BREAKPOINT = 1280;
 
-/** 草稿 map 的复合键：`unit_id` 格式 `E{episode}U{n}` 在不同项目下会重复，所以必须
- *  把 project+episode 一同编入 key，否则切换项目会误把旧项目的未保存草稿应用到新项目
- *  同名 unit 上，造成跨项目数据污染。与 store 侧的 `_debounceKey` 约定一致。 */
+// Compound key avoids cross-project draft bleed: E{ep}U{n} repeats across projects.
 function draftKey(projectName: string, episode: number, unitId: string): string {
   return `${projectName}::${episode}::${unitId}`;
 }
 
-/** Toast an error with tone="error". Optional `format` wraps the normalized
- *  message (e.g. an i18n template); without it the raw message is shown. */
 function toastError(e: unknown, format?: (msg: string) => string): void {
   const msg = errMsg(e);
   useAppStore.getState().pushToast(format ? format(msg) : msg, "error");
-}
-
-function sumBreakdown(b: CostBreakdown | undefined): number {
-  if (!b) return 0;
-  let total = 0;
-  for (const v of Object.values(b)) total += v;
-  return total;
 }
 
 export function ReferenceVideoCanvas({
@@ -96,8 +83,7 @@ export function ReferenceVideoCanvas({
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
 
-  // Draft prompts keyed by unit_id — 只在 textarea 内容偏离服务端值时保留一条 entry。
-  // 切换 unit 不清空，便于用户在多个 unit 间来回编辑而不丢失输入。
+  // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
@@ -118,18 +104,17 @@ export function ReferenceVideoCanvas({
     [units, selectedUnitId],
   );
 
-  // 默认选中第一个 unit；selectedUnitId 是全局单例（非 per-episode），
-  // 切换 episode 后可能残留上一集的 unit_id，这里统一用 "是否在当前 units 里" 做合法性校验。
+  // selectedUnitId is a global singleton; validate against current episode's units.
   useEffect(() => {
     if (units.length > 0 && !selected) {
       select(units[0].unit_id);
     }
   }, [units, selected, select]);
 
-  // Optimistic UI 集合：见原版长注释。POST 前置位 → 队列接力 → 队列窗口换出后失效。
+  // Optimistic UI: POST 前置位 → 队列接力 → 队列窗口换出后失效。
   const [optimisticUnitIds, setOptimisticUnitIds] = useState<Set<string>>(() => new Set());
 
-  // 任务失败 toast：transition detection。仅在 prev !== failed && next === failed 触发。
+  // Toast on transition into failed (prev !== failed && next === failed).
   const prevTaskStatusRef = useRef<Map<string, TaskStatus>>(new Map());
   useEffect(() => {
     const prev = prevTaskStatusRef.current;
@@ -150,30 +135,33 @@ export function ReferenceVideoCanvas({
     prevTaskStatusRef.current = next;
   }, [relevantTasks, t]);
 
-  // Per-unit derived UI status — 给 UnitList / UnitRail / PreviewPanel 共用。
+  const tasksByUnit = useMemo(() => {
+    const map = new Map<string, (typeof relevantTasks)[number]>();
+    for (const tk of relevantTasks) map.set(tk.resource_id, tk);
+    return map;
+  }, [relevantTasks]);
+
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
     for (const u of units) {
       let st: UnitStatus = u.generated_assets.video_clip ? "ready" : "pending";
-      const queueRow = relevantTasks.find((tk) => tk.resource_id === u.unit_id);
+      const queueRow = tasksByUnit.get(u.unit_id);
       if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
       else if (queueRow?.status === "failed") st = "failed";
       else if (optimisticUnitIds.has(u.unit_id) && !queueRow) st = "running";
       map[u.unit_id] = st;
     }
     return map;
-  }, [units, relevantTasks, optimisticUnitIds]);
+  }, [units, tasksByUnit, optimisticUnitIds]);
 
   const generating = !!(selected && statusMap[selected.unit_id] === "running");
 
   const failureMessage = useMemo(() => {
     if (!selected) return null;
     if (statusMap[selected.unit_id] !== "failed") return null;
-    const tk = relevantTasks.find((x) => x.resource_id === selected.unit_id);
-    return tk?.error_message ?? null;
-  }, [selected, statusMap, relevantTasks]);
+    return tasksByUnit.get(selected.unit_id)?.error_message ?? null;
+  }, [selected, statusMap, tasksByUnit]);
 
-  // dirty 状态 map：仅扫当前 episode 的 units，drafts entry 与 baseText 不一致时记真。
   const dirtyMap = useMemo<Record<string, boolean>>(() => {
     const map: Record<string, boolean> = {};
     for (const u of units) {
@@ -191,7 +179,6 @@ export function ReferenceVideoCanvas({
     }
   }, [addUnit, projectName, episode]);
 
-  // 小屏（cw < STACK_PREVIEW_BREAKPOINT）时把 editor / preview 压成 sub-tab。
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
   const handleGenerate = useCallback(
@@ -239,8 +226,6 @@ export function ReferenceVideoCanvas({
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
-  // Draft 管理：每次输入只更新本地 drafts，不触发网络请求。草稿与服务端值一致时
-  // 自动清除该条目，避免"回退到原值后仍显示未保存"的误判。
   const handlePromptChange = useCallback(
     (next: string) => {
       if (!selected) return;
@@ -267,7 +252,6 @@ export function ReferenceVideoCanvas({
 
   const isDirty = !!(selected && dirtyMap[selected.unit_id]);
 
-  // 全局"是否有任何未保存草稿"——用于 beforeunload 保护。
   const hasAnyDraft = Object.keys(drafts).length > 0;
 
   const handleSave = useCallback(async () => {
@@ -296,7 +280,7 @@ export function ReferenceVideoCanvas({
     }
   }, [selected, drafts, project, patchUnit, projectName, episode]);
 
-  // 引用增删/排序保持即时保存；带上 pending prompt 草稿一同 patch。
+  // Reference reorder/add/remove flushes immediately, carrying any pending prompt draft.
   const patchReferencesAtomic = useCallback(
     (unitId: string, nextRefs: ReferenceResource[]) => {
       const key = draftKey(projectName, episode, unitId);
@@ -353,7 +337,7 @@ export function ReferenceVideoCanvas({
     [patchReferencesAtomic, selected],
   );
 
-  // 主 Tab：units（视频单元工作台）/ preproc（拆分预处理）。切换 episode/project 时回到 units。
+  // Reset tab to units on project/episode change (render-time derived-state pattern).
   const [tab, setTab] = useState<"units" | "preproc">("units");
   const [lastEpisode, setLastEpisode] = useState(episode);
   const [lastProject, setLastProject] = useState(projectName);
@@ -363,7 +347,6 @@ export function ReferenceVideoCanvas({
     setTab("units");
   }
 
-  // 预处理状态：用于 Tab 旁的小指示。
   const preprocStatus: "loading" | "error" | "empty" | "ready" = loading
     ? "loading"
     : error
@@ -378,7 +361,6 @@ export function ReferenceVideoCanvas({
     ready: "bg-emerald-500",
   };
 
-  // 任一 unit 有未保存草稿时，离开页面需警告。
   useEffect(() => {
     if (!hasAnyDraft) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -389,7 +371,6 @@ export function ReferenceVideoCanvas({
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasAnyDraft]);
 
-  // ---------- 容器宽度感知（响应式断点） ----------
   const workbenchRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
   useLayoutEffect(() => {
@@ -398,9 +379,8 @@ export function ReferenceVideoCanvas({
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
         const w = e.contentRect.width;
-        // jsdom 测试环境下 contentRect.width 恒为 0；一旦回落到 0 会
-        // 误触发 rail/stackPreview 路径。仅在拿到正常宽度时更新。
-        if (w > 0) setContainerWidth(w);
+        // jsdom 下 contentRect.width 恒为 0；同像素值不重复 setState 避免亚像素抖动。
+        if (w > 0) setContainerWidth((prev) => (prev === w ? prev : w));
       }
     });
     ro.observe(el);
@@ -417,16 +397,11 @@ export function ReferenceVideoCanvas({
     : `${listColW}px minmax(0, 1fr) ${previewColW}px`;
   const [listFlyoutOpen, setListFlyoutOpen] = useState(false);
 
-  // ---------- 单元导航 / 费用 ----------
-  const epCost = useCostStore((s) => s._episodeIndex.get(episode));
   const segCost = useCostStore((s) =>
     selected ? s._segmentIndex.get(selected.unit_id) : undefined,
   );
-  const estimatedCost = segCost ? sumBreakdown(segCost.estimate.video) : undefined;
-  const actualCost = segCost ? sumBreakdown(segCost.actual.video) : undefined;
-  // unused-var 守卫：epCost 用作 EpisodeHeader 内部派生的隐含订阅依赖（已在 store selector 触发），
-  // 这里不直接使用；保留 import 让 fast refresh 友好。
-  void epCost;
+  const estimatedCost = segCost?.estimate.video;
+  const actualCost = segCost?.actual.video;
 
   const selectedIndex = selected ? units.findIndex((u) => u.unit_id === selected.unit_id) : -1;
   const goPrev = useCallback(() => {
@@ -438,7 +413,6 @@ export function ReferenceVideoCanvas({
     select(units[selectedIndex + 1].unit_id);
   }, [select, units, selectedIndex]);
 
-  // ---------- 渲染 ----------
   return (
     <div className="flex h-full min-h-0 flex-col">
       <EpisodeHeader episode={episode} title={episodeTitle ?? `E${episode}`} units={units} />
@@ -699,9 +673,10 @@ export function ReferenceVideoCanvas({
                               </>
                             ) : (
                               <>
-                                <span aria-hidden="true" className="text-emerald-400">
-                                  ●
-                                </span>
+                                <span
+                                  aria-hidden="true"
+                                  className="h-1.5 w-1.5 rounded-full bg-emerald-400"
+                                />
                                 {t("reference_synced")}
                               </>
                             )}
@@ -711,7 +686,7 @@ export function ReferenceVideoCanvas({
                             type="button"
                             onClick={() => void handleSave()}
                             disabled={!isDirty || saving}
-                            className={`focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold ${
+                            className={`focus-ring inline-flex min-w-[80px] items-center justify-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold ${
                               isDirty
                                 ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_12px_-4px_var(--color-accent-glow)]"
                                 : "border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-4)]"
@@ -733,7 +708,6 @@ export function ReferenceVideoCanvas({
                           unit={selected}
                           projectName={projectName}
                           status={statusMap[selected.unit_id]}
-                          generating={generating}
                           errorMessage={failureMessage}
                           estimatedCost={estimatedCost}
                           actualCost={actualCost}
@@ -757,7 +731,6 @@ export function ReferenceVideoCanvas({
                   unit={selected}
                   projectName={projectName}
                   status={selected ? statusMap[selected.unit_id] : undefined}
-                  generating={generating}
                   errorMessage={failureMessage}
                   estimatedCost={estimatedCost}
                   actualCost={actualCost}
