@@ -46,7 +46,7 @@ export function ProgressBar({
     >
       <div
         className={cx("h-full rounded-full bg-indigo-500 transition-[width]", barClassName)}
-        style={{ width: `${pct}%`, ...barStyle }}
+        style={{ ...barStyle, width: `${pct}%` }}
       />
     </div>
   );

@@ -256,11 +256,13 @@ function episodeDotColor(
   i: number,
   summary: ProjectStatus["episodes_summary"],
 ): { bg: string; glow?: string } {
+  const inProductionEnd = summary.completed + summary.in_production;
+  const scriptedEnd = inProductionEnd + summary.scripted;
   if (i < summary.completed) return { bg: "var(--color-good)" };
-  if (i < summary.completed + summary.in_production) {
+  if (i < inProductionEnd) {
     return { bg: "var(--color-accent)", glow: "0 0 6px var(--color-accent-glow)" };
   }
-  if (i < summary.scripted) return { bg: "oklch(0.55 0.010 265)" };
+  if (i < scriptedEnd) return { bg: "oklch(0.55 0.010 265)" };
   return { bg: "oklch(0.22 0.011 265)" };
 }
 
@@ -708,15 +710,13 @@ function TopBar({
         </div>
 
         <div className="flex flex-1 justify-center">
-          <label
-            className="flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-hairline-soft bg-bg/55 px-3 py-1.5 transition-colors focus-within:border-accent/60"
-            aria-label={t("dashboard:search_projects")}
-          >
+          <label className="flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-hairline-soft bg-bg/55 px-3 py-1.5 transition-colors focus-within:border-accent/60">
             <Search className="h-3.5 w-3.5 text-text-3" />
             <input
               ref={searchInputRef}
               type="search"
               name="q"
+              aria-label={t("dashboard:search_projects")}
               value={searchValue}
               onChange={(e) => onSearch(e.target.value)}
               autoComplete="off"
@@ -1038,11 +1038,11 @@ export function ProjectsPage() {
 
   const phaseLabels = useMemo<Record<Phase, string>>(
     () => ({
-      setup: t("setup"),
-      worldbuilding: t("worldbuilding"),
-      scripting: t("scripting"),
-      production: t("production"),
-      completed: t("completed"),
+      setup: t("dashboard:phase_setup"),
+      worldbuilding: t("dashboard:phase_worldbuilding"),
+      scripting: t("dashboard:phase_scripting"),
+      production: t("dashboard:phase_production"),
+      completed: t("dashboard:phase_completed"),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t reference rotates with i18n.language
     [i18n.language],
