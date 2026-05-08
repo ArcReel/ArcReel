@@ -93,7 +93,7 @@ def build_narration_prompt(
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
-    pacing_block = render_pacing_section("narration") + "\n\n" if is_v2_enabled() else ""
+    pacing_block = (render_pacing_section("narration") + "\n\n") if is_v2_enabled() else ""
 
     return f"""# 角色与任务
 
@@ -188,7 +188,7 @@ def build_drama_prompt(
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
-    pacing_block = render_pacing_section("drama") + "\n\n" if is_v2_enabled() else ""
+    pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
 
     return f"""# 角色与任务
 
