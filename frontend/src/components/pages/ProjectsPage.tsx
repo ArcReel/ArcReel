@@ -610,27 +610,79 @@ function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex h-full min-h-[380px] flex-col items-center justify-center gap-3.5 rounded-[12px] border border-dashed border-hairline bg-bg-grad-a/45 p-6 text-text-3 transition-colors hover:border-accent/40 hover:bg-bg-grad-a/70 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[12px] border border-dashed border-hairline bg-bg-grad-a/40 text-left transition-colors hover:border-accent/45 hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      aria-label={t("dashboard:lobby_new_project_title")}
     >
-      <span
-        className="grid h-14 w-14 place-items-center rounded-[14px] font-editorial text-[32px] leading-none"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
-          border: "1px solid oklch(0.76 0.09 295 / 0.4)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
-          color: "var(--color-accent-2)",
-        }}
-      >
-        +
-      </span>
-      <div className="text-center">
-        <div className="font-editorial text-[22px] text-text">
-          {t("dashboard:lobby_new_project_title")}
+      <div className="p-2.5">
+        <div
+          className="relative grid place-items-center overflow-hidden rounded-[6px] border border-dashed border-hairline-soft"
+          style={{
+            aspectRatio: "2 / 1",
+            background:
+              "radial-gradient(120% 80% at 30% 30%, oklch(0.26 0.04 290 / 0.45) 0%, transparent 60%), oklch(0.16 0.010 265 / 0.35)",
+          }}
+        >
+          <div className="flex flex-col items-center gap-2.5 transition-transform motion-safe:group-hover:-translate-y-0.5">
+            <span
+              aria-hidden
+              className="grid h-12 w-12 place-items-center rounded-[12px]"
+              style={{
+                background:
+                  "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
+                border: "1px solid oklch(0.76 0.09 295 / 0.4)",
+                boxShadow:
+                  "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
+                color: "var(--color-accent-2)",
+              }}
+            >
+              <Plus className="h-6 w-6" />
+            </span>
+            <div className="text-center">
+              <div className="text-[15px] font-semibold tracking-tight text-text-2 transition-colors group-hover:text-text">
+                {t("dashboard:lobby_new_project_title")}
+              </div>
+              <div className="mt-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-text-4">
+                {t("dashboard:lobby_new_project_kicker")}
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="mt-1 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-text-3">
-          {t("dashboard:lobby_new_project_kicker")}
+      </div>
+
+      <div aria-hidden className="space-y-3 px-4 pt-1 pb-3.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="block h-3 w-1/2 rounded-[3px] bg-hairline-soft/70" />
+          <span className="block h-2 w-12 rounded-[3px] bg-hairline-soft/50" />
+        </div>
+        <span className="inline-block h-[18px] w-16 rounded-full border border-dashed border-hairline-soft" />
+        <div className="flex gap-[3px]">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <span
+              key={i}
+              className="h-[3px] flex-1 rounded-[1.5px] bg-hairline-soft/45"
+            />
+          ))}
+        </div>
+        <div
+          className="grid grid-cols-4 overflow-hidden rounded-[7px] border border-dashed border-hairline-soft"
+          style={{ background: "oklch(0.16 0.010 265 / 0.3)" }}
+        >
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className={
+                "px-1.5 py-2.5" +
+                (i < 3 ? " border-r border-dashed border-hairline-soft" : "")
+              }
+            >
+              <span className="mx-auto block h-1.5 w-8 rounded-[1.5px] bg-hairline-soft/55" />
+              <span className="mx-auto mt-1.5 block h-2 w-6 rounded-[1.5px] bg-hairline-soft/35" />
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span className="h-[3px] flex-1 rounded-[1.5px] bg-hairline-soft/35" />
+          <span className="h-2 w-7 rounded-[3px] bg-hairline-soft/50" />
         </div>
       </div>
     </button>
@@ -678,13 +730,9 @@ function TopBar({
         <div className="flex items-center gap-2.5">
           <img
             src="/android-chrome-192x192.png"
-            alt=""
-            aria-hidden
+            alt="ArcReel"
             className="h-8 w-8 rounded-lg"
           />
-          <span translate="no" className="text-[20px] font-semibold tracking-tight text-text">
-            ArcReel
-          </span>
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-3">
             · {t("dashboard:lobby_brand_subtitle")}
           </span>
@@ -886,36 +934,38 @@ function HeroStrip({ totals, t }: HeroStripProps) {
         <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-2">
           · {t("dashboard:lobby_hero_eyebrow")} · {dateLine}
         </div>
-        <div
-          className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
-          style={{ background: "oklch(0.16 0.010 265 / 0.4)" }}
-        >
-          {stats.map((s, i) => (
-            <div
-              key={s.key}
-              className={
-                "px-4 py-2.5" +
-                (i < stats.length - 1 ? " border-r border-hairline-soft" : "")
-              }
-            >
-              <div className="font-mono text-[9px] font-bold tracking-[0.14em] text-text-3">
-                {s.label}
-              </div>
+        {totals.total > 0 ? (
+          <div
+            className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
+            style={{ background: "oklch(0.16 0.010 265 / 0.4)" }}
+          >
+            {stats.map((s, i) => (
               <div
-                className="font-editorial mt-0.5 tabular-nums"
-                style={{
-                  fontSize: 30,
-                  fontWeight: 400,
-                  lineHeight: 1,
-                  letterSpacing: "-0.012em",
-                  ...s.tone,
-                }}
+                key={s.key}
+                className={
+                  "px-4 py-2.5" +
+                  (i < stats.length - 1 ? " border-r border-hairline-soft" : "")
+                }
               >
-                {s.value}
+                <div className="font-mono text-[9px] font-bold tracking-[0.14em] text-text-3">
+                  {s.label}
+                </div>
+                <div
+                  className="font-editorial mt-0.5 tabular-nums"
+                  style={{
+                    fontSize: 30,
+                    fontWeight: 400,
+                    lineHeight: 1,
+                    letterSpacing: "-0.012em",
+                    ...s.tone,
+                  }}
+                >
+                  {s.value}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1244,13 +1294,15 @@ export function ProjectsPage() {
 
       <HeroStrip totals={totals} t={t} />
 
-      <FilterPills
-        active={phaseFilter}
-        onChange={setPhaseFilter}
-        counts={phaseCounts}
-        phaseLabels={phaseLabels}
-        t={t}
-      />
+      {projects.length > 0 ? (
+        <FilterPills
+          active={phaseFilter}
+          onChange={setPhaseFilter}
+          counts={phaseCounts}
+          phaseLabels={phaseLabels}
+          t={t}
+        />
+      ) : null}
 
       <main className="mx-auto max-w-[1320px] px-6 pt-6 pb-16">
         {projectsLoading ? (
