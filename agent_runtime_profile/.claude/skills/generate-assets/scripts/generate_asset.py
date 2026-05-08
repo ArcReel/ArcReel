@@ -172,7 +172,13 @@ def _build_specs(
             resolved.append(name)
     else:
         pending = _get_pending(pm, project_name, asset_type)
-        resolved = [item["name"] for item in pending]
+        resolved = []
+        for item in pending:
+            name = item["name"]
+            if not assets_dict.get(name, {}).get("description"):
+                print(f"⚠️  {cfg['label']} '{name}' 缺少描述，跳过")
+                continue
+            resolved.append(name)
 
     specs: list[BatchTaskSpec] = []
     for name in resolved:

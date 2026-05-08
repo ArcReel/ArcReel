@@ -96,8 +96,8 @@ def build_narration_prompt(
     prop_names = list(props.keys())
 
     pacing_block = render_pacing_section("narration") + "\n\n" if is_v2_enabled() else ""
-    image_patch = "\n" + IMAGE_DYNAMIC_PATCH if is_v2_enabled() else ""
-    video_patch = "\n" + VIDEO_DYNAMIC_PATCH if is_v2_enabled() else ""
+    image_patch = "\n     " + IMAGE_DYNAMIC_PATCH.replace("\n", "\n     ") if is_v2_enabled() else ""
+    video_patch = "\n     " + VIDEO_DYNAMIC_PATCH.replace("\n", "\n     ") if is_v2_enabled() else ""
 
     prompt = f"""你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
 
@@ -227,8 +227,8 @@ def build_drama_prompt(
     prop_names = list(props.keys())
 
     pacing_block = render_pacing_section("drama") + "\n\n" if is_v2_enabled() else ""
-    image_patch = "\n" + IMAGE_DYNAMIC_PATCH if is_v2_enabled() else ""
-    video_patch = "\n" + VIDEO_DYNAMIC_PATCH if is_v2_enabled() else ""
+    image_patch = "\n     " + IMAGE_DYNAMIC_PATCH.replace("\n", "\n     ") if is_v2_enabled() else ""
+    video_patch = "\n     " + VIDEO_DYNAMIC_PATCH.replace("\n", "\n     ") if is_v2_enabled() else ""
 
     prompt = f"""你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
 

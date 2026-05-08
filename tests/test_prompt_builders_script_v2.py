@@ -13,6 +13,11 @@ from lib.prompt_rules.visual_dynamic import (
 )
 
 
+def _normalize(text: str) -> str:
+    """去除全部空白字符，用于跨缩进比较——与 test_subagent_md_sync 同策略。"""
+    return "".join(text.split())
+
+
 def _kwargs() -> dict:
     return dict(
         project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
@@ -29,33 +34,37 @@ def _kwargs() -> dict:
 def test_drama_v2_on_injects_all(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
     text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
-    assert DRAMA_PACING_RULES in text
-    assert IMAGE_DYNAMIC_PATCH in text
-    assert VIDEO_DYNAMIC_PATCH in text
+    text_norm = _normalize(text)
+    assert _normalize(DRAMA_PACING_RULES) in text_norm
+    assert _normalize(IMAGE_DYNAMIC_PATCH) in text_norm
+    assert _normalize(VIDEO_DYNAMIC_PATCH) in text_norm
 
 
 def test_drama_v2_off_omits_all(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "off")
     text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
-    assert DRAMA_PACING_RULES not in text
-    assert IMAGE_DYNAMIC_PATCH not in text
-    assert VIDEO_DYNAMIC_PATCH not in text
+    text_norm = _normalize(text)
+    assert _normalize(DRAMA_PACING_RULES) not in text_norm
+    assert _normalize(IMAGE_DYNAMIC_PATCH) not in text_norm
+    assert _normalize(VIDEO_DYNAMIC_PATCH) not in text_norm
 
 
 def test_narration_v2_on_injects_all(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
     text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
-    assert NARRATION_PACING_RULES in text
-    assert IMAGE_DYNAMIC_PATCH in text
-    assert VIDEO_DYNAMIC_PATCH in text
+    text_norm = _normalize(text)
+    assert _normalize(NARRATION_PACING_RULES) in text_norm
+    assert _normalize(IMAGE_DYNAMIC_PATCH) in text_norm
+    assert _normalize(VIDEO_DYNAMIC_PATCH) in text_norm
 
 
 def test_narration_v2_off_omits_all(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "off")
     text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
-    assert NARRATION_PACING_RULES not in text
-    assert IMAGE_DYNAMIC_PATCH not in text
-    assert VIDEO_DYNAMIC_PATCH not in text
+    text_norm = _normalize(text)
+    assert _normalize(NARRATION_PACING_RULES) not in text_norm
+    assert _normalize(IMAGE_DYNAMIC_PATCH) not in text_norm
+    assert _normalize(VIDEO_DYNAMIC_PATCH) not in text_norm
 
 
 def test_drama_v2_on_keeps_camera_motion_constraint(monkeypatch: pytest.MonkeyPatch) -> None:

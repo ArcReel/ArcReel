@@ -1,6 +1,6 @@
 """漂移防御：lib.prompt_rules.episode_pacing 的常量必须出现在对应 subagent .md 中。
 
-用首尾 30 字符锚点做 substring 断言，避免空白差异误报。
+用首尾 60 字符锚点做 substring 断言，避免空白差异误报。
 """
 
 from pathlib import Path

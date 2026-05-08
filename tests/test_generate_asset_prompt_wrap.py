@@ -39,4 +39,4 @@ def test_wrap_each_type_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
     scene_p, _ = generate_asset._wrap_prompt("scene", "X")
     prop_p, _ = generate_asset._wrap_prompt("prop", "X")
     # 每种 type 的 layout + positive 都不同
-    assert char_p != scene_p != prop_p != char_p
+    assert len({char_p, scene_p, prop_p}) == 3
