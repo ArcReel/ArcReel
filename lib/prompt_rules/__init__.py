@@ -9,7 +9,7 @@ import os
 
 
 def is_v2_enabled() -> bool:
-    return os.environ.get("ARCREEL_PROMPT_RULES_V2", "on").lower() != "off"
+    return os.environ.get("ARCREEL_PROMPT_RULES_V2", "on").strip().lower() != "off"
 
 
 __all__ = ["is_v2_enabled"]

@@ -3,17 +3,21 @@
 测试只覆盖纯函数 _wrap_prompt，避开 ProjectManager / queue 副作用。
 """
 
-import importlib
-import sys
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-# 把 skill 脚本目录加入 sys.path（脚本不是 lib 包，需要这样导）
-SCRIPT_DIR = Path(__file__).resolve().parents[1] / "agent_runtime_profile/.claude/skills/generate-assets/scripts"
-sys.path.insert(0, str(SCRIPT_DIR))
-
-generate_asset = importlib.import_module("generate_asset")
+# 直接按文件路径加载，避免污染全局 sys.path
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "agent_runtime_profile/.claude/skills/generate-assets/scripts/generate_asset.py"
+)
+_spec = importlib.util.spec_from_file_location("generate_asset", SCRIPT_PATH)
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"无法加载模块: {SCRIPT_PATH}")
+generate_asset = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(generate_asset)
 
 
 def test_wrap_v2_on_appends_layout_and_positive(monkeypatch: pytest.MonkeyPatch) -> None:
