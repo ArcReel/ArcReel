@@ -150,3 +150,69 @@ class TestScriptModels:
         assert narration.content_mode == "narration"
         assert drama.content_mode == "drama"
         assert drama.scenes[0].duration_seconds == 8
+
+
+class TestLLMSchemaExclusion:
+    """LLM 看到的 JSON schema 必须排除 note / generated_assets / duration_override / 顶层 duration_seconds。"""
+
+    def _walk(self, obj, *, path=""):
+        """遍历 schema 树，yield (path, key) 对所有 properties 键。"""
+        if isinstance(obj, dict):
+            if "properties" in obj and isinstance(obj["properties"], dict):
+                for key in obj["properties"]:
+                    yield (path, key)
+            for k, v in obj.items():
+                yield from self._walk(v, path=f"{path}/{k}")
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                yield from self._walk(item, path=f"{path}[{i}]")
+
+    def _all_keys(self, schema):
+        return {key for _, key in self._walk(schema)}
+
+    def test_narration_schema_excludes_runtime_fields(self):
+        from lib.script_models import NarrationEpisodeScript
+
+        keys = self._all_keys(NarrationEpisodeScript.model_json_schema())
+        for forbidden in ("note", "generated_assets"):
+            assert forbidden not in keys, f"{forbidden} 不应出现在 LLM schema 中"
+        # 顶层 duration_seconds 由 caller 重算
+        assert "duration_seconds" not in NarrationEpisodeScript.model_json_schema()["properties"]
+
+    def test_drama_schema_excludes_runtime_fields(self):
+        from lib.script_models import DramaEpisodeScript
+
+        keys = self._all_keys(DramaEpisodeScript.model_json_schema())
+        for forbidden in ("note", "generated_assets"):
+            assert forbidden not in keys
+        assert "duration_seconds" not in DramaEpisodeScript.model_json_schema()["properties"]
+
+    def test_reference_video_schema_excludes_runtime_fields(self):
+        from lib.script_models import ReferenceVideoScript
+
+        keys = self._all_keys(ReferenceVideoScript.model_json_schema())
+        for forbidden in ("note", "generated_assets", "duration_override"):
+            assert forbidden not in keys
+        assert "duration_seconds" not in ReferenceVideoScript.model_json_schema()["properties"]
+
+    def test_runtime_fields_still_validate_in_python(self):
+        """虽然 LLM 看不到，但 Python 端仍能 model_validate 含这些字段的旧数据（向后兼容）。"""
+        from lib.script_models import NarrationSegment
+
+        seg = NarrationSegment.model_validate(
+            {
+                "segment_id": "E1S1",
+                "duration_seconds": 4,
+                "novel_text": "x",
+                "characters_in_segment": [],
+                "image_prompt": {
+                    "scene": "s",
+                    "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                },
+                "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                "note": "用户标注",
+                "generated_assets": {"status": "completed", "video_clip": "videos/x.mp4"},
+            }
+        )
+        assert seg.note == "用户标注"
+        assert seg.generated_assets.status == "completed"

@@ -120,8 +120,6 @@ c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
 
 d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 
-e. **note**：可选，人类备注；通常留空。
-
 # 顶层字段
 
 - `episode` / `title` / `summary` / `novel.title` / `novel.chapter` 必填。
