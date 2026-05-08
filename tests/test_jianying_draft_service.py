@@ -221,6 +221,79 @@ class TestGenerateDraft:
         assert len(tracks) == 1
 
 
+class TestTransitions:
+    """测试 transition_to_next 字段在剪映草稿中的实际接入"""
+
+    def _generate_with_transitions(self, tmp_path, transitions: list[str]) -> dict:
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        videos_dir = tmp_path / "videos"
+        videos_dir.mkdir()
+        clips = []
+        for i, t in enumerate(transitions):
+            path = videos_dir / f"scene_S{i + 1}.mp4"
+            make_test_video(path)
+            clips.append({"id": f"S{i + 1}", "local_path": str(path), "novel_text": "", "transition_to_next": t})
+
+        draft_dir = tmp_path / "drafts" / "转场草稿"
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        svc._generate_draft(
+            draft_dir=draft_dir,
+            draft_name="转场草稿",
+            clips=clips,
+            width=1920,
+            height=1080,
+            content_mode="drama",
+        )
+        return json.loads((draft_dir / "draft_content.json").read_text(encoding="utf-8"))
+
+    def test_cut_does_not_attach_transition(self, tmp_path):
+        content = self._generate_with_transitions(tmp_path, ["cut", "cut"])
+        assert content.get("materials", {}).get("transitions", []) == []
+
+    def test_fade_attaches_transition_material(self, tmp_path):
+        content = self._generate_with_transitions(tmp_path, ["fade", "cut"])
+        transitions = content.get("materials", {}).get("transitions", [])
+        assert len(transitions) == 1
+        # 闪黑 在 transition_meta 中的 effect_id
+        assert transitions[0].get("effect_id") == "321493"
+
+    def test_dissolve_attaches_transition_material(self, tmp_path):
+        content = self._generate_with_transitions(tmp_path, ["dissolve", "cut"])
+        transitions = content.get("materials", {}).get("transitions", [])
+        assert len(transitions) == 1
+        # 叠化 effect_id
+        assert transitions[0].get("effect_id") == "322577"
+
+    def test_last_segment_transition_ignored(self, tmp_path):
+        # 最后一段即使字段非 cut 也不能挂（剪映约定挂在前段）
+        content = self._generate_with_transitions(tmp_path, ["cut", "fade"])
+        assert content.get("materials", {}).get("transitions", []) == []
+
+    def test_collect_video_clips_includes_transition_field(self, tmp_path):
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "scene_E1S01.mp4").write_bytes(b"fake")
+
+        script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 6,
+                    "transition_to_next": "fade",
+                    "generated_assets": {"video_clip": "videos/scene_E1S01.mp4", "status": "completed"},
+                },
+            ],
+        }
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir)
+        assert clips[0]["transition_to_next"] == "fade"
+
+
 class TestReplacePaths:
     """测试路径后处理（JSON 安全替换）"""
 

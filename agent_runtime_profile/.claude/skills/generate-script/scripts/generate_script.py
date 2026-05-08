@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-generate_script.py - 使用 Gemini 生成 JSON 剧本
+generate_script.py - 调用项目配置的文本模型生成 JSON 剧本
+
+文本模型由 project.json / 系统配置决定，不锁定具体供应商。
 
 用法:
     python generate_script.py --episode <N>
@@ -27,7 +29,7 @@ from lib.script_generator import ScriptGenerator
 
 def main():
     parser = argparse.ArgumentParser(
-        description="使用 Gemini 生成 JSON 剧本",
+        description="调用项目配置的文本模型生成 JSON 剧本",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -93,7 +95,7 @@ def main():
             # dry-run 不需要 client
             generator = ScriptGenerator(project_path)
             print("=" * 60)
-            print("DRY RUN - 以下是将发送给 Gemini 的 Prompt:")
+            print("DRY RUN - 以下是将发送给文本模型的 Prompt:")
             print("=" * 60)
             prompt = generator.build_prompt(args.episode)
             print(prompt)

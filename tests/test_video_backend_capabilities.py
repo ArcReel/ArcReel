@@ -55,7 +55,6 @@ class TestVideoGenerationRequestNewFields:
             resolution="720p",
             start_image=Path("/tmp/start.png"),
             generate_audio=False,
-            negative_prompt="no music",
             project_name="my_project",
             service_tier="flex",
             seed=42,

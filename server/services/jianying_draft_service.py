@@ -22,10 +22,17 @@ from pyJianYingDraft import (
     TextShadow,
     TextStyle,
     TrackType,
+    TransitionType,
     VideoMaterial,
     VideoSegment,
     trange,
 )
+
+# transition_to_next schema 值 → 剪映 TransitionType。"cut" 不挂转场。
+_TRANSITION_MAP: dict[str, TransitionType] = {
+    "fade": TransitionType.闪黑,
+    "dissolve": TransitionType.叠化,
+}
 
 from lib.project_manager import ProjectManager
 
@@ -81,6 +88,7 @@ class JianyingDraftService:
                     "video_clip": video_clip,
                     "abs_path": abs_path,
                     "novel_text": item.get("novel_text", ""),
+                    "transition_to_next": item.get("transition_to_next", "cut"),
                 }
             )
 
@@ -153,7 +161,8 @@ class JianyingDraftService:
 
         # 逐片段添加
         offset_us = 0
-        for clip in clips:
+        last_index = len(clips) - 1
+        for index, clip in enumerate(clips):
             # 预读实际视频时长
             material = VideoMaterial(clip["local_path"])
             actual_duration_us = material.duration
@@ -163,6 +172,13 @@ class JianyingDraftService:
                 material,
                 trange(offset_us, actual_duration_us),
             )
+
+            # 转场：剪映约定挂在前一段上，因此最后一段不挂；cut 不挂。
+            if index < last_index:
+                transition_type = _TRANSITION_MAP.get(clip.get("transition_to_next", "cut"))
+                if transition_type is not None:
+                    video_seg.add_transition(transition_type)
+
             script_file.add_segment(video_seg)
 
             # 字幕片段

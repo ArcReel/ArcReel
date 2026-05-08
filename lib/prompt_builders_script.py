@@ -1,33 +1,26 @@
+"""剧本生成 Prompt 构建器（drama / narration 两种 content_mode）。
+
+设计原则：
+- 不重复 schema 已声明的枚举（shot_type / camera_motion 等）；让 response_schema 直接约束。
+- 多选枚举字段不在 prompt 里写"如何选"判据，避免把人的镜头审美灌给 LLM；
+  让模型按画面内容自行决定。
+- 不写无法被 LLM 自检的字数硬限制（"≤200 字"）；用示例隐性表达节奏。
+- 字段说明给 1-2 个正例（必要时配一个反例），不堆"必须 / 禁止"清单。
+- 节奏建议由 lib.prompt_rules.episode_pacing 注入，跨 subagent 与 builder 共享。
 """
-prompt_builders_script.py - 剧本生成 Prompt 构建器
 
-1. XML 标签分隔上下文
-2. 明确的字段描述和约束
-3. 可选值列表约束输出
-"""
+from lib.prompt_rules import is_v2_enabled
+from lib.prompt_rules.episode_pacing import render_pacing_section
 
 
-def _format_character_names(characters: dict) -> str:
-    """格式化角色列表"""
-    lines = []
-    for name in characters.keys():
-        lines.append(f"- {name}")
-    return "\n".join(lines)
-
-
-def _format_asset_names(assets: dict) -> str:
-    """格式化场景或道具列表"""
-    lines = []
-    for name in assets.keys():
-        lines.append(f"- {name}")
-    return "\n".join(lines)
+def _format_names(items: dict) -> str:
+    if not items:
+        return "（暂无）"
+    return "\n".join(f"- {name}" for name in items.keys())
 
 
 def _format_duration_constraint(supported_durations: list[int], default_duration: int | None) -> str:
-    """根据参数生成时长约束描述。
-
-    长度 ≥5 且为连续整数集时，输出 "min 到 max 秒间整数任选"；否则按列表逐个列出。
-    """
+    """生成时长约束描述。连续整数集 ≥5 用区间表达，否则枚举。"""
     if not supported_durations:
         raise ValueError("supported_durations 不能为空：调用方必须提供 model 的合法时长列表")
 
@@ -45,17 +38,42 @@ def _format_duration_constraint(supported_durations: list[int], default_duration
                 f"default_duration={default_duration} 不在 supported_durations={sorted_d} 内，"
                 "调用方必须保证默认值合法（否则 prompt 会自相矛盾）"
             )
-        return f"时长：{body}，默认使用 {default_duration} 秒"
-    return f"时长：{body}，根据内容节奏自行决定"
+        return f"时长：{body}，默认 {default_duration} 秒"
+    return f"时长：{body}，按内容节奏自行决定"
 
 
 def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
-    """根据宽高比返回构图描述。"""
     if aspect_ratio == "9:16":
         return "竖屏构图"
-    elif aspect_ratio == "16:9":
+    if aspect_ratio == "16:9":
         return "横屏构图"
     return f"{aspect_ratio} 构图"
+
+
+# ---------------------------------------------------------------------------
+# 字段写作指导（drama / narration 共用）
+# ---------------------------------------------------------------------------
+
+# image_prompt.scene 写作指导：原则 + 正反例。LLM 对示例的泛化优于对清单的执行。
+_SCENE_WRITING_GUIDE = """用一段连贯的描述说明当前画面中真实可见的元素：角色姿态、面部可观察的状态、环境细节、可见的氛围信号（光线、雾、雨等）。聚焦"此刻这一帧"，不要混入过去/未来事件、抽象情绪词或镜头之外的元素。
+   好例：「林清坐在窗边木桌前，左手撑着下巴，目光落在桌上一封拆开的信纸上。窗外细雨打在木格窗棂，半边脸笼在蓝灰色的阴影里。」
+   反例：「林清陷入了多年前那个绝望的雨夜，画面基调：忧郁。光影设定：冷调。」"""
+
+# video_prompt.action 写作指导：动态优先 + 正反例。
+_ACTION_WRITING_GUIDE = """用一段描述说明该时长内主体的连贯动作（肢体动作、手势、表情过渡），可包含必要的环境互动（衣摆、尘埃、推门带起的气流等）。让画面"活"起来，但不要堆叠不可能在单镜头内完成的动作或蒙太奇切换。
+   好例：「林清缓缓抬起头，手指无意识地摩挲信纸边缘，眼角微微收紧；窗外雨势渐大，桌面投下的雨痕影子在缓慢移动。」
+   反例：「林清像蝴蝶般飞舞，思绪在过去与现在之间快速切换。」"""
+
+_LIGHTING_WRITING_GUIDE = "描述具体的光源、方向、色温（如「左侧窗户透入的暖黄色晨光」「头顶单点冷白色的吊灯」），避免「光影神秘」「氛围唯美」这类抽象词。"
+_AMBIANCE_WRITING_GUIDE = "描述可观察的环境效果（如「薄雾弥漫」「尘埃在光柱里翻飞」），避免抽象情绪词。"
+_AMBIANCE_AUDIO_WRITING_GUIDE = (
+    "只描写画内音（diegetic sound）：环境声、脚步、物体声响。不要写 BGM、配乐、画外音、旁白。"
+)
+
+
+# ---------------------------------------------------------------------------
+# Builder
+# ---------------------------------------------------------------------------
 
 
 def build_narration_prompt(
@@ -71,118 +89,86 @@ def build_narration_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """
-    构建说书模式的 Prompt
-
-    Args:
-        project_overview: 项目概述（synopsis, genre, theme, world_setting）
-        style: 视觉风格标签
-        style_description: 风格描述
-        characters: 角色字典（仅用于提取名称列表）
-        scenes: 场景字典（仅用于提取名称列表）
-        props: 道具字典（仅用于提取名称列表）
-        segments_md: Step 1 的 Markdown 内容
-        target_language: 输出的目标语言
-
-    Returns:
-        构建好的 Prompt 字符串
-    """
+    """构建说书模式的剧本生成 prompt。"""
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
+    pacing_block = (render_pacing_section("narration") + "\n\n") if is_v2_enabled() else ""
 
-    prompt = f"""你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
+    return f"""# 角色与任务
 
-**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
+你是一位资深的短视频分镜编剧，专精把小说片段改写为可直接驱动 AI 图像 / 视频生成的结构化分镜剧本。
+你的任务：基于下方"小说片段拆分表"，逐条产出符合 schema 的 JSON 剧本。
 
-1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的小说片段。
+**输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
+**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
-2. 为每个片段生成：
-   - image_prompt：第一帧的图像生成提示词（{target_language}描述）
-   - video_prompt：动作和音效的视频生成提示词（{target_language}描述）
+{pacing_block}# 上下文
 
 <overview>
 {project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get("genre", "")}
-核心主题：{project_overview.get("theme", "")}
-世界观设定：{project_overview.get("world_setting", "")}
+题材：{project_overview.get("genre", "")}
+主题：{project_overview.get("theme", "")}
+世界观：{project_overview.get("world_setting", "")}
 </overview>
 
 <style>
 风格：{style}
 描述：{style_description}
+画面比例：{aspect_ratio}（{_format_aspect_ratio_desc(aspect_ratio)}）
 </style>
 
 <characters>
-{_format_character_names(characters)}
+{_format_names(characters)}
 </characters>
 
 <scenes>
-{_format_asset_names(scenes)}
+{_format_names(scenes)}
 </scenes>
 
 <props>
-{_format_asset_names(props)}
+{_format_names(props)}
 </props>
 
 <segments>
 {segments_md}
 </segments>
 
-segments 为片段拆分表，每行是一个片段，包含：
-- 片段 ID：格式为 E{{集数}}S{{序号}}
-- 小说原文：必须原样保留到 novel_text 字段
-- {_format_duration_constraint(supported_durations, default_duration)}
-- 是否有对话：用于判断是否需要填写 video_prompt.dialogue
-- 是否为 segment_break：场景切换点，需设置 segment_break 为 true
+segments 表每行是一个待生成的片段，包含：片段 ID（E{{集}}S{{序号}}）、小说原文、{_format_duration_constraint(supported_durations, default_duration)}、是否含对话、是否为 segment_break。
 
-3. 为每个片段生成时，遵循以下规则：
+# 字段写作指引
 
-a. **novel_text**：原样复制小说原文，不做任何修改。
+对每个片段，按下列要求填写字段：
 
-b. **characters_in_segment**：列出本片段中出场的角色名称。
-   - 可选值：[{", ".join(character_names)}]
-   - 仅包含明确提及或明显暗示的角色
+a. **novel_text**：原样复制小说原文，不修改、不删改标点。
 
-c. **scenes**：列出本片段中涉及的场景名称（空间位置）。
-   - 可选值：[{", ".join(scene_names)}]
-   - 仅包含明确提及或明显暗示的场景
+b. **characters_in_segment** / **scenes** / **props**：仅列出此片段画面或对话中实际出现的资产。
+   - 候选 characters：[{", ".join(character_names) or "（无）"}]
+   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
+   - 候选 props：[{", ".join(prop_names) or "（无）"}]
+   - 不要发明候选之外的名称。
 
-d. **props**：列出本片段中涉及的道具名称（物品）。
-   - 可选值：[{", ".join(prop_names)}]
-   - 仅包含明确提及或明显暗示的道具
+c. **image_prompt.scene**：{_SCENE_WRITING_GUIDE}
 
-e. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。
-     聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
-     确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
-     画面应自包含，不暗示过去事件或未来发展。
-   - composition：
-     - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
-     - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
-     - ambiance：用中文描述可见的环境效果（如"薄雾弥漫"、"尘埃飞扬"），避免抽象情绪词
+d. **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
+   **lighting**：{_LIGHTING_WRITING_GUIDE}
+   **ambiance**：{_AMBIANCE_WRITING_GUIDE}
 
-f. **video_prompt**：生成包含以下字段的对象：
-   - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
-     聚焦单一连贯动作，确保在指定时长内可完成。
-     排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
-     排除比喻性动作描述（如"像蝴蝶般飞舞"）。
-   - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
-     每个片段仅选择一种镜头运动。
-   - ambiance_audio：用中文描述画内音（diegetic sound）——环境声、脚步声、物体声音。
-     仅描述场景内真实存在的声音。排除音乐、BGM、旁白、画外音。
-   - dialogue：{{speaker, line}} 数组。仅当原文有引号对话时填写。speaker 必须来自 characters_in_segment。
+e. **video_prompt.action**：{_ACTION_WRITING_GUIDE}
 
-g. **segment_break**：如果在片段表中标记为"是"，则设为 true。
+f. **video_prompt.camera_motion**：每个片段只选一种，按画面内容自行选择。
 
-h. **duration_seconds**：使用片段表中的时长。
+g. **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
 
-i. **transition_to_next**：默认为 "cut"。
+h. **video_prompt.dialogue**：仅当小说原文带引号对话时填写；speaker 必须出现在 characters_in_segment。
 
-目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，并忠于原文。
+i. **segment_break** / **duration_seconds**：与 segments 表保持一致。
+
+# 创作目标
+
+输出可直接驱动 AI 生成的、视觉一致、节奏紧凑的分镜剧本。忠于原文叙事、保留情绪张力。
 """
-    return prompt
 
 
 def build_drama_prompt(
@@ -198,115 +184,81 @@ def build_drama_prompt(
     aspect_ratio: str = "16:9",
     target_language: str = "中文",
 ) -> str:
-    """
-    构建剧集动画模式的 Prompt
-
-    Args:
-        project_overview: 项目概述
-        style: 视觉风格标签
-        style_description: 风格描述
-        characters: 角色字典
-        scenes: 场景字典（project 级场景资源列表）
-        props: 道具字典
-        scenes_md: Step 1 的 Markdown 分镜拆分内容
-        target_language: 输出的目标语言
-
-    Returns:
-        构建好的 Prompt 字符串
-    """
+    """构建剧集动画模式的剧本生成 prompt。"""
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
+    pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
 
-    prompt = f"""你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
+    return f"""# 角色与任务
 
-**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
+你是一位资深的短剧分镜编剧，精通把改编后的剧本场景表转写为可直接驱动 AI 图像 / 视频生成的结构化分镜。
+你的任务：基于下方"分镜拆分表"，逐条产出符合 schema 的 JSON 剧本。
 
-1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的分镜列表。
+**输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
+**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
-2. 为每个分镜生成：
-   - image_prompt：第一帧的图像生成提示词（{target_language}描述）
-   - video_prompt：动作和音效的视频生成提示词（{target_language}描述）
+{pacing_block}# 上下文
 
 <overview>
 {project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get("genre", "")}
-核心主题：{project_overview.get("theme", "")}
-世界观设定：{project_overview.get("world_setting", "")}
+题材：{project_overview.get("genre", "")}
+主题：{project_overview.get("theme", "")}
+世界观：{project_overview.get("world_setting", "")}
 </overview>
 
 <style>
 风格：{style}
 描述：{style_description}
+画面比例：{aspect_ratio}（{_format_aspect_ratio_desc(aspect_ratio)}）
 </style>
 
 <characters>
-{_format_character_names(characters)}
+{_format_names(characters)}
 </characters>
 
 <project_scenes>
-{_format_asset_names(scenes)}
+{_format_names(scenes)}
 </project_scenes>
 
 <props>
-{_format_asset_names(props)}
+{_format_names(props)}
 </props>
 
 <shots>
 {scenes_md}
 </shots>
 
-shots 为分镜拆分表，每行是一个分镜，包含：
-- 分镜 ID：格式为 E{{集数}}S{{序号}}
-- 分镜描述：剧本改编后的分镜内容
-- {_format_duration_constraint(supported_durations, default_duration)}
-- 场景类型：剧情、动作、对话等
-- 是否为 segment_break：场景切换点，需设置 segment_break 为 true
+shots 表每行是一个分镜，包含：分镜 ID（E{{集}}S{{序号}}）、分镜描述、{_format_duration_constraint(supported_durations, default_duration)}、场景类型、是否为 segment_break。
 
-3. 为每个分镜生成时，遵循以下规则：
+# 字段写作指引
 
-a. **characters_in_scene**：列出本分镜中出场的角色名称。
-   - 可选值：[{", ".join(character_names)}]
-   - 仅包含明确提及或明显暗示的角色
+对每个分镜，按下列要求填写字段：
 
-b. **scenes**：列出本分镜所处的场景名称（空间位置）。
-   - 可选值：[{", ".join(scene_names)}]
-   - 仅包含明确提及或明显暗示的场景
+a. **characters_in_scene** / **scenes** / **props**：仅列出此分镜画面或对话中实际出现的资产。
+   - 候选 characters：[{", ".join(character_names) or "（无）"}]
+   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
+   - 候选 props：[{", ".join(prop_names) or "（无）"}]
+   - 不要发明候选之外的名称。
 
-c. **props**：列出本分镜中涉及的道具名称（物品）。
-   - 可选值：[{", ".join(prop_names)}]
-   - 仅包含明确提及或明显暗示的道具
+b. **image_prompt.scene**：{_SCENE_WRITING_GUIDE}
 
-d. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。{_format_aspect_ratio_desc(aspect_ratio)}。
-     聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
-     确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
-     画面应自包含，不暗示过去事件或未来发展。
-   - composition：
-     - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
-     - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
-     - ambiance：用中文描述可见的环境效果（如"薄雾弥漫"、"尘埃飞扬"），避免抽象情绪词
+c. **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
+   **lighting**：{_LIGHTING_WRITING_GUIDE}
+   **ambiance**：{_AMBIANCE_WRITING_GUIDE}
 
-e. **video_prompt**：生成包含以下字段的对象：
-   - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
-     聚焦单一连贯动作，确保在指定时长内可完成。
-     排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
-     排除比喻性动作描述（如"像蝴蝶般飞舞"）。
-   - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
-     每个片段仅选择一种镜头运动。
-   - ambiance_audio：用中文描述画内音（diegetic sound）——环境声、脚步声、物体声音。
-     仅描述场景内真实存在的声音。排除音乐、BGM、旁白、画外音。
-   - dialogue：{{speaker, line}} 数组。包含角色对话。speaker 必须来自 characters_in_scene。
+d. **video_prompt.action**：{_ACTION_WRITING_GUIDE}
 
-f. **segment_break**：如果在分镜表中标记为"是"，则设为 true。
+e. **video_prompt.camera_motion**：每个分镜只选一种，按画面内容自行选择。
 
-g. **duration_seconds**：使用分镜表中的时长。
+f. **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
 
-h. **scene_type**：使用分镜表中的场景类型，默认为"剧情"。
+g. **video_prompt.dialogue**：包含分镜中角色对话；speaker 必须出现在 characters_in_scene。
 
-i. **transition_to_next**：默认为 "cut"。
+h. **segment_break** / **duration_seconds** / **scene_type**：与 shots 表保持一致；scene_type 缺省 "剧情"。
 
-目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，适合{_format_aspect_ratio_desc(aspect_ratio)}动画呈现。
+# 创作目标
+
+输出可直接驱动 AI 生成的、视觉一致、节奏紧凑的分镜剧本。忠于原创设定、保留戏剧张力。
 """
-    return prompt

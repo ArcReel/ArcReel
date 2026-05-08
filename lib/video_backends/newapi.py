@@ -120,8 +120,6 @@ class NewAPIVideoBackend:
         }
         if request.seed is not None:
             payload["seed"] = request.seed
-        if request.negative_prompt:
-            payload.setdefault("metadata", {})["negative_prompt"] = request.negative_prompt
         if request.start_image:
             start_path = Path(request.start_image)
             if start_path.exists():

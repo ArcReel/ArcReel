@@ -11,12 +11,12 @@ class TestFormatDurationConstraint:
     def test_discrete_set(self):
         text = _format_duration_constraint([4, 6, 8], default_duration=None)
         assert "[4, 6, 8]" in text
-        assert "根据内容节奏自行决定" in text
+        assert "按内容节奏自行决定" in text
 
     def test_discrete_set_with_default(self):
         text = _format_duration_constraint([4, 6, 8], default_duration=6)
         assert "[4, 6, 8]" in text
-        assert "默认使用 6 秒" in text
+        assert "默认 6 秒" in text
 
     def test_default_duration_must_be_in_supported(self):
         """default_duration 不在 supported 集合时应抛错，避免 prompt 自相矛盾。"""

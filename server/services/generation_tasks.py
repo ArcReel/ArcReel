@@ -392,7 +392,8 @@ async def get_media_generator(
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type == "characters":
-        return "3:4"
+        # 角色采用四视图横版（issue #353）
+        return "16:9"
     if resource_type in ("scenes", "props"):
         return "16:9"
     # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
@@ -433,10 +434,13 @@ def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
 
 
 def _normalize_video_prompt(prompt: str | dict) -> str:
+    """归一化视频 prompt 并在末尾追加统一文本化的反向提示词。"""
+    from lib.prompt_builders import append_video_negative_tail
+
     if isinstance(prompt, str):
         if not prompt.strip():
             raise ValueError("prompt must not be empty")
-        return prompt
+        return append_video_negative_tail(prompt)
 
     if not isinstance(prompt, dict):
         raise ValueError("prompt must be a string or object")
@@ -469,7 +473,7 @@ def _normalize_video_prompt(prompt: str | dict) -> str:
         "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
         "dialogue": normalized_dialogue,
     }
-    return video_prompt_to_yaml(normalized_prompt)
+    return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
 
 
 def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:

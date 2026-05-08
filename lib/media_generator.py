@@ -306,14 +306,13 @@ class MediaGenerator:
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str | None = None,
-        negative_prompt: str = "background music, BGM, soundtrack, musical accompaniment",
         **version_metadata,
     ) -> tuple[Path, int, any, str | None]:
         """
         生成视频（带自动版本管理，同步包装）
 
         Args:
-            prompt: 视频生成提示词
+            prompt: 视频生成提示词（含统一文本化的反向提示词，由 prompt_builders 在上游拼好）
             resource_type: 资源类型 (videos)
             resource_id: 资源 ID (E1S01)
             start_image: 起始帧图片（image-to-video 模式）
@@ -322,7 +321,6 @@ class MediaGenerator:
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
-            negative_prompt: 负面提示词
             **version_metadata: 额外元数据
 
         Returns:
@@ -339,7 +337,6 @@ class MediaGenerator:
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
-                negative_prompt=negative_prompt,
                 **version_metadata,
             )
         )
@@ -355,14 +352,13 @@ class MediaGenerator:
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str | None = None,
-        negative_prompt: str = "background music, BGM, soundtrack, musical accompaniment",
         **version_metadata,
     ) -> tuple[Path, int, any, str | None]:
         """
         异步生成视频（带自动版本管理）
 
         Args:
-            prompt: 视频生成提示词
+            prompt: 视频生成提示词（含统一文本化的反向提示词，由 prompt_builders 在上游拼好）
             resource_type: 资源类型 (videos)
             resource_id: 资源 ID (E1S01)
             start_image: 起始帧图片（image-to-video 模式）
@@ -371,7 +367,6 @@ class MediaGenerator:
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
-            negative_prompt: 负面提示词
             **version_metadata: 额外元数据
 
         Returns:
@@ -458,7 +453,6 @@ class MediaGenerator:
                 end_image=actual_end_image,
                 reference_images=actual_reference_images,
                 generate_audio=effective_generate_audio,
-                negative_prompt=negative_prompt,
                 project_name=self.project_name,
                 service_tier=version_metadata.get("service_tier", "default"),
                 seed=version_metadata.get("seed"),

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Asset Generator - 使用 Gemini API 生成角色 / 场景 / 道具设计图
+Asset Generator - 使用项目配置的图像供应商生成角色 / 场景 / 道具设计图
 
 Usage:
     python generate_asset.py --all                                   # 生成所有类型的待处理资产
@@ -71,7 +71,11 @@ def _get_asset_description(project: dict, asset_type: str, name: str) -> str | N
 
 
 def generate_single(asset_type: str, name: str) -> Path:
-    """生成单个资产设计图"""
+    """生成单个资产设计图。
+
+    description 直接作为 prompt 文本下发；最终 prompt（含布局 / 防崩短语 / 反向提示词）
+    由 server 的 lib.prompt_builders 在执行任务时统一拼接，确保 WebUI 与 Skill 入口一致。
+    """
     cfg = TYPE_CONFIG[asset_type]
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
@@ -153,17 +157,26 @@ def _build_specs(
             resolved.append(name)
     else:
         pending = _get_pending(pm, project_name, asset_type)
-        resolved = [item["name"] for item in pending]
+        resolved = []
+        for item in pending:
+            name = item["name"]
+            if not assets_dict.get(name, {}).get("description"):
+                print(f"⚠️  {cfg['label']} '{name}' 缺少描述，跳过")
+                continue
+            resolved.append(name)
 
-    return [
-        BatchTaskSpec(
-            task_type=cfg["task_type"],
-            media_type="image",
-            resource_id=name,
-            payload={"prompt": assets_dict[name]["description"]},
+    specs: list[BatchTaskSpec] = []
+    for name in resolved:
+        # description 直接作为 prompt 提交；server 端 build_*_prompt 负责拼接布局 / 防崩 / 反向。
+        specs.append(
+            BatchTaskSpec(
+                task_type=cfg["task_type"],
+                media_type="image",
+                resource_id=name,
+                payload={"prompt": assets_dict[name]["description"]},
+            )
         )
-        for name in resolved
-    ]
+    return specs
 
 
 def _run_batch_for_type(

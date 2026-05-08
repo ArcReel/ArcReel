@@ -1,151 +1,121 @@
+"""图像 / 视频 / 资产 prompt 的统一真相源。
+
+WebUI（server/services/generation_tasks.py）和 Skill（agent_runtime_profile/.claude/skills/generate-assets）
+都从这里取最终 prompt 文本，确保入口一致、不漂移。
+
+设计要点：
+- 无 backend 锁定：纯文本拼接，由调用方决定走哪个 image/video provider。
+- 反向提示词统一以「画面避免：xxx」追加到 prompt 末尾，不再使用各 backend 的 negative_prompt 参数通道
+  （image backends 大多 silent 丢弃，参数化反而增加分叉）。
+- 防崩短语精简：扁平 4 项内核，避免 CFG 权重稀释。
 """
-统一的图像生成 Prompt 构建函数
 
-所有 Prompt 模板集中在此文件管理，确保 WebUI 和 Skill 使用相同的逻辑。
+from __future__ import annotations
 
-模块职责:
-- 角色设计图 Prompt 构建
-- 场景设计图 Prompt 构建
-- 道具设计图 Prompt 构建
-- 分镜图 Prompt 后缀
+# ---------------------------------------------------------------------------
+# 内部常量：防崩 / 反向 / 布局 / 风格前缀
+# ---------------------------------------------------------------------------
 
-使用方:
-- server/routers/generate.py
-- agent_runtime_profile/.claude/skills/generate-assets/
-"""
+# 角色图采用 issue #353 的四视图 16:9 布局。
+_CHARACTER_LAYOUT = (
+    "横版 16:9 四格布局，纯白 (#FFFFFF) 背景：左侧约 40% 宽为胸像特写（清晰展示面部、发型、配饰、上装），"
+    "右侧三个等宽面板分别为正面 / 四分之三侧面 / 背面的 A-Pose 全身视图。"
+)
+_SCENE_LAYOUT = "主画面占四分之三区域展示环境整体外观与氛围，右下角嵌入关键细节小图。"
+_PROP_LAYOUT = "三视图水平排列于纯净浅灰背景：左侧正面全视图、中间 45° 侧视图体现立体感、右侧关键细节特写。"
+
+# 正向防崩（按资产类型差异化）。
+_CHARACTER_GUARD = "四个面板中角色面部、发型、服装、配饰完全一致；五官对称、手指完整为五指、肢体比例协调。"
+_SCENE_GUARD = "空间透视正常，陈设固定，光影统一。"
+_PROP_GUARD = "外观结构完整，焦点清晰。"
+
+# 反向提示词：精简到核心 4 项，避免 CFG 权重稀释。
+_NEGATIVE_TAIL_ASSET = "画面避免：水印、多余文字、低分辨率、手指畸形。"
+_NEGATIVE_TAIL_VIDEO = "禁止出现：BGM、文字字幕、水印。"
+
+
+def _style_prefix(style: str = "", style_description: str = "") -> str:
+    """组合视觉风格前缀。两者都为空时返回空串。"""
+    parts = []
+    if style:
+        parts.append(f"风格：{style}")
+    if style_description:
+        parts.append(f"描述：{style_description}")
+    if not parts:
+        return ""
+    return "\n".join(parts) + "\n\n"
+
+
+# ---------------------------------------------------------------------------
+# 资产 prompt（character / scene / prop）
+# ---------------------------------------------------------------------------
 
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """
-    构建角色设计图 Prompt
-
-    遵循 nano-banana 最佳实践：使用叙事性段落描述，而非关键词列表。
-
-    Args:
-        name: 角色名称
-        description: 角色外貌描述（应为叙事性段落）
-        style: 项目风格
-        style_description: AI 分析的风格描述
-
-    Returns:
-        完整的 Prompt 字符串
-    """
-    style_part = f"，{style}" if style else ""
-
-    # 构建风格前缀
-    style_prefix = ""
-    if style_description:
-        style_prefix = f"Visual style: {style_description}\n\n"
-
-    return f"""{style_prefix}角色设计参考图{style_part}。
-
-「{name}」的全身立绘。
-
-{description}
-
-构图要求：单一角色全身像，姿态自然，面向镜头。
-背景：纯净浅灰色，无任何装饰元素。
-光线：柔和均匀的摄影棚照明，无强烈阴影。
-画质：高清，细节清晰，色彩准确。"""
-
-
-def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """
-    构建道具设计图 Prompt
-
-    使用三视图构图：正面全视图、45度侧视图、细节特写。
-
-    Args:
-        name: 道具名称
-        description: 道具描述
-        style: 项目风格
-        style_description: AI 分析的风格描述
-
-    Returns:
-        完整的 Prompt 字符串
-    """
-    style_suffix = f"，{style}" if style else ""
-
-    # 构建风格前缀
-    style_prefix = ""
-    if style_description:
-        style_prefix = f"Visual style: {style_description}\n\n"
-
-    return f"""{style_prefix}一张专业的道具设计参考图{style_suffix}。
-
-道具「{name}」的多视角展示。{description}
-
-三个视图水平排列在纯净浅灰背景上：左侧正面全视图、中间45度侧视图展示立体感、右侧关键细节特写。柔和均匀的摄影棚照明，高清质感，色彩准确。"""
+    """角色设计图 prompt（issue #353 四视图 16:9）。"""
+    style_block = _style_prefix(style, style_description)
+    return (
+        f"{style_block}"
+        f"角色「{name}」的设计参考图。\n\n"
+        f"{description}\n\n"
+        f"{_CHARACTER_LAYOUT}\n\n"
+        f"{_CHARACTER_GUARD}\n\n"
+        f"{_NEGATIVE_TAIL_ASSET}"
+    )
 
 
 def build_scene_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
+    """场景设计图 prompt（主+细节）。"""
+    style_block = _style_prefix(style, style_description)
+    return (
+        f"{style_block}"
+        f"标志性场景「{name}」的视觉参考。\n\n"
+        f"{description}\n\n"
+        f"{_SCENE_LAYOUT}\n\n"
+        f"{_SCENE_GUARD}\n\n"
+        f"{_NEGATIVE_TAIL_ASSET}"
+    )
+
+
+def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
+    """道具设计图 prompt（三视图）。"""
+    style_block = _style_prefix(style, style_description)
+    return (
+        f"{style_block}"
+        f"道具「{name}」的多视角展示。\n\n"
+        f"{description}\n\n"
+        f"{_PROP_LAYOUT}\n\n"
+        f"{_PROP_GUARD}\n\n"
+        f"{_NEGATIVE_TAIL_ASSET}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 分镜 / 视频 prompt 末尾增强
+# ---------------------------------------------------------------------------
+
+
+def append_video_negative_tail(prompt: str) -> str:
+    """给视频生成 prompt 追加统一的反向提示词。
+
+    调用方拿到分镜 video_prompt 文本后，在交给 video backend 之前过一遍此函数；
+    避免在每个 caller 各自拼接、导致漂移。
     """
-    构建场景设计图 Prompt
-
-    使用 3/4 主画面 + 右下角细节特写的构图，强调空间结构与氛围。
-
-    Args:
-        name: 场景名称
-        description: 场景描述
-        style: 项目风格
-        style_description: AI 分析的风格描述
-
-    Returns:
-        完整的 Prompt 字符串
-    """
-    style_suffix = f"，{style}" if style else ""
-
-    # 构建风格前缀
-    style_prefix = ""
-    if style_description:
-        style_prefix = f"Visual style: {style_description}\n\n"
-
-    return f"""{style_prefix}一张专业的场景设计参考图{style_suffix}。
-
-标志性场景「{name}」的视觉参考。{description}
-
-主画面占据四分之三区域展示环境整体外观与氛围，右下角小图为细节特写。柔和自然光线。"""
+    if not prompt or not prompt.strip():
+        return _NEGATIVE_TAIL_VIDEO
+    if _NEGATIVE_TAIL_VIDEO in prompt:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{_NEGATIVE_TAIL_VIDEO}"
 
 
 def build_storyboard_suffix(content_mode: str = "narration", *, aspect_ratio: str | None = None) -> str:
-    """
-    获取分镜图 Prompt 后缀
-
-    优先使用 aspect_ratio 参数；若未传，按 content_mode 推导（向后兼容）。
-    """
+    """分镜图构图后缀。优先 aspect_ratio，缺省按 content_mode 推导。"""
     if aspect_ratio is None:
         ratio = "9:16" if content_mode == "narration" else "16:9"
     else:
         ratio = aspect_ratio
     if ratio == "9:16":
         return "竖屏构图。"
-    elif ratio == "16:9":
+    if ratio == "16:9":
         return "横屏构图。"
     return ""
-
-
-def build_style_prompt(project_data: dict) -> str:
-    """
-    构建风格描述 Prompt 片段
-
-    合并 style（用户手动填写）和 style_description（AI 分析生成）。
-
-    Args:
-        project_data: project.json 数据
-
-    Returns:
-        风格描述字符串，用于拼接到生成 Prompt 中
-    """
-    parts = []
-
-    # 基础风格标签
-    style = project_data.get("style", "")
-    if style:
-        parts.append(f"Style: {style}")
-
-    # AI 分析的风格描述
-    style_description = project_data.get("style_description", "")
-    if style_description:
-        parts.append(f"Visual style: {style_description}")
-
-    return "\n".join(parts)

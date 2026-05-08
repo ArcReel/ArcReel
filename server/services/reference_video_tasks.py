@@ -19,6 +19,7 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_utils import compress_image_bytes
+from lib.prompt_builders import append_video_negative_tail
 from lib.reference_video import render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
@@ -99,11 +100,19 @@ def _compress_references_to_tempfiles(
 
 
 def _render_unit_prompt(unit: dict) -> str:
-    """拼接 unit.shots[*].text 为单一 prompt，再用 shot_parser 把 @X 替成 [图N]。"""
+    """拼接 unit.shots[*].text 为单一 prompt，再用 shot_parser 把 @X 替成 [图N]，
+    并在末尾追加统一文本化的反向提示词。
+
+    空 prompt 会被显式拒绝：否则尾词追加后会变成只含「画面避免：…」的非空文本，
+    绕过 backend 端的空 prompt 保护，浪费配额且产出与分镜无关的内容。
+    """
     shots = unit.get("shots") or []
     raw = "\n".join(str(s.get("text", "")) for s in shots)
     references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
-    return render_prompt_for_backend(raw, references)
+    rendered = render_prompt_for_backend(raw, references)
+    if not rendered.strip():
+        raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
+    return append_video_negative_tail(rendered)
 
 
 def _apply_provider_constraints(
