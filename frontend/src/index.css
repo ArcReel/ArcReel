@@ -137,3 +137,9 @@ body {
 @utility focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)];
 }
+
+/* 打字机 caret 闪烁 — 紫色 accent-2 + accent-glow */
+@keyframes tw-blink {
+    0%, 50% { opacity: 1; }
+    50.01%, 100% { opacity: 0; }
+}

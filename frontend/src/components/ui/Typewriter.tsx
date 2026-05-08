@@ -1,0 +1,170 @@
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+
+export interface TypewriterSegment {
+  text: string;
+  className?: string;
+  style?: CSSProperties;
+  after?: ReactNode;
+}
+
+/** caret 闪烁 1 次的周期（亮 + 灭），单位 ms。决定 linger 阶段总时长 = blinkPeriodMs * caretBlinkCount */
+const CARET_BLINK_PERIOD_MS = 1400;
+/** 吐字完成后 caret 还闪几次再消失 */
+const CARET_BLINK_AFTER_DONE = 3;
+
+interface TypewriterProps {
+  segments: TypewriterSegment[];
+  speed?: number;
+  punctuationDelay?: number;
+  startDelay?: number;
+  segmentGap?: number;
+  caret?: boolean;
+  /** 同一 once key 同会话内只播放一次；后续 mount 直接显示完成态 */
+  once?: string;
+  className?: string;
+  style?: CSSProperties;
+  onDone?: () => void;
+}
+
+const PUNCTUATION = /[，。！？；：、,.!?;:…—]/;
+const playedOnce = new Set<string>();
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * 打字机吐字效果，按 segments 串行播放；首段尾部插入 `after`（如 <br />）后再起第二段。
+ * 标点和段落边界自动延长停顿，节奏贴近电影编辑机。
+ */
+export function Typewriter({
+  segments,
+  speed = 72,
+  punctuationDelay = 220,
+  startDelay = 140,
+  segmentGap = 320,
+  caret = true,
+  once,
+  className,
+  style,
+  onDone,
+}: TypewriterProps) {
+  const totalLen = useMemo(() => segments.reduce((n, s) => n + s.text.length, 0), [segments]);
+  const fullText = useMemo(() => segments.map((s) => s.text).join(""), [segments]);
+
+  const skip =
+    totalLen === 0 || prefersReducedMotion() || (once ? playedOnce.has(once) : false);
+
+  const [pos, setPos] = useState(skip ? totalLen : 0);
+  const [phase, setPhase] = useState<"typing" | "linger" | "done">(skip ? "done" : "typing");
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
+
+  useEffect(() => {
+    if (skip) {
+      onDoneRef.current?.();
+      return;
+    }
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    const tick = (current: number) => {
+      if (cancelled) return;
+      if (current >= totalLen) {
+        if (once) playedOnce.add(once);
+        setPhase("linger");
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            setPhase("done");
+            onDoneRef.current?.();
+          }, CARET_BLINK_PERIOD_MS * CARET_BLINK_AFTER_DONE),
+        );
+        return;
+      }
+      let acc = 0;
+      let ch = "";
+      let crossesSegmentEnd = false;
+      for (const seg of segments) {
+        if (current < acc + seg.text.length) {
+          ch = seg.text[current - acc];
+          crossesSegmentEnd = current + 1 === acc + seg.text.length;
+          break;
+        }
+        acc += seg.text.length;
+      }
+      const next = current + 1;
+      const extra =
+        crossesSegmentEnd && next < totalLen
+          ? segmentGap
+          : PUNCTUATION.test(ch)
+            ? punctuationDelay
+            : 0;
+      timers.push(
+        setTimeout(() => {
+          if (cancelled) return;
+          setPos(next);
+          tick(next);
+        }, speed + extra),
+      );
+    };
+
+    timers.push(setTimeout(() => tick(0), startDelay));
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+  }, [skip, totalLen, segments, speed, punctuationDelay, segmentGap, startDelay, once]);
+
+  const visibleNodes: ReactNode[] = [];
+  let consumed = 0;
+  segments.forEach((seg, i) => {
+    const segEnd = consumed + seg.text.length;
+    const visibleEnd = Math.max(consumed, Math.min(pos, segEnd));
+    visibleNodes.push(
+      <span key={`tw-s-${i}`} className={seg.className} style={seg.style}>
+        {seg.text.slice(0, visibleEnd - consumed)}
+      </span>,
+    );
+    if (seg.after && pos >= segEnd) {
+      visibleNodes.push(<span key={`tw-a-${i}`}>{seg.after}</span>);
+    }
+    consumed = segEnd;
+  });
+
+  return (
+    <span className={className} style={style}>
+      <span className="sr-only">{fullText}</span>
+      <span aria-hidden="true">
+        {visibleNodes}
+        {caret && phase !== "done" ? (
+          <TypewriterCaret key={phase} finite={phase === "linger"} />
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
+function TypewriterCaret({ finite }: { finite: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: "inline-block",
+        width: 4,
+        marginLeft: "0.2ch",
+        height: "1em",
+        verticalAlign: "-0.12em",
+        background: "var(--color-accent-2)",
+        boxShadow: "0 0 10px var(--color-accent-glow)",
+        borderRadius: 1.5,
+        animation: finite
+          ? `tw-blink ${CARET_BLINK_PERIOD_MS}ms steps(2, end) ${CARET_BLINK_AFTER_DONE} forwards`
+          : `tw-blink ${CARET_BLINK_PERIOD_MS}ms steps(2, end) infinite`,
+      }}
+    />
+  );
+}

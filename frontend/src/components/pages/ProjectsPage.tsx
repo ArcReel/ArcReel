@@ -5,10 +5,21 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { Link, useLocation } from "wouter";
-import { AlertTriangle, Library, Loader2, Plus, Search, Settings, Trash2, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  Library,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Settings,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { API } from "@/api";
@@ -19,6 +30,7 @@ import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
@@ -320,6 +332,31 @@ interface ProjectCardProps {
 }
 
 function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
   const status = asProjectStatus(project.status);
   const phase: Phase | null = status?.current_phase ?? null;
   const phaseLabel = phase ? phaseLabels[phase] : "";
@@ -417,29 +454,59 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
             </span>
           </div>
 
-          <div className="mt-2.5 flex items-center justify-between border-t border-dashed border-hairline-soft pt-2.5">
+          <div className="mt-2.5 flex items-center border-t border-dashed border-hairline-soft pt-2.5">
             <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-text-3">
               {phaseLabel}
-            </span>
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-text-2 transition-colors group-hover:text-accent-2 group-focus-within:text-accent-2">
-              {phase === "completed"
-                ? t("dashboard:lobby_card_open")
-                : t("dashboard:lobby_card_continue")}
-              <span aria-hidden>›</span>
             </span>
           </div>
         </div>
       </Link>
 
-      <button
-        type="button"
-        aria-label={t("dashboard:delete_project")}
-        title={t("dashboard:delete_project")}
-        onClick={onDelete}
-        className="absolute right-2.5 top-2.5 z-[2] grid h-9 w-9 place-items-center rounded-md border border-hairline-soft bg-bg/70 text-text-3 opacity-0 backdrop-blur transition-opacity hover:bg-bg group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      <div className="absolute right-2.5 bottom-2.5 z-[2]">
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={t("dashboard:lobby_card_actions")}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMenuOpen((v) => !v);
+          }}
+          className={
+            "grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/70 text-text-3 backdrop-blur transition-[opacity,color,background] hover:bg-bg hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+            (menuOpen
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100")
+          }
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+        {menuOpen ? (
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-orientation="vertical"
+            className="absolute right-0 bottom-[calc(100%+6px)] min-w-[148px] overflow-hidden rounded-md border border-hairline bg-bg-grad-a/95 shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.7)] backdrop-blur"
+          >
+            <button
+              role="menuitem"
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenuOpen(false);
+                onDelete();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-danger-2 transition-colors hover:bg-danger-soft focus-visible:bg-danger-soft focus-visible:outline-none"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t("dashboard:delete_project")}
+            </button>
+          </div>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -603,23 +670,31 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
   );
 }
 
-// -- NewProjectTile -----------------------------------------------------------
+// -- PlaceholderTile (新建项目 / 导入 ZIP) -----------------------------------
 
-function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
+interface PlaceholderTileProps {
+  onClick: () => void;
+  title: string;
+  kicker: string;
+  icon: ReactNode;
+  ariaLabel?: string;
+}
+
+function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: PlaceholderTileProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[12px] border border-dashed border-hairline bg-bg-grad-a/40 text-left transition-colors hover:border-accent/45 hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      aria-label={t("dashboard:lobby_new_project_title")}
+      className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[12px] border border-dashed border-hairline-strong bg-bg-grad-a/55 text-left transition-colors hover:border-accent/55 hover:bg-bg-grad-a/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      aria-label={ariaLabel ?? title}
     >
       <div className="p-2.5">
         <div
-          className="relative grid place-items-center overflow-hidden rounded-[6px] border border-dashed border-hairline-soft"
+          className="relative grid place-items-center overflow-hidden rounded-[6px] border border-dashed border-hairline"
           style={{
             aspectRatio: "2 / 1",
             background:
-              "radial-gradient(120% 80% at 30% 30%, oklch(0.26 0.04 290 / 0.45) 0%, transparent 60%), oklch(0.16 0.010 265 / 0.35)",
+              "radial-gradient(120% 80% at 30% 30%, oklch(0.26 0.04 290 / 0.5) 0%, transparent 60%), oklch(0.18 0.011 265 / 0.55)",
           }}
         >
           <div className="flex flex-col items-center gap-2.5 transition-transform motion-safe:group-hover:-translate-y-0.5">
@@ -635,14 +710,14 @@ function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
                 color: "var(--color-accent-2)",
               }}
             >
-              <Plus className="h-6 w-6" />
+              {icon}
             </span>
             <div className="text-center">
               <div className="text-[15px] font-semibold tracking-tight text-text-2 transition-colors group-hover:text-text">
-                {t("dashboard:lobby_new_project_title")}
+                {title}
               </div>
-              <div className="mt-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-text-4">
-                {t("dashboard:lobby_new_project_kicker")}
+              <div className="mt-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-text-3">
+                {kicker}
               </div>
             </div>
           </div>
@@ -651,41 +726,46 @@ function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
 
       <div aria-hidden className="space-y-3 px-4 pt-1 pb-3.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="block h-3 w-1/2 rounded-[3px] bg-hairline-soft/70" />
-          <span className="block h-2 w-12 rounded-[3px] bg-hairline-soft/50" />
+          <span className="block h-3 w-1/2 rounded-[3px] bg-hairline/85" />
+          <span className="block h-2 w-12 rounded-[3px] bg-hairline/65" />
         </div>
-        <span className="inline-block h-[18px] w-16 rounded-full border border-dashed border-hairline-soft" />
+        <span className="inline-block h-[18px] w-16 rounded-full border border-dashed border-hairline" />
         <div className="flex gap-[3px]">
           {Array.from({ length: 8 }).map((_, i) => (
-            <span
-              key={i}
-              className="h-[3px] flex-1 rounded-[1.5px] bg-hairline-soft/45"
-            />
+            <span key={i} className="h-[3px] flex-1 rounded-[1.5px] bg-hairline/65" />
           ))}
         </div>
         <div
-          className="grid grid-cols-4 overflow-hidden rounded-[7px] border border-dashed border-hairline-soft"
-          style={{ background: "oklch(0.16 0.010 265 / 0.3)" }}
+          className="grid grid-cols-4 overflow-hidden rounded-[7px] border border-dashed border-hairline"
+          style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
         >
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className={
-                "px-1.5 py-2.5" +
-                (i < 3 ? " border-r border-dashed border-hairline-soft" : "")
-              }
+              className={"px-1.5 py-2.5" + (i < 3 ? " border-r border-dashed border-hairline" : "")}
             >
-              <span className="mx-auto block h-1.5 w-8 rounded-[1.5px] bg-hairline-soft/55" />
-              <span className="mx-auto mt-1.5 block h-2 w-6 rounded-[1.5px] bg-hairline-soft/35" />
+              <span className="mx-auto block h-1.5 w-8 rounded-[1.5px] bg-hairline/75" />
+              <span className="mx-auto mt-1.5 block h-2 w-6 rounded-[1.5px] bg-hairline/55" />
             </div>
           ))}
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="h-[3px] flex-1 rounded-[1.5px] bg-hairline-soft/35" />
-          <span className="h-2 w-7 rounded-[3px] bg-hairline-soft/50" />
+          <span className="h-[3px] flex-1 rounded-[1.5px] bg-hairline/55" />
+          <span className="h-2 w-7 rounded-[3px] bg-hairline/70" />
         </div>
       </div>
     </button>
+  );
+}
+
+function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
+  return (
+    <PlaceholderTile
+      onClick={onClick}
+      title={t("dashboard:lobby_new_project_title")}
+      kicker={t("dashboard:lobby_new_project_kicker")}
+      icon={<Plus className="h-6 w-6" />}
+    />
   );
 }
 
@@ -719,11 +799,15 @@ function TopBar({
   const { t } = useTranslation(["common", "dashboard", "assets"]);
   return (
     <div
-      className="sticky top-0 z-30 border-b border-hairline backdrop-blur-md"
+      className="sticky top-0 z-30"
       style={{
         background:
-          "linear-gradient(180deg, oklch(0.21 0.011 265 / 0.92), oklch(0.18 0.010 265 / 0.88))",
-        backdropFilter: "blur(16px) saturate(1.1)",
+          "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
+        backdropFilter: "blur(28px) saturate(1.5)",
+        WebkitBackdropFilter: "blur(28px) saturate(1.5)",
+        borderBottom: "1px solid oklch(1 0 0 / 0.06)",
+        boxShadow:
+          "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
       }}
     >
       <div className="mx-auto flex max-w-[1320px] items-center gap-4 px-6 py-3">
@@ -733,13 +817,15 @@ function TopBar({
             alt="ArcReel"
             className="h-8 w-8 rounded-lg"
           />
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-3">
-            · {t("dashboard:lobby_brand_subtitle")}
+          <span
+            className="font-sans text-[17px] font-medium tracking-[-0.012em] text-text"
+            aria-hidden
+          >
+            ArcReel
           </span>
         </div>
 
-        <div className="flex flex-1 justify-center">
-          <label className="flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-hairline-soft bg-bg/55 px-3 py-1.5 transition-colors focus-within:border-accent/60">
+        <label className="ml-2 flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-hairline-soft bg-bg/55 px-3 py-1.5 transition-colors focus-within:border-accent/60">
             <Search className="h-3.5 w-3.5 text-text-3" />
             <input
               ref={searchInputRef}
@@ -762,10 +848,9 @@ function TopBar({
             >
               {t("dashboard:lobby_search_kbd")}
             </kbd>
-          </label>
-        </div>
+        </label>
 
-        <div className="flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1.5">
           <button
             type="button"
             onClick={onAssets}
@@ -920,11 +1005,18 @@ function HeroStrip({ totals, t }: HeroStripProps) {
             color: "var(--color-text)",
           }}
         >
-          {t(`dashboard:${greetingKey}`)}
-          <br />
-          <em className="not-italic" style={{ fontStyle: "italic", color: "var(--color-accent-2)" }}>
-            {subtitle}
-          </em>
+          <Typewriter
+            once="lobby-hero"
+            segments={
+              [
+                { text: t(`dashboard:${greetingKey}`), after: <br /> },
+                {
+                  text: subtitle,
+                  style: { fontStyle: "italic", color: "var(--color-accent-2)" },
+                },
+              ] satisfies TypewriterSegment[]
+            }
+          />
         </h1>
         <p className="m-0 mt-2.5 max-w-[560px] text-[13px] leading-[1.55] text-text-3">
           {summaryLine}
@@ -934,38 +1026,36 @@ function HeroStrip({ totals, t }: HeroStripProps) {
         <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-2">
           · {t("dashboard:lobby_hero_eyebrow")} · {dateLine}
         </div>
-        {totals.total > 0 ? (
-          <div
-            className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
-            style={{ background: "oklch(0.16 0.010 265 / 0.4)" }}
-          >
-            {stats.map((s, i) => (
-              <div
-                key={s.key}
-                className={
-                  "px-4 py-2.5" +
-                  (i < stats.length - 1 ? " border-r border-hairline-soft" : "")
-                }
-              >
-                <div className="font-mono text-[9px] font-bold tracking-[0.14em] text-text-3">
-                  {s.label}
-                </div>
-                <div
-                  className="font-editorial mt-0.5 tabular-nums"
-                  style={{
-                    fontSize: 30,
-                    fontWeight: 400,
-                    lineHeight: 1,
-                    letterSpacing: "-0.012em",
-                    ...s.tone,
-                  }}
-                >
-                  {s.value}
-                </div>
+        <div
+          className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
+          style={{ background: "oklch(0.16 0.010 265 / 0.4)" }}
+        >
+          {stats.map((s, i) => (
+            <div
+              key={s.key}
+              className={
+                "px-4 py-2.5" +
+                (i < stats.length - 1 ? " border-r border-hairline-soft" : "")
+              }
+            >
+              <div className="font-mono text-[9px] font-bold tracking-[0.14em] text-text-3">
+                {s.label}
               </div>
-            ))}
-          </div>
-        ) : null}
+              <div
+                className="font-editorial mt-0.5 tabular-nums"
+                style={{
+                  fontSize: 30,
+                  fontWeight: 400,
+                  lineHeight: 1,
+                  letterSpacing: "-0.012em",
+                  ...s.tone,
+                }}
+              >
+                {s.value}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
