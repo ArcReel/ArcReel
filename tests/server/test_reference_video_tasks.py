@@ -136,6 +136,19 @@ def test_compress_references_empty_input(tmp_path: Path):
     assert _compress_references_to_tempfiles([]) == []
 
 
+def test_render_unit_prompt_rejects_empty_shots():
+    """所有 shots[].text 都为空时必须抛错，避免只追加负向尾词后被当成有效 prompt 提交给 backend。"""
+    unit = {
+        "shots": [
+            {"duration": 3, "text": ""},
+            {"duration": 2, "text": "   "},
+        ],
+        "references": [{"type": "character", "name": "张三"}],
+    }
+    with pytest.raises(ValueError, match="empty"):
+        _render_unit_prompt(unit)
+
+
 def test_render_unit_prompt_replaces_mentions_in_order():
     unit = {
         "shots": [

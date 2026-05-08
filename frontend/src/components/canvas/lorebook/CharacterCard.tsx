@@ -278,7 +278,7 @@ export function CharacterCard({
                 <ImageFlipReveal
                   src={sheetUrl && !imgError ? sheetUrl : null}
                   alt={`${name} ${t("character_design")}`}
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain"
                   onError={() => setImgError(true)}
                   fallback={
                     <div

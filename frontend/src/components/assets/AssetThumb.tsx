@@ -16,8 +16,8 @@ export function AssetThumb({ imageUrl, alt, fallback, variant }: Props) {
       : "aspect-video bg-gray-700 rounded flex items-center justify-center text-gray-500 text-xs";
   const imgClass =
     variant === "display"
-      ? "h-full w-full object-cover"
-      : "h-full w-full object-cover rounded";
+      ? "h-full w-full object-contain"
+      : "h-full w-full object-contain rounded";
   return (
     <div className={containerClass}>
       {imageUrl ? (
