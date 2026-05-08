@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NarrationSegment, DramaScene } from "@/types";
-import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { useAppStore } from "@/stores/app-store";
 import { ShotList } from "./ShotList";
 import { ShotDetail } from "./ShotDetail";
 
@@ -64,16 +64,21 @@ export function ShotSplitView({
     }
   }, [segments.length, selectedIndex]);
 
-  const prepareScroll = useCallback(
-    (target: { id: string }) => {
-      const idx = segments.findIndex((s) => getSegmentId(s, contentMode) === target.id);
-      if (idx === -1) return false;
+  // SSE 自动定位：分屏布局只需切换 selectedIndex，不做 DOM 滚动
+  const scrollTarget = useAppStore((s) => s.scrollTarget);
+  const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
+  useEffect(() => {
+    if (scrollTarget?.type !== "segment") return;
+    const idx = segments.findIndex((s) => getSegmentId(s, contentMode) === scrollTarget.id);
+    if (idx !== -1) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅 SSE 项目事件 store，触发后切换选中分镜
       setSelectedIndex(idx);
-      return true;
-    },
-    [segments, contentMode],
-  );
-  useScrollTarget("segment", { prepareTarget: prepareScroll });
+      clearScrollTarget(scrollTarget.request_id);
+    } else if (Date.now() >= scrollTarget.expires_at) {
+      // 当前 segments 不含该分镜（如事件指向其他剧集），过期后清理避免下次 segments 变更误触发
+      clearScrollTarget(scrollTarget.request_id);
+    }
+  }, [scrollTarget, segments, contentMode, clearScrollTarget]);
 
   if (segments.length === 0) {
     return null;

@@ -176,6 +176,7 @@ export function CharacterCard({
 
   return (
     <div
+      id={`character-${name}`}
       className="relative overflow-hidden rounded-xl p-5"
       data-workspace-editing={isEditing || isDirty ? "true" : undefined}
       onFocusCapture={() => setIsEditing(true)}

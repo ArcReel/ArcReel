@@ -7,6 +7,7 @@ import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
 import type { Scene } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
@@ -26,6 +27,8 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
+
+  useScrollTarget("scene");
 
   const entries = Object.entries(scenes);
 

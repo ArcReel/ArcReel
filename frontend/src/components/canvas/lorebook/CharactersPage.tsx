@@ -7,6 +7,7 @@ import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
 import type { Character } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
@@ -26,6 +27,8 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
+
+  useScrollTarget("character");
 
   const entries = Object.entries(characters);
 

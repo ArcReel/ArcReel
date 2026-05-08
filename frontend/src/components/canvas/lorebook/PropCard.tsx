@@ -110,6 +110,7 @@ export function PropCard({
 
   return (
     <div
+      id={`prop-${name}`}
       className="relative overflow-hidden rounded-xl p-5"
       data-workspace-editing={isEditing || isDirty ? "true" : undefined}
       onFocusCapture={() => setIsEditing(true)}
