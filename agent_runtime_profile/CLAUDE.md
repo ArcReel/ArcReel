@@ -21,7 +21,7 @@
 > 每次固定 +7 秒，不适合用于串联不同镜头。不同片段/场景之间使用 ffmpeg 拼接。
 
 ### 音频规范
-- **BGM 自动禁止**：在视频 prompt 末尾统一追加"画面避免：BGM、文字字幕、水印"
+- **BGM 自动禁止**：在视频 prompt 末尾统一追加"禁止出现：BGM、文字字幕、水印"
 
 ### 脚本调用
 - **Skill 内部脚本**：各 skill 的可执行脚本位于 `agent_runtime_profile/.claude/skills/{skill-name}/scripts/` 目录下

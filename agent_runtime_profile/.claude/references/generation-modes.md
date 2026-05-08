@@ -45,7 +45,7 @@ Step 7 视频
 - **单片段时长**（storyboard / grid）：项目 `default_duration`（项目创建时按 content_mode 写入 project.json）
 - **单 unit 时长**（reference_video）：所有 shot 总和；**目标贴近当前视频模型的 `max_duration`**，单 shot 取值必须在模型 `supported_durations` 列表中。具体数值由 subagent 在执行时通过 `.claude/skills/manage-project/scripts/get_video_capabilities.py` 查得，**不在本文档固化**
 - **拼接**：全部模式用 ffmpeg concat；Veo extend 仅用于**单片段延长**，不串联不同镜头
-- **BGM**：视频 prompt 末尾统一追加"画面避免：BGM、文字字幕、水印"
+- **BGM**：视频 prompt 末尾统一追加"禁止出现：BGM、文字字幕、水印"
 
 ## Prompt 语言
 

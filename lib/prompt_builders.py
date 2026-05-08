@@ -19,7 +19,7 @@ from __future__ import annotations
 # 角色图采用 issue #353 的四视图 16:9 布局。
 _CHARACTER_LAYOUT = (
     "横版 16:9 四格布局，纯白 (#FFFFFF) 背景：左侧约 40% 宽为胸像特写（清晰展示面部、发型、配饰、上装），"
-    "右侧三个等宽面板分别为正面 / 四分之三侧面 / 背面的 A-Pose 全身视图，鞋子完整可见不被裁切。"
+    "右侧三个等宽面板分别为正面 / 四分之三侧面 / 背面的 A-Pose 全身视图。"
 )
 _SCENE_LAYOUT = "主画面占四分之三区域展示环境整体外观与氛围，右下角嵌入关键细节小图。"
 _PROP_LAYOUT = "三视图水平排列于纯净浅灰背景：左侧正面全视图、中间 45° 侧视图体现立体感、右侧关键细节特写。"
@@ -31,7 +31,7 @@ _PROP_GUARD = "外观结构完整，焦点清晰。"
 
 # 反向提示词：精简到核心 4 项，避免 CFG 权重稀释。
 _NEGATIVE_TAIL_ASSET = "画面避免：水印、多余文字、低分辨率、手指畸形。"
-_NEGATIVE_TAIL_VIDEO = "画面避免：BGM、文字字幕、水印。"
+_NEGATIVE_TAIL_VIDEO = "禁止出现：BGM、文字字幕、水印。"
 
 
 def _style_prefix(style: str = "", style_description: str = "") -> str:
