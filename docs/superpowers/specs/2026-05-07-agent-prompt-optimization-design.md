@@ -350,3 +350,13 @@ diff /tmp/prompt_old.txt /tmp/prompt_new.txt
 - **subagent .md 与 Python 常量必须手工保持一致**：靠测试卡漂移，不是零成本。
 - **不做题材分支**：玄幻 / 重生 / 末世共用同一套节奏铁则，效果上限受限。
 - **不做 backend 专属适配**：seedance / 即梦 / veo 共用同一组动态规则，未做 backend 风味化。
+
+- **image_backends negative_prompt 支持矩阵**（探测结果，2026-05-08）：
+  - ark: silent — `generate()` 接收 `ImageGenerationRequest`，只提取 `prompt`、`reference_images`、`seed`，payload 中的 `negative_prompt` 字段在 `generate_image_async` 构建 request 时即被丢弃，不传给 Ark SDK
+  - gemini: silent — `generate()` 只使用 `prompt`、`reference_images`、`aspect_ratio`、`image_size`，`negative_prompt` 无对应字段，静默丢弃
+  - grok: silent — `generate()` 只使用 `prompt`、`model`、`aspect_ratio`、`image_size`、`reference_images`，静默丢弃
+  - openai: silent — `_generate_create()` / `_generate_edit()` 只使用 `prompt`、`model`、`size`、`quality`、`image`，静默丢弃
+
+  Payload 透传链：`generation_queue.payload` → `generation_worker._process_task` → `execute_generation_task(task)` → `execute_storyboard_task/execute_design_task` 中显式解包 `payload.get("prompt")` 等已知键，再调用 `generator.generate_image_async(prompt=..., reference_images=..., aspect_ratio=..., image_size=...)`，`negative_prompt` 从未出现在 `generate_image_async` 签名中，亦未透传至任何 image backend。`negative_prompt` 仅在 `generate_video` / `generate_video_async` 路径中有效。
+
+  对于 silent/no 的 backend，本期只走正向防崩；二期补 backend 适配。
