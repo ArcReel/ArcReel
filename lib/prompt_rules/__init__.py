@@ -1,8 +1,14 @@
 """Prompt 规则单一真相源。
 
-各规则模块（episode_pacing / visual_dynamic / asset_anti_break / asset_layout）
-分别导出常量与 helper，由 prompt_builders_script.py 与 generate_asset.py 按需消费。
-所有 Python 端注入受 `ARCREEL_PROMPT_RULES_V2` 环境变量控制（默认 on）。
+仅保留 `episode_pacing`：drama 短剧的节奏建议（开篇钩子 / 中段冲突 / 末镜定格）
+是体裁特征，与具体视觉风格 / backend 无关，需要在 builder 与 subagent .md 间共享。
+
+历史上还有 `visual_dynamic` / `asset_anti_break` / `asset_layout` 三个模块——
+这些被认为属于"prompt 写作指导"而非可独立维护的规则常量，已下沉到
+`lib/prompt_builders.py` 与 `lib/prompt_builders_script.py` 内部。
+
+灰度开关 `ARCREEL_PROMPT_RULES_V2`（默认 on）仅控制是否注入节奏 section，
+便于线上回滚到无节奏注入的 baseline。
 """
 
 import os

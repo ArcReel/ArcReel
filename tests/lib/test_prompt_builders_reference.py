@@ -43,8 +43,8 @@ def test_build_reference_video_prompt_contains_required_sections():
     # 关键 prompt 指令
     assert "@名称" in prompt
     assert "Shot" in prompt
-    # schema 约束
-    assert "video_units" in prompt
+    # schema 上下文
+    assert "ReferenceVideoScript" in prompt
     assert "references" in prompt
     # 时长约束
     assert "5" in prompt or "8" in prompt
@@ -98,7 +98,7 @@ def test_build_reference_video_prompt_injects_max_duration():
         max_duration=15,
     )
     assert "15 秒" in prompt
-    assert "当前视频模型上限" in prompt
+    assert "当前模型上限" in prompt
 
 
 def test_build_reference_video_prompt_max_duration_none_skips_segment():
@@ -114,4 +114,4 @@ def test_build_reference_video_prompt_max_duration_none_skips_segment():
         supported_durations=[4, 8],
         max_refs=9,
     )
-    assert "当前视频模型上限" not in prompt
+    assert "当前模型上限" not in prompt

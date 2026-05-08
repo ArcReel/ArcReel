@@ -1,15 +1,15 @@
 from lib.prompt_builders_script import (
-    _format_asset_names,
-    _format_character_names,
+    _format_names,
     build_drama_prompt,
     build_narration_prompt,
 )
 
 
 class TestPromptBuildersScript:
-    def test_formatters_emit_bullet_lists(self):
-        assert _format_character_names({"A": {}, "B": {}}) == "- A\n- B"
-        assert _format_asset_names({"玉佩": {}, "祠堂": {}}) == "- 玉佩\n- 祠堂"
+    def test_format_names_emits_bullet_lists(self):
+        assert _format_names({"A": {}, "B": {}}) == "- A\n- B"
+        assert _format_names({"玉佩": {}, "祠堂": {}}) == "- 玉佩\n- 祠堂"
+        assert _format_names({}) == "（暂无）"
 
     def test_build_narration_prompt_contains_dynamic_durations(self):
         prompt = build_narration_prompt(
@@ -25,7 +25,7 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
         )
         assert "4, 6, 8" in prompt
-        assert "默认使用 4 秒" in prompt
+        assert "默认 4 秒" in prompt
         assert "祠堂" in prompt
         assert "玉佩" in prompt
 
@@ -43,9 +43,9 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
         )
         assert "5, 10" in prompt
-        assert "根据内容节奏自行决定" in prompt
+        assert "按内容节奏自行决定" in prompt
 
-    def test_build_drama_prompt_uses_dynamic_aspect_ratio(self):
+    def test_build_drama_prompt_aspect_ratio_vertical(self):
         prompt = build_drama_prompt(
             project_overview={"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
             style="赛博",
@@ -58,11 +58,9 @@ class TestPromptBuildersScript:
             default_duration=8,
             aspect_ratio="9:16",
         )
-        # 传入竖屏时不应出现 "16:9 横屏构图"
-        assert "16:9 横屏构图" not in prompt
         assert "竖屏构图" in prompt
 
-    def test_build_drama_prompt_landscape(self):
+    def test_build_drama_prompt_aspect_ratio_landscape(self):
         prompt = build_drama_prompt(
             project_overview={"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
             style="赛博",
@@ -76,3 +74,21 @@ class TestPromptBuildersScript:
             aspect_ratio="16:9",
         )
         assert "横屏构图" in prompt
+
+    def test_no_enum_listing(self):
+        """schema 已声明枚举不在 prompt 中重复列举。"""
+        prompt = build_drama_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            style_description="",
+            characters={"林": {}},
+            scenes={"天台": {}},
+            props={},
+            scenes_md="E1S01 | 追逐",
+            supported_durations=[4, 6, 8],
+            default_duration=8,
+            aspect_ratio="16:9",
+        )
+        assert "Tracking Shot" not in prompt
+        assert "Pan Left, Pan Right" not in prompt
+        assert "Over-the-shoulder" not in prompt

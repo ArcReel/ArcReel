@@ -44,7 +44,8 @@ def test_script_generator_build_prompt_selects_reference_branch(reference_projec
     gen = ScriptGenerator(reference_project)
     prompt = gen.build_prompt(episode=1)
     # reference 分支特征标签
-    assert "video_units" in prompt
+    assert "ReferenceVideoScript" in prompt
+    assert "references" in prompt
     assert "@名称" in prompt
     # 不应出现 narration / drama 特征
     assert "characters_in_segment" not in prompt
@@ -169,7 +170,7 @@ def test_build_prompt_injects_max_duration_from_registry(
     gen = ScriptGenerator(project_dir)
     prompt = gen.build_prompt(episode=1)
     assert f"{expected_max_duration_sec} 秒" in prompt
-    assert "当前视频模型上限" in prompt
+    assert "当前模型上限" in prompt
 
 
 def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
@@ -257,6 +258,7 @@ def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
 
     gen = ScriptGenerator(project_dir)
     prompt = gen.build_prompt(episode=1)
-    # 走 reference 分支
-    assert "video_units" in prompt
+    # 走 reference 分支：模板包含 ReferenceVideoScript 与 references 字段说明
+    assert "ReferenceVideoScript" in prompt
+    assert "references" in prompt
     assert "@名称" in prompt

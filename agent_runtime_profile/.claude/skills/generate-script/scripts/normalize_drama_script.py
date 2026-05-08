@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-normalize_drama_script.py - 使用 Gemini Pro 生成规范化剧本
+normalize_drama_script.py - 调用项目配置的文本模型生成规范化剧本
 
 将 source/ 小说原文转化为 Markdown 格式的规范化剧本（step1_normalized_script.md），
-供 generate_script.py 消费。
+供 generate_script.py 消费。文本模型由项目设置选择，不锁定具体供应商。
 
 用法:
     python normalize_drama_script.py --episode <N>
@@ -153,7 +153,7 @@ async def _fetch_video_caps(project_name: str) -> tuple[int | None, list[int]]:
 
 async def amain() -> None:
     parser = argparse.ArgumentParser(
-        description="使用 Gemini Pro 生成规范化剧本",
+        description="调用文本模型生成规范化剧本",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -218,7 +218,7 @@ async def amain() -> None:
 
     if args.dry_run:
         print("=" * 60)
-        print("DRY RUN - 以下是将发送给 Gemini 的 Prompt:")
+        print("DRY RUN - 以下是将发送给文本模型的 Prompt:")
         print("=" * 60)
         print(prompt)
         print("=" * 60)

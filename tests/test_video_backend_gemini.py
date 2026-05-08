@@ -106,7 +106,6 @@ class TestGeminiVideoBackendGenerate:
             prompt="a cat walking",
             output_path=output,
             duration_seconds=8,
-            negative_prompt="no music",
         )
 
         result = await backend.generate(request)
@@ -216,8 +215,8 @@ class TestGeminiVideoBackendGenerate:
         await backend.generate(request)
         mock_rate_limiter.acquire_async.assert_called_once_with(backend._video_model)
 
-    async def test_default_negative_prompt(self, backend, tmp_path):
-        """未指定 negative_prompt 时使用默认值。"""
+    async def test_no_negative_prompt_in_config(self, backend, tmp_path):
+        """negative_prompt 改走 prompt 文本通道，GenerateVideosConfig 不再带该字段。"""
         output = tmp_path / "out.mp4"
 
         mock_op = _make_done_operation()
@@ -226,14 +225,12 @@ class TestGeminiVideoBackendGenerate:
         request = VideoGenerationRequest(
             prompt="test",
             output_path=output,
-            negative_prompt=None,
         )
 
         await backend.generate(request)
 
-        # 验证 GenerateVideosConfig 被调用时包含默认 negative_prompt
         config_call = backend._types.GenerateVideosConfig.call_args
-        assert "music" in config_call.kwargs.get("negative_prompt", "")
+        assert "negative_prompt" not in config_call.kwargs
 
 
 class TestGeminiRetryBehavior:

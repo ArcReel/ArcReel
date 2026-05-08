@@ -199,7 +199,7 @@ export function AssetFormModal({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="focus-ring group relative aspect-[3/4] w-full overflow-hidden rounded-xl transition-colors"
+              className="focus-ring group relative aspect-video w-full overflow-hidden rounded-xl transition-colors"
               style={{
                 background: "oklch(0.16 0.010 265 / 0.6)",
                 border: "1px dashed var(--color-hairline)",

@@ -135,9 +135,6 @@ class VideoGenerationRequest:
     reference_images: list[Path] | None = None  # For multi-reference mode
     generate_audio: bool = True
 
-    # Veo 特有
-    negative_prompt: str | None = None
-
     # 项目上下文（用于构建文件服务 URL 等）
     project_name: str | None = None
 

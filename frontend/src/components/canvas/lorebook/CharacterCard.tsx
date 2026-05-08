@@ -274,7 +274,7 @@ export function CharacterCard({
               src={sheetUrl && !imgError ? sheetUrl : null}
               alt={`${name} ${t("character_design")}`}
             >
-              <AspectFrame ratio="3:4">
+              <AspectFrame ratio="16:9">
                 <ImageFlipReveal
                   src={sheetUrl && !imgError ? sheetUrl : null}
                   alt={`${name} ${t("character_design")}`}

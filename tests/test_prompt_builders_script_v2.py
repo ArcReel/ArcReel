@@ -1,4 +1,8 @@
-"""验证 prompt_rules v2 注入是否正确接入两个 builder。"""
+"""验证节奏 section 的 v2 灰度开关接入两个 builder。
+
+visual_dynamic / asset_anti_break / asset_layout 三个 rule 模块在本次重构中已删除，
+相关断言移除；只保留 episode_pacing 的灰度行为。
+"""
 
 import pytest
 
@@ -7,14 +11,10 @@ from lib.prompt_rules.episode_pacing import (
     DRAMA_PACING_RULES,
     NARRATION_PACING_RULES,
 )
-from lib.prompt_rules.visual_dynamic import (
-    IMAGE_DYNAMIC_PATCH,
-    VIDEO_DYNAMIC_PATCH,
-)
 
 
 def _normalize(text: str) -> str:
-    """去除全部空白字符，用于跨缩进比较——与 test_subagent_md_sync 同策略。"""
+    """去除全部空白字符，用于跨缩进比较。"""
     return "".join(text.split())
 
 
@@ -31,53 +31,42 @@ def _kwargs() -> dict:
     )
 
 
-def test_drama_v2_on_injects_all(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_drama_v2_on_injects_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
     text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
-    text_norm = _normalize(text)
-    assert _normalize(DRAMA_PACING_RULES) in text_norm
-    assert _normalize(IMAGE_DYNAMIC_PATCH) in text_norm
-    assert _normalize(VIDEO_DYNAMIC_PATCH) in text_norm
+    assert _normalize(DRAMA_PACING_RULES) in _normalize(text)
 
 
-def test_drama_v2_off_omits_all(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_drama_v2_off_omits_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "off")
     text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
-    text_norm = _normalize(text)
-    assert _normalize(DRAMA_PACING_RULES) not in text_norm
-    assert _normalize(IMAGE_DYNAMIC_PATCH) not in text_norm
-    assert _normalize(VIDEO_DYNAMIC_PATCH) not in text_norm
+    assert _normalize(DRAMA_PACING_RULES) not in _normalize(text)
 
 
-def test_narration_v2_on_injects_all(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_narration_v2_on_injects_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
     text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
-    text_norm = _normalize(text)
-    assert _normalize(NARRATION_PACING_RULES) in text_norm
-    assert _normalize(IMAGE_DYNAMIC_PATCH) in text_norm
-    assert _normalize(VIDEO_DYNAMIC_PATCH) in text_norm
+    assert _normalize(NARRATION_PACING_RULES) in _normalize(text)
 
 
-def test_narration_v2_off_omits_all(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_narration_v2_off_omits_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "off")
     text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
-    text_norm = _normalize(text)
-    assert _normalize(NARRATION_PACING_RULES) not in text_norm
-    assert _normalize(IMAGE_DYNAMIC_PATCH) not in text_norm
-    assert _normalize(VIDEO_DYNAMIC_PATCH) not in text_norm
+    assert _normalize(NARRATION_PACING_RULES) not in _normalize(text)
 
 
-def test_drama_v2_on_keeps_camera_motion_constraint(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Spec §4.6: 保留'每个片段仅选择一种镜头运动'约束不动。"""
+def test_drama_no_enum_dump_in_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
     text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
-    assert "每个片段仅选择一种镜头运动" in text
+    # 枚举值不再以"全枚举列表"形式出现
+    assert "Tracking Shot" not in text
+    assert "Pan Left, Pan Right" not in text
 
 
-def test_drama_v2_on_length_within_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    """新版 prompt 不应膨胀超过旧版 + 3000 字符。"""
-    monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "off")
-    old = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+def test_drama_no_hard_char_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LLM 无法精确数字数，硬性"≤200 字"约束已移除。"""
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
-    new = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
-    assert len(new) - len(old) < 3000
+    text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+    assert "200 字以内" not in text
+    assert "150 字以内" not in text

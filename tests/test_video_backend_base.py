@@ -33,7 +33,6 @@ class TestVideoGenerationRequest:
         assert req.resolution is None
         assert req.start_image is None
         assert req.generate_audio is True
-        assert req.negative_prompt is None
         assert req.service_tier == "default"
         assert req.seed is None
 
@@ -46,7 +45,6 @@ class TestVideoGenerationRequest:
             resolution="720p",
             start_image=Path("/tmp/frame.png"),
             generate_audio=False,
-            negative_prompt="no music",
             service_tier="flex",
             seed=42,
         )

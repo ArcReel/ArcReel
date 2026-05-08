@@ -24,9 +24,6 @@ from lib.generation_queue_client import (
     enqueue_and_wait_sync as enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
-from lib.prompt_rules import is_v2_enabled
-from lib.prompt_rules.asset_anti_break import negative_for, positive_for
-from lib.prompt_rules.asset_layout import layout_for
 
 # 每种资产类型的字段映射与展示用常量
 TYPE_CONFIG: dict[str, dict] = {
@@ -73,19 +70,12 @@ def _get_asset_description(project: dict, asset_type: str, name: str) -> str | N
     return assets[name].get("description") or None
 
 
-def _wrap_prompt(asset_type: str, description: str) -> tuple[str, str | None]:
-    """按 asset_type 给 description 追加 layout + 防崩短语；返回 (prompt, negative_prompt or None)。
-
-    ARCREEL_PROMPT_RULES_V2=off 时退回原始 description（与 negative_prompt=None）。
-    """
-    if not is_v2_enabled():
-        return description, None
-    wrapped = f"{description}\n\n{layout_for(asset_type)}\n\n{positive_for(asset_type)}"
-    return wrapped, negative_for(asset_type)
-
-
 def generate_single(asset_type: str, name: str) -> Path:
-    """生成单个资产设计图"""
+    """生成单个资产设计图。
+
+    description 直接作为 prompt 文本下发；最终 prompt（含布局 / 防崩短语 / 反向提示词）
+    由 server 的 lib.prompt_builders 在执行任务时统一拼接，确保 WebUI 与 Skill 入口一致。
+    """
     cfg = TYPE_CONFIG[asset_type]
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
@@ -98,17 +88,12 @@ def generate_single(asset_type: str, name: str) -> Path:
     print(f"🎨 正在生成{cfg['label']}设计图: {name}")
     print(f"   描述: {description[:50]}..." if len(description) > 50 else f"   描述: {description}")
 
-    prompt, neg = _wrap_prompt(asset_type, description)
-    payload: dict = {"prompt": prompt}
-    if neg is not None:
-        payload["negative_prompt"] = neg
-
     queued = enqueue_and_wait(
         project_name=project_name,
         task_type=cfg["task_type"],
         media_type="image",
         resource_id=name,
-        payload=payload,
+        payload={"prompt": description},
         source="skill",
     )
     result = queued.get("result") or {}
@@ -182,16 +167,13 @@ def _build_specs(
 
     specs: list[BatchTaskSpec] = []
     for name in resolved:
-        prompt, neg = _wrap_prompt(asset_type, assets_dict[name]["description"])
-        payload: dict = {"prompt": prompt}
-        if neg is not None:
-            payload["negative_prompt"] = neg
+        # description 直接作为 prompt 提交；server 端 build_*_prompt 负责拼接布局 / 防崩 / 反向。
         specs.append(
             BatchTaskSpec(
                 task_type=cfg["task_type"],
                 media_type="image",
                 resource_id=name,
-                payload=payload,
+                payload={"prompt": assets_dict[name]["description"]},
             )
         )
     return specs

@@ -12,8 +12,8 @@ interface Props {
 export function AssetThumb({ imageUrl, alt, fallback, variant }: Props) {
   const containerClass =
     variant === "display"
-      ? "aspect-[3/4] bg-gradient-to-br from-gray-800 to-gray-700 flex items-center justify-center"
-      : "aspect-[3/4] bg-gray-700 rounded flex items-center justify-center text-gray-500 text-xs";
+      ? "aspect-video bg-gradient-to-br from-gray-800 to-gray-700 flex items-center justify-center"
+      : "aspect-video bg-gray-700 rounded flex items-center justify-center text-gray-500 text-xs";
   const imgClass =
     variant === "display"
       ? "h-full w-full object-cover"

@@ -1,6 +1,9 @@
-"""参考生视频模式 Prompt 构建器。
+"""参考生视频模式 Prompt 构建器（Spec §7.3）。
 
-Spec §7.3 的 LLM prompt 模板。
+设计原则与 prompt_builders_script.py 一致：
+- 不重复 schema 已声明的枚举（type / transition_to_next）；让 response_schema 直接约束。
+- 字段说明给指导和 example，不堆"必须 / 禁止"清单。
+- 跨 backend 时长 / references 上限通过参数显式注入，不在文本里硬编码秒数。
 """
 
 from __future__ import annotations
@@ -47,27 +50,28 @@ def build_reference_video_prompt(
 
     durations_desc = "/".join(str(d) for d in supported_durations) + "s"
     max_duration_line = (
-        f"\n   - **unit 内所有 Shot `duration` 之和应贴近 {max_duration} 秒**"
-        f"（当前视频模型上限），除非内容明显不需要这么长；"
-        f"不要刻意挑最短值，也不得超过 {max_duration}。"
+        f"\n   - unit 内所有 Shot `duration` 之和宜贴近 {max_duration} 秒（当前模型上限），"
+        f"除非内容明显不需要这么长；不要默认挑最短值，也不得超过 {max_duration}。"
         if max_duration is not None
         else ""
     )
 
-    return f"""你的任务是为短视频生成「参考生视频」模式的 JSON 剧本。请仔细遵循以下指示：
+    return f"""# 角色与任务
 
-**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
+你是一位资深的短视频分镜编剧，本任务是为「参考生视频」模式产出 JSON 剧本。
+你的任务：基于下方 step1_units 表，按 schema 产出 ReferenceVideoScript。
 
-1. 你将获得故事概述、视觉风格、已注册的角色/场景/道具列表，以及 Step 1 已拆分好的 video_units 表。
+**输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
+**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段**。
 
-2. 为每个 video_unit 生成 `ReferenceVideoScript.video_units[]` 数组项，并遵循如下约束：
+# 上下文
 
 <overview>
 {project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get("genre", "")}
-核心主题：{project_overview.get("theme", "")}
-世界观设定：{project_overview.get("world_setting", "")}
+题材：{project_overview.get("genre", "")}
+主题：{project_overview.get("theme", "")}
+世界观：{project_overview.get("world_setting", "")}
 </overview>
 
 <style>
@@ -92,40 +96,45 @@ def build_reference_video_prompt(
 {units_md}
 </step1_units>
 
-3. 每个 unit 的生成规则：
+# 字段写作指引
 
-a. **unit_id**：保留 Step 1 中的 `E{{集数}}U{{序号}}`。
+对每个 video_unit，按下列要求填写字段：
 
-b. **shots**：1-4 个 Shot。每个 Shot 含：
-   - `duration`：整数秒，取值必须在当前模型支持列表中：{durations_desc}{max_duration_line}
-   - `text`：中文镜头描述，聚焦当下瞬间可见画面，**仅**用 `@名称` 引用角色/场景/道具——**不要**写外貌、服装、场景细节（这些由参考图提供）。
-   - 每 unit 所有 Shot `duration` 之和即该 unit `duration_seconds`。
+a. **unit_id**：保留 step1 中的 `E{{集}}U{{序号}}`，不要改格式。
+
+b. **shots**：1-4 个 Shot。
+   - `duration`：整数秒，取值必须在当前模型支持列表中：{durations_desc}。{max_duration_line}
+   - `text`：中文镜头描述，聚焦此刻可见画面。仅用 `@名称` 引用角色 / 场景 / 道具——**不要**写外貌、服装、场景细节（这些由参考图提供视觉一致性）。
+     好例：「@林清 立于 @庙宇 山门前，左手紧握 @玉佩，目光投向远处」。
+     反例：「身穿淡青色罗裙的林清站在朱红色山门前，手里紧握着翠绿玉佩」（外貌 / 服装 / 颜色应由参考图承担）。
+   - 单 unit 内所有 Shot `duration` 之和即该 unit `duration_seconds`。
 
 c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
-   - `type` 取值 character / scene / prop。
-   - `name` 必须来自以下候选，否则会校验失败：
+   - `name` 必须来自候选：
      - character: {", ".join(character_names) or "（无）"}
      - scene: {", ".join(scene_names) or "（无）"}
      - prop: {", ".join(prop_names) or "（无）"}
-   - 每个 shot `text` 中出现的 `@名称` 都必须在 references 里注册一次。
-   - **references 数量不得超过 {max_refs}**（模型上限），超出时把次要角色合并到背景描述。
+   - 每个 shot `text` 中出现的 `@名称` 都要在 references 注册一次。
+   - **references 数量不超过 {max_refs}**（模型上限）；超出时把次要角色合并到背景描述。
 
 d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 
-e. **transition_to_next**：默认 "cut"，如明显切换时间/空间可用 "fade" / "dissolve"。
+e. **transition_to_next**：默认 "cut"，时间 / 空间明显跳跃可用 "fade" / "dissolve"。
 
 f. **note**：可选，人类备注；通常留空。
 
-4. 整集 `ReferenceVideoScript` 顶层字段：
-   - `episode`、`title`、`summary`、`novel.title` / `novel.chapter` 必填。
-   - `content_mode` 固定 "reference_video"。
-   - `duration_seconds` 可先写 0，由 caller 重算。
+# 顶层字段
 
-5. 关键约束复核：
-   - 每 unit 最多 **4 个 shot**；所有 shot 时长之和应贴近 Step 1 预估。
-   - `@名称` 只能引用在 characters / scenes / props 三张表中已注册的名字。
-   - 禁止在 shot `text` 中描写角色外貌、服装、场景细节（参考图负责视觉一致性）。
-   - 禁止发明新的资产名称。
+- `episode` / `title` / `summary` / `novel.title` / `novel.chapter` 必填。
+- `content_mode` 固定 "reference_video"。
+- `duration_seconds` 可先写 0，由 caller 重算。
 
-请根据 <step1_units> 逐 unit 产出。
+# 复核
+
+- 每 unit 最多 4 个 shot；shot 时长之和贴近 step1 预估。
+- `@名称` 只能引用 characters / scenes / props 三表中已注册的名字。
+- 不要在 shot `text` 中描写外貌、服装、场景细节。
+- 不要发明新资产。
+
+请按 step1_units 顺序逐 unit 产出。
 """

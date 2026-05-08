@@ -496,9 +496,10 @@ class TestGetAspectRatio:
         project = {"content_mode": "drama"}
         assert generation_tasks.get_aspect_ratio(project, "videos") == "16:9"
 
-    def test_characters_always_3_4(self):
-        project = {"aspect_ratio": "16:9"}
-        assert generation_tasks.get_aspect_ratio(project, "characters") == "3:4"
+    def test_characters_always_16_9(self):
+        # 角色采用四视图横版（issue #353）
+        project = {"aspect_ratio": "9:16"}
+        assert generation_tasks.get_aspect_ratio(project, "characters") == "16:9"
 
     def test_scenes_and_props_always_16_9(self):
         project = {"aspect_ratio": "9:16"}

@@ -99,11 +99,14 @@ def _compress_references_to_tempfiles(
 
 
 def _render_unit_prompt(unit: dict) -> str:
-    """拼接 unit.shots[*].text 为单一 prompt，再用 shot_parser 把 @X 替成 [图N]。"""
+    """拼接 unit.shots[*].text 为单一 prompt，再用 shot_parser 把 @X 替成 [图N]，
+    并在末尾追加统一文本化的反向提示词。"""
+    from lib.prompt_builders import append_video_negative_tail
+
     shots = unit.get("shots") or []
     raw = "\n".join(str(s.get("text", "")) for s in shots)
     references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
-    return render_prompt_for_backend(raw, references)
+    return append_video_negative_tail(render_prompt_for_backend(raw, references))
 
 
 def _apply_provider_constraints(
