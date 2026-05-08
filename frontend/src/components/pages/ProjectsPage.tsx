@@ -8,7 +8,7 @@ import {
 } from "react";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { Link, useLocation } from "wouter";
-import { AlertTriangle, Loader2, Plus, Search, Settings, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Library, Loader2, Plus, Search, Settings, Trash2, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { API } from "@/api";
@@ -676,32 +676,13 @@ function TopBar({
     >
       <div className="mx-auto flex max-w-[1320px] items-center gap-4 px-6 py-3">
         <div className="flex items-center gap-2.5">
-          <span
-            className="grid h-8 w-8 place-items-center rounded-lg border text-accent-2"
-            style={{
-              background:
-                "linear-gradient(135deg, oklch(0.32 0.07 285), oklch(0.20 0.04 270))",
-              borderColor: "oklch(1 0 0 / 0.08)",
-              boxShadow:
-                "inset 0 1px 0 oklch(1 0 0 / 0.08), 0 4px 14px -6px oklch(0 0 0 / 0.6)",
-            }}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M3 13L8 3l5 10" />
-              <path d="M5.5 9h5" />
-            </svg>
-          </span>
-          <span translate="no" className="font-editorial text-[22px] tracking-tight text-text">
+          <img
+            src="/android-chrome-192x192.png"
+            alt=""
+            aria-hidden
+            className="h-8 w-8 rounded-lg"
+          />
+          <span translate="no" className="text-[20px] font-semibold tracking-tight text-text">
             ArcReel
           </span>
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-3">
@@ -743,6 +724,7 @@ function TopBar({
             className="inline-flex items-center gap-1.5 rounded-[7px] border border-accent/25 bg-accent-dim px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             title={t("assets:library_title")}
           >
+            <Library className="h-3.5 w-3.5" />
             {t("assets:library_title")}
           </button>
           <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
@@ -1277,21 +1259,29 @@ export function ProjectsPage() {
             <span className="ml-2 text-text-3">{t("dashboard:loading_projects")}</span>
           </div>
         ) : projects.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-text-3">
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            className="flex w-full flex-col items-center justify-center gap-4 rounded-[14px] border border-dashed border-hairline bg-bg-grad-a/40 px-6 py-20 text-text-3 transition-colors hover:border-accent/40 hover:bg-bg-grad-a/65 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
             <span
               aria-hidden
-              className="mb-4 grid h-16 w-16 place-items-center rounded-2xl border border-hairline-soft"
+              className="grid h-16 w-16 place-items-center rounded-2xl border border-hairline-soft"
               style={{
                 background:
                   "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
                 color: "var(--color-accent-2)",
+                boxShadow:
+                  "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
               }}
             >
               <Plus className="h-8 w-8" />
             </span>
-            <h2 className="text-lg text-text">{t("dashboard:no_projects")}</h2>
-            <p className="mt-1 text-sm">{t("dashboard:start_creating_hint")}</p>
-          </div>
+            <div className="text-center">
+              <h2 className="text-lg text-text">{t("dashboard:no_projects")}</h2>
+              <p className="mt-1 text-sm">{t("dashboard:start_creating_hint")}</p>
+            </div>
+          </button>
         ) : (
           <>
             {featured ? (
