@@ -65,7 +65,7 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N}
 | 内容模式 | narration/drama |
 | 总片段/场景数 | XX 个 |
 | 总时长 | X 分 X 秒 |
-| 生成模型 | gemini-3-flash-preview |
+| 生成模型 | {脚本输出中实际使用的模型名} |
 
 **文件已保存**: `scripts/episode_{N}.json`
 

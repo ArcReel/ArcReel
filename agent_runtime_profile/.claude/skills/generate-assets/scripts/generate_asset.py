@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Asset Generator - 使用 Gemini API 生成角色 / 场景 / 道具设计图
+Asset Generator - 使用项目配置的图像供应商生成角色 / 场景 / 道具设计图
 
 Usage:
     python generate_asset.py --all                                   # 生成所有类型的待处理资产

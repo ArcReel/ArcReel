@@ -56,7 +56,7 @@
 ## 项目结构
 
 - `projects/{项目名}` - 视频项目的工作空间
-- `lib/` - 共享 Python 库（Gemini API 封装、项目管理）
+- `lib/` - 共享 Python 库（多供应商图像 / 视频 / 文本生成抽象层、项目管理）
 - `agent_runtime_profile/.claude/skills/` - 可用的 skills
 
 ## 架构：编排 Skill + 聚焦 Subagent
@@ -99,7 +99,7 @@
 |-------|---------|------|
 | manga-workflow | `/manga-workflow` | 编排 skill：状态检测 + subagent dispatch + 用户确认 |
 | manage-project | — | 项目管理工具集：分集切分（peek+split）、角色/场景/道具批量写入 |
-| generate-script | — | 使用 Gemini 生成 JSON 剧本（由 subagent 调用） |
+| generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由 subagent 调用） |
 | generate-assets | `/generate-assets` | 统一资产生成：`--type=character\|scene\|prop` 三类并行 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片 |
 | generate-video | `/generate-video` | 生成视频 |
