@@ -19,6 +19,7 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_utils import compress_image_bytes
+from lib.prompt_builders import append_video_negative_tail
 from lib.reference_video import render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
@@ -105,8 +106,6 @@ def _render_unit_prompt(unit: dict) -> str:
     空 prompt 会被显式拒绝：否则尾词追加后会变成只含「画面避免：…」的非空文本，
     绕过 backend 端的空 prompt 保护，浪费配额且产出与分镜无关的内容。
     """
-    from lib.prompt_builders import append_video_negative_tail
-
     shots = unit.get("shots") or []
     raw = "\n".join(str(s.get("text", "")) for s in shots)
     references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]

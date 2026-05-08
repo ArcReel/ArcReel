@@ -119,15 +119,3 @@ def build_storyboard_suffix(content_mode: str = "narration", *, aspect_ratio: st
     if ratio == "16:9":
         return "横屏构图。"
     return ""
-
-
-def build_style_prompt(project_data: dict) -> str:
-    """合并 style + style_description 为风格描述片段。"""
-    parts = []
-    style = project_data.get("style", "")
-    if style:
-        parts.append(f"Style: {style}")
-    style_description = project_data.get("style_description", "")
-    if style_description:
-        parts.append(f"Visual style: {style_description}")
-    return "\n".join(parts)

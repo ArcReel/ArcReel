@@ -4,7 +4,6 @@ from lib.prompt_builders import (
     build_prop_prompt,
     build_scene_prompt,
     build_storyboard_suffix,
-    build_style_prompt,
 )
 
 
@@ -59,21 +58,6 @@ class TestStoryboardSuffix:
         assert build_storyboard_suffix(aspect_ratio="16:9") == "横屏构图。"
         # 向后兼容：不传 aspect_ratio 时默认按 narration → 竖屏
         assert build_storyboard_suffix() == "竖屏构图。"
-
-
-class TestStylePrompt:
-    def test_combines_available_parts(self):
-        project_data = {
-            "style": "Anime",
-            "style_description": "soft pastel, hand-drawn",
-        }
-        result = build_style_prompt(project_data)
-        assert "Style: Anime" in result
-        assert "Visual style: soft pastel, hand-drawn" in result
-
-    def test_handles_empty_values(self):
-        assert build_style_prompt({}) == ""
-        assert build_style_prompt({"style": ""}) == ""
 
 
 class TestVideoNegativeTail:
