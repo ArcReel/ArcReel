@@ -475,6 +475,9 @@ export default {
   // import diagnostics
   'import_auto_fixed': '项目「{{title}}」已导入（自动修复 {{count}} 个问题）',
   'import_success_with_diagnostics': '导入已完成预检查，请查看下方详情',
+  'import_diagnostics': '导入诊断',
+  'import_failure_diagnostics': '导入失败诊断',
+  'import_failure_with_diagnostics': '导入未完成，下方列出了阻塞和警告项',
   'blocking_issues': '阻塞性问题',
   'auto_fixed_issues': '已自动修复的问题',
   // config-status-store

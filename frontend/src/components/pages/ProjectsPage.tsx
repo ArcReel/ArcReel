@@ -366,6 +366,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
   const propsStat = status?.props ?? { completed: 0, total: 0 };
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
+  const projectDisplayName = project.title || project.name;
 
   const { trackStyle, barStyle } = gradientProgressStyles(
     phase === "completed" ? "good" : "accent",
@@ -466,7 +467,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
         <button
           ref={triggerRef}
           type="button"
-          aria-label={t("dashboard:lobby_card_actions")}
+          aria-label={`${t("dashboard:lobby_card_actions")} — ${projectDisplayName}`}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           onClick={(e) => {
@@ -499,6 +500,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
                 setMenuOpen(false);
                 onDelete();
               }}
+              aria-label={`${t("dashboard:delete_project")} — ${projectDisplayName}`}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-danger-2 transition-colors hover:bg-danger-soft focus-visible:bg-danger-soft focus-visible:outline-none"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -521,7 +523,6 @@ interface NowEditingCardProps {
 }
 
 function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardProps) {
-  const [, navigate] = useLocation();
   const status = asProjectStatus(project.status);
   const phase: Phase | null = status?.current_phase ?? null;
   const phaseLabel = phase ? phaseLabels[phase] : "";
@@ -653,17 +654,16 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
 
         <div className="flex-1" />
         <div className="relative mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={() => navigate(`/app/projects/${project.name}`)}
-            className="inline-flex items-center gap-2 rounded-[7px] px-4 py-2.5 text-[12px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          <Link
+            href={`/app/projects/${project.name}`}
+            className="inline-flex items-center gap-2 rounded-[7px] px-4 py-2.5 text-[12px] font-semibold no-underline transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             style={ACCENT_BUTTON_STYLE}
           >
             {phase === "completed"
               ? t("dashboard:lobby_open_workspace_completed")
               : t("dashboard:lobby_open_workspace")}
             <span aria-hidden>→</span>
-          </button>
+          </Link>
         </div>
       </div>
     </article>
@@ -868,7 +868,7 @@ function TopBar({
             className="inline-flex items-center gap-1.5 rounded-[7px] border border-hairline bg-bg-grad-a/50 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
             {importing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
             ) : (
               <Upload className="h-3.5 w-3.5" />
             )}
@@ -1147,8 +1147,11 @@ export function ProjectsPage() {
   const [importingProject, setImportingProject] = useState(false);
   const [conflictProject, setConflictProject] = useState<string | null>(null);
   const [conflictFile, setConflictFile] = useState<File | null>(null);
+  type ImportDiagnosticsState =
+    | { source: "success"; diagnostics: ImportFailureDiagnostics; navigateTo: string }
+    | { source: "failure"; diagnostics: ImportFailureDiagnostics };
   const [importDiagnostics, setImportDiagnostics] =
-    useState<ImportFailureDiagnostics | null>(null);
+    useState<ImportDiagnosticsState | null>(null);
   const [showOpenClaw, setShowOpenClaw] = useState(false);
   const [deletingProject, setDeletingProject] = useState<ProjectSummary | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -1213,6 +1216,7 @@ export function ProjectsPage() {
 
       const autoFixedCount = result.diagnostics.auto_fixed.length;
       const warningCount = result.diagnostics.warnings.length;
+      const navigateTo = `/app/projects/${result.project_name}`;
       if (warningCount > 0 || autoFixedCount > 0) {
         useAppStore
           .getState()
@@ -1227,8 +1231,18 @@ export function ProjectsPage() {
                 }),
             "success",
           );
+        setImportDiagnostics({
+          source: "success",
+          diagnostics: {
+            blocking: [],
+            auto_fixable: result.diagnostics.auto_fixed,
+            warnings: result.diagnostics.warnings,
+          },
+          navigateTo,
+        });
+        return;
       }
-      navigate(`/app/projects/${result.project_name}`);
+      navigate(navigateTo);
     } catch (err) {
       const error = err as Error & {
         status?: number;
@@ -1247,7 +1261,7 @@ export function ProjectsPage() {
       }
 
       if (error.diagnostics) {
-        setImportDiagnostics(error.diagnostics);
+        setImportDiagnostics({ source: "failure", diagnostics: error.diagnostics });
       } else {
         useAppStore
           .getState()
@@ -1260,6 +1274,7 @@ export function ProjectsPage() {
 
   const handleDeleteProject = async () => {
     if (!deletingProject) return;
+    const projectDisplayName = deletingProject.title || deletingProject.name;
     setDeleteLoading(true);
     try {
       await API.deleteProject(deletingProject.name);
@@ -1269,7 +1284,7 @@ export function ProjectsPage() {
       useAppStore
         .getState()
         .pushToast(
-          `${t("dashboard:delete_failed")}[${deletingProject.title}] ${errMsg(err)}`,
+          `${t("dashboard:delete_failed")}[${projectDisplayName}] ${errMsg(err)}`,
           "warning",
         );
     } finally {
@@ -1329,14 +1344,15 @@ export function ProjectsPage() {
   const filteredProjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return projects.filter((p) => {
+      const s = asProjectStatus(p.status);
       if (phaseFilter !== "all") {
-        const s = asProjectStatus(p.status);
         if (!s || s.current_phase !== phaseFilter) return false;
       }
       if (!q) return true;
-      return `${p.title || ""} ${p.name}`.toLowerCase().includes(q);
+      const phaseLabel = s ? phaseLabels[s.current_phase] : "";
+      return `${p.title || ""} ${p.name} ${phaseLabel}`.toLowerCase().includes(q);
     });
-  }, [projects, phaseFilter, searchQuery]);
+  }, [projects, phaseFilter, searchQuery, phaseLabels]);
 
   const featuredCandidate = useMemo(() => pickFeaturedProject(projects), [projects]);
   const featured =
@@ -1397,7 +1413,7 @@ export function ProjectsPage() {
       <main className="mx-auto max-w-[1320px] px-6 pt-6 pb-16">
         {projectsLoading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-accent" />
+            <Loader2 className="h-6 w-6 motion-safe:animate-spin text-accent" />
             <span className="ml-2 text-text-3">{t("dashboard:loading_projects")}</span>
           </div>
         ) : projects.length === 0 ? (
@@ -1486,29 +1502,42 @@ export function ProjectsPage() {
 
       {importDiagnostics && (
         <ArchiveDiagnosticsDialog
-          title={t("dashboard:export_diagnostics")}
-          description={t("dashboard:import_success_with_diagnostics")}
+          title={t(
+            importDiagnostics.source === "failure"
+              ? "dashboard:import_failure_diagnostics"
+              : "dashboard:import_diagnostics",
+          )}
+          description={t(
+            importDiagnostics.source === "failure"
+              ? "dashboard:import_failure_with_diagnostics"
+              : "dashboard:import_success_with_diagnostics",
+          )}
           sections={[
             {
               key: "blocking",
               title: t("dashboard:blocking_issues"),
               severity: "blocking",
-              items: importDiagnostics.blocking,
+              items: importDiagnostics.diagnostics.blocking,
             },
             {
               key: "auto_fixed",
               title: t("dashboard:auto_fixed_issues"),
               severity: "auto_fixed",
-              items: importDiagnostics.auto_fixable,
+              items: importDiagnostics.diagnostics.auto_fixable,
             },
             {
               key: "warnings",
               title: t("dashboard:diagnostics_warnings"),
               severity: "warnings",
-              items: importDiagnostics.warnings,
+              items: importDiagnostics.diagnostics.warnings,
             },
           ]}
-          onClose={() => setImportDiagnostics(null)}
+          onClose={() => {
+            const target =
+              importDiagnostics.source === "success" ? importDiagnostics.navigateTo : null;
+            setImportDiagnostics(null);
+            if (target) navigate(target);
+          }}
         />
       )}
 
@@ -1517,7 +1546,7 @@ export function ProjectsPage() {
 
       {deletingProject && (
         <DeleteConfirmDialog
-          title={deletingProject.title}
+          title={deletingProject.title || deletingProject.name}
           loading={deleteLoading}
           onCancel={() => setDeletingProject(null)}
           onConfirm={voidPromise(handleDeleteProject)}
@@ -1585,7 +1614,7 @@ function DeleteConfirmDialog({
             disabled={loading}
             className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {loading && <Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
             {loading ? t("dashboard:deleting_project") : t("dashboard:delete_project")}
           </button>
         </div>
@@ -1655,7 +1684,7 @@ function ConflictDialog({
                 {t("dashboard:overwrite_hint")}
               </span>
             </span>
-            {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+            {importing && <Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
           </button>
 
           <button
@@ -1671,7 +1700,7 @@ function ConflictDialog({
                 {t("dashboard:rename_hint")}
               </span>
             </span>
-            {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+            {importing && <Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
           </button>
         </div>
 

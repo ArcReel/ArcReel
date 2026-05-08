@@ -474,6 +474,9 @@ export default {
   // import diagnostics
   'import_auto_fixed': 'Project "{{title}}" imported ({{count}} issue(s) auto-fixed)',
   'import_success_with_diagnostics': 'Import completed with diagnostics — review the details below',
+  'import_diagnostics': 'Import Diagnostics',
+  'import_failure_diagnostics': 'Import Failure Diagnostics',
+  'import_failure_with_diagnostics': 'Import did not complete. Blocking and warning items are listed below.',
   'blocking_issues': 'Blocking Issues',
   'auto_fixed_issues': 'Auto-fixed Issues',
   // config-status-store

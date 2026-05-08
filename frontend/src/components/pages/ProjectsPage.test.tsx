@@ -200,10 +200,13 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(API.importProject).toHaveBeenCalledWith(file, "prompt");
     });
+    // 当存在 warnings/auto_fixed 时先弹诊断对话框，关闭后才跳转
+    expect(await screen.findByText("导入诊断")).toBeInTheDocument();
+    expect(useAppStore.getState().toast?.text).toContain("自动修复");
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/imported-demo");
     });
-    expect(useAppStore.getState().toast?.text).toContain("自动修复");
   });
 
   it("shows a structured toast when import fails", async () => {
@@ -244,7 +247,7 @@ describe("ProjectsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("导出诊断")).toBeInTheDocument();
+      expect(screen.getByText("导入失败诊断")).toBeInTheDocument();
     });
     expect(screen.getByText("缺少 project.json")).toBeInTheDocument();
     expect(screen.getByText("缺少 scripts/episode_1.json")).toBeInTheDocument();

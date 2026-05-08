@@ -58,6 +58,14 @@ export function Typewriter({
 
   const [pos, setPos] = useState(skip ? totalLen : 0);
   const [phase, setPhase] = useState<"typing" | "linger" | "done">(skip ? "done" : "typing");
+  // 文案 / skip 变化时立即重置进度，避免新文案被截断或卡在 done
+  // (React 19 推荐的 render-time setState 模式：snapshot prev，发现 diff 时同步 setState 触发重渲)
+  const [prevSnapshot, setPrevSnapshot] = useState({ fullText, skip });
+  if (prevSnapshot.fullText !== fullText || prevSnapshot.skip !== skip) {
+    setPrevSnapshot({ fullText, skip });
+    setPos(skip ? totalLen : 0);
+    setPhase(skip ? "done" : "typing");
+  }
   const onDoneRef = useRef(onDone);
   useEffect(() => {
     onDoneRef.current = onDone;
