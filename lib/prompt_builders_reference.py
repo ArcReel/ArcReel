@@ -1,7 +1,8 @@
 """参考生视频模式 Prompt 构建器（Spec §7.3）。
 
 设计原则与 prompt_builders_script.py 一致：
-- 不重复 schema 已声明的枚举（type / transition_to_next）；让 response_schema 直接约束。
+- 不重复 schema 已声明的枚举（type 等）；让 response_schema 直接约束。
+- 多选枚举字段不在 prompt 里写"如何选"判据；让模型按画面内容自行决定。
 - 字段说明给指导和 example，不堆"必须 / 禁止"清单。
 - 跨 backend 时长 / references 上限通过参数显式注入，不在文本里硬编码秒数。
 """
@@ -119,9 +120,7 @@ c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
 
 d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 
-e. **transition_to_next**：默认 "cut"，时间 / 空间明显跳跃可用 "fade" / "dissolve"。
-
-f. **note**：可选，人类备注；通常留空。
+e. **note**：可选，人类备注；通常留空。
 
 # 顶层字段
 
