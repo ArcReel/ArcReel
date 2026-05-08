@@ -610,7 +610,7 @@ function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex min-h-[380px] flex-col items-center justify-center gap-3.5 rounded-[12px] border border-dashed border-hairline bg-bg-grad-a/45 p-6 text-text-3 transition-colors hover:border-accent/40 hover:bg-bg-grad-a/70 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="flex h-full min-h-[380px] flex-col items-center justify-center gap-3.5 rounded-[12px] border border-dashed border-hairline bg-bg-grad-a/45 p-6 text-text-3 transition-colors hover:border-accent/40 hover:bg-bg-grad-a/70 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
       <span
         className="grid h-14 w-14 place-items-center rounded-[14px] font-editorial text-[32px] leading-none"
@@ -1259,29 +1259,22 @@ export function ProjectsPage() {
             <span className="ml-2 text-text-3">{t("dashboard:loading_projects")}</span>
           </div>
         ) : projects.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="flex w-full flex-col items-center justify-center gap-4 rounded-[14px] border border-dashed border-hairline bg-bg-grad-a/40 px-6 py-20 text-text-3 transition-colors hover:border-accent/40 hover:bg-bg-grad-a/65 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <span
-              aria-hidden
-              className="grid h-16 w-16 place-items-center rounded-2xl border border-hairline-soft"
-              style={{
-                background:
-                  "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
-                color: "var(--color-accent-2)",
-                boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
-              }}
-            >
-              <Plus className="h-8 w-8" />
-            </span>
-            <div className="text-center">
-              <h2 className="text-lg text-text">{t("dashboard:no_projects")}</h2>
-              <p className="mt-1 text-sm">{t("dashboard:start_creating_hint")}</p>
+          <section aria-labelledby="lobby-empty-heading">
+            <div className="mb-3">
+              <h2
+                id="lobby-empty-heading"
+                className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
+              >
+                · {t("dashboard:no_projects")}
+              </h2>
+              <p className="mt-1 text-[12px] text-text-3">
+                {t("dashboard:start_creating_hint")}
+              </p>
             </div>
-          </button>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <NewProjectTile onClick={() => setShowCreateModal(true)} t={t} />
+            </div>
+          </section>
         ) : (
           <>
             {featured ? (
