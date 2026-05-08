@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NarrationSegment, DramaScene } from "@/types";
-import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { useAppStore } from "@/stores/app-store";
 import { ShotList } from "./ShotList";
 import { ShotDetail } from "./ShotDetail";
 
@@ -64,16 +64,17 @@ export function ShotSplitView({
     }
   }, [segments.length, selectedIndex]);
 
-  const prepareScroll = useCallback(
-    (target: { id: string }) => {
-      const idx = segments.findIndex((s) => getSegmentId(s, contentMode) === target.id);
-      if (idx === -1) return false;
-      setSelectedIndex(idx);
-      return true;
-    },
-    [segments, contentMode],
-  );
-  useScrollTarget("segment", { prepareTarget: prepareScroll });
+  // SSE 自动定位：分屏布局只需切换 selectedIndex，不做 DOM 滚动
+  const scrollTarget = useAppStore((s) => s.scrollTarget);
+  const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
+  useEffect(() => {
+    if (scrollTarget?.type !== "segment") return;
+    const idx = segments.findIndex((s) => getSegmentId(s, contentMode) === scrollTarget.id);
+    if (idx === -1) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅 SSE 项目事件 store，触发后切换选中分镜
+    setSelectedIndex(idx);
+    clearScrollTarget(scrollTarget.request_id);
+  }, [scrollTarget, segments, contentMode, clearScrollTarget]);
 
   if (segments.length === 0) {
     return null;
