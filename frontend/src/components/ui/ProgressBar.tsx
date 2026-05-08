@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 interface ProgressBarProps {
   value: number;
   label?: string;
@@ -5,6 +7,8 @@ interface ProgressBarProps {
   max?: number;
   className?: string;
   barClassName?: string;
+  style?: CSSProperties;
+  barStyle?: CSSProperties;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -24,6 +28,8 @@ export function ProgressBar({
   max = 100,
   className,
   barClassName,
+  style,
+  barStyle,
 }: ProgressBarProps) {
   const clamped = clamp(value, min, max);
   const pct = max === min ? 0 : ((clamped - min) / (max - min)) * 100;
@@ -36,10 +42,11 @@ export function ProgressBar({
       aria-valuemax={max}
       aria-label={label}
       className={cx("h-1.5 w-full overflow-hidden rounded-full bg-gray-800", className)}
+      style={style}
     >
       <div
         className={cx("h-full rounded-full bg-indigo-500 transition-[width]", barClassName)}
-        style={{ width: `${pct}%` }}
+        style={{ width: `${pct}%`, ...barStyle }}
       />
     </div>
   );

@@ -52,9 +52,19 @@ export interface EpisodesSummary {
   completed: number;
 }
 
+export const PHASE_ORDER = [
+  "setup",
+  "worldbuilding",
+  "scripting",
+  "production",
+  "completed",
+] as const;
+
+export type Phase = (typeof PHASE_ORDER)[number];
+
 /** Injected by StatusCalculator.calculate_project_status at read time */
 export interface ProjectStatus {
-  current_phase: "setup" | "worldbuilding" | "scripting" | "production" | "completed";
+  current_phase: Phase;
   phase_progress: number;
   characters: ProgressCategory;
   scenes: ProgressCategory;

@@ -53,6 +53,8 @@
     --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
     --font-display: "Inter", "Noto Sans SC", system-ui, sans-serif;
     --font-mono: "JetBrains Mono", "Fira Code", "Noto Sans Mono", ui-monospace, monospace;
+    /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
+    --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
 
     /* 阴影 */
     --shadow-glow: 0 0 0 1px oklch(0.76 0.09 295 / 0.28), 0 18px 40px oklch(0 0 0 / 0.45);
@@ -79,6 +81,8 @@
 }
 
 /* 全局 body 背景 — radial+linear 复合梯度 */
+html { color-scheme: dark; }
+
 body {
     background:
         radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
@@ -89,6 +93,18 @@ body {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+}
+
+/* 尊重系统级"减少动效"偏好（WCAG 2.3.3） */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 /* 数字字符（mono + tabular nums） */

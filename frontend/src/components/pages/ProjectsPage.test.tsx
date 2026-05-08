@@ -73,8 +73,11 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Demo Project")).toBeInTheDocument();
-    expect(screen.getByText("商业动画 京都 · 制作中")).toBeInTheDocument();
+    // Title may render twice (cinemascope poster overlay + heading) in the
+    // featured "Now Editing" card — see ProjectsPage.tsx Darkroom design.
+    expect((await screen.findAllByText("Demo Project")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("商业动画 京都").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("制作中").length).toBeGreaterThan(0);
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
@@ -102,8 +105,8 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    await screen.findByText("Custom Demo");
-    expect(screen.getByText(/自定义风格/)).toBeInTheDocument();
+    expect((await screen.findAllByText("Custom Demo")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/自定义风格/).length).toBeGreaterThan(0);
   });
 
   it("shows 未设置风格 label when project has neither template_id nor style_image", async () => {
@@ -130,8 +133,8 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    await screen.findByText("Empty Style Demo");
-    expect(screen.getByText(/未设置风格/)).toBeInTheDocument();
+    expect((await screen.findAllByText("Empty Style Demo")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/未设置风格/).length).toBeGreaterThan(0);
   });
 
   it("opens create project modal after clicking new project button", async () => {
