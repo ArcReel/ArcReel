@@ -101,7 +101,7 @@ def append_video_negative_tail(prompt: str) -> str:
     调用方拿到分镜 video_prompt 文本后，在交给 video backend 之前过一遍此函数；
     避免在每个 caller 各自拼接、导致漂移。
     """
-    if not prompt:
+    if not prompt or not prompt.strip():
         return _NEGATIVE_TAIL_VIDEO
     if _NEGATIVE_TAIL_VIDEO in prompt:
         return prompt

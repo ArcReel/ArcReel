@@ -112,7 +112,7 @@ def _render_unit_prompt(unit: dict) -> str:
     references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
     rendered = render_prompt_for_backend(raw, references)
     if not rendered.strip():
-        raise ValueError("reference video unit prompt is empty: shots[*].text 全为空")
+        raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
     return append_video_negative_tail(rendered)
 
 

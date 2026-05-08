@@ -90,3 +90,9 @@ class TestVideoNegativeTail:
     def test_handles_empty_input(self):
         result = append_video_negative_tail("")
         assert "BGM" in result
+
+    def test_handles_whitespace_only_input(self):
+        # 纯空白等同空：避免拼出前导空行 + 尾词的怪异输出
+        for blank in ("   ", "\n\n", "\t \n"):
+            result = append_video_negative_tail(blank)
+            assert result.startswith("禁止出现"), f"input={blank!r} → {result!r}"
