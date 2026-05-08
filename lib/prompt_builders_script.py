@@ -6,6 +6,10 @@ prompt_builders_script.py - 剧本生成 Prompt 构建器
 3. 可选值列表约束输出
 """
 
+from lib.prompt_rules import is_v2_enabled
+from lib.prompt_rules.episode_pacing import render_pacing_section
+from lib.prompt_rules.visual_dynamic import IMAGE_DYNAMIC_PATCH, VIDEO_DYNAMIC_PATCH
+
 
 def _format_character_names(characters: dict) -> str:
     """格式化角色列表"""
@@ -91,9 +95,13 @@ def build_narration_prompt(
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
 
+    pacing_block = render_pacing_section("narration") + "\n\n" if is_v2_enabled() else ""
+    image_patch = "\n" + IMAGE_DYNAMIC_PATCH if is_v2_enabled() else ""
+    video_patch = "\n" + VIDEO_DYNAMIC_PATCH if is_v2_enabled() else ""
+
     prompt = f"""你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
 
-**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
+{pacing_block}**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
 
 1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的小说片段。
 
@@ -157,7 +165,7 @@ e. **image_prompt**：生成包含以下字段的对象：
    - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。
      聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
      确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
-     画面应自包含，不暗示过去事件或未来发展。
+     画面应自包含，不暗示过去事件或未来发展。{image_patch}
    - composition：
      - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
      - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
@@ -167,7 +175,7 @@ f. **video_prompt**：生成包含以下字段的对象：
    - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
      聚焦单一连贯动作，确保在指定时长内可完成。
      排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
-     排除比喻性动作描述（如"像蝴蝶般飞舞"）。
+     排除比喻性动作描述（如"像蝴蝶般飞舞"）。{video_patch}
    - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
      每个片段仅选择一种镜头运动。
    - ambiance_audio：用中文描述画内音（diegetic sound）——环境声、脚步声、物体声音。
@@ -218,9 +226,13 @@ def build_drama_prompt(
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
 
+    pacing_block = render_pacing_section("drama") + "\n\n" if is_v2_enabled() else ""
+    image_patch = "\n" + IMAGE_DYNAMIC_PATCH if is_v2_enabled() else ""
+    video_patch = "\n" + VIDEO_DYNAMIC_PATCH if is_v2_enabled() else ""
+
     prompt = f"""你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
 
-**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
+{pacing_block}**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
 
 1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的分镜列表。
 
@@ -282,7 +294,7 @@ d. **image_prompt**：生成包含以下字段的对象：
    - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。{_format_aspect_ratio_desc(aspect_ratio)}。
      聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
      确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
-     画面应自包含，不暗示过去事件或未来发展。
+     画面应自包含，不暗示过去事件或未来发展。{image_patch}
    - composition：
      - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
      - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
@@ -292,7 +304,7 @@ e. **video_prompt**：生成包含以下字段的对象：
    - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
      聚焦单一连贯动作，确保在指定时长内可完成。
      排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
-     排除比喻性动作描述（如"像蝴蝶般飞舞"）。
+     排除比喻性动作描述（如"像蝴蝶般飞舞"）。{video_patch}
    - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
      每个片段仅选择一种镜头运动。
    - ambiance_audio：用中文描述画内音（diegetic sound）——环境声、脚步声、物体声音。
