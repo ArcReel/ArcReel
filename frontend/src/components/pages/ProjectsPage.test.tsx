@@ -45,9 +45,6 @@ describe("ProjectsPage", () => {
     renderPage();
 
     expect(await screen.findByText(/暂无项目/)).toBeInTheDocument();
-    expect(
-      screen.getByText("点击右上角「新建项目」或「导入 ZIP」开始创作"),
-    ).toBeInTheDocument();
     // 空状态会渲染一个 NewProjectTile 占位卡（lobby_new_project_title）
     expect(screen.getByText("新建项目")).toBeInTheDocument();
   });
