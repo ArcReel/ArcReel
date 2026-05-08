@@ -44,9 +44,8 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/暂无项目/)).toBeInTheDocument();
-    // 空状态会渲染一个 NewProjectTile 占位卡（lobby_new_project_title）
-    expect(screen.getByText("新建项目")).toBeInTheDocument();
+    // 0 项目时仅渲染 NewProjectTile 占位卡（lobby_new_project_title）
+    expect(await screen.findByText("新建项目")).toBeInTheDocument();
   });
 
   it("renders project cards when data exists", async () => {
@@ -140,7 +139,7 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
 
     renderPage();
-    await screen.findByText(/暂无项目/);
+    await screen.findByText("新建项目");
     expect(screen.queryByTestId("create-project-modal")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
@@ -192,7 +191,7 @@ describe("ProjectsPage", () => {
     });
 
     const { container, location } = renderPage();
-    await screen.findByText(/暂无项目/);
+    await screen.findByText("新建项目");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["zip"], "project.zip", { type: "application/zip" });
@@ -237,7 +236,7 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "importProject").mockRejectedValue(error);
 
     const { container } = renderPage();
-    await screen.findByText(/暂无项目/);
+    await screen.findByText("新建项目");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, {
@@ -307,7 +306,7 @@ describe("ProjectsPage", () => {
       });
 
     const { container, location } = renderPage();
-    await screen.findByText(/暂无项目/);
+    await screen.findByText("新建项目");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["zip"], "project.zip", { type: "application/zip" });

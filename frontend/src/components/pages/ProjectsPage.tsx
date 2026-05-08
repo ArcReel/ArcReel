@@ -1311,17 +1311,9 @@ export function ProjectsPage() {
             <span className="ml-2 text-text-3">{t("dashboard:loading_projects")}</span>
           </div>
         ) : projects.length === 0 ? (
-          <section aria-labelledby="lobby-empty-heading">
-            <h2
-              id="lobby-empty-heading"
-              className="m-0 mb-3 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
-            >
-              · {t("dashboard:no_projects")}
-            </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <NewProjectTile onClick={() => setShowCreateModal(true)} t={t} />
-            </div>
-          </section>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <NewProjectTile onClick={() => setShowCreateModal(true)} t={t} />
+          </div>
         ) : (
           <>
             {featured ? (
