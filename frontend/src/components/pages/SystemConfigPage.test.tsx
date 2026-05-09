@@ -130,11 +130,11 @@ describe("SystemConfigPage", () => {
     expect(screen.getByRole("button", { name: /关于/ })).toBeInTheDocument();
   });
 
-  it("defaults to the 智能体 section", () => {
+  it("defaults to the 供应商 section", () => {
     renderPage();
-    const agentButton = screen.getByRole("button", { name: /智能体/ });
+    const providersButton = screen.getByRole("button", { name: /供应商/ });
     // Active sidebar item carries aria-current="page" (Darkroom redesign)
-    expect(agentButton).toHaveAttribute("aria-current", "page");
+    expect(providersButton).toHaveAttribute("aria-current", "page");
   });
 
   it("clicking 供应商 makes it the active section", async () => {
@@ -171,7 +171,9 @@ describe("SystemConfigPage", () => {
     );
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders({ status: "ready" }));
 
-    renderPage();
+    // Banner renders inside non-providers content panes (providers section has its own UI),
+    // so land on agent to assert it.
+    renderPage("/app/settings?section=agent");
 
     await waitFor(() => {
       expect(screen.getByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
