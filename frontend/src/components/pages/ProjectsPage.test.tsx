@@ -44,10 +44,8 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("暂无项目")).toBeInTheDocument();
-    expect(
-      screen.getByText("点击右上角「新建项目」或「导入 ZIP」开始创作"),
-    ).toBeInTheDocument();
+    // 0 项目时仅渲染 NewProjectTile 占位卡（lobby_new_project_title）
+    expect(await screen.findByText("新建项目")).toBeInTheDocument();
   });
 
   it("renders project cards when data exists", async () => {
@@ -73,8 +71,11 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Demo Project")).toBeInTheDocument();
-    expect(screen.getByText("商业动画 京都 · 制作中")).toBeInTheDocument();
+    // Title may render twice (cinemascope poster overlay + heading) in the
+    // featured "Now Editing" card — see ProjectsPage.tsx Darkroom design.
+    expect((await screen.findAllByText("Demo Project")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("商业动画 京都").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("制作中").length).toBeGreaterThan(0);
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
@@ -102,8 +103,8 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    await screen.findByText("Custom Demo");
-    expect(screen.getByText(/自定义风格/)).toBeInTheDocument();
+    expect((await screen.findAllByText("Custom Demo")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/自定义风格/).length).toBeGreaterThan(0);
   });
 
   it("shows 未设置风格 label when project has neither template_id nor style_image", async () => {
@@ -130,15 +131,15 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    await screen.findByText("Empty Style Demo");
-    expect(screen.getByText(/未设置风格/)).toBeInTheDocument();
+    expect((await screen.findAllByText("Empty Style Demo")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/未设置风格/).length).toBeGreaterThan(0);
   });
 
   it("opens create project modal after clicking new project button", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
 
     renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("新建项目");
     expect(screen.queryByTestId("create-project-modal")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
@@ -190,7 +191,7 @@ describe("ProjectsPage", () => {
     });
 
     const { container, location } = renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("新建项目");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["zip"], "project.zip", { type: "application/zip" });
@@ -199,10 +200,13 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(API.importProject).toHaveBeenCalledWith(file, "prompt");
     });
+    // 当存在 warnings/auto_fixed 时先弹诊断对话框，关闭后才跳转
+    expect(await screen.findByText("导入诊断")).toBeInTheDocument();
+    expect(useAppStore.getState().toast?.text).toContain("自动修复");
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/imported-demo");
     });
-    expect(useAppStore.getState().toast?.text).toContain("自动修复");
   });
 
   it("shows a structured toast when import fails", async () => {
@@ -235,7 +239,7 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "importProject").mockRejectedValue(error);
 
     const { container } = renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("新建项目");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, {
@@ -243,7 +247,7 @@ describe("ProjectsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("导出诊断")).toBeInTheDocument();
+      expect(screen.getByText("导入失败诊断")).toBeInTheDocument();
     });
     expect(screen.getByText("缺少 project.json")).toBeInTheDocument();
     expect(screen.getByText("缺少 scripts/episode_1.json")).toBeInTheDocument();
@@ -305,7 +309,7 @@ describe("ProjectsPage", () => {
       });
 
     const { container, location } = renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("新建项目");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["zip"], "project.zip", { type: "application/zip" });

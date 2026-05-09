@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
-
-const PHASES = ["setup", "worldbuilding", "scripting", "production", "completed"] as const;
+import { PHASE_ORDER } from "@/types";
 
 interface PhaseStepperProps {
   currentPhase: string | undefined;
@@ -12,7 +11,7 @@ interface PhaseStepperProps {
  */
 export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
   const { t } = useTranslation("dashboard");
-  const currentIdx = PHASES.findIndex((p) => p === currentPhase);
+  const currentIdx = PHASE_ORDER.findIndex((p) => p === currentPhase);
 
   return (
     <nav aria-label={t("workflow_phases")}>
@@ -24,7 +23,7 @@ export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
           boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.25)",
         }}
       >
-        {PHASES.map((phase, idx) => {
+        {PHASE_ORDER.map((phase, idx) => {
           const isActive = currentIdx === idx;
           const isPastOrActive = currentIdx >= 0 && currentIdx >= idx;
           const nextIsActive = currentIdx === idx + 1;
@@ -63,7 +62,7 @@ export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
                 </span>
                 <span className="whitespace-nowrap">{t(`phase_${phase}`)}</span>
               </div>
-              {idx < PHASES.length - 1 && (
+              {idx < PHASE_ORDER.length - 1 && (
                 <div
                   aria-hidden="true"
                   className="mx-0.5 h-px w-1.5"
