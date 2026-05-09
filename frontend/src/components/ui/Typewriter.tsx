@@ -71,6 +71,14 @@ export function Typewriter({
     onDoneRef.current = onDone;
   }, [onDone]);
 
+  // segments 抓在 ref 里：调用方常常内联构造 segments，每次重渲都生成新引用；
+  // 若把 segments 写进 effect 依赖，父组件无关重渲就会清旧定时器、重新 tick(0)，
+  // 后续 setPos(next) 会把 pos 倒退回首字。fullText 才是真正的内容键。
+  const segmentsRef = useRef(segments);
+  useEffect(() => {
+    segmentsRef.current = segments;
+  });
+
   useEffect(() => {
     if (skip) {
       onDoneRef.current?.();
@@ -96,7 +104,7 @@ export function Typewriter({
       let acc = 0;
       let ch = "";
       let crossesSegmentEnd = false;
-      for (const seg of segments) {
+      for (const seg of segmentsRef.current) {
         if (current < acc + seg.text.length) {
           ch = seg.text[current - acc];
           crossesSegmentEnd = current + 1 === acc + seg.text.length;
@@ -125,7 +133,7 @@ export function Typewriter({
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [skip, totalLen, segments, speed, punctuationDelay, segmentGap, startDelay, once]);
+  }, [skip, totalLen, fullText, speed, punctuationDelay, segmentGap, startDelay, once]);
 
   const visibleNodes: ReactNode[] = [];
   let consumed = 0;

@@ -1156,4 +1156,5 @@ export default {
   'lobby_new_project_kicker': 'START · NEW REEL',
   'lobby_new_project_title': '新建项目',
   'lobby_card_actions': '项目操作',
+  'openclaw': 'OpenClaw',
 } satisfies Record<keyof typeof enDashboard, string>;

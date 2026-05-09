@@ -468,7 +468,6 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
           ref={triggerRef}
           type="button"
           aria-label={`${t("dashboard:lobby_card_actions")} — ${projectDisplayName}`}
-          aria-haspopup="menu"
           aria-expanded={menuOpen}
           onClick={(e) => {
             e.preventDefault();
@@ -487,12 +486,9 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
         {menuOpen ? (
           <div
             ref={menuRef}
-            role="menu"
-            aria-orientation="vertical"
             className="absolute right-0 bottom-[calc(100%+6px)] min-w-[148px] overflow-hidden rounded-md border border-hairline bg-bg-grad-a/95 shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.7)] backdrop-blur"
           >
             <button
-              role="menuitem"
               type="button"
               onClick={(e) => {
                 e.preventDefault();
@@ -888,8 +884,8 @@ function TopBar({
             type="button"
             onClick={onOpenClaw}
             className="rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title="OpenClaw"
-            aria-label="OpenClaw"
+            title={t("dashboard:openclaw")}
+            aria-label={t("dashboard:openclaw")}
           >
             <span aria-hidden>🦞</span>
           </button>

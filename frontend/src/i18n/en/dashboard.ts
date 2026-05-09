@@ -1155,4 +1155,5 @@ export default {
   'lobby_new_project_kicker': 'START · NEW REEL',
   'lobby_new_project_title': 'New project',
   'lobby_card_actions': 'Project actions',
+  'openclaw': 'OpenClaw',
 };
