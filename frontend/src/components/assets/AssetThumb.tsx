@@ -9,17 +9,21 @@ interface Props {
   variant: Variant;
 }
 
+const DISPLAY_BG =
+  "linear-gradient(135deg, oklch(0.20 0.011 265), oklch(0.16 0.010 265))";
+const PICKER_BG =
+  "linear-gradient(135deg, oklch(0.22 0.011 265), oklch(0.18 0.010 265))";
+
 export function AssetThumb({ imageUrl, alt, fallback, variant }: Props) {
-  const containerClass =
-    variant === "display"
-      ? "aspect-video bg-gradient-to-br from-gray-800 to-gray-700 flex items-center justify-center"
-      : "aspect-video bg-gray-700 rounded flex items-center justify-center text-gray-500 text-xs";
-  const imgClass =
-    variant === "display"
-      ? "h-full w-full object-contain"
-      : "h-full w-full object-contain rounded";
+  const isDisplay = variant === "display";
+  const containerClass = isDisplay
+    ? "aspect-video flex items-center justify-center text-text-4"
+    : "aspect-video flex items-center justify-center rounded text-text-4 text-xs";
+  const imgClass = isDisplay
+    ? "h-full w-full object-contain"
+    : "h-full w-full object-contain rounded";
   return (
-    <div className={containerClass}>
+    <div className={containerClass} style={{ background: isDisplay ? DISPLAY_BG : PICKER_BG }}>
       {imageUrl ? (
         <img
           src={imageUrl}

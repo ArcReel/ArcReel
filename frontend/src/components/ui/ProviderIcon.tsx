@@ -25,7 +25,7 @@ export function ProviderIcon({ providerId, className }: { providerId: string; cl
   if (providerId === "openai") return <OpenAIMono className={cls} />;
   // Fallback: first letter badge
   return (
-    <span className={`inline-flex items-center justify-center rounded bg-gray-700 text-xs font-bold uppercase text-gray-300 ${cls}`}>
+    <span className={`inline-flex items-center justify-center rounded border border-hairline-soft bg-bg-grad-b/70 text-xs font-bold uppercase text-text-2 ${cls}`}>
       {providerId[0]}
     </span>
   );

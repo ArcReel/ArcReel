@@ -13,6 +13,7 @@ import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
@@ -289,10 +290,22 @@ export function ProjectSettingsPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+
   const guardedNavigate = useCallback((path: string) => {
-    if (isDirty && !window.confirm(t("unsaved_changes_confirm"))) return;
+    if (isDirty) {
+      setPendingNavigation(path);
+      return;
+    }
     navigate(path);
-  }, [isDirty, navigate, t]);
+  }, [isDirty, navigate]);
+
+  const confirmDiscardAndNavigate = useCallback(() => {
+    if (!pendingNavigation) return;
+    const target = pendingNavigation;
+    setPendingNavigation(null);
+    navigate(target);
+  }, [pendingNavigation, navigate]);
 
   // Cross-tab switch from custom → template may leave {mode:"template", templateId:null}
   // while an uploaded preview still lingers — no user-chosen card. Block save so
@@ -699,6 +712,16 @@ export function ProjectSettingsPage() {
           </div>
         </div>
       </footer>
+
+      <ConfirmDialog
+        open={pendingNavigation !== null}
+        tone="warning"
+        title={t("unsaved_changes_confirm")}
+        confirmLabel={t("common:confirm")}
+        cancelLabel={t("common:cancel")}
+        onCancel={() => setPendingNavigation(null)}
+        onConfirm={confirmDiscardAndNavigate}
+      />
     </div>
   );
 }

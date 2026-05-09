@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { INPUT_CLS } from "@/components/ui/darkroom-tokens";
 
 export interface ResolutionPickerProps {
   mode: "select" | "combobox";
@@ -26,7 +27,7 @@ export function ResolutionPicker({
     return (
       <select
         aria-label={ariaLabel}
-        className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-100"
+        className={INPUT_CLS}
         value={value ?? ""}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
@@ -69,7 +70,7 @@ function ComboboxInput({ ariaLabel, listId, options, value, onChange, placeholde
       <input
         type="text"
         aria-label={ariaLabel}
-        className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-100"
+        className={INPUT_CLS}
         value={local}
         disabled={disabled}
         placeholder={placeholder}

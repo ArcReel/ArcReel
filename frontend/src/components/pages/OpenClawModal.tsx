@@ -3,10 +3,19 @@
  * 提示词区域（可复制，含动态 skill.md URL）、3 步使用说明、"获取 API 令牌"按钮
  */
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { copyText } from "@/utils/clipboard";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
+import {
+  ACCENT_BTN_CLS,
+  ACCENT_BUTTON_STYLE,
+  DROPDOWN_PANEL_STYLE,
+  GHOST_BTN_CLS,
+  GHOST_BTN_LG_CLS,
+  ICON_BTN_FILLED_CLS,
+} from "@/components/ui/darkroom-tokens";
 
 // 🦞 SVG lobster icon (inline, no external dep)
 function LobsterIcon({ className }: { className?: string }) {
@@ -21,30 +30,17 @@ interface OpenClawModalProps {
   onClose: () => void;
 }
 
-// 使用步骤数据（静态，提升到组件外避免每次渲染重建）
-const STEPS = [
-  {
-    step: "01",
-    title: "向你的 OpenClaw 发送上述提示词",
-    desc: "复制提示词，粘贴给 OpenClaw 发送",
-  },
-  {
-    step: "02",
-    title: "OpenClaw 从 Skill 文档学习能力",
-    desc: "OpenClaw 会自动读取 ArcReel Skill 文档，获取所有可用工具与 API 的使用方式",
-  },
-  {
-    step: "03",
-    title: "OpenClaw 与 ArcReel 交互并创建视频",
-    desc: "描述你的创作需求，OpenClaw 将调用 ArcReel 完成项目管理、剧本生成和视频创作",
-  },
+const STEP_KEYS = [
+  { step: "01", titleKey: "openclaw_step_01_title", descKey: "openclaw_step_01_desc" },
+  { step: "02", titleKey: "openclaw_step_02_title", descKey: "openclaw_step_02_desc" },
+  { step: "03", titleKey: "openclaw_step_03_title", descKey: "openclaw_step_03_desc" },
 ] as const;
 
 export function OpenClawModal({ onClose }: OpenClawModalProps) {
+  const { t } = useTranslation(["dashboard", "common"]);
   const [, navigate] = useLocation();
   const [copied, setCopied] = useState(false);
 
-  // task 7.3：动态适配当前访问地址
   const skillUrl = useMemo(
     () => `${window.location.origin}/skill.md`,
     [],
@@ -61,7 +57,6 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
     setTimeout(() => setCopied(false), 2000);
   }, [systemPrompt]);
 
-  // task 7.4：跳转 API Key 管理页
   const handleGoToApiKeys = useCallback(() => {
     onClose();
     navigate("/app/settings?section=api-keys");
@@ -73,70 +68,76 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm"
     >
-      {/* backdrop: click-to-close */}
       <button
         type="button"
-        aria-label="关闭"
+        aria-label={t("common:close")}
         className="absolute inset-0 cursor-default appearance-none border-0 bg-transparent p-0"
         onClick={onClose}
       />
-      <div className="relative z-10 flex w-full max-w-lg flex-col rounded-2xl border border-gray-800 bg-gray-900 shadow-2xl shadow-black/60 max-h-[90vh] overflow-y-auto">
-        {/* ——— 顶栏 ——— */}
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-800 bg-gray-900 px-5 py-4">
+      <div
+        className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border border-hairline shadow-2xl shadow-black/60"
+        style={DROPDOWN_PANEL_STYLE}
+      >
+        <div
+          className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline px-5 py-4"
+          style={DROPDOWN_PANEL_STYLE}
+        >
           <div className="flex items-center gap-2.5">
             <LobsterIcon className="text-xl leading-none" />
             <div>
-              <h2 className="text-sm font-semibold text-gray-100">OpenClaw 集成指南</h2>
-              <p className="text-xs text-gray-500">将 ArcReel 接入 OpenClaw AI Agent</p>
+              <h2 className="text-[14px] font-semibold text-text">{t("dashboard:openclaw_title")}</h2>
+              <p className="text-[12px] text-text-4">{t("dashboard:openclaw_subtitle")}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
-            aria-label="关闭"
+            className={ICON_BTN_FILLED_CLS}
+            aria-label={t("common:close")}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="p-5 space-y-5">
-          {/* ——— Prompt 区域 ——— */}
+        <div className="space-y-5 p-5">
+          {/* Prompt */}
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-400">Prompt</span>
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                {t("dashboard:openclaw_prompt_label")}
+              </span>
               <button
                 type="button"
                 onClick={() => void handleCopyPrompt()}
-                className="inline-flex items-center gap-1 rounded-md border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-700"
+                className={GHOST_BTN_CLS}
               >
                 {copied ? (
                   <>
-                    <Check className="h-3 w-3 text-emerald-400" />
-                    已复制
+                    <Check className="h-3 w-3 text-good" />
+                    {t("common:copied")}
                   </>
                 ) : (
                   <>
                     <Copy className="h-3 w-3" />
-                    复制
+                    {t("common:copy")}
                   </>
                 )}
               </button>
             </div>
-            <div className="rounded-xl border border-indigo-500/20 bg-gray-950 p-3">
-              <pre className="whitespace-pre-wrap font-mono text-xs leading-5 text-indigo-200">
+            <div className="rounded-xl border border-accent/30 bg-bg p-3">
+              <pre className="whitespace-pre-wrap font-mono text-[12px] leading-5 text-accent-2">
                 {systemPrompt}
               </pre>
             </div>
-            <p className="mt-1.5 text-xs text-gray-600">
-              Skill 文档地址：
+            <p className="mt-1.5 text-[11px] text-text-4">
+              {t("dashboard:openclaw_skill_url_label")}
               <a
                 href={skillUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="ml-1 inline-flex items-center gap-0.5 text-indigo-400 hover:text-indigo-300"
+                className="ml-1 inline-flex items-center gap-0.5 text-accent-2 hover:text-accent"
               >
                 {skillUrl}
                 <ExternalLink className="h-3 w-3" />
@@ -144,42 +145,49 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
             </p>
           </div>
 
-          {/* ——— 3 步说明 ——— */}
+          {/* Steps */}
           <div>
-            <div className="mb-3 text-xs font-medium text-gray-400">使用步骤</div>
+            <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+              {t("dashboard:openclaw_steps_label")}
+            </div>
             <div className="space-y-2">
-              {STEPS.map(({ step, title, desc }) => (
+              {STEP_KEYS.map(({ step, titleKey, descKey }) => (
                 <div
                   key={step}
-                  className="flex gap-3 rounded-xl border border-gray-800 bg-gray-950/50 px-3.5 py-3"
+                  className="flex gap-3 rounded-xl border border-hairline-soft bg-bg-grad-a/40 px-3.5 py-3"
                 >
-                  <div className="flex-shrink-0 font-mono text-xs font-bold text-indigo-500/70 pt-0.5">
+                  <div className="shrink-0 pt-0.5 font-mono text-[11px] font-bold tracking-[0.14em] text-accent/70">
                     {step}
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-gray-200">{title}</div>
-                    <div className="mt-0.5 text-xs leading-4.5 text-gray-500">{desc}</div>
+                    <div className="text-[12px] font-semibold text-text-2">
+                      {t(`dashboard:${titleKey}`)}
+                    </div>
+                    <div className="mt-0.5 text-[12px] leading-[1.55] text-text-4">
+                      {t(`dashboard:${descKey}`)}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* ——— 操作按钮 ——— */}
+          {/* Actions */}
           <div className="flex gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-xl border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-700"
+              className={`${GHOST_BTN_LG_CLS} flex-1 justify-center`}
             >
-              关闭
+              {t("common:close")}
             </button>
             <button
               type="button"
               onClick={handleGoToApiKeys}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+              className={`${ACCENT_BTN_CLS} flex-1 justify-center`}
+              style={ACCENT_BUTTON_STYLE}
             >
-              获取 API 令牌
+              {t("dashboard:openclaw_get_api_token")}
             </button>
           </div>
         </div>

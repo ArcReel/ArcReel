@@ -29,6 +29,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { CreateProjectModal } from "./CreateProjectModal";
@@ -1545,81 +1546,26 @@ export function ProjectsPage() {
       {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
       {showCreateModal && <CreateProjectModal />}
 
-      {deletingProject && (
-        <DeleteConfirmDialog
-          title={deletingProject.title || deletingProject.name}
-          loading={deleteLoading}
-          onCancel={() => setDeletingProject(null)}
-          onConfirm={voidPromise(handleDeleteProject)}
-        />
-      )}
-    </div>
-  );
-}
-
-// -- DeleteConfirmDialog ------------------------------------------------------
-
-function DeleteConfirmDialog({
-  title,
-  loading,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  loading: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { t } = useTranslation(["common", "dashboard"]);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useEscapeClose(onCancel, !loading);
-  useFocusTrap(dialogRef, true);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="lobby-delete-title"
-        aria-describedby="lobby-delete-desc"
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-hairline bg-bg-grad-a p-6 shadow-2xl"
-      >
-        <div className="flex items-start gap-4">
-          <div
-            aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warm-tint text-warm-bright"
-          >
-            <AlertTriangle className="h-6 w-6" />
-          </div>
-          <div className="space-y-2">
-            <h2 id="lobby-delete-title" className="text-lg font-semibold text-text">
-              {t("dashboard:delete_project")}
-            </h2>
-            <p id="lobby-delete-desc" className="text-sm leading-6 text-text-3">
-              {t("dashboard:confirm_delete_project", { title })}
-            </p>
-          </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={loading}
-            className="rounded-lg border border-hairline px-4 py-2 text-sm text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {t("cancel")}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-warm-ring bg-warm-tint px-4 py-2 text-sm font-medium text-warm-bright transition-colors hover:border-warm-bright/60 hover:bg-warm-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading && <Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
-            {loading ? t("dashboard:deleting_project") : t("dashboard:delete_project")}
-          </button>
-        </div>
-      </div>
+      <ConfirmDialog
+        open={!!deletingProject}
+        tone="danger"
+        title={t("dashboard:delete_project")}
+        description={
+          deletingProject
+            ? t("dashboard:confirm_delete_project", {
+                title: deletingProject.title || deletingProject.name,
+              })
+            : null
+        }
+        confirmLabel={t("dashboard:delete_project")}
+        loadingLabel={t("dashboard:deleting_project")}
+        cancelLabel={t("common:cancel")}
+        loading={deleteLoading}
+        onCancel={() => {
+          if (!deleteLoading) setDeletingProject(null);
+        }}
+        onConfirm={voidPromise(handleDeleteProject)}
+      />
     </div>
   );
 }
@@ -1653,7 +1599,7 @@ function ConflictDialog({
         <div className="flex items-start gap-4">
           <div
             aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-500"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warm-tint text-warm-bright"
           >
             <AlertTriangle className="h-6 w-6" />
           </div>
