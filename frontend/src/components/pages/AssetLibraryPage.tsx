@@ -71,6 +71,7 @@ export function AssetLibraryPage() {
   }, [activeTab, debouncedQ, loadList]);
 
   const assets = byType[activeTab];
+  const ActiveIcon = TABS.find((tab) => tab.type === activeTab)!.icon;
 
   const handleSubmit = async (payload: {
     name: string; description: string; voice_style: string; image?: File | null;
@@ -149,7 +150,8 @@ export function AssetLibraryPage() {
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
               <input
-                type="text"
+                type="search"
+                aria-label={t("search_placeholder")}
                 placeholder={t("search_placeholder")}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
@@ -202,9 +204,7 @@ export function AssetLibraryPage() {
         {assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-dim text-accent-2">
-              {activeTab === "character" && <User className="h-5 w-5" />}
-              {activeTab === "scene" && <Landmark className="h-5 w-5" />}
-              {activeTab === "prop" && <PackageIcon className="h-5 w-5" />}
+              <ActiveIcon className="h-5 w-5" />
             </div>
             <p className="font-editorial text-[20px] leading-tight text-text">{t(EMPTY_KEY[activeTab])}</p>
             <p className="max-w-sm text-[12px] leading-5 text-text-4">{t("library_empty_hint")}</p>

@@ -2,7 +2,7 @@
  * OpenClaw 集成引导 Modal
  * 提示词区域（可复制，含动态 skill.md URL）、3 步使用说明、"获取 API 令牌"按钮
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/utils/clipboard";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
@@ -17,7 +17,6 @@ import {
   ICON_BTN_FILLED_CLS,
 } from "@/components/ui/darkroom-tokens";
 
-// 🦞 SVG lobster icon (inline, no external dep)
 function LobsterIcon({ className }: { className?: string }) {
   return (
     <span className={className} aria-hidden="true" role="img">
@@ -36,26 +35,19 @@ const STEP_KEYS = [
   { step: "03", titleKey: "openclaw_step_03_title", descKey: "openclaw_step_03_desc" },
 ] as const;
 
+const SKILL_URL = `${window.location.origin}/skill.md`;
+const SYSTEM_PROMPT = `学习 ${SKILL_URL} 然后遵循 skill，了解如何使用 ArcReel 创作视频`;
+
 export function OpenClawModal({ onClose }: OpenClawModalProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, navigate] = useLocation();
   const [copied, setCopied] = useState(false);
 
-  const skillUrl = useMemo(
-    () => `${window.location.origin}/skill.md`,
-    [],
-  );
-
-  const systemPrompt = useMemo(
-    () => `学习 ${skillUrl} 然后遵循 skill，了解如何使用 ArcReel 创作视频`,
-    [skillUrl],
-  );
-
   const handleCopyPrompt = useCallback(async () => {
-    await copyText(systemPrompt);
+    await copyText(SYSTEM_PROMPT);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [systemPrompt]);
+  }, []);
 
   const handleGoToApiKeys = useCallback(() => {
     onClose();
@@ -128,18 +120,18 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
             </div>
             <div className="rounded-xl border border-accent/30 bg-bg p-3">
               <pre className="whitespace-pre-wrap font-mono text-[12px] leading-5 text-accent-2">
-                {systemPrompt}
+                {SYSTEM_PROMPT}
               </pre>
             </div>
             <p className="mt-1.5 text-[11px] text-text-4">
               {t("dashboard:openclaw_skill_url_label")}
               <a
-                href={skillUrl}
+                href={SKILL_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ml-1 inline-flex items-center gap-0.5 text-accent-2 hover:text-accent"
               >
-                {skillUrl}
+                {SKILL_URL}
                 <ExternalLink className="h-3 w-3" />
               </a>
             </p>

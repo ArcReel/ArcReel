@@ -12,15 +12,25 @@ interface Props {
 
 const TYPE_ICON = { character: UserIcon, scene: Landmark, prop: Package };
 
+const dateFmtCache = new Map<string, Intl.DateTimeFormat>();
+function getDateFmt(lang: string): Intl.DateTimeFormat {
+  let fmt = dateFmtCache.get(lang);
+  if (!fmt) {
+    try {
+      fmt = new Intl.DateTimeFormat(lang, { month: "short", day: "numeric" });
+    } catch {
+      fmt = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+    }
+    dateFmtCache.set(lang, fmt);
+  }
+  return fmt;
+}
+
 function formatUpdatedAt(value: string | null, lang: string): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  try {
-    return new Intl.DateTimeFormat(lang, { month: "short", day: "numeric" }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
-  }
+  return getDateFmt(lang).format(date);
 }
 
 export function AssetCard({ asset, onEdit, onDelete }: Props) {

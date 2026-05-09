@@ -14,6 +14,7 @@ import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
@@ -283,12 +284,7 @@ export function ProjectSettingsPage() {
     imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
 
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  useWarnUnsaved(isDirty);
 
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
 

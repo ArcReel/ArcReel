@@ -1564,7 +1564,7 @@ export function ProjectsPage() {
         onCancel={() => {
           if (!deleteLoading) setDeletingProject(null);
         }}
-        onConfirm={voidPromise(handleDeleteProject)}
+        onConfirm={handleDeleteProject}
       />
     </div>
   );

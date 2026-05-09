@@ -1,4 +1,5 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
+import { Loader2 } from "lucide-react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { errMsg, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
@@ -86,7 +87,7 @@ export function LoginPage() {
             system · login
           </div>
           <h1 className="font-editorial mt-1 flex items-center justify-center gap-2 text-[28px] tracking-tight text-text">
-            <img src="/android-chrome-192x192.png" alt="ArcReel" className="h-7 w-7" />
+            <img src="/android-chrome-192x192.png" alt="" aria-hidden className="h-7 w-7" />
             <span>ArcReel</span>
           </h1>
         </div>
@@ -99,6 +100,8 @@ export function LoginPage() {
             <input
               id="login-username"
               type="text"
+              autoComplete="username"
+              spellCheck={false}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className={INPUT_CLS}
@@ -114,6 +117,7 @@ export function LoginPage() {
             <input
               id="login-password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={INPUT_CLS}
@@ -122,7 +126,9 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <p className="text-sm text-warm-bright">{error}</p>
+            <p role="alert" aria-live="polite" className="text-sm text-warm-bright">
+              {error}
+            </p>
           )}
 
           <button
@@ -131,6 +137,7 @@ export function LoginPage() {
             className={`${ACCENT_BTN_CLS} w-full justify-center`}
             style={ACCENT_BUTTON_STYLE}
           >
+            {loading && <Loader2 aria-hidden className="h-4 w-4 motion-safe:animate-spin" />}
             {loading ? t("auth:logging_in") : t("auth:login")}
           </button>
         </form>
