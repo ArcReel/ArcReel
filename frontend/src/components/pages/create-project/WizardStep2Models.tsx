@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { Loader2 } from "lucide-react";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import type { ProviderInfo } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
@@ -32,6 +34,13 @@ export interface WizardStep2ModelsProps {
   error: string | null;
 }
 
+const ACCENT_BUTTON_STYLE: CSSProperties = {
+  color: "oklch(0.14 0 0)",
+  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+  boxShadow:
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
+};
+
 export function WizardStep2Models({
   value,
   onChange,
@@ -45,14 +54,20 @@ export function WizardStep2Models({
   const loading = !data && !error;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {loading && (
-        <div className="text-sm text-gray-500 py-8 text-center">
-          {t("common:loading")}
+        <div className="flex items-center justify-center gap-2 py-12 text-text-3">
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("common:loading")}</span>
         </div>
       )}
       {error && (
-        <div className="text-sm text-red-400 py-8 text-center">{error}</div>
+        <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-4 py-6 text-center">
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+            ▲ Error
+          </div>
+          <p className="mt-1.5 text-[12.5px] text-text-2">{error}</p>
+        </div>
       )}
       {data && (
         <ModelConfigSection
@@ -70,11 +85,11 @@ export function WizardStep2Models({
         />
       )}
 
-      <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-800">
+      <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-2 text-sm text-gray-400 hover:text-gray-200"
+          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {t("common:cancel")}
         </button>
@@ -82,17 +97,20 @@ export function WizardStep2Models({
           <button
             type="button"
             onClick={onBack}
-            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3.5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
+            <span aria-hidden>←</span>
             {t("templates:prev_step")}
           </button>
           <button
             type="button"
             onClick={onNext}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50"
             disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+            style={ACCENT_BUTTON_STYLE}
           >
             {t("templates:next_step")}
+            <span aria-hidden>→</span>
           </button>
         </div>
       </div>

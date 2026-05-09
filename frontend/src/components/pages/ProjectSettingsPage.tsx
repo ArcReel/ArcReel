@@ -1,8 +1,8 @@
 import { useParams, useLocation } from "wouter";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ChevronLeft, Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
@@ -13,6 +13,16 @@ import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
 import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
+
+// 项目设置页 · "Project Booth"
+// 单列表单 + Darkroom 美学：editorial 标题 + mono kicker + hairline 卡片 + accent CTA。
+
+const ACCENT_BUTTON_STYLE: CSSProperties = {
+  color: "oklch(0.14 0 0)",
+  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+  boxShadow:
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
+};
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
   const styleImage = project.style_image as string | undefined;
@@ -36,6 +46,58 @@ function deriveStyleValue(project: Record<string, unknown>, projectName: string)
     uploadedPreview: null,
   };
 }
+
+// ─── Section card primitive ─────────────────────────────────────────────────
+
+interface SectionCardProps {
+  kicker: string;
+  title?: string;
+  description?: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}
+
+function SectionCard({ kicker, title, description, children, footer }: SectionCardProps) {
+  return (
+    <section
+      className="overflow-hidden rounded-[12px] border border-hairline"
+      style={{
+        background:
+          "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.55), oklch(0.16 0.010 265 / 0.55))",
+        boxShadow:
+          "inset 0 1px 0 oklch(1 0 0 / 0.03), 0 18px 40px -28px oklch(0 0 0 / 0.5)",
+      }}
+    >
+      <header className="px-5 pt-4 pb-3 border-b border-hairline-soft">
+        <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          {kicker}
+        </div>
+        {title ? (
+          <h2 className="mt-1 text-[15px] font-semibold tracking-tight text-text">{title}</h2>
+        ) : null}
+        {description ? (
+          <p className="mt-1 text-[12px] leading-[1.55] text-text-3">{description}</p>
+        ) : null}
+      </header>
+      <div className="px-5 py-4">{children}</div>
+      {footer ? (
+        <footer className="border-t border-hairline-soft bg-[oklch(0.16_0.010_265_/_0.5)] px-5 py-3">
+          {footer}
+        </footer>
+      ) : null}
+    </section>
+  );
+}
+
+function radioCardClass(selected: boolean): string {
+  const base =
+    "relative flex-1 cursor-pointer rounded-[8px] border px-3.5 py-2.5 text-center text-[12.5px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent";
+  return selected
+    ? `${base} border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]`
+    : `${base} border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text`;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export function ProjectSettingsPage() {
   const { t } = useTranslation("dashboard");
@@ -80,6 +142,7 @@ export function ProjectSettingsPage() {
   const [modelSettings, setModelSettings] = useState<Record<string, { resolution: string | null }>>({});
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
+  const [projectTitle, setProjectTitle] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
   // ── Style picker state (independent save flow) ─────────────────────────────
@@ -158,6 +221,7 @@ export function ProjectSettingsPage() {
       setAspectRatio(ar);
       setGenerationMode(gm);
       setDefaultDuration(dd);
+      setProjectTitle(typeof project.title === "string" ? project.title : "");
 
       // model_settings 的 key 以 effective backend（override ‖ global default）读写，
       // 与 handleSave 保持一致；legacy video_model_settings 作为旧项目兼容回退。
@@ -340,199 +404,318 @@ export function ProjectSettingsPage() {
   }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
-      {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-gray-800 bg-gray-950/95 backdrop-blur">
-        <div className="mx-auto flex max-w-2xl items-center gap-3 px-6 py-4">
+    <div
+      className="fixed inset-0 z-50 flex flex-col text-text"
+      style={
+        {
+          background:
+            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+        } as CSSProperties
+      }
+    >
+      {/* ─── Sticky top bar ─── */}
+      <header
+        className="sticky top-0 z-30 shrink-0"
+        style={{
+          background:
+            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
+          backdropFilter: "blur(28px) saturate(1.5)",
+          WebkitBackdropFilter: "blur(28px) saturate(1.5)",
+          borderBottom: "1px solid var(--color-hairline)",
+          boxShadow:
+            "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
+        }}
+      >
+        <div className="mx-auto flex max-w-3xl items-center gap-4 px-6 py-4">
           <button
             onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-200 focus-ring"
+            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             aria-label={t("back_to_project")}
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ChevronLeft className="h-3.5 w-3.5" />
+            <span>{t("back_to_project")}</span>
           </button>
-          <h1 className="text-lg font-semibold text-gray-100">{t("project_settings")}</h1>
+          <span aria-hidden className="h-5 w-px bg-hairline-soft" />
+          <div className="min-w-0 flex-1">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+              Project Booth — {projectName.toUpperCase()}
+            </div>
+            <h1
+              className="font-editorial mt-0.5 truncate"
+              style={{
+                fontWeight: 400,
+                fontSize: 24,
+                lineHeight: 1.05,
+                letterSpacing: "-0.012em",
+                color: "var(--color-text)",
+              }}
+              title={projectTitle || projectName}
+            >
+              {t("project_settings")}
+              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-text-3">
+                {projectTitle || projectName}
+              </span>
+            </h1>
+          </div>
+        </div>
+      </header>
+
+      {/* ─── Scrollable body ─── */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-6 py-7 pb-24 space-y-5">
+          <div>
+            <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-3">
+              {t("model_config")}
+            </div>
+            <p className="mt-1 text-[12.5px] leading-[1.55] text-text-3">
+              {t("model_config_project_desc")}
+            </p>
+          </div>
+
+          {/* Style picker (independent save flow, mutually exclusive template / custom) */}
+          {styleValue && (
+            <SectionCard
+              kicker="Visual Style"
+              title={t("project_style_section_title")}
+              footer={
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={voidPromise(handleSaveStyle)}
+                    disabled={isStyleSaveDisabled}
+                    className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                    style={ACCENT_BUTTON_STYLE}
+                  >
+                    {savingStyle && (
+                      <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                    )}
+                    {savingStyle ? t("style_saving") : t("style_save")}
+                  </button>
+                  {hasInitialStyle && !isStyleCleared && !savingStyle && (
+                    <button
+                      type="button"
+                      onClick={handleClearStyle}
+                      className="rounded-[7px] px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      {t("style_clear")}
+                    </button>
+                  )}
+                  {isStyleCleared && !savingStyle && styleIsDirty && (
+                    <p className="text-[11.5px] text-text-3">{t("style_cleared_hint")}</p>
+                  )}
+                </div>
+              }
+            >
+              <StylePicker value={styleValue} onChange={setStyleValue} />
+            </SectionCard>
+          )}
+
+          {options && (
+            <>
+              {/* Model config (video + duration + image + text) */}
+              <SectionCard kicker="Engine Routing" title={t("model_config")}>
+                <ModelConfigSection
+                  value={{
+                    videoBackend,
+                    imageBackendT2I,
+                    imageBackendI2I,
+                    textBackendScript: textScript,
+                    textBackendOverview: textOverview,
+                    textBackendStyle: textStyle,
+                    defaultDuration,
+                    videoResolution,
+                    imageResolution,
+                  }}
+                  onChange={(next) => {
+                    setVideoBackend(next.videoBackend);
+                    setImageBackendT2I(next.imageBackendT2I);
+                    setImageBackendI2I(next.imageBackendI2I);
+                    setTextScript(next.textBackendScript);
+                    setTextOverview(next.textBackendOverview);
+                    setTextStyle(next.textBackendStyle);
+                    setDefaultDuration(next.defaultDuration);
+                    setVideoResolution(next.videoResolution);
+                    setImageResolution(next.imageResolution);
+                  }}
+                  providers={providers}
+                  customProviders={customProviders}
+                  options={{
+                    videoBackends: options.video_backends,
+                    imageBackends: options.image_backends,
+                    textBackends: options.text_backends,
+                    providerNames: allProviderNames,
+                  }}
+                  globalDefaults={{
+                    video: globalDefaults.video,
+                    imageT2I: globalDefaults.imageT2I ?? "",
+                    imageI2I: globalDefaults.imageI2I ?? "",
+                    textScript: globalDefaults.textScript ?? "",
+                    textOverview: globalDefaults.textOverview ?? "",
+                    textStyle: globalDefaults.textStyle ?? "",
+                  }}
+                />
+              </SectionCard>
+
+              {/* Aspect ratio */}
+              <SectionCard kicker="Frame Aspect">
+                <fieldset>
+                  <legend className="mb-2.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                    {t("aspect_ratio_label")}
+                  </legend>
+                  <div className="flex gap-2.5">
+                    {(["9:16", "16:9"] as const).map((ar) => (
+                      <label key={ar} className={radioCardClass(aspectRatio === ar)}>
+                        <input
+                          type="radio"
+                          name="aspectRatio"
+                          value={ar}
+                          checked={aspectRatio === ar}
+                          onChange={() => {
+                            setAspectRatio(ar);
+                            if (initialRef.current.aspectRatio && ar !== initialRef.current.aspectRatio) {
+                              useAppStore.getState().pushToast(
+                                t("aspect_ratio_change_warning"),
+                                "warning",
+                              );
+                            }
+                          }}
+                          className="sr-only"
+                        />
+                        <span className="inline-flex items-center gap-2">
+                          <span
+                            aria-hidden
+                            className="block rounded-[1.5px] border border-hairline"
+                            style={{
+                              width: ar === "16:9" ? 12 : 7.5,
+                              height: ar === "16:9" ? 7.5 : 12,
+                              background:
+                                aspectRatio === ar ? "var(--color-accent-soft)" : "transparent",
+                            }}
+                          />
+                          {ar === "9:16" ? t("portrait_9_16") : t("landscape_16_9")}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              </SectionCard>
+
+              {/* Generation mode */}
+              <SectionCard kicker="Pipeline Mode">
+                <fieldset>
+                  <legend className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                    {t("generation_mode")}
+                  </legend>
+                  <GenerationModeSelector
+                    value={generationMode}
+                    onChange={setGenerationMode}
+                  />
+                </fieldset>
+              </SectionCard>
+
+              {/* Audio override */}
+              <SectionCard kicker="Audio Channel">
+                <div className="mb-2.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                  {t("generate_audio_label")}
+                </div>
+                <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
+                  <legend className="sr-only">{t("audio_settings_sr_label")}</legend>
+                  <label className="inline-flex items-center gap-2 text-[12.5px] text-text-2">
+                    <input
+                      type="radio"
+                      name="audio"
+                      value=""
+                      checked={audioOverride === null}
+                      onChange={() => setAudioOverride(null)}
+                      className="accent-[oklch(0.76_0.09_295)]"
+                    />
+                    {t("follow_global_default")}
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-[12.5px] text-text-2">
+                    <input
+                      type="radio"
+                      name="audio"
+                      value="true"
+                      checked={audioOverride === true}
+                      onChange={() => setAudioOverride(true)}
+                      className="accent-[oklch(0.76_0.09_295)]"
+                    />
+                    {t("enabled_label")}
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-[12.5px] text-text-2">
+                    <input
+                      type="radio"
+                      name="audio"
+                      value="false"
+                      checked={audioOverride === false}
+                      onChange={() => setAudioOverride(false)}
+                      className="accent-[oklch(0.76_0.09_295)]"
+                    />
+                    {t("disabled_label")}
+                  </label>
+                </fieldset>
+              </SectionCard>
+            </>
+          )}
+
+          {!options && (
+            <div className="flex items-center gap-2 py-6 text-text-3">
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+              <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
+                {t("loading_config")}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="mx-auto max-w-2xl px-6 py-8 space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-100">{t("model_config")}</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            {t("model_config_project_desc")}
-          </p>
-        </div>
-
-        {/* Style picker (independent save flow, mutually exclusive template / custom) */}
-        {styleValue && (
-          <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4 space-y-3">
-            <div className="text-sm font-medium text-gray-100">{t("project_style_section_title")}</div>
-            <StylePicker value={styleValue} onChange={setStyleValue} />
-            <div className="flex items-center gap-3 pt-2 border-t border-gray-800">
-              <button
-                type="button"
-                onClick={voidPromise(handleSaveStyle)}
-                disabled={isStyleSaveDisabled}
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
-              >
-                {savingStyle && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
-                {savingStyle ? t("style_saving") : t("style_save")}
-              </button>
-              {hasInitialStyle && !isStyleCleared && !savingStyle && (
-                <button
-                  type="button"
-                  onClick={handleClearStyle}
-                  className="text-sm text-gray-400 hover:text-gray-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950 rounded"
-                >
-                  {t("style_clear")}
-                </button>
-              )}
-              {isStyleCleared && !savingStyle && styleIsDirty && (
-                <p className="text-xs text-gray-500">{t("style_cleared_hint")}</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {options && (
-          <>
-            {/* Model config (video + duration + image + text) */}
-            <ModelConfigSection
-              value={{
-                videoBackend,
-                imageBackendT2I,
-                imageBackendI2I,
-                textBackendScript: textScript,
-                textBackendOverview: textOverview,
-                textBackendStyle: textStyle,
-                defaultDuration,
-                videoResolution,
-                imageResolution,
-              }}
-              onChange={(next) => {
-                setVideoBackend(next.videoBackend);
-                setImageBackendT2I(next.imageBackendT2I);
-                setImageBackendI2I(next.imageBackendI2I);
-                setTextScript(next.textBackendScript);
-                setTextOverview(next.textBackendOverview);
-                setTextStyle(next.textBackendStyle);
-                setDefaultDuration(next.defaultDuration);
-                setVideoResolution(next.videoResolution);
-                setImageResolution(next.imageResolution);
-              }}
-              providers={providers}
-              customProviders={customProviders}
-              options={{
-                videoBackends: options.video_backends,
-                imageBackends: options.image_backends,
-                textBackends: options.text_backends,
-                providerNames: allProviderNames,
-              }}
-              globalDefaults={{
-                video: globalDefaults.video,
-                imageT2I: globalDefaults.imageT2I ?? "",
-                imageI2I: globalDefaults.imageI2I ?? "",
-                textScript: globalDefaults.textScript ?? "",
-                textOverview: globalDefaults.textOverview ?? "",
-                textStyle: globalDefaults.textStyle ?? "",
+      {/* ─── Sticky save bar ─── */}
+      <footer
+        className="shrink-0"
+        style={{
+          background:
+            "linear-gradient(180deg, oklch(0.18 0.011 265 / 0.65), oklch(0.14 0.009 265 / 0.85))",
+          backdropFilter: "blur(20px) saturate(1.3)",
+          WebkitBackdropFilter: "blur(20px) saturate(1.3)",
+          borderTop: "1px solid var(--color-hairline)",
+          boxShadow: "0 -8px 28px -12px oklch(0 0 0 / 0.55)",
+        }}
+      >
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-6 py-3">
+          <div className="min-w-0 flex items-center gap-2 text-[11.5px] text-text-3">
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{
+                background: isDirty ? "var(--color-warm)" : "var(--color-good)",
+                boxShadow: isDirty
+                  ? "0 0 6px oklch(0.85 0.13 75 / 0.4)"
+                  : "0 0 6px oklch(0.78 0.10 155 / 0.4)",
               }}
             />
-
-            {/* Aspect ratio */}
-            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <fieldset>
-                <legend className="mb-3 text-sm font-medium text-gray-100">{t("aspect_ratio_label")}</legend>
-                <div className="flex gap-3">
-                  {(["9:16", "16:9"] as const).map((ar) => (
-                    <label
-                      key={ar}
-                      className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-indigo-500 ${
-                        aspectRatio === ar
-                          ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                          : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="aspectRatio"
-                        value={ar}
-                        checked={aspectRatio === ar}
-                        onChange={() => {
-                          setAspectRatio(ar);
-                          if (initialRef.current.aspectRatio && ar !== initialRef.current.aspectRatio) {
-                            useAppStore.getState().pushToast(
-                              t("aspect_ratio_change_warning"),
-                              "warning",
-                            );
-                          }
-                        }}
-                        className="sr-only"
-                      />
-                      {ar === "9:16" ? t("portrait_9_16") : t("landscape_16_9")}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            </div>
-
-            {/* Generation mode */}
-            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <fieldset>
-                <legend className="mb-1 text-sm font-medium text-gray-100">{t("generation_mode")}</legend>
-                <GenerationModeSelector
-                  value={generationMode}
-                  onChange={setGenerationMode}
-                />
-              </fieldset>
-            </div>
-
-            {/* Audio override */}
-            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <div className="mb-3 text-sm font-medium text-gray-100">{t("generate_audio_label")}</div>
-              <fieldset className="flex gap-4">
-                <legend className="sr-only">{t("audio_settings_sr_label")}</legend>
-                <label className="flex items-center gap-2 text-sm text-gray-300">
-                  <input type="radio" name="audio" value="" checked={audioOverride === null}
-                    onChange={() => setAudioOverride(null)} />
-                  {t("follow_global_default")}
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-300">
-                  <input type="radio" name="audio" value="true" checked={audioOverride === true}
-                    onChange={() => setAudioOverride(true)} />
-                  {t("enabled_label")}
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-300">
-                  <input type="radio" name="audio" value="false" checked={audioOverride === false}
-                    onChange={() => setAudioOverride(false)} />
-                  {t("disabled_label")}
-                </label>
-              </fieldset>
-            </div>
-          </>
-        )}
-
-        {!options && (
-          <div className="text-sm text-gray-500">{t("loading_config")}</div>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          <button
-            onClick={voidPromise(handleSave)}
-            disabled={saving}
-            className="rounded-lg bg-indigo-600 px-6 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
-          >
-            {saving ? t("common:saving") : t("common:save")}
-          </button>
-          <button
-            onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-            className="rounded-lg border border-gray-700 px-6 py-2 text-sm text-gray-300 hover:bg-gray-800 focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
-          >
-            {t("common:cancel")}
-          </button>
+            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em]">
+              {isDirty ? t("unsaved_changes_hint") : t("saved")}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
+              className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3.5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={voidPromise(handleSave)}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-[8px] px-5 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {saving && <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />}
+              {saving ? t("common:saving") : t("common:save")}
+            </button>
+          </div>
         </div>
-      </div>
+      </footer>
     </div>
   );
 }

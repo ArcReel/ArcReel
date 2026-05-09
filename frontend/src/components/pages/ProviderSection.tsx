@@ -12,26 +12,46 @@ import { CustomProviderDetail } from "./settings/CustomProviderDetail";
 import { CustomProviderForm } from "./settings/CustomProviderForm";
 
 // ---------------------------------------------------------------------------
-// Status dot
+// Status dot — Darkroom palette
 // ---------------------------------------------------------------------------
 
-const STATUS_MAP: Record<string, { color: string; label: string }> = {
-  ready: { color: "bg-green-400", label: "status_ready" },
-  error: { color: "bg-yellow-400", label: "status_error" },
-  unconfigured: { color: "bg-gray-500", label: "status_unconfigured" },
+const STATUS_MAP: Record<string, { color: string; label: string; glow?: string }> = {
+  ready: {
+    color: "var(--color-good)",
+    label: "status_ready",
+    glow: "0 0 6px oklch(0.78 0.10 155 / 0.55)",
+  },
+  error: {
+    color: "var(--color-warm)",
+    label: "status_error",
+    glow: "0 0 6px var(--color-warm-glow)",
+  },
+  unconfigured: {
+    color: "var(--color-text-4)",
+    label: "status_unconfigured",
+  },
 };
 
 function StatusDot({ status }: { status: string }) {
   const { t } = useTranslation("dashboard");
-  const { color, label } = STATUS_MAP[status] ?? { color: "bg-gray-500", label: status };
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} role="img" aria-label={t(label)} />;
+  const { color, label, glow } = STATUS_MAP[status] ?? {
+    color: "var(--color-text-4)",
+    label: status,
+  };
+  return (
+    <span
+      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+      role="img"
+      aria-label={t(label)}
+      style={{ background: color, boxShadow: glow }}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Provider Section
 // ---------------------------------------------------------------------------
 
-// Selection can be a preset provider (string id) or custom provider (numeric id) or "new" form
 type Selection =
   | { kind: "preset"; id: string }
   | { kind: "custom"; id: number }
@@ -46,7 +66,6 @@ export function ProviderSection() {
   const [location, navigate] = useLocation();
   const search = useSearch();
 
-  // Parse URL-driven selection into typed Selection
   const selection: Selection = useMemo(() => {
     const params = new URLSearchParams(search);
     const preset = params.get("provider");
@@ -63,7 +82,6 @@ export function ProviderSection() {
   const setSelection = useCallback(
     (sel: Selection) => {
       const p = new URLSearchParams(search);
-      // Clear both params, then set the relevant one
       p.delete("provider");
       p.delete("custom");
       if (sel?.kind === "preset") p.set("provider", sel.id);
@@ -74,13 +92,11 @@ export function ProviderSection() {
     [search, location, navigate],
   );
 
-  // Fetch preset providers
   const refreshPreset = useCallback(async () => {
     const res = await API.getProviders();
     setProviders(res.providers);
   }, []);
 
-  // Fetch custom providers
   const refreshCustom = useCallback(async () => {
     const res = await API.listCustomProviders();
     setCustomProviders(res.providers);
@@ -88,17 +104,24 @@ export function ProviderSection() {
 
   useEffect(() => {
     let disposed = false;
-    voidCall(Promise.all([API.getProviders(), API.listCustomProviders()]).then(([presetRes, customRes]) => {
-      if (disposed) return;
-      setProviders(presetRes.providers);
-      setCustomProviders(customRes.providers);
-      // Auto-select first preset if nothing is selected
-      const params = new URLSearchParams(search);
-      if (!params.get("provider") && !params.get("custom") && presetRes.providers.length > 0) {
-        setSelection({ kind: "preset", id: presetRes.providers[0].id });
-      }
-      setLoading(false);
-    }));
+    voidCall(
+      Promise.all([API.getProviders(), API.listCustomProviders()]).then(
+        ([presetRes, customRes]) => {
+          if (disposed) return;
+          setProviders(presetRes.providers);
+          setCustomProviders(customRes.providers);
+          const params = new URLSearchParams(search);
+          if (
+            !params.get("provider") &&
+            !params.get("custom") &&
+            presetRes.providers.length > 0
+          ) {
+            setSelection({ kind: "preset", id: presetRes.providers[0].id });
+          }
+          setLoading(false);
+        },
+      ),
+    );
     return () => {
       disposed = true;
     };
@@ -106,40 +129,59 @@ export function ProviderSection() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 px-6 py-8 text-sm text-gray-500">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t("loading_providers")}
+      <div className="flex items-center gap-2 px-6 py-8 text-text-3">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
+          {t("loading_providers")}
+        </span>
       </div>
     );
   }
 
   return (
     <div className="flex">
-      {/* Provider list sidebar — sticky to top within the SystemConfigPage <main> scroll container */}
+      {/* Provider list sidebar */}
       <nav
         aria-label={t("provider_list")}
-        className="sticky top-0 max-h-screen w-52 shrink-0 self-start overflow-y-auto border-r border-gray-800 py-3"
+        className="sticky top-0 max-h-screen w-56 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
+        style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
-        {/* Preset providers */}
-        <div className="px-4 pb-2 text-xs uppercase tracking-wide text-gray-500">
+        <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4">
           {t("preset_providers")}
         </div>
-        {providers.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setSelection({ kind: "preset", id: p.id })}
-            className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors ${
-              selection?.kind === "preset" && selection.id === p.id
-                ? "border-l-2 border-indigo-500 bg-gray-800/50 text-white"
-                : "border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200"
-            }`}
-          >
-            <ProviderIcon providerId={p.id} className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{p.display_name}</span>
-            <StatusDot status={p.status} />
-          </button>
-        ))}
+        {providers.map((p) => {
+          const isActive =
+            selection?.kind === "preset" && selection.id === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setSelection({ kind: "preset", id: p.id })}
+              aria-current={isActive ? "page" : undefined}
+              aria-pressed={isActive}
+              className={
+                "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                (isActive
+                  ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
+                  : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
+              }
+            >
+              {/* Active rail */}
+              <span
+                aria-hidden
+                className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-[2px] transition-opacity"
+                style={{
+                  background:
+                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                  opacity: isActive ? 1 : 0,
+                }}
+              />
+              <ProviderIcon providerId={p.id} className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{p.display_name}</span>
+              <StatusDot status={p.status} />
+            </button>
+          );
+        })}
 
         {/* Custom providers */}
         <CustomProviderSection
@@ -150,8 +192,8 @@ export function ProviderSection() {
         />
       </nav>
 
-      {/* Detail panel — content flows naturally; custom provider views render their own sticky bottom bar */}
-      <div className="flex-1 min-w-0">
+      {/* Detail panel */}
+      <div className="min-w-0 flex-1">
         {selection?.kind === "preset" && (
           <div className="p-6">
             <ProviderDetail providerId={selection.id} onSaved={() => void refreshPreset()} />
@@ -162,7 +204,6 @@ export function ProviderSection() {
             providerId={selection.id}
             onDeleted={() => {
               void refreshCustom();
-              // Select first preset provider after delete
               if (providers.length > 0) {
                 setSelection({ kind: "preset", id: providers[0].id });
               } else {
@@ -175,7 +216,6 @@ export function ProviderSection() {
         {selection?.kind === "new-custom" && (
           <CustomProviderForm
             onSaved={() => {
-              // After save, re-fetch to get latest list and select the new one
               void API.listCustomProviders()
                 .then((res) => {
                   setCustomProviders(res.providers);
@@ -196,9 +236,7 @@ export function ProviderSection() {
           />
         )}
         {!selection && (
-          <div className="p-6">
-            <div className="text-sm text-gray-500">{t("select_provider")}</div>
-          </div>
+          <div className="p-6 text-[12.5px] text-text-3">{t("select_provider")}</div>
         )}
       </div>
     </div>

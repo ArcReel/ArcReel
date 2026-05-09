@@ -1,7 +1,17 @@
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { errMsg, voidCall } from "@/utils/async";
-import { ChevronDown, Download, Eye, EyeOff, Loader2, Search, SlidersHorizontal, Terminal, X } from "lucide-react";
+import {
+  ChevronDown,
+  Download,
+  Eye,
+  EyeOff,
+  Loader2,
+  Search,
+  SlidersHorizontal,
+  Terminal,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
@@ -19,9 +29,9 @@ import { TabSaveFooter } from "./TabSaveFooter";
 // ---------------------------------------------------------------------------
 
 interface AgentDraft {
-  anthropicKey: string;        // new API key input (empty = don't change)
-  anthropicBaseUrl: string;    // in-place editing; empty = clear
-  anthropicModel: string;      // in-place editing; empty = clear
+  anthropicKey: string;
+  anthropicBaseUrl: string;
+  anthropicModel: string;
   haikuModel: string;
   opusModel: string;
   sonnetModel: string;
@@ -82,16 +92,27 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
 }
 
 // ---------------------------------------------------------------------------
-// Shared style constants
+// Style constants
 // ---------------------------------------------------------------------------
 
-const cardClassName = "rounded-xl border border-gray-800 bg-gray-950/40 p-4";
-const inputClassName =
-  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus-visible:ring-2 focus-visible:ring-indigo-500/60";
-const smallBtnClassName =
-  "rounded p-1 text-gray-500 hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
+const CARD_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
+};
 
-// Model routing config — static, hoisted to module level to avoid re-creation on each render
+const INPUT_CLS =
+  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const SMALL_BTN_CLS =
+  "rounded-[5px] p-1 text-text-4 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const INLINE_CLEAR_CLS =
+  "ml-1.5 inline-flex items-center rounded-[5px] p-0.5 text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const GHOST_BTN_CLS =
+  "inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50";
+
+// Model routing config
 const MODEL_ROUTING_FIELDS = [
   {
     key: "haikuModel" as const,
@@ -123,19 +144,58 @@ const MODEL_ROUTING_FIELDS = [
   },
 ] as const;
 
-// Small inline clear button shown next to "当前：" when a value is set
-const inlineClearClassName =
-  "ml-1.5 inline-flex items-center rounded p-0.5 text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50";
-
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function SectionHeading({ title, description }: { title: string; description: string }) {
+interface SectionShellProps {
+  kicker: string;
+  title: string;
+  description?: string;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+function Section({ kicker, title, description, trailing, children }: SectionShellProps) {
   return (
-    <div className="mb-4">
-      <h3 className="text-base font-semibold text-gray-100">{title}</h3>
-      <p className="mt-1 text-sm text-gray-500">{description}</p>
+    <section>
+      <div className="mb-3.5 flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            {kicker}
+          </div>
+          <h3 className="mt-1 text-[14.5px] font-medium text-text">{title}</h3>
+          {description && (
+            <p className="mt-1 text-[12px] leading-[1.55] text-text-3">{description}</p>
+          )}
+        </div>
+        {trailing && <div className="shrink-0">{trailing}</div>}
+      </div>
+      <div className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function FieldLabel({
+  htmlFor,
+  children,
+  trailing,
+}: {
+  htmlFor?: string;
+  children: React.ReactNode;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <label
+        htmlFor={htmlFor}
+        className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2"
+      >
+        {children}
+      </label>
+      {trailing}
     </div>
   );
 }
@@ -201,7 +261,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,7 +325,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     setSaveError(null);
   }, []);
 
-  // Clear a single field immediately via PATCH
   const handleClearField = useCallback(
     async (fieldId: string, patch: SystemConfigPatch, label: string) => {
       setClearingField(fieldId);
@@ -274,7 +335,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         savedRef.current = nextSavedDraft;
         setDraft(nextSavedDraft);
         voidCall(useConfigStatusStore.getState().refresh());
-        useAppStore.getState().pushToast(`${t(`dashboard:${label}`)} ${t("field_cleared")}`, "success");
+        useAppStore
+          .getState()
+          .pushToast(`${t(`dashboard:${label}`)} ${t("field_cleared")}`, "success");
       } catch (err) {
         useAppStore.getState().pushToast(t("clear_failed", { message: errMsg(err) }), "error");
       } finally {
@@ -326,7 +389,10 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         }));
         useAppStore
           .getState()
-          .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
+          .pushToast(
+            t("import_provider_success", { name: provider.display_name }),
+            "success",
+          );
       } catch (err) {
         useAppStore.getState().pushToast(errMsg(err), "error");
       } finally {
@@ -342,14 +408,22 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   // Loading / error states
   if (loadError) {
     return (
-      <div className={visible ? "px-6 py-8" : "hidden"}>
-        <div className="text-sm text-rose-400">{t("load_failed", { message: loadError })}</div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 hover:border-gray-600 hover:bg-gray-800/50"
+      <div className={visible ? "px-1 py-8" : "hidden"}>
+        <div
+          className="rounded-[8px] border px-4 py-3 text-[12.5px]"
+          style={{
+            borderColor: "var(--color-warm-ring)",
+            background: "var(--color-warm-tint)",
+            color: "var(--color-warm-bright)",
+          }}
         >
-          <Loader2 className="h-4 w-4" />
+          <span className="mr-1.5" aria-hidden>
+            ▲
+          </span>
+          {t("load_failed", { message: loadError })}
+        </div>
+        <button type="button" onClick={() => void load()} className={`${GHOST_BTN_CLS} mt-3`}>
+          <Loader2 className="h-3.5 w-3.5" aria-hidden />
           {t("common:retry")}
         </button>
       </div>
@@ -358,9 +432,17 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
   if (!remoteData) {
     return (
-      <div className={visible ? "flex items-center gap-2 px-6 py-8 text-gray-400" : "hidden"}>
-        <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-        {t("common:loading")}
+      <div
+        className={
+          visible
+            ? "flex items-center gap-2 px-1 py-12 text-text-3"
+            : "hidden"
+        }
+      >
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
+          {t("common:loading")}
+        </span>
       </div>
     );
   }
@@ -369,49 +451,67 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
   return (
     <div className={visible ? undefined : "hidden"}>
-      <div className="space-y-8 px-6 pb-0 pt-6">
+      <div className="space-y-7 pb-0 pt-1">
         {/* Page intro */}
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3 shadow-inner shadow-white/5">
-              <ClaudeColor size={24} />
+        <div className="flex items-start gap-4">
+          <div
+            className="shrink-0 rounded-[10px] border border-hairline p-3"
+            style={{
+              ...CARD_STYLE,
+              boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
+            }}
+          >
+            <ClaudeColor size={28} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+              Anthropic Bridge
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-100">{t("arcreel_agent")}</h2>
-              <p className="text-sm text-gray-500">
-                {t("agent_sdk_desc")}
+            <h2
+              className="font-editorial mt-1"
+              style={{
+                fontWeight: 400,
+                fontSize: 24,
+                lineHeight: 1.1,
+                letterSpacing: "-0.012em",
+                color: "var(--color-text)",
+              }}
+            >
+              {t("arcreel_agent")}
+            </h2>
+            <p className="mt-1.5 text-[12.5px] leading-[1.55] text-text-3">
+              {t("agent_sdk_desc")}
+            </p>
+            <div className="mt-3 flex items-start gap-2 rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2">
+              <Terminal className="mt-0.5 h-3 w-3 shrink-0 text-text-4" aria-hidden />
+              <p className="text-[11.5px] leading-[1.55] text-text-3">
+                {t("claude_code_compat_hint")}
               </p>
             </div>
           </div>
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-800/60 bg-gray-900/30 px-3 py-2">
-            <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" />
-            <p className="text-xs text-gray-500">
-              {t("claude_code_compat_hint")}
-            </p>
-          </div>
         </div>
 
-        {/* ----------------------------------------------------------------- */}
-        {/* Section 1: API Key + Base URL */}
-        {/* ----------------------------------------------------------------- */}
-        <div>
-          <div className="flex items-start justify-between">
-            <SectionHeading
-              title={t("api_credentials")}
-              description={t("anthropic_key_required_desc")}
-            />
+        {/* Section 1: API credentials */}
+        <Section
+          kicker="API Credentials"
+          title={t("api_credentials")}
+          description={t("anthropic_key_required_desc")}
+          trailing={
             <>
               <button
                 ref={importTriggerRef}
                 type="button"
                 onClick={() => setImportPickerOpen((v) => !v)}
                 disabled={importing || saving}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-600 hover:bg-gray-800/50 disabled:opacity-50"
+                className={GHOST_BTN_CLS}
               >
                 {importing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2
+                    className="h-3.5 w-3.5 motion-safe:animate-spin"
+                    aria-hidden
+                  />
                 ) : (
-                  <Download className="h-3.5 w-3.5" />
+                  <Download className="h-3.5 w-3.5" aria-hidden />
                 )}
                 {t("import_from_provider")}
               </button>
@@ -420,10 +520,10 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 onClose={() => setImportPickerOpen(false)}
                 anchorRef={importTriggerRef}
                 width="w-64"
-                className="rounded-lg border border-gray-700 py-1 shadow-lg"
+                className="rounded-[8px] border border-hairline py-1 shadow-lg"
               >
                 {providers.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-500">
+                  <div className="px-3 py-2 text-[12px] text-text-3">
                     {t("import_no_providers")}
                   </div>
                 ) : (
@@ -432,7 +532,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                       key={p.id}
                       type="button"
                       onClick={() => void handleImportProvider(p)}
-                      className="block w-full truncate px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800"
+                      className="block w-full truncate px-3 py-2 text-left text-[12.5px] text-text-2 transition-colors hover:bg-bg-grad-a hover:text-text"
                     >
                       {p.display_name}
                     </button>
@@ -440,45 +540,49 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 )}
               </Popover>
             </>
-          </div>
-
-          {/* API Key card */}
-          <div className={`${cardClassName} space-y-4`}>
+          }
+        >
+          <div className="space-y-4">
+            {/* API Key */}
             <div>
-              <div className="flex items-center justify-between">
-                <label htmlFor="agent-anthropic-key" className="text-sm font-medium text-gray-100">
-                  {t("anthropic_api_key")}
-                </label>
-                {settings.anthropic_api_key.is_set && (
-                  <div className="flex items-center text-xs text-gray-500">
-                    <span className="truncate">
-                      {t("current_label")}{settings.anthropic_api_key.masked ?? t("encrypted")}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void handleClearField(
-                          "anthropic_api_key",
-                          { anthropic_api_key: "" },
-                          "anthropic_api_key",
-                        )
-                      }
-                      disabled={isBusy}
-                      className={inlineClearClassName}
-                      aria-label={t("clear_saved_anthropic_key")}
-                    >
-                      {clearingField === "anthropic_api_key" ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <X className="h-3 w-3" />
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <p className="mt-0.5 text-xs text-gray-500">
-                {t("env_anthropic_api_key")}
-              </p>
+              <FieldLabel
+                htmlFor="agent-anthropic-key"
+                trailing={
+                  settings.anthropic_api_key.is_set && (
+                    <div className="flex items-center font-mono text-[10.5px] tabular-nums text-text-4">
+                      <span className="truncate">
+                        {t("current_label")}
+                        {settings.anthropic_api_key.masked ?? t("encrypted")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleClearField(
+                            "anthropic_api_key",
+                            { anthropic_api_key: "" },
+                            "anthropic_api_key",
+                          )
+                        }
+                        disabled={isBusy}
+                        className={INLINE_CLEAR_CLS}
+                        aria-label={t("clear_saved_anthropic_key")}
+                      >
+                        {clearingField === "anthropic_api_key" ? (
+                          <Loader2
+                            className="h-3 w-3 motion-safe:animate-spin"
+                            aria-hidden
+                          />
+                        ) : (
+                          <X className="h-3 w-3" aria-hidden />
+                        )}
+                      </button>
+                    </div>
+                  )
+                }
+              >
+                {t("anthropic_api_key")}
+              </FieldLabel>
+              <p className="mt-0.5 text-[11.5px] text-text-4">{t("env_anthropic_api_key")}</p>
               <div className="relative mt-2">
                 <input
                   id="agent-anthropic-key"
@@ -486,7 +590,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   value={draft.anthropicKey}
                   onChange={(e) => updateDraft("anthropicKey", e.target.value)}
                   placeholder="sk-ant-…"
-                  className={`${inputClassName} pr-10`}
+                  className={`${INPUT_CLS} pr-10`}
                   autoComplete="off"
                   spellCheck={false}
                   name="anthropic_api_key"
@@ -496,62 +600,66 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   <button
                     type="button"
                     onClick={() => updateDraft("anthropicKey", "")}
-                    className={`absolute right-8 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
+                    className={`absolute right-8 top-1/2 -translate-y-1/2 ${SMALL_BTN_CLS}`}
                     aria-label={t("clear_input")}
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setShowKey((v) => !v)}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${SMALL_BTN_CLS}`}
                   aria-label={showKey ? t("hide_key") : t("show_key")}
                 >
-                  {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showKey ? (
+                    <EyeOff className="h-4 w-4" aria-hidden />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden />
+                  )}
                 </button>
               </div>
             </div>
 
             {/* Base URL */}
-            <div className="border-t border-gray-800 pt-4">
-              <div className="flex items-center justify-between">
-                <label htmlFor="agent-base-url" className="text-sm font-medium text-gray-100">
-                  {t("api_base_url")}
-                </label>
-                {settings.anthropic_base_url && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleClearField(
-                        "anthropic_base_url",
-                        { anthropic_base_url: "" },
-                        "api_base_url",
-                      )
-                    }
-                    disabled={isBusy}
-                    className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
-                    aria-label={t("clear_saved_base_url")}
-                  >
-                    {clearingField === "anthropic_base_url" ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <X className="h-3 w-3" />
-                    )}
-                    {t("clear_saved")}
-                  </button>
-                )}
-              </div>
-              <p className="mt-0.5 text-xs text-gray-500">
-                {t("env_anthropic_base_url")}
-              </p>
+            <div className="border-t border-hairline-soft pt-4">
+              <FieldLabel
+                htmlFor="agent-base-url"
+                trailing={
+                  settings.anthropic_base_url && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleClearField(
+                          "anthropic_base_url",
+                          { anthropic_base_url: "" },
+                          "api_base_url",
+                        )
+                      }
+                      disabled={isBusy}
+                      className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={t("clear_saved_base_url")}
+                    >
+                      {clearingField === "anthropic_base_url" ? (
+                        <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+                      ) : (
+                        <X className="h-3 w-3" aria-hidden />
+                      )}
+                      {t("clear_saved")}
+                    </button>
+                  )
+                }
+              >
+                {t("api_base_url")}
+              </FieldLabel>
+              <p className="mt-0.5 text-[11.5px] text-text-4">{t("env_anthropic_base_url")}</p>
               <div className="relative mt-2">
                 <input
                   id="agent-base-url"
                   value={draft.anthropicBaseUrl}
                   onChange={(e) => updateDraft("anthropicBaseUrl", e.target.value)}
                   placeholder={t("api_base_example")}
-                  className={`${inputClassName}${draft.anthropicBaseUrl ? " pr-8" : ""}`}
+                  className={`${INPUT_CLS}${draft.anthropicBaseUrl ? " pr-8" : ""}`}
                   autoComplete="off"
                   spellCheck={false}
                   name="anthropic_base_url"
@@ -561,46 +669,42 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   <button
                     type="button"
                     onClick={() => updateDraft("anthropicBaseUrl", "")}
-                    className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 ${SMALL_BTN_CLS}`}
                     aria-label={t("clear_base_url_input")}
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 )}
               </div>
             </div>
           </div>
-        </div>
+        </Section>
 
-        {/* ----------------------------------------------------------------- */}
         {/* Section 2: Model Configuration */}
-        {/* ----------------------------------------------------------------- */}
-        <div>
-          <div className="mb-4 flex items-start justify-between">
-            <SectionHeading title={t("model_config")} description={t("model_config_desc")} />
-            <div>
-              <button
-                type="button"
-                onClick={() => void handleDiscoverModels()}
-                disabled={discoverLoading}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-600 hover:bg-gray-800/50 disabled:opacity-50"
-              >
-                {discoverLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Search className="h-3.5 w-3.5" />
-                )}
-                {t("discover_models")}
-              </button>
-            </div>
-          </div>
-
-          <div className={cardClassName}>
-            <div className="flex items-center justify-between">
-              <label htmlFor="agent-model" className="text-sm font-medium text-gray-100">
-                {t("default_model")}
-              </label>
-              {settings.anthropic_model && (
+        <Section
+          kicker="Model Routing"
+          title={t("model_config")}
+          description={t("model_config_desc")}
+          trailing={
+            <button
+              type="button"
+              onClick={() => void handleDiscoverModels()}
+              disabled={discoverLoading}
+              className={GHOST_BTN_CLS}
+            >
+              {discoverLoading ? (
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
+              ) : (
+                <Search className="h-3.5 w-3.5" aria-hidden />
+              )}
+              {t("discover_models")}
+            </button>
+          }
+        >
+          <FieldLabel
+            htmlFor="agent-model"
+            trailing={
+              settings.anthropic_model && (
                 <button
                   type="button"
                   onClick={() =>
@@ -611,155 +715,182 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     )
                   }
                   disabled={isBusy}
-                  className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
+                  className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50"
                   aria-label={t("clear_saved_model")}
                 >
                   {clearingField === "anthropic_model" ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
                   ) : (
-                    <X className="h-3 w-3" />
+                    <X className="h-3 w-3" aria-hidden />
                   )}
                   {t("clear_saved")}
                 </button>
-              )}
-            </div>
-            <p className="mt-0.5 text-xs text-gray-500">
-              {t("env_anthropic_model")}
-            </p>
-            <div className="mt-2">
-              <ModelCombobox
-                id="agent-model"
-                value={draft.anthropicModel}
-                onChange={(v) => updateDraft("anthropicModel", v)}
-                options={modelCandidates}
-                placeholder="claude-3-5-sonnet-20241022"
-                name="anthropic_model"
-                disabled={saving}
-                clearable
-                clearAriaLabel={t("clear_model_input")}
-              />
-            </div>
+              )
+            }
+          >
+            {t("default_model")}
+          </FieldLabel>
+          <p className="mt-0.5 text-[11.5px] text-text-4">{t("env_anthropic_model")}</p>
+          <div className="mt-2">
+            <ModelCombobox
+              id="agent-model"
+              value={draft.anthropicModel}
+              onChange={(v) => updateDraft("anthropicModel", v)}
+              options={modelCandidates}
+              placeholder="claude-3-5-sonnet-20241022"
+              name="anthropic_model"
+              disabled={saving}
+              clearable
+              clearAriaLabel={t("clear_model_input")}
+            />
+          </div>
 
-            {/* Advanced model routing */}
-            <details
-              open={modelRoutingExpanded}
-              onToggle={(e) => setModelRoutingExpanded(e.currentTarget.open)}
-              className="mt-4 rounded-xl border border-gray-800 bg-gray-950/40 p-4"
-            >
-              <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-gray-100">
-                <span className="inline-flex items-center gap-2">
-                  <SlidersHorizontal className="h-4 w-4 text-gray-400" />
-                  {t("advanced_model_routing")}
-                </span>
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-800 bg-gray-900 text-gray-500">
-                  <ChevronDown
-                    className={`h-4 w-4 transition-transform duration-200 ${
-                      modelRoutingExpanded ? "rotate-180 text-gray-200" : ""
-                    }`}
-                  />
-                </span>
-              </summary>
-              <p className="mt-2 text-xs text-gray-500">
-                {t("model_routing_hint")}
-              </p>
-              <div className="mt-4 grid gap-4">
-                {MODEL_ROUTING_FIELDS.map(({ key, labelKey, envVar, hintKey, patchKey }) => {
-                  const settingsValue = settings[patchKey];
-                  return (
-                    <div key={key}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-medium text-gray-100">{t(`dashboard:${labelKey}`)}</div>
-                          <div className="text-xs text-gray-500">{t(`dashboard:${hintKey}`)}</div>
+          {/* Advanced model routing */}
+          <details
+            open={modelRoutingExpanded}
+            onToggle={(e) => setModelRoutingExpanded(e.currentTarget.open)}
+            className="mt-4 rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-4"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between">
+              <span className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-2">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-accent-2" aria-hidden />
+                {t("advanced_model_routing")}
+              </span>
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-hairline-soft bg-bg-grad-a/55 text-text-3">
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                    modelRoutingExpanded ? "rotate-180 text-accent-2" : ""
+                  }`}
+                  aria-hidden
+                />
+              </span>
+            </summary>
+            <p className="mt-2 text-[11.5px] leading-[1.55] text-text-3">
+              {t("model_routing_hint")}
+            </p>
+            <div className="mt-4 grid gap-4">
+              {MODEL_ROUTING_FIELDS.map(({ key, labelKey, envVar, hintKey, patchKey }) => {
+                const settingsValue = settings[patchKey];
+                return (
+                  <div key={key}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2">
+                          {t(`dashboard:${labelKey}`)}
                         </div>
-                        {settingsValue && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void handleClearField(
-                                patchKey,
-                                { [patchKey]: "" } as SystemConfigPatch,
-                                labelKey,
-                              )
-                            }
-                            disabled={isBusy}
-                            className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-ring rounded"
-                            aria-label={t("clear_saved_field", { label: t(`dashboard:${labelKey}`) })}
-                          >
-                            {clearingField === patchKey ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <X className="h-3 w-3" />
-                            )}
-                            {t("clear")}
-                          </button>
-                        )}
+                        <div className="text-[11.5px] text-text-4">
+                          {t(`dashboard:${hintKey}`)}
+                        </div>
                       </div>
-                      <div className="mt-1.5">
-                        <ModelCombobox
-                          value={draft[key]}
-                          onChange={(v) => updateDraft(key, v)}
-                          options={modelCandidates}
-                          placeholder={envVar}
-                          disabled={saving}
-                          aria-label={t(`dashboard:${labelKey}`)}
-                          clearable
-                          clearAriaLabel={t("clear_field_input", { label: t(`dashboard:${labelKey}`) })}
-                        />
-                      </div>
+                      {settingsValue && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleClearField(
+                              patchKey,
+                              { [patchKey]: "" } as SystemConfigPatch,
+                              labelKey,
+                            )
+                          }
+                          disabled={isBusy}
+                          className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label={t("clear_saved_field", {
+                            label: t(`dashboard:${labelKey}`),
+                          })}
+                        >
+                          {clearingField === patchKey ? (
+                            <Loader2
+                              className="h-3 w-3 motion-safe:animate-spin"
+                              aria-hidden
+                            />
+                          ) : (
+                            <X className="h-3 w-3" aria-hidden />
+                          )}
+                          {t("clear")}
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
+                    <div className="mt-1.5">
+                      <ModelCombobox
+                        value={draft[key]}
+                        onChange={(v) => updateDraft(key, v)}
+                        options={modelCandidates}
+                        placeholder={envVar}
+                        disabled={saving}
+                        aria-label={t(`dashboard:${labelKey}`)}
+                        clearable
+                        clearAriaLabel={t("clear_field_input", {
+                          label: t(`dashboard:${labelKey}`),
+                        })}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        </Section>
+
+        {/* Section 3: Advanced */}
+        <section>
+          <div className="mb-3.5">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+              Runtime Tuning
+            </div>
+            <h3 className="mt-1 text-[14.5px] font-medium text-text">
+              {t("advanced_settings")}
+            </h3>
+          </div>
+          <div
+            className="rounded-[10px] border border-hairline p-4"
+            style={CARD_STYLE}
+          >
+            <details>
+              <summary className="flex cursor-pointer select-none items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-2 transition-colors hover:text-text">
+                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
+                {t("advanced_settings")}
+              </summary>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2">
+                    {t("session_cleanup_delay_label")}
+                  </label>
+                  <p className="mt-0.5 text-[11.5px] text-text-4">
+                    {t("session_cleanup_delay_desc")}
+                  </p>
+                  <input
+                    type="number"
+                    min={10}
+                    max={3600}
+                    value={draft.cleanupDelaySeconds}
+                    onChange={(e) => updateDraft("cleanupDelaySeconds", e.target.value)}
+                    className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
+                    disabled={saving}
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2">
+                    {t("max_concurrent_sessions_label")}
+                  </label>
+                  <p className="mt-0.5 text-[11.5px] text-text-4">
+                    {t("max_concurrent_sessions_desc")}
+                  </p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={draft.maxConcurrentSessions}
+                    onChange={(e) =>
+                      updateDraft("maxConcurrentSessions", e.target.value)
+                    }
+                    className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
+                    disabled={saving}
+                  />
+                </div>
               </div>
             </details>
           </div>
-        </div>
-
-        {/* 高级设置 */}
-        <div className={cardClassName}>
-          <details>
-            <summary className="flex cursor-pointer select-none items-center gap-2 text-sm font-medium text-gray-400 transition-colors hover:text-gray-200">
-              <SlidersHorizontal className="h-4 w-4" />
-              {t("advanced_settings")}
-            </summary>
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-200">
-                  {t("session_cleanup_delay_label")}
-                </label>
-                <p className="mt-0.5 text-xs text-gray-500">
-                  {t("session_cleanup_delay_desc")}
-                </p>
-                <input
-                  type="number"
-                  min={10}
-                  max={3600}
-                  value={draft.cleanupDelaySeconds}
-                  onChange={(e) => updateDraft("cleanupDelaySeconds", e.target.value)}
-                  className={`${inputClassName} mt-1.5 max-w-[120px]`}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-200">
-                  {t("max_concurrent_sessions_label")}
-                </label>
-                <p className="mt-0.5 text-xs text-gray-500">
-                  {t("max_concurrent_sessions_desc")}
-                </p>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={draft.maxConcurrentSessions}
-                  onChange={(e) => updateDraft("maxConcurrentSessions", e.target.value)}
-                  className={`${inputClassName} mt-1.5 max-w-[120px]`}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-          </details>
-        </div>
+        </section>
       </div>
 
       <TabSaveFooter

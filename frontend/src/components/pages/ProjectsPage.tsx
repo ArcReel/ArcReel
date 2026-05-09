@@ -1020,7 +1020,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       </div>
       <div className="flex flex-col items-end justify-between gap-2.5">
         <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-2">
-          · {t("dashboard:lobby_hero_eyebrow")} · {dateLine}
+          {t("dashboard:lobby_hero_eyebrow")} — {dateLine}
         </div>
         <div
           className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
@@ -1429,7 +1429,7 @@ export function ProjectsPage() {
                     id="lobby-now-editing-heading"
                     className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
                   >
-                    · {t("dashboard:lobby_now_editing_eyebrow")}
+                    {t("dashboard:lobby_now_editing_eyebrow")}
                   </h2>
                 </div>
                 <NowEditingCard
@@ -1463,7 +1463,7 @@ export function ProjectsPage() {
                     id="lobby-library-heading"
                     className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
                   >
-                    · {t("dashboard:lobby_library_eyebrow")}
+                    {t("dashboard:lobby_library_eyebrow")}
                   </h2>
                   <span className="font-mono text-[10.5px] tabular-nums text-text-3">
                     {t("dashboard:lobby_library_count", { count: restProjects.length })}

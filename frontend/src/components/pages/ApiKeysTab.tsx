@@ -1,9 +1,8 @@
 
 /**
- * API Keys 管理 Tab
- * 列表展示、创建（弹窗显示完整 key）、删除（确认弹窗）
+ * API Keys 管理 Tab — Darkroom redesign
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import {
@@ -23,6 +22,26 @@ import { copyText } from "@/utils/clipboard";
 import { errMsg } from "@/utils/async";
 import type { ApiKeyInfo, CreateApiKeyResponse } from "@/types";
 
+const ACCENT_BUTTON_STYLE: CSSProperties = {
+  color: "oklch(0.14 0 0)",
+  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+  boxShadow:
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
+};
+
+const CARD_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
+};
+
+const MODAL_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.21 0.012 270 / 0.96), oklch(0.16 0.010 265 / 0.96))",
+};
+
+const INPUT_CLS =
+  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -41,6 +60,23 @@ function formatDate(iso: string | null, locale: string): string {
 function isExpired(expiresAt: string | null): boolean {
   if (!expiresAt) return false;
   return new Date(expiresAt) < new Date();
+}
+
+// ---------------------------------------------------------------------------
+// Corner brackets — cinematic frame
+// ---------------------------------------------------------------------------
+
+function CornerBrackets() {
+  const cornerCls =
+    "pointer-events-none absolute h-3 w-3 border-accent-2";
+  return (
+    <>
+      <span aria-hidden className={`${cornerCls} left-2 top-2 border-l border-t`} />
+      <span aria-hidden className={`${cornerCls} right-2 top-2 border-r border-t`} />
+      <span aria-hidden className={`${cornerCls} left-2 bottom-2 border-l border-b`} />
+      <span aria-hidden className={`${cornerCls} right-2 bottom-2 border-r border-b`} />
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -67,8 +103,6 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
     if (!canCreate || creating) return;
     setCreating(true);
     try {
-      // expiresDays === "" 或 0 时发送 0（后端解释为永不过期）；
-      // 正整数直接传递；undefined 让后端使用默认值（30天）。
       const days: number | undefined = expiresDays === "" ? 0 : expiresDays;
       const res = await API.createApiKey(name.trim(), days);
       setCreated(res);
@@ -108,20 +142,45 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{
+        background:
+          "radial-gradient(800px 500px at 50% 30%, oklch(0.30 0.04 295 / 0.20), transparent 60%), oklch(0 0 0 / 0.62)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+      }}
     >
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-800 bg-gray-950 p-6 shadow-2xl">
-        <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-100">
-            {created ? t("key_created") : t("new_api_key")}
-          </h3>
+      <div
+        className="relative w-full max-w-md overflow-hidden rounded-[14px] border border-hairline p-6"
+        style={MODAL_STYLE}
+      >
+        <CornerBrackets />
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+              {created ? "Key Issued" : "New Token"}
+            </div>
+            <h3
+              className="font-editorial mt-1"
+              style={{
+                fontSize: 22,
+                fontWeight: 400,
+                lineHeight: 1.1,
+                letterSpacing: "-0.012em",
+                color: "var(--color-text)",
+              }}
+            >
+              {created ? t("key_created") : t("new_api_key")}
+            </h3>
+          </div>
           {!creating && (
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+              className="rounded-[6px] p-1 text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              aria-label={t("common:cancel")}
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -129,10 +188,10 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
         {!created ? (
           <div className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-300">
+              <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
                 {t("name")}
               </label>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-[12px] leading-[1.55] text-text-3">
                 {t("key_name_hint")}
               </p>
               <input
@@ -141,15 +200,15 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t("enter_key_name")}
-                className="mt-2 w-full rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none transition-colors focus:border-indigo-500/50"
+                className={`mt-2 ${INPUT_CLS}`}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300">
+              <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
                 {t("expiration_days")}
               </label>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-[12px] leading-[1.55] text-text-3">
                 {t("zero_permanent_hint")}
               </p>
               <input
@@ -159,15 +218,15 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 onChange={(e) =>
                   setExpiresDays(e.target.value === "" ? "" : Number(e.target.value))
                 }
-                className="mt-2 w-1/3 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none transition-colors focus:border-indigo-500/50"
+                className={`mt-2 ${INPUT_CLS} w-1/3`}
               />
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
+            <div className="flex justify-end gap-2 border-t border-hairline-soft pt-4">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+                className="rounded-[8px] px-3.5 py-2 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {t("common:cancel")}
               </button>
@@ -175,49 +234,58 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 type="button"
                 onClick={() => void handleCreate()}
                 disabled={!canCreate || creating}
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+                style={ACCENT_BUTTON_STYLE}
               >
-                {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                {creating && (
+                  <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
+                )}
                 {t("common:confirm")}
               </button>
             </div>
           </div>
         ) : (
-          <div className="space-y-5">
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-200/80">
-              <div className="mb-2 flex items-center gap-2 font-medium text-amber-400">
-                <AlertTriangle className="h-4 w-4" />
+          <div className="space-y-4">
+            <div
+              className="rounded-[10px] border px-4 py-3 text-[12px] leading-[1.55]"
+              style={{
+                borderColor: "var(--color-warm-ring)",
+                background: "var(--color-warm-tint)",
+              }}
+            >
+              <div className="mb-1.5 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm-bright">
+                <AlertTriangle className="h-3.5 w-3.5" />
                 {t("save_key_warning")}
               </div>
-              {t("key_not_viewable_again")}
+              <p className="text-text-2">{t("key_not_viewable_again")}</p>
             </div>
 
-            <div className="relative group">
+            <div className="relative">
               <input
                 readOnly
                 type="text"
                 value={created.key}
-                className="w-full rounded-lg border border-gray-800 bg-gray-900/50 px-3 py-3 pr-12 font-mono text-sm text-indigo-300 outline-none"
+                className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/65 px-3 py-3 pr-12 font-mono text-[12.5px] tracking-[0.04em] text-accent-2 outline-none"
               />
               <button
                 type="button"
                 onClick={() => void handleCopy()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[6px] p-1.5 text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 title={t("common:copy")}
               >
                 {copied ? (
-                  <Check className="h-4 w-4 text-emerald-500" />
+                  <Check className="h-3.5 w-3.5 text-good" />
                 ) : (
-                  <Copy className="h-4 w-4" />
+                  <Copy className="h-3.5 w-3.5" />
                 )}
               </button>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-1">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg bg-gray-800 px-6 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-700"
+                className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {t("common:done")}
               </button>
@@ -247,7 +315,9 @@ export function ApiKeysTab() {
       const res = await API.listApiKeys();
       setApiKeys(res);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("load_failed", { message: errMsg(err) }), "error");
+      useAppStore
+        .getState()
+        .pushToast(tRef.current("load_failed", { message: errMsg(err) }), "error");
     } finally {
       setLoading(false);
     }
@@ -257,87 +327,114 @@ export function ApiKeysTab() {
     void fetchKeys();
   }, [fetchKeys]);
 
-  const handleDelete = useCallback(
-    async (key: ApiKeyInfo) => {
-      if (!confirm(tRef.current("confirm_delete_key", { name: key.name }))) {
-        return;
-      }
-      setDeletingId(key.id);
-      try {
-        await API.deleteApiKey(key.id);
-        setApiKeys((prev) => prev.filter((k) => k.id !== key.id));
-        useAppStore.getState().pushToast(tRef.current("key_deleted_success"), "success");
-      } catch (err) {
-        useAppStore.getState().pushToast(tRef.current("delete_failed", { message: errMsg(err) }), "error");
-      } finally {
-        setDeletingId(null);
-      }
-    },
-    [],
-  );
+  const handleDelete = useCallback(async (key: ApiKeyInfo) => {
+    if (!confirm(tRef.current("confirm_delete_key", { name: key.name }))) {
+      return;
+    }
+    setDeletingId(key.id);
+    try {
+      await API.deleteApiKey(key.id);
+      setApiKeys((prev) => prev.filter((k) => k.id !== key.id));
+      useAppStore.getState().pushToast(tRef.current("key_deleted_success"), "success");
+    } catch (err) {
+      useAppStore
+        .getState()
+        .pushToast(tRef.current("delete_failed", { message: errMsg(err) }), "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
-      {/* Intro */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3 shadow-inner shadow-white/5">
-            <KeyRound className="h-6 w-6 text-indigo-400" />
+      {/* Heading */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            Issued Tokens
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-100">{t("api_key_mgmt")}</h2>
-            <p className="text-sm text-gray-500">
-              {t("api_key_usage_desc")}
-            </p>
-          </div>
+          <h3
+            className="font-editorial mt-1 flex items-center gap-2"
+            style={{
+              fontWeight: 400,
+              fontSize: 22,
+              lineHeight: 1.1,
+              letterSpacing: "-0.012em",
+              color: "var(--color-text)",
+            }}
+          >
+            <KeyRound className="h-4 w-4 text-accent-2" aria-hidden />
+            {t("api_key_mgmt")}
+          </h3>
+          <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-3">
+            {t("api_key_usage_desc")}
+          </p>
         </div>
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 shadow-lg shadow-indigo-500/20"
+          className="inline-flex shrink-0 items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          style={ACCENT_BUTTON_STYLE}
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-3.5 w-3.5" aria-hidden />
           {t("create_api_key")}
         </button>
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-gray-800 bg-gray-950/40">
-        <table className="w-full border-collapse text-left text-sm">
+      <div
+        className="overflow-hidden rounded-[10px] border border-hairline"
+        style={CARD_STYLE}
+      >
+        <table className="w-full border-collapse text-left text-[12.5px]">
           <thead>
-            <tr className="border-b border-gray-800 bg-gray-900/50">
-              <th className="px-4 py-3 font-medium text-gray-400">{t("name")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("key_prefix")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("created_at")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("expires_at")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("last_used")}</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-400">
+            <tr className="border-b border-hairline-soft">
+              {[
+                t("name"),
+                t("key_prefix"),
+                t("created_at"),
+                t("expires_at"),
+                t("last_used"),
+              ].map((label) => (
+                <th
+                  key={label}
+                  className="px-4 py-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+                >
+                  {label}
+                </th>
+              ))}
+              <th className="px-4 py-3 text-right font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
                 {t("actions")}
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800/50">
+          <tbody className="divide-y divide-[var(--color-hairline-soft)]">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
-                  <div className="flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-                    {t("common:loading")}
+                <td colSpan={6} className="px-4 py-12 text-center">
+                  <div className="flex items-center justify-center gap-2 text-text-3">
+                    <Loader2
+                      className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2"
+                      aria-hidden
+                    />
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.14em]">
+                      {t("common:loading")}
+                    </span>
                   </div>
                 </td>
               </tr>
             ) : keys.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center">
-                  <div className="mx-auto flex max-w-[200px] flex-col items-center gap-3">
-                    <div className="rounded-full bg-gray-900/50 p-3">
-                      <KeyRound className="h-6 w-6 text-gray-700" />
+                  <div className="mx-auto flex max-w-[240px] flex-col items-center gap-3">
+                    <div className="rounded-full border border-hairline-soft bg-bg-grad-a/45 p-3">
+                      <KeyRound className="h-5 w-5 text-text-4" aria-hidden />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-gray-400">{t("no_api_keys")}</p>
+                    <div className="space-y-1.5">
+                      <p className="text-[12.5px] text-text-3">{t("no_api_keys")}</p>
                       <button
                         onClick={() => setShowCreate(true)}
-                        className="text-xs text-indigo-400 hover:text-indigo-300"
+                        className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent"
                       >
                         {t("create_one_now")}
                       </button>
@@ -349,30 +446,40 @@ export function ApiKeysTab() {
               keys.map((key) => {
                 const expired = isExpired(key.expires_at);
                 return (
-                  <tr key={key.id} className="group transition-colors hover:bg-gray-900/30">
-                    <td className="px-4 py-4 font-medium text-gray-200">
-                      {key.name}
-                    </td>
-                    <td className="px-4 py-4 font-mono text-gray-500">
+                  <tr
+                    key={key.id}
+                    className="group transition-colors hover:bg-bg-grad-a/35"
+                  >
+                    <td className="px-4 py-4 font-medium text-text">{key.name}</td>
+                    <td className="px-4 py-4 font-mono text-text-3">
                       {key.key_prefix}****
                     </td>
-                    <td className="px-4 py-4 text-gray-400">
+                    <td className="px-4 py-4 font-mono tabular-nums text-text-2">
                       {formatDate(key.created_at, i18n.language)}
                     </td>
                     <td className="px-4 py-4">
                       {!key.expires_at ? (
-                        <span className="text-gray-500">{t("permanent")}</span>
+                        <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-text-4">
+                          {t("permanent")}
+                        </span>
                       ) : expired ? (
-                        <span className="inline-flex rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-400">
+                        <span
+                          className="inline-flex rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
+                          style={{
+                            background: "var(--color-warm-tint)",
+                            color: "var(--color-warm-bright)",
+                            border: "1px solid var(--color-warm-ring)",
+                          }}
+                        >
                           {t("expired")}
                         </span>
                       ) : (
-                        <span className="text-gray-400">
+                        <span className="font-mono tabular-nums text-text-2">
                           {formatDate(key.expires_at, i18n.language)}
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-4 text-gray-400">
+                    <td className="px-4 py-4 font-mono tabular-nums text-text-3">
                       {formatDate(key.last_used_at, i18n.language)}
                     </td>
                     <td className="px-4 py-4 text-right">
@@ -380,13 +487,16 @@ export function ApiKeysTab() {
                         type="button"
                         onClick={() => void handleDelete(key)}
                         disabled={deletingId === key.id}
-                        className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400"
+                        className="rounded-[6px] p-2 text-text-3 transition-colors hover:bg-warm-tint hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         title={t("common:delete")}
                       >
                         {deletingId === key.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2
+                            className="h-3.5 w-3.5 motion-safe:animate-spin"
+                            aria-hidden
+                          />
                         ) : (
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         )}
                       </button>
                     </td>

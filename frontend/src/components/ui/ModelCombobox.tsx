@@ -9,10 +9,10 @@ import {
 import { ChevronDown, X } from "lucide-react";
 
 const inputClassName =
-  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus-visible:ring-2 focus-visible:ring-indigo-500/60 disabled:opacity-50";
+  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50";
 
 const smallBtnClassName =
-  "rounded p-1 text-gray-500 hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
+  "rounded-[5px] p-1 text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 export interface ModelComboboxProps {
   id?: string;

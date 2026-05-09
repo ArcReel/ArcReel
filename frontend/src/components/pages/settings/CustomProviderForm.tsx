@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, type CSSProperties } from "react";
 import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -24,6 +24,31 @@ import {
 } from "@/utils/duration_format";
 
 // ---------------------------------------------------------------------------
+// Style constants
+// ---------------------------------------------------------------------------
+
+const ACCENT_BUTTON_STYLE: CSSProperties = {
+  color: "oklch(0.14 0 0)",
+  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+  boxShadow:
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
+};
+
+const CARD_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
+};
+
+const INPUT_CLS =
+  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const COMPACT_INPUT_CLS =
+  "min-w-0 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[12.5px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const GHOST_BTN_CLS =
+  "inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
+
+// ---------------------------------------------------------------------------
 // Types & constants
 // ---------------------------------------------------------------------------
 
@@ -31,6 +56,26 @@ const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] =
   { value: "openai", labelKey: "discovery_format_openai" },
   { value: "google", labelKey: "discovery_format_google" },
 ];
+
+function FieldLabel({
+  htmlFor,
+  required,
+  children,
+}: {
+  htmlFor: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2"
+    >
+      {children}
+      {required && <span className="ml-1 text-warm-bright">*</span>}
+    </label>
+  );
+}
 
 interface ModelRow {
   key: string; // unique key for React
@@ -156,24 +201,24 @@ function DurationsInputRow({
   return (
     <div className="mt-2 flex flex-col gap-1 pl-6">
       <div className="flex items-center gap-2">
-        <label className="text-sm text-gray-400 whitespace-nowrap">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
           {t("supported_durations_label")}
-        </label>
+        </span>
         <input
           type="text"
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           placeholder={t("supported_durations_placeholder")}
           aria-label={t("supported_durations_label")}
-          className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
+          className={`${COMPACT_INPUT_CLS} flex-1`}
         />
       </div>
       {errorMsg ? (
-        <p className="text-xs text-red-400">
+        <p className="text-[11px] text-warm-bright">
           {t("supported_durations_invalid", { message: errorMsg })}
         </p>
       ) : (
-        <p className="text-xs text-gray-500">{t("supported_durations_help")}</p>
+        <p className="text-[11px] text-text-4">{t("supported_durations_help")}</p>
       )}
     </div>
   );
@@ -375,63 +420,74 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setModels((prev) => [...prev, newModelRow()]);
   };
 
-  // --- Shared input classes ---
-  const inputCls =
-    "w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring";
-
   // --- Base URL preview (effective models endpoint) ---
   const urlPreview = urlPreviewFor(discoveryFormat, baseUrl);
 
   return (
     <div>
-      {/* Form content (scroll handled by ancestor <main>) */}
+      {/* Form content */}
       <div className="p-6 pb-24">
       <div className="max-w-2xl">
-      <h3 className="mb-6 text-lg font-semibold text-gray-100">
-        {isEdit ? t("edit_custom_provider") : t("add_custom_provider_title")}
-      </h3>
+      <div className="mb-6">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          {isEdit ? "EDIT PROVIDER" : "NEW PROVIDER"}
+        </div>
+        <h3
+          className="font-editorial mt-1"
+          style={{
+            fontWeight: 400,
+            fontSize: 22,
+            lineHeight: 1.1,
+            letterSpacing: "-0.012em",
+            color: "var(--color-text)",
+          }}
+        >
+          {isEdit ? t("edit_custom_provider") : t("add_custom_provider_title")}
+        </h3>
+      </div>
 
       <div className="space-y-4">
         {/* Display name */}
         <div>
-          <label htmlFor="cp-name" className="mb-1.5 block text-sm text-gray-400">
-            {t("cp_name_label")} <span className="text-red-400">*</span>
-          </label>
+          <FieldLabel htmlFor="cp-name" required>
+            {t("cp_name_label")}
+          </FieldLabel>
           <input
             id="cp-name"
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder={t("cp_name_placeholder")}
-            className={inputCls}
+            className={INPUT_CLS}
           />
         </div>
 
         {/* Base URL */}
         <div>
-          <label htmlFor="cp-url" className="mb-1.5 block text-sm text-gray-400">
-            {t("base_url")} <span className="text-red-400">*</span>
-          </label>
+          <FieldLabel htmlFor="cp-url" required>
+            {t("base_url")}
+          </FieldLabel>
           <input
             id="cp-url"
             type="url"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://api.example.com/v1"
-            className={inputCls}
+            className={INPUT_CLS}
           />
           {urlPreview && (
-            <div className="mt-1 truncate text-xs text-gray-500">
-              {t("preview_url")}{urlPreview}
+            <div className="mt-1.5 truncate font-mono text-[10.5px] text-text-4">
+              {t("preview_url")}
+              {urlPreview}
             </div>
           )}
         </div>
 
         {/* API Key */}
         <div>
-          <label htmlFor="cp-key" className="mb-1.5 block text-sm text-gray-400">
-            {t("api_key_label")} {!isEdit && <span className="text-red-400">*</span>}
-          </label>
+          <FieldLabel htmlFor="cp-key" required={!isEdit}>
+            {t("api_key_label")}
+          </FieldLabel>
           <div className="relative">
             <input
               id="cp-key"
@@ -440,36 +496,39 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={isEdit ? existing?.api_key_masked ?? t("keep_existing_key_hint") : t("enter_api_key_placeholder")}
-              className={`${inputCls} pr-9`}
+              className={`${INPUT_CLS} pr-10`}
             />
             <button
               type="button"
               onClick={() => setShowApiKey((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-gray-500 hover:text-gray-300 focus-ring"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label={showApiKey ? t("common:hide") : t("common:show")}
             >
-              {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             </button>
           </div>
         </div>
 
         {/* Discovery format (de-emphasized) */}
-        <div className="text-xs text-gray-500">
-          <label htmlFor="cp-discovery" className="mr-2">
-            {t("discovery_format_label")}：
+        <div className="flex flex-wrap items-center gap-2">
+          <label
+            htmlFor="cp-discovery"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+          >
+            {t("discovery_format_label")}
           </label>
           <select
             id="cp-discovery"
             value={discoveryFormat}
             onChange={(e) => setDiscoveryFormat(e.target.value as DiscoveryFormat)}
             disabled={isEdit}
-            className="rounded border border-gray-700 bg-gray-900 px-2 py-0.5 text-xs text-gray-300"
+            className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[11.5px] text-text-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
             {DISCOVERY_FORMAT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
             ))}
           </select>
-          <span className="ml-2 text-gray-600">{t("discovery_format_help")}</span>
+          <span className="font-mono text-[10.5px] text-text-4">{t("discovery_format_help")}</span>
         </div>
 
         {/* Discover button */}
@@ -478,11 +537,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             type="button"
             onClick={() => void handleDiscover()}
             disabled={discovering}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50"
+            className={GHOST_BTN_CLS}
           >
             {discovering ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
                 {t("discovering_models")}
               </>
             ) : (
@@ -494,8 +553,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {/* Model list */}
         {models.length > 0 && (
           <div>
-            <div className="mb-2 flex items-center gap-3 text-sm text-gray-400">
-              <span>{t("model_list")}</span>
+            <div className="mb-2 flex items-center gap-3">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+                {t("model_list")}
+              </span>
               {models.length > 1 && (
                 <button
                   type="button"
@@ -505,7 +566,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       prev.map((m) => (targetKeys.has(m.key) ? { ...m, is_enabled: !allFilteredEnabled } : m)),
                     );
                   }}
-                  className="text-xs text-indigo-400 hover:text-indigo-300"
+                  className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   {allFilteredEnabled ? t("deselect_all") : t("select_all")}
                 </button>
@@ -513,13 +574,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             </div>
             {models.length > 5 && (
               <div className="relative mb-2">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
                 <input
                   type="text"
                   value={modelFilter}
                   onChange={(e) => setModelFilter(e.target.value)}
                   placeholder={t("search_models")}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900 py-1.5 pl-8 pr-3 text-xs text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring"
+                  className={`${INPUT_CLS} py-1.5 pl-8 pr-3 text-[12px]`}
                 />
               </div>
             )}
@@ -530,7 +591,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                 return (
                   <div
                     key={m.key}
-                    className="rounded-xl border border-gray-800 bg-gray-950/40 p-3"
+                    className="rounded-[10px] border border-hairline p-3"
+                    style={CARD_STYLE}
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Enable toggle */}
@@ -539,7 +601,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                           type="checkbox"
                           checked={m.is_enabled}
                           onChange={(e) => updateModel(m.key, { is_enabled: e.target.checked })}
-                          className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500"
+                          className="h-3.5 w-3.5 cursor-pointer rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)]"
                           aria-label={t("enable_model")}
                         />
                       </label>
@@ -551,7 +613,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         onChange={(e) => updateModel(m.key, { model_id: e.target.value })}
                         placeholder="model-id…"
                         aria-label={t("model_id_label")}
-                        className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
+                        className={`${COMPACT_INPUT_CLS} flex-1`}
                       />
 
                       {/* Endpoint select (custom dropdown showing real API path) */}
@@ -569,11 +631,21 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             toggleDefaultReducer(prev, m.key, endpointToMediaType, endpointToImageCapabilities),
                           )
                         }
-                        className={`rounded-lg px-2 py-1 text-xs transition-colors ${
+                        className="rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        style={
                           m.is_default
-                            ? "bg-indigo-600 text-white"
-                            : "border border-gray-700 text-gray-500 hover:border-gray-600 hover:text-gray-300"
-                        }`}
+                            ? {
+                                background: "var(--color-accent-dim)",
+                                color: "var(--color-accent-2)",
+                                border: "1px solid var(--color-accent-soft)",
+                                boxShadow: "0 0 12px -6px var(--color-accent-glow)",
+                              }
+                            : {
+                                background: "var(--color-bg-grad-a)",
+                                color: "var(--color-text-3)",
+                                border: "1px solid var(--color-hairline)",
+                              }
+                        }
                       >
                         {t("default_label")}
                       </button>
@@ -582,7 +654,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       <button
                         type="button"
                         onClick={() => removeModel(m.key)}
-                        className="rounded p-1 text-gray-500 hover:text-red-400"
+                        className="rounded p-1 text-text-4 transition-colors hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         aria-label={t("delete_model")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -590,12 +662,12 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                     </div>
 
                     {/* Pricing row */}
-                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-xs text-gray-500">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-[11px] text-text-4">
                       <select
                         value={m.currency}
                         onChange={(e) => updateModel(m.key, { currency: e.target.value })}
                         aria-label={t("currency_label")}
-                        className="rounded border border-gray-700 bg-gray-900 px-1 py-0.5 text-xs text-gray-300 focus-visible:border-indigo-500 focus-visible:outline-none"
+                        className="rounded-[5px] border border-hairline bg-bg-grad-a/55 px-1 py-0.5 text-[11px] text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                       >
                         <option value="USD">$</option>
                         <option value="CNY">&yen;</option>
@@ -607,12 +679,12 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         onChange={(e) => updateModel(m.key, { price_input: e.target.value })}
                         placeholder="0.00"
                         aria-label={t("input_price")}
-                        className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
+                        className={`${COMPACT_INPUT_CLS} w-16`}
                       />
                       <span>{pl.input}</span>
                       {pl.output && (
                         <>
-                          <span className="text-gray-600">|</span>
+                          <span className="text-text-4">|</span>
                           <input
                             type="text"
                             inputMode="decimal"
@@ -620,7 +692,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             onChange={(e) => updateModel(m.key, { price_output: e.target.value })}
                             placeholder="0.00"
                             aria-label={t("output_price")}
-                            className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
+                            className={`${COMPACT_INPUT_CLS} w-16`}
                           />
                           <span>{pl.output}</span>
                         </>
@@ -630,7 +702,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                     {/* Resolution row */}
                     {media !== "text" && (
                       <div className="mt-2 flex items-center gap-2 pl-6">
-                        <span className="text-sm text-gray-400 whitespace-nowrap">{t("resolution_label")}</span>
+                        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
+                          {t("resolution_label")}
+                        </span>
                         <ResolutionPicker
                           mode="combobox"
                           options={media === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
@@ -658,7 +732,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             <button
               type="button"
               onClick={addManualModel}
-              className="mt-2 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300"
+              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("add_model_manually")}
@@ -668,12 +742,12 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
         {/* Empty model hint */}
         {models.length === 0 && (
-          <div className="rounded-xl border border-dashed border-gray-700 p-4 text-center text-sm text-gray-500">
+          <div className="rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 p-4 text-center text-[12.5px] text-text-3">
             {t("discover_or_add_hint")}
             <button
               type="button"
               onClick={addManualModel}
-              className="ml-1 text-indigo-400 hover:text-indigo-300"
+              className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               {t("add_model_manually")}
             </button>
@@ -684,16 +758,25 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {testResult && (
           <div
             aria-live="polite"
-            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+            className="flex items-start gap-2 rounded-[8px] px-3 py-2 text-[12.5px]"
+            style={
               testResult.success
-                ? "border-green-800/50 bg-green-900/20 text-green-400"
-                : "border-red-800/50 bg-red-900/20 text-red-400"
-            }`}
+                ? {
+                    background: "oklch(0.30 0.10 155 / 0.15)",
+                    color: "var(--color-good)",
+                    border: "1px solid oklch(0.45 0.10 155 / 0.30)",
+                  }
+                : {
+                    background: "var(--color-warm-tint)",
+                    color: "var(--color-warm-bright)",
+                    border: "1px solid var(--color-warm-ring)",
+                  }
+            }
           >
             {testResult.success ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             ) : (
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             )}
             <span>{testResult.message}</span>
           </div>
@@ -703,19 +786,25 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       </div>{/* end max-w-2xl */}
       </div>{/* end form content */}
 
-      {/* Sticky actions bar — pinned to <main> viewport bottom while form content scrolls.
-          Solid background to fully occlude the scrolling list underneath. */}
-      <div className="sticky bottom-0 z-10 border-t border-gray-800 bg-gray-950 px-6 py-3">
+      {/* Sticky actions bar */}
+      <div
+        className="sticky bottom-0 z-10 border-t border-hairline px-6 py-3 backdrop-blur"
+        style={{
+          background:
+            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.65), oklch(0.15 0.010 265 / 0.85))",
+        }}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-[8px] px-4 py-1.5 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+            style={ACCENT_BUTTON_STYLE}
           >
             {saving ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
                 {t("common:saving")}
               </>
             ) : (
@@ -727,11 +816,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             type="button"
             onClick={() => void handleTest()}
             disabled={testing}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50"
+            className={GHOST_BTN_CLS}
           >
             {testing ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
                 {t("testing_connection")}
               </>
             ) : (
@@ -742,7 +831,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg px-3 py-1.5 text-sm text-gray-400 transition-colors hover:text-gray-200"
+            className="rounded-[8px] px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             {t("common:cancel")}
           </button>

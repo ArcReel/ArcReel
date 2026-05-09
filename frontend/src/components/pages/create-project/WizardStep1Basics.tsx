@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
 import type { GenerationMode } from "@/utils/generation-mode";
@@ -15,6 +15,34 @@ export interface WizardStep1BasicsProps {
   onChange: (next: WizardStep1Value) => void;
   onNext: () => void;
   onCancel: () => void;
+}
+
+const ACCENT_BUTTON_STYLE: CSSProperties = {
+  color: "oklch(0.14 0 0)",
+  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+  boxShadow:
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
+};
+
+function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
+  return (
+    <label className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+      {children}
+      {required ? (
+        <span aria-label="required" className="ml-1 text-warm">
+          *
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function radioCardClass(selected: boolean): string {
+  const base =
+    "relative flex-1 cursor-pointer rounded-[8px] border px-3.5 py-2.5 text-center text-[12.5px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent";
+  return selected
+    ? `${base} border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]`
+    : `${base} border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text`;
 }
 
 export function WizardStep1Basics({
@@ -39,44 +67,34 @@ export function WizardStep1Basics({
     onNext();
   };
 
-  const radioClass = (selected: boolean) =>
-    `flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-      selected
-        ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-        : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-    }`;
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Title */}
       <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">
-          {t("dashboard:project_title")}
-          <span className="text-red-400 ml-0.5" aria-label="required">*</span>
-        </label>
-        <input
-          type="text"
-          value={value.title}
-          onChange={handleTitleChange}
-          placeholder={t("dashboard:rebirth_empress_example")}
-          aria-required="true"
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
-        />
-        {titleError && (
-          <p className="mt-1 text-xs text-red-400">{titleError}</p>
-        )}
-        <p className="mt-1 text-xs text-gray-600">
-          {t("dashboard:project_id_auto_gen_hint")}
-        </p>
+        <FieldLabel required>{t("dashboard:project_title")}</FieldLabel>
+        <div className="relative">
+          <input
+            type="text"
+            value={value.title}
+            onChange={handleTitleChange}
+            placeholder={t("dashboard:rebirth_empress_example")}
+            aria-required="true"
+            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[14px] text-text placeholder:text-text-4 outline-none transition-colors focus:border-accent/55 focus:bg-bg-grad-a/85 focus-visible:ring-2 focus-visible:ring-accent"
+          />
+        </div>
+        {titleError ? (
+          <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-warm">
+            ▲ {titleError}
+          </p>
+        ) : null}
+        <p className="mt-1.5 text-[11.5px] text-text-4">{t("dashboard:project_id_auto_gen_hint")}</p>
       </div>
 
       {/* Content Mode */}
       <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">
-          {t("dashboard:content_mode")}
-        </label>
-        <div className="flex gap-3" role="radiogroup" aria-label={t("dashboard:content_mode")}>
-          <label className={radioClass(value.contentMode === "narration")}>
+        <FieldLabel>{t("dashboard:content_mode")}</FieldLabel>
+        <div className="flex gap-2.5" role="radiogroup" aria-label={t("dashboard:content_mode")}>
+          <label className={radioCardClass(value.contentMode === "narration")}>
             <input
               type="radio"
               name="contentMode"
@@ -87,7 +105,7 @@ export function WizardStep1Basics({
             />
             {t("dashboard:narration_visuals")}
           </label>
-          <label className={radioClass(value.contentMode === "drama")}>
+          <label className={radioCardClass(value.contentMode === "drama")}>
             <input
               type="radio"
               name="contentMode"
@@ -99,7 +117,7 @@ export function WizardStep1Basics({
             {t("dashboard:drama_animation")}
           </label>
         </div>
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-[11.5px] leading-[1.55] text-text-3">
           {value.contentMode === "narration"
             ? t("dashboard:content_mode_narration_desc")
             : t("dashboard:content_mode_drama_desc")}
@@ -108,11 +126,9 @@ export function WizardStep1Basics({
 
       {/* Aspect Ratio */}
       <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">
-          {t("dashboard:aspect_ratio")}
-        </label>
-        <div className="flex gap-3" role="radiogroup" aria-label={t("dashboard:aspect_ratio")}>
-          <label className={radioClass(value.aspectRatio === "9:16")}>
+        <FieldLabel>{t("dashboard:aspect_ratio")}</FieldLabel>
+        <div className="flex gap-2.5" role="radiogroup" aria-label={t("dashboard:aspect_ratio")}>
+          <label className={radioCardClass(value.aspectRatio === "9:16")}>
             <input
               type="radio"
               name="aspectRatio"
@@ -121,9 +137,19 @@ export function WizardStep1Basics({
               onChange={() => onChange({ ...value, aspectRatio: "9:16" })}
               className="sr-only"
             />
-            {t("dashboard:portrait_9_16")}
+            <span className="inline-flex items-center gap-2">
+              <span
+                aria-hidden
+                className="block h-3 w-[7.5px] rounded-[1.5px] border border-hairline"
+                style={{
+                  background:
+                    value.aspectRatio === "9:16" ? "var(--color-accent-soft)" : "transparent",
+                }}
+              />
+              {t("dashboard:portrait_9_16")}
+            </span>
           </label>
-          <label className={radioClass(value.aspectRatio === "16:9")}>
+          <label className={radioCardClass(value.aspectRatio === "16:9")}>
             <input
               type="radio"
               name="aspectRatio"
@@ -132,16 +158,24 @@ export function WizardStep1Basics({
               onChange={() => onChange({ ...value, aspectRatio: "16:9" })}
               className="sr-only"
             />
-            {t("dashboard:landscape_16_9")}
+            <span className="inline-flex items-center gap-2">
+              <span
+                aria-hidden
+                className="block h-[7.5px] w-3 rounded-[1.5px] border border-hairline"
+                style={{
+                  background:
+                    value.aspectRatio === "16:9" ? "var(--color-accent-soft)" : "transparent",
+                }}
+              />
+              {t("dashboard:landscape_16_9")}
+            </span>
           </label>
         </div>
       </div>
 
       {/* Generation Mode */}
       <div>
-        <label className="block text-sm font-medium text-gray-400 mb-0.5">
-          {t("dashboard:generation_mode")}
-        </label>
+        <FieldLabel>{t("dashboard:generation_mode")}</FieldLabel>
         <GenerationModeSelector
           value={value.generationMode}
           onChange={(next) => onChange({ ...value, generationMode: next })}
@@ -149,11 +183,11 @@ export function WizardStep1Basics({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-800">
+      <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
         <button
           type="button"
           onClick={onCancel}
-          className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {t("common:cancel")}
         </button>
@@ -161,9 +195,11 @@ export function WizardStep1Basics({
           type="button"
           onClick={handleNext}
           disabled={!value.title.trim()}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+          style={ACCENT_BUTTON_STYLE}
         >
           {t("templates:next_step")}
+          <span aria-hidden>→</span>
         </button>
       </div>
     </div>

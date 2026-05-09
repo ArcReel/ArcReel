@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Upload, X } from "lucide-react";
 import {
@@ -20,6 +20,15 @@ export interface StylePickerProps {
   value: StylePickerValue;
   onChange: (next: StylePickerValue) => void;
 }
+
+const SELECTED_RING_STYLE: CSSProperties = {
+  boxShadow:
+    "inset 0 0 0 1.5px var(--color-accent), 0 0 0 4px var(--color-bg-grad-a), 0 0 24px -8px var(--color-accent-glow)",
+};
+
+const HOVER_RING_STYLE: CSSProperties = {
+  boxShadow: "inset 0 0 0 1px var(--color-hairline)",
+};
 
 interface TemplateCardProps {
   thumbnail: string;
@@ -46,12 +55,8 @@ function TemplateCard({
       aria-label={label}
       aria-pressed={isSelected}
       onClick={onClick}
-      className={[
-        "aspect-[3/4] relative rounded-lg overflow-hidden transition-all duration-150",
-        isSelected
-          ? "ring-2 ring-indigo-500 ring-offset-2 ring-offset-gray-950"
-          : "ring-1 ring-gray-800 hover:ring-gray-600",
-      ].join(" ")}
+      className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      style={isSelected ? SELECTED_RING_STYLE : HOVER_RING_STYLE}
     >
       <img
         src={thumbnail}
@@ -60,28 +65,64 @@ function TemplateCard({
         height={320}
         loading="lazy"
         decoding="async"
-        className="w-full h-full object-cover"
+        className="h-full w-full object-cover"
         onError={(e) => {
           (e.currentTarget as HTMLImageElement).style.display = "none";
         }}
       />
-      <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 -z-10" />
+      {/* Fallback gradient if image errors out */}
+      <div
+        aria-hidden
+        className="-z-10 absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(135deg, oklch(0.30 0.04 295), oklch(0.18 0.012 265))",
+        }}
+      />
 
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
-        <p className="text-[11px] text-white leading-tight truncate">{label}</p>
+      {/* Bottom label gradient */}
+      <div
+        className="absolute inset-x-0 bottom-0 px-2 py-1.5"
+        style={{
+          background:
+            "linear-gradient(180deg, transparent 0%, oklch(0 0 0 / 0.8) 100%)",
+        }}
+      >
+        <p className="truncate text-[11px] leading-tight text-text">{label}</p>
         {tagline && (
-          <p className="text-[9px] text-gray-400 leading-tight truncate mt-0.5">{tagline}</p>
+          <p className="mt-0.5 truncate text-[9px] leading-tight text-text-3">
+            {tagline}
+          </p>
         )}
       </div>
 
+      {/* Selected check */}
       {isSelected && (
-        <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center shadow">
-          <Check size={12} strokeWidth={3} />
+        <div
+          className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
+          style={{
+            background:
+              "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+            color: "oklch(0.14 0 0)",
+            boxShadow: "0 0 14px -4px var(--color-accent-glow)",
+          }}
+        >
+          <Check size={11} strokeWidth={3} aria-hidden />
         </div>
       )}
 
+      {/* Default tag */}
       {isDefault && (
-        <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[9px] rounded-full bg-indigo-500/25 backdrop-blur text-indigo-200 leading-tight">
+        <div
+          className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-[0.12em]"
+          style={{
+            background: "oklch(0 0 0 / 0.55)",
+            color: "var(--color-accent-2)",
+            border: "1px solid var(--color-accent-soft)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+          }}
+        >
           {defaultLabel}
         </div>
       )}
@@ -93,19 +134,11 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
   const { t } = useTranslation(["common", "templates"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 切换 tab "无损失"：保留对侧 state。
-  // - 切到 custom：保留 templateId，回到模板 tab 时恢复选中
-  // - 切到 template category：保留 uploadedFile/uploadedPreview，回到 custom tab 时恢复
-  // blob: URL 生命周期仍由 parent 的 effect 清理（见 CreateProjectModal /
-  // ProjectSettingsPage），onChange 只更换引用。
   const handleCustomTab = () => {
     onChange({ ...value, mode: "custom" });
   };
 
   const handleCategoryTab = (cat: StyleCategory) => {
-    // Preserve templateId across tab switches. If it belongs to the other
-    // category, the current tab will simply render no selected card —
-    // clicking a tab must never silently overwrite the user's chosen style.
     onChange({
       ...value,
       mode: "template",
@@ -117,7 +150,13 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
     const file = e.target.files?.[0];
     if (!file) return;
     const objectUrl = URL.createObjectURL(file);
-    onChange({ ...value, mode: "custom", templateId: null, uploadedFile: file, uploadedPreview: objectUrl });
+    onChange({
+      ...value,
+      mode: "custom",
+      templateId: null,
+      uploadedFile: file,
+      uploadedPreview: objectUrl,
+    });
     e.target.value = "";
   };
 
@@ -127,10 +166,10 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
 
   const tabCls = (active: boolean) =>
     [
-      "rounded-md px-3 py-1 text-xs transition-colors",
+      "rounded-[6px] px-3 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
       active
-        ? "bg-indigo-500/15 text-indigo-300 font-medium"
-        : "text-gray-400 hover:text-gray-200",
+        ? "bg-accent-dim text-accent-2"
+        : "text-text-3 hover:text-text",
     ].join(" ");
 
   const isCustomActive = value.mode === "custom";
@@ -140,34 +179,54 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg bg-gray-900 border border-gray-800 p-1 flex gap-1 w-fit">
-        <button type="button" onClick={handleCustomTab} className={tabCls(isCustomActive)}>
+      {/* Tab pills */}
+      <div className="flex w-fit gap-1 rounded-[8px] border border-hairline bg-bg-grad-a/55 p-1">
+        <button
+          type="button"
+          onClick={handleCustomTab}
+          className={tabCls(isCustomActive)}
+        >
           {t("templates:category.custom")}
         </button>
-        <button type="button" onClick={() => handleCategoryTab("live")} className={tabCls(isLiveActive)}>
+        <button
+          type="button"
+          onClick={() => handleCategoryTab("live")}
+          className={tabCls(isLiveActive)}
+        >
           {t("templates:category.live")}
         </button>
-        <button type="button" onClick={() => handleCategoryTab("anim")} className={tabCls(isAnimActive)}>
+        <button
+          type="button"
+          onClick={() => handleCategoryTab("anim")}
+          className={tabCls(isAnimActive)}
+        >
           {t("templates:category.anim")}
         </button>
       </div>
 
       {value.mode === "custom" ? (
         <div>
-          <p className="text-sm text-gray-400 mb-3">{t("templates:tab_custom_desc")}</p>
+          <p className="mb-3 text-[12.5px] leading-[1.55] text-text-3">
+            {t("templates:tab_custom_desc")}
+          </p>
 
           {value.uploadedPreview ? (
-            <div className="relative rounded-lg border border-gray-700 overflow-hidden">
+            <div className="relative overflow-hidden rounded-[10px] border border-hairline">
               <img
                 src={value.uploadedPreview}
                 alt={t("templates:upload_reference")}
-                className="w-full h-40 object-cover"
+                className="h-40 w-full object-cover"
               />
               <button
                 type="button"
                 onClick={handleClearUpload}
                 aria-label={t("common:remove")}
-                className="absolute top-1.5 right-1.5 rounded-full bg-gray-900/80 p-1 text-gray-300 hover:bg-gray-900 hover:text-white transition-colors"
+                className="absolute right-1.5 top-1.5 rounded-full p-1 text-text-2 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                style={{
+                  background: "oklch(0 0 0 / 0.55)",
+                  backdropFilter: "blur(6px)",
+                  WebkitBackdropFilter: "blur(6px)",
+                }}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -176,9 +235,9 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 bg-gray-800/50 px-3 py-6 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300"
+              className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 px-3 py-7 text-[12.5px] text-text-3 transition-colors hover:border-accent/45 hover:bg-accent-dim hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <Upload className="h-4 w-4" />
+              <Upload className="h-3.5 w-3.5" />
               <span>{t("templates:upload_reference")}</span>
             </button>
           )}
@@ -190,10 +249,12 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
             onChange={handleFileChange}
             className="hidden"
           />
-          <p className="mt-1.5 text-xs text-gray-600">{t("templates:supported_formats")}</p>
+          <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4">
+            {t("templates:supported_formats")}
+          </p>
         </div>
       ) : (
-        <div className="grid grid-cols-4 gap-3 max-h-[420px] overflow-y-auto p-1 pr-2">
+        <div className="grid max-h-[420px] grid-cols-4 gap-3 overflow-y-auto p-1 pr-2">
           {templates.map((tpl) => (
             <TemplateCard
               key={tpl.id}

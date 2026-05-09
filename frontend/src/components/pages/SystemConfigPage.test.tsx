@@ -133,8 +133,8 @@ describe("SystemConfigPage", () => {
   it("defaults to the 智能体 section", () => {
     renderPage();
     const agentButton = screen.getByRole("button", { name: /智能体/ });
-    // Active sidebar item has the indigo border class applied
-    expect(agentButton.className).toContain("border-indigo-500");
+    // Active sidebar item carries aria-current="page" (Darkroom redesign)
+    expect(agentButton).toHaveAttribute("aria-current", "page");
   });
 
   it("clicking 供应商 makes it the active section", async () => {
@@ -142,7 +142,7 @@ describe("SystemConfigPage", () => {
     const providersButton = screen.getByRole("button", { name: /供应商/ });
     fireEvent.click(providersButton);
     await waitFor(() => {
-      expect(providersButton.className).toContain("border-indigo-500");
+      expect(providersButton).toHaveAttribute("aria-current", "page");
     });
   });
 
@@ -151,7 +151,7 @@ describe("SystemConfigPage", () => {
     const mediaButton = screen.getByRole("button", { name: /模型选择/ });
     fireEvent.click(mediaButton);
     await waitFor(() => {
-      expect(mediaButton.className).toContain("border-indigo-500");
+      expect(mediaButton).toHaveAttribute("aria-current", "page");
     });
   });
 
@@ -160,7 +160,7 @@ describe("SystemConfigPage", () => {
     const usageButton = screen.getByRole("button", { name: /用量统计/ });
     fireEvent.click(usageButton);
     await waitFor(() => {
-      expect(usageButton.className).toContain("border-indigo-500");
+      expect(usageButton).toHaveAttribute("aria-current", "page");
     });
   });
 

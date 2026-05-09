@@ -281,20 +281,28 @@ export function ProviderModelSelect({
           setOpen(!open);
         }}
         onKeyDown={handleTriggerKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800/80 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+        className="flex w-full items-center justify-between gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text transition-colors hover:border-hairline-strong hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <span className={`truncate ${showFallback ? "text-gray-400" : ""}`}>{displayText}</span>
+        <span className={`truncate ${showFallback ? "text-text-3" : ""}`}>{displayText}</span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-text-4 transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+        <div
+          className="absolute z-50 mt-1 w-full rounded-[8px] border border-hairline shadow-xl"
+          style={{
+            background:
+              "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+          }}
+        >
           {showSearch && (
-            <div className="relative border-b border-gray-800 p-2">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
+            <div className="relative border-b border-hairline-soft p-2">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
               <input
                 ref={inputRef}
                 type="text"
@@ -310,7 +318,7 @@ export function ProviderModelSelect({
                 aria-activedescendant={activeDescendantId}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-md border border-gray-700 bg-gray-950/80 py-1.5 pl-8 pr-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+                className="w-full rounded-[6px] border border-hairline bg-bg-grad-a/65 py-1.5 pl-8 pr-2 text-[12.5px] text-text placeholder:text-text-4 focus:border-accent/55 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
             </div>
           )}
@@ -333,13 +341,13 @@ export function ProviderModelSelect({
                 type="button"
                 onClick={() => selectOption("")}
                 onMouseEnter={() => setActiveIndex(0)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                  activeIndex === 0 ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800/50"
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] transition-colors ${
+                  activeIndex === 0 ? "bg-accent-dim text-text" : "text-text-2 hover:bg-bg-grad-a/45"
                 }`}
               >
                 <span>{defaultLabel ?? t("follow_global_default")}</span>
                 {defaultHint && (
-                  <span className="ml-auto text-xs text-gray-500">{defaultHint}</span>
+                  <span className="ml-auto font-mono text-[10.5px] text-text-4">{defaultHint}</span>
                 )}
               </button>
             )}
@@ -349,7 +357,7 @@ export function ProviderModelSelect({
                 {/* Group header */}
                 <div
                   role="presentation"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-500 bg-gray-950/50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4 bg-bg-grad-a/35"
                 >
                   <ProviderIcon providerId={providerId} className="h-3.5 w-3.5" />
                   {providerNames[providerId] || providerId}
@@ -373,14 +381,14 @@ export function ProviderModelSelect({
                       type="button"
                       onClick={() => selectOption(fullValue)}
                       onMouseEnter={() => setActiveIndex(currentFlatIdx)}
-                      className={`flex w-full items-center gap-1.5 px-3 py-2 pl-6 text-left text-sm transition-colors ${
+                      className={`flex w-full items-center gap-1.5 px-3 py-2 pl-6 text-left text-[12.5px] transition-colors ${
                         isActive
-                          ? "bg-gray-800 text-white"
-                          : "text-gray-300 hover:bg-gray-800/50"
+                          ? "bg-accent-dim text-text"
+                          : "text-text-2 hover:bg-bg-grad-a/45"
                       }`}
                     >
                       {isSelected ? (
-                        <Check className="h-3.5 w-3.5 shrink-0" />
+                        <Check className="h-3.5 w-3.5 shrink-0 text-accent-2" />
                       ) : (
                         <span className="h-3.5 w-3.5 shrink-0" />
                       )}
@@ -392,7 +400,7 @@ export function ProviderModelSelect({
             ))}
 
             {flatOptions.length === 0 && (
-              <div role="status" className="px-3 py-3 text-center text-sm text-gray-500">
+              <div role="status" className="px-3 py-3 text-center text-[12.5px] text-text-3">
                 {t("no_models_match")}
               </div>
             )}
