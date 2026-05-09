@@ -58,7 +58,7 @@ export function WizardStep2Models({
         <div role="alert" className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-4 py-6 text-center">
           <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
             <AlertTriangle aria-hidden className="h-3 w-3" />
-            Error
+            {t("common:error")}
           </div>
           <p className="mt-1.5 text-[12.5px] text-text-2">{error}</p>
         </div>

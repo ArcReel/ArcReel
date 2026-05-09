@@ -428,7 +428,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
         <>
           <div>
             <FieldLabel htmlFor="cred-add-apikey" required>
-              API Key
+              {t("api_key_label")}
             </FieldLabel>
             <input
               id="cred-add-apikey"

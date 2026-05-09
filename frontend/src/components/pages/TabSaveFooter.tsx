@@ -29,7 +29,7 @@ export function TabSaveFooter({
   onSave,
   onReset,
 }: TabSaveFooterProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
   const controlsDisabled = saving || disabled;
 
   return (
@@ -52,7 +52,7 @@ export function TabSaveFooter({
               }}
             />
             <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] text-warm-bright">
-              Unsaved
+              {t("common:unsaved")}
             </span>
             <span className="text-[12px] text-text-3">{t("unsaved_changes_hint")}</span>
           </>

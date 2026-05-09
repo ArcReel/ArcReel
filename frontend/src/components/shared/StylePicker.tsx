@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Upload, X } from "lucide-react";
 import {
@@ -130,9 +130,21 @@ function TemplateCard({
   );
 }
 
+function revokeBlobUrl(url: string | null) {
+  if (url && url.startsWith("blob:")) URL.revokeObjectURL(url);
+}
+
 export function StylePicker({ value, onChange }: StylePickerProps) {
   const { t } = useTranslation(["common", "templates"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ownedBlobUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      revokeBlobUrl(ownedBlobUrlRef.current);
+      ownedBlobUrlRef.current = null;
+    };
+  }, []);
 
   const handleCustomTab = () => {
     onChange({ ...value, mode: "custom" });
@@ -149,7 +161,9 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    revokeBlobUrl(ownedBlobUrlRef.current);
     const objectUrl = URL.createObjectURL(file);
+    ownedBlobUrlRef.current = objectUrl;
     onChange({
       ...value,
       mode: "custom",
@@ -161,6 +175,8 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
   };
 
   const handleClearUpload = () => {
+    revokeBlobUrl(ownedBlobUrlRef.current);
+    ownedBlobUrlRef.current = null;
     onChange({ ...value, uploadedFile: null, uploadedPreview: null });
   };
 

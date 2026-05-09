@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { voidCall } from "@/utils/async";
+import { errMsg, voidCall } from "@/utils/async";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -59,10 +59,12 @@ type Selection =
   | null;
 
 export function ProviderSection() {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [location, navigate] = useLocation();
   const search = useSearch();
 
@@ -104,9 +106,15 @@ export function ProviderSection() {
 
   useEffect(() => {
     let disposed = false;
+    setLoading(true);
+    setLoadError(null);
     voidCall(
-      Promise.all([API.getProviders(), API.listCustomProviders()]).then(
-        ([presetRes, customRes]) => {
+      (async () => {
+        try {
+          const [presetRes, customRes] = await Promise.all([
+            API.getProviders(),
+            API.listCustomProviders(),
+          ]);
           if (disposed) return;
           setProviders(presetRes.providers);
           setCustomProviders(customRes.providers);
@@ -118,14 +126,35 @@ export function ProviderSection() {
           ) {
             setSelection({ kind: "preset", id: presetRes.providers[0].id });
           }
-          setLoading(false);
-        },
-      ),
+        } catch (err) {
+          if (!disposed) setLoadError(errMsg(err));
+        } finally {
+          if (!disposed) setLoading(false);
+        }
+      })(),
     );
     return () => {
       disposed = true;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loadError) {
+    return (
+      <div role="alert" className="flex flex-col items-start gap-2.5 px-6 py-8">
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+          {t("common:load_failed")}
+        </span>
+        <p className="text-[12.5px] text-text-2">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {t("common:retry")}
+        </button>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

@@ -7,6 +7,7 @@ import {
   ComboboxOptions,
 } from "@headlessui/react";
 import { ChevronDown, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { DROPDOWN_PANEL_STYLE, ICON_BTN_CLS, INPUT_CLS } from "./darkroom-tokens";
 
 export interface ModelComboboxProps {
@@ -35,7 +36,9 @@ export function ModelCombobox({
   clearable,
   clearAriaLabel,
 }: ModelComboboxProps) {
+  const { t } = useTranslation("dashboard");
   const [query, setQuery] = useState("");
+  const clearLabel = clearAriaLabel ?? t("clear_input");
 
   const filtered = useMemo(() => {
     if (query === "") return options;
@@ -81,7 +84,7 @@ export function ModelCombobox({
               onChange("");
             }}
             className={`absolute right-8 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
-            aria-label={clearAriaLabel}
+            aria-label={clearLabel}
             disabled={disabled}
             tabIndex={-1}
           >

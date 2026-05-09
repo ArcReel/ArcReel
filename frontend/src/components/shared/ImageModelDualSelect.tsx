@@ -58,6 +58,9 @@ interface OptionCaps {
 
 const BOTH_CAPS: OptionCaps = { t2i: true, i2i: true };
 
+const DUAL_HEADER_LABEL_CLS =
+  "mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
+
 function buildCapsLookup(
   customProviders: CustomProviderInfo[],
   endpointToCaps: Record<string, ImageCap[]>,
@@ -187,7 +190,7 @@ export function ImageModelDualSelect({
   return (
     <div className="space-y-3">
       <div>
-        <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">{labelT2I ?? t("model_image_t2i")}</div>
+        <div className={DUAL_HEADER_LABEL_CLS}>{labelT2I ?? t("model_image_t2i")}</div>
         <ProviderModelSelect
           value={valueT2I}
           options={t2iOptions}
@@ -202,7 +205,7 @@ export function ImageModelDualSelect({
       </div>
 
       <div>
-        <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">{labelI2I ?? t("model_image_i2i")}</div>
+        <div className={DUAL_HEADER_LABEL_CLS}>{labelI2I ?? t("model_image_i2i")}</div>
         <ProviderModelSelect
           value={valueI2I}
           options={i2iOptions}

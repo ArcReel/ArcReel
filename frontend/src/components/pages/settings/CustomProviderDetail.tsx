@@ -36,7 +36,7 @@ interface CustomProviderDetailProps {
 }
 
 export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomProviderDetailProps) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
@@ -180,11 +180,11 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
                 </span>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-text-3">Base URL</span>
+                <span className="text-text-3">{t("base_url")}</span>
                 <span className="truncate font-mono text-[11.5px] text-text">{provider.base_url}</span>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-text-3">API Key</span>
+                <span className="text-text-3">{t("api_key_label")}</span>
                 <span className="font-mono text-[11.5px] text-text">
                   {provider.api_key_masked || t("api_key_not_set")}
                 </span>
@@ -192,7 +192,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
               <div className="flex justify-between gap-4">
                 <span className="text-text-3">{t("created_at")}</span>
                 <span className="text-text">
-                  {new Date(provider.created_at).toLocaleDateString("zh-CN")}
+                  {new Date(provider.created_at).toLocaleDateString(i18n.language)}
                 </span>
               </div>
             </div>

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 interface FieldLabelProps {
   htmlFor?: string;
@@ -18,12 +19,13 @@ export function FieldLabel({
   className,
   children,
 }: FieldLabelProps) {
+  const { t } = useTranslation("common");
   const wrapperClass = className ?? "mb-1.5";
   const inner = (
     <>
       {children}
       {required ? (
-        <span aria-label="required" className="ml-1 text-warm-bright">
+        <span aria-label={t("required")} className="ml-1 text-warm-bright">
           *
         </span>
       ) : null}

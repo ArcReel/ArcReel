@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type CSSProperties } from "react";
-import { voidCall, voidPromise } from "@/utils/async";
+import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -240,11 +240,13 @@ interface Props {
 }
 
 export function ProviderDetail({ providerId, onSaved }: Props) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
   const [detail, setDetail] = useState<ProviderConfigDetail | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const hasDraft = Object.keys(draft).length > 0;
   useWarnUnsaved(hasDraft);
@@ -259,15 +261,20 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     let disposed = false;
     setDraft({});
     setDetail(null);
+    setLoadError(null);
     voidCall(
-      API.getProviderConfig(providerId).then((res) => {
-        if (!disposed) setDetail(res);
-      }),
+      API.getProviderConfig(providerId)
+        .then((res) => {
+          if (!disposed) setDetail(res);
+        })
+        .catch((err: unknown) => {
+          if (!disposed) setLoadError(errMsg(err));
+        }),
     );
     return () => {
       disposed = true;
     };
-  }, [providerId]);
+  }, [providerId, reloadKey]);
 
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;
@@ -286,6 +293,24 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       setSaving(false);
     }
   }, [draft, providerId, onSaved]);
+
+  if (loadError) {
+    return (
+      <div role="alert" className="flex flex-col items-start gap-2.5 px-1 py-10">
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+          {t("common:load_failed")}
+        </span>
+        <p className="text-[12.5px] text-text-2">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {t("common:retry")}
+        </button>
+      </div>
+    );
+  }
 
   if (!detail) {
     return (
