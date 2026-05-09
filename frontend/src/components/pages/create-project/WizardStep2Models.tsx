@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
-import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 
@@ -91,7 +91,7 @@ export function WizardStep2Models({
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3.5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className={GHOST_BTN_LG_CLS}
           >
             <span aria-hidden>←</span>
             {t("templates:prev_step")}
@@ -100,7 +100,7 @@ export function WizardStep2Models({
             type="button"
             onClick={onNext}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >
             {t("templates:next_step")}

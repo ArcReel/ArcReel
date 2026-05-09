@@ -12,7 +12,7 @@ import { StylePicker, type StylePickerValue } from "@/components/shared/StylePic
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
-import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
@@ -474,7 +474,7 @@ export function ProjectSettingsPage() {
                     type="button"
                     onClick={voidPromise(handleSaveStyle)}
                     disabled={isStyleSaveDisabled}
-                    className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                    className={ACCENT_BTN_CLS}
                     style={ACCENT_BUTTON_STYLE}
                   >
                     {savingStyle && (
@@ -691,14 +691,14 @@ export function ProjectSettingsPage() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-              className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3.5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className={GHOST_BTN_LG_CLS}
             >
               {t("common:cancel")}
             </button>
             <button
               onClick={voidPromise(handleSave)}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-[8px] px-5 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+              className={`${ACCENT_BTN_CLS} px-5`}
               style={ACCENT_BUTTON_STYLE}
             >
               {saving && <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />}

@@ -7,7 +7,7 @@ import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { formatDurationsLabel } from "@/utils/duration_format";
-import { ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 const MEDIA_LABELS: Record<string, string> = {
@@ -294,7 +294,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1.5 rounded-[8px] px-3.5 py-1.5 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >
             <Pencil className="h-3.5 w-3.5" />

@@ -23,7 +23,7 @@ import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
 import { Popover } from "@/components/ui/Popover";
-import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_CLS, ICON_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import { TabSaveFooter } from "./TabSaveFooter";
 
@@ -100,9 +100,6 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
 // ---------------------------------------------------------------------------
 // Style constants
 // ---------------------------------------------------------------------------
-
-const SMALL_BTN_CLS =
-  "rounded-[5px] p-1 text-text-4 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 const INLINE_CLEAR_CLS =
   "ml-1.5 inline-flex items-center rounded-[5px] p-0.5 text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -573,7 +570,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   <button
                     type="button"
                     onClick={() => updateDraft("anthropicKey", "")}
-                    className={`absolute right-8 top-1/2 -translate-y-1/2 ${SMALL_BTN_CLS}`}
+                    className={`absolute right-8 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
                     aria-label={t("clear_input")}
                   >
                     <X className="h-3.5 w-3.5" aria-hidden />
@@ -582,7 +579,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 <button
                   type="button"
                   onClick={() => setShowKey((v) => !v)}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${SMALL_BTN_CLS}`}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
                   aria-label={showKey ? t("hide_key") : t("show_key")}
                 >
                   {showKey ? (
@@ -643,7 +640,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   <button
                     type="button"
                     onClick={() => updateDraft("anthropicBaseUrl", "")}
-                    className={`absolute right-2 top-1/2 -translate-y-1/2 ${SMALL_BTN_CLS}`}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
                     aria-label={t("clear_base_url_input")}
                   >
                     <X className="h-3.5 w-3.5" aria-hidden />

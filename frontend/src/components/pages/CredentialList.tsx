@@ -14,19 +14,15 @@ import {
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import {
+  ACCENT_BTN_SM_CLS,
   ACCENT_BUTTON_STYLE,
   CARD_STYLE,
   GHOST_BTN_CLS,
+  ICON_BTN_CLS,
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { ProviderCredential, ProviderTestResult } from "@/types";
-
-const PRIMARY_BTN_CLS =
-  "inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
-
-const ICON_BTN_CLS =
-  "rounded-[5px] p-1.5 text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 interface RowProps {
   cred: ProviderCredential;
@@ -311,7 +307,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               type="button"
               onClick={() => void handleSaveEdit()}
               disabled={saving}
-              className={PRIMARY_BTN_CLS}
+              className={ACCENT_BTN_SM_CLS}
               style={ACCENT_BUTTON_STYLE}
             >
               {saving ? (
@@ -478,7 +474,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
           type="button"
           onClick={() => void handleSubmit()}
           disabled={saving || !name.trim()}
-          className={PRIMARY_BTN_CLS}
+          className={ACCENT_BTN_SM_CLS}
           style={ACCENT_BUTTON_STYLE}
         >
           {saving ? (

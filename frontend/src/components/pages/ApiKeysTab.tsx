@@ -20,7 +20,13 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { copyText } from "@/utils/clipboard";
 import { errMsg } from "@/utils/async";
-import { ACCENT_BUTTON_STYLE, CARD_STYLE, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import {
+  ACCENT_BTN_CLS,
+  ACCENT_BUTTON_STYLE,
+  CARD_STYLE,
+  ICON_BTN_FILLED_CLS,
+  INPUT_CLS,
+} from "@/components/ui/darkroom-tokens";
 import type { ApiKeyInfo, CreateApiKeyResponse } from "@/types";
 
 const MODAL_STYLE: CSSProperties = {
@@ -172,7 +178,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-[6px] p-1 text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className={ICON_BTN_FILLED_CLS}
               aria-label={t("common:cancel")}
             >
               <X className="h-4 w-4" />
@@ -238,7 +244,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 type="button"
                 onClick={() => void handleCreate()}
                 disabled={!canCreate || creating}
-                className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+                className={ACCENT_BTN_CLS}
                 style={ACCENT_BUTTON_STYLE}
               >
                 {creating && (
@@ -275,7 +281,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
               <button
                 type="button"
                 onClick={() => void handleCopy()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[6px] p-1.5 text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_FILLED_CLS}`}
                 title={t("common:copy")}
               >
                 {copied ? (
@@ -378,7 +384,7 @@ export function ApiKeysTab() {
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="inline-flex shrink-0 items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className={`${ACCENT_BTN_CLS} shrink-0`}
           style={ACCENT_BUTTON_STYLE}
         >
           <Plus className="h-3.5 w-3.5" aria-hidden />

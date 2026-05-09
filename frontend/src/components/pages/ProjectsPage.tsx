@@ -34,6 +34,7 @@ import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
+import { ICON_BTN_FILLED_CLS } from "@/components/ui/darkroom-tokens";
 import {
   PHASE_ORDER,
   type Phase,
@@ -892,7 +893,7 @@ function TopBar({
           <button
             type="button"
             onClick={onSettings}
-            className="relative rounded-md p-1.5 text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className={`relative ${ICON_BTN_FILLED_CLS}`}
             title={t("settings")}
             aria-label={t("settings")}
           >

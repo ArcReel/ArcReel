@@ -6,7 +6,7 @@ import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
 import { CredentialList } from "@/components/pages/CredentialList";
-import { ACCENT_BUTTON_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { ProviderConfigDetail, ProviderField } from "@/types";
 
@@ -364,7 +364,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
                     type="button"
                     onClick={() => void handleSave()}
                     disabled={saving}
-                    className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    className={ACCENT_BTN_CLS}
                     style={ACCENT_BUTTON_STYLE}
                   >
                     {saving ? (

@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 
 interface TabSaveFooterProps {
   isDirty: boolean;
@@ -70,7 +70,7 @@ export function TabSaveFooter({
             type="button"
             onClick={onReset}
             disabled={controlsDisabled}
-            className="inline-flex items-center gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3.5 py-2 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className={GHOST_BTN_LG_CLS}
           >
             {t("common:reset")}
           </button>
@@ -79,9 +79,7 @@ export function TabSaveFooter({
           type="button"
           onClick={onSave}
           disabled={!isDirty || controlsDisabled}
-          className={
-            "inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[12.5px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
-          }
+          className={ACCENT_BTN_CLS}
           style={
             isDirty
               ? ACCENT_BUTTON_STYLE

@@ -1,14 +1,8 @@
-import { useState, useRef, useEffect, useCallback, useMemo, useId, type CSSProperties } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Check, Search } from "lucide-react";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
-
-const DROPDOWN_PANEL_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
-};
+import { DROPDOWN_PANEL_STYLE } from "@/components/ui/darkroom-tokens";
 
 interface ProviderModelSelectProps {
   value: string; // "gemini-aistudio/veo-3.1-generate-001"

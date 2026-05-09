@@ -3,7 +3,7 @@ import { AlertTriangle, ExternalLink, Info, Loader2, RefreshCcw } from "lucide-r
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import type { GetSystemVersionResponse } from "@/types";
 
 function formatDate(value: string, locale: string): string {
@@ -154,7 +154,7 @@ export function AboutSection() {
           <button
             type="button"
             onClick={() => void fetchVersion()}
-            className="inline-flex items-center justify-center gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3.5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className={`${GHOST_BTN_LG_CLS} justify-center`}
           >
             <RefreshCcw
               className={`h-3.5 w-3.5 ${refreshing ? "motion-safe:animate-spin" : ""}`}

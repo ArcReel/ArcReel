@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState } from "react";
 import {
   Combobox,
   ComboboxButton,
@@ -7,17 +7,7 @@ import {
   ComboboxOptions,
 } from "@headlessui/react";
 import { ChevronDown, X } from "lucide-react";
-
-const inputClassName =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50";
-
-const smallBtnClassName =
-  "rounded-[5px] p-1 text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-
-const DROPDOWN_PANEL_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
-};
+import { DROPDOWN_PANEL_STYLE, ICON_BTN_CLS, INPUT_CLS } from "./darkroom-tokens";
 
 export interface ModelComboboxProps {
   id?: string;
@@ -74,7 +64,7 @@ export function ModelCombobox({
           placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
-          className={`${inputClassName} ${rightPadding}`}
+          className={`${INPUT_CLS} ${rightPadding}`}
           displayValue={(v: string | null) => v ?? ""}
           onChange={(e) => {
             const next = e.target.value;
@@ -90,7 +80,7 @@ export function ModelCombobox({
               setQuery("");
               onChange("");
             }}
-            className={`absolute right-8 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
+            className={`absolute right-8 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
             aria-label={clearAriaLabel}
             disabled={disabled}
             tabIndex={-1}
@@ -100,7 +90,7 @@ export function ModelCombobox({
         )}
 
         <ComboboxButton
-          className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
+          className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
           aria-label="toggle"
         >
           <ChevronDown className="h-4 w-4" />
