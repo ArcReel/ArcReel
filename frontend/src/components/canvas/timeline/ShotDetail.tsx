@@ -410,20 +410,8 @@ export function ShotDetail({
     setDraft({ image_prompt: ip, video_prompt: vp });
   };
 
-  const sbEstimate = useMemo(
-    () =>
-      segCost?.estimate?.image
-        ? Object.values(segCost.estimate.image).reduce((a, b) => a + b, 0)
-        : undefined,
-    [segCost?.estimate?.image],
-  );
-  const vidEstimate = useMemo(
-    () =>
-      segCost?.estimate?.video
-        ? Object.values(segCost.estimate.video).reduce((a, b) => a + b, 0)
-        : undefined,
-    [segCost?.estimate?.video],
-  );
+  const sbEstimate = segCost?.estimate?.image;
+  const vidEstimate = segCost?.estimate?.video;
 
   const assets = segment.generated_assets;
   const hasStoryboard = !!assets?.storyboard_image;
