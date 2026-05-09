@@ -48,9 +48,15 @@ _IMAGE_MIME_TYPES: dict[str, str] = {
 }
 
 
-def resolve_vidu_api_key(api_key: str | None = None) -> str:
-    """解析 Vidu API Key，支持环境变量 fallback。"""
-    resolved = api_key or os.environ.get("VIDU_API_KEY")
+def resolve_vidu_api_key(api_key: str | None = None, *, allow_env_fallback: bool = True) -> str:
+    """解析 Vidu API Key。
+
+    默认允许环境变量 ``VIDU_API_KEY`` 兜底，便于本地脚本/CLI 直跑。
+    连接测试场景须传 ``allow_env_fallback=False``——否则当用户在 settings
+    页未填 key 但开发机环境恰好导出了 ``VIDU_API_KEY`` 时，会用环境变量假成功，
+    误导用户以为新填的凭证有效。
+    """
+    resolved = api_key or (os.environ.get("VIDU_API_KEY") if allow_env_fallback else None)
     if not resolved:
         raise ValueError("Vidu API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
     return resolved
@@ -213,7 +219,7 @@ def test_vidu_connection(config: dict[str, str]) -> None:
     采用白名单：仅在凭证有效时服务端会返回 404（task 不存在）；任何其他状态码
     （包括 5xx 网关错误）都视为不可判定，统一抛错避免误判成功。
     """
-    api_key = resolve_vidu_api_key(config.get("api_key"))
+    api_key = resolve_vidu_api_key(config.get("api_key"), allow_env_fallback=False)
     base_url = (config.get("base_url") or VIDU_BASE_URL).rstrip("/")
     headers = {"Authorization": f"Token {api_key}"}
     with httpx.Client(timeout=10.0) as client:
