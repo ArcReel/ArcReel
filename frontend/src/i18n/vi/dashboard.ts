@@ -1,4 +1,4 @@
-import type enDashboard from '../en/dashboard';
+import type enDashboard from "@/i18n/en/dashboard";
 
 export default {
   'app_title': 'ArcReel',
