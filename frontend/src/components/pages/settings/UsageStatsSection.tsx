@@ -3,13 +3,36 @@ import { useState, useEffect, useMemo, useCallback, type CSSProperties } from "r
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
+import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { UsageStat } from "@/types";
 
 const currencyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
+const EDITORIAL_KPI_STYLE: CSSProperties = {
+  fontSize: 22,
+  fontWeight: 400,
+  letterSpacing: "-0.01em",
+  lineHeight: 1.1,
+  color: "var(--color-text)",
+};
+
+const EDITORIAL_HEADING_STYLE: CSSProperties = {
+  fontWeight: 400,
+  fontSize: 22,
+  lineHeight: 1.1,
+  letterSpacing: "-0.012em",
+  color: "var(--color-text)",
+};
+
+const EDITORIAL_STAT_VALUE_STYLE: CSSProperties = {
+  fontSize: 18,
+  fontWeight: 400,
+  letterSpacing: "-0.01em",
+  color: "var(--color-text)",
+};
+
+const ACTIVE_RANGE_BTN_STYLE: CSSProperties = {
+  boxShadow: "0 0 18px -8px var(--color-accent-glow)",
 };
 
 export function UsageStatsSection() {
@@ -84,16 +107,7 @@ export function UsageStatsSection() {
         <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
           Spend Ledger
         </div>
-        <h3
-          className="font-editorial mt-1"
-          style={{
-            fontWeight: 400,
-            fontSize: 22,
-            lineHeight: 1.1,
-            letterSpacing: "-0.012em",
-            color: "var(--color-text)",
-          }}
-        >
+        <h3 className="font-editorial mt-1" style={EDITORIAL_HEADING_STYLE}>
           {t("usage_stats")}
         </h3>
         <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-3">
@@ -122,16 +136,7 @@ export function UsageStatsSection() {
             <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-text-4">
               {kpi.label}
             </div>
-            <div
-              className="font-editorial mt-1"
-              style={{
-                fontSize: 22,
-                fontWeight: 400,
-                letterSpacing: "-0.01em",
-                lineHeight: 1.1,
-                color: "var(--color-text)",
-              }}
-            >
+            <div className="font-editorial mt-1" style={EDITORIAL_KPI_STYLE}>
               {kpi.value}
             </div>
           </div>
@@ -154,13 +159,7 @@ export function UsageStatsSection() {
                   ? "border-accent/45 bg-accent-dim text-accent-2"
                   : "border-hairline-soft bg-bg-grad-a/45 text-text-3 hover:border-hairline hover:text-text")
               }
-              style={
-                active
-                  ? {
-                      boxShadow: "0 0 18px -8px var(--color-accent-glow)",
-                    }
-                  : undefined
-              }
+              style={active ? ACTIVE_RANGE_BTN_STYLE : undefined}
             >
               {r.label}
             </button>
@@ -217,12 +216,7 @@ export function UsageStatsSection() {
                   </div>
                   <div
                     className="font-editorial shrink-0 tabular-nums"
-                    style={{
-                      fontSize: 18,
-                      fontWeight: 400,
-                      letterSpacing: "-0.01em",
-                      color: "var(--color-text)",
-                    }}
+                    style={EDITORIAL_STAT_VALUE_STYLE}
                   >
                     {currencyFmt.format(s.total_cost_usd)}
                   </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Combobox,
   ComboboxButton,
@@ -13,6 +13,11 @@ const inputClassName =
 
 const smallBtnClassName =
   "rounded-[5px] p-1 text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const DROPDOWN_PANEL_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
+};
 
 export interface ModelComboboxProps {
   id?: string;
@@ -104,13 +109,14 @@ export function ModelCombobox({
         {filtered.length > 0 && (
           <ComboboxOptions
             anchor="bottom start"
-            className="z-50 mt-1 w-[var(--input-width)] max-h-60 overflow-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl focus:outline-none"
+            className="z-50 mt-1 w-[var(--input-width)] max-h-60 overflow-auto rounded-[8px] border border-hairline py-1 shadow-xl backdrop-blur focus:outline-none"
+            style={DROPDOWN_PANEL_STYLE}
           >
             {filtered.map((option) => (
               <ComboboxOption
                 key={option}
                 value={option}
-                className="cursor-pointer select-none px-3 py-2 text-sm text-gray-200 data-[focus]:bg-gray-800 data-[focus]:text-white"
+                className="cursor-pointer select-none px-3 py-2 text-[12.5px] text-text-2 data-[focus]:bg-accent-dim data-[focus]:text-text"
               >
                 {option}
               </ComboboxOption>

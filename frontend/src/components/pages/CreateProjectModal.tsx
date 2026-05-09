@@ -33,6 +33,35 @@ const STEPS = [
   { num: 3, key: "wizard_step_style" },
 ] as const;
 
+const STEP_BADGE_GRADIENT =
+  "linear-gradient(180deg, oklch(0.30 0.05 295 / 0.65), oklch(0.20 0.02 280 / 0.65))";
+
+const STEP_BADGE_ACTIVE_STYLE: CSSProperties = {
+  background: STEP_BADGE_GRADIENT,
+  boxShadow:
+    "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px var(--color-accent-glow)",
+};
+
+const STEP_BADGE_DONE_STYLE: CSSProperties = {
+  background: STEP_BADGE_GRADIENT,
+  boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.05)",
+};
+
+const STEP_BADGE_INACTIVE_STYLE: CSSProperties = {
+  background: "oklch(0.16 0.010 265 / 0.55)",
+};
+
+const STEP_CONNECTOR_DONE_STYLE: CSSProperties = {
+  height: 1,
+  background:
+    "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 295 / 0.4))",
+};
+
+const STEP_CONNECTOR_INACTIVE_STYLE: CSSProperties = {
+  height: 1,
+  background: "var(--color-hairline-soft)",
+};
+
 function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
   const { t } = useTranslation("templates");
   return (
@@ -63,15 +92,11 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                         : "border border-hairline-soft text-text-4")
                   }
                   style={
-                    done || active
-                      ? {
-                          background:
-                            "linear-gradient(180deg, oklch(0.30 0.05 295 / 0.65), oklch(0.20 0.02 280 / 0.65))",
-                          boxShadow: active
-                            ? "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px var(--color-accent-glow)"
-                            : "inset 0 1px 0 oklch(1 0 0 / 0.05)",
-                        }
-                      : { background: "oklch(0.16 0.010 265 / 0.55)" }
+                    active
+                      ? STEP_BADGE_ACTIVE_STYLE
+                      : done
+                        ? STEP_BADGE_DONE_STYLE
+                        : STEP_BADGE_INACTIVE_STYLE
                   }
                 >
                   {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : s.num.toString().padStart(2, "0")}
@@ -99,13 +124,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                 <div
                   aria-hidden
                   className="ml-3 flex-1"
-                  style={{
-                    height: 1,
-                    background:
-                      done
-                        ? "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 295 / 0.4))"
-                        : "var(--color-hairline-soft)",
-                  }}
+                  style={done ? STEP_CONNECTOR_DONE_STYLE : STEP_CONNECTOR_INACTIVE_STYLE}
                 />
               )}
             </li>

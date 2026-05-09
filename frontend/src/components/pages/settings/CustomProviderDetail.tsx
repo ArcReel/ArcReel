@@ -7,22 +7,8 @@ import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { formatDurationsLabel } from "@/utils/duration_format";
+import { ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { CustomProviderForm } from "./CustomProviderForm";
-
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
-
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-};
-
-const GHOST_BTN_CLS =
-  "inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
 
 const MEDIA_LABELS: Record<string, string> = {
   text: "media_type_text",
@@ -184,7 +170,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
           {/* Info card */}
           <div className="rounded-[10px] border border-hairline p-5" style={CARD_STYLE}>
             <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-              {t("discovery_format_label")}
+              Connection
             </div>
             <div className="space-y-2 text-[12.5px]">
               <div className="flex justify-between gap-4">

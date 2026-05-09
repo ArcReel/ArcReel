@@ -12,17 +12,8 @@ import { StylePicker, type StylePickerValue } from "@/components/shared/StylePic
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
+import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
 import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
-
-// 项目设置页 · "Project Booth"
-// 单列表单 + Darkroom 美学：editorial 标题 + mono kicker + hairline 卡片 + accent CTA。
-
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
   const styleImage = project.style_image as string | undefined;
@@ -69,7 +60,7 @@ function SectionCard({ kicker, title, description, children, footer }: SectionCa
       }}
     >
       <header className="px-5 pt-4 pb-3 border-b border-hairline-soft">
-        <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
           {kicker}
         </div>
         {title ? (

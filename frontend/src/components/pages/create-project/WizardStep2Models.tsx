@@ -1,7 +1,7 @@
-import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 
@@ -34,13 +34,6 @@ export interface WizardStep2ModelsProps {
   error: string | null;
 }
 
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
-
 export function WizardStep2Models({
   value,
   onChange,
@@ -62,9 +55,10 @@ export function WizardStep2Models({
         </div>
       )}
       {error && (
-        <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-4 py-6 text-center">
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
-            ▲ Error
+        <div role="alert" className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-4 py-6 text-center">
+          <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+            <AlertTriangle aria-hidden className="h-3 w-3" />
+            Error
           </div>
           <p className="mt-1.5 text-[12.5px] text-text-2">{error}</p>
         </div>

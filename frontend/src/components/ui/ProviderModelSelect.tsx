@@ -1,7 +1,14 @@
-import { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useId, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Check, Search } from "lucide-react";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
+
+const DROPDOWN_PANEL_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
+  backdropFilter: "blur(12px)",
+  WebkitBackdropFilter: "blur(12px)",
+};
 
 interface ProviderModelSelectProps {
   value: string; // "gemini-aistudio/veo-3.1-generate-001"
@@ -293,12 +300,7 @@ export function ProviderModelSelect({
       {open && (
         <div
           className="absolute z-50 mt-1 w-full rounded-[8px] border border-hairline shadow-xl"
-          style={{
-            background:
-              "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-          }}
+          style={DROPDOWN_PANEL_STYLE}
         >
           {showSearch && (
             <div className="relative border-b border-hairline-soft p-2">
@@ -318,7 +320,7 @@ export function ProviderModelSelect({
                 aria-activedescendant={activeDescendantId}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-[6px] border border-hairline bg-bg-grad-a/65 py-1.5 pl-8 pr-2 text-[12.5px] text-text placeholder:text-text-4 focus:border-accent/55 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full rounded-[6px] border border-hairline bg-bg-grad-a/65 py-1.5 pl-8 pr-2 text-[12.5px] text-text placeholder:text-text-4 focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
             </div>
           )}

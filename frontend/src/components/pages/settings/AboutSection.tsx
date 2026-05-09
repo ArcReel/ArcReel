@@ -1,14 +1,10 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { ExternalLink, Info, Loader2, RefreshCcw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, ExternalLink, Info, Loader2, RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
+import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { GetSystemVersionResponse } from "@/types";
-
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-};
 
 function formatDate(value: string, locale: string): string {
   if (!value) return "-";
@@ -29,43 +25,38 @@ export function AboutSection() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    let mounted = true;
-    setRefreshing(true);
-    void (async () => {
-      try {
-        const result = await API.getSystemVersion();
-        if (mounted) setData(result);
-      } catch (err) {
-        if (mounted) setError(err instanceof Error ? err.message : t("about_load_failed"));
-      } finally {
-        if (mounted) {
-          setLoading(false);
-          setRefreshing(false);
-        }
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-    // 仅 mount 时拉一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
-  async function handleRefresh() {
+  const fetchVersion = useCallback(async () => {
     setError(null);
     setRefreshing(true);
     try {
       const result = await API.getSystemVersion();
-      setData(result);
+      if (mountedRef.current) setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("about_load_failed"));
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err.message : t("about_load_failed"));
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }
+  }, [t]);
+
+  useEffect(() => {
+    void fetchVersion();
+    // 仅 mount 时拉一次；fetchVersion 闭包稳定（仅依赖 t）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
@@ -162,7 +153,7 @@ export function AboutSection() {
 
           <button
             type="button"
-            onClick={() => void handleRefresh()}
+            onClick={() => void fetchVersion()}
             className="inline-flex items-center justify-center gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3.5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <RefreshCcw
@@ -175,17 +166,16 @@ export function AboutSection() {
 
         {(error || data?.update_check_error) && (
           <div
-            className="mt-5 rounded-[8px] border px-4 py-3 text-[12px]"
+            role="alert"
+            className="mt-5 flex items-start gap-1.5 rounded-[8px] border px-4 py-3 text-[12px]"
             style={{
               borderColor: "var(--color-warm-ring)",
               background: "var(--color-warm-tint)",
               color: "var(--color-warm-bright)",
             }}
           >
-            <span className="mr-1.5" aria-hidden>
-              ▲
-            </span>
-            {error ?? data?.update_check_error}
+            <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{error ?? data?.update_check_error}</span>
           </div>
         )}
 

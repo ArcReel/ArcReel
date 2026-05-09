@@ -6,15 +6,11 @@ import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { ImageModelDualSelect } from "./ImageModelDualSelect";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 
 const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
-
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-};
 
 export interface ModelConfigValue {
   videoBackend: string;

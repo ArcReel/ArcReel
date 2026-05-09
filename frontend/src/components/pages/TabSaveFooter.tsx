@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
-import { Loader2, Save } from "lucide-react";
+import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
 
 interface TabSaveFooterProps {
   isDirty: boolean;
@@ -10,13 +11,6 @@ interface TabSaveFooterProps {
   onSave: () => void;
   onReset: () => void;
 }
-
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
 
 const FOOTER_DIRTY_STYLE: CSSProperties = {
   background:
@@ -64,10 +58,10 @@ export function TabSaveFooter({
           </>
         )}
         {error && (
-          <>
-            <span aria-hidden className="text-warm">▲</span>
+          <div role="alert" className="flex min-w-0 items-center gap-1.5">
+            <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0 text-warm" />
             <span className="truncate text-[12px] text-warm-bright">{error}</span>
-          </>
+          </div>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">

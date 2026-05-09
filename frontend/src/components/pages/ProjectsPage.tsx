@@ -900,7 +900,7 @@ function TopBar({
             {configIncomplete ? (
               <span
                 aria-label={t("config_incomplete")}
-                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500"
+                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-warm-bright"
               />
             ) : null}
           </button>
@@ -1586,7 +1586,7 @@ function DeleteConfirmDialog({
         <div className="flex items-start gap-4">
           <div
             aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-500"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warm-tint text-warm-bright"
           >
             <AlertTriangle className="h-6 w-6" />
           </div>
@@ -1612,7 +1612,7 @@ function DeleteConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-warm-ring bg-warm-tint px-4 py-2 text-sm font-medium text-warm-bright transition-colors hover:border-warm-bright/60 hover:bg-warm-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading && <Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
             {loading ? t("dashboard:deleting_project") : t("dashboard:delete_project")}
@@ -1676,11 +1676,11 @@ function ConflictDialog({
             onClick={() => onConfirm("overwrite")}
             disabled={importing}
             aria-label={t("dashboard:overwrite_existing")}
-            className="flex w-full items-center justify-between rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-left text-sm text-red-100 transition-colors hover:border-red-300/40 hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-between rounded-xl border border-warm-ring bg-warm-tint px-4 py-3 text-left text-sm text-warm-bright transition-colors hover:border-warm-bright/60 hover:bg-warm-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span>
               <span className="block font-medium">{t("dashboard:overwrite_existing")}</span>
-              <span className="mt-1 block text-xs text-red-200/80">
+              <span className="mt-1 block text-xs text-warm-fade">
                 {t("dashboard:overwrite_hint")}
               </span>
             </span>

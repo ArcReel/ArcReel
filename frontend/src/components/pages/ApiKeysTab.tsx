@@ -20,27 +20,13 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { copyText } from "@/utils/clipboard";
 import { errMsg } from "@/utils/async";
+import { ACCENT_BUTTON_STYLE, CARD_STYLE, INPUT_CLS } from "@/components/ui/darkroom-tokens";
 import type { ApiKeyInfo, CreateApiKeyResponse } from "@/types";
-
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
-
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-};
 
 const MODAL_STYLE: CSSProperties = {
   background:
     "linear-gradient(180deg, oklch(0.21 0.012 270 / 0.96), oklch(0.16 0.010 265 / 0.96))",
 };
-
-const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,9 +81,17 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreateApiKeyResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
 
   const canCreate = useMemo(() => name.trim().length > 0, [name]);
   const nameInputRef = useAutoFocus<HTMLInputElement>();
+
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    },
+    [],
+  );
 
   const handleCreate = useCallback(async () => {
     if (!canCreate || creating) return;
@@ -125,7 +119,8 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
     if (!created?.key) return;
     await copyText(created.key);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
   }, [created?.key]);
 
   useEscapeClose(onClose);
@@ -188,30 +183,39 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
         {!created ? (
           <div className="space-y-5">
             <div>
-              <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+              <label
+                htmlFor="apikey-name"
+                className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+              >
                 {t("name")}
               </label>
               <p className="mt-1 text-[12px] leading-[1.55] text-text-3">
                 {t("key_name_hint")}
               </p>
               <input
+                id="apikey-name"
                 ref={nameInputRef}
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t("enter_key_name")}
+                autoComplete="off"
                 className={`mt-2 ${INPUT_CLS}`}
               />
             </div>
 
             <div>
-              <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+              <label
+                htmlFor="apikey-expires"
+                className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+              >
                 {t("expiration_days")}
               </label>
               <p className="mt-1 text-[12px] leading-[1.55] text-text-3">
                 {t("zero_permanent_hint")}
               </p>
               <input
+                id="apikey-expires"
                 type="number"
                 min={0}
                 value={expiresDays}
@@ -265,7 +269,8 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 readOnly
                 type="text"
                 value={created.key}
-                className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/65 px-3 py-3 pr-12 font-mono text-[12.5px] tracking-[0.04em] text-accent-2 outline-none"
+                aria-label={t("api_key")}
+                className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/65 px-3 py-3 pr-12 font-mono text-[12.5px] tracking-[0.04em] text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
               <button
                 type="button"

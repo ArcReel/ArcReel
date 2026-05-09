@@ -1,6 +1,9 @@
-import { useState, type CSSProperties } from "react";
+import { useId, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
+import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
+import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { GenerationMode } from "@/utils/generation-mode";
 
 export interface WizardStep1Value {
@@ -15,26 +18,6 @@ export interface WizardStep1BasicsProps {
   onChange: (next: WizardStep1Value) => void;
   onNext: () => void;
   onCancel: () => void;
-}
-
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
-
-function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
-  return (
-    <label className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
-      {children}
-      {required ? (
-        <span aria-label="required" className="ml-1 text-warm">
-          *
-        </span>
-      ) : null}
-    </label>
-  );
 }
 
 function radioCardClass(selected: boolean): string {
@@ -53,6 +36,9 @@ export function WizardStep1Basics({
 }: WizardStep1BasicsProps) {
   const { t } = useTranslation(["common", "dashboard", "templates"]);
   const [titleError, setTitleError] = useState("");
+  const reactId = useId();
+  const titleId = `${reactId}-title`;
+  const titleErrorId = `${reactId}-title-error`;
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setTitleError("");
@@ -71,20 +57,31 @@ export function WizardStep1Basics({
     <div className="space-y-5">
       {/* Title */}
       <div>
-        <FieldLabel required>{t("dashboard:project_title")}</FieldLabel>
+        <FieldLabel htmlFor={titleId} required>
+          {t("dashboard:project_title")}
+        </FieldLabel>
         <div className="relative">
           <input
+            id={titleId}
             type="text"
             value={value.title}
             onChange={handleTitleChange}
             placeholder={t("dashboard:rebirth_empress_example")}
             aria-required="true"
-            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[14px] text-text placeholder:text-text-4 outline-none transition-colors focus:border-accent/55 focus:bg-bg-grad-a/85 focus-visible:ring-2 focus-visible:ring-accent"
+            aria-invalid={titleError ? "true" : undefined}
+            aria-describedby={titleError ? titleErrorId : undefined}
+            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[14px] text-text placeholder:text-text-4 transition-colors focus:border-accent/55 focus:bg-bg-grad-a/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />
         </div>
         {titleError ? (
-          <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-warm">
-            ▲ {titleError}
+          <p
+            id={titleErrorId}
+            role="alert"
+            aria-live="polite"
+            className="mt-1.5 inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-warm"
+          >
+            <AlertTriangle aria-hidden className="h-3 w-3" />
+            {titleError}
           </p>
         ) : null}
         <p className="mt-1.5 text-[11.5px] text-text-4">{t("dashboard:project_id_auto_gen_hint")}</p>

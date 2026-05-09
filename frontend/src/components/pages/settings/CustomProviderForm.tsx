@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, type CSSProperties } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -23,30 +23,20 @@ import {
   type DurationParseErrorCode,
 } from "@/utils/duration_format";
 
+import {
+  ACCENT_BUTTON_STYLE,
+  CARD_STYLE,
+  GHOST_BTN_CLS,
+  INPUT_CLS,
+} from "@/components/ui/darkroom-tokens";
+import { FieldLabel } from "@/components/ui/FieldLabel";
+
 // ---------------------------------------------------------------------------
 // Style constants
 // ---------------------------------------------------------------------------
 
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
-
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-};
-
-const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-
 const COMPACT_INPUT_CLS =
   "min-w-0 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[12.5px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-
-const GHOST_BTN_CLS =
-  "inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -56,26 +46,6 @@ const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] =
   { value: "openai", labelKey: "discovery_format_openai" },
   { value: "google", labelKey: "discovery_format_google" },
 ];
-
-function FieldLabel({
-  htmlFor,
-  required,
-  children,
-}: {
-  htmlFor: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <label
-      htmlFor={htmlFor}
-      className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2"
-    >
-      {children}
-      {required && <span className="ml-1 text-warm-bright">*</span>}
-    </label>
-  );
-}
 
 interface ModelRow {
   key: string; // unique key for React

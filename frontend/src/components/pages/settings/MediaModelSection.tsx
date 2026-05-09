@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -13,18 +13,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { errMsg } from "@/utils/async";
 import { getCustomProviderModels } from "@/utils/provider-models";
-
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
-
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-};
+import { ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
 
 interface CardProps {
   kicker: string;

@@ -1,7 +1,8 @@
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errMsg, voidCall } from "@/utils/async";
 import {
+  AlertTriangle,
   ChevronDown,
   Download,
   Eye,
@@ -22,6 +23,8 @@ import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
 import { Popover } from "@/components/ui/Popover";
+import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { FieldLabel } from "@/components/ui/FieldLabel";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -29,8 +32,11 @@ import { TabSaveFooter } from "./TabSaveFooter";
 // ---------------------------------------------------------------------------
 
 interface AgentDraft {
+  /** New API key input — empty string means "leave saved key untouched". */
   anthropicKey: string;
+  /** In-place edit; empty string means "clear saved value". */
   anthropicBaseUrl: string;
+  /** In-place edit; empty string means "clear saved value". */
   anthropicModel: string;
   haikuModel: string;
   opusModel: string;
@@ -95,22 +101,11 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
 // Style constants
 // ---------------------------------------------------------------------------
 
-const CARD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-};
-
-const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-
 const SMALL_BTN_CLS =
   "rounded-[5px] p-1 text-text-4 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 const INLINE_CLEAR_CLS =
   "ml-1.5 inline-flex items-center rounded-[5px] p-0.5 text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-
-const GHOST_BTN_CLS =
-  "inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50";
 
 // Model routing config
 const MODEL_ROUTING_FIELDS = [
@@ -161,7 +156,7 @@ function Section({ kicker, title, description, trailing, children }: SectionShel
     <section>
       <div className="mb-3.5 flex items-start justify-between gap-3">
         <div>
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
             {kicker}
           </div>
           <h3 className="mt-1 text-[14.5px] font-medium text-text">{title}</h3>
@@ -175,28 +170,6 @@ function Section({ kicker, title, description, trailing, children }: SectionShel
         {children}
       </div>
     </section>
-  );
-}
-
-function FieldLabel({
-  htmlFor,
-  children,
-  trailing,
-}: {
-  htmlFor?: string;
-  children: React.ReactNode;
-  trailing?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <label
-        htmlFor={htmlFor}
-        className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2"
-      >
-        {children}
-      </label>
-      {trailing}
-    </div>
   );
 }
 
@@ -410,17 +383,16 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     return (
       <div className={visible ? "px-1 py-8" : "hidden"}>
         <div
-          className="rounded-[8px] border px-4 py-3 text-[12.5px]"
+          role="alert"
+          className="flex items-start gap-1.5 rounded-[8px] border px-4 py-3 text-[12.5px]"
           style={{
             borderColor: "var(--color-warm-ring)",
             background: "var(--color-warm-tint)",
             color: "var(--color-warm-bright)",
           }}
         >
-          <span className="mr-1.5" aria-hidden>
-            ▲
-          </span>
-          {t("load_failed", { message: loadError })}
+          <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{t("load_failed", { message: loadError })}</span>
         </div>
         <button type="button" onClick={() => void load()} className={`${GHOST_BTN_CLS} mt-3`}>
           <Loader2 className="h-3.5 w-3.5" aria-hidden />
@@ -547,6 +519,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <div>
               <FieldLabel
                 htmlFor="agent-anthropic-key"
+                className=""
                 trailing={
                   settings.anthropic_api_key.is_set && (
                     <div className="flex items-center font-mono text-[10.5px] tabular-nums text-text-4">
@@ -625,6 +598,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <div className="border-t border-hairline-soft pt-4">
               <FieldLabel
                 htmlFor="agent-base-url"
+                className=""
                 trailing={
                   settings.anthropic_base_url && (
                     <button
@@ -703,6 +677,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         >
           <FieldLabel
             htmlFor="agent-model"
+            className=""
             trailing={
               settings.anthropic_model && (
                 <button
@@ -832,65 +807,48 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         </Section>
 
         {/* Section 3: Advanced */}
-        <section>
-          <div className="mb-3.5">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-              Runtime Tuning
+        <Section kicker="Runtime Tuning" title={t("advanced_settings")}>
+          <div className="space-y-4">
+            <div>
+              <FieldLabel htmlFor="agent-cleanup-delay" className="">
+                {t("session_cleanup_delay_label")}
+              </FieldLabel>
+              <p className="mt-0.5 text-[11.5px] text-text-4">
+                {t("session_cleanup_delay_desc")}
+              </p>
+              <input
+                id="agent-cleanup-delay"
+                type="number"
+                min={10}
+                max={3600}
+                value={draft.cleanupDelaySeconds}
+                onChange={(e) => updateDraft("cleanupDelaySeconds", e.target.value)}
+                className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
+                disabled={saving}
+              />
             </div>
-            <h3 className="mt-1 text-[14.5px] font-medium text-text">
-              {t("advanced_settings")}
-            </h3>
+            <div>
+              <FieldLabel htmlFor="agent-max-sessions" className="">
+                {t("max_concurrent_sessions_label")}
+              </FieldLabel>
+              <p className="mt-0.5 text-[11.5px] text-text-4">
+                {t("max_concurrent_sessions_desc")}
+              </p>
+              <input
+                id="agent-max-sessions"
+                type="number"
+                min={1}
+                max={20}
+                value={draft.maxConcurrentSessions}
+                onChange={(e) =>
+                  updateDraft("maxConcurrentSessions", e.target.value)
+                }
+                className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
+                disabled={saving}
+              />
+            </div>
           </div>
-          <div
-            className="rounded-[10px] border border-hairline p-4"
-            style={CARD_STYLE}
-          >
-            <details>
-              <summary className="flex cursor-pointer select-none items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-2 transition-colors hover:text-text">
-                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
-                {t("advanced_settings")}
-              </summary>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2">
-                    {t("session_cleanup_delay_label")}
-                  </label>
-                  <p className="mt-0.5 text-[11.5px] text-text-4">
-                    {t("session_cleanup_delay_desc")}
-                  </p>
-                  <input
-                    type="number"
-                    min={10}
-                    max={3600}
-                    value={draft.cleanupDelaySeconds}
-                    onChange={(e) => updateDraft("cleanupDelaySeconds", e.target.value)}
-                    className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
-                    disabled={saving}
-                  />
-                </div>
-                <div>
-                  <label className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2">
-                    {t("max_concurrent_sessions_label")}
-                  </label>
-                  <p className="mt-0.5 text-[11.5px] text-text-4">
-                    {t("max_concurrent_sessions_desc")}
-                  </p>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={draft.maxConcurrentSessions}
-                    onChange={(e) =>
-                      updateDraft("maxConcurrentSessions", e.target.value)
-                    }
-                    className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
-                    disabled={saving}
-                  />
-                </div>
-              </div>
-            </details>
-          </div>
-        </section>
+        </Section>
       </div>
 
       <TabSaveFooter

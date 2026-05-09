@@ -1,7 +1,7 @@
-import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
+import { ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
 
 export type WizardStep3Value = StylePickerValue;
 
@@ -13,13 +13,6 @@ export interface WizardStep3StyleProps {
   onCancel: () => void;
   creating: boolean;
 }
-
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
-};
 
 export function WizardStep3Style({
   value,
