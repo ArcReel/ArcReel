@@ -49,3 +49,9 @@ register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
 from lib.video_backends.newapi import NewAPIVideoBackend
 
 register_backend(PROVIDER_NEWAPI, NewAPIVideoBackend)
+
+# fork: Vidu — 单独 import 以避免与上游聚合 import 冲突
+from lib.providers import PROVIDER_VIDU  # noqa: E402
+from lib.video_backends.vidu import ViduVideoBackend  # noqa: E402
+
+register_backend(PROVIDER_VIDU, ViduVideoBackend)

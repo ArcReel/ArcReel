@@ -6,6 +6,7 @@ PROVIDER_GEMINI = "gemini"
 PROVIDER_ARK = "ark"
 PROVIDER_GROK = "grok"
 PROVIDER_OPENAI = "openai"
+PROVIDER_VIDU = "vidu"
 PROVIDER_NEWAPI = "newapi"
 
 CallType = Literal["image", "video", "text"]
