@@ -13,11 +13,16 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import {
+  ACCENT_BTN_SM_CLS,
+  ACCENT_BUTTON_STYLE,
+  CARD_STYLE,
+  GHOST_BTN_CLS,
+  ICON_BTN_CLS,
+  INPUT_CLS,
+} from "@/components/ui/darkroom-tokens";
+import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { ProviderCredential, ProviderTestResult } from "@/types";
-
-const inputCls = "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 focus:border-indigo-500/60 focus-ring";
-const inputClsPlaceholder = `${inputCls} placeholder:text-gray-600`;
-const primaryBtnCls = "inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 focus-ring";
 
 interface RowProps {
   cred: ProviderCredential;
@@ -41,7 +46,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
       await API.activateCredential(providerId, cred.id);
       onChanged();
     } catch {
-      // 网络错误静默处理，用户可重试
+      // 网络错误静默处理
     }
   }, [providerId, cred.id, onChanged]);
 
@@ -95,11 +100,16 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
 
   return (
     <div
-      className={`rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
+      className="relative rounded-[8px] border border-hairline px-3 py-2.5 transition-colors hover:border-hairline-strong"
+      style={
         cred.is_active
-          ? "border-l-[var(--neon-500)] bg-gray-900/30"
-          : "border-l-transparent hover:bg-gray-800/20"
-      }`}
+          ? {
+              ...CARD_STYLE,
+              boxShadow:
+                "inset 2px 0 0 var(--color-accent), 0 0 18px -10px var(--color-accent-glow)",
+            }
+          : undefined
+      }
     >
       <div className="flex items-center gap-3">
         <button
@@ -107,32 +117,47 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
           onClick={cred.is_active ? undefined : voidPromise(handleActivate)}
           disabled={cred.is_active}
           aria-label={cred.is_active ? t("currently_active") : t("activate_credential", { name: cred.name })}
-          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors focus-ring ${
+          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
             cred.is_active
-              ? "bg-[var(--neon-500)] shadow-[0_0_6px_var(--neon-500)]"
-              : "border border-gray-600 hover:border-gray-400 cursor-pointer"
+              ? ""
+              : "border border-hairline-strong hover:border-accent-2 cursor-pointer"
           }`}
+          style={
+            cred.is_active
+              ? {
+                  background: "var(--color-accent)",
+                  boxShadow: "0 0 8px var(--color-accent-glow)",
+                }
+              : undefined
+          }
         />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-200">{cred.name}</span>
+            <span className="text-[13px] font-medium text-text">{cred.name}</span>
             {cred.is_active && (
-              <span className="rounded bg-[var(--neon-500)]/15 px-1.5 py-0.5 text-[10px] font-medium text-[var(--neon-500)]">
+              <span
+                className="rounded-full px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em]"
+                style={{
+                  background: "var(--color-accent-dim)",
+                  color: "var(--color-accent-2)",
+                  border: "1px solid var(--color-accent-soft)",
+                }}
+              >
                 {t("active_label")}
               </span>
             )}
           </div>
           <div className="mt-0.5 flex items-center gap-2">
             {cred.api_key_masked && (
-              <span className="font-mono text-xs text-gray-500">{cred.api_key_masked}</span>
+              <span className="font-mono text-[11px] text-text-4">{cred.api_key_masked}</span>
             )}
             {cred.credentials_filename && (
-              <span className="text-xs text-gray-500">{cred.credentials_filename}</span>
+              <span className="text-[11px] text-text-4">{cred.credentials_filename}</span>
             )}
           </div>
           {cred.base_url && (
-            <div className="mt-0.5 truncate text-xs text-gray-600">{cred.base_url}</div>
+            <div className="mt-0.5 truncate font-mono text-[10.5px] text-text-4">{cred.base_url}</div>
           )}
         </div>
 
@@ -142,9 +167,13 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
             onClick={voidPromise(handleTest)}
             disabled={testing}
             aria-label={t("test_credential", { name: cred.name })}
-            className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring`}
+            className={ICON_BTN_CLS}
           >
-            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
+            {testing ? (
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
+            ) : (
+              <Wifi className="h-3.5 w-3.5" />
+            )}
           </button>
           {!isVertex && (
             <button
@@ -155,7 +184,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
                 setTestResult(null);
               }}
               aria-label={t("edit_credential", { name: cred.name })}
-              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring`}
+              className={ICON_BTN_CLS}
             >
               <Edit2 className="h-3.5 w-3.5" />
             </button>
@@ -166,7 +195,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               onClick={voidPromise(handleDelete)}
               disabled={deleting}
               aria-label={t("delete_credential", { name: cred.name })}
-              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-400 focus-ring`}
+              className={`${ICON_BTN_CLS} hover:text-warm-bright`}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -176,14 +205,23 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
                 type="button"
                 onClick={voidPromise(handleDelete)}
                 disabled={deleting}
-                className={`rounded px-2 py-1 text-xs text-rose-400 transition-colors hover:bg-rose-900/20 focus-ring`}
+                className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                style={{
+                  background: "var(--color-warm-tint)",
+                  color: "var(--color-warm-bright)",
+                  border: "1px solid var(--color-warm-ring)",
+                }}
               >
-                {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : t("common:confirm")}
+                {deleting ? (
+                  <Loader2 className="h-3 w-3 motion-safe:animate-spin" />
+                ) : (
+                  t("common:confirm")
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className={`rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring`}
+                className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {t("common:cancel")}
               </button>
@@ -196,15 +234,24 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
       {testResult && (
         <div
           aria-live="polite"
-          className={`mt-2 ml-5.5 rounded-md px-3 py-2 text-xs ${
+          className="mt-2 ml-5.5 rounded-[8px] px-3 py-2 text-[12px]"
+          style={
             testResult.success
-              ? "bg-green-900/20 text-green-400"
-              : "bg-rose-900/15 text-rose-400"
-          }`}
+              ? {
+                  background: "oklch(0.30 0.10 155 / 0.15)",
+                  color: "var(--color-good)",
+                  border: "1px solid oklch(0.45 0.10 155 / 0.30)",
+                }
+              : {
+                  background: "var(--color-warm-tint)",
+                  color: "var(--color-warm-bright)",
+                  border: "1px solid var(--color-warm-ring)",
+                }
+          }
         >
           {testResult.message}
           {testResult.success && testResult.available_models.length > 0 && (
-            <div className="mt-1 opacity-70">
+            <div className="mt-1 opacity-75">
               {t("available_models")}{testResult.available_models.join(", ")}
             </div>
           )}
@@ -213,20 +260,23 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
 
       {/* Inline edit */}
       {editing && (
-        <div className="mt-2.5 ml-5.5 space-y-2.5 rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+        <div
+          className="mt-2.5 ml-5.5 space-y-2.5 rounded-[8px] border border-hairline p-3"
+          style={CARD_STYLE}
+        >
           <div>
-            <label htmlFor={`${editPrefix}-name`} className="mb-1 block text-xs text-gray-500">{t("credential_name")}</label>
+            <FieldLabel htmlFor={`${editPrefix}-name`}>{t("credential_name")}</FieldLabel>
             <input
               id={`${editPrefix}-name`}
               name="name"
               type="text"
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-              className={inputCls}
+              className={INPUT_CLS}
             />
           </div>
           <div>
-            <label htmlFor={`${editPrefix}-apikey`} className="mb-1 block text-xs text-gray-500">{t("api_key_keep_hint")}</label>
+            <FieldLabel htmlFor={`${editPrefix}-apikey`}>{t("api_key_keep_hint")}</FieldLabel>
             <input
               id={`${editPrefix}-apikey`}
               name="api_key"
@@ -235,12 +285,12 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               value={draft.api_key}
               onChange={(e) => setDraft((d) => ({ ...d, api_key: e.target.value }))}
               placeholder={t("keep_existing_placeholder")}
-              className={inputClsPlaceholder}
+              className={INPUT_CLS}
             />
           </div>
           {providerId === "gemini-aistudio" && (
             <div>
-              <label htmlFor={`${editPrefix}-baseurl`} className="mb-1 block text-xs text-gray-500">{t("base_url_optional")}</label>
+              <FieldLabel htmlFor={`${editPrefix}-baseurl`}>{t("base_url_optional")}</FieldLabel>
               <input
                 id={`${editPrefix}-baseurl`}
                 name="base_url"
@@ -248,7 +298,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
                 value={draft.base_url}
                 onChange={(e) => setDraft((d) => ({ ...d, base_url: e.target.value }))}
                 placeholder={t("default_url_placeholder")}
-                className={inputClsPlaceholder}
+                className={INPUT_CLS}
               />
             </div>
           )}
@@ -257,15 +307,20 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               type="button"
               onClick={() => void handleSaveEdit()}
               disabled={saving}
-              className={primaryBtnCls}
+              className={ACCENT_BTN_SM_CLS}
+              style={ACCENT_BUTTON_STYLE}
             >
-              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              {saving ? (
+                <Loader2 className="h-3 w-3 motion-safe:animate-spin" />
+              ) : (
+                <Check className="h-3 w-3" />
+              )}
               {t("common:save")}
             </button>
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus-ring`}
+              className={GHOST_BTN_CLS}
             >
               <X className="h-3 w-3" /> {t("common:cancel")}
             </button>
@@ -275,9 +330,6 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
     </div>
   );
 });
-
-//AddCredentialForm
-
 
 interface AddFormProps {
   providerId: string;
@@ -330,9 +382,14 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
   };
 
   return (
-    <div className="rounded-lg border border-gray-700 bg-gray-950/60 p-3 space-y-2.5">
+    <div
+      className="space-y-2.5 rounded-[8px] border border-hairline p-3"
+      style={CARD_STYLE}
+    >
       <div>
-        <label htmlFor="cred-add-name" className="mb-1 block text-xs text-gray-500">{t("credential_name")} <span className="text-rose-400">*</span></label>
+        <FieldLabel htmlFor="cred-add-name" required>
+          {t("credential_name")}
+        </FieldLabel>
         <input
           id="cred-add-name"
           name="name"
@@ -340,28 +397,39 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={t("credential_name_placeholder")}
-          className={inputClsPlaceholder}
+          className={INPUT_CLS}
           ref={nameRef}
         />
       </div>
       {isVertex ? (
         <div>
-          <label htmlFor="cred-add-file" className="mb-1 block text-xs text-gray-500">{t("credential_file")} <span className="text-rose-400">*</span></label>
+          <FieldLabel htmlFor="cred-add-file" required>
+            {t("credential_file")}
+          </FieldLabel>
           <button
             id="cred-add-file"
             type="button"
             onClick={() => fileRef.current?.click()}
-            className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 focus-ring`}
+            className={GHOST_BTN_CLS}
           >
             <Upload className="h-3 w-3" />
             {fileRef.current?.files?.[0]?.name ?? t("select_json_file")}
           </button>
-          <input ref={fileRef} type="file" accept=".json,application/json" aria-label={t("import_credential_file_aria")} className="hidden" onChange={() => setError(null)} />
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json,application/json"
+            aria-label={t("import_credential_file_aria")}
+            className="hidden"
+            onChange={() => setError(null)}
+          />
         </div>
       ) : (
         <>
           <div>
-            <label htmlFor="cred-add-apikey" className="mb-1 block text-xs text-gray-500">API Key <span className="text-rose-400">*</span></label>
+            <FieldLabel htmlFor="cred-add-apikey" required>
+              {t("api_key_label")}
+            </FieldLabel>
             <input
               id="cred-add-apikey"
               name="api_key"
@@ -369,12 +437,12 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
               autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className={inputCls}
+              className={INPUT_CLS}
             />
           </div>
           {providerId === "gemini-aistudio" && (
             <div>
-              <label htmlFor="cred-add-baseurl" className="mb-1 block text-xs text-gray-500">{t("base_url_optional")}</label>
+              <FieldLabel htmlFor="cred-add-baseurl">{t("base_url_optional")}</FieldLabel>
               <input
                 id="cred-add-baseurl"
                 name="base_url"
@@ -382,27 +450,44 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder={t("default_url_placeholder")}
-                className={inputClsPlaceholder}
+                className={INPUT_CLS}
               />
             </div>
           )}
         </>
       )}
-      {error && <p className="text-xs text-rose-400" aria-live="polite">{error}</p>}
+      {error && (
+        <p
+          className="rounded-[6px] px-2.5 py-1.5 text-[11.5px]"
+          aria-live="polite"
+          style={{
+            background: "var(--color-warm-tint)",
+            color: "var(--color-warm-bright)",
+            border: "1px solid var(--color-warm-ring)",
+          }}
+        >
+          {error}
+        </p>
+      )}
       <div className="flex gap-2 pt-0.5">
         <button
           type="button"
           onClick={() => void handleSubmit()}
           disabled={saving || !name.trim()}
-          className={primaryBtnCls}
+          className={ACCENT_BTN_SM_CLS}
+          style={ACCENT_BUTTON_STYLE}
         >
-          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+          {saving ? (
+            <Loader2 className="h-3 w-3 motion-safe:animate-spin" />
+          ) : (
+            <Plus className="h-3 w-3" />
+          )}
           {t("add")}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className={`rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus-ring`}
+          className={GHOST_BTN_CLS}
         >
           {t("common:cancel")}
         </button>
@@ -410,9 +495,6 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
     </div>
   );
 }
-
-//CredentialList — main export
-
 
 interface Props {
   providerId: string;
@@ -426,7 +508,6 @@ export function CredentialList({ providerId, onChanged }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const isVertex = providerId === "gemini-vertex";
 
-  // 用 ref 存储 onChanged 以稳定 refresh 引用，避免父组件 re-render 导致无限循环
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
 
@@ -439,7 +520,6 @@ export function CredentialList({ providerId, onChanged }: Props) {
     }
   }, [providerId]);
 
-  // 用户操作后：刷新列表 + 通知父组件
   const handleChanged = useCallback(async () => {
     await refresh();
     onChangedRef.current?.();
@@ -453,8 +533,11 @@ export function CredentialList({ providerId, onChanged }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 py-4 text-sm text-gray-500">
-        <Loader2 className="h-4 w-4 animate-spin" /> {t("common:loading")}
+      <div className="flex items-center gap-2 py-4 text-text-3">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
+          {t("common:loading")}
+        </span>
       </div>
     );
   }
@@ -462,12 +545,14 @@ export function CredentialList({ providerId, onChanged }: Props) {
   return (
     <div>
       <div className="mb-2.5 flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-300">{t("credential_mgmt")}</h4>
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          {t("credential_mgmt")}
+        </div>
         {!showAdd && (
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--neon-500)] transition-colors hover:bg-[var(--neon-500)]/10 focus-ring`}
+            className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:bg-accent-dim hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <Plus className="h-3 w-3" /> {t("add_credential")}
           </button>
@@ -475,19 +560,19 @@ export function CredentialList({ providerId, onChanged }: Props) {
       </div>
 
       {credentials.length === 0 && !showAdd && (
-        <div className="rounded-lg border border-dashed border-gray-700 px-4 py-6 text-center">
-          <p className="text-sm text-gray-500">{t("no_credentials")}</p>
+        <div className="rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 px-4 py-7 text-center">
+          <p className="text-[12.5px] text-text-3">{t("no_credentials")}</p>
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className={`mt-2 inline-flex items-center gap-1 text-xs text-[var(--neon-500)] transition-colors hover:text-[var(--neon-400)] focus-ring`}
+            className="mt-2 inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <Plus className="h-3 w-3" /> {t("add_first_credential")}
           </button>
         </div>
       )}
 
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {credentials.map((c) => (
           <CredentialRow
             key={c.id}
@@ -500,7 +585,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
       </div>
 
       {showAdd && (
-        <div className="mt-2">
+        <div className="mt-3">
           <AddCredentialForm
             providerId={providerId}
             isVertex={isVertex}

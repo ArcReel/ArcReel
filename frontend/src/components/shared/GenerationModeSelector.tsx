@@ -51,15 +51,23 @@ export function GenerationModeSelector({
           const selected = value === m;
           const baseClass =
             size === "sm"
-              ? "cursor-pointer rounded-md border px-3 py-1 text-xs transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-indigo-500"
-              : "flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-indigo-500";
+              ? "cursor-pointer rounded-[6px] border px-3 py-1 text-[11.5px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent"
+              : "flex-1 cursor-pointer rounded-[8px] border px-3 py-2.5 text-center text-[13px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent";
           const stateClass = disabled
-            ? "border-gray-800 bg-gray-900 text-gray-600 cursor-not-allowed"
+            ? "border-hairline-soft bg-bg-grad-a/35 text-text-4 cursor-not-allowed"
             : selected
-              ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-              : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600";
+              ? "border-accent/55 bg-accent-dim text-accent-2"
+              : "border-hairline bg-bg-grad-a/55 text-text-2 hover:border-hairline-strong hover:text-text";
           return (
-            <label key={m} className={`${baseClass} ${stateClass}`}>
+            <label
+              key={m}
+              className={`${baseClass} ${stateClass}`}
+              style={
+                selected && !disabled
+                  ? { boxShadow: "0 0 18px -8px var(--color-accent-glow)" }
+                  : undefined
+              }
+            >
               <input
                 type="radio"
                 name={name}
@@ -75,7 +83,7 @@ export function GenerationModeSelector({
         })}
       </div>
       {size === "lg" && (
-        <p className="text-xs text-gray-500">{descFor(value)}</p>
+        <p className="text-[12px] leading-[1.55] text-text-3">{descFor(value)}</p>
       )}
     </div>
   );

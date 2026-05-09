@@ -248,6 +248,7 @@ export default {
   'notification_tooltip': '会话通知: {{count}} 条',
   'cost_tooltip': '项目总花费: {{cost}}',
   'task_status_tooltip': '任务状态: {{running}} 运行中, {{queued}} 排队中',
+  'toggle_options': '切换选项',
   'toggle_task_panel': '切换任务面板',
   'export_project_zip': '导出当前项目 ZIP',
   'exporting_zip': '导出中...',

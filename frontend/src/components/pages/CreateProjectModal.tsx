@@ -1,9 +1,9 @@
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
-import { X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -17,6 +17,14 @@ import { WizardStep2Models, type WizardStep2Data } from "./create-project/Wizard
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
 
+// 新建项目对话框 · "Open Reel"
+// 仪式感来自项目大厅的 Darkroom 美学：editorial 衬线 + mono 标尺线 + sprocket 胶片孔。
+// 三步走作为录制流程的开机预备：身份 → 器材 → 镜头美学。
+
+const SPROCKET_STYLE: CSSProperties = {
+  background: "repeating-linear-gradient(90deg, oklch(0 0 0 / 0.55) 0 6px, transparent 6px 12px)",
+};
+
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
 const STEPS = [
@@ -25,45 +33,104 @@ const STEPS = [
   { num: 3, key: "wizard_step_style" },
 ] as const;
 
+const STEP_BADGE_GRADIENT =
+  "linear-gradient(180deg, oklch(0.30 0.05 295 / 0.65), oklch(0.20 0.02 280 / 0.65))";
+
+const STEP_BADGE_ACTIVE_STYLE: CSSProperties = {
+  background: STEP_BADGE_GRADIENT,
+  boxShadow:
+    "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px var(--color-accent-glow)",
+};
+
+const STEP_BADGE_DONE_STYLE: CSSProperties = {
+  background: STEP_BADGE_GRADIENT,
+  boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.05)",
+};
+
+const STEP_BADGE_INACTIVE_STYLE: CSSProperties = {
+  background: "oklch(0.16 0.010 265 / 0.55)",
+};
+
+const STEP_CONNECTOR_DONE_STYLE: CSSProperties = {
+  height: 1,
+  background:
+    "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 295 / 0.4))",
+};
+
+const STEP_CONNECTOR_INACTIVE_STYLE: CSSProperties = {
+  height: 1,
+  background: "var(--color-hairline-soft)",
+};
+
 function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
   const { t } = useTranslation("templates");
   return (
-    <div className="flex items-center justify-center gap-2">
-      {STEPS.map((s, i) => {
-        const done = current > s.num;
-        const active = current === s.num;
-        return (
-          <div key={s.num} className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
-              <div
-                className={
-                  done
-                    ? "w-6 h-6 rounded-full bg-indigo-500 text-white flex items-center justify-center text-xs font-semibold"
-                    : active
-                      ? "w-6 h-6 rounded-full bg-indigo-500/15 border-[1.5px] border-indigo-500 text-indigo-300 flex items-center justify-center text-xs font-semibold"
-                      : "w-6 h-6 rounded-full bg-gray-900 border-[1.5px] border-gray-700 text-gray-500 flex items-center justify-center text-xs font-semibold"
-                }
-              >
-                {done ? "✓" : s.num}
+    <div className="relative">
+      {/* sprocket 上下边 — 暗示一段胶片正在过卷头 */}
+      <div aria-hidden className="absolute inset-x-6 top-0 h-[3px] opacity-40" style={SPROCKET_STYLE} />
+      <div aria-hidden className="absolute inset-x-6 bottom-0 h-[3px] opacity-40" style={SPROCKET_STYLE} />
+
+      <ol className="relative flex items-stretch py-5">
+        {STEPS.map((s, i) => {
+          const done = current > s.num;
+          const active = current === s.num;
+          const last = i === STEPS.length - 1;
+          return (
+            <li
+              key={s.num}
+              className={"relative flex flex-1 items-center" + (last ? "" : " pr-3")}
+              aria-current={active ? "step" : undefined}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span
+                  className={
+                    "grid h-7 w-7 shrink-0 place-items-center rounded-[8px] font-mono text-[11px] font-bold tabular-nums transition-colors " +
+                    (done
+                      ? "border border-accent/45 text-text"
+                      : active
+                        ? "border border-accent/55 text-text"
+                        : "border border-hairline-soft text-text-4")
+                  }
+                  style={
+                    active
+                      ? STEP_BADGE_ACTIVE_STYLE
+                      : done
+                        ? STEP_BADGE_DONE_STYLE
+                        : STEP_BADGE_INACTIVE_STYLE
+                  }
+                >
+                  {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : s.num.toString().padStart(2, "0")}
+                </span>
+                <div className="min-w-0">
+                  <div
+                    className={
+                      "font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] " +
+                      (active ? "text-accent-2" : done ? "text-text-3" : "text-text-4")
+                    }
+                  >
+                    Step {s.num.toString().padStart(2, "0")}
+                  </div>
+                  <div
+                    className={
+                      "text-[12.5px] tracking-tight truncate " +
+                      (active ? "text-text font-semibold" : done ? "text-text-2" : "text-text-3")
+                    }
+                  >
+                    {t(s.key)}
+                  </div>
+                </div>
               </div>
-              <span
-                className={
-                  done
-                    ? "text-xs text-indigo-300"
-                    : active
-                      ? "text-xs text-gray-100 font-medium"
-                      : "text-xs text-gray-500"
-                }
-              >
-                {t(s.key)}
-              </span>
-            </div>
-            {i < STEPS.length - 1 && (
-              <div className={`w-8 h-px ${current > s.num ? "bg-indigo-500" : "bg-gray-700"}`} />
-            )}
-          </div>
-        );
-      })}
+              {!last && (
+                <div
+                  aria-hidden
+                  className="ml-3 flex-1"
+                  style={done ? STEP_CONNECTOR_DONE_STYLE : STEP_CONNECTOR_INACTIVE_STYLE}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -239,9 +306,19 @@ export function CreateProjectModal() {
     }
   };
 
+  const stepKicker = `Reel ${step.toString().padStart(2, "0")} / 03`;
+
   const modal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      {/* 遮罩层：点击关闭。键盘路径走 Esc（见上方 handleKeyDown）。 */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{
+        background:
+          "radial-gradient(900px 480px at 12% -10%, oklch(0.32 0.05 295 / 0.30), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.28), transparent 55%), oklch(0 0 0 / 0.62)",
+        backdropFilter: "blur(12px) saturate(1.1)",
+        WebkitBackdropFilter: "blur(12px) saturate(1.1)",
+      }}
+    >
+      {/* 遮罩层：点击关闭。键盘路径走 Esc。 */}
       <button
         type="button"
         aria-label={t("common:close")}
@@ -254,26 +331,65 @@ export function CreateProjectModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-project-title"
-        className="relative w-full max-w-3xl rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="relative w-full max-w-3xl overflow-hidden rounded-[14px] border border-hairline bg-bg-grad-a/95 shadow-[0_40px_100px_-30px_oklch(0_0_0_/_0.85)] backdrop-blur-md max-h-[92vh] flex flex-col"
+        style={{
+          background:
+            "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.95), oklch(0.16 0.010 265 / 0.95))",
+        }}
       >
-        {/* Header: title + close */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 id="create-project-title" className="text-lg font-semibold text-gray-100">{t("dashboard:new_project")}</h2>
+        {/* Hero header */}
+        <div className="relative shrink-0 px-7 pt-6 pb-5">
+          {/* 角落装饰 — 取景框的轮廓 */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-3 h-3 w-3 border-l border-t border-accent/40"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute right-3 top-3 h-3 w-3 border-r border-t border-accent/40"
+          />
+
           <button
             type="button"
             onClick={handleClose}
             aria-label={t("common:close")}
-            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/55 text-text-3 transition-colors hover:border-hairline hover:bg-bg hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
+
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+            {stepKicker}
+          </div>
+          <h2
+            id="create-project-title"
+            className="font-editorial mt-1.5"
+            style={{
+              fontWeight: 400,
+              fontSize: 36,
+              lineHeight: 1.05,
+              letterSpacing: "-0.012em",
+              color: "var(--color-text)",
+            }}
+          >
+            {t("dashboard:new_project")}
+          </h2>
+          <p className="mt-1.5 text-[12.5px] leading-[1.55] text-text-3">
+            {t("templates:wizard_step_basics")}
+            <span aria-hidden className="mx-1.5 text-text-4">/</span>
+            {t("templates:wizard_step_models")}
+            <span aria-hidden className="mx-1.5 text-text-4">/</span>
+            {t("templates:wizard_step_style")}
+          </p>
         </div>
 
-        {/* Step indicator */}
-        <StepIndicator current={step} />
+        {/* Step indicator strip */}
+        <div className="shrink-0 border-y border-hairline-soft bg-[oklch(0.16_0.010_265_/_0.55)] px-6">
+          <StepIndicator current={step} />
+        </div>
 
-        {/* Current step */}
-        <div className="mt-6">
+        {/* Current step body */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-7 pt-6 pb-7">
           {step === 1 && (
             <WizardStep1Basics
               value={basics}

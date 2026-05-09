@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type CSSProperties } from "react";
 import { Loader2, Pencil, Trash2, CheckCircle2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -7,11 +7,8 @@ import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { formatDurationsLabel } from "@/utils/duration_format";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { CustomProviderForm } from "./CustomProviderForm";
-
-// ---------------------------------------------------------------------------
-// Media type label
-// ---------------------------------------------------------------------------
 
 const MEDIA_LABELS: Record<string, string> = {
   text: "media_type_text",
@@ -19,9 +16,18 @@ const MEDIA_LABELS: Record<string, string> = {
   video: "media_type_video",
 };
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+const READY_BADGE_STYLE: CSSProperties = {
+  background: "oklch(0.30 0.10 155 / 0.18)",
+  color: "var(--color-good)",
+  border: "1px solid oklch(0.45 0.10 155 / 0.40)",
+  boxShadow: "0 0 14px -6px oklch(0.55 0.10 155 / 0.50)",
+};
+
+const UNCONFIGURED_BADGE_STYLE: CSSProperties = {
+  background: "var(--color-bg-grad-a)",
+  color: "var(--color-text-3)",
+  border: "1px solid var(--color-hairline)",
+};
 
 interface CustomProviderDetailProps {
   providerId: number;
@@ -30,7 +36,7 @@ interface CustomProviderDetailProps {
 }
 
 export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomProviderDetailProps) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
@@ -97,14 +103,15 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
 
   if (loading || !provider) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t("common:loading")}
+      <div className="flex items-center gap-2 px-1 py-12 text-text-3">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
+          {t("common:loading")}
+        </span>
       </div>
     );
   }
 
-  // --- Edit mode ---
   if (editing) {
     return (
       <CustomProviderForm
@@ -115,134 +122,180 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
     );
   }
 
-  // --- Read mode ---
   const ready = provider.base_url && provider.api_key_masked;
 
   return (
     <div>
-      {/* Detail content (scroll handled by ancestor <main>) */}
       <div className="p-6 pb-24">
-      <div className="max-w-xl">
-      {/* Header */}
-      <div className="mb-6 flex items-start gap-3">
-        <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded bg-gray-700 text-sm font-bold uppercase text-gray-300">
-          {provider.display_name?.[0] ?? "?"}
-        </span>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-gray-100">{provider.display_name}</h3>
+        <div className="max-w-2xl space-y-6">
+          {/* Header */}
+          <div className="flex items-start gap-3">
             <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                ready
-                  ? "border border-green-800/50 bg-green-900/30 text-green-400"
-                  : "border border-gray-700 bg-gray-800 text-gray-400"
-              }`}
+              className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-[6px] font-mono text-[11px] font-bold uppercase text-text-2"
+              style={{
+                background: "var(--color-bg-grad-a)",
+                border: "1px solid var(--color-hairline-strong)",
+              }}
             >
-              {ready ? t("status_connected") : t("status_unconfigured")}
+              {provider.display_name?.[0] ?? "?"}
             </span>
-          </div>
-          <p className="mt-1 text-sm text-gray-500">
-            {provider.discovery_format === "openai" ? "OpenAI" : "Google"} &middot; {provider.base_url}
-          </p>
-        </div>
-      </div>
-
-      {/* Info card */}
-      <div className="mb-5 rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-500">{t("discovery_format_label")}</span>
-            <span className="text-gray-300">
-              {provider.discovery_format === "openai" ? "OpenAI" : "Google"}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Base URL</span>
-            <span className="truncate pl-4 text-gray-300">{provider.base_url}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">API Key</span>
-            <span className="text-gray-300">{provider.api_key_masked || t("api_key_not_set")}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">{t("created_at")}</span>
-            <span className="text-gray-300">
-              {new Date(provider.created_at).toLocaleDateString("zh-CN")}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Model list */}
-      {provider.models.length > 0 && (
-        <div className="mb-5">
-          <div className="mb-2 text-sm text-gray-400">{t("model_list")}</div>
-          <div className="space-y-1.5">
-            {provider.models.map((m) => (
-              <div
-                key={m.id}
-                className={`flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/40 px-3 py-2 text-sm ${
-                  m.is_enabled ? "text-gray-200" : "text-gray-500 opacity-60"
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">{m.model_id}</span>
-                <span className="rounded bg-gray-800 px-1.5 py-0.5 text-xs text-gray-400">
-                  {(() => {
-                    const media = endpointToMediaType[m.endpoint];
-                    return MEDIA_LABELS[media] ? t(MEDIA_LABELS[media]) : media;
-                  })()}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <h3
+                  className="font-editorial"
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 400,
+                    lineHeight: 1.1,
+                    letterSpacing: "-0.012em",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {provider.display_name}
+                </h3>
+                <span
+                  className="rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
+                  style={ready ? READY_BADGE_STYLE : UNCONFIGURED_BADGE_STYLE}
+                >
+                  {ready ? t("status_connected") : t("status_unconfigured")}
                 </span>
-                {m.is_default && (
-                  <span className="rounded bg-indigo-600/30 px-1.5 py-0.5 text-xs text-indigo-300">
-                    {t("default_label")}
-                  </span>
-                )}
-                {m.supported_durations && m.supported_durations.length > 0 && (
-                  <span className="text-xs text-gray-500">
-                    {t("supported_durations_summary", {
-                      value: formatDurationsLabel(m.supported_durations),
-                    })}
-                  </span>
-                )}
-                {!m.is_enabled && (
-                  <span className="text-xs text-gray-600">{t("model_disabled")}</span>
-                )}
               </div>
-            ))}
+              <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-text-4">
+                {provider.discovery_format === "openai" ? "OPENAI" : "GOOGLE"} ·{" "}
+                <span className="normal-case tracking-normal">{provider.base_url}</span>
+              </p>
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* Test result */}
-      {testResult && (
-        <div
-          aria-live="polite"
-          className={`mb-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
-            testResult.success
-              ? "border-green-800/50 bg-green-900/20 text-green-400"
-              : "border-red-800/50 bg-red-900/20 text-red-400"
-          }`}
-        >
-          {testResult.success ? (
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          ) : (
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          {/* Info card */}
+          <div className="rounded-[10px] border border-hairline p-5" style={CARD_STYLE}>
+            <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+              Connection
+            </div>
+            <div className="space-y-2 text-[12.5px]">
+              <div className="flex justify-between gap-4">
+                <span className="text-text-3">{t("discovery_format_label")}</span>
+                <span className="text-text">
+                  {provider.discovery_format === "openai" ? "OpenAI" : "Google"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-text-3">{t("base_url")}</span>
+                <span className="truncate font-mono text-[11.5px] text-text">{provider.base_url}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-text-3">{t("api_key_label")}</span>
+                <span className="font-mono text-[11.5px] text-text">
+                  {provider.api_key_masked || t("api_key_not_set")}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-text-3">{t("created_at")}</span>
+                <span className="text-text">
+                  {new Date(provider.created_at).toLocaleDateString(i18n.language)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Models */}
+          {provider.models.length > 0 && (
+            <div>
+              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+                {t("model_list")}
+              </div>
+              <div className="space-y-1.5">
+                {provider.models.map((m) => (
+                  <div
+                    key={m.id}
+                    className={`flex items-center gap-2 rounded-[8px] border border-hairline px-3 py-2 text-[12.5px] ${
+                      m.is_enabled ? "text-text" : "text-text-4 opacity-60"
+                    }`}
+                    style={CARD_STYLE}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11.5px]">
+                      {m.model_id}
+                    </span>
+                    <span className="rounded-full border border-hairline-soft bg-bg-grad-a/55 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                      {(() => {
+                        const media = endpointToMediaType[m.endpoint];
+                        return MEDIA_LABELS[media] ? t(MEDIA_LABELS[media]) : media;
+                      })()}
+                    </span>
+                    {m.is_default && (
+                      <span
+                        className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
+                        style={{
+                          background: "var(--color-accent-dim)",
+                          color: "var(--color-accent-2)",
+                          border: "1px solid var(--color-accent-soft)",
+                        }}
+                      >
+                        {t("default_label")}
+                      </span>
+                    )}
+                    {m.supported_durations && m.supported_durations.length > 0 && (
+                      <span className="font-mono text-[10.5px] text-text-4">
+                        {t("supported_durations_summary", {
+                          value: formatDurationsLabel(m.supported_durations),
+                        })}
+                      </span>
+                    )}
+                    {!m.is_enabled && (
+                      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-4">
+                        {t("model_disabled")}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
-          <span>{testResult.message}</span>
+
+          {/* Test result */}
+          {testResult && (
+            <div
+              aria-live="polite"
+              className="flex items-start gap-2 rounded-[8px] px-3 py-2 text-[12px]"
+              style={
+                testResult.success
+                  ? {
+                      background: "oklch(0.30 0.10 155 / 0.15)",
+                      color: "var(--color-good)",
+                      border: "1px solid oklch(0.45 0.10 155 / 0.30)",
+                    }
+                  : {
+                      background: "var(--color-warm-tint)",
+                      color: "var(--color-warm-bright)",
+                      border: "1px solid var(--color-warm-ring)",
+                    }
+              }
+            >
+              {testResult.success ? (
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              ) : (
+                <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              )}
+              <span>{testResult.message}</span>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
-      </div>{/* end max-w-xl */}
-      </div>{/* end detail content */}
-
-      {/* Sticky actions bar — pinned to <main> viewport bottom while detail content scrolls.
-          Solid background to fully occlude the scrolling list underneath. */}
-      <div className="sticky bottom-0 z-10 border-t border-gray-800 bg-gray-950 px-6 py-3">
+      {/* Sticky actions bar */}
+      <div
+        className="sticky bottom-0 z-10 border-t border-hairline px-6 py-3 backdrop-blur"
+        style={{
+          background:
+            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.65), oklch(0.15 0.010 265 / 0.85))",
+        }}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 focus-ring"
+            className={ACCENT_BTN_CLS}
+            style={ACCENT_BUTTON_STYLE}
           >
             <Pencil className="h-3.5 w-3.5" />
             {t("common:edit")}
@@ -252,11 +305,11 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
             type="button"
             onClick={() => void handleTest()}
             disabled={testing}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50 focus-ring"
+            className={GHOST_BTN_CLS}
           >
             {testing ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
                 {t("testing_connection")}
               </>
             ) : (
@@ -268,7 +321,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:border-red-800 hover:text-red-400 focus-ring"
+              className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:border-warm-ring hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <Trash2 className="h-3.5 w-3.5" />
               {t("common:delete")}
@@ -279,15 +332,24 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
                 type="button"
                 onClick={() => void handleDelete()}
                 disabled={deleting}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-800 bg-red-900/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-900/50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60"
+                className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                style={{
+                  background: "var(--color-warm-tint)",
+                  color: "var(--color-warm-bright)",
+                  border: "1px solid var(--color-warm-ring)",
+                }}
               >
-                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
                 {t("confirm_delete_provider")}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 hover:border-gray-600 hover:text-gray-200 focus-ring"
+                className={GHOST_BTN_CLS}
               >
                 {t("common:cancel")}
               </button>

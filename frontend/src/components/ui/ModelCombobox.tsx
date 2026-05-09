@@ -7,12 +7,8 @@ import {
   ComboboxOptions,
 } from "@headlessui/react";
 import { ChevronDown, X } from "lucide-react";
-
-const inputClassName =
-  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus-visible:ring-2 focus-visible:ring-indigo-500/60 disabled:opacity-50";
-
-const smallBtnClassName =
-  "rounded p-1 text-gray-500 hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
+import { useTranslation } from "react-i18next";
+import { DROPDOWN_PANEL_STYLE, ICON_BTN_CLS, INPUT_CLS } from "./darkroom-tokens";
 
 export interface ModelComboboxProps {
   id?: string;
@@ -40,7 +36,9 @@ export function ModelCombobox({
   clearable,
   clearAriaLabel,
 }: ModelComboboxProps) {
+  const { t } = useTranslation("dashboard");
   const [query, setQuery] = useState("");
+  const clearLabel = clearAriaLabel ?? t("clear_input");
 
   const filtered = useMemo(() => {
     if (query === "") return options;
@@ -69,7 +67,7 @@ export function ModelCombobox({
           placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
-          className={`${inputClassName} ${rightPadding}`}
+          className={`${INPUT_CLS} ${rightPadding}`}
           displayValue={(v: string | null) => v ?? ""}
           onChange={(e) => {
             const next = e.target.value;
@@ -85,8 +83,8 @@ export function ModelCombobox({
               setQuery("");
               onChange("");
             }}
-            className={`absolute right-8 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-            aria-label={clearAriaLabel}
+            className={`absolute right-8 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
+            aria-label={clearLabel}
             disabled={disabled}
             tabIndex={-1}
           >
@@ -95,8 +93,8 @@ export function ModelCombobox({
         )}
 
         <ComboboxButton
-          className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-          aria-label="toggle"
+          className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
+          aria-label={t("toggle_options")}
         >
           <ChevronDown className="h-4 w-4" />
         </ComboboxButton>
@@ -104,13 +102,14 @@ export function ModelCombobox({
         {filtered.length > 0 && (
           <ComboboxOptions
             anchor="bottom start"
-            className="z-50 mt-1 w-[var(--input-width)] max-h-60 overflow-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl focus:outline-none"
+            className="z-50 mt-1 w-[var(--input-width)] max-h-60 overflow-auto rounded-[8px] border border-hairline py-1 shadow-xl backdrop-blur focus:outline-none"
+            style={DROPDOWN_PANEL_STYLE}
           >
             {filtered.map((option) => (
               <ComboboxOption
                 key={option}
                 value={option}
-                className="cursor-pointer select-none px-3 py-2 text-sm text-gray-200 data-[focus]:bg-gray-800 data-[focus]:text-white"
+                className="cursor-pointer select-none px-3 py-2 text-[12.5px] text-text-2 data-[focus]:bg-accent-dim data-[focus]:text-text"
               >
                 {option}
               </ComboboxOption>

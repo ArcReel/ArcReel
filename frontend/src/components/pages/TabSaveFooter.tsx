@@ -1,5 +1,7 @@
-import { Loader2, Save } from "lucide-react";
+import type { CSSProperties } from "react";
+import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 
 interface TabSaveFooterProps {
   isDirty: boolean;
@@ -10,6 +12,15 @@ interface TabSaveFooterProps {
   onReset: () => void;
 }
 
+const FOOTER_DIRTY_STYLE: CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.65), oklch(0.15 0.010 265 / 0.55))",
+  backdropFilter: "blur(28px) saturate(1.5)",
+  WebkitBackdropFilter: "blur(28px) saturate(1.5)",
+  borderTop: "1px solid var(--color-hairline)",
+  boxShadow: "0 -8px 24px -12px oklch(0 0 0 / 0.45)",
+};
+
 export function TabSaveFooter({
   isDirty,
   saving,
@@ -18,30 +29,48 @@ export function TabSaveFooter({
   onSave,
   onReset,
 }: TabSaveFooterProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
   const controlsDisabled = saving || disabled;
 
   return (
     <div
-      className={`bg-gray-950 px-4 py-3 flex items-center justify-between${
-        isDirty ? " sticky bottom-0 z-10 border-t border-gray-800 shadow-[0_-2px_8px_rgba(0,0,0,0.18)]" : ""
-      }`}
+      className={
+        "flex items-center justify-between px-5 py-3" +
+        (isDirty ? " sticky bottom-0 z-10" : "")
+      }
+      style={isDirty ? FOOTER_DIRTY_STYLE : undefined}
     >
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 items-center gap-2.5">
         {isDirty && !error && (
-          <span className="text-sm text-gray-400">{t("unsaved_changes_hint")}</span>
+          <>
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                background: "var(--color-warm)",
+                boxShadow: "0 0 8px var(--color-warm-glow)",
+              }}
+            />
+            <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] text-warm-bright">
+              {t("common:unsaved")}
+            </span>
+            <span className="text-[12px] text-text-3">{t("unsaved_changes_hint")}</span>
+          </>
         )}
         {error && (
-          <span className="text-sm text-rose-400 truncate">{error}</span>
+          <div role="alert" className="flex min-w-0 items-center gap-1.5">
+            <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0 text-warm" />
+            <span className="truncate text-[12px] text-warm-bright">{error}</span>
+          </div>
         )}
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex shrink-0 items-center gap-2">
         {isDirty && (
           <button
             type="button"
             onClick={onReset}
             disabled={controlsDisabled}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800/80 disabled:cursor-not-allowed disabled:opacity-60"
+            className={GHOST_BTN_LG_CLS}
           >
             {t("common:reset")}
           </button>
@@ -50,16 +79,21 @@ export function TabSaveFooter({
           type="button"
           onClick={onSave}
           disabled={!isDirty || controlsDisabled}
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={ACCENT_BTN_CLS}
+          style={
             isDirty
-              ? "bg-indigo-600 text-white hover:bg-indigo-500"
-              : "bg-gray-800 text-gray-500"
-          }`}
+              ? ACCENT_BUTTON_STYLE
+              : {
+                  background: "oklch(0.20 0.010 265 / 0.55)",
+                  color: "var(--color-text-4)",
+                  border: "1px solid var(--color-hairline-soft)",
+                }
+          }
         >
           {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
           ) : (
-            <Save className="h-4 w-4" />
+            <Save className="h-3.5 w-3.5" aria-hidden />
           )}
           {saving ? t("common:saving") : t("common:save")}
         </button>

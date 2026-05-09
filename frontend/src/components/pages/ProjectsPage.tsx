@@ -34,6 +34,7 @@ import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
+import { ICON_BTN_FILLED_CLS } from "@/components/ui/darkroom-tokens";
 import {
   PHASE_ORDER,
   type Phase,
@@ -892,7 +893,7 @@ function TopBar({
           <button
             type="button"
             onClick={onSettings}
-            className="relative rounded-md p-1.5 text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className={`relative ${ICON_BTN_FILLED_CLS}`}
             title={t("settings")}
             aria-label={t("settings")}
           >
@@ -900,7 +901,7 @@ function TopBar({
             {configIncomplete ? (
               <span
                 aria-label={t("config_incomplete")}
-                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500"
+                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-warm-bright"
               />
             ) : null}
           </button>
@@ -1020,7 +1021,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       </div>
       <div className="flex flex-col items-end justify-between gap-2.5">
         <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-2">
-          · {t("dashboard:lobby_hero_eyebrow")} · {dateLine}
+          {t("dashboard:lobby_hero_eyebrow")} — {dateLine}
         </div>
         <div
           className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
@@ -1429,7 +1430,7 @@ export function ProjectsPage() {
                     id="lobby-now-editing-heading"
                     className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
                   >
-                    · {t("dashboard:lobby_now_editing_eyebrow")}
+                    {t("dashboard:lobby_now_editing_eyebrow")}
                   </h2>
                 </div>
                 <NowEditingCard
@@ -1463,7 +1464,7 @@ export function ProjectsPage() {
                     id="lobby-library-heading"
                     className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
                   >
-                    · {t("dashboard:lobby_library_eyebrow")}
+                    {t("dashboard:lobby_library_eyebrow")}
                   </h2>
                   <span className="font-mono text-[10.5px] tabular-nums text-text-3">
                     {t("dashboard:lobby_library_count", { count: restProjects.length })}
@@ -1586,7 +1587,7 @@ function DeleteConfirmDialog({
         <div className="flex items-start gap-4">
           <div
             aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-500"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warm-tint text-warm-bright"
           >
             <AlertTriangle className="h-6 w-6" />
           </div>
@@ -1612,7 +1613,7 @@ function DeleteConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-warm-ring bg-warm-tint px-4 py-2 text-sm font-medium text-warm-bright transition-colors hover:border-warm-bright/60 hover:bg-warm-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading && <Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
             {loading ? t("dashboard:deleting_project") : t("dashboard:delete_project")}
@@ -1676,11 +1677,11 @@ function ConflictDialog({
             onClick={() => onConfirm("overwrite")}
             disabled={importing}
             aria-label={t("dashboard:overwrite_existing")}
-            className="flex w-full items-center justify-between rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-left text-sm text-red-100 transition-colors hover:border-red-300/40 hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-between rounded-xl border border-warm-ring bg-warm-tint px-4 py-3 text-left text-sm text-warm-bright transition-colors hover:border-warm-bright/60 hover:bg-warm-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span>
               <span className="block font-medium">{t("dashboard:overwrite_existing")}</span>
-              <span className="mt-1 block text-xs text-red-200/80">
+              <span className="mt-1 block text-xs text-warm-fade">
                 {t("dashboard:overwrite_hint")}
               </span>
             </span>

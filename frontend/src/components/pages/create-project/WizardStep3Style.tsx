@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 
 export type WizardStep3Value = StylePickerValue;
 
@@ -28,14 +29,14 @@ export function WizardStep3Style({
   const isCreateDisabled = creating;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <StylePicker value={value} onChange={onChange} />
 
-      <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-800">
+      <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
         <button
           type="button"
           onClick={onCancel}
-          className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {t("common:cancel")}
         </button>
@@ -43,23 +44,27 @@ export function WizardStep3Style({
           <button
             type="button"
             onClick={onBack}
-            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+            className={GHOST_BTN_LG_CLS}
           >
+            <span aria-hidden>←</span>
             {t("templates:prev_step")}
           </button>
           <button
             type="button"
             onClick={onCreate}
             disabled={isCreateDisabled}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className={ACCENT_BTN_CLS}
+            style={ACCENT_BUTTON_STYLE}
           >
             {creating ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
                 {t("dashboard:creating")}
               </>
             ) : (
-              t("dashboard:create_project")
+              <>
+                ●&nbsp;{t("dashboard:create_project")}
+              </>
             )}
           </button>
         </div>
