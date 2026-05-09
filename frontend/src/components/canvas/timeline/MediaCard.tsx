@@ -5,6 +5,8 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { formatCost } from "@/utils/cost-format";
+import type { CostBreakdown } from "@/types";
 import { VersionTimeMachine } from "./VersionTimeMachine";
 
 type MediaKind = "storyboard" | "video";
@@ -27,8 +29,8 @@ interface MediaCardProps {
   generateDisabledHint?: string;
   /** 进行中状态 */
   generating?: boolean;
-  /** 估算费用（美元） */
-  estimatedCost?: number;
+  /** 估算费用（按币种 breakdown，例如 {USD: 0.12} 或 {CNY: 5.25}） */
+  estimatedCost?: CostBreakdown;
   /** 触发生成 */
   onGenerate?: () => void;
   /** 版本恢复回调 */
@@ -126,7 +128,9 @@ export function MediaCard({
                 poster={posterUrl ?? undefined}
                 controls
                 playsInline
-                className="h-full w-full object-cover"
+                // object-contain：卡片内容器比例一致时铺满，全屏到 16:9 屏幕时
+                // 9:16 视频会带左右黑边，避免被裁剪。
+                className="h-full w-full object-contain"
                 preload="metadata"
               />
             </AspectFrame>
@@ -169,11 +173,9 @@ export function MediaCard({
         >
           <Sparkles className="h-3.5 w-3.5" />
           <span>{generateLabel}</span>
-          {estimatedCost != null && estimatedCost > 0 && (
-            <span
-              className="num ml-1 text-[11px] opacity-70"
-            >
-              ~${estimatedCost.toFixed(estimatedCost < 0.01 ? 3 : 2)}
+          {estimatedCost && Object.values(estimatedCost).some((v) => v > 0) && (
+            <span className="num ml-1 text-[11px] opacity-70">
+              ~{formatCost(estimatedCost)}
             </span>
           )}
         </button>
