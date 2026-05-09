@@ -33,6 +33,7 @@ from lib.logging_config import setup_logging
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
+from server.fork_admin_guard import install_admin_guard  # fork-private
 from server.routers import (
     agent_chat,
     api_keys,
@@ -42,6 +43,7 @@ from server.routers import (
     cost_estimation,
     custom_providers,
     files,
+    fork_users,
     generate,
     grids,
     project_events,
@@ -308,6 +310,8 @@ app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算
 app.include_router(grids.router, prefix="/api/v1", tags=["宫格图"])
 app.include_router(reference_videos.router, prefix="/api/v1", tags=["参考生视频"])
 app.include_router(assets.router, prefix="/api/v1", tags=["全局资产库"])
+app.include_router(fork_users.router, prefix="/api/v1", tags=["用户管理"])  # fork-private
+install_admin_guard(app)  # fork-private: 路径白名单守卫 admin
 
 
 def create_generation_worker() -> GenerationWorker:

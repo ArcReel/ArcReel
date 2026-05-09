@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { AppRoutes } from "./router";
 import { useAuthStore } from "@/stores/auth-store";
 import { i18nReady } from "@/i18n";
+import { usePermissionsStore } from "@/stores/fork-permissions-store"; // fork-private
 import { BRAND, BRAND_DOCUMENT_TITLE } from "@/branding";
 
 import "./index.css";
@@ -23,6 +24,9 @@ if (metaDescription) {
 
 // 从 localStorage 恢复登录状态
 useAuthStore.getState().initialize();
+
+// fork-private: 拉取当前用户角色（如已登录），失败也不阻塞渲染
+void usePermissionsStore.getState().fetchMe();
 
 // ---------------------------------------------------------------------------
 // 全局滚动条 auto-hide：滚动时渐显、停止 1.2s 后渐隐

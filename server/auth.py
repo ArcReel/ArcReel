@@ -77,11 +77,12 @@ def get_token_secret() -> str:
     return _cached_token_secret
 
 
-def create_token(username: str) -> str:
+def create_token(username: str, role: str = "admin") -> str:
     """创建 JWT token
 
     Args:
         username: 用户名
+        role: 用户角色（写入 JWT claim）。
 
     Returns:
         JWT token 字符串
@@ -89,6 +90,7 @@ def create_token(username: str) -> str:
     now = time.time()
     payload = {
         "sub": username,
+        "role": role,
         "iat": now,
         "exp": now + TOKEN_EXPIRY_SECONDS,
     }
@@ -375,7 +377,19 @@ def _payload_to_user(payload: dict) -> CurrentUserInfo:
     from lib.db.base import DEFAULT_USER_ID
 
     sub = payload.get("sub", "")
-    return CurrentUserInfo(id=DEFAULT_USER_ID, sub=sub, role="admin")
+    # fork-private: API Key 是程序化访问，统一视为非 admin；JWT 必须带 role claim（
+    # 旧 token 请清除浏览器重新登录）。
+    if payload.get("via") == "apikey":
+        role = "user"
+    else:
+        role = payload.get("role")
+        if not role:
+            raise HTTPException(
+                status_code=401,
+                detail="token 缺少 role claim，请重新登录",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    return CurrentUserInfo(id=DEFAULT_USER_ID, sub=sub, role=role)
 
 
 async def get_current_user(

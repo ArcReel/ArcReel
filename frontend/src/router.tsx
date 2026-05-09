@@ -12,6 +12,7 @@ import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { RoleGate } from "@/components/ForkRoleGate"; // fork-private
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -126,10 +127,12 @@ export function AppRoutes() {
           </AuthGuard>
         </Route>
 
-        {/* System settings */}
+        {/* System settings — admin only (fork-private) */}
         <Route path="/app/settings">
           <AuthGuard>
-            <SystemConfigPage />
+            <RoleGate allow={["admin"]} fallback={<Redirect to="/app/projects" />}>
+              <SystemConfigPage />
+            </RoleGate>
           </AuthGuard>
         </Route>
 

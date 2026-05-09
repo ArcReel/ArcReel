@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getToken, setToken as saveToken, clearToken } from "@/utils/auth";
+import { usePermissionsStore } from "@/stores/fork-permissions-store"; // fork-private
 
 interface AuthState {
   token: string | null;
@@ -30,11 +31,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: (token, username) => {
     saveToken(token);
     set({ token, username, isAuthenticated: true, isLoading: false });
+    void usePermissionsStore.getState().fetchMe(); // fork-private
   },
 
   logout: () => {
     clearToken();
     set({ token: null, username: null, isAuthenticated: false });
+    usePermissionsStore.getState().reset(); // fork-private
   },
 
   setLoading: (isLoading) => set({ isLoading }),

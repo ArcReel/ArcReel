@@ -121,3 +121,44 @@ async def generation_queue():
     yield queue
     generation_queue_module._QUEUE_INSTANCE = None
     await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# fork-private: 让测试创建的任意 FastAPI app 自动短路 admin guard
+#
+# 真实 app 上的 admin guard 是 server.fork_admin_guard 中间件，按路径白名单
+# 守卫；测试自建 FastAPI() 通常不挂这层中间件，所以多数测试不用 bypass。
+# 本 fixture 只为 server.routers.fork_users 这个 fork-private router 的 router 级
+# ``Depends(require_admin)`` 服务（其他上游 router 文件零改动）。
+# 通过 ``@pytest.mark.real_admin_guard`` 可退出本 fixture，验证真实 guard 行为。
+# ---------------------------------------------------------------------------
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_admin_guard: 关闭 _bypass_admin_guard fixture，验证真实 admin guard 行为",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _bypass_admin_guard(request, monkeypatch):
+    # 需要验证真实 admin guard 行为的测试可打上 marker 退出
+    if request.node.get_closest_marker("real_admin_guard"):
+        return
+
+    from fastapi import FastAPI
+
+    from server.auth import CurrentUserInfo
+    from server.fork_permissions import require_admin
+
+    def _stub_admin() -> CurrentUserInfo:
+        return CurrentUserInfo(id="default", sub="testadmin", role="admin")
+
+    orig_init = FastAPI.__init__
+
+    def _patched(self, *args, **kwargs):
+        orig_init(self, *args, **kwargs)
+        self.dependency_overrides.setdefault(require_admin, _stub_admin)
+
+    monkeypatch.setattr(FastAPI, "__init__", _patched)

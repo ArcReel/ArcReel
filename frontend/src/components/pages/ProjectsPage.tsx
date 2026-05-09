@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Library,
   Loader2,
+  LogOut,
   MoreHorizontal,
   Plus,
   Search,
@@ -26,6 +27,8 @@ import type { TFunction } from "i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { useAuthStore } from "@/stores/auth-store"; // fork-private
+import { isAdmin, usePermissionsStore } from "@/stores/fork-permissions-store"; // fork-private
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -772,6 +775,7 @@ interface TopBarProps {
   onImport: () => void;
   onCreate: () => void;
   onSettings: () => void;
+  onLogout: () => void; // fork-private
   onAssets: () => void;
   onOpenClaw: () => void;
   importing: boolean;
@@ -785,12 +789,16 @@ function TopBar({
   onImport,
   onCreate,
   onSettings,
+  onLogout,
   onAssets,
   onOpenClaw,
   importing,
   configIncomplete,
   searchInputRef,
 }: TopBarProps) {
+  // fork-private: hide system settings entry for non-admin
+  const role = usePermissionsStore((s) => s.role);
+  const admin = isAdmin(role);
   const { t } = useTranslation(["common", "dashboard", "assets"]);
   return (
     <div
@@ -879,10 +887,11 @@ function TopBar({
             {t("dashboard:create_project")}
           </button>
           <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
+          {/* fork-private: 对普通用户进行临时屏蔽，将来再说 */}
           <button
             type="button"
             onClick={onOpenClaw}
-            className="rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className={`rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${admin ? "" : "hidden"}`}
             title={t("dashboard:openclaw")}
             aria-label={t("dashboard:openclaw")}
           >
@@ -891,7 +900,7 @@ function TopBar({
           <button
             type="button"
             onClick={onSettings}
-            className={`relative ${ICON_BTN_FILLED_CLS}`}
+            className={`relative ${ICON_BTN_FILLED_CLS} ${admin ? "" : "hidden"}`}
             title={t("settings")}
             aria-label={t("settings")}
           >
@@ -902,6 +911,16 @@ function TopBar({
                 className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-warm-bright"
               />
             ) : null}
+          </button>
+          {/* fork-private: Logout */}
+          <button
+            type="button"
+            onClick={onLogout}
+            className={ICON_BTN_FILLED_CLS}
+            title={t("logout")}
+            aria-label={t("logout")}
+          >
+            <LogOut className="h-4 w-4" aria-hidden />
           </button>
         </div>
       </div>
@@ -1373,6 +1392,10 @@ export function ProjectsPage() {
         onImport={() => importInputRef.current?.click()}
         onCreate={() => setShowCreateModal(true)}
         onSettings={() => navigate("/app/settings")}
+        onLogout={() => {
+          useAuthStore.getState().logout();
+          navigate("/login");
+        }}
         onAssets={() => {
           rememberAssetLibraryReturnTo(window.location.pathname);
           navigate("/app/assets");

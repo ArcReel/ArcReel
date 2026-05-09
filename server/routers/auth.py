@@ -12,7 +12,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
 from lib.i18n import Translator
-from server.auth import CurrentUser, check_credentials, create_token
+from server.auth import CurrentUser, create_token
+from server.fork_auth import authenticate  # fork-private: 多用户登录
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,15 @@ class TokenResponse(BaseModel):
 class VerifyResponse(BaseModel):
     valid: bool
     username: str
+    role: str = "admin"  # fork-private
+
+
+class MeResponse(BaseModel):
+    """fork-private: 当前登录用户元信息。"""
+
+    id: str
+    username: str
+    role: str
 
 
 # ==================== 路由 ====================
@@ -44,7 +54,8 @@ async def login_for_access_token(
 
     使用 OAuth2 标准表单格式验证凭据，成功返回 access_token。
     """
-    if not check_credentials(form_data.username, form_data.password):
+    user = await authenticate(form_data.username, form_data.password)
+    if user is None:
         logger.warning("登录失败: 用户名或密码错误 (用户: %s)", form_data.username)
         raise HTTPException(
             status_code=401,
@@ -52,8 +63,8 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = create_token(form_data.username)
-    logger.info("用户登录成功: %s", form_data.username)
+    token = create_token(user["username"], role=user["role"])
+    logger.info("用户登录成功: %s", user["username"])
     return TokenResponse(access_token=token, token_type="bearer")
 
 
@@ -65,4 +76,10 @@ async def verify(
 
     使用 OAuth2 Bearer token 依赖自动提取和验证 token。
     """
-    return VerifyResponse(valid=True, username=current_user.sub)
+    return VerifyResponse(valid=True, username=current_user.sub, role=current_user.role)
+
+
+@router.get("/auth/me", response_model=MeResponse)
+async def me(current_user: CurrentUser):
+    """返回当前登录用户的元信息（id / username / role）。"""
+    return MeResponse(id=current_user.id, username=current_user.sub, role=current_user.role)

@@ -11,6 +11,7 @@ import {
   KeyRound,
   Languages,
   Plug,
+  Users as UsersIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -20,6 +21,7 @@ import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageStatsSection } from "./settings/UsageStatsSection";
+import { ForkUsersSection } from "./settings/ForkUsersSection"; // fork-private
 import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_DISPLAY_LABELS,
@@ -33,7 +35,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys" | "about";
+type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys" | "users" | "about";
 
 interface SectionDef {
   id: SettingsSection;
@@ -64,6 +66,7 @@ const SECTION_GROUPS: SectionGroup[] = [
     items: [
       { id: "usage", labelKey: "dashboard:usage", Icon: BarChart3 },
       { id: "api-keys", labelKey: "dashboard:api_keys", Icon: KeyRound },
+      { id: "users", labelKey: "fork:access.users.title", Icon: UsersIcon }, // fork-private (admin only)
     ],
   },
   {
@@ -87,6 +90,7 @@ export function SystemConfigPage() {
     if (section === "media") return "media";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
+    if (section === "users") return "users";
     if (section === "about") return "about";
     return "providers";
   }, [search]);
@@ -305,6 +309,7 @@ export function SystemConfigPage() {
                   <ApiKeysTab />
                 </div>
               )}
+              {activeSection === "users" && <ForkUsersSection />}
               {activeSection === "about" && <AboutSection />}
             </div>
           )}
