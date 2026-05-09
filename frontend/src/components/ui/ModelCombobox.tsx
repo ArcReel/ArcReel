@@ -94,7 +94,7 @@ export function ModelCombobox({
 
         <ComboboxButton
           className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
-          aria-label="toggle"
+          aria-label={t("toggle_options")}
         >
           <ChevronDown className="h-4 w-4" />
         </ComboboxButton>

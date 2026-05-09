@@ -41,3 +41,12 @@ export const ICON_BTN_CLS =
 
 export const ICON_BTN_FILLED_CLS =
   "rounded-[6px] p-1.5 text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const RADIO_CARD_BASE_CLS =
+  "relative flex-1 cursor-pointer rounded-[8px] border px-3.5 py-2.5 text-center text-[12.5px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent";
+
+export function radioCardClass(selected: boolean): string {
+  return selected
+    ? `${RADIO_CARD_BASE_CLS} border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]`
+    : `${RADIO_CARD_BASE_CLS} border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text`;
+}

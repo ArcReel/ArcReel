@@ -55,7 +55,7 @@ function TemplateCard({
       aria-label={label}
       aria-pressed={isSelected}
       onClick={onClick}
-      className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       style={isSelected ? SELECTED_RING_STYLE : HOVER_RING_STYLE}
     >
       <img

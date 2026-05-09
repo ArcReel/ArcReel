@@ -247,6 +247,7 @@ export default {
   'notification_tooltip': 'Session notifications: {{count}} items',
   'cost_tooltip': 'Total project cost: {{cost}}',
   'task_status_tooltip': 'Task status: {{running}} running, {{queued}} queued',
+  'toggle_options': 'Toggle options',
   'toggle_task_panel': 'Toggle task panel',
   'export_project_zip': 'Export current project ZIP',
   'exporting_zip': 'Exporting...',

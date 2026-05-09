@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { GenerationMode } from "@/utils/generation-mode";
 
@@ -18,14 +18,6 @@ export interface WizardStep1BasicsProps {
   onChange: (next: WizardStep1Value) => void;
   onNext: () => void;
   onCancel: () => void;
-}
-
-function radioCardClass(selected: boolean): string {
-  const base =
-    "relative flex-1 cursor-pointer rounded-[8px] border px-3.5 py-2.5 text-center text-[12.5px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent";
-  return selected
-    ? `${base} border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]`
-    : `${base} border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text`;
 }
 
 export function WizardStep1Basics({
