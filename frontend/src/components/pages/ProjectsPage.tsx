@@ -1365,10 +1365,14 @@ export function ProjectsPage() {
   return (
     <div
       className="relative min-h-screen text-text"
-      style={{
-        background:
-          "radial-gradient(1100px 540px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%), radial-gradient(900px 500px at 100% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
-      }}
+      style={
+        {
+          // FilterPills 的 sticky top 读这个变量；TopBar = logo h-8 (32) + py-3 (24) + 1px border
+          "--lobby-topbar-h": "57px",
+          background:
+            "radial-gradient(1100px 540px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%), radial-gradient(900px 500px at 100% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+        } as CSSProperties
+      }
     >
       <TopBar
         searchValue={searchQuery}
