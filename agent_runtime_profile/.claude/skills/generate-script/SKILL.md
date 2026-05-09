@@ -1,12 +1,12 @@
 ---
 name: generate-script
-description: 使用 Gemini API 生成 JSON 剧本。由 create-episode-script subagent 调用。读取 step1 中间文件和 project.json，调用 Gemini 生成符合 Pydantic 模型的 JSON 剧本。
+description: 使用当前配置的文本后端生成 JSON 剧本。由 create-episode-script subagent 调用。读取 step1 中间文件和 project.json，调用当前文本模型生成符合 Pydantic 模型的 JSON 剧本。
 user-invocable: false
 ---
 
 # generate-script
 
-使用 Gemini API 生成 JSON 剧本。此 skill 由 `create-episode-script` subagent 调用，不直接面向用户。
+使用当前配置的文本后端生成 JSON 剧本。此 skill 由 `create-episode-script` subagent 调用，不直接面向用户。
 
 ## 前置条件
 
@@ -36,7 +36,7 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N} -
 1. **加载 project.json** — 读取 content_mode、characters、scenes、props、overview、style
 2. **加载 Step 1 中间文件** — 根据 content_mode 选择 `step1_segments.md`（narration）或 `step1_normalized_script.md`（drama）
 3. **构建 Prompt** — 将项目概述、风格、角色、场景、道具和中间文件内容组合成完整 prompt
-4. **调用 Gemini API** — 使用 `gemini-3-flash-preview` 模型，传入 Pydantic schema 作为 `response_schema` 约束输出格式
+4. **调用当前文本后端** — 文本模型按以下优先级解析：项目级 `text_backend_script` → 系统级 `text_backend_script` → `default_text_backend` → 第一个 ready 的文本供应商。脚本启动时会打印实际使用的 `provider/model`。
 5. **Pydantic 验证** — 按 effective_mode 选 schema：
    - reference_video → `ReferenceVideoScript`（含 `video_units[]`）
    - narration → `NarrationEpisodeScript`
@@ -56,6 +56,6 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N} -
 
 ## `--dry-run` 输出
 
-打印将发送给 Gemini 的完整 prompt 文本，不调用 API、不写文件。用于检查 prompt 质量和长度。
+打印将发送给当前文本后端的完整 prompt 文本，不调用 API、不写文件。用于检查 prompt 质量和长度。
 
 > 三种生成模式的数据路径、预处理 subagent、schema 选择详见 `.claude/references/generation-modes.md`。

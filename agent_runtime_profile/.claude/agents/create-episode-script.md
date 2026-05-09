@@ -42,7 +42,7 @@ skills:
 python .claude/skills/generate-script/scripts/generate_script.py --episode {N}
 ```
 
-等待执行完成。如果失败，查看错误信息并尝试修复或报告问题。
+等待执行完成。脚本会先打印实际使用的文本后端（`provider/model`）。如果失败，查看错误信息并尝试修复或报告问题。
 
 ### Step 3: 验证生成结果
 
@@ -65,7 +65,7 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N}
 | 内容模式 | narration/drama |
 | 总片段/场景数 | XX 个 |
 | 总时长 | X 分 X 秒 |
-| 生成模型 | gemini-3-flash-preview |
+| 生成模型 | {从脚本输出读取的 provider/model；若未读取到则写“按当前文本后端配置”} |
 
 **文件已保存**: `scripts/episode_{N}.json`
 
