@@ -1,3 +1,13 @@
+import type enTemplates from "@/i18n/en/templates";
+
+type DeepStringify<T> = {
+  [K in keyof T]: T[K] extends string
+    ? string
+    : T[K] extends object
+      ? DeepStringify<T[K]>
+      : T[K];
+};
+
 export default {
   category: {
     custom: "Tùy chỉnh",
@@ -104,4 +114,4 @@ export default {
   wizard_step_style: "Phong cách",
   next_step: "Tiếp",
   prev_step: "Quay lại",
-} as const;
+} satisfies DeepStringify<typeof enTemplates>;

@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { Route, Switch, Redirect, useParams } from "wouter";
+import { useTranslation } from "react-i18next";
+import { Loader2 } from "lucide-react";
 import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
@@ -22,11 +24,17 @@ import { useAuthStore } from "@/stores/auth-store";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
+  const { t } = useTranslation("common");
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-950 text-gray-500">
-        加载中...
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex h-screen items-center justify-center gap-2 bg-bg text-[13px] text-text-4"
+      >
+        <Loader2 aria-hidden className="h-4 w-4 motion-safe:animate-spin" />
+        <span>{t("loading")}</span>
       </div>
     );
   }

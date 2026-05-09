@@ -54,8 +54,8 @@ const SECTION_GROUPS: SectionGroup[] = [
   {
     kicker: "Configuration",
     items: [
-      { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
       { id: "providers", labelKey: "dashboard:providers", Icon: Plug },
+      { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
       { id: "media", labelKey: "dashboard:models", Icon: Film },
     ],
   },
@@ -83,12 +83,12 @@ export function SystemConfigPage() {
 
   const activeSection = useMemo((): SettingsSection => {
     const section = new URLSearchParams(search).get("section");
-    if (section === "providers") return "providers";
+    if (section === "agent") return "agent";
     if (section === "media") return "media";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
     if (section === "about") return "about";
-    return "agent";
+    return "providers";
   }, [search]);
 
   const setActiveSection = (section: SettingsSection) => {

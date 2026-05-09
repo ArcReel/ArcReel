@@ -1,3 +1,5 @@
+import type enAssets from '../en/assets';
+
 export default {
   "type.character": "Nhân vật",
   "type.scene": "Cảnh",
@@ -24,6 +26,8 @@ export default {
   "back_to_projects": "Quay lại danh sách dự án",
   "add_asset": "Thêm tài nguyên",
   "search_placeholder": "Tìm kiếm tài nguyên...",
+  "search_hint": "Nhập từ khóa để tìm tài nguyên",
+  "no_results": "Không tìm thấy tài nguyên phù hợp",
   "library_empty_character": "Chưa có nhân vật nào",
   "library_empty_scene": "Chưa có cảnh nào",
   "library_empty_prop": "Chưa có đạo cụ nào",
@@ -45,4 +49,5 @@ export default {
   "upload_sheet_short": "Tải lên",
   "edit": "Chỉnh sửa",
   "delete": "Xóa",
-};
+  "meta_updated_at": "Cập nhật {{date}}",
+} satisfies Record<keyof typeof enAssets, string>;

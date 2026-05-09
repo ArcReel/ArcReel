@@ -190,10 +190,10 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
         className={[
-          "group inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-sm transition-colors",
-          "border-gray-700 bg-gray-900 text-gray-100",
-          "hover:border-gray-600",
-          "focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500",
+          "group inline-flex items-center gap-2 rounded-[8px] border px-2.5 py-1.5 text-left text-sm transition-colors",
+          "border-hairline bg-bg-grad-a/55 text-text",
+          "hover:border-hairline-strong",
+          "focus-visible:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
           "disabled:cursor-not-allowed disabled:opacity-50",
         ].join(" ")}
       >
@@ -201,14 +201,14 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
         {triggerHint && (
           <span
             aria-hidden="true"
-            className="hidden font-mono text-[11px] tracking-tight text-emerald-400/70 sm:inline"
+            className="hidden font-mono text-[11px] tracking-tight text-good/80 sm:inline"
           >
             {triggerHint}
           </span>
         )}
         <ChevronDown
           aria-hidden="true"
-          className={`h-3.5 w-3.5 shrink-0 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-text-4 transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -220,7 +220,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
         sideOffset={6}
         width="w-[22rem]"
         maxHeight={420}
-        className="overflow-hidden rounded-xl border border-gray-800 shadow-2xl shadow-black/40"
+        className="overflow-hidden rounded-xl border border-hairline shadow-2xl shadow-black/40"
       >
         <div
           ref={listboxRef}
@@ -237,14 +237,14 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
             const Icon = meta.Icon;
             return (
               <div key={group.mediaType}>
-                {gIdx > 0 && <div className="mx-3 my-1 h-px bg-gray-800/80" />}
+                {gIdx > 0 && <div className="mx-3 my-1 h-px bg-hairline-soft" />}
                 <div className="flex items-center gap-1.5 px-3 pb-1 pt-2">
                   <Icon
                     aria-hidden="true"
-                    className="h-3 w-3 text-gray-500"
+                    className="h-3 w-3 text-text-4"
                     strokeWidth={1.75}
                   />
-                  <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-gray-500">
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
                     {t(meta.labelKey)}
                   </span>
                 </div>
@@ -265,21 +265,21 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
                             "relative w-full rounded-lg py-2 pl-3.5 pr-3 text-left transition-colors",
                             "before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-[2px] before:rounded-full before:transition-colors",
                             isSelected
-                              ? "bg-indigo-500/[0.07] before:bg-indigo-400"
+                              ? "bg-accent-dim before:bg-accent"
                               : "before:bg-transparent",
-                            isActive && !isSelected ? "bg-gray-800/40" : "",
+                            isActive && !isSelected ? "bg-bg-grad-a/50" : "",
                           ].join(" ")}
                         >
                           <div
-                            className={`truncate text-sm ${isSelected ? "text-gray-50" : "text-gray-200"}`}
+                            className={`truncate text-sm ${isSelected ? "text-text" : "text-text-2"}`}
                           >
                             {t(opt.labelKey)}
                           </div>
                           <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[11px] leading-none">
-                            <span className="text-gray-500">{opt.method}</span>
-                            <span className="truncate text-emerald-400/80">{opt.path}</span>
+                            <span className="text-text-4">{opt.method}</span>
+                            <span className="truncate text-good/80">{opt.path}</span>
                             {opt.imageCaps && (
-                              <span className="ml-auto shrink-0 font-sans text-[10px] tracking-wide text-amber-300/80">
+                              <span className="ml-auto shrink-0 font-sans text-[10px] tracking-wide text-warm-bright/80">
                                 {opt.imageCaps.length === 2
                                   ? t("image_capability_both")
                                   : opt.imageCaps[0] === "text_to_image"

@@ -45,4 +45,6 @@ export default {
   'close': 'Close',
   'show': 'Show',
   'hide': 'Hide',
+  'not_found_title': 'Page not found',
+  'not_found_back': 'Back to home',
 };

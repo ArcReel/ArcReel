@@ -1,3 +1,4 @@
+import type enCommon from "@/i18n/en/common";
 
 export default {
   'language': 'Ngôn ngữ',
@@ -20,6 +21,9 @@ export default {
   'loading': 'Đang tải...',
   'error': 'Lỗi',
   'success': 'Thành công',
+  'unsaved': 'Chưa lưu',
+  'required': 'bắt buộc',
+  'load_failed': 'Tải thất bại',
   'save': 'Lưu',
   'save_settings': 'Lưu cài đặt',
   'saving': 'Đang lưu...',
@@ -42,4 +46,6 @@ export default {
   'close': 'Đóng',
   'show': 'Hiển thị',
   'hide': 'Ẩn',
-};
+  'not_found_title': 'Không tìm thấy trang',
+  'not_found_back': 'Về trang chủ',
+} satisfies Record<keyof typeof enCommon, string>;

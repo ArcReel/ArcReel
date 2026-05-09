@@ -50,3 +50,36 @@ export function radioCardClass(selected: boolean): string {
     ? `${RADIO_CARD_BASE_CLS} border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]`
     : `${RADIO_CARD_BASE_CLS} border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text`;
 }
+
+interface PosterGridOptions {
+  size?: number;
+  maskShape?: string;
+  opacity?: number;
+}
+
+export function posterGridStyle(opts?: PosterGridOptions): CSSProperties {
+  const size = opts?.size ?? 40;
+  const mask = `radial-gradient(${opts?.maskShape ?? "70% 70% at 50% 50%"}, black, transparent)`;
+  const style: CSSProperties = {
+    backgroundImage:
+      "linear-gradient(oklch(1 0 0) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0) 1px, transparent 1px)",
+    backgroundSize: `${size}px ${size}px`,
+    maskImage: mask,
+    WebkitMaskImage: mask,
+  };
+  if (opts?.opacity !== undefined) style.opacity = opts.opacity;
+  return style;
+}
+
+interface AmbientGlowOptions {
+  at?: string;
+  intensity?: number;
+}
+
+export function ambientGlowStyle(opts?: AmbientGlowOptions): CSSProperties {
+  const at = opts?.at ?? "50% 0%";
+  const alpha = opts?.intensity ?? 0.16;
+  return {
+    background: `radial-gradient(circle at ${at}, oklch(0.76 0.09 295 / ${alpha}), transparent 60%)`,
+  };
+}

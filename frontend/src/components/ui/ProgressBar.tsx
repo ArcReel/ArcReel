@@ -41,11 +41,11 @@ export function ProgressBar({
       aria-valuemin={min}
       aria-valuemax={max}
       aria-label={label}
-      className={cx("h-1.5 w-full overflow-hidden rounded-full bg-gray-800", className)}
+      className={cx("h-1.5 w-full overflow-hidden rounded-full bg-bg-grad-a", className)}
       style={style}
     >
       <div
-        className={cx("h-full rounded-full bg-indigo-500 transition-[width]", barClassName)}
+        className={cx("h-full rounded-full bg-accent transition-[width]", barClassName)}
         style={{ ...barStyle, width: `${pct}%` }}
       />
     </div>

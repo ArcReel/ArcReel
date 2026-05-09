@@ -41,7 +41,7 @@ export function ClueStack({
         />
       ))}
       {overflow > 0 && (
-        <span className="flex h-7 w-7 items-center justify-center rounded border-2 border-gray-900 bg-gray-700 text-[10px] font-semibold text-gray-300">
+        <span className="flex h-7 w-7 items-center justify-center rounded border-2 border-bg bg-bg-grad-b text-[10px] font-semibold text-text-2">
           +{overflow}
         </span>
       )}

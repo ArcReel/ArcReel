@@ -4,20 +4,16 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
 import { CARD_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { formatDate } from "@/utils/date-format";
 import type { GetSystemVersionResponse } from "@/types";
 
-function formatDate(value: string, locale: string): string {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
+const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+};
 
 export function AboutSection() {
   const { t, i18n } = useTranslation("dashboard");
@@ -139,13 +135,13 @@ export function AboutSection() {
               {data?.latest?.published_at && (
                 <p>
                   {t("about_published_at", {
-                    date: formatDate(data.latest.published_at, i18n.language),
+                    date: formatDate(data.latest.published_at, i18n.language, ABOUT_DATE_OPTS, "-"),
                   })}
                 </p>
               )}
               <p>
                 {t("about_checked_at", {
-                  date: formatDate(data?.checked_at ?? "", i18n.language),
+                  date: formatDate(data?.checked_at ?? "", i18n.language, ABOUT_DATE_OPTS, "-"),
                 })}
               </p>
             </div>

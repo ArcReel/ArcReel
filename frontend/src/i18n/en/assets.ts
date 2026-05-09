@@ -47,4 +47,5 @@ export default {
   "upload_sheet_short": "Upload",
   "edit": "Edit",
   "delete": "Delete",
+  "meta_updated_at": "Updated {{date}}",
 };
