@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { errMsg, voidPromise } from "@/utils/async";
@@ -12,21 +12,12 @@ import {
   ACCENT_BUTTON_STYLE,
   CARD_STYLE,
   INPUT_CLS,
+  ambientGlowStyle,
+  posterGridStyle,
 } from "@/components/ui/darkroom-tokens";
 
-const POSTER_GRID_STYLE: CSSProperties = {
-  backgroundImage:
-    "linear-gradient(oklch(1 0 0) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0) 1px, transparent 1px)",
-  backgroundSize: "44px 44px",
-  maskImage: "radial-gradient(60% 60% at 50% 35%, black, transparent)",
-  WebkitMaskImage: "radial-gradient(60% 60% at 50% 35%, black, transparent)",
-  opacity: 0.05,
-};
-
-const AMBIENT_GLOW_STYLE: CSSProperties = {
-  background:
-    "radial-gradient(circle at 50% 0%, oklch(0.76 0.09 295 / 0.16), transparent 60%)",
-};
+const POSTER_GRID_STYLE = posterGridStyle({ size: 44, maskShape: "60% 60% at 50% 35%", opacity: 0.05 });
+const AMBIENT_GLOW_STYLE = ambientGlowStyle();
 
 export function LoginPage() {
   const { t, i18n } = useTranslation(["common", "auth"]);

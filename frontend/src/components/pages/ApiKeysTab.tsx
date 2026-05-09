@@ -20,6 +20,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { copyText } from "@/utils/clipboard";
 import { errMsg } from "@/utils/async";
+import { formatDate } from "@/utils/date-format";
 import {
   ACCENT_BTN_CLS,
   ACCENT_BUTTON_STYLE,
@@ -38,16 +39,11 @@ const MODAL_STYLE: CSSProperties = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(iso: string | null, locale: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  const dateLocale = locale.startsWith("zh") ? "zh-CN" : "en-US";
-  return d.toLocaleDateString(dateLocale, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-}
+const FULL_DATE_OPTS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+};
 
 function isExpired(expiresAt: string | null): boolean {
   if (!expiresAt) return false;
@@ -466,7 +462,7 @@ export function ApiKeysTab() {
                       {key.key_prefix}****
                     </td>
                     <td className="px-4 py-4 font-mono tabular-nums text-text-2">
-                      {formatDate(key.created_at, i18n.language)}
+                      {formatDate(key.created_at, i18n.language, FULL_DATE_OPTS)}
                     </td>
                     <td className="px-4 py-4">
                       {!key.expires_at ? (
@@ -486,12 +482,12 @@ export function ApiKeysTab() {
                         </span>
                       ) : (
                         <span className="font-mono tabular-nums text-text-2">
-                          {formatDate(key.expires_at, i18n.language)}
+                          {formatDate(key.expires_at, i18n.language, FULL_DATE_OPTS)}
                         </span>
                       )}
                     </td>
                     <td className="px-4 py-4 font-mono tabular-nums text-text-3">
-                      {formatDate(key.last_used_at, i18n.language)}
+                      {formatDate(key.last_used_at, i18n.language, FULL_DATE_OPTS)}
                     </td>
                     <td className="px-4 py-4 text-right">
                       <button

@@ -711,7 +711,7 @@ export function ProjectSettingsPage() {
 
       <ConfirmDialog
         open={pendingNavigation !== null}
-        tone="warning"
+        tone="danger"
         title={t("unsaved_changes_confirm")}
         confirmLabel={t("common:confirm")}
         cancelLabel={t("common:cancel")}

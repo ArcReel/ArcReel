@@ -1,5 +1,5 @@
-import { useState, useEffect, type CSSProperties } from "react";
-import { useLocation } from "wouter";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
 import { AssetGrid } from "@/components/assets/AssetGrid";
@@ -16,6 +16,7 @@ import {
   ACCENT_BUTTON_STYLE,
   ICON_BTN_FILLED_CLS,
   INPUT_CLS,
+  ambientGlowStyle,
 } from "@/components/ui/darkroom-tokens";
 import type { Asset, AssetType } from "@/types/asset";
 
@@ -45,17 +46,42 @@ const EMPTY_KEY: Record<AssetType, string> = {
   prop: "library_empty_prop",
 };
 
-const HEADER_GLOW_STYLE: CSSProperties = {
-  background:
-    "radial-gradient(circle at 30% 0%, oklch(0.76 0.09 295 / 0.08), transparent 60%)",
-};
+const HEADER_GLOW_STYLE = ambientGlowStyle({ at: "30% 0%", intensity: 0.08 });
 
 export function AssetLibraryPage() {
   const { t } = useTranslation("assets");
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState<AssetType>("character");
-  const [q, setQ] = useState("");
+  const search = useSearch();
+
+  const activeTab = useMemo((): AssetType => {
+    const tab = new URLSearchParams(search).get("tab");
+    return tab === "scene" || tab === "prop" ? tab : "character";
+  }, [search]);
+
+  const writeQuery = useCallback((patch: { tab?: AssetType; q?: string }) => {
+    const params = new URLSearchParams(window.location.search);
+    if (patch.tab !== undefined) {
+      if (patch.tab === "character") params.delete("tab");
+      else params.set("tab", patch.tab);
+    }
+    if (patch.q !== undefined) {
+      if (patch.q) params.set("q", patch.q);
+      else params.delete("q");
+    }
+    const qs = params.toString();
+    navigate(qs ? `${window.location.pathname}?${qs}` : window.location.pathname, { replace: true });
+  }, [navigate]);
+
+  const setActiveTab = useCallback((next: AssetType) => writeQuery({ tab: next }), [writeQuery]);
+
+  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
   const debouncedQ = useDebouncedValue(q, 250);
+
+  useEffect(() => {
+    const current = new URLSearchParams(window.location.search).get("q") ?? "";
+    if (current === debouncedQ) return;
+    writeQuery({ q: debouncedQ });
+  }, [debouncedQ, writeQuery]);
   const [formModal, setFormModal] = useState<{ mode: "create" | "edit"; asset?: Asset } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -99,6 +125,9 @@ export function AssetLibraryPage() {
       throw err; // 让 modal 的 submit 感知失败并保留对话框，用户可修正后重试
     }
   };
+
+  const handleEditAsset = useCallback((a: Asset) => setFormModal({ mode: "edit", asset: a }), []);
+  const handleDeleteAsset = useCallback((a: Asset) => setDeleteTarget(a), []);
 
   const confirmDelete = async () => {
     if (!deleteTarget || deleting) return;
@@ -221,8 +250,8 @@ export function AssetLibraryPage() {
         ) : (
           <AssetGrid
             assets={assets}
-            onEdit={(a) => setFormModal({ mode: "edit", asset: a })}
-            onDelete={(a) => setDeleteTarget(a)}
+            onEdit={handleEditAsset}
+            onDelete={handleDeleteAsset}
           />
         )}
       </main>

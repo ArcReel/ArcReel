@@ -1,6 +1,8 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { Edit2, Trash2, User as UserIcon, Landmark, Package } from "lucide-react";
 import { API } from "@/api";
+import { formatDate } from "@/utils/date-format";
 import type { Asset } from "@/types/asset";
 import { AssetThumb } from "./AssetThumb";
 
@@ -12,32 +14,17 @@ interface Props {
 
 const TYPE_ICON = { character: UserIcon, scene: Landmark, prop: Package };
 
-const dateFmtCache = new Map<string, Intl.DateTimeFormat>();
-function getDateFmt(lang: string): Intl.DateTimeFormat {
-  let fmt = dateFmtCache.get(lang);
-  if (!fmt) {
-    try {
-      fmt = new Intl.DateTimeFormat(lang, { month: "short", day: "numeric" });
-    } catch {
-      fmt = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
-    }
-    dateFmtCache.set(lang, fmt);
-  }
-  return fmt;
-}
+const SHORT_DATE_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
 
-function formatUpdatedAt(value: string | null, lang: string): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return getDateFmt(lang).format(date);
-}
+export const AssetCard = memo(AssetCardImpl);
 
-export function AssetCard({ asset, onEdit, onDelete }: Props) {
+function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
   const { t, i18n } = useTranslation("assets");
   const Icon = TYPE_ICON[asset.type];
   const imageUrl = API.getGlobalAssetUrl(asset.image_path, asset.updated_at);
-  const formattedDate = formatUpdatedAt(asset.updated_at, i18n.language);
+  const formattedDate = asset.updated_at
+    ? formatDate(asset.updated_at, i18n.language, SHORT_DATE_OPTS, "")
+    : "";
 
   return (
     <div className="group relative overflow-hidden rounded-[10px] border border-hairline-soft bg-bg-grad-a/55 transition-[transform,border-color] motion-safe:hover:-translate-y-0.5 hover:border-hairline">
@@ -61,11 +48,11 @@ export function AssetCard({ asset, onEdit, onDelete }: Props) {
                 {asset.description}
               </div>
             )}
-            {formattedDate && (
+            {formattedDate ? (
               <div className="mt-2 flex items-center gap-2 font-mono text-[10.5px] text-text-4">
                 <span className="tabular-nums">{t("meta_updated_at", { date: formattedDate })}</span>
               </div>
-            )}
+            ) : null}
           </div>
           <div className="flex flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <button

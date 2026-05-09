@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
-export type ConfirmTone = "default" | "danger" | "warning";
+export type ConfirmTone = "default" | "danger";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -18,12 +18,6 @@ interface ConfirmDialogProps {
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
-
-const TONE_ICON_CLS: Record<ConfirmTone, string | null> = {
-  default: null,
-  danger: "bg-warm-tint text-warm-bright",
-  warning: "bg-warm-tint text-warm-bright",
-};
 
 const CANCEL_BTN_CLS =
   "rounded-lg border border-hairline px-4 py-2 text-sm text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60";
@@ -55,8 +49,8 @@ export function ConfirmDialog({
 
   if (!open) return null;
 
-  const toneIconCls = TONE_ICON_CLS[tone];
-  const confirmCls = tone === "default" ? ACCENT_CONFIRM_CLS : WARM_CONFIRM_CLS;
+  const isDanger = tone === "danger";
+  const confirmCls = isDanger ? WARM_CONFIRM_CLS : ACCENT_CONFIRM_CLS;
   const resolvedCancelLabel = cancelLabel ?? t("cancel");
   const resolvedLoadingLabel = loadingLabel ?? confirmLabel;
 
@@ -71,10 +65,10 @@ export function ConfirmDialog({
         className="w-full max-w-md overflow-hidden rounded-2xl border border-hairline bg-bg-grad-a p-6 shadow-2xl"
       >
         <div className="flex items-start gap-4">
-          {toneIconCls && (
+          {isDanger && (
             <div
               aria-hidden
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${toneIconCls}`}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warm-tint text-warm-bright"
             >
               <AlertTriangle className="h-6 w-6" />
             </div>

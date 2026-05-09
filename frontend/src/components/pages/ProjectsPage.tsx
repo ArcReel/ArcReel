@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
+import { formatDate } from "@/utils/date-format";
 import { Link, useLocation } from "wouter";
 import {
   AlertTriangle,
@@ -35,7 +36,7 @@ import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
-import { ICON_BTN_FILLED_CLS } from "@/components/ui/darkroom-tokens";
+import { ICON_BTN_FILLED_CLS, posterGridStyle } from "@/components/ui/darkroom-tokens";
 import {
   PHASE_ORDER,
   type Phase,
@@ -95,13 +96,7 @@ const POSTER_FX_STYLE: CSSProperties = {
     "linear-gradient(115deg, oklch(1 0 0 / 0.18) 0%, transparent 30%), linear-gradient(295deg, oklch(0 0 0 / 0.55) 0%, transparent 45%)",
 };
 
-const POSTER_GRID_STYLE: CSSProperties = {
-  backgroundImage:
-    "linear-gradient(oklch(1 0 0) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0) 1px, transparent 1px)",
-  backgroundSize: "40px 40px",
-  maskImage: "radial-gradient(70% 70% at 50% 50%, black, transparent)",
-  WebkitMaskImage: "radial-gradient(70% 70% at 50% 50%, black, transparent)",
-};
+const POSTER_GRID_STYLE = posterGridStyle();
 
 const POSTER_SPROCKET_STYLE: CSSProperties = {
   background:
@@ -914,18 +909,12 @@ function TopBar({
 
 // -- HeroStrip ----------------------------------------------------------------
 
-function formatDateKicker(d: Date, locale: string): string {
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      weekday: "short",
-    }).format(d);
-  } catch {
-    return d.toISOString().slice(0, 10);
-  }
-}
+const KICKER_DATE_OPTS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+};
 
 interface HeroStripProps {
   totals: {
@@ -943,7 +932,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
   const { i18n } = useTranslation();
   const greetingKey = useMemo<GreetingKey>(() => getGreetingKey(), []);
   const dateLine = useMemo(
-    () => formatDateKicker(new Date(), i18n.language || "zh"),
+    () => formatDate(new Date(), i18n.language || "zh", KICKER_DATE_OPTS, new Date().toISOString().slice(0, 10)),
     [i18n.language],
   );
 

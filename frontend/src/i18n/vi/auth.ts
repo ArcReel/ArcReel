@@ -1,3 +1,4 @@
+import type enAuth from '../en/auth';
 
 export default {
   'login': 'Đăng nhập',
@@ -5,4 +6,4 @@ export default {
   'login_failed': 'Đăng nhập thất bại',
   'username': 'Tên đăng nhập',
   'password': 'Mật khẩu',
-};
+} satisfies Record<keyof typeof enAuth, string>;

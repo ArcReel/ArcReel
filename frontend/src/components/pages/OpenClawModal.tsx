@@ -2,12 +2,13 @@
  * OpenClaw 集成引导 Modal
  * 提示词区域（可复制，含动态 skill.md URL）、3 步使用说明、"获取 API 令牌"按钮
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/utils/clipboard";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
   ACCENT_BTN_CLS,
   ACCENT_BUTTON_STYLE,
@@ -42,11 +43,21 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, navigate] = useLocation();
   const [copied, setCopied] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const copiedTimerRef = useRef<number | null>(null);
 
   const handleCopyPrompt = useCallback(async () => {
     await copyText(SYSTEM_PROMPT);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => {
+      copiedTimerRef.current = null;
+      setCopied(false);
+    }, 2000);
+  }, []);
+
+  useEffect(() => () => {
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
   }, []);
 
   const handleGoToApiKeys = useCallback(() => {
@@ -55,6 +66,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
   }, [navigate, onClose]);
 
   useEscapeClose(onClose);
+  useFocusTrap(dialogRef, true);
 
   return (
     <div
@@ -69,6 +81,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
         onClick={onClose}
       />
       <div
+        ref={dialogRef}
         className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border border-hairline shadow-2xl shadow-black/60"
         style={DROPDOWN_PANEL_STYLE}
       >
