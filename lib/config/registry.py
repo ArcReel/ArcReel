@@ -352,4 +352,57 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
     ),
+    "vidu": ProviderMeta(
+        display_name="Vidu",
+        description="生数科技 Vidu 视频生成平台，支持文生视频、图生视频、首尾帧、参考生视频与参考生图，仅图片与视频能力。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- image ---
+            "viduq2": ModelInfo(
+                display_name="Vidu Q2 Image",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["1080p", "2K", "4K"],
+            ),
+            "viduq1": ModelInfo(
+                display_name="Vidu Q1 Image",
+                media_type="image",
+                capabilities=["image_to_image"],
+                resolutions=["1080p"],
+            ),
+            # --- video ---
+            "viduq3-turbo": ModelInfo(
+                display_name="Vidu Q3 Turbo",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control"],
+                default=True,
+                supported_durations=list(range(1, 17)),
+                resolutions=["540p", "720p", "1080p"],
+            ),
+            "viduq3-pro": ModelInfo(
+                display_name="Vidu Q3 Pro",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control"],
+                supported_durations=list(range(1, 17)),
+                resolutions=["540p", "720p", "1080p"],
+            ),
+            "viduq3": ModelInfo(
+                display_name="Vidu Q3 (Reference)",
+                media_type="video",
+                capabilities=["image_to_video", "generate_audio", "seed_control"],
+                supported_durations=list(range(3, 17)),
+                resolutions=["540p", "720p", "1080p"],
+            ),
+            "vidu2.0": ModelInfo(
+                display_name="Vidu 2.0",
+                media_type="video",
+                capabilities=["image_to_video", "seed_control"],
+                supported_durations=[4, 8],
+                resolutions=["360p", "720p", "1080p"],
+            ),
+        },
+    ),
 }

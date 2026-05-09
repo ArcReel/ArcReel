@@ -11,6 +11,13 @@ from lib.custom_provider import is_custom_provider
 from lib.openai_shared import OPENAI_IMAGE_SIZE_MAP
 from lib.providers import PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, CallType
 
+# fork: Vidu provider — 单独 import 块以避免与上游聚合 import 冲突
+# isort: off
+from lib.providers import PROVIDER_VIDU
+from lib.vidu_shared import calculate_vidu_cost as _vidu_cost
+
+# isort: on
+
 
 class CostCalculator:
     """费用计算器"""
@@ -508,6 +515,13 @@ class CostCalculator:
                     aspect_ratio=aspect_ratio,
                     size=size,
                 )
+            if provider == PROVIDER_VIDU:
+                return _vidu_cost(
+                    call_type="image",
+                    usage_tokens=usage_tokens,
+                    model=model,
+                    resolution=resolution,
+                )
             return self.calculate_image_cost(resolution or "1K", model=model), "USD"
 
         if call_type == "video":
@@ -528,6 +542,14 @@ class CostCalculator:
                     duration_seconds=duration_seconds or 8,
                     model=model,
                     resolution=resolution or "720p",
+                )
+            if provider == PROVIDER_VIDU:
+                return _vidu_cost(
+                    call_type="video",
+                    usage_tokens=usage_tokens,
+                    model=model,
+                    resolution=resolution,
+                    duration_seconds=duration_seconds,
                 )
             return self.calculate_video_cost(
                 duration_seconds=duration_seconds or 8,
@@ -559,6 +581,8 @@ class CostCalculator:
         if not unit_durations_seconds:
             if provider == PROVIDER_ARK:
                 return 0.0, "CNY"
+            if provider == PROVIDER_VIDU:
+                return 0.0, "CNY"
             return 0.0, "USD"
 
         total_duration = sum(max(0, int(d)) for d in unit_durations_seconds)
@@ -580,6 +604,13 @@ class CostCalculator:
                 duration_seconds=total_duration,
                 model=model,
                 resolution=resolution,
+            )
+        if provider == PROVIDER_VIDU:
+            return _vidu_cost(
+                call_type="video",
+                model=model,
+                resolution=resolution,
+                duration_seconds=total_duration,
             )
         # Gemini/Veo 默认
         return (

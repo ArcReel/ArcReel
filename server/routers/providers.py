@@ -606,12 +606,25 @@ def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTe
     )
 
 
+def _test_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """Vidu 连接测试 — HTTP 细节封装在 lib.vidu_shared.test_vidu_connection（fork-only）。"""
+    from lib.vidu_shared import test_vidu_connection
+
+    test_vidu_connection(config)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=[],
+        message=_t("connection_success"),
+    )
+
+
 _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse]] = {
     "gemini-aistudio": _test_gemini_aistudio,
     "gemini-vertex": _test_gemini_vertex,
     "ark": _test_ark,
     "grok": _test_grok,
     "openai": _test_openai,
+    "vidu": _test_vidu,
 }
 
 

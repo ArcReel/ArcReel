@@ -23,8 +23,11 @@ def config_service(session: AsyncSession) -> ConfigService:
 
 
 async def test_get_all_providers_status_empty(config_service: ConfigService):
+    from lib.config.registry import PROVIDER_REGISTRY
+
     statuses = await config_service.get_all_providers_status()
-    assert len(statuses) == 5
+    assert len(statuses) == len(PROVIDER_REGISTRY)
+    assert {s.name for s in statuses} == set(PROVIDER_REGISTRY.keys())
     for s in statuses:
         assert s.status == "unconfigured"
 

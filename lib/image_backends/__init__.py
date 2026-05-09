@@ -40,3 +40,8 @@ from lib.image_backends.openai import OpenAIImageBackend
 from lib.providers import PROVIDER_OPENAI
 
 register_backend(PROVIDER_OPENAI, OpenAIImageBackend)
+
+from lib.image_backends.vidu import ViduImageBackend
+from lib.providers import PROVIDER_VIDU
+
+register_backend(PROVIDER_VIDU, ViduImageBackend)
