@@ -1,4 +1,4 @@
-import type enErrors from '../en/errors';
+import type enErrors from "@/i18n/en/errors";
 
 export default {
   'unknown_error': 'Đã xảy ra lỗi không xác định',

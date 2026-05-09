@@ -37,7 +37,6 @@ const STEP_KEYS = [
 ] as const;
 
 const SKILL_URL = `${window.location.origin}/skill.md`;
-const SYSTEM_PROMPT = `学习 ${SKILL_URL} 然后遵循 skill，了解如何使用 ArcReel 创作视频`;
 
 export function OpenClawModal({ onClose }: OpenClawModalProps) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -46,15 +45,17 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const copiedTimerRef = useRef<number | null>(null);
 
+  const systemPrompt = t("dashboard:openclaw_system_prompt", { skillUrl: SKILL_URL });
+
   const handleCopyPrompt = useCallback(async () => {
-    await copyText(SYSTEM_PROMPT);
+    await copyText(systemPrompt);
     setCopied(true);
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
     copiedTimerRef.current = window.setTimeout(() => {
       copiedTimerRef.current = null;
       setCopied(false);
     }, 2000);
-  }, []);
+  }, [systemPrompt]);
 
   useEffect(() => () => {
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
@@ -74,10 +75,10 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm"
     >
-      <button
-        type="button"
-        aria-label={t("common:close")}
-        className="absolute inset-0 cursor-default appearance-none border-0 bg-transparent p-0"
+      {/* Pointer-only backdrop. Esc 通过 useEscapeClose 关闭，避免引入可聚焦元素破坏 focus trap。 */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
         onClick={onClose}
       />
       <div
@@ -133,7 +134,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
             </div>
             <div className="rounded-xl border border-accent/30 bg-bg p-3">
               <pre className="whitespace-pre-wrap font-mono text-[12px] leading-5 text-accent-2">
-                {SYSTEM_PROMPT}
+                {systemPrompt}
               </pre>
             </div>
             <p className="mt-1.5 text-[11px] text-text-4">

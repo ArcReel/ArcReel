@@ -56,6 +56,7 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
           </div>
           <div className="flex flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <button
+              type="button"
               onClick={() => onEdit(asset)}
               aria-label={t("edit")}
               className="rounded-[5px] p-1 text-text-4 transition-colors hover:text-text focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -63,6 +64,7 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
               <Edit2 className="h-3.5 w-3.5" />
             </button>
             <button
+              type="button"
               onClick={() => onDelete(asset)}
               aria-label={t("delete")}
               className="rounded-[5px] p-1 text-text-4 transition-colors hover:text-warm-bright focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring"

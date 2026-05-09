@@ -984,6 +984,7 @@ export default {
   'openclaw_step_02_desc': 'OpenClaw sẽ tự động đọc tài liệu ArcReel Skill và khám phá mọi công cụ và API có sẵn.',
   'openclaw_step_03_title': 'OpenClaw điều khiển ArcReel để tạo video',
   'openclaw_step_03_desc': 'Hãy mô tả mong muốn của bạn; OpenClaw sẽ gọi ArcReel để quản lý dự án, tạo kịch bản và sản xuất video.',
+  'openclaw_system_prompt': 'Đọc {{skillUrl}} rồi làm theo skill để biết cách dùng ArcReel tạo video',
   'openclaw_get_api_token': 'Lấy API token',
 
 

@@ -74,14 +74,20 @@ export function AssetLibraryPage() {
 
   const setActiveTab = useCallback((next: AssetType) => writeQuery({ tab: next }), [writeQuery]);
 
-  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
+  const urlQ = useMemo(() => new URLSearchParams(search).get("q") ?? "", [search]);
+  const [q, setQ] = useState(urlQ);
   const debouncedQ = useDebouncedValue(q, 250);
 
+  // 浏览器前进/后退或外部地址栏变化导致 urlQ 改变时，把 URL 当前值同步到本地 q。
   useEffect(() => {
-    const current = new URLSearchParams(window.location.search).get("q") ?? "";
-    if (current === debouncedQ) return;
+    setQ((prev) => (prev === urlQ ? prev : urlQ));
+  }, [urlQ]);
+
+  // debouncedQ 与 URL 不一致时回写，使用 urlQ（已订阅 search）做对比，避免覆盖外部变更。
+  useEffect(() => {
+    if (urlQ === debouncedQ) return;
     writeQuery({ q: debouncedQ });
-  }, [debouncedQ, writeQuery]);
+  }, [debouncedQ, urlQ, writeQuery]);
   const [formModal, setFormModal] = useState<{ mode: "create" | "edit"; asset?: Asset } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState(false);

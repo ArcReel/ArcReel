@@ -1169,5 +1169,6 @@ export default {
   'openclaw_step_02_desc': 'OpenClaw 会自动读取 ArcReel Skill 文档，获取所有可用工具与 API 的使用方式',
   'openclaw_step_03_title': 'OpenClaw 与 ArcReel 交互并创建视频',
   'openclaw_step_03_desc': '描述你的创作需求，OpenClaw 将调用 ArcReel 完成项目管理、剧本生成和视频创作',
+  'openclaw_system_prompt': '学习 {{skillUrl}} 然后遵循 skill，了解如何使用 ArcReel 创作视频',
   'openclaw_get_api_token': '获取 API 令牌',
 } satisfies Record<keyof typeof enDashboard, string>;

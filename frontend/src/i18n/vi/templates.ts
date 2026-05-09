@@ -1,4 +1,4 @@
-import type enTemplates from "../en/templates";
+import type enTemplates from "@/i18n/en/templates";
 
 type DeepStringify<T> = {
   [K in keyof T]: T[K] extends string

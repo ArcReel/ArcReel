@@ -1168,5 +1168,6 @@ export default {
   'openclaw_step_02_desc': 'OpenClaw automatically reads the ArcReel Skill doc and discovers every available tool and API.',
   'openclaw_step_03_title': 'OpenClaw drives ArcReel to create videos',
   'openclaw_step_03_desc': 'Describe what you want; OpenClaw will call ArcReel to manage projects, generate scripts, and produce videos.',
+  'openclaw_system_prompt': 'Read {{skillUrl}} and then follow the skill to learn how to create videos with ArcReel',
   'openclaw_get_api_token': 'Get API token',
 };

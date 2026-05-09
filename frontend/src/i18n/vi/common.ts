@@ -1,4 +1,4 @@
-import type enCommon from '../en/common';
+import type enCommon from "@/i18n/en/common";
 
 export default {
   'language': 'Ngôn ngữ',
