@@ -216,14 +216,18 @@ def test_vidu_connection(config: dict[str, str]) -> None:
     """通过查询不存在的 task id 验证 Vidu API Key。
 
     Vidu 无 list-models 端点，借助 ``GET /tasks/<bogus>/creations`` 校验认证。
-    采用白名单：仅在凭证有效时服务端会返回 404（task 不存在）；任何其他状态码
-    （包括 5xx 网关错误）都视为不可判定，统一抛错避免误判成功。
+    Vidu 服务端把 task id 当作整数解析，必须传数字字符串；非数字会在 auth 检查
+    之前返回 400 CODEC parse error，让连接测试始终失败。
+
+    采用白名单：凭证有效时返回 404（task 不存在）；401/403 视为凭证无效；
+    其他状态码（含 5xx）一律视为不可判定，抛错避免误判成功。
     """
     api_key = resolve_vidu_api_key(config.get("api_key"), allow_env_fallback=False)
     base_url = (config.get("base_url") or VIDU_BASE_URL).rstrip("/")
     headers = {"Authorization": f"Token {api_key}"}
+    # 用一个语法上合法但极不可能存在的数字 id（避开整数解析失败的 400 CODEC）
     with httpx.Client(timeout=10.0) as client:
-        resp = client.get(f"{base_url}/tasks/__connection_test__/creations", headers=headers)
+        resp = client.get(f"{base_url}/tasks/0/creations", headers=headers)
     if resp.status_code == 404:
         return
     if resp.status_code in (401, 403):
