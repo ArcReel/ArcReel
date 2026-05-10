@@ -37,8 +37,10 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   // 拖动期间的"草稿宽度"。非 null 表示正在拖动，UI 用 draftWidth 即时反馈；
   // mouseup / blur 时才把 draftWidth 提交到 store + localStorage，避免每帧
-  // 触发 zustand 订阅链路。
+  // 触发 zustand 订阅链路。draftWidthRef 与 state 同步更新，让 finishResize
+  // 能在 setState updater 之外读取最终值（updater 必须保持纯净）。
   const [draftWidth, setDraftWidth] = useState<number | null>(null);
+  const draftWidthRef = useRef<number | null>(null);
   const isResizing = draftWidth !== null;
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(
     null,
@@ -46,6 +48,11 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const restoreBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(
     null,
   );
+
+  const updateDraftWidth = useCallback((next: number | null) => {
+    draftWidthRef.current = next;
+    setDraftWidth(next);
+  }, []);
 
   useTasksSSE(currentProjectName);
   useProjectEventsSSE(currentProjectName);
@@ -72,9 +79,9 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       };
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
-      setDraftWidth(startWidth);
+      updateDraftWidth(startWidth);
     },
-    [],
+    [updateDraftWidth],
   );
 
   const handleResizeDoubleClick = useCallback(() => {
@@ -88,14 +95,13 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     const finishResize = () => {
       dragStateRef.current = null;
       restoreBodyStyle();
-      setDraftWidth((current) => {
-        if (current != null) {
-          // 把 draft 提交到 store；setter 内部会再 clamp，persist 读 store 最新值
-          setAssistantPanelWidth(current);
-          persistAssistantPanelWidth();
-        }
-        return null;
-      });
+      const final = draftWidthRef.current;
+      updateDraftWidth(null);
+      if (final != null) {
+        // 把 draft 提交到 store；setter 内部会再 clamp，persist 读 store 最新值
+        setAssistantPanelWidth(final);
+        persistAssistantPanelWidth();
+      }
     };
 
     const onMouseMove = (e: MouseEvent) => {
@@ -110,7 +116,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       const next = clampAssistantPanelWidth(
         drag.startWidth + (drag.startX - e.clientX),
       );
-      setDraftWidth(next);
+      updateDraftWidth(next);
     };
 
     window.addEventListener("mousemove", onMouseMove);
@@ -129,6 +135,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     setAssistantPanelWidth,
     persistAssistantPanelWidth,
     restoreBodyStyle,
+    updateDraftWidth,
   ]);
 
   const displayedPanelWidth = draftWidth ?? assistantPanelWidth;
