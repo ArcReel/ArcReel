@@ -1074,7 +1074,7 @@ function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsPr
       style={{
         top: "var(--lobby-topbar-h, 57px)",
         background:
-          "linear-gradient(180deg, oklch(0.18 0.010 265 / 0.94), oklch(0.17 0.010 265 / 0.90))",
+          "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
         backdropFilter: "blur(16px) saturate(1.1)",
         borderTopWidth: 1,
         borderTopColor: "var(--color-hairline-soft)",
@@ -1090,10 +1090,10 @@ function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsPr
               onClick={() => onChange(c.key)}
               aria-pressed={isActive}
               className={
-                "inline-flex items-center rounded-full px-3 py-1 text-[11.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                "inline-flex items-center rounded-full px-3 py-1 text-[11.5px] font-medium backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
                 (isActive
-                  ? "border border-accent/35 bg-accent/30 text-text"
-                  : "border border-hairline-soft bg-transparent text-text-3 hover:border-hairline hover:text-text-2")
+                  ? "border border-accent/40 bg-accent/45 text-text"
+                  : "border border-hairline-soft bg-[oklch(0.22_0.012_265_/_0.7)] text-text-3 hover:border-hairline hover:bg-[oklch(0.24_0.012_265_/_0.78)] hover:text-text-2")
               }
             >
               {c.label}

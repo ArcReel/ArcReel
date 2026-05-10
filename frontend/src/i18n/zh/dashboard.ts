@@ -1073,6 +1073,7 @@ export default {
   'pending_question_wizard_submitting': '提交中…',
   'pending_question_wizard_submit': '完成并提交 →',
   'open_assistant_panel': '展开助手面板',
+  'resize_assistant_panel': '调整助手面板宽度（双击恢复默认）',
   'progress_aria_label': '{{label}} 进度',
   'shot_detail_save': '保存',
   'shot_detail_saving': '保存中…',

@@ -1,13 +1,18 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
+import { AssistantResizeHandle } from "./AssistantResizeHandle";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useAppStore } from "@/stores/app-store";
+import {
+  ASSISTANT_PANEL_DEFAULT_WIDTH,
+  useAppStore,
+} from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
 
 interface StudioLayoutProps {
@@ -23,9 +28,87 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
+  const assistantPanelWidth = useAppStore((s) => s.assistantPanelWidth);
+  const setAssistantPanelWidth = useAppStore((s) => s.setAssistantPanelWidth);
+  const persistAssistantPanelWidth = useAppStore(
+    (s) => s.persistAssistantPanelWidth,
+  );
+
+  const [isResizing, setIsResizing] = useState(false);
+  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(
+    null,
+  );
+  const restoreBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(
+    null,
+  );
 
   useTasksSSE(currentProjectName);
   useProjectEventsSSE(currentProjectName);
+
+  const restoreBodyStyle = useCallback(() => {
+    const saved = restoreBodyStyleRef.current;
+    if (saved) {
+      document.body.style.cursor = saved.cursor;
+      document.body.style.userSelect = saved.userSelect;
+      restoreBodyStyleRef.current = null;
+    }
+  }, []);
+
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      dragStateRef.current = {
+        startX: e.clientX,
+        startWidth: assistantPanelWidth,
+      };
+      restoreBodyStyleRef.current = {
+        cursor: document.body.style.cursor,
+        userSelect: document.body.style.userSelect,
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      setIsResizing(true);
+    },
+    [assistantPanelWidth],
+  );
+
+  const handleResizeDoubleClick = useCallback(() => {
+    setAssistantPanelWidth(ASSISTANT_PANEL_DEFAULT_WIDTH);
+    persistAssistantPanelWidth();
+  }, [setAssistantPanelWidth, persistAssistantPanelWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      // 手柄在右侧栏左缘，鼠标向左 (clientX 减小) → 宽度增大
+      const next = drag.startWidth + (drag.startX - e.clientX);
+      setAssistantPanelWidth(next);
+    };
+
+    const onMouseUp = () => {
+      dragStateRef.current = null;
+      restoreBodyStyle();
+      setIsResizing(false);
+      persistAssistantPanelWidth();
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      // 组件意外卸载时兜底清理 body 样式
+      restoreBodyStyle();
+    };
+  }, [
+    isResizing,
+    setAssistantPanelWidth,
+    persistAssistantPanelWidth,
+    restoreBodyStyle,
+  ]);
 
   return (
     <div
@@ -39,15 +122,27 @@ export function StudioLayout({ children }: StudioLayoutProps) {
           {children}
         </main>
         <div
-          className="shrink-0 overflow-hidden transition-[width,min-width,border-color] duration-300 ease-in-out"
+          className={`relative shrink-0 overflow-hidden ${
+            isResizing
+              ? "transition-[min-width,border-color]"
+              : "transition-[width,min-width,border-color] duration-300 ease-in-out"
+          }`}
           style={{
-            width: assistantPanelOpen ? 505 : 0,
+            width: assistantPanelOpen ? assistantPanelWidth : 0,
             background: "oklch(0.19 0.011 250 / 0.5)",
             borderLeft: assistantPanelOpen
               ? "1px solid var(--color-hairline)"
               : "1px solid transparent",
           }}
         >
+          {assistantPanelOpen ? (
+            <AssistantResizeHandle
+              width={assistantPanelWidth}
+              isResizing={isResizing}
+              onMouseDown={handleResizeMouseDown}
+              onDoubleClick={handleResizeDoubleClick}
+            />
+          ) : null}
           {/* 始终渲染但收起时透明 + 不可达，保持内部状态；invisible + aria-hidden 防止 Tab 仍可聚焦内部控件 */}
           <div
             aria-hidden={!assistantPanelOpen}
