@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from openai import AsyncOpenAI, BadRequestError
@@ -96,6 +97,14 @@ class OpenAITextBackend:
         usage = response.usage
         choice = response.choices[0]
         output_tokens = usage.completion_tokens if usage else None
+        text = choice.message.content or ""
+
+        if request.response_schema and not _is_valid_json(text):
+            logger.warning(
+                "原生 response_format 返回非 JSON 内容（代理可能未支持 response_format），降级到 Instructor 路径",
+            )
+            return await _instructor_fallback(self._client, self._model, request, messages)
+
         warn_if_truncated(
             getattr(choice, "finish_reason", None),
             provider=PROVIDER_OPENAI,
@@ -103,7 +112,7 @@ class OpenAITextBackend:
             output_tokens=output_tokens,
         )
         return TextGenerationResult(
-            text=choice.message.content or "",
+            text=text,
             provider=PROVIDER_OPENAI,
             model=self._model,
             input_tokens=usage.prompt_tokens if usage else None,
@@ -144,6 +153,21 @@ _SCHEMA_ERROR_KEYWORDS = (
     "Cannot find field",
     "Invalid JSON payload",
 )
+
+
+def _is_valid_json(text: str) -> bool:
+    """判断字符串是否为合法 JSON。
+
+    一些 OpenAI 兼容代理（自定义供应商常见情况）会静默忽略 response_format
+    参数并返回纯文本/markdown，需要据此触发 Instructor 降级。
+    """
+    if not text or not text.strip():
+        return False
+    try:
+        json.loads(text)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 def _is_schema_error(exc: BaseException) -> bool:
