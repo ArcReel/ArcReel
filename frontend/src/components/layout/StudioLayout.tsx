@@ -11,6 +11,7 @@ import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   ASSISTANT_PANEL_DEFAULT_WIDTH,
+  clampAssistantPanelWidth,
   useAppStore,
 } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
@@ -34,7 +35,11 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     (s) => s.persistAssistantPanelWidth,
   );
 
-  const [isResizing, setIsResizing] = useState(false);
+  // 拖动期间的"草稿宽度"。非 null 表示正在拖动，UI 用 draftWidth 即时反馈；
+  // mouseup / blur 时才把 draftWidth 提交到 store + localStorage，避免每帧
+  // 触发 zustand 订阅链路。
+  const [draftWidth, setDraftWidth] = useState<number | null>(null);
+  const isResizing = draftWidth !== null;
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(
     null,
   );
@@ -56,20 +61,20 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // 仅响应主键，避免右键/中键意外进入拖拽态
+      if (e.button !== 0) return;
       e.preventDefault();
-      dragStateRef.current = {
-        startX: e.clientX,
-        startWidth: assistantPanelWidth,
-      };
+      const startWidth = useAppStore.getState().assistantPanelWidth;
+      dragStateRef.current = { startX: e.clientX, startWidth };
       restoreBodyStyleRef.current = {
         cursor: document.body.style.cursor,
         userSelect: document.body.style.userSelect,
       };
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
-      setIsResizing(true);
+      setDraftWidth(startWidth);
     },
-    [assistantPanelWidth],
+    [],
   );
 
   const handleResizeDoubleClick = useCallback(() => {
@@ -80,26 +85,42 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   useEffect(() => {
     if (!isResizing) return;
 
+    const finishResize = () => {
+      dragStateRef.current = null;
+      restoreBodyStyle();
+      setDraftWidth((current) => {
+        if (current != null) {
+          // 把 draft 提交到 store；setter 内部会再 clamp，persist 读 store 最新值
+          setAssistantPanelWidth(current);
+          persistAssistantPanelWidth();
+        }
+        return null;
+      });
+    };
+
     const onMouseMove = (e: MouseEvent) => {
       const drag = dragStateRef.current;
       if (!drag) return;
+      // 主键已在中途松开（如焦点切走时）→ 主动收尾
+      if ((e.buttons & 1) === 0) {
+        finishResize();
+        return;
+      }
       // 手柄在右侧栏左缘，鼠标向左 (clientX 减小) → 宽度增大
-      const next = drag.startWidth + (drag.startX - e.clientX);
-      setAssistantPanelWidth(next);
-    };
-
-    const onMouseUp = () => {
-      dragStateRef.current = null;
-      restoreBodyStyle();
-      setIsResizing(false);
-      persistAssistantPanelWidth();
+      const next = clampAssistantPanelWidth(
+        drag.startWidth + (drag.startX - e.clientX),
+      );
+      setDraftWidth(next);
     };
 
     window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mouseup", finishResize);
+    // 鼠标在窗外松开时 mouseup 可能不触发，blur 兜底防止卡死
+    window.addEventListener("blur", finishResize);
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mouseup", finishResize);
+      window.removeEventListener("blur", finishResize);
       // 组件意外卸载时兜底清理 body 样式
       restoreBodyStyle();
     };
@@ -109,6 +130,8 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     persistAssistantPanelWidth,
     restoreBodyStyle,
   ]);
+
+  const displayedPanelWidth = draftWidth ?? assistantPanelWidth;
 
   return (
     <div
@@ -128,7 +151,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
               : "transition-[width,min-width,border-color] duration-300 ease-in-out"
           }`}
           style={{
-            width: assistantPanelOpen ? assistantPanelWidth : 0,
+            width: assistantPanelOpen ? displayedPanelWidth : 0,
             background: "oklch(0.19 0.011 250 / 0.5)",
             borderLeft: assistantPanelOpen
               ? "1px solid var(--color-hairline)"
@@ -137,7 +160,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         >
           {assistantPanelOpen ? (
             <AssistantResizeHandle
-              width={assistantPanelWidth}
+              width={displayedPanelWidth}
               isResizing={isResizing}
               onMouseDown={handleResizeMouseDown}
               onDoubleClick={handleResizeDoubleClick}
