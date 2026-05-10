@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.13.0](https://github.com/ArcReel/ArcReel/compare/v0.12.0...v0.13.0) (2026-05-10)
+
+
+### ✨ 新功能
+
+* **backends:** 调用 provider SDK 前打印生成参数日志 ([#461](https://github.com/ArcReel/ArcReel/issues/461)) ([ec86bb4](https://github.com/ArcReel/ArcReel/commit/ec86bb488132f3ae4280b29ace3f79aa1ac0d244))
+* **i18n:** add Vietnamese (vi) language support ([#469](https://github.com/ArcReel/ArcReel/issues/469)) ([7337388](https://github.com/ArcReel/ArcReel/commit/7337388d512102ccda96bd39e196031a2ef863ac))
+* **projects:** 项目大厅全新 ui 设计 ([#478](https://github.com/ArcReel/ArcReel/issues/478)) ([5942c68](https://github.com/ArcReel/ArcReel/commit/5942c6842f33321991721580d9e708d90b878130))
+* **prompt:** agent / prompt 优化 — 拆分节奏 + 分镜视频提示词 + 资产提示词 ([#475](https://github.com/ArcReel/ArcReel/issues/475)) ([ee96c5e](https://github.com/ArcReel/ArcReel/commit/ee96c5ebe6fc644408016c75fc173007a2e276b3))
+* SDK 0.1.73 eager session_store_flush + reconnect dedup 修复 ([#472](https://github.com/ArcReel/ArcReel/issues/472)) ([cd02afa](https://github.com/ArcReel/ArcReel/commit/cd02afa111840b2f3eefbc01020536003f410a3b))
+* **sdk:** claude-agent-sdk 升级到 0.1.76 并适配部分新特性 ([#473](https://github.com/ArcReel/ArcReel/issues/473)) ([e8f529c](https://github.com/ArcReel/ArcReel/commit/e8f529cca0b5eb25ee46119bdbaf904949238fc7))
+* **settings:** 全局设置页 / 项目设置页 / 新建项目向导 全新 Darkroom UI ([#483](https://github.com/ArcReel/ArcReel/issues/483)) ([ff19412](https://github.com/ArcReel/ArcReel/commit/ff1941218c491fe3d2f112ab709cb4cea29d57a9))
+* **ui:** Agent 面板支持拖拽调宽 + 大厅 ui 优化 ([#492](https://github.com/ArcReel/ArcReel/issues/492)) ([f3a9ce9](https://github.com/ArcReel/ArcReel/commit/f3a9ce97a3ee47bfa6e34859e5d82464848e0973))
+* **ui:** 资产库改版 + 前端 Darkroom UI 收尾 (v0.13.0 RC) ([#486](https://github.com/ArcReel/ArcReel/issues/486)) ([a84fdce](https://github.com/ArcReel/ArcReel/commit/a84fdcecd8795d0b418043257f34431640c3d136))
+* **vidu:** 集成 Vidu 作为预置图片+视频供应商 ([#481](https://github.com/ArcReel/ArcReel/issues/481)) ([fc9deee](https://github.com/ArcReel/ArcReel/commit/fc9deee4b3bef3031cb707893ef735e72bcf004b))
+* **workbench:** 项目工作台全新 UI ([#471](https://github.com/ArcReel/ArcReel/issues/471)) ([ff9ea3b](https://github.com/ArcReel/ArcReel/commit/ff9ea3b94a72bbc5f004be33ad63962e8f757c58))
+* 模型选择器支持搜索 ([#458](https://github.com/ArcReel/ArcReel/issues/458)) ([713f8c4](https://github.com/ArcReel/ArcReel/commit/713f8c4fecc1f2f6705689ff6f69cd34c060176c))
+* 视频可选时长 (supported_durations) 系统性重设计 ([#468](https://github.com/ArcReel/ArcReel/issues/468)) ([39c8feb](https://github.com/ArcReel/ArcReel/commit/39c8feb23aafc228c586b2399d922cdca7c27136))
+
+
+### 🐛 Bug 修复
+
+* **ci:** 用 packageManager 字段固定 pnpm 版本，修复 Docker 构建失败 ([#482](https://github.com/ArcReel/ArcReel/issues/482)) ([f7fbbae](https://github.com/ArcReel/ArcReel/commit/f7fbbae4e488ebfbcfdfe8f16634c63b82b530ec))
+* **image-dual-select:** 渐进式渲染 + 按 capability 过滤选项 ([#459](https://github.com/ArcReel/ArcReel/issues/459)) ([911be8f](https://github.com/ArcReel/ArcReel/commit/911be8f2aea14a6c98c831a13f71c82aaca5e867))
+* **openai-text:** 代理返回非 JSON 时降级到 Instructor ([#493](https://github.com/ArcReel/ArcReel/issues/493)) ([13a321c](https://github.com/ArcReel/ArcReel/commit/13a321c2646168f5902c06bc3448f2691e9addd5))
+* **timeline:** 修正费用币种展示与视频全屏宽高比 ([#480](https://github.com/ArcReel/ArcReel/issues/480)) ([123a70f](https://github.com/ArcReel/ArcReel/commit/123a70f4f36a395a7163121a2bf8aed68de8088a))
+* **timeline:** 分镜卡片状态独占首行 + ShotDetail 三栏修复溢出滚动 ([#491](https://github.com/ArcReel/ArcReel/issues/491)) ([e38905d](https://github.com/ArcReel/ArcReel/commit/e38905dba7c204a9d8f8248cfbecbfb1b89e3a24))
+* **vidu:** 连接测试用数字 task id 避免 400 CODEC parse error ([#490](https://github.com/ArcReel/ArcReel/issues/490)) ([61486f4](https://github.com/ArcReel/ArcReel/commit/61486f48997ea9f9a5d6236eda8fc7815a5e5ccd))
+* **workbench:** 修复新版工作台 SSE 项目事件后的自动定位 ([#477](https://github.com/ArcReel/ArcReel/issues/477)) ([ef83144](https://github.com/ArcReel/ArcReel/commit/ef83144f79b18c5260f692152f6161c461aa6480))
+
 ## [0.12.0](https://github.com/ArcReel/ArcReel/compare/v0.11.1...v0.12.0) (2026-05-02)
 
 
