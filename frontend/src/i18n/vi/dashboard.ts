@@ -1097,6 +1097,7 @@ export default {
   'media_video_title': 'Video',
   'no_episode_search_results': 'Không có tập phù hợp',
   'open_assistant_panel': 'Mở bảng trợ lý',
+  'resize_assistant_panel': 'Điều chỉnh chiều rộng bảng trợ lý (nhấp đúp để đặt lại)',
   'open_source_file_aria_label': 'Mở tệp gốc {{filename}}',
   'openclaw': 'OpenClaw',
   'pending_question_wizard_label': 'Cần bạn nhập thông tin',

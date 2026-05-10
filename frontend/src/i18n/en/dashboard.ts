@@ -1072,6 +1072,7 @@ export default {
   'pending_question_wizard_submitting': 'Submitting…',
   'pending_question_wizard_submit': 'Submit →',
   'open_assistant_panel': 'Open assistant panel',
+  'resize_assistant_panel': 'Resize assistant panel (double-click to reset)',
   'progress_aria_label': '{{label}} progress',
   'shot_detail_save': 'Save',
   'shot_detail_saving': 'Saving…',

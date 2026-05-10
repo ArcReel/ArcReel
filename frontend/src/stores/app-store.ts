@@ -20,6 +20,32 @@ interface FocusedContext {
 
 const ALL_ENTITIES_REVISION_KEY = "__all__";
 
+export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
+export const ASSISTANT_PANEL_MIN_WIDTH = 360;
+export const ASSISTANT_PANEL_MAX_WIDTH = 720;
+export const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "arcreel_assistant_panel_width";
+
+export function clampAssistantPanelWidth(value: number): number {
+  if (!Number.isFinite(value)) return ASSISTANT_PANEL_DEFAULT_WIDTH;
+  return Math.min(
+    ASSISTANT_PANEL_MAX_WIDTH,
+    Math.max(ASSISTANT_PANEL_MIN_WIDTH, Math.round(value)),
+  );
+}
+
+function readPersistedAssistantPanelWidth(): number {
+  if (typeof window === "undefined") return ASSISTANT_PANEL_DEFAULT_WIDTH;
+  try {
+    const raw = window.localStorage.getItem(ASSISTANT_PANEL_WIDTH_STORAGE_KEY);
+    if (!raw) return ASSISTANT_PANEL_DEFAULT_WIDTH;
+    const parsed = parseInt(raw, 10);
+    if (Number.isNaN(parsed)) return ASSISTANT_PANEL_DEFAULT_WIDTH;
+    return clampAssistantPanelWidth(parsed);
+  } catch {
+    return ASSISTANT_PANEL_DEFAULT_WIDTH;
+  }
+}
+
 interface AppState {
   // Context focus (design doc "Context-Aware" feature)
   focusedContext: FocusedContext | null;
@@ -52,6 +78,9 @@ interface AppState {
   assistantPanelOpen: boolean;
   toggleAssistantPanel: () => void;
   setAssistantPanelOpen: (open: boolean) => void;
+  assistantPanelWidth: number;
+  setAssistantPanelWidth: (width: number) => void;
+  persistAssistantPanelWidth: () => void;
   taskHudOpen: boolean;
   setTaskHudOpen: (open: boolean) => void;
 
@@ -182,6 +211,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleAssistantPanel: () =>
     set((s) => ({ assistantPanelOpen: !s.assistantPanelOpen })),
   setAssistantPanelOpen: (open) => set({ assistantPanelOpen: open }),
+  assistantPanelWidth: readPersistedAssistantPanelWidth(),
+  setAssistantPanelWidth: (width) =>
+    set({ assistantPanelWidth: clampAssistantPanelWidth(width) }),
+  persistAssistantPanelWidth: () => {
+    if (typeof window === "undefined") return;
+    const width = clampAssistantPanelWidth(get().assistantPanelWidth);
+    try {
+      window.localStorage.setItem(
+        ASSISTANT_PANEL_WIDTH_STORAGE_KEY,
+        String(width),
+      );
+    } catch {
+      // localStorage 不可用（隐私模式 / quota exceeded）静默失败，内存值仍生效
+    }
+  },
   taskHudOpen: false,
   setTaskHudOpen: (open) => set({ taskHudOpen: open }),
 

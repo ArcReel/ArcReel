@@ -1,13 +1,19 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
+import { AssistantResizeHandle } from "./AssistantResizeHandle";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useAppStore } from "@/stores/app-store";
+import {
+  ASSISTANT_PANEL_DEFAULT_WIDTH,
+  clampAssistantPanelWidth,
+  useAppStore,
+} from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
 
 interface StudioLayoutProps {
@@ -23,9 +29,116 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
+  const assistantPanelWidth = useAppStore((s) => s.assistantPanelWidth);
+  const setAssistantPanelWidth = useAppStore((s) => s.setAssistantPanelWidth);
+  const persistAssistantPanelWidth = useAppStore(
+    (s) => s.persistAssistantPanelWidth,
+  );
+
+  // 拖动期间的"草稿宽度"。非 null 表示正在拖动，UI 用 draftWidth 即时反馈；
+  // mouseup / blur 时才把 draftWidth 提交到 store + localStorage，避免每帧
+  // 触发 zustand 订阅链路。draftWidthRef 与 state 同步更新，让 finishResize
+  // 能在 setState updater 之外读取最终值（updater 必须保持纯净）。
+  const [draftWidth, setDraftWidth] = useState<number | null>(null);
+  const draftWidthRef = useRef<number | null>(null);
+  const isResizing = draftWidth !== null;
+  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(
+    null,
+  );
+  const restoreBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(
+    null,
+  );
+
+  const updateDraftWidth = useCallback((next: number | null) => {
+    draftWidthRef.current = next;
+    setDraftWidth(next);
+  }, []);
 
   useTasksSSE(currentProjectName);
   useProjectEventsSSE(currentProjectName);
+
+  const restoreBodyStyle = useCallback(() => {
+    const saved = restoreBodyStyleRef.current;
+    if (saved) {
+      document.body.style.cursor = saved.cursor;
+      document.body.style.userSelect = saved.userSelect;
+      restoreBodyStyleRef.current = null;
+    }
+  }, []);
+
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      // 仅响应主键，避免右键/中键意外进入拖拽态
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startWidth = useAppStore.getState().assistantPanelWidth;
+      dragStateRef.current = { startX: e.clientX, startWidth };
+      restoreBodyStyleRef.current = {
+        cursor: document.body.style.cursor,
+        userSelect: document.body.style.userSelect,
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      updateDraftWidth(startWidth);
+    },
+    [updateDraftWidth],
+  );
+
+  const handleResizeDoubleClick = useCallback(() => {
+    setAssistantPanelWidth(ASSISTANT_PANEL_DEFAULT_WIDTH);
+    persistAssistantPanelWidth();
+  }, [setAssistantPanelWidth, persistAssistantPanelWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const finishResize = () => {
+      dragStateRef.current = null;
+      restoreBodyStyle();
+      const final = draftWidthRef.current;
+      updateDraftWidth(null);
+      if (final != null) {
+        // 把 draft 提交到 store；setter 内部会再 clamp，persist 读 store 最新值
+        setAssistantPanelWidth(final);
+        persistAssistantPanelWidth();
+      }
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      // 主键已在中途松开（如焦点切走时）→ 主动收尾
+      if ((e.buttons & 1) === 0) {
+        finishResize();
+        return;
+      }
+      // 手柄在右侧栏左缘，鼠标向左 (clientX 减小) → 宽度增大
+      const next = clampAssistantPanelWidth(
+        drag.startWidth + (drag.startX - e.clientX),
+      );
+      updateDraftWidth(next);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", finishResize);
+    // 鼠标在窗外松开时 mouseup 可能不触发，blur 兜底防止卡死
+    window.addEventListener("blur", finishResize);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", finishResize);
+      window.removeEventListener("blur", finishResize);
+      // 组件意外卸载时兜底清理 body 样式
+      restoreBodyStyle();
+    };
+  }, [
+    isResizing,
+    setAssistantPanelWidth,
+    persistAssistantPanelWidth,
+    restoreBodyStyle,
+    updateDraftWidth,
+  ]);
+
+  const displayedPanelWidth = draftWidth ?? assistantPanelWidth;
 
   return (
     <div
@@ -39,15 +152,27 @@ export function StudioLayout({ children }: StudioLayoutProps) {
           {children}
         </main>
         <div
-          className="shrink-0 overflow-hidden transition-[width,min-width,border-color] duration-300 ease-in-out"
+          className={`relative shrink-0 overflow-hidden ${
+            isResizing
+              ? "transition-[min-width,border-color]"
+              : "transition-[width,min-width,border-color] duration-300 ease-in-out"
+          }`}
           style={{
-            width: assistantPanelOpen ? 505 : 0,
+            width: assistantPanelOpen ? displayedPanelWidth : 0,
             background: "oklch(0.19 0.011 250 / 0.5)",
             borderLeft: assistantPanelOpen
               ? "1px solid var(--color-hairline)"
               : "1px solid transparent",
           }}
         >
+          {assistantPanelOpen ? (
+            <AssistantResizeHandle
+              width={displayedPanelWidth}
+              isResizing={isResizing}
+              onMouseDown={handleResizeMouseDown}
+              onDoubleClick={handleResizeDoubleClick}
+            />
+          ) : null}
           {/* 始终渲染但收起时透明 + 不可达，保持内部状态；invisible + aria-hidden 防止 Tab 仍可聚焦内部控件 */}
           <div
             aria-hidden={!assistantPanelOpen}
