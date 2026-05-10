@@ -5,6 +5,7 @@ import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
+import { BRAND } from "@/branding";
 import type { GetSystemConfigResponse, GetSystemVersionResponse, ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -179,7 +180,7 @@ describe("SystemConfigPage", () => {
       expect(screen.getByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
     });
     expect(
-      screen.getByText(/ArcReel 智能体 API Key/),
+      screen.getByText(`${BRAND.name} 智能体 API Key`, { exact: false }),
     ).toBeInTheDocument();
   });
 

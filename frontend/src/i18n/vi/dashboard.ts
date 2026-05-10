@@ -1,7 +1,7 @@
 import type enDashboard from "@/i18n/en/dashboard";
 
 export default {
-  'app_title': 'ArcReel',
+  'app_title': '[[brand]]',
   'projects': 'Dự án',
   'create_project': 'Tạo dự án',
   'new_project': 'Dự án mới',
@@ -88,7 +88,7 @@ export default {
   'about_checked_at': 'Kiểm tra lần cuối: {{date}}',
   'config_issues': 'Vấn đề cấu hình',
   'config_issues_hint': 'Phát hiện các vấn đề sau trong cấu hình hiện tại, có thể ảnh hưởng tới chức năng:',
-  'arcreel_agent': 'ArcReel Agent',
+  'arcreel_agent': '[[brand]] Agent',
   'agent_sdk_desc': 'Được hỗ trợ bởi Claude Agent SDK, vận hành trợ lý AI hội thoại và quy trình tự động',
   'claude_code_compat_hint': 'Cấu hình tương thích với biến môi trường Claude Code và API Coding Plan.',
   'api_access': 'Truy cập API',
@@ -120,10 +120,10 @@ export default {
   'cleanup_delay_desc': 'Số giây không hoạt động trước khi tự dọn dẹp (mặc định 300)',
   'max_concurrent_sessions': 'Số phiên tối đa đồng thời',
   'max_sessions_desc': 'Số trợ lý tối đa được phép chạy đồng thời',
-  'agent_config_saved': 'Đã lưu cấu hình ArcReel Agent',
+  'agent_config_saved': 'Đã lưu cấu hình [[brand]] Agent',
   'field_cleared': 'đã xóa',
   'api_key_mgmt': 'Quản lý khóa API',
-  'api_key_usage_desc': 'Dùng để truy cập dự án ArcReel từ các công cụ ngoài (ví dụ OpenClaw 🦞).',
+  'api_key_usage_desc': 'Dùng để truy cập dự án [[brand]] từ các công cụ ngoài (ví dụ OpenClaw 🦞).',
   'create_api_key': 'Tạo khóa API',
   'name': 'Tên',
   'key_prefix': 'Tiền tố',
@@ -458,7 +458,7 @@ export default {
   'blocking_issues': 'Vấn đề nghiêm trọng',
   'auto_fixed_issues': 'Vấn đề đã tự sửa',
   // config-status-store
-  'agent_api_key_not_configured': 'Chưa cấu hình Khóa API ArcReel Agent (Anthropic)',
+  'agent_api_key_not_configured': 'Chưa cấu hình Khóa API [[brand]] Agent (Anthropic)',
   'video_provider_not_configured': 'Chưa cấu hình nhà cung cấp cho việc tạo video',
   'image_provider_not_configured': 'Chưa cấu hình nhà cung cấp cho việc tạo ảnh',
   'text_provider_not_configured': 'Chưa cấu hình nhà cung cấp cho việc tạo văn bản',
@@ -974,17 +974,17 @@ export default {
 
   // OpenClaw integration modal
   'openclaw_title': 'Hướng dẫn tích hợp OpenClaw',
-  'openclaw_subtitle': 'Kết nối ArcReel với AI Agent OpenClaw của bạn',
+  'openclaw_subtitle': 'Kết nối [[brand]] với AI Agent OpenClaw của bạn',
   'openclaw_prompt_label': 'Prompt',
   'openclaw_skill_url_label': 'Địa chỉ Skill doc:',
   'openclaw_steps_label': 'Các bước',
   'openclaw_step_01_title': 'Gửi prompt phía trên cho OpenClaw',
   'openclaw_step_01_desc': 'Sao chép prompt và dán vào OpenClaw.',
   'openclaw_step_02_title': 'OpenClaw học từ tài liệu Skill',
-  'openclaw_step_02_desc': 'OpenClaw sẽ tự động đọc tài liệu ArcReel Skill và khám phá mọi công cụ và API có sẵn.',
-  'openclaw_step_03_title': 'OpenClaw điều khiển ArcReel để tạo video',
-  'openclaw_step_03_desc': 'Hãy mô tả mong muốn của bạn; OpenClaw sẽ gọi ArcReel để quản lý dự án, tạo kịch bản và sản xuất video.',
-  'openclaw_system_prompt': 'Đọc {{skillUrl}} rồi làm theo skill để biết cách dùng ArcReel tạo video',
+  'openclaw_step_02_desc': 'OpenClaw sẽ tự động đọc tài liệu [[brand]] Skill và khám phá mọi công cụ và API có sẵn.',
+  'openclaw_step_03_title': 'OpenClaw điều khiển [[brand]] để tạo video',
+  'openclaw_step_03_desc': 'Hãy mô tả mong muốn của bạn; OpenClaw sẽ gọi [[brand]] để quản lý dự án, tạo kịch bản và sản xuất video.',
+  'openclaw_system_prompt': 'Đọc {{skillUrl}} rồi làm theo skill để biết cách dùng [[brand]] tạo video',
   'openclaw_get_api_token': 'Lấy API token',
 
 
