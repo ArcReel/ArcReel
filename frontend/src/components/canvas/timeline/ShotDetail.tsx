@@ -419,7 +419,7 @@ export function ShotDetail({
   const dirtyHint = t("shot_detail_save_first");
 
   const leftColumn = (
-    <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
       <div>
         <div
           className="mb-2 text-[10.5px] font-bold uppercase"
@@ -483,7 +483,7 @@ export function ShotDetail({
   );
 
   const midColumn = (
-    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
       <div
         className="text-[10.5px] font-bold uppercase"
         style={{
@@ -572,7 +572,7 @@ export function ShotDetail({
   );
 
   const rightColumn = (
-    <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-[18px] pb-7 pt-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-[18px] pb-7 pt-3.5">
       <MediaCard
         kind="storyboard"
         projectName={projectName}
