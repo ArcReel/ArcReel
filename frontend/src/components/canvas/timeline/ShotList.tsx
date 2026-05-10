@@ -80,7 +80,7 @@ export function ShotList({
   const virtualizer = useVirtualizer({
     count: filtered.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 84,
+    estimateSize: () => 96,
     overscan: 6,
   });
 
@@ -295,7 +295,10 @@ export function ShotList({
                     {id.length > 4 ? id.slice(-3) : id}
                   </span>
                 </div>
-                <div className="min-w-0">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex">
+                    <StatusBadge status={status} />
+                  </div>
                   <div
                     className="text-[12px]"
                     style={{
@@ -310,8 +313,7 @@ export function ShotList({
                   >
                     {text || id}
                   </div>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <StatusBadge status={status} />
+                  <div className="flex items-center gap-1.5">
                     <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
                       {t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}
                     </span>
