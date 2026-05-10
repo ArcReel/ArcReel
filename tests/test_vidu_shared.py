@@ -41,3 +41,52 @@ class TestViduConnectionTestKeyResolution:
 
         with pytest.raises(ValueError, match="Vidu API Key 未提供"):
             vidu_shared.test_vidu_connection({})
+
+
+class TestViduConnectionTestUrl:
+    """验证连接测试用数字 task id（Vidu 服务端把 id 当 int 解析，非数字会 400 CODEC）。"""
+
+    @staticmethod
+    def _patched_client(monkeypatch: pytest.MonkeyPatch, *, status_code: int, body: str = ""):
+        captured: dict[str, str] = {}
+
+        class _FakeResp:
+            def __init__(self):
+                self.status_code = status_code
+                self.text = body
+
+        class _FakeClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc):
+                return False
+
+            def get(self, url, **_kwargs):
+                captured["url"] = url
+                return _FakeResp()
+
+        monkeypatch.setattr(vidu_shared.httpx, "Client", _FakeClient)
+        return captured
+
+    def test_url_uses_numeric_bogus_id(self, monkeypatch: pytest.MonkeyPatch):
+        captured = self._patched_client(monkeypatch, status_code=404)
+        vidu_shared.test_vidu_connection({"api_key": "vda_test"})
+        assert captured["url"].endswith("/tasks/0/creations")
+
+    def test_404_is_success(self, monkeypatch: pytest.MonkeyPatch):
+        self._patched_client(monkeypatch, status_code=404)
+        vidu_shared.test_vidu_connection({"api_key": "vda_test"})  # 不抛错即成功
+
+    def test_401_is_invalid_credential(self, monkeypatch: pytest.MonkeyPatch):
+        self._patched_client(monkeypatch, status_code=401)
+        with pytest.raises(RuntimeError, match="凭证无效"):
+            vidu_shared.test_vidu_connection({"api_key": "vda_test"})
+
+    def test_400_is_undecidable(self, monkeypatch: pytest.MonkeyPatch):
+        self._patched_client(monkeypatch, status_code=400, body="CODEC parse error")
+        with pytest.raises(RuntimeError, match="无法判定"):
+            vidu_shared.test_vidu_connection({"api_key": "vda_test"})
