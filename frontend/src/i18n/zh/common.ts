@@ -49,4 +49,5 @@ export default {
   'hide': '隐藏',
   'not_found_title': '页面未找到',
   'not_found_back': '返回首页',
+  'recommended': '推荐',
 } satisfies Record<keyof typeof enCommon, string>;

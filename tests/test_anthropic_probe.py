@@ -432,6 +432,74 @@ async def test_run_test_self_heal_retry_also_fails_keeps_original_failure() -> N
 
 
 @pytest.mark.asyncio
+async def test_run_test_self_heal_retry_promotes_specific_diagnosis() -> None:
+    """二次重试失败但诊断更具体（AUTH_FAILED）→ 采纳二次结果让用户看到真实问题。"""
+    seq: list[AsyncIterator[Any]] = [
+        # 首次：404，泛化 UNKNOWN
+        _stream_raises(ProcessError("CLI failed", exit_code=1, stderr="HTTP 404 not found")),
+        # 二次：补 /anthropic 后请求确实到了上游，但 API key 无效
+        _stream_raises(ProcessError("CLI failed", exit_code=1, stderr="HTTP 401 unauthorized")),
+    ]
+
+    def fake_stream(**_: Any) -> AsyncIterator[Any]:
+        return seq.pop(0)
+
+    async def fake_get(**_: Any) -> httpx.Response:
+        return httpx.Response(200, json={"data": []})
+
+    with (
+        patch("lib.config.anthropic_probe._sdk_query_stream", side_effect=fake_stream),
+        patch("lib.config.anthropic_probe._get", AsyncMock(side_effect=fake_get)),
+    ):
+        resp = await run_test(
+            preset_id=CUSTOM_SENTINEL_ID,
+            base_url="https://api.example.com",
+            api_key="sk",
+            model=None,
+        )
+
+    assert resp.overall == "fail"
+    # 二次诊断更具体：让用户看到 AUTH_FAILED 而不是 UNKNOWN
+    assert resp.diagnosis == DiagnosisCode.AUTH_FAILED
+    # final_messages_root 已切换到 retry_root
+    assert resp.derived_messages_root.endswith("/anthropic")
+    # 没成功就不发 suggestion（替换 URL 不解决 401）
+    assert resp.suggestion is None
+
+
+@pytest.mark.asyncio
+async def test_run_test_preset_with_base_url_override_derives_discovery() -> None:
+    """preset 模式 + 用户填了 base_url → discovery_root 也从 base_url 派生，与运行时一致。"""
+    captured: dict[str, str] = {}
+
+    def fake_stream(*, messages_root: str, **_: Any) -> AsyncIterator[Any]:
+        captured["messages_root"] = messages_root
+        return _stream(_assistant(), _result())
+
+    async def fake_get(*, url: str, **_: Any) -> httpx.Response:
+        captured["discovery_url"] = url
+        return httpx.Response(200, json={"data": []})
+
+    with (
+        patch("lib.config.anthropic_probe._sdk_query_stream", side_effect=fake_stream),
+        patch("lib.config.anthropic_probe._get", AsyncMock(side_effect=fake_get)),
+    ):
+        resp = await run_test(
+            preset_id="deepseek",
+            base_url="https://corp-proxy.example.com/anthropic",
+            api_key="sk",
+            model=None,
+        )
+
+    assert resp.overall == "ok"
+    # messages_root 用了用户填的 base_url
+    assert captured["messages_root"] == "https://corp-proxy.example.com/anthropic"
+    # discovery_root 也从 base_url 派生（剥掉 /anthropic）
+    assert captured["discovery_url"] == "https://corp-proxy.example.com/v1/models"
+    assert resp.derived_discovery_root == "https://corp-proxy.example.com"
+
+
+@pytest.mark.asyncio
 async def test_run_test_custom_mode_requires_base_url() -> None:
     with pytest.raises(ValueError, match="base_url required"):
         await run_test(preset_id=None, base_url=None, api_key="sk", model=None)

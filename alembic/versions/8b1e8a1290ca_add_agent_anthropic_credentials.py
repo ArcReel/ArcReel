@@ -8,6 +8,7 @@ Create Date: 2026-05-11 11:51:36.644592
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import sqlalchemy as sa
 
@@ -76,19 +77,24 @@ def upgrade() -> None:
 
         if settings.get("anthropic_api_key"):
             now = datetime.now(UTC)
+            # 旧设置无 display_name，用 base_url 的 host 兜底（locale-neutral）；
+            # 缺 host 时退回品牌名 "Anthropic"。用户首次进入 UI 即可重命名。
+            base_url = settings.get("anthropic_base_url", "") or ""
+            display_name = urlparse(base_url).hostname or "Anthropic"
             bind.execute(
                 sa.text("""
                     INSERT INTO agent_anthropic_credentials
                       (user_id, preset_id, display_name, base_url, api_key,
                        model, haiku_model, sonnet_model, opus_model, subagent_model,
                        is_active, created_at, updated_at)
-                    VALUES (:user_id, '__custom__', 'Migrated', :base_url, :api_key,
+                    VALUES (:user_id, '__custom__', :display_name, :base_url, :api_key,
                             :model, :haiku, :sonnet, :opus, :subagent,
                             :is_active, :now, :now)
                 """),
                 {
                     "user_id": DEFAULT_USER_ID,
-                    "base_url": settings.get("anthropic_base_url", ""),
+                    "display_name": display_name,
+                    "base_url": base_url,
                     "api_key": settings["anthropic_api_key"],
                     "model": settings.get("anthropic_model"),
                     "haiku": settings.get("anthropic_default_haiku_model"),

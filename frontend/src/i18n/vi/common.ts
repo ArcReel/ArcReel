@@ -49,4 +49,5 @@ export default {
   'hide': 'Ẩn',
   'not_found_title': 'Không tìm thấy trang',
   'not_found_back': 'Về trang chủ',
+  'recommended': 'Được khuyến nghị',
 } satisfies Record<keyof typeof enCommon, string>;

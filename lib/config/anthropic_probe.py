@@ -286,13 +286,23 @@ async def run_test(
         preset = get_preset(preset_id)
         if preset is None:
             raise ValueError(f"unknown preset: {preset_id!r}")
-        # 凭证允许覆盖 preset.messages_url（如内部代理）；测试必须用与运行时一致的 URL。
-        # has_explicit_suffix=True 抑制自愈分支：preset 凭证视为权威，不补 /anthropic
-        ep = AnthropicEndpoints(
-            messages_root=base_url or preset.messages_url,
-            discovery_root=preset.discovery_url or "",
-            has_explicit_suffix=True,
-        )
+        if base_url:
+            # 凭证覆盖了 preset.messages_url（如内部代理）：用 base_url 同时派生 messages
+            # 和 discovery 两个 root，保持与运行时 sync_anthropic_env 一致——否则 discovery
+            # 仍会测默认 preset.discovery_url，造成 overall/diagnosis 偏离真实运行路径。
+            # has_explicit_suffix=True 抑制自愈：preset 凭证视为权威，不补 /anthropic
+            derived = derive_anthropic_endpoints(base_url)
+            ep = AnthropicEndpoints(
+                messages_root=derived.messages_root,
+                discovery_root=derived.discovery_root,
+                has_explicit_suffix=True,
+            )
+        else:
+            ep = AnthropicEndpoints(
+                messages_root=preset.messages_url,
+                discovery_root=preset.discovery_url or "",
+                has_explicit_suffix=True,
+            )
         effective_model = model or preset.default_model
     else:
         if not base_url:
@@ -324,6 +334,12 @@ async def run_test(
             final_messages_root = retry_root
             suggestion = SuggestionAction(kind="replace_base_url", suggested_value=retry_root)
             diagnosis = DiagnosisCode.MISSING_ANTHROPIC_SUFFIX
+        elif classify_probe_failure(retry) in _NON_SELF_HEALABLE:
+            # 二次诊断更具体（auth/rate/model_not_found）：表明加 /anthropic 后请求确实到了
+            # 上游，真正问题是 API key / 配额 / 模型而不是缺后缀。采纳二次结果，让用户看到
+            # 可操作的诊断而不是被泛化的 UNKNOWN/404 掩盖。
+            msg = retry
+            final_messages_root = retry_root
 
     # 4. 诊断 + 总评
     if msg.success:

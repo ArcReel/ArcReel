@@ -101,6 +101,18 @@ export function AddCredentialModal({
     };
   }, [open, mode]);
 
+  // 父组件复用 modal 时只切换 open/initial，本地一次性诊断状态不会自动清。
+  // 重开（或切换到另一条凭证）时把模型列表、错误、测试结果全部归零，
+  // 否则上一条凭证的"连接成功"面板会串到新表单。
+  useEffect(() => {
+    if (!open) return;
+    setModelOptions([]);
+    setDiscoverError(null);
+    setSubmitError(null);
+    setTestResult(null);
+    setTestedBaseUrl(null);
+  }, [open, initial]);
+
   const selected: PresetProvider | null = useMemo(() => {
     if (form.presetId === customSentinelId) return null;
     return presets.find((p) => p.id === form.presetId) ?? null;
@@ -120,11 +132,13 @@ export function AddCredentialModal({
     setDiscovering(true);
     setDiscoverError(null);
     try {
-      // 预设模式：用预设 discovery_url（若有），否则用 messages_url 根；自定义：用用户填的 base_url
+      // 优先使用表单里的 base_url：用户改了 URL 但发现仍走预设默认端点会选到
+      // 当前 endpoint 不支持的模型。无 base_url 时回退到预设的 discovery/messages URL。
       const discoverBase =
-        form.presetId === customSentinelId
-          ? form.baseUrl
-          : selected?.discovery_url || selected?.messages_url || "";
+        form.baseUrl.trim() ||
+        (form.presetId === customSentinelId
+          ? ""
+          : selected?.discovery_url || selected?.messages_url || "");
       if (!discoverBase) {
         setDiscoverError(t("discover_no_base"));
         return;
@@ -177,6 +191,8 @@ export function AddCredentialModal({
 
   const handleTest = async () => {
     setTesting(true);
+    // 失败时清旧的"连接成功"面板，避免用户看到上一次的过期结果
+    setTestResult(null);
     const submitBaseUrl = form.baseUrl.trim() || undefined;
     setTestedBaseUrl(submitBaseUrl ?? null);
     try {
@@ -289,7 +305,7 @@ export function AddCredentialModal({
               type="button"
               onClick={onClose}
               className="text-text-3 hover:text-text"
-              aria-label="close"
+              aria-label={t("common:close")}
             >
               <X className="h-4 w-4" />
             </button>
@@ -523,7 +539,7 @@ export function AddCredentialModal({
                 ? t("common:loading")
                 : mode === "edit"
                   ? t("common:save")
-                  : t("common:add", { defaultValue: "Add" })}
+                  : t("common:add")}
             </button>
           </div>
         </div>
@@ -551,6 +567,7 @@ function PresetChip({
   disabled?: boolean;
   title?: string;
 }) {
+  const { t } = useTranslation("common");
   return (
     <button
       type="button"
@@ -567,7 +584,7 @@ function PresetChip({
       {recommended && (
         <Star
           className="h-3 w-3 shrink-0 fill-amber-300 text-amber-300"
-          aria-label="recommended"
+          aria-label={t("recommended")}
         />
       )}
       {iconKey && <PresetIcon iconKey={iconKey} size={14} />}
