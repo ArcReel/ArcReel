@@ -1179,6 +1179,7 @@ export default {
   'cred_test_label': 'Kiểm tra',
   'is_active': 'ĐANG DÙNG',
   'cred_delete_active_blocked': 'Không thể xoá xác thực đang dùng. Hãy chuyển sang xác thực khác trước.',
+  'cred_delete_confirm': 'Xoá xác thực này? Không thể hoàn tác.',
   'cred_activated_toast': 'Đã chuyển sang {{name}}. Phiên mới sẽ dùng; phiên đang chạy giữ xác thực cũ.',
   'display_name': 'Tên hiển thị',
   'get_api_key': 'Lấy API Key',

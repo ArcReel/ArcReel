@@ -1183,6 +1183,7 @@ export default {
   'cred_test_label': '连接测试',
   'is_active': '当前',
   'cred_delete_active_blocked': '当前凭证不可删除，请先切换到其他凭证',
+  'cred_delete_confirm': '确定删除该凭证？此操作不可撤销。',
   'cred_activated_toast': '已切换到 {{name}}，新会话生效；当前会话继续使用旧凭证',
   'display_name': '显示名',
   'get_api_key': '获取 API Key',

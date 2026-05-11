@@ -4,9 +4,6 @@ import { errMsg, voidCall } from "@/utils/async";
 import {
   AlertTriangle,
   ChevronDown,
-  Download,
-  Eye,
-  EyeOff,
   Loader2,
   Search,
   SlidersHorizontal,
@@ -20,11 +17,18 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
-import type { CustomProviderInfo } from "@/types/custom-provider";
+import type {
+  AgentCredential,
+  CreateAgentCredentialRequest,
+  PresetProvider,
+  TestConnectionResponse,
+} from "@/types/agent-credential";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
-import { Popover } from "@/components/ui/Popover";
-import { CARD_STYLE, GHOST_BTN_CLS, ICON_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
+import { CredentialList } from "@/components/agent/CredentialList";
+import { AddCredentialModal } from "@/components/agent/AddCredentialModal";
+import { TestResultPanel } from "@/components/agent/TestResultPanel";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -32,10 +36,6 @@ import { TabSaveFooter } from "./TabSaveFooter";
 // ---------------------------------------------------------------------------
 
 interface AgentDraft {
-  /** New API key input — empty string means "leave saved key untouched". */
-  anthropicKey: string;
-  /** In-place edit; empty string means "clear saved value". */
-  anthropicBaseUrl: string;
   /** In-place edit; empty string means "clear saved value". */
   anthropicModel: string;
   haikuModel: string;
@@ -49,8 +49,6 @@ interface AgentDraft {
 function buildDraft(data: GetSystemConfigResponse): AgentDraft {
   const s = data.settings;
   return {
-    anthropicKey: "",
-    anthropicBaseUrl: s.anthropic_base_url ?? "",
     anthropicModel: s.anthropic_model ?? "",
     haikuModel: s.anthropic_default_haiku_model ?? "",
     opusModel: s.anthropic_default_opus_model ?? "",
@@ -63,8 +61,6 @@ function buildDraft(data: GetSystemConfigResponse): AgentDraft {
 
 function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
   return (
-    a.anthropicKey === b.anthropicKey &&
-    a.anthropicBaseUrl === b.anthropicBaseUrl &&
     a.anthropicModel === b.anthropicModel &&
     a.haikuModel === b.haikuModel &&
     a.opusModel === b.opusModel &&
@@ -77,9 +73,8 @@ function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
 
 function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
   const patch: SystemConfigPatch = {};
-  if (draft.anthropicKey.trim()) patch.anthropic_api_key = draft.anthropicKey.trim();
-  if (draft.anthropicBaseUrl !== saved.anthropicBaseUrl)
-    patch.anthropic_base_url = draft.anthropicBaseUrl || "";
+  // 注：anthropic_api_key / anthropic_base_url 现由 /api/v1/agent/credentials 凭证目录管理，
+  // 不再走 /system/config patch 路径（Phase 9 凭证迁移；DEPRECATION 标注见 Task 23）
   if (draft.anthropicModel !== saved.anthropicModel)
     patch.anthropic_model = draft.anthropicModel || "";
   if (draft.haikuModel !== saved.haikuModel)
@@ -100,9 +95,6 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
 // ---------------------------------------------------------------------------
 // Style constants
 // ---------------------------------------------------------------------------
-
-const INLINE_CLEAR_CLS =
-  "ml-1.5 inline-flex items-center rounded-[5px] p-0.5 text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 // Model routing config
 const MODEL_ROUTING_FIELDS = [
@@ -183,8 +175,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [remoteData, setRemoteData] = useState<GetSystemConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AgentDraft>({
-    anthropicKey: "",
-    anthropicBaseUrl: "",
     anthropicModel: "",
     haikuModel: "",
     opusModel: "",
@@ -194,8 +184,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     maxConcurrentSessions: "5",
   });
   const savedRef = useRef<AgentDraft>({
-    anthropicKey: "",
-    anthropicBaseUrl: "",
     anthropicModel: "",
     haikuModel: "",
     opusModel: "",
@@ -207,15 +195,19 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [saving, setSaving] = useState(false);
   const [clearingField, setClearingField] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [showKey, setShowKey] = useState(false);
   const [modelRoutingExpanded, setModelRoutingExpanded] = useState(false);
-  const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
-  const [importPickerOpen, setImportPickerOpen] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const importTriggerRef = useRef<HTMLButtonElement>(null);
   const [modelCandidates, setModelCandidates] = useState<string[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const discoverAbortRef = useRef<AbortController | null>(null);
+
+  // Phase 9: 凭证目录 UI 状态
+  const [credentials, setCredentials] = useState<AgentCredential[]>([]);
+  const [presets, setPresets] = useState<PresetProvider[]>([]);
+  const [customSentinelId, setCustomSentinelId] = useState("__custom__");
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [busyCredId, setBusyCredId] = useState<number | null>(null);
+  const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
+  const [testedCredId, setTestedCredId] = useState<number | null>(null);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -235,22 +227,24 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await API.listCustomProviders();
-        if (!cancelled) {
-          setProviders(res.providers.filter((p) => p.api_key_masked));
-        }
-      } catch {
-        // 静默：导入是可选功能，不打断主流程
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const loadCreds = useCallback(async () => {
+    try {
+      const [c, p] = await Promise.all([
+        API.listAgentCredentials(),
+        API.listAgentPresetProviders(),
+      ]);
+      setCredentials(c.credentials);
+      setPresets(p.providers);
+      setCustomSentinelId(p.custom_sentinel_id);
+    } catch (err) {
+      // 静默：凭证列表加载失败不阻塞 Section 2/3
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    }
   }, []);
+
+  useEffect(() => {
+    void loadCreds();
+  }, [loadCreds]);
 
   useEffect(
     () => () => {
@@ -322,14 +316,12 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     const controller = new AbortController();
     discoverAbortRef.current = controller;
 
-    const apiKey = draft.anthropicKey.trim() || undefined;
-    const baseUrl = draft.anthropicBaseUrl.trim() || undefined;
-
     setDiscoverLoading(true);
     const toast = useAppStore.getState().pushToast;
     try {
+      // 不再传 base_url / api_key；后端按 active credential 回退（Task 13/14）
       const res = await API.discoverAnthropicModels(
-        { base_url: baseUrl, api_key: apiKey },
+        {},
         { signal: controller.signal },
       );
       if (controller.signal.aborted) return;
@@ -345,32 +337,87 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     } finally {
       if (!controller.signal.aborted) setDiscoverLoading(false);
     }
-  }, [draft.anthropicKey, draft.anthropicBaseUrl, t]);
+  }, [t]);
 
-  const handleImportProvider = useCallback(
-    async (provider: CustomProviderInfo) => {
-      setImporting(true);
+  // ---------------- Credential 目录 handlers (Phase 9) ----------------
+
+  const handleCreate = useCallback(
+    async (req: CreateAgentCredentialRequest) => {
+      await API.createAgentCredential(req);
+      await loadCreds();
+      voidCall(useConfigStatusStore.getState().refresh());
+      useAppStore.getState().pushToast(t("agent_config_saved"), "success");
+    },
+    [loadCreds, t],
+  );
+
+  const handleActivate = useCallback(
+    async (id: number) => {
+      setBusyCredId(id);
       try {
-        const cred = await API.getCustomProviderCredentials(provider.id);
-        setDraft((prev) => ({
-          ...prev,
-          anthropicKey: cred.api_key,
-          anthropicBaseUrl: cred.base_url,
-        }));
+        await API.activateAgentCredential(id);
+        await loadCreds();
+        const c = credentials.find((x) => x.id === id);
+        voidCall(useConfigStatusStore.getState().refresh());
         useAppStore
           .getState()
           .pushToast(
-            t("import_provider_success", { name: provider.display_name }),
+            t("cred_activated_toast", { name: c?.display_name ?? "" }),
             "success",
           );
       } catch (err) {
         useAppStore.getState().pushToast(errMsg(err), "error");
       } finally {
-        setImporting(false);
-        setImportPickerOpen(false);
+        setBusyCredId(null);
       }
     },
-    [t],
+    [credentials, loadCreds, t],
+  );
+
+  const handleTest = useCallback(
+    async (id: number) => {
+      setBusyCredId(id);
+      setTestResult(null);
+      setTestedCredId(id);
+      try {
+        const res = await API.testAgentCredential(id);
+        setTestResult(res);
+      } catch (err) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      } finally {
+        setBusyCredId(null);
+      }
+    },
+    [],
+  );
+
+  const handleDelete = useCallback(
+    async (id: number) => {
+      if (!window.confirm(t("cred_delete_confirm"))) return;
+      try {
+        await API.deleteAgentCredential(id);
+        await loadCreds();
+      } catch (err) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      }
+    },
+    [loadCreds, t],
+  );
+
+  const handleApplyFix = useCallback(
+    async (suggestedUrl: string) => {
+      if (testedCredId == null) return;
+      try {
+        await API.updateAgentCredential(testedCredId, { base_url: suggestedUrl });
+        await loadCreds();
+        setTestResult(null);
+        setTestedCredId(null);
+        useAppStore.getState().pushToast(t("agent_config_saved"), "success");
+      } catch (err) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      }
+    },
+    [testedCredId, loadCreds, t],
   );
 
   const isBusy = saving || clearingField !== null;
@@ -460,195 +507,42 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
           </div>
         </div>
 
-        {/* Section 1: API credentials */}
+        {/* Section 1: Credentials list + Add */}
         <Section
-          kicker="API Credentials"
-          title={t("api_credentials")}
+          kicker="Credentials"
+          title={t("agent_credentials")}
           description={t("anthropic_key_required_desc")}
           trailing={
-            <>
-              <button
-                ref={importTriggerRef}
-                type="button"
-                onClick={() => setImportPickerOpen((v) => !v)}
-                disabled={importing || saving}
-                className={GHOST_BTN_CLS}
-              >
-                {importing ? (
-                  <Loader2
-                    className="h-3.5 w-3.5 motion-safe:animate-spin"
-                    aria-hidden
-                  />
-                ) : (
-                  <Download className="h-3.5 w-3.5" aria-hidden />
-                )}
-                {t("import_from_provider")}
-              </button>
-              <Popover
-                open={importPickerOpen}
-                onClose={() => setImportPickerOpen(false)}
-                anchorRef={importTriggerRef}
-                width="w-64"
-                className="rounded-[8px] border border-hairline py-1 shadow-lg"
-              >
-                {providers.length === 0 ? (
-                  <div className="px-3 py-2 text-[12px] text-text-3">
-                    {t("import_no_providers")}
-                  </div>
-                ) : (
-                  providers.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => void handleImportProvider(p)}
-                      className="block w-full truncate px-3 py-2 text-left text-[12.5px] text-text-2 transition-colors hover:bg-bg-grad-a hover:text-text"
-                    >
-                      {p.display_name}
-                    </button>
-                  ))
-                )}
-              </Popover>
-            </>
+            <button
+              type="button"
+              onClick={() => setAddModalOpen(true)}
+              className={GHOST_BTN_CLS}
+            >
+              + {t("add_credential")}
+            </button>
           }
         >
-          <div className="space-y-4">
-            {/* API Key */}
-            <div>
-              <FieldLabel
-                htmlFor="agent-anthropic-key"
-                className=""
-                trailing={
-                  settings.anthropic_api_key.is_set && (
-                    <div className="flex items-center font-mono text-[10.5px] tabular-nums text-text-4">
-                      <span className="truncate">
-                        {t("current_label")}
-                        {settings.anthropic_api_key.masked ?? t("encrypted")}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleClearField(
-                            "anthropic_api_key",
-                            { anthropic_api_key: "" },
-                            "anthropic_api_key",
-                          )
-                        }
-                        disabled={isBusy}
-                        className={INLINE_CLEAR_CLS}
-                        aria-label={t("clear_saved_anthropic_key")}
-                      >
-                        {clearingField === "anthropic_api_key" ? (
-                          <Loader2
-                            className="h-3 w-3 motion-safe:animate-spin"
-                            aria-hidden
-                          />
-                        ) : (
-                          <X className="h-3 w-3" aria-hidden />
-                        )}
-                      </button>
-                    </div>
-                  )
-                }
-              >
-                {t("anthropic_api_key")}
-              </FieldLabel>
-              <p className="mt-0.5 text-[11.5px] text-text-4">{t("env_anthropic_api_key")}</p>
-              <div className="relative mt-2">
-                <input
-                  id="agent-anthropic-key"
-                  type={showKey ? "text" : "password"}
-                  value={draft.anthropicKey}
-                  onChange={(e) => updateDraft("anthropicKey", e.target.value)}
-                  placeholder="sk-ant-…"
-                  className={`${INPUT_CLS} pr-10`}
-                  autoComplete="off"
-                  spellCheck={false}
-                  name="anthropic_api_key"
-                  disabled={saving}
-                />
-                {draft.anthropicKey && (
-                  <button
-                    type="button"
-                    onClick={() => updateDraft("anthropicKey", "")}
-                    className={`absolute right-8 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
-                    aria-label={t("clear_input")}
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowKey((v) => !v)}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
-                  aria-label={showKey ? t("hide_key") : t("show_key")}
-                >
-                  {showKey ? (
-                    <EyeOff className="h-4 w-4" aria-hidden />
-                  ) : (
-                    <Eye className="h-4 w-4" aria-hidden />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Base URL */}
-            <div className="border-t border-hairline-soft pt-4">
-              <FieldLabel
-                htmlFor="agent-base-url"
-                className=""
-                trailing={
-                  settings.anthropic_base_url && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void handleClearField(
-                          "anthropic_base_url",
-                          { anthropic_base_url: "" },
-                          "api_base_url",
-                        )
-                      }
-                      disabled={isBusy}
-                      className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label={t("clear_saved_base_url")}
-                    >
-                      {clearingField === "anthropic_base_url" ? (
-                        <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
-                      ) : (
-                        <X className="h-3 w-3" aria-hidden />
-                      )}
-                      {t("clear_saved")}
-                    </button>
-                  )
-                }
-              >
-                {t("api_base_url")}
-              </FieldLabel>
-              <p className="mt-0.5 text-[11.5px] text-text-4">{t("env_anthropic_base_url")}</p>
-              <div className="relative mt-2">
-                <input
-                  id="agent-base-url"
-                  value={draft.anthropicBaseUrl}
-                  onChange={(e) => updateDraft("anthropicBaseUrl", e.target.value)}
-                  placeholder={t("api_base_example")}
-                  className={`${INPUT_CLS}${draft.anthropicBaseUrl ? " pr-8" : ""}`}
-                  autoComplete="off"
-                  spellCheck={false}
-                  name="anthropic_base_url"
-                  disabled={saving}
-                />
-                {draft.anthropicBaseUrl && (
-                  <button
-                    type="button"
-                    onClick={() => updateDraft("anthropicBaseUrl", "")}
-                    className={`absolute right-2 top-1/2 -translate-y-1/2 ${ICON_BTN_CLS}`}
-                    aria-label={t("clear_base_url_input")}
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+          <CredentialList
+            credentials={credentials}
+            busyId={busyCredId}
+            onActivate={(id) => void handleActivate(id)}
+            onTest={(id) => void handleTest(id)}
+            onEdit={() => {
+              // TODO(edit-modal): wire when EditCredentialModal lands
+            }}
+            onDelete={(id) => void handleDelete(id)}
+          />
+          {testResult && (
+            <TestResultPanel
+              originalBaseUrl={
+                testedCredId != null
+                  ? credentials.find((c) => c.id === testedCredId)?.base_url ?? null
+                  : null
+              }
+              result={testResult}
+              onApplyFix={(suggestedUrl) => void handleApplyFix(suggestedUrl)}
+            />
+          )}
         </Section>
 
         {/* Section 2: Model Configuration */}
@@ -855,6 +749,14 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         error={saveError}
         onSave={() => void handleSave()}
         onReset={handleReset}
+      />
+
+      <AddCredentialModal
+        open={addModalOpen}
+        presets={presets}
+        customSentinelId={customSentinelId}
+        onSubmit={handleCreate}
+        onClose={() => setAddModalOpen(false)}
       />
     </div>
   );
