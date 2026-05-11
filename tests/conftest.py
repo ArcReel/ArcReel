@@ -107,9 +107,16 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 
 @pytest.fixture()
 async def async_session():
-    """Generic in-memory AsyncSession for repository tests."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    """Generic AsyncSession for repository tests.
+
+    Reads DATABASE_URL env var (used by CI postgres job to exercise dialect
+    compat); otherwise falls back to in-memory SQLite.
+    """
+    url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    engine = create_async_engine(url)
     async with engine.begin() as conn:
+        # 同一 DB 跨 fixture 复用时必须先清表（PG 容器跨用例持久）
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
