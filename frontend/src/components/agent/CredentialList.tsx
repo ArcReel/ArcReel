@@ -11,7 +11,8 @@ interface Props {
   busyId?: number | null;
   onActivate: (id: number) => void;
   onTest: (id: number) => void;
-  onEdit: (cred: AgentCredential) => void;
+  /** Optional: when omitted the edit button renders disabled with a "coming soon" tooltip. */
+  onEdit?: (cred: AgentCredential) => void;
   onDelete: (id: number) => void;
 }
 
@@ -91,9 +92,11 @@ export function CredentialList({
             )}
             <button
               type="button"
-              onClick={() => onEdit(c)}
+              onClick={() => onEdit?.(c)}
+              disabled={!onEdit}
               className={ICON_BTN_CLS}
               aria-label={t("cred_edit_label")}
+              title={!onEdit ? t("cred_edit_coming_soon") : undefined}
             >
               <Edit2 className="h-3.5 w-3.5" aria-hidden />
             </button>

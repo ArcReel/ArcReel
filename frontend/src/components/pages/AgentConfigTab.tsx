@@ -25,6 +25,7 @@ import type {
 } from "@/types/agent-credential";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
 import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import { CredentialList } from "@/components/agent/CredentialList";
 import { AddCredentialModal } from "@/components/agent/AddCredentialModal";
@@ -208,6 +209,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [busyCredId, setBusyCredId] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
   const [testedCredId, setTestedCredId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [deletingCred, setDeletingCred] = useState(false);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -391,18 +394,23 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     [],
   );
 
-  const handleDelete = useCallback(
-    async (id: number) => {
-      if (!window.confirm(t("cred_delete_confirm"))) return;
-      try {
-        await API.deleteAgentCredential(id);
-        await loadCreds();
-      } catch (err) {
-        useAppStore.getState().pushToast(errMsg(err), "error");
-      }
-    },
-    [loadCreds, t],
-  );
+  const requestDelete = useCallback((id: number) => {
+    setConfirmDeleteId(id);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (confirmDeleteId == null) return;
+    setDeletingCred(true);
+    try {
+      await API.deleteAgentCredential(confirmDeleteId);
+      await loadCreds();
+      setConfirmDeleteId(null);
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setDeletingCred(false);
+    }
+  }, [confirmDeleteId, loadCreds]);
 
   const handleApplyFix = useCallback(
     async (suggestedUrl: string) => {
@@ -410,11 +418,13 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       try {
         await API.updateAgentCredential(testedCredId, { base_url: suggestedUrl });
         await loadCreds();
-        setTestResult(null);
-        setTestedCredId(null);
         useAppStore.getState().pushToast(t("agent_config_saved"), "success");
       } catch (err) {
         useAppStore.getState().pushToast(errMsg(err), "error");
+      } finally {
+        // 不论成败都清掉过期面板，避免用户重复点失效按钮
+        setTestResult(null);
+        setTestedCredId(null);
       }
     },
     [testedCredId, loadCreds, t],
@@ -527,10 +537,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             busyId={busyCredId}
             onActivate={(id) => void handleActivate(id)}
             onTest={(id) => void handleTest(id)}
-            onEdit={() => {
-              // TODO(edit-modal): wire when EditCredentialModal lands
-            }}
-            onDelete={(id) => void handleDelete(id)}
+            onDelete={requestDelete}
           />
           {testResult && (
             <TestResultPanel
@@ -757,6 +764,18 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         customSentinelId={customSentinelId}
         onSubmit={handleCreate}
         onClose={() => setAddModalOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title={t("cred_delete_confirm_title")}
+        description={t("cred_delete_confirm")}
+        confirmLabel={t("common:delete")}
+        cancelLabel={t("common:cancel")}
+        tone="danger"
+        loading={deletingCred}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setConfirmDeleteId(null)}
       />
     </div>
   );
