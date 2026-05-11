@@ -30,7 +30,17 @@ AgentConfigTab "Discover" 按钮 → POST /api/v1/custom-providers/discover-anth
 
 ### 1.2 用户反馈的三个真实问题
 
-1. **`/anthropic` 后缀盲区**：DeepSeek、Kimi、GLM、阿里百炼、火山方舟、腾讯 LKEAP、小米 MiMo 等几乎所有国内代理网关，Claude SDK 必须打 `{root}/anthropic/v1/messages`；但模型发现 `/v1/models` 在根域。当前 `ensure_anthropic_base_url` 只剥 `/v1`、`/v1/messages`，不识别 `/anthropic`/`/api/anthropic`/`/apps/anthropic`/`/plan/anthropic`/`/coding/anthropic`/`/api/coding` 等子路径。结果两个端点不能共用一个 base_url。
+1. **Anthropic 兼容子路径识别盲区**：国内主流代理网关把 Claude 兼容协议挂在「子路径」下而非根域，且各家路径不同：
+
+   | 网关 | 子路径形态 |
+   |------|-----------|
+   | DeepSeek、Kimi (Moonshot)、MiniMax、腾讯 Hunyuan、小米 MiMo | `/anthropic` |
+   | GLM (z.ai) | `/api/anthropic` |
+   | 阿里百炼 (DashScope) | `/apps/anthropic` |
+   | 腾讯 LKEAP | `/plan/anthropic`、`/coding/anthropic` |
+   | 火山方舟 Coding Plan | `/api/coding` |
+
+   Claude SDK 必须打 `{root}/{子路径}/v1/messages`；但模型发现 `/v1/models` 在根域。当前 `ensure_anthropic_base_url` 只剥 `/v1`、`/v1/messages`，**完全不识别上述任何一种子路径**，结果两个端点不能共用同一个用户填的 base_url。
 2. **配置生效但调不通**：用户填的 URL 同步到 env，但 SDK 实际打 `/v1/messages` 时网关返回 404 或非 anthropic JSON（如 ark agent plan 是 OpenAI 兼容协议），缺少前置体检手段。
 3. **Agent 配置页缺少真实连接测试**：`/custom-providers/test` 端点只跑 `models.list()`，对 anthropic 协议覆盖不足；Agent 配置页连这个都没有。
 
@@ -125,7 +135,8 @@ class PresetProvider:
     discovery_url: str | None        # https://api.deepseek.com  (None = 不支持/无公开)
     default_model: str               # deepseek-v4-pro
     suggested_models: tuple[str, ...]  # 下拉兜底
-    docs_url: str | None
+    docs_url: str | None             # 文档链接 (右上角小字)
+    api_key_url: str | None          # 「获取 API Key」链接 (输入框右侧)
     notes_i18n_key: str | None       # 如 "preset_notes_deepseek" → i18n 中给文字
     api_key_pattern: str | None      # "^sk-[A-Za-z0-9-]+$" 前端轻量校验
     is_recommended: bool
@@ -140,6 +151,7 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         default_model="claude-3-5-sonnet-20241022",
         suggested_models=("claude-3-5-sonnet-20241022", "claude-3-7-sonnet", ...),
         docs_url="https://docs.anthropic.com",
+        api_key_url="https://console.anthropic.com/settings/keys",
         notes_i18n_key=None,
         api_key_pattern=r"^sk-ant-[A-Za-z0-9_-]+$",
         is_recommended=True,
@@ -153,6 +165,7 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         default_model="deepseek-v4-pro",
         suggested_models=("deepseek-v4-pro", "deepseek-v4-flash"),
         docs_url="https://api-docs.deepseek.com/",
+        api_key_url="https://platform.deepseek.com/api_keys",
         notes_i18n_key="preset_notes_deepseek",
         api_key_pattern=r"^sk-[A-Za-z0-9]+$",
         is_recommended=True,
@@ -360,6 +373,7 @@ async def list_preset_providers(_user: CurrentUser, _t: Translator):
                 "default_model": p.default_model,
                 "suggested_models": list(p.suggested_models),
                 "docs_url": p.docs_url,
+                "api_key_url": p.api_key_url,
                 "notes": _t(p.notes_i18n_key) if p.notes_i18n_key else None,
                 "api_key_pattern": p.api_key_pattern,
                 "is_recommended": p.is_recommended,
@@ -570,6 +584,7 @@ export interface PresetProvider {
   default_model: string;
   suggested_models: string[];
   docs_url: string | null;
+  api_key_url: string | null;  // 「获取 API Key」链接
   notes: string | null;
   api_key_pattern: string | null;
   is_recommended: boolean;
@@ -638,16 +653,23 @@ Section 1 (API Credentials) 整段替换：
 `AddCredentialModal` 内部布局参考用户提供的截图：
 - 顶部 tab：Claude 供应商 / 统一供应商（本轮只做 Claude，统一供应商 tab 显示 Coming Soon）
 - 中部 chip 网格：自定义配置（左上角固定）+ 各预设 chip（带 lobehub icon + 推荐星标）
-- 选中后下方表单：API Key 输入 + Model 选择 + 显示名（默认 = preset.display_name）+ Notes
-- 自定义模式：额外显示 Base URL 输入
-- 底部：取消 + 添加（添加成功后自动 activate 如果是第一条）
+- 选中后下方表单：
+  - 显示名（默认 = `preset.display_name`，用户可改）
+  - **API Key 输入**：右上角带「获取 API Key →」锚链接（`href = preset.api_key_url`，`target="_blank"`，`rel="noopener noreferrer"`），仅当 `api_key_url` 非空时显示
+  - Model 选择：默认 `preset.default_model`，下拉项 = `preset.suggested_models ∪ (可选) discover-anthropic 结果`
+  - Notes（如果 `preset.notes` 非空）以折叠卡片形式展示
+- 自定义模式：额外显示 Base URL 输入；不显示 api_key_url 链接
+- 底部：取消 + 添加（添加成功后，若当前没有 active 凭证则自动 activate 新建条；否则保持现状由用户决定）
 
 Section 2 (Model Routing) + Section 3 (Runtime Tuning) 保持现状，但其内部读写改为指向 active credential 字段。
 
 #### 4.9.4 i18n
 
 新增 keys（zh / en / vi）：
-- `agent_credentials`, `add_credential`, `select_provider`, `claude_compat_providers`, `unified_providers_coming_soon`, `custom_config`, `preset_recommended`, `set_active`, `is_active`, `test_credential`, `test_running`, `test_ok`, `test_warn`, `test_fail`, `apply_fix`, `apply_fix_hint`, `diagnosis_missing_anthropic_suffix`, `diagnosis_openai_compat_only`, `diagnosis_auth_failed`, `diagnosis_model_not_found`, `diagnosis_rate_limited`, `diagnosis_network`, `diagnosis_unknown`, `derived_messages_root`, `derived_discovery_root`, `cred_delete_active_blocked`, `cred_activated_toast`, `preset_notes_deepseek` 等。
+- 表单 / 列表：`agent_credentials`, `add_credential`, `select_provider`, `claude_compat_providers`, `unified_providers_coming_soon`, `custom_config`, `preset_recommended`, `set_active`, `is_active`, `cred_delete_active_blocked`, `cred_activated_toast`
+- API Key 链接：`get_api_key`（如「获取 API Key →」）
+- 测试 / 诊断：`test_credential`, `test_running`, `test_ok`, `test_warn`, `test_fail`, `apply_fix`, `apply_fix_hint`, `diagnosis_missing_anthropic_suffix`, `diagnosis_openai_compat_only`, `diagnosis_auth_failed`, `diagnosis_model_not_found`, `diagnosis_rate_limited`, `diagnosis_network`, `diagnosis_unknown`, `derived_messages_root`, `derived_discovery_root`
+- Notes：`preset_notes_deepseek`、`preset_notes_kimi` 等（按需）
 
 ---
 
