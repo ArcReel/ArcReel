@@ -64,17 +64,24 @@ describe("AssetLibraryPage tablist (issue #488)", () => {
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
     expect(tabs[0]).toHaveAttribute("aria-selected", "false");
-    // roving focus 是 WAI-ARIA Tabs 规范的核心：方向键后激活 tab 必须获得焦点。
-    // moveTabFocus 用 requestAnimationFrame 异步搬，所以要 waitFor。
+    // roving tabindex + focus 都是 WAI-ARIA Tabs 规范要求：激活 tab tabindex=0
+    // 进 Tab 序列、其他=-1 跳过；激活 tab 必须真的拿到焦点。moveTabFocus 用
+    // requestAnimationFrame 异步搬焦点，所以 focus 断言要 waitFor。
+    expect(tabs[1]).toHaveAttribute("tabindex", "0");
+    expect(tabs[0]).toHaveAttribute("tabindex", "-1");
     await waitFor(() => expect(tabs[1]).toHaveFocus());
 
     fireEvent.keyDown(tabs[1], { key: "ArrowRight" });
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[2]).toHaveAttribute("tabindex", "0");
+    expect(tabs[1]).toHaveAttribute("tabindex", "-1");
     await waitFor(() => expect(tabs[2]).toHaveFocus());
 
     // cycle back to first
     fireEvent.keyDown(tabs[2], { key: "ArrowRight" });
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[0]).toHaveAttribute("tabindex", "0");
+    expect(tabs[2]).toHaveAttribute("tabindex", "-1");
     await waitFor(() => expect(tabs[0]).toHaveFocus());
   });
 
@@ -85,6 +92,8 @@ describe("AssetLibraryPage tablist (issue #488)", () => {
     fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
     // wraps to last
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[2]).toHaveAttribute("tabindex", "0");
+    expect(tabs[0]).toHaveAttribute("tabindex", "-1");
     await waitFor(() => expect(tabs[2]).toHaveFocus());
   });
 
@@ -93,10 +102,14 @@ describe("AssetLibraryPage tablist (issue #488)", () => {
     const tabs = screen.getAllByRole("tab");
     fireEvent.keyDown(tabs[0], { key: "End" });
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[2]).toHaveAttribute("tabindex", "0");
+    expect(tabs[0]).toHaveAttribute("tabindex", "-1");
     await waitFor(() => expect(tabs[2]).toHaveFocus());
 
     fireEvent.keyDown(tabs[2], { key: "Home" });
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[0]).toHaveAttribute("tabindex", "0");
+    expect(tabs[2]).toHaveAttribute("tabindex", "-1");
     await waitFor(() => expect(tabs[0]).toHaveFocus());
   });
 
