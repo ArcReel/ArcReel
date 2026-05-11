@@ -653,6 +653,8 @@ export default {
   'discover_models': 'Discover Models',
   'discover_models_success': 'Found {{count}} models',
   'discover_no_models': 'No models found',
+  'discover_no_base': 'Select a preset or enter a Base URL first',
+  'discover_api_key_required': 'Enter an API Key first to discover models',
   'discovering_models': 'Discovering...',
   'import_from_provider': 'Import from provider',
   'import_no_providers': 'No custom providers to import',
@@ -910,7 +912,7 @@ export default {
 
   // CredentialList
   'credential_mgmt': 'Key Management',
-  'add_credential': 'Add Key',
+  'add_credential': 'Add Provider',
   'no_credentials': 'No keys yet',
   'add_first_credential': 'Add the first key',
   'active_label': 'In use',
@@ -1171,7 +1173,7 @@ export default {
   'openclaw_step_03_desc': 'Describe what you want; OpenClaw will call ArcReel to manage projects, generate scripts, and produce videos.',
   'openclaw_system_prompt': 'Read {{skillUrl}} and then follow the skill to learn how to create videos with ArcReel',
   'openclaw_get_api_token': 'Get API token',
-  'agent_credentials': 'Credentials',
+  'agent_credentials': 'Agent Providers',
   'claude_compat_providers': 'Claude providers',
   'unified_providers_coming_soon': 'Unified providers (coming soon)',
   'custom_config': 'Custom',
@@ -1206,7 +1208,5 @@ export default {
   'diagnosis_network': 'Network unreachable. Check URL and firewall.',
   'diagnosis_unknown': 'Unknown error. See raw response.',
   'preset_notes_deepseek': 'DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.',
-  'preset_notes_ark_coding': 'Volcengine Ark Coding Plan only; the regular Ark plan is not Anthropic-compat.',
-  'preset_notes_bailian': 'Aliyun Bailian has no public /v1/models endpoint; discovery may fail.',
   'preset_notes_xiaomi_mimo': 'Xiaomi MiMo only accepts known model names; no public model list.',
 };

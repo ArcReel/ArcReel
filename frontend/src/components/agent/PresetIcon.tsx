@@ -43,6 +43,11 @@ const ICON_LOADERS: Record<string, IconLoader> = {
   Zhipu: () => import("@lobehub/icons/es/Zhipu/components/Color"),
 };
 
+/** iconKey → 本地静态资源(用于 lobehub 未收录的品牌). */
+const STATIC_ICON_SRC: Record<string, string> = {
+  ArcReel: "/apple-touch-icon.png",
+};
+
 interface Props {
   iconKey: string | null;
   size?: number;
@@ -73,6 +78,19 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
       cancelled = true;
     };
   }, [iconKey]);
+
+  // 本地静态图标(品牌 logo 未上 lobehub 时使用)
+  const staticSrc = iconKey ? STATIC_ICON_SRC[iconKey] : undefined;
+  if (staticSrc)
+    return (
+      <img
+        src={staticSrc}
+        alt={iconKey ?? ""}
+        width={size}
+        height={size}
+        className={`rounded-[3px] object-cover ${className ?? ""}`}
+      />
+    );
 
   const Icon = loaded && loaded.key === iconKey ? loaded.component : null;
   if (Icon)

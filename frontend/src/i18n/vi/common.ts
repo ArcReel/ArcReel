@@ -25,6 +25,7 @@ export default {
   'required': 'bắt buộc',
   'load_failed': 'Tải thất bại',
   'save': 'Lưu',
+  'add': 'Thêm',
   'save_settings': 'Lưu cài đặt',
   'saving': 'Đang lưu...',
   'reset': 'Đặt lại',

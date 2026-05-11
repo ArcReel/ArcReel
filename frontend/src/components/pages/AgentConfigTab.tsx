@@ -3,12 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errMsg, voidCall } from "@/utils/async";
 import {
   AlertTriangle,
-  ChevronDown,
   Loader2,
-  Search,
-  SlidersHorizontal,
   Terminal,
-  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -24,13 +20,11 @@ import type {
   TestConnectionResponse,
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
-import { ModelCombobox } from "@/components/ui/ModelCombobox";
 import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import { CredentialList } from "@/components/agent/CredentialList";
 import { AddCredentialModal } from "@/components/agent/AddCredentialModal";
-import { TestResultPanel } from "@/components/agent/TestResultPanel";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -38,12 +32,6 @@ import { TabSaveFooter } from "./TabSaveFooter";
 // ---------------------------------------------------------------------------
 
 interface AgentDraft {
-  /** In-place edit; empty string means "clear saved value". */
-  anthropicModel: string;
-  haikuModel: string;
-  opusModel: string;
-  sonnetModel: string;
-  subagentModel: string;
   cleanupDelaySeconds: string;
   maxConcurrentSessions: string;
 }
@@ -51,11 +39,6 @@ interface AgentDraft {
 function buildDraft(data: GetSystemConfigResponse): AgentDraft {
   const s = data.settings;
   return {
-    anthropicModel: s.anthropic_model ?? "",
-    haikuModel: s.anthropic_default_haiku_model ?? "",
-    opusModel: s.anthropic_default_opus_model ?? "",
-    sonnetModel: s.anthropic_default_sonnet_model ?? "",
-    subagentModel: s.claude_code_subagent_model ?? "",
     cleanupDelaySeconds: String(s.agent_session_cleanup_delay_seconds ?? 300),
     maxConcurrentSessions: String(s.agent_max_concurrent_sessions ?? 5),
   };
@@ -63,11 +46,6 @@ function buildDraft(data: GetSystemConfigResponse): AgentDraft {
 
 function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
   return (
-    a.anthropicModel === b.anthropicModel &&
-    a.haikuModel === b.haikuModel &&
-    a.opusModel === b.opusModel &&
-    a.sonnetModel === b.sonnetModel &&
-    a.subagentModel === b.subagentModel &&
     a.cleanupDelaySeconds === b.cleanupDelaySeconds &&
     a.maxConcurrentSessions === b.maxConcurrentSessions
   );
@@ -75,60 +53,12 @@ function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
 
 function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
   const patch: SystemConfigPatch = {};
-  // 注：anthropic_api_key / anthropic_base_url 现由 /api/v1/agent/credentials 凭证目录管理，
-  // 不再走 /system/config patch 路径（Phase 9 凭证迁移；DEPRECATION 标注见 Task 23）
-  if (draft.anthropicModel !== saved.anthropicModel)
-    patch.anthropic_model = draft.anthropicModel || "";
-  if (draft.haikuModel !== saved.haikuModel)
-    patch.anthropic_default_haiku_model = draft.haikuModel || "";
-  if (draft.opusModel !== saved.opusModel)
-    patch.anthropic_default_opus_model = draft.opusModel || "";
-  if (draft.sonnetModel !== saved.sonnetModel)
-    patch.anthropic_default_sonnet_model = draft.sonnetModel || "";
-  if (draft.subagentModel !== saved.subagentModel)
-    patch.claude_code_subagent_model = draft.subagentModel || "";
   if (draft.cleanupDelaySeconds !== saved.cleanupDelaySeconds)
     patch.agent_session_cleanup_delay_seconds = Number(draft.cleanupDelaySeconds) || 300;
   if (draft.maxConcurrentSessions !== saved.maxConcurrentSessions)
     patch.agent_max_concurrent_sessions = Number(draft.maxConcurrentSessions) || 5;
   return patch;
 }
-
-// ---------------------------------------------------------------------------
-// Style constants
-// ---------------------------------------------------------------------------
-
-// Model routing config
-const MODEL_ROUTING_FIELDS = [
-  {
-    key: "haikuModel" as const,
-    labelKey: "haiku_model",
-    envVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-    hintKey: "haiku_desc",
-    patchKey: "anthropic_default_haiku_model" as const,
-  },
-  {
-    key: "sonnetModel" as const,
-    labelKey: "sonnet_model",
-    envVar: "ANTHROPIC_DEFAULT_SONNET_MODEL",
-    hintKey: "sonnet_desc",
-    patchKey: "anthropic_default_sonnet_model" as const,
-  },
-  {
-    key: "opusModel" as const,
-    labelKey: "opus_model",
-    envVar: "ANTHROPIC_DEFAULT_OPUS_MODEL",
-    hintKey: "opus_desc",
-    patchKey: "anthropic_default_opus_model" as const,
-  },
-  {
-    key: "subagentModel" as const,
-    labelKey: "subagent_model",
-    envVar: "CLAUDE_CODE_SUBAGENT_MODEL",
-    hintKey: "subagent_desc",
-    patchKey: "claude_code_subagent_model" as const,
-  },
-] as const;
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -177,32 +107,17 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [remoteData, setRemoteData] = useState<GetSystemConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AgentDraft>({
-    anthropicModel: "",
-    haikuModel: "",
-    opusModel: "",
-    sonnetModel: "",
-    subagentModel: "",
     cleanupDelaySeconds: "300",
     maxConcurrentSessions: "5",
   });
   const savedRef = useRef<AgentDraft>({
-    anthropicModel: "",
-    haikuModel: "",
-    opusModel: "",
-    sonnetModel: "",
-    subagentModel: "",
     cleanupDelaySeconds: "300",
     maxConcurrentSessions: "5",
   });
   const [saving, setSaving] = useState(false);
-  const [clearingField, setClearingField] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [modelRoutingExpanded, setModelRoutingExpanded] = useState(false);
-  const [modelCandidates, setModelCandidates] = useState<string[]>([]);
-  const [discoverLoading, setDiscoverLoading] = useState(false);
-  const discoverAbortRef = useRef<AbortController | null>(null);
 
-  // Phase 9: 凭证目录 UI 状态
+  // 凭证目录 UI 状态
   const [credentials, setCredentials] = useState<AgentCredential[]>([]);
   const [presets, setPresets] = useState<PresetProvider[]>([]);
   const [customSentinelId, setCustomSentinelId] = useState("__custom__");
@@ -242,7 +157,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       setPresets(p.providers);
       setCustomSentinelId(p.custom_sentinel_id);
     } catch (err) {
-      // 静默：凭证列表加载失败不阻塞 Section 2/3
       useAppStore.getState().pushToast(errMsg(err), "error");
     }
   }, []);
@@ -250,13 +164,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   useEffect(() => {
     void loadCreds();
   }, [loadCreds]);
-
-  useEffect(
-    () => () => {
-      discoverAbortRef.current?.abort();
-    },
-    [],
-  );
 
   const isDirty = !deepEqual(draft, savedRef.current);
   useWarnUnsaved(isDirty);
@@ -294,57 +201,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     setSaveError(null);
   }, []);
 
-  const handleClearField = useCallback(
-    async (fieldId: string, patch: SystemConfigPatch, label: string) => {
-      setClearingField(fieldId);
-      try {
-        const res = await API.updateSystemConfig(patch);
-        setRemoteData(res);
-        const nextSavedDraft = buildDraft(res);
-        savedRef.current = nextSavedDraft;
-        setDraft(nextSavedDraft);
-        voidCall(useConfigStatusStore.getState().refresh());
-        useAppStore
-          .getState()
-          .pushToast(`${t(`dashboard:${label}`)} ${t("field_cleared")}`, "success");
-      } catch (err) {
-        useAppStore.getState().pushToast(t("clear_failed", { message: errMsg(err) }), "error");
-      } finally {
-        setClearingField(null);
-      }
-    },
-    [t],
-  );
-
-  const handleDiscoverModels = useCallback(async () => {
-    discoverAbortRef.current?.abort();
-    const controller = new AbortController();
-    discoverAbortRef.current = controller;
-
-    setDiscoverLoading(true);
-    const toast = useAppStore.getState().pushToast;
-    try {
-      // 不再传 base_url / api_key；后端按 active credential 回退（Task 13/14）
-      const res = await API.discoverAnthropicModels(
-        {},
-        { signal: controller.signal },
-      );
-      if (controller.signal.aborted) return;
-      setModelCandidates(res.models.map((m) => m.model_id));
-      if (res.models.length === 0) {
-        toast(t("discover_no_models"), "warning");
-      } else {
-        toast(t("discover_models_success", { count: res.models.length }), "success");
-      }
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      toast(errMsg(err), "error");
-    } finally {
-      if (!controller.signal.aborted) setDiscoverLoading(false);
-    }
-  }, [t]);
-
-  // ---------------- Credential 目录 handlers (Phase 9) ----------------
+  // ---------------- Credential 目录 handlers ----------------
 
   const handleCreate = useCallback(
     async (req: CreateAgentCredentialRequest) => {
@@ -363,13 +220,15 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const handleUpdate = useCallback(
     async (req: CreateAgentCredentialRequest) => {
       if (editingCred == null) return;
-      // 从 create-shape req 提取 PATCH 字段（preset_id 锁死，activate 不在 edit 流程里）
       const patch: UpdateAgentCredentialRequest = {
         display_name: req.display_name,
         base_url: req.base_url,
         model: req.model,
+        haiku_model: req.haiku_model,
+        sonnet_model: req.sonnet_model,
+        opus_model: req.opus_model,
+        subagent_model: req.subagent_model,
       };
-      // api_key 仅在用户输入非空时透传，留空 = 保持原值
       if (req.api_key) patch.api_key = req.api_key;
       await API.updateAgentCredential(editingCred.id, patch);
       setEditingCred(null);
@@ -448,15 +307,12 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       } catch (err) {
         useAppStore.getState().pushToast(errMsg(err), "error");
       } finally {
-        // 不论成败都清掉过期面板，避免用户重复点失效按钮
         setTestResult(null);
         setTestedCredId(null);
       }
     },
     [testedCredId, loadCreds, t],
   );
-
-  const isBusy = saving || clearingField !== null;
 
   // Loading / error states
   if (loadError) {
@@ -499,47 +355,48 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     );
   }
 
-  const settings = remoteData.settings;
-
   return (
     <div className={visible ? undefined : "hidden"}>
       <div className="space-y-7 pb-0 pt-1">
         {/* Page intro */}
-        <div className="flex items-start gap-4">
-          <div
-            className="shrink-0 rounded-[10px] border border-hairline p-3"
-            style={{
-              ...CARD_STYLE,
-              boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
-            }}
-          >
-            <ClaudeColor size={28} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-              Anthropic Bridge
-            </div>
-            <h2
-              className="font-editorial mt-1"
+        <div>
+          <div className="flex items-start gap-4">
+            <div
+              className="shrink-0 rounded-[10px] border border-hairline p-3"
               style={{
-                fontWeight: 400,
-                fontSize: 24,
-                lineHeight: 1.1,
-                letterSpacing: "-0.012em",
-                color: "var(--color-text)",
+                ...CARD_STYLE,
+                boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
               }}
             >
-              {t("arcreel_agent")}
-            </h2>
-            <p className="mt-1.5 text-[12.5px] leading-[1.55] text-text-3">
-              {t("agent_sdk_desc")}
-            </p>
-            <div className="mt-3 flex items-start gap-2 rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2">
-              <Terminal className="mt-0.5 h-3 w-3 shrink-0 text-text-4" aria-hidden />
-              <p className="text-[11.5px] leading-[1.55] text-text-3">
-                {t("claude_code_compat_hint")}
+              <ClaudeColor size={28} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+                Anthropic Bridge
+              </div>
+              <h2
+                className="font-editorial mt-1"
+                style={{
+                  fontWeight: 400,
+                  fontSize: 24,
+                  lineHeight: 1.1,
+                  letterSpacing: "-0.012em",
+                  color: "var(--color-text)",
+                }}
+              >
+                {t("arcreel_agent")}
+              </h2>
+              <p className="mt-1.5 text-[12.5px] leading-[1.55] text-text-3">
+                {t("agent_sdk_desc")}
               </p>
             </div>
+          </div>
+          {/* 提示 pill 与下方 Section 左边对齐,不再嵌套在文本块里 */}
+          <div className="mt-3 flex items-start gap-2 rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2">
+            <Terminal className="mt-0.5 h-3 w-3 shrink-0 text-text-4" aria-hidden />
+            <p className="text-[11.5px] leading-[1.55] text-text-3">
+              {t("claude_code_compat_hint")}
+            </p>
           </div>
         </div>
 
@@ -561,177 +418,17 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
           <CredentialList
             credentials={credentials}
             busyId={busyCredId}
+            testedId={testedCredId}
+            testResult={testResult}
+            onApplyFix={(suggestedUrl) => void handleApplyFix(suggestedUrl)}
             onActivate={(id) => void handleActivate(id)}
             onTest={(id) => void handleTest(id)}
             onEdit={handleEdit}
             onDelete={requestDelete}
           />
-          {testResult && (
-            <TestResultPanel
-              originalBaseUrl={
-                testedCredId != null
-                  ? credentials.find((c) => c.id === testedCredId)?.base_url ?? null
-                  : null
-              }
-              result={testResult}
-              onApplyFix={(suggestedUrl) => void handleApplyFix(suggestedUrl)}
-            />
-          )}
         </Section>
 
-        {/* Section 2: Model Configuration */}
-        <Section
-          kicker="Model Routing"
-          title={t("model_config")}
-          description={t("model_config_desc")}
-          trailing={
-            <button
-              type="button"
-              onClick={() => void handleDiscoverModels()}
-              disabled={discoverLoading}
-              className={GHOST_BTN_CLS}
-            >
-              {discoverLoading ? (
-                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
-              ) : (
-                <Search className="h-3.5 w-3.5" aria-hidden />
-              )}
-              {t("discover_models")}
-            </button>
-          }
-        >
-          <FieldLabel
-            htmlFor="agent-model"
-            className=""
-            trailing={
-              settings.anthropic_model && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void handleClearField(
-                      "anthropic_model",
-                      { anthropic_model: "" },
-                      "default_model",
-                    )
-                  }
-                  disabled={isBusy}
-                  className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label={t("clear_saved_model")}
-                >
-                  {clearingField === "anthropic_model" ? (
-                    <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
-                  ) : (
-                    <X className="h-3 w-3" aria-hidden />
-                  )}
-                  {t("clear_saved")}
-                </button>
-              )
-            }
-          >
-            {t("default_model")}
-          </FieldLabel>
-          <p className="mt-0.5 text-[11.5px] text-text-4">{t("env_anthropic_model")}</p>
-          <div className="mt-2">
-            <ModelCombobox
-              id="agent-model"
-              value={draft.anthropicModel}
-              onChange={(v) => updateDraft("anthropicModel", v)}
-              options={modelCandidates}
-              placeholder="claude-3-5-sonnet-20241022"
-              name="anthropic_model"
-              disabled={saving}
-              clearable
-              clearAriaLabel={t("clear_model_input")}
-            />
-          </div>
-
-          {/* Advanced model routing */}
-          <details
-            open={modelRoutingExpanded}
-            onToggle={(e) => setModelRoutingExpanded(e.currentTarget.open)}
-            className="mt-4 rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-4"
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between">
-              <span className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-2">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-accent-2" aria-hidden />
-                {t("advanced_model_routing")}
-              </span>
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-hairline-soft bg-bg-grad-a/55 text-text-3">
-                <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                    modelRoutingExpanded ? "rotate-180 text-accent-2" : ""
-                  }`}
-                  aria-hidden
-                />
-              </span>
-            </summary>
-            <p className="mt-2 text-[11.5px] leading-[1.55] text-text-3">
-              {t("model_routing_hint")}
-            </p>
-            <div className="mt-4 grid gap-4">
-              {MODEL_ROUTING_FIELDS.map(({ key, labelKey, envVar, hintKey, patchKey }) => {
-                const settingsValue = settings[patchKey];
-                return (
-                  <div key={key}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2">
-                          {t(`dashboard:${labelKey}`)}
-                        </div>
-                        <div className="text-[11.5px] text-text-4">
-                          {t(`dashboard:${hintKey}`)}
-                        </div>
-                      </div>
-                      {settingsValue && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleClearField(
-                              patchKey,
-                              { [patchKey]: "" } as SystemConfigPatch,
-                              labelKey,
-                            )
-                          }
-                          disabled={isBusy}
-                          className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-warm-bright disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label={t("clear_saved_field", {
-                            label: t(`dashboard:${labelKey}`),
-                          })}
-                        >
-                          {clearingField === patchKey ? (
-                            <Loader2
-                              className="h-3 w-3 motion-safe:animate-spin"
-                              aria-hidden
-                            />
-                          ) : (
-                            <X className="h-3 w-3" aria-hidden />
-                          )}
-                          {t("clear")}
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-1.5">
-                      <ModelCombobox
-                        value={draft[key]}
-                        onChange={(v) => updateDraft(key, v)}
-                        options={modelCandidates}
-                        placeholder={envVar}
-                        disabled={saving}
-                        aria-label={t(`dashboard:${labelKey}`)}
-                        clearable
-                        clearAriaLabel={t("clear_field_input", {
-                          label: t(`dashboard:${labelKey}`),
-                        })}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </details>
-        </Section>
-
-        {/* Section 3: Advanced */}
+        {/* Section 2: Runtime tuning */}
         <Section kicker="Runtime Tuning" title={t("advanced_settings")}>
           <div className="space-y-4">
             <div>
@@ -779,7 +476,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       <TabSaveFooter
         isDirty={isDirty}
         saving={saving}
-        disabled={clearingField !== null}
+        disabled={false}
         error={saveError}
         onSave={() => void handleSave()}
         onReset={handleReset}
@@ -805,7 +502,10 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 display_name: editingCred.display_name,
                 base_url: editingCred.base_url,
                 model: editingCred.model ?? undefined,
-                // api_key 不预填（masked 不可用作真实 key）
+                haiku_model: editingCred.haiku_model ?? undefined,
+                sonnet_model: editingCred.sonnet_model ?? undefined,
+                opus_model: editingCred.opus_model ?? undefined,
+                subagent_model: editingCred.subagent_model ?? undefined,
               }
             : undefined
         }

@@ -630,6 +630,8 @@ export default {
   'discover_models': 'Phát hiện mô hình',
   'discover_models_success': 'Tìm thấy {{count}} mô hình',
   'discover_no_models': 'Không tìm thấy mô hình',
+  'discover_no_base': 'Chọn cấu hình hoặc nhập Base URL trước',
+  'discover_api_key_required': 'Nhập API Key trước để phát hiện mô hình',
   'discovering_models': 'Đang phát hiện...',
   'import_from_provider': 'Nhập từ nhà cung cấp',
   'import_no_providers': 'Không có nhà cung cấp tùy chỉnh để nhập',
@@ -876,7 +878,7 @@ export default {
 
   // CredentialList
   'credential_mgmt': 'Quản lý khóa',
-  'add_credential': 'Thêm khóa',
+  'add_credential': 'Thêm nhà cung cấp',
   'no_credentials': 'Chưa có khóa nào',
   'add_first_credential': 'Thêm khóa đầu tiên',
   'active_label': 'Đang dùng',
@@ -1168,7 +1170,7 @@ export default {
   'workspace_nav_scenes': 'Cảnh',
   'workspace_nav_source': 'Tệp gốc',
   'workspace_notifications_title': 'Thông báo không gian làm việc',
-  'agent_credentials': 'Thông tin xác thực',
+  'agent_credentials': 'Nhà cung cấp Agent',
   'claude_compat_providers': 'Nhà cung cấp Claude',
   'unified_providers_coming_soon': 'Nhà cung cấp thống nhất (sắp ra mắt)',
   'custom_config': 'Tuỳ chỉnh',
@@ -1203,7 +1205,5 @@ export default {
   'diagnosis_network': 'Không thể truy cập mạng. Kiểm tra URL và tường lửa.',
   'diagnosis_unknown': 'Lỗi không xác định. Xem chi tiết bên dưới.',
   'preset_notes_deepseek': 'Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.',
-  'preset_notes_ark_coding': 'Volcengine Ark Coding Plan; plan Ark thường không tương thích Anthropic.',
-  'preset_notes_bailian': 'Aliyun Bailian không có endpoint /v1/models công khai; khám phá model có thể thất bại.',
   'preset_notes_xiaomi_mimo': 'Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.',
 } satisfies Record<keyof typeof enDashboard, string>;

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
@@ -117,7 +117,7 @@ describe("AgentConfigTab — credentials directory", () => {
     render(<AgentConfigTab visible />);
 
     // Use translated text + leading "+"
-    const btn = await screen.findByRole("button", { name: /\+ 添加密钥/ });
+    const btn = await screen.findByRole("button", { name: /\+ 添加供应商/ });
     expect(btn).toBeInTheDocument();
   });
 
@@ -153,95 +153,3 @@ describe("AgentConfigTab — credentials directory", () => {
   });
 });
 
-describe("AgentConfigTab — discover models", () => {
-  beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
-    vi.restoreAllMocks();
-
-    setupBaseMocks();
-    vi.spyOn(API, "discoverAnthropicModels").mockResolvedValue({
-      models: [
-        {
-          model_id: "claude-haiku-4-5",
-          display_name: "Haiku 4.5",
-          endpoint: "",
-          is_default: false,
-          is_enabled: true,
-        },
-        {
-          model_id: "claude-opus-4-7",
-          display_name: "Opus 4.7",
-          endpoint: "",
-          is_default: false,
-          is_enabled: true,
-        },
-      ],
-    });
-  });
-
-  it("renders combobox options after clicking discover", async () => {
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    const btn = await screen.findByRole("button", { name: /获取模型|Discover Models/i });
-    await user.click(btn);
-
-    // Wait for discover request to complete + populate candidates
-    await waitFor(() => {
-      expect(API.discoverAnthropicModels).toHaveBeenCalled();
-    });
-
-    // Open the default-model Combobox
-    const modelInput = await screen.findByRole("combobox", { name: "默认模型" });
-    await user.click(modelInput);
-
-    const options = await screen.findAllByRole("option");
-    const labels = options.map((o) => o.textContent);
-    expect(labels).toEqual(
-      expect.arrayContaining(["claude-haiku-4-5", "claude-opus-4-7"]),
-    );
-  });
-
-  it("calls discoverAnthropicModels with empty body (relies on backend active credential fallback)", async () => {
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
-
-    await waitFor(() => {
-      expect(API.discoverAnthropicModels).toHaveBeenCalledWith(
-        {},
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      );
-    });
-  });
-
-  it("shows error toast when discovery fails", async () => {
-    vi.mocked(API.discoverAnthropicModels).mockRejectedValueOnce(new Error("boom"));
-
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
-
-    await waitFor(() => {
-      const toast = useAppStore.getState().toast;
-      expect(toast?.text).toMatch(/boom/);
-      expect(toast?.tone).toBe("error");
-    });
-  });
-
-  it("shows success toast with model count on discovery", async () => {
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
-
-    await waitFor(() => {
-      const toast = useAppStore.getState().toast;
-      expect(toast?.tone).toBe("success");
-      expect(toast?.text).toMatch(/2/);
-    });
-  });
-});

@@ -12,9 +12,11 @@ interface Props {
   originalBaseUrl?: string | null;
   result: TestConnectionResponse;
   onApplyFix?: (suggestedBaseUrl: string) => void;
+  /** true = 紧贴在凭证 row 下方,顶部圆角拉平,无 top margin. */
+  attached?: boolean;
 }
 
-export function TestResultPanel({ originalBaseUrl, result, onApplyFix }: Props) {
+export function TestResultPanel({ originalBaseUrl, result, onApplyFix, attached = false }: Props) {
   const { t } = useTranslation("dashboard");
   const {
     overall,
@@ -43,7 +45,11 @@ export function TestResultPanel({ originalBaseUrl, result, onApplyFix }: Props) 
   const hasReplaceFix = suggestedBaseUrl !== null && !!onApplyFix;
 
   return (
-    <div className={`mt-3 rounded-[10px] border p-3 ${tone}`} role="status" aria-live="polite">
+    <div
+      className={`${attached ? "rounded-t-none border-t-0" : "mt-3"} rounded-[10px] border p-3 ${tone}`}
+      role="status"
+      aria-live="polite"
+    >
       <div className="flex items-center gap-2 text-[12.5px] font-medium">
         <Icon className="h-4 w-4" aria-hidden />
         {t(headlineKey)}

@@ -55,7 +55,7 @@ describe("AddCredentialModal", () => {
     expect(chips[0]).toHaveTextContent(/custom|自定义|Tuỳ chỉnh/i);
   });
 
-  it("when preset chosen, base_url is hidden (auto-filled)", () => {
+  it("when preset chosen, base_url is shown and prefilled with messages_url", () => {
     render(
       <AddCredentialModal
         open
@@ -66,12 +66,14 @@ describe("AddCredentialModal", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
-    expect(
-      screen.queryByLabelText(/base[_ ]url|代理地址/i),
-    ).not.toBeInTheDocument();
+    const baseUrlInput = screen.getByLabelText(
+      /base[_ ]url|代理地址/i,
+    ) as HTMLInputElement;
+    expect(baseUrlInput).toBeInTheDocument();
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
   });
 
-  it("when custom chosen, base_url input shown", () => {
+  it("when custom chosen, base_url input shown and empty", () => {
     render(
       <AddCredentialModal
         open
@@ -82,9 +84,11 @@ describe("AddCredentialModal", () => {
       />,
     );
     fireEvent.click(screen.getAllByTestId("preset-chip")[0]); // custom
-    expect(
-      screen.getByLabelText(/base[_ ]url|代理地址/i),
-    ).toBeInTheDocument();
+    const input = screen.getByLabelText(
+      /base[_ ]url|代理地址/i,
+    ) as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+    expect(input.value).toBe("");
   });
 
   it("preset submit payload uses preset_id only", async () => {
@@ -104,7 +108,11 @@ describe("AddCredentialModal", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /add|添加|confirm/i }));
     expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({ preset_id: "deepseek", api_key: "sk-test" }),
+      expect.objectContaining({
+        preset_id: "deepseek",
+        api_key: "sk-test",
+        base_url: "https://api.deepseek.com/anthropic",
+      }),
     );
   });
 
@@ -181,7 +189,7 @@ describe("AddCredentialModal", () => {
     });
   });
 
-  it("preserves user-edited displayName when switching preset", () => {
+  it("overwrites displayName when switching preset (even if user edited)", () => {
     render(
       <AddCredentialModal
         open
@@ -191,18 +199,17 @@ describe("AddCredentialModal", () => {
         onClose={vi.fn()}
       />,
     );
-    // 选第一个 preset，触发默认填充
     fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
     const nameInput = screen.getByLabelText(
       /display[_ ]name|显示名/i,
     ) as HTMLInputElement;
+    expect(nameInput.value).toBe("DeepSeek");
     // 用户改名
     fireEvent.change(nameInput, { target: { value: "My Custom Name" } });
     expect(nameInput.value).toBe("My Custom Name");
-    // 切换到另一个 preset
+    // 切换到另一个 preset → displayName 跟随预设切换
     fireEvent.click(screen.getByRole("button", { name: /Moonshot/i }));
-    // 用户值应被保留
-    expect(nameInput.value).toBe("My Custom Name");
+    expect(nameInput.value).toBe("Moonshot");
   });
 
   it("renders edit title when mode=edit", () => {

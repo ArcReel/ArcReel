@@ -654,6 +654,8 @@ export default {
   'discover_models': '获取模型列表',
   'discover_models_success': '已发现 {{count}} 个模型',
   'discover_no_models': '未发现可用模型',
+  'discover_no_base': '请先选择预设或填写 Base URL',
+  'discover_api_key_required': '请先填写 API Key 再获取模型',
   'discovering_models': '获取中…',
   'import_from_provider': '从供应商导入',
   'import_no_providers': '暂无可导入的自定义供应商',
@@ -911,7 +913,7 @@ export default {
 
   // CredentialList
   'credential_mgmt': '密钥管理',
-  'add_credential': '添加密钥',
+  'add_credential': '添加供应商',
   'no_credentials': '暂无密钥',
   'add_first_credential': '添加第一个密钥',
   'active_label': '使用中',
@@ -1172,7 +1174,7 @@ export default {
   'openclaw_step_03_desc': '描述你的创作需求，OpenClaw 将调用 ArcReel 完成项目管理、剧本生成和视频创作',
   'openclaw_system_prompt': '学习 {{skillUrl}} 然后遵循 skill，了解如何使用 ArcReel 创作视频',
   'openclaw_get_api_token': '获取 API 令牌',
-  'agent_credentials': '凭证',
+  'agent_credentials': '智能体供应商',
   'claude_compat_providers': 'Claude 供应商',
   'unified_providers_coming_soon': '统一供应商 (敬请期待)',
   'custom_config': '自定义配置',
@@ -1207,7 +1209,5 @@ export default {
   'diagnosis_network': '网络无法访问，检查 URL 与防火墙',
   'diagnosis_unknown': '未知错误，请查看原始错误信息',
   'preset_notes_deepseek': 'DeepSeek 官方 anthropic 兼容端点，需 sk- 开头的 API Key',
-  'preset_notes_ark_coding': '火山方舟 Coding Plan，普通 ark plan 不兼容 Claude 协议',
-  'preset_notes_bailian': '阿里百炼无公开 /v1/models 列表，模型发现可能失败',
   'preset_notes_xiaomi_mimo': '小米 MiMo 仅支持已知模型名，未公开模型列表',
 } satisfies Record<keyof typeof enDashboard, string>;
