@@ -200,8 +200,14 @@ export function AddCredentialModal({
   };
 
   const handleImportProvider = async (provider: CustomProviderInfo) => {
+    // 同 session 防重入：popover 内 provider option 没有 disabled，用户可以
+    // 连击或在 inflight 期间点别的 provider；sessionRef 只挡跨 session race，
+    // 挡不住同一 session 内的并发，最后返回的请求会覆盖表单。
+    if (importing) return;
     const session = sessionRef.current;
     setImporting(true);
+    // 立即关闭 popover，避免 inflight 期间用户继续看到可点选项
+    setImportPickerOpen(false);
     try {
       const cred = await API.getCustomProviderCredentials(provider.id);
       if (session !== sessionRef.current) return;
@@ -222,10 +228,7 @@ export function AddCredentialModal({
         useAppStore.getState().pushToast(errMsg(err), "error");
       }
     } finally {
-      if (session === sessionRef.current) {
-        setImporting(false);
-        setImportPickerOpen(false);
-      }
+      if (session === sessionRef.current) setImporting(false);
     }
   };
 
