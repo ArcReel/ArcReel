@@ -110,3 +110,35 @@ def test_classify_probe_failure_network() -> None:
 def test_classify_probe_failure_openai_compat() -> None:
     p = ProbeResult(success=False, status_code=200, latency_ms=10, error="non-anthropic JSON")
     assert classify_probe_failure(p) == DiagnosisCode.OPENAI_COMPAT_ONLY
+
+
+@pytest.mark.asyncio
+async def test_probe_messages_network_error() -> None:
+    with patch(
+        "lib.config.anthropic_probe._post",
+        AsyncMock(side_effect=httpx.ConnectError("connection refused")),
+    ):
+        result = await probe_messages(
+            messages_root="https://api.example.com",
+            api_key="sk",
+            model="x",
+        )
+    assert result.success is False
+    assert result.status_code is None
+    assert result.error is not None
+    assert "connection refused" in (result.error or "").lower()
+
+
+def test_classify_probe_failure_unknown_500() -> None:
+    p = ProbeResult(success=False, status_code=500, latency_ms=10, error="internal error")
+    assert classify_probe_failure(p) == DiagnosisCode.UNKNOWN
+
+
+def test_classify_probe_failure_unknown_404_no_model() -> None:
+    p = ProbeResult(success=False, status_code=404, latency_ms=10, error="endpoint not found")
+    assert classify_probe_failure(p) == DiagnosisCode.UNKNOWN
+
+
+def test_classify_probe_failure_403_also_auth() -> None:
+    p = ProbeResult(success=False, status_code=403, latency_ms=10, error="forbidden")
+    assert classify_probe_failure(p) == DiagnosisCode.AUTH_FAILED

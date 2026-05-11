@@ -137,6 +137,7 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
         return DiagnosisCode.AUTH_FAILED
     if code == 429:
         return DiagnosisCode.RATE_LIMITED
+    # 启发式：404 body 含 "model" 关键词即视为模型不存在；后端改措辞时会退化到 UNKNOWN
     if code == 404 and ("model" in err or "model_not_found" in err):
         return DiagnosisCode.MODEL_NOT_FOUND
     if code is not None and 200 <= code < 300:
