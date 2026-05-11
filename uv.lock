@@ -188,13 +188,13 @@ dependencies = [
     { name = "mammoth" },
     { name = "openai" },
     { name = "packaging" },
+    { name = "pdf-oxide" },
     { name = "pillow" },
     { name = "portalocker" },
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic" },
     { name = "pyjianyingdraft" },
     { name = "pyjwt" },
-    { name = "pymupdf" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "pyyaml" },
@@ -232,13 +232,13 @@ requires-dist = [
     { name = "mammoth", specifier = ">=1.12.0" },
     { name = "openai", specifier = ">=2.30.0" },
     { name = "packaging", specifier = ">=24.0" },
+    { name = "pdf-oxide", specifier = ">=0.3.46" },
     { name = "pillow", specifier = ">=12.1.1" },
     { name = "portalocker", specifier = ">=2.10.1" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyjianyingdraft", specifier = ">=0.2.6" },
     { name = "pyjwt", specifier = ">=2.12.1" },
-    { name = "pymupdf", specifier = ">=1.27.2.2" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "pyyaml", specifier = ">=6.0.3" },
@@ -1702,6 +1702,22 @@ wheels = [
 ]
 
 [[package]]
+name = "pdf-oxide"
+version = "0.3.46"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4b/2e/0d1604e1e93296ae4fa9cd6104d7584e7fb9827ca07a4fea25df9f68d2a7/pdf_oxide-0.3.46.tar.gz", hash = "sha256:cba0259f1a8e9a35b565cb795c1213f34c0f56fa52e9309f93e84820f46f9302", size = 2391037, upload-time = "2026-05-11T05:07:41.006Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/23/7b8ea17f1f145335ac068553b28f1adfb22c3f57f591456e891f9cb14aa6/pdf_oxide-0.3.46-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:4677647a62670cdae0bb65f11d94a2d2a0141db4cc895527862a5911ddebbab8", size = 7919399, upload-time = "2026-05-11T05:07:26.308Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/e2/c2ee1384b995728a96b940b7a474368e6cee70bb7e15ff06e0df53a16d22/pdf_oxide-0.3.46-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:3d1a268e83e63c38fd88fa6b8e34e80ba35d7e33e21c5b51e306a4de3e53b81b", size = 7419951, upload-time = "2026-05-11T05:07:28.212Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/f9/357fc2ba7503d3a9c2abb6c66b950d921cc2cf2dc13251dfa526d1ff9240/pdf_oxide-0.3.46-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:1e72ccb39b642a1e3fbd6c01bf1bbe8ead5e6dccbebe5f661e6c5d21be93207c", size = 7729428, upload-time = "2026-05-11T05:07:29.787Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/27/53cd558ac4df65e47392ca3fa2cd7bd5aa8949bc8ce563442864ca0d570e/pdf_oxide-0.3.46-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:370e37fd7786521db0805ddb8793fe29fe39a44e87d21b67cf7b3629a57b40fc", size = 8204398, upload-time = "2026-05-11T05:07:31.475Z" },
+    { url = "https://files.pythonhosted.org/packages/40/2c/5845efae8617f137ad070b67a5c7936ae4541963852011a80523b9f2528d/pdf_oxide-0.3.46-cp38-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:14b7c06470e91774a6abcda0dcb666cc039c6ea8b8a5d9d6aa5aa8a1fec66a89", size = 7913833, upload-time = "2026-05-11T05:07:33.346Z" },
+    { url = "https://files.pythonhosted.org/packages/da/b8/94f1fb884baaae732d6216819c0fab7d32719930cab6e2bfaf40f276409a/pdf_oxide-0.3.46-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:5c00ccd577ae899cabe5795a2a7aa2fdc07ea50b75d178ba53b42ab6933d8593", size = 8452590, upload-time = "2026-05-11T05:07:35.692Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/da/421c4d175e7b95d0b9c6282a6cb239b89a819e24f9246804f64f23723945/pdf_oxide-0.3.46-cp38-abi3-win_amd64.whl", hash = "sha256:66e6e6bf5e9ff2ee69d5b03742e2abec4ef9afcda1f8aa250097ecd5478c871c", size = 8210000, upload-time = "2026-05-11T05:07:37.692Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/10/6c3beb8b817d4725883c7df94cd640c3ecd577ef291993893863555f2a47/pdf_oxide-0.3.46-cp38-abi3-win_arm64.whl", hash = "sha256:1dc28dc066d565ec406ab0519f9f7af511791e4b604b73f9bed86f683b84f4c5", size = 7633374, upload-time = "2026-05-11T05:07:39.287Z" },
+]
+
+[[package]]
 name = "pillow"
 version = "12.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2111,22 +2127,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/02/10/a9bc1446a48d3a15940eb1af79a71978f368f27e2cc86f9ec3ec2d206a20/pymediainfo-7.0.1-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:cde98112f1ce486589b17a12e5da42085faea996224f7c67fa45b8c1dca719c6", size = 6001553, upload-time = "2025-02-12T14:33:12.663Z" },
     { url = "https://files.pythonhosted.org/packages/ed/7f/c48f8514cb60c9ff9be81b6f383e73e66c7461ef854a1b62628e3c823f13/pymediainfo-7.0.1-py3-none-win32.whl", hash = "sha256:01bcaf82b72cefbf4b96f13b2547e1b2e0e734bab7173d7c33f7f01acc07c98b", size = 3125046, upload-time = "2025-02-12T15:04:39.89Z" },
     { url = "https://files.pythonhosted.org/packages/e7/26/9d50c2a330541bc36c0ea7ce29eeff5b0c35c2624139660df8bcfa9ae3ce/pymediainfo-7.0.1-py3-none-win_amd64.whl", hash = "sha256:13224fa7590e198763b8baf072e704ea81d334e71aa32a469091460e243893c7", size = 3271232, upload-time = "2025-02-12T15:07:13.672Z" },
-]
-
-[[package]]
-name = "pymupdf"
-version = "1.27.2.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f1/32/f6b645c51d79a188a4844140c5dabca7b487ad56c4be69c4bc782d0d11a9/pymupdf-1.27.2.2.tar.gz", hash = "sha256:ea8fdc3ab6671ca98f629d5ec3032d662c8cf1796b146996b7ad306ac7ed3335", size = 85354380, upload-time = "2026-03-20T09:47:58.386Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/90/88/d01992a50165e22dec057a1129826846c547feb4ba07f42720ac030ce438/pymupdf-1.27.2.2-cp310-abi3-macosx_10_9_x86_64.whl", hash = "sha256:800f43e60a6f01f644343c2213b8613db02eaf4f4ba235b417b3351fa99e01c0", size = 23987563, upload-time = "2026-03-19T12:35:42.989Z" },
-    { url = "https://files.pythonhosted.org/packages/6d/0e/9f526bc1d49d8082eff0d1547a69d541a0c5a052e71da625559efaba46a6/pymupdf-1.27.2.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:8e2e4299ef1ac0c9dff9be096cbd22783699673abecfa7c3f73173ae06421d73", size = 23263089, upload-time = "2026-03-20T09:44:16.982Z" },
-    { url = "https://files.pythonhosted.org/packages/42/be/984f0d6343935b5dd30afaed6be04fc753146bf55709e63ef28bf9ef7497/pymupdf-1.27.2.2-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:c5e3d54922db1c7da844f1208ac1db05704770988752311f81dd36694ae0a07b", size = 24318817, upload-time = "2026-03-20T09:44:33.209Z" },
-    { url = "https://files.pythonhosted.org/packages/22/8e/85e9d9f11dbf34036eb1df283805ef6b885f2005a56d6533bb58ab0b8a11/pymupdf-1.27.2.2-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:892698c9768457eb0991c102c96a856c0a7062539371df5e6bee0816f3ef498e", size = 24948135, upload-time = "2026-03-20T09:44:51.012Z" },
-    { url = "https://files.pythonhosted.org/packages/db/e6/386edb017e5b93f1ab0bf6653ae32f3dd8dfc834ed770212e10ca62f4af9/pymupdf-1.27.2.2-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:8b4bbfa6ef347fade678771a93f6364971c51a2cdc44cd2400dc4eeed1ddb4e6", size = 25169585, upload-time = "2026-03-20T09:45:05.393Z" },
-    { url = "https://files.pythonhosted.org/packages/ba/fd/f1ebe24fcd31aaea8b85b3a7ac4c3fc96e20388be5466ace27c9a3c546d9/pymupdf-1.27.2.2-cp310-abi3-win32.whl", hash = "sha256:0b8e924433b7e0bd46be820899300259235997d5a747638471fb2762baa8ee30", size = 18008861, upload-time = "2026-03-20T09:45:21.353Z" },
-    { url = "https://files.pythonhosted.org/packages/a8/b6/2a9a8556000199bbf80a5915dcd15d550d1e5288894316445c54726aaf53/pymupdf-1.27.2.2-cp310-abi3-win_amd64.whl", hash = "sha256:09bb53f9486ccb5297030cbc2dbdae845ba1c3c5126e96eb2d16c4f118de0b5b", size = 19238032, upload-time = "2026-03-20T09:45:37.941Z" },
-    { url = "https://files.pythonhosted.org/packages/c2/c6/e3e11c42f09b9c34ec332c0f37b817671b59ef4001895b854f0494092105/pymupdf-1.27.2.2-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:6cebfbbdfd219ebdebf4d8e3914624b2e3d3a844c43f4f76935822dd9b13cc12", size = 24985299, upload-time = "2026-03-20T09:45:53.26Z" },
 ]
 
 [[package]]

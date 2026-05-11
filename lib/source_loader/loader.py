@@ -14,7 +14,7 @@ from .errors import (
     FileSizeExceededError,
     UnsupportedFormatError,
 )
-from .pdf import PyMuPDFExtractor
+from .pdf import PdfOxideExtractor
 from .txt import TxtExtractor
 
 OnConflict = Literal["fail", "replace", "rename"]
@@ -26,7 +26,7 @@ _EXTRACTORS = {
     ".md": TxtExtractor,
     ".docx": DocxExtractor,
     ".epub": EpubExtractor,
-    ".pdf": PyMuPDFExtractor,
+    ".pdf": PdfOxideExtractor,
 }
 
 
