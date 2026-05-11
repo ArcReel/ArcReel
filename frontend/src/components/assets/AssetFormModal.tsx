@@ -1,9 +1,11 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useId, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ImagePlus, Landmark, Package, User, X } from "lucide-react";
+import { AlertTriangle, ImagePlus, Landmark, Package, User } from "lucide-react";
 import type { Asset, AssetType } from "@/types/asset";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
-import { useEscapeClose } from "@/hooks/useEscapeClose";
+import { GlassModal } from "@/components/ui/GlassModal";
+import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import { PrimaryButton } from "@/components/ui/PrimaryButton";
+import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { sanitizeImageSrc } from "@/utils/safe-url";
 import { WARM_TONE } from "@/utils/severity-tone";
 
@@ -31,9 +33,6 @@ const TYPE_ICON: Record<AssetType, React.ComponentType<{ className?: string }>> 
   prop: Package,
 };
 
-const PANEL_BG =
-  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
-
 export function AssetFormModal({
   type, mode, initialData, previewImageUrl, conflictWith, onClose, onSubmit,
 }: Props) {
@@ -46,14 +45,11 @@ export function AssetFormModal({
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(dialogRef);
+  const titleId = useId();
 
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
-
-  useEscapeClose(onClose);
 
   useEffect(() => {
     if (!image) {
@@ -87,43 +83,13 @@ export function AssetFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <button
-        type="button"
-        aria-label={t("close")}
-        onClick={onClose}
-        className="absolute inset-0"
-        style={{
-          background: "oklch(0 0 0 / 0.65)",
-          backdropFilter: "blur(2px)",
-          WebkitBackdropFilter: "blur(2px)",
-        }}
-      />
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="relative w-[580px] max-w-[96vw] overflow-hidden rounded-2xl"
-        style={{
-          background: PANEL_BG,
-          border: "1px solid var(--color-hairline)",
-          backdropFilter: "blur(14px)",
-          WebkitBackdropFilter: "blur(14px)",
-          boxShadow:
-            "0 24px 60px -12px oklch(0 0 0 / 0.6), inset 0 1px 0 oklch(1 0 0 / 0.05)",
-        }}
-      >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
-          }}
-        />
-
-        {/* Header */}
+    <GlassModal
+      open
+      onClose={onClose}
+      labelledBy={titleId}
+      widthClassName="w-[580px] max-w-[96vw]"
+    >
+      {/* Header */}
         <div
           className="flex items-start gap-3 px-6 py-5"
           style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
@@ -143,6 +109,7 @@ export function AssetFormModal({
           </span>
           <div className="min-w-0 flex-1">
             <h3
+              id={titleId}
               className="display-serif truncate text-[15px] font-semibold tracking-tight"
               style={{ color: "var(--color-text)" }}
             >
@@ -158,23 +125,7 @@ export function AssetFormModal({
               {mode === "import" ? t("library_subtitle") : typeLabel}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("close")}
-            className="focus-ring grid h-7 w-7 place-items-center rounded-md transition-colors"
-            style={{ color: "var(--color-text-3)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--color-text)";
-              e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--color-text-3)";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         {/* Conflict warning */}
@@ -333,66 +284,29 @@ export function AssetFormModal({
             background: "oklch(0.17 0.010 250 / 0.5)",
           }}
         >
-          <button
-            type="button"
-            onClick={onClose}
-            className="focus-ring rounded-md px-3.5 py-1.5 text-[12.5px] transition-colors"
-            style={{
-              color: "var(--color-text-3)",
-              border: "1px solid var(--color-hairline)",
-              background: "oklch(0.22 0.011 265 / 0.5)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--color-text)";
-              e.currentTarget.style.background = "oklch(0.26 0.013 265 / 0.7)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--color-text-3)";
-              e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
-            }}
-          >
+          <SecondaryButton size="sm" onClick={onClose}>
             {t("cancel")}
-          </button>
+          </SecondaryButton>
           {mode === "import" && conflictWith && (
-            <button
-              type="button"
+            <PrimaryButton
+              size="sm"
+              tone="warm"
               onClick={() => void submit(true)}
               disabled={submitting}
-              className="focus-ring rounded-md px-3.5 py-1.5 text-[12.5px] transition-colors disabled:opacity-50"
-              style={{
-                color: WARM_TONE.color,
-                border: `1px solid ${WARM_TONE.ring}`,
-                background: WARM_TONE.soft,
-              }}
             >
               {t("overwrite_existing")}
-            </button>
+            </PrimaryButton>
           )}
-          <button
-            type="button"
+          <PrimaryButton
+            size="sm"
+            className="ml-auto"
             onClick={() => void submit(false)}
             disabled={submitting || !name.trim()}
-            className="focus-ring ml-auto rounded-md px-4 py-1.5 text-[12.5px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              color: "oklch(0.14 0 0)",
-              background:
-                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-              boxShadow:
-                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
-            }}
-            onMouseEnter={(e) => {
-              if (!e.currentTarget.disabled)
-                e.currentTarget.style.transform = "translateY(-1px)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-            }}
           >
             {primaryLabel}
-          </button>
+          </PrimaryButton>
         </div>
-      </div>
-    </div>
+    </GlassModal>
   );
 }
 

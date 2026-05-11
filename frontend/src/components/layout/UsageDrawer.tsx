@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  X,
   Image,
   Video,
   FileText,
@@ -12,7 +11,8 @@ import {
 } from "lucide-react";
 import { useUsageStore, type UsageStats, type UsageCall } from "@/stores/usage-store";
 import { API } from "@/api";
-import { Popover } from "@/components/ui/Popover";
+import { GlassPopover } from "@/components/ui/GlassPopover";
+import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import type { CallType } from "@/types/provider";
 
 // ---------------------------------------------------------------------------
@@ -25,9 +25,6 @@ interface UsageDrawerProps {
   projectName?: string | null;
   anchorRef: RefObject<HTMLElement | null>;
 }
-
-const PANEL_BG =
-  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
 
 const TYPE_TONE: Record<CallType, { color: string; label: string }> = {
   video: { color: "oklch(0.78 0.13 305)", label: "video_type_label" },
@@ -98,35 +95,17 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
   const costSummary = costParts.length > 0 ? costParts : ["$0.00"];
 
   return (
-    <Popover
+    <GlassPopover
       open={open}
       onClose={onClose}
       anchorRef={anchorRef}
       width="w-[26rem]"
-      backgroundColor="transparent"
-      className="overflow-hidden rounded-xl"
-      style={{
-        background: PANEL_BG,
-        border: "1px solid var(--color-hairline)",
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
-        boxShadow:
-          "0 24px 60px -12px oklch(0 0 0 / 0.55), inset 0 1px 0 oklch(1 0 0 / 0.05)",
-      }}
     >
       {/* Header */}
       <div
         className="relative flex items-center gap-2 px-4 py-3"
         style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
       >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
-          }}
-        />
         <span
           aria-hidden
           className="grid h-7 w-7 place-items-center rounded-lg"
@@ -158,22 +137,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           </div>
         </div>
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={onClose}
-          className="focus-ring grid h-7 w-7 place-items-center rounded-md transition-colors"
-          style={{ color: "var(--color-text-3)" }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--color-text)";
-            e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--color-text-3)";
-            e.currentTarget.style.background = "transparent";
-          }}
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <ModalCloseButton onClick={onClose} />
       </div>
 
       {/* Stats summary */}
@@ -407,7 +371,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           </div>
         </div>
       )}
-    </Popover>
+    </GlassPopover>
   );
 }
 

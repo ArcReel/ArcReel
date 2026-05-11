@@ -1,8 +1,10 @@
-import { useId, useRef, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { useEscapeClose } from "@/hooks/useEscapeClose";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { GlassModal } from "./GlassModal";
+import { PrimaryButton } from "./PrimaryButton";
+import { SecondaryButton } from "./SecondaryButton";
+import { WARM_TONE } from "@/utils/severity-tone";
 
 export type ConfirmTone = "default" | "danger";
 
@@ -19,15 +21,9 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-const CANCEL_BTN_CLS =
-  "rounded-lg border border-hairline px-4 py-2 text-sm text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60";
-
-const ACCENT_CONFIRM_CLS =
-  "inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[oklch(0.14_0_0)] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-6px_var(--color-accent)] transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60";
-
-const WARM_CONFIRM_CLS =
-  "inline-flex items-center gap-1.5 rounded-lg border border-warm-ring bg-warm-tint px-4 py-2 text-sm font-medium text-warm-bright transition-colors hover:border-warm-bright/60 hover:bg-warm-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring disabled:cursor-not-allowed disabled:opacity-60";
-
+// 通用确认弹窗（站内 yes/no 类破坏性确认的入口）。
+// tone="danger" 时顶部 hairline 走 warm、确认按钮走 warm tone；并显示左上角告警 icon。
+// 视觉与其他 v3 玻璃 modal 统一（issue #487）。
 export function ConfirmDialog({
   open,
   title,
@@ -41,69 +37,83 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const { t } = useTranslation("common");
-  const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descId = useId();
-  useEscapeClose(onCancel, open && !loading);
-  useFocusTrap(dialogRef, open);
-
-  if (!open) return null;
 
   const isDanger = tone === "danger";
-  const confirmCls = isDanger ? WARM_CONFIRM_CLS : ACCENT_CONFIRM_CLS;
   const resolvedCancelLabel = cancelLabel ?? t("cancel");
   const resolvedLoadingLabel = loadingLabel ?? confirmLabel;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description ? descId : undefined}
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-hairline bg-bg-grad-a p-6 shadow-2xl"
-      >
-        <div className="flex items-start gap-4">
+    <GlassModal
+      open={open}
+      onClose={loading ? () => {} : onCancel}
+      labelledBy={titleId}
+      describedBy={description ? descId : undefined}
+      hairlineTone={isDanger ? "warm" : "accent"}
+      closeOnBackdrop={!loading}
+      closeOnEscape={!loading}
+    >
+      <div className="px-6 pb-6 pt-5">
+        <div className="flex items-start gap-3">
           {isDanger && (
-            <div
+            <span
               aria-hidden
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warm-tint text-warm-bright"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
+              style={{
+                background:
+                  "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
+                border: `1px solid ${WARM_TONE.ring}`,
+                color: WARM_TONE.color,
+                boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
+              }}
             >
-              <AlertTriangle className="h-6 w-6" />
-            </div>
+              <AlertTriangle className="h-4 w-4" />
+            </span>
           )}
-          <div className="space-y-2">
-            <h2 id={titleId} className="text-lg font-semibold text-text">
+          <div className="min-w-0 flex-1">
+            <h2
+              id={titleId}
+              className="display-serif text-[17px] font-semibold tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
               {title}
             </h2>
             {description && (
-              <div id={descId} className="text-sm leading-6 text-text-3">
+              <div
+                id={descId}
+                className="mt-1 text-[12.5px] leading-relaxed"
+                style={{ color: "var(--color-text-3)" }}
+              >
                 {description}
               </div>
             )}
           </div>
         </div>
-        <div className="mt-5 flex justify-end gap-3">
-          <button
-            type="button"
+
+        <div className="mt-5 flex justify-end gap-2">
+          <SecondaryButton
+            size="sm"
             onClick={onCancel}
             disabled={loading}
-            className={CANCEL_BTN_CLS}
           >
             {resolvedCancelLabel}
-          </button>
-          <button
-            type="button"
+          </SecondaryButton>
+          <PrimaryButton
+            size="sm"
+            tone={isDanger ? "warm" : "accent"}
             onClick={() => void onConfirm()}
             disabled={loading}
-            className={confirmCls}
+            leadingIcon={
+              loading ? (
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
+              ) : undefined
+            }
           >
-            {loading && <Loader2 className="h-4 w-4 motion-safe:animate-spin" />}
             {loading ? resolvedLoadingLabel : confirmLabel}
-          </button>
+          </PrimaryButton>
         </div>
       </div>
-    </div>
+    </GlassModal>
   );
 }

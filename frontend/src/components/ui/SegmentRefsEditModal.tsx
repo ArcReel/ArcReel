@@ -1,5 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import {
   Check,
   ExternalLink,
@@ -8,12 +7,13 @@ import {
   Puzzle,
   Search,
   User,
-  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { useEscapeClose } from "@/hooks/useEscapeClose";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { GlassModal } from "@/components/ui/GlassModal";
+import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import { PrimaryButton } from "@/components/ui/PrimaryButton";
+import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Character, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
@@ -49,9 +49,6 @@ interface SegmentRefsEditModalProps {
   projectName: string;
   onManageClick?: (kind: AssetKind) => void;
 }
-
-const PANEL_BG =
-  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
 
 function arraysEqualUnordered(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -98,14 +95,11 @@ export function SegmentRefsEditModal({
   onManageClick,
 }: SegmentRefsEditModalProps) {
   const { t } = useTranslation("dashboard");
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const [query, setQuery] = useState("");
   const [tempChars, setTempChars] = useState<string[]>(initialCharacters);
   const [tempScenes, setTempScenes] = useState<string[]>(initialScenes);
   const [tempProps, setTempProps] = useState<string[]>(initialProps);
-
-  useFocusTrap(dialogRef, open);
-  useEscapeClose(onClose, open);
 
   const tempCharsSet = new Set(tempChars);
   const tempScenesSet = new Set(tempScenes);
@@ -159,44 +153,14 @@ export function SegmentRefsEditModal({
     onSave(changes);
   };
 
-  if (!open) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        aria-hidden="true"
-        onClick={onClose}
-        className="absolute inset-0"
-        style={{
-          background: "oklch(0 0 0 / 0.65)",
-          backdropFilter: "blur(2px)",
-          WebkitBackdropFilter: "blur(2px)",
-        }}
-      />
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("segment_refs_edit_title")}
-        className="relative flex max-h-[80vh] w-[680px] max-w-[96vw] flex-col overflow-hidden rounded-2xl"
-        style={{
-          background: PANEL_BG,
-          border: "1px solid var(--color-hairline)",
-          backdropFilter: "blur(14px)",
-          WebkitBackdropFilter: "blur(14px)",
-          boxShadow:
-            "0 24px 60px -12px oklch(0 0 0 / 0.6), inset 0 1px 0 oklch(1 0 0 / 0.05)",
-        }}
-      >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
-          }}
-        />
-
+  return (
+    <GlassModal
+      open={open}
+      onClose={onClose}
+      labelledBy={titleId}
+      widthClassName="w-[680px] max-w-[96vw]"
+      panelClassName="flex max-h-[80vh] flex-col"
+    >
         {/* Header */}
         <div
           className="flex items-center gap-3 px-5 py-4"
@@ -217,6 +181,7 @@ export function SegmentRefsEditModal({
           </span>
           <div className="min-w-0 flex-1">
             <h3
+              id={titleId}
               className="display-serif truncate text-[15px] font-semibold tracking-tight"
               style={{ color: "var(--color-text)" }}
             >
@@ -258,23 +223,7 @@ export function SegmentRefsEditModal({
             />
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("segment_refs_close")}
-            className="focus-ring grid h-7 w-7 place-items-center rounded-md transition-colors"
-            style={{ color: "var(--color-text-3)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--color-text)";
-              e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--color-text-3)";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <ModalCloseButton onClick={onClose} ariaLabel={t("segment_refs_close")} />
         </div>
 
         {/* Body */}
@@ -345,52 +294,18 @@ export function SegmentRefsEditModal({
               ? t("segment_refs_changes_pending")
               : t("segment_refs_no_changes")}
           </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="focus-ring rounded-md px-3 py-1.5 text-[12px] transition-colors"
-            style={{
-              color: "var(--color-text-3)",
-              border: "1px solid var(--color-hairline)",
-              background: "oklch(0.22 0.011 265 / 0.5)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--color-text)";
-              e.currentTarget.style.background = "oklch(0.26 0.013 265 / 0.7)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--color-text-3)";
-              e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
-            }}
-          >
+          <SecondaryButton size="sm" onClick={onClose}>
             {t("segment_refs_cancel")}
-          </button>
-          <button
-            type="button"
+          </SecondaryButton>
+          <PrimaryButton
+            size="sm"
             disabled={!hasChanges}
             onClick={handleSave}
-            className="focus-ring rounded-md px-3.5 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-40"
-            style={{
-              color: "oklch(0.14 0 0)",
-              background:
-                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-              boxShadow:
-                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
-            }}
-            onMouseEnter={(e) => {
-              if (!e.currentTarget.disabled)
-                e.currentTarget.style.transform = "translateY(-1px)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-            }}
           >
             {t("segment_refs_save")}
-          </button>
+          </PrimaryButton>
         </div>
-      </div>
-    </div>,
-    document.body,
+    </GlassModal>
   );
 }
 

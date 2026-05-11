@@ -7,10 +7,10 @@ import {
   CircleAlert,
   Info,
   Sparkles,
-  X,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
-import { Popover } from "@/components/ui/Popover";
+import { GlassPopover } from "@/components/ui/GlassPopover";
+import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import type { WorkspaceNotification } from "@/types";
 
 interface WorkspaceNotificationsDrawerProps {
@@ -19,9 +19,6 @@ interface WorkspaceNotificationsDrawerProps {
   anchorRef: RefObject<HTMLElement | null>;
   onNavigate: (notification: WorkspaceNotification) => void;
 }
-
-const PANEL_BG =
-  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
 
 const TONE_TOKENS: Record<
   WorkspaceNotification["tone"],
@@ -70,36 +67,18 @@ export function WorkspaceNotificationsDrawer({
   const unreadCount = workspaceNotifications.filter((item) => !item.read).length;
 
   return (
-    <Popover
+    <GlassPopover
       open={open}
       onClose={onClose}
       anchorRef={anchorRef}
       sideOffset={8}
       width="w-[24rem]"
-      backgroundColor="transparent"
-      className="overflow-hidden rounded-xl"
-      style={{
-        background: PANEL_BG,
-        border: "1px solid var(--color-hairline)",
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
-        boxShadow:
-          "0 24px 60px -12px oklch(0 0 0 / 0.55), inset 0 1px 0 oklch(1 0 0 / 0.05)",
-      }}
     >
       {/* Header */}
       <div
         className="relative flex items-center gap-2.5 px-4 py-3"
         style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
       >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
-          }}
-        />
         <span
           aria-hidden
           className="grid h-7 w-7 place-items-center rounded-lg"
@@ -139,23 +118,7 @@ export function WorkspaceNotificationsDrawer({
           </div>
         </div>
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={onClose}
-          className="focus-ring grid h-7 w-7 place-items-center rounded-md transition-colors"
-          style={{ color: "var(--color-text-3)" }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--color-text)";
-            e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--color-text-3)";
-            e.currentTarget.style.background = "transparent";
-          }}
-          aria-label={t("close_notification_panel")}
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <ModalCloseButton onClick={onClose} ariaLabel={t("close_notification_panel")} />
       </div>
 
       {/* Body */}
@@ -328,7 +291,7 @@ export function WorkspaceNotificationsDrawer({
           </span>
         </div>
       )}
-    </Popover>
+    </GlassPopover>
   );
 }
 

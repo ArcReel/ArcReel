@@ -108,16 +108,7 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
         id={MENU_ID}
         role="listbox"
         aria-label="技能命令菜单"
-        className="absolute bottom-full left-0 right-0 mb-1 max-h-52 overflow-y-auto rounded-lg py-1"
-        style={{
-          border: "1px solid var(--color-hairline)",
-          background:
-            "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))",
-          boxShadow:
-            "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline-soft)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-        }}
+        className="arc-glass-panel absolute bottom-full left-0 right-0 mb-1 max-h-52 overflow-y-auto rounded-lg py-1"
       >
         {filtered.map((skill, i) => {
           const fallback = SKILL_META_FALLBACK[skill.name];

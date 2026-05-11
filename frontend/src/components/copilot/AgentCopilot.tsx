@@ -9,7 +9,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
 import type { AttachedImage } from "@/hooks/useAssistantSession";
-import { Popover } from "@/components/ui/Popover";
+import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -74,23 +74,14 @@ function SessionSelector({
       </button>
 
       {sessions.length > 0 && (
-        <Popover
+        <GlassPopover
           open={open}
           onClose={() => setOpen(false)}
           anchorRef={dropdownRef}
           sideOffset={4}
           width="w-64"
           layer="assistantLocalPopover"
-          className="overflow-hidden rounded-lg"
-          style={{
-            border: "1px solid var(--color-hairline)",
-            background:
-              "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))",
-            boxShadow:
-              "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline-soft)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-          }}
+          showHairline={false}
         >
           <div id={listboxId} role="menu" className="max-h-60 overflow-y-auto py-1">
             {sessions.map((session) => {
@@ -146,7 +137,7 @@ function SessionSelector({
               );
             })}
           </div>
-        </Popover>
+        </GlassPopover>
       )}
     </div>
   );
