@@ -131,8 +131,11 @@ export function AddCredentialModal({
         api_key: form.apiKey,
       });
       setModelOptions(res.models.map((m) => m.model_id));
+      const toast = useAppStore.getState().pushToast;
       if (res.models.length === 0) {
-        setDiscoverError(t("discover_no_models"));
+        toast(t("discover_no_models"), "warning");
+      } else {
+        toast(t("discover_models_success", { count: res.models.length }), "success");
       }
     } catch (err) {
       setDiscoverError(errMsg(err));
