@@ -1,5 +1,5 @@
 import { ExternalLink, Star, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -10,6 +10,7 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type {
   CreateAgentCredentialRequest,
   PresetProvider,
@@ -35,7 +36,8 @@ export function AddCredentialModal({
   onClose,
 }: Props) {
   const { t } = useTranslation("dashboard");
-  const [tab] = useState<"claude" | "unified">("claude"); // unified: coming soon
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, open);
   const [presetId, setPresetId] = useState<string>(
     initial?.preset_id ?? customSentinelId,
   );
@@ -107,12 +109,13 @@ export function AddCredentialModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       <button
         type="button"
-        aria-label="close"
+        aria-label="close-overlay"
         tabIndex={-1}
         onClick={onClose}
         className="absolute inset-0 cursor-default bg-black/50"
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="cred-modal-title"
@@ -136,13 +139,11 @@ export function AddCredentialModal({
           </button>
         </div>
 
-        {/* Tab */}
+        {/* Tab — unified 暂未上线，固定 claude 选中 */}
         <div className="mb-4 flex gap-1 rounded-[8px] border border-hairline p-1">
           <button
             type="button"
-            className={`flex-1 rounded-[6px] py-1.5 text-[12px] font-medium ${
-              tab === "claude" ? "bg-accent text-white" : "text-text-3"
-            }`}
+            className="flex-1 rounded-[6px] bg-accent py-1.5 text-[12px] font-medium text-white"
           >
             {t("claude_compat_providers")}
           </button>
@@ -237,8 +238,9 @@ export function AddCredentialModal({
             />
           </Field>
 
-          <Field label={t("default_model")}>
+          <Field label={t("default_model")} htmlFor="cred-model">
             <ModelCombobox
+              id="cred-model"
               value={model}
               onChange={setModel}
               options={selected?.suggested_models ?? []}
@@ -267,13 +269,15 @@ export function AddCredentialModal({
             onClick={() => void handleSubmit()}
             disabled={
               submitting ||
-              !apiKey ||
-              (presetId === customSentinelId && !baseUrl)
+              !apiKey.trim() ||
+              (presetId === customSentinelId && !baseUrl.trim())
             }
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >
-            {submitting ? t("common:loading") : t("common:add") || "Add"}
+            {submitting
+              ? t("common:loading")
+              : t("common:add", { defaultValue: "Add" })}
           </button>
         </div>
       </div>
