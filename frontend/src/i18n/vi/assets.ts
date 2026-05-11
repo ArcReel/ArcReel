@@ -23,6 +23,7 @@ export default {
   "close": "Đóng",
   "library_title": "Thư viện tài nguyên",
   "library_subtitle": "Nhân vật, cảnh và đạo cụ có thể tái sử dụng giữa các dự án",
+  "library_tabs_label": "Loại tài nguyên",
   "back_to_projects": "Quay lại danh sách dự án",
   "add_asset": "Thêm tài nguyên",
   "search_placeholder": "Tìm kiếm tài nguyên...",

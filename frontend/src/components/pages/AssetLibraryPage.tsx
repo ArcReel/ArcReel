@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
@@ -73,6 +73,39 @@ export function AssetLibraryPage() {
   }, [navigate]);
 
   const setActiveTab = useCallback((next: AssetType) => writeQuery({ tab: next }), [writeQuery]);
+
+  // WAI-ARIA tablist 键盘导航（issue #488）：roving tabindex + 方向键 + Home/End。
+  // 切换后用 requestAnimationFrame 把焦点搬到新激活 tab，避免与 React commit 抢时序。
+  const tabRefs = useRef<Map<AssetType, HTMLButtonElement>>(new Map());
+  const moveTabFocus = useCallback(
+    (next: AssetType) => {
+      setActiveTab(next);
+      requestAnimationFrame(() => {
+        tabRefs.current.get(next)?.focus();
+      });
+    },
+    [setActiveTab],
+  );
+  const handleTabKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>, current: AssetType) => {
+      const idx = TABS.findIndex((tab) => tab.type === current);
+      if (idx < 0) return;
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        moveTabFocus(TABS[(idx + 1) % TABS.length].type);
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveTabFocus(TABS[(idx - 1 + TABS.length) % TABS.length].type);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        moveTabFocus(TABS[0].type);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        moveTabFocus(TABS[TABS.length - 1].type);
+      }
+    },
+    [moveTabFocus],
+  );
 
   const urlQ = useMemo(() => new URLSearchParams(search).get("q") ?? "", [search]);
   const [q, setQ] = useState(urlQ);
@@ -205,7 +238,12 @@ export function AssetLibraryPage() {
           </div>
         </div>
 
-        <nav className="mx-auto flex max-w-6xl items-center gap-2 px-6 pb-3">
+        <div
+          role="tablist"
+          aria-orientation="horizontal"
+          aria-label={t("library_tabs_label")}
+          className="mx-auto flex max-w-6xl items-center gap-2 px-6 pb-3"
+        >
           {TABS.map(({ type, icon: Icon }) => {
             const active = activeTab === type;
             const count = byType[type].length;
@@ -215,9 +253,18 @@ export function AssetLibraryPage() {
             return (
               <button
                 key={type}
+                ref={(el) => {
+                  if (el) tabRefs.current.set(type, el);
+                  else tabRefs.current.delete(type);
+                }}
                 type="button"
+                role="tab"
+                id={`asset-tab-${type}`}
+                aria-selected={active}
+                aria-controls={`asset-panel-${type}`}
+                tabIndex={active ? 0 : -1}
                 onClick={() => setActiveTab(type)}
-                aria-pressed={active}
+                onKeyDown={(e) => handleTabKeyDown(e, type)}
                 className={`inline-flex items-center gap-2 rounded-[8px] border px-3.5 py-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${cls}`}
               >
                 <Icon className={`h-4 w-4 ${active ? "text-accent-2" : "text-text-4"}`} />
@@ -232,10 +279,17 @@ export function AssetLibraryPage() {
               </button>
             );
           })}
-        </nav>
+        </div>
       </header>
 
       <main className="relative mx-auto w-full max-w-6xl flex-1 px-6 py-8">
+        <div
+          role="tabpanel"
+          id={`asset-panel-${activeTab}`}
+          aria-labelledby={`asset-tab-${activeTab}`}
+          tabIndex={0}
+          className="focus:outline-none"
+        >
         {assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-dim text-accent-2">
@@ -260,6 +314,7 @@ export function AssetLibraryPage() {
             onDelete={handleDeleteAsset}
           />
         )}
+        </div>
       </main>
 
       {formModal && (

@@ -21,6 +21,7 @@ export default {
   "close": "Close",
   "library_title": "Asset Library",
   "library_subtitle": "Characters, scenes and props reusable across projects",
+  "library_tabs_label": "Asset type",
   "back_to_projects": "Back to projects",
   "add_asset": "New asset",
   "search_placeholder": "Search assets...",

@@ -23,6 +23,7 @@ export default {
   "close": "关闭",
   "library_title": "资产库",
   "library_subtitle": "跨项目复用的人物、场景与道具",
+  "library_tabs_label": "资产类型",
   "back_to_projects": "返回项目",
   "add_asset": "新增资产",
   "search_placeholder": "搜索资产...",
