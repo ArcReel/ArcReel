@@ -35,6 +35,7 @@ from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
 from server.routers import (
     agent_chat,
+    agent_config,
     api_keys,
     assets,
     assistant,
@@ -301,6 +302,7 @@ app.include_router(providers.router, prefix="/api/v1", tags=["供应商管理"])
 app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
 app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key 管理"])
 app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
+app.include_router(agent_config.router, prefix="/api/v1", tags=["Agent 配置"])
 app.include_router(custom_providers.router, prefix="/api/v1", tags=["自定义供应商"])
 app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算"])
 app.include_router(grids.router, prefix="/api/v1", tags=["宫格图"])
