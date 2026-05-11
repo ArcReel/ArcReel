@@ -61,6 +61,24 @@ describe("GlassModal", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  it("does not close when both closeOnBackdrop and closeOnEscape are disabled", () => {
+    const onClose = vi.fn();
+    render(
+      <GlassModal
+        open
+        onClose={onClose}
+        ariaLabel="x"
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+      >
+        <p>body</p>
+      </GlassModal>,
+    );
+    fireEvent.click(screen.getByTestId("modal-backdrop"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("respects widthClassName + appends panelClassName", () => {
     render(
       <GlassModal

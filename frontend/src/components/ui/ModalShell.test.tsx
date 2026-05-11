@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ModalShell } from "./ModalShell";
@@ -5,7 +6,7 @@ import { ModalShell } from "./ModalShell";
 describe("ModalShell", () => {
   it("renders nothing when open=false", () => {
     render(
-      <ModalShell open={false} onClose={() => {}}>
+      <ModalShell open={false} onClose={() => {}} ariaLabel="x">
         <p data-testid="body">hi</p>
       </ModalShell>,
     );
@@ -120,5 +121,53 @@ describe("ModalShell", () => {
       </ModalShell>,
     );
     expect(screen.getByTestId("inner-btn")).toBe(document.activeElement);
+  });
+
+  it("preserves caller-set initial focus inside dialog (child useEffect runs first)", () => {
+    // 模拟 AssetFormModal：子组件在更深的 useEffect 里把焦点放到表单首个输入框。
+    // ModalShell 的 useFocusTrap 不应再把焦点抢回第一个可聚焦的关闭按钮。
+    function Inner() {
+      const inputRef = useRef<HTMLInputElement>(null);
+      useEffect(() => {
+        inputRef.current?.focus();
+      }, []);
+      return (
+        <>
+          <button type="button">close-first</button>
+          <input ref={inputRef} data-testid="name-input" />
+        </>
+      );
+    }
+    render(
+      <ModalShell open onClose={() => {}} ariaLabel="x">
+        <Inner />
+      </ModalShell>,
+    );
+    expect(screen.getByTestId("name-input")).toBe(document.activeElement);
+  });
+
+  it("body overflow lock uses reference counting across stacked modals", () => {
+    expect(document.body.style.overflow).toBe("");
+
+    const { unmount: unmountA } = render(
+      <ModalShell open onClose={() => {}} ariaLabel="A">
+        <p>a</p>
+      </ModalShell>,
+    );
+    expect(document.body.style.overflow).toBe("hidden");
+
+    const { unmount: unmountB } = render(
+      <ModalShell open onClose={() => {}} ariaLabel="B">
+        <p>b</p>
+      </ModalShell>,
+    );
+    expect(document.body.style.overflow).toBe("hidden");
+
+    // 关闭先开的 A：仍有 B 打开，不能误把 body 还原成可滚动
+    unmountA();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmountB();
+    expect(document.body.style.overflow).toBe("");
   });
 });

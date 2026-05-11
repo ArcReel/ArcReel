@@ -14,15 +14,11 @@ import { useFocusTrap } from "@/hooks/useFocusTrap";
 // 可点 backdrop。视觉皮肤（玻璃 PANEL_BG / hairline / 圆角）由消费者在 children 容器里
 // 自己套上去（典型消费者：GlassModal）。
 
-interface ModalShellProps {
+interface ModalShellBaseProps {
   open: boolean;
   onClose: () => void;
-  /** dialog 标题节点 id，绑定 aria-labelledby */
-  labelledBy?: string;
   /** dialog 描述节点 id，绑定 aria-describedby */
   describedBy?: string;
-  /** dialog 无可视标题时的回退 aria-label */
-  ariaLabel?: string;
   /** 点击 backdrop 是否关闭，默认 true。设为 false 时仅 Esc 与显式 onClose 关闭。 */
   closeOnBackdrop?: boolean;
   /** 启用 Esc 关闭，默认 true。loading 态可以传 false 防误触。 */
@@ -36,41 +32,65 @@ interface ModalShellProps {
   children: ReactNode;
 }
 
+// 类型层强制提供 accessible name：必传 labelledBy（dialog 标题节点 id）或 ariaLabel
+// 二选一，避免遗漏导致渲染出无名 role="dialog"。
+type ModalShellA11yProps =
+  | { labelledBy: string; ariaLabel?: never }
+  | { labelledBy?: never; ariaLabel: string };
+
+export type ModalShellProps = ModalShellBaseProps & ModalShellA11yProps;
+
 const DEFAULT_BACKDROP_STYLE: CSSProperties = {
   background: "oklch(0 0 0 / 0.65)",
   backdropFilter: "blur(2px)",
   WebkitBackdropFilter: "blur(2px)",
 };
 
-export function ModalShell({
-  open,
-  onClose,
-  labelledBy,
-  describedBy,
-  ariaLabel,
-  closeOnBackdrop = true,
-  closeOnEscape = true,
-  className,
-  style,
-  backdropStyle,
-  children,
-}: ModalShellProps) {
+// 模块级 body overflow 引用计数：避免叠加弹窗时先关掉的实例
+// 把 body.overflow 还原成可滚动，而仍打开的实例下背景却能滚。
+let bodyLockCount = 0;
+let bodyOverflowBeforeLock: string | null = null;
+
+function acquireBodyLock() {
+  if (bodyLockCount === 0) {
+    bodyOverflowBeforeLock = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  bodyLockCount += 1;
+}
+
+function releaseBodyLock() {
+  bodyLockCount = Math.max(0, bodyLockCount - 1);
+  if (bodyLockCount === 0) {
+    document.body.style.overflow = bodyOverflowBeforeLock ?? "";
+    bodyOverflowBeforeLock = null;
+  }
+}
+
+export function ModalShell(props: ModalShellProps) {
+  const {
+    open,
+    onClose,
+    describedBy,
+    closeOnBackdrop = true,
+    closeOnEscape = true,
+    className,
+    style,
+    backdropStyle,
+    children,
+  } = props;
+  // discriminated union 下不能同时解构两者，分开读
+  const labelledBy = "labelledBy" in props ? props.labelledBy : undefined;
+  const ariaLabel = "ariaLabel" in props ? props.ariaLabel : undefined;
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEscapeClose(onClose, open && closeOnEscape);
-  useFocusTrap(
-    dialogRef as RefObject<HTMLElement | null>,
-    open,
-  );
+  useFocusTrap(dialogRef as RefObject<HTMLElement | null>, open);
 
-  // 锁 body 滚动：modal 打开时禁止背景滚动（多数 v3 modal 之前没做这件事，体验略糙）
   useEffect(() => {
     if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
+    acquireBodyLock();
+    return releaseBodyLock;
   }, [open]);
 
   if (!open) return null;
