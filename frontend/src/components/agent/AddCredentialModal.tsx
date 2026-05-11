@@ -103,7 +103,8 @@ export function AddCredentialModal({
 
   // 父组件复用 modal 时只切换 open/initial，本地一次性诊断状态不会自动清。
   // 重开（或切换到另一条凭证）时把模型列表、错误、测试结果全部归零，
-  // 否则上一条凭证的"连接成功"面板会串到新表单。
+  // 并按新 initial 重算 advancedOpen，否则上一条凭证的"连接成功"面板会串到
+  // 新表单，且折叠状态也会泄漏。
   useEffect(() => {
     if (!open) return;
     setModelOptions([]);
@@ -111,7 +112,13 @@ export function AddCredentialModal({
     setSubmitError(null);
     setTestResult(null);
     setTestedBaseUrl(null);
-  }, [open, initial]);
+    setAdvancedOpen(
+      mode === "edit" &&
+        Boolean(
+          initial?.haiku_model || initial?.sonnet_model || initial?.opus_model || initial?.subagent_model,
+        ),
+    );
+  }, [open, initial, mode]);
 
   const selected: PresetProvider | null = useMemo(() => {
     if (form.presetId === customSentinelId) return null;
@@ -122,10 +129,19 @@ export function AddCredentialModal({
 
   if (!open) return null;
 
+  // 草稿任意可影响连通性的字段（preset / base_url / api_key / model）变化后，
+  // 旧 testResult 已经不对应当前草稿了，必须失效，避免用户把未重新验证的配置
+  // 当成已通过验证。
+  const invalidateDraftTest = () => {
+    setTestResult(null);
+    setTestedBaseUrl(null);
+  };
+
   const handlePresetClick = (id: string) => {
     form.setPreset(id);
     setModelOptions([]);
     setDiscoverError(null);
+    invalidateDraftTest();
   };
 
   const handleDiscover = async () => {
@@ -178,6 +194,7 @@ export function AddCredentialModal({
       }
       setModelOptions([]);
       setDiscoverError(null);
+      invalidateDraftTest();
       useAppStore
         .getState()
         .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
@@ -361,7 +378,10 @@ export function AddCredentialModal({
               autoComplete="off"
               spellCheck={false}
               value={form.baseUrl}
-              onChange={(e) => form.setBaseUrl(e.target.value)}
+              onChange={(e) => {
+                form.setBaseUrl(e.target.value);
+                invalidateDraftTest();
+              }}
               placeholder="https://api.example.com/anthropic"
               className={INPUT_CLS}
             />
@@ -388,7 +408,10 @@ export function AddCredentialModal({
               id="cred-key"
               type="password"
               value={form.apiKey}
-              onChange={(e) => form.setApiKey(e.target.value)}
+              onChange={(e) => {
+                form.setApiKey(e.target.value);
+                invalidateDraftTest();
+              }}
               autoComplete="off"
               spellCheck={false}
               placeholder={mode === "edit" ? t("api_key_unchanged_hint") : undefined}
@@ -418,7 +441,10 @@ export function AddCredentialModal({
             <ModelCombobox
               id="cred-model"
               value={form.model}
-              onChange={form.setModel}
+              onChange={(v) => {
+                form.setModel(v);
+                invalidateDraftTest();
+              }}
               options={modelOptions}
               placeholder={selected?.default_model || ""}
               clearable

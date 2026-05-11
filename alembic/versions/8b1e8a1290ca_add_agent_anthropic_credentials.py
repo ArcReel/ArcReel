@@ -107,12 +107,15 @@ def upgrade() -> None:
             )
         savepoint.commit()
     except Exception as exc:  # noqa: BLE001
-        # 数据迁移失败不阻塞 schema 升级；用户可在 UI 里手动建
+        # 数据迁移失败不阻塞 schema 升级；用户可在 UI 里手动建。
+        # 只打异常类名——SQLAlchemy 异常 str() 会把 SQL 绑定参数（含 api_key）
+        # 拼进消息，落进日志/stderr 就是密钥泄漏。
         savepoint.rollback()
         import logging
         import sys
 
-        msg = f"agent_anthropic_credentials data migration skipped: {exc}"
+        reason = exc.__class__.__name__
+        msg = f"agent_anthropic_credentials data migration skipped ({reason})"
         logging.getLogger(__name__).warning(msg)
         print(f"[alembic] WARNING: {msg}", file=sys.stderr)
 
