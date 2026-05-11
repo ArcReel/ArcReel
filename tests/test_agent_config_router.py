@@ -206,3 +206,69 @@ async def test_activate_credential_switches(authed_client, monkeypatch) -> None:
 async def test_activate_unknown_id(authed_client) -> None:
     resp = await authed_client.post("/api/v1/agent/credentials/99999/activate")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_test_connection_draft_calls_run_test(authed_client, monkeypatch) -> None:
+    """POST /agent/test-connection 调 run_test 并把结果序列化为 JSON。"""
+    from unittest.mock import AsyncMock
+
+    from lib.config import anthropic_probe as probe_mod
+
+    expected = probe_mod.TestConnectionResponse(
+        overall="ok",
+        messages_probe=probe_mod.ProbeResult(success=True, status_code=200, latency_ms=10, error=None),
+        discovery_probe=probe_mod.ProbeResult(success=True, status_code=200, latency_ms=8, error=None),
+        diagnosis=None,
+        suggestion=None,
+        derived_messages_root="https://api.deepseek.com/anthropic",
+        derived_discovery_root="https://api.deepseek.com",
+    )
+    fake = AsyncMock(return_value=expected)
+    monkeypatch.setattr("server.routers.agent_config.run_test", fake)
+
+    resp = await authed_client.post(
+        "/api/v1/agent/test-connection",
+        json={"preset_id": "deepseek", "api_key": "sk", "model": None, "base_url": None},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["overall"] == "ok"
+    assert body["messages_probe"]["success"] is True
+    assert body["derived_messages_root"] == "https://api.deepseek.com/anthropic"
+    fake.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_test_credential_uses_stored(authed_client, monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from lib.config import anthropic_probe as probe_mod
+
+    expected = probe_mod.TestConnectionResponse(
+        overall="fail",
+        messages_probe=probe_mod.ProbeResult(success=False, status_code=401, latency_ms=12, error="bad"),
+        discovery_probe=None,
+        diagnosis=probe_mod.DiagnosisCode.AUTH_FAILED,
+        suggestion=None,
+        derived_messages_root="https://api.deepseek.com/anthropic",
+        derived_discovery_root="https://api.deepseek.com",
+    )
+    fake = AsyncMock(return_value=expected)
+    monkeypatch.setattr("server.routers.agent_config.run_test", fake)
+
+    cred = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk-stored"},
+        )
+    ).json()
+    resp = await authed_client.post(f"/api/v1/agent/credentials/{cred['id']}/test")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["overall"] == "fail"
+    assert body["diagnosis"] == "auth_failed"
+    fake.assert_awaited_once()
+    kwargs = fake.await_args.kwargs
+    assert kwargs["api_key"] == "sk-stored"
+    assert kwargs["preset_id"] == "deepseek"

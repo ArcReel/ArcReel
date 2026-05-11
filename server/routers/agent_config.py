@@ -6,12 +6,16 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, list_presets
+from lib.config.anthropic_probe import DiagnosisCode, run_test
+from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
+from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
 from lib.config.repository import mask_secret
 from lib.config.service import sync_anthropic_env
 from lib.db import get_async_session
@@ -265,3 +269,96 @@ async def activate_credential(
     await session.commit()
     await sync_anthropic_env(session)
     return ActivateResponse(active_id=cred_id)
+
+
+# ── Test connection models + endpoints ────────────────────────────
+
+
+class ProbeResultModel(BaseModel):
+    success: bool
+    status_code: int | None
+    latency_ms: int | None
+    error: str | None
+
+
+class SuggestionModel(BaseModel):
+    kind: Literal["replace_base_url", "check_api_key", "run_discovery", "see_docs"]
+    suggested_value: str | None = None
+
+
+class TestConnectionResponseModel(BaseModel):
+    overall: Literal["ok", "warn", "fail"]
+    messages_probe: ProbeResultModel
+    discovery_probe: ProbeResultModel | None
+    diagnosis: str | None
+    suggestion: SuggestionModel | None
+    derived_messages_root: str
+    derived_discovery_root: str
+
+
+class TestConnectionRequest(BaseModel):
+    preset_id: str | None = None
+    base_url: str | None = None
+    api_key: str
+    model: str | None = None
+
+
+def _serialize_probe(p: ProbeResultDC | None) -> ProbeResultModel | None:
+    if p is None:
+        return None
+    return ProbeResultModel(success=p.success, status_code=p.status_code, latency_ms=p.latency_ms, error=p.error)
+
+
+def _serialize_test_response(r: TestConnectionResponseDC) -> TestConnectionResponseModel:
+    return TestConnectionResponseModel(
+        overall=r.overall,
+        messages_probe=_serialize_probe(r.messages_probe),
+        discovery_probe=_serialize_probe(r.discovery_probe),
+        diagnosis=r.diagnosis.value if isinstance(r.diagnosis, DiagnosisCode) else None,
+        suggestion=SuggestionModel(kind=r.suggestion.kind, suggested_value=r.suggestion.suggested_value)
+        if r.suggestion
+        else None,
+        derived_messages_root=r.derived_messages_root,
+        derived_discovery_root=r.derived_discovery_root,
+    )
+
+
+@router.post("/test-connection", response_model=TestConnectionResponseModel)
+async def test_connection_draft(
+    body: TestConnectionRequest,
+    _user: CurrentUser,
+    _t: Translator,
+) -> TestConnectionResponseModel:
+    try:
+        result = await run_test(
+            preset_id=body.preset_id,
+            base_url=body.base_url,
+            api_key=body.api_key,
+            model=body.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return _serialize_test_response(result)
+
+
+@router.post("/credentials/{cred_id}/test", response_model=TestConnectionResponseModel)
+async def test_credential(
+    cred_id: int,
+    _user: CurrentUser,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> TestConnectionResponseModel:
+    repo = AgentCredentialRepository(session)
+    cred = await repo.get(cred_id)
+    if cred is None:
+        raise HTTPException(status_code=404, detail="credential not found")
+    try:
+        result = await run_test(
+            preset_id=cred.preset_id,
+            base_url=cred.base_url,
+            api_key=cred.api_key,
+            model=cred.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return _serialize_test_response(result)
