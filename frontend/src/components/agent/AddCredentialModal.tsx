@@ -28,11 +28,13 @@ import { useAppStore } from "@/stores/app-store";
 import type {
   CreateAgentCredentialRequest,
   PresetProvider,
+  TestConnectionResponse,
 } from "@/types/agent-credential";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { errMsg } from "@/utils/async";
 
 import { PresetIcon } from "./PresetIcon";
+import { TestResultPanel } from "./TestResultPanel";
 
 interface Props {
   open: boolean;
@@ -75,6 +77,11 @@ export function AddCredentialModal({
   const [importPickerOpen, setImportPickerOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const importTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // 草稿态连接测试：保存前先验 base_url + api_key 是否能真实跑通
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
+  const [testedBaseUrl, setTestedBaseUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || mode !== "create") return;
@@ -166,6 +173,32 @@ export function AddCredentialModal({
       setImporting(false);
       setImportPickerOpen(false);
     }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    const submitBaseUrl = form.baseUrl.trim() || undefined;
+    setTestedBaseUrl(submitBaseUrl ?? null);
+    try {
+      const res = await API.testAgentConnectionDraft({
+        preset_id: form.presetId,
+        base_url: submitBaseUrl,
+        api_key: form.apiKey,
+        model: form.model || undefined,
+      });
+      setTestResult(res);
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleApplyFix = (suggestedBaseUrl: string) => {
+    form.setBaseUrl(suggestedBaseUrl);
+    // 修复后清空旧结果，鼓励用户再点测试验证
+    setTestResult(null);
+    setTestedBaseUrl(null);
   };
 
   const handleSubmit = async () => {
@@ -451,26 +484,48 @@ export function AddCredentialModal({
           {submitError && (
             <div className="text-[11.5px] text-warm-bright">{submitError}</div>
           )}
+
+          {testResult && (
+            <TestResultPanel
+              originalBaseUrl={testedBaseUrl}
+              result={testResult}
+              onApplyFix={handleApplyFix}
+            />
+          )}
         </div>
 
         {/* Footer */}
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className={GHOST_BTN_CLS}>
-            {t("common:cancel")}
-          </button>
+        <div className="mt-5 flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => void handleSubmit()}
-            disabled={submitDisabled}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
+            onClick={() => void handleTest()}
+            disabled={testing || submitting || !form.apiKey.trim() || !form.baseUrl.trim()}
+            className={GHOST_BTN_CLS}
+            data-testid="test-connection"
           >
-            {submitting
-              ? t("common:loading")
-              : mode === "edit"
-                ? t("common:save")
-                : t("common:add", { defaultValue: "Add" })}
+            {testing ? (
+              <Loader2 className="mr-1 inline-block h-3 w-3 motion-safe:animate-spin" aria-hidden />
+            ) : null}
+            {testing ? t("cred_testing") : t("cred_test_label")}
           </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className={GHOST_BTN_CLS}>
+              {t("common:cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={submitDisabled}
+              className={ACCENT_BTN_CLS}
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {submitting
+                ? t("common:loading")
+                : mode === "edit"
+                  ? t("common:save")
+                  : t("common:add", { defaultValue: "Add" })}
+            </button>
+          </div>
         </div>
       </div>
     </div>

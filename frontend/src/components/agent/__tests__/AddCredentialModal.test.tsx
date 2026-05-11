@@ -407,6 +407,63 @@ describe("AddCredentialModal", () => {
     });
   });
 
+  describe("test connection (draft)", () => {
+    const okResult = {
+      overall: "ok" as const,
+      messages_probe: { success: true, status_code: 200, latency_ms: 123, error: null },
+      discovery_probe: null,
+      diagnosis: null,
+      suggestion: null,
+      derived_messages_root: "https://api.deepseek.com/anthropic",
+      derived_discovery_root: "",
+    };
+
+    it("disabled until both base_url and api_key filled", () => {
+      render(
+        <AddCredentialModal
+          open
+          presets={presets}
+          customSentinelId="__custom__"
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+      // 初始 custom 模式：baseUrl 空 → 测试按钮禁用
+      const btn = screen.getByTestId("test-connection");
+      expect(btn).toBeDisabled();
+    });
+
+    it("calls testAgentConnectionDraft and renders TestResultPanel", async () => {
+      const spy = vi.spyOn(API, "testAgentConnectionDraft").mockResolvedValue(okResult);
+      render(
+        <AddCredentialModal
+          open
+          presets={presets}
+          customSentinelId="__custom__"
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+      fireEvent.change(
+        screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i),
+        { target: { value: "sk-test" } },
+      );
+      fireEvent.click(screen.getByTestId("test-connection"));
+      await waitFor(() => {
+        expect(spy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            preset_id: "deepseek",
+            base_url: "https://api.deepseek.com/anthropic",
+            api_key: "sk-test",
+          }),
+        );
+      });
+      // TestResultPanel headline 渲染（test_ok 文案三语 OR-match）
+      await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
+    });
+  });
+
   it("disables preset chips in edit mode", () => {
     render(
       <AddCredentialModal
