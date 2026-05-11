@@ -17,7 +17,6 @@ from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
-from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
@@ -31,7 +30,6 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
 from server.auth import CurrentUser
-from server.dependencies import get_config_service
 
 
 def _validate_endpoint(value: str) -> str:
@@ -574,30 +572,27 @@ async def discover_anthropic_models_endpoint(
     body: DiscoverAnthropicRequest,
     _user: CurrentUser,
     _t: Translator,
-    svc: Annotated[ConfigService, Depends(get_config_service)],
+    session: AsyncSession = Depends(get_async_session),
 ):
     """Anthropic 协议模型发现：智能体配置专用。
 
-    凭据缺失时 fallback 到 system settings 里已存的
-    anthropic_base_url / anthropic_api_key。
+    凭据缺失时 fallback 到 active credential（AgentCredentialRepository）。
     """
     body_key = (body.api_key or "").strip()
     needs_key = not body_key
     needs_url = body.base_url is None
-    if needs_key and needs_url:
-        stored_key, stored_url = await asyncio.gather(
-            svc.get_setting("anthropic_api_key", ""),
-            svc.get_setting("anthropic_base_url", ""),
-        )
-    else:
-        stored_key = await svc.get_setting("anthropic_api_key", "") if needs_key else ""
-        stored_url = await svc.get_setting("anthropic_base_url", "") if needs_url else ""
 
-    api_key = body_key or stored_key.strip()
+    cred = None
+    if needs_key or needs_url:
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+        cred = await AgentCredentialRepository(session).get_active()
+
+    api_key = body_key if not needs_key else (cred.api_key if cred else "").strip()
     if not api_key:
         raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
 
-    base_url = body.base_url if not needs_url else (stored_url.strip() or None)
+    base_url = body.base_url if not needs_url else (cred.base_url if cred else None)
 
     return await _run_discover("anthropic", base_url, api_key, _t)
 
