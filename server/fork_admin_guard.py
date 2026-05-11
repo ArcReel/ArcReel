@@ -35,6 +35,9 @@ ADMIN_PATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/api/v1/system/(?:config|version)(?:/|$)"),
     re.compile(r"^/api/v1/api-keys(?:/|$)"),
     re.compile(r"^/api/v1/users(?:/|$)"),
+    # /api/v1/agent/credentials* + /preset-providers + /test-connection 锁 admin；
+    # /api/v1/agent/chat 是外部 Agent (OpenClaw 等) 对话端点，不在此白名单内。
+    re.compile(r"^/api/v1/agent/(?:credentials|preset-providers|test-connection)(?:/|$)"),
 )
 
 # 普通用户（非 admin）允许的只读组合：路径正则 + HTTP 方法集合。

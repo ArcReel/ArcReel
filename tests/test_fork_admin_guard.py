@@ -40,6 +40,11 @@ class TestAdminGuardCoverage:
             "/api/v1/system/version",
             "/api/v1/api-keys",
             "/api/v1/users",
+            "/api/v1/agent/credentials",
+            "/api/v1/agent/credentials/1",
+            "/api/v1/agent/credentials/1/activate",
+            "/api/v1/agent/preset-providers",
+            "/api/v1/agent/test-connection",
         ]
         for p in samples:
             assert _is_admin_path(p), f"{p} 应被 admin guard 覆盖"
@@ -51,6 +56,8 @@ class TestAdminGuardCoverage:
             "/api/v1/auth/token",
             "/api/v1/users-export",  # 边界：不能误命中 /users
             "/api/v1/assets",
+            # /agent/chat 是外部 Agent 对话端点，不应被锁成 admin-only
+            "/api/v1/agent/chat",
         ]:
             assert not _is_admin_path(p), f"{p} 不应被 admin guard 覆盖"
 
