@@ -77,7 +77,7 @@ export function CredentialList({
               ) : (
                 <PlayCircle className="h-3.5 w-3.5" aria-hidden />
               )}
-              {t("test_credential")}
+              {t("cred_test_label")}
             </button>
             {!c.is_active && (
               <button

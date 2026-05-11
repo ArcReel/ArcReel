@@ -64,4 +64,35 @@ describe("CredentialList", () => {
     );
     expect(screen.getByTestId("credential-list-empty")).toBeInTheDocument();
   });
+
+  it("calls onTest with credential id when test clicked", () => {
+    const onTest = vi.fn();
+    render(
+      <CredentialList
+        credentials={[mockCred()]}
+        onActivate={vi.fn()}
+        onTest={onTest}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /test|cred_test_label/i }));
+    expect(onTest).toHaveBeenCalledWith(1);
+  });
+
+  it("calls onEdit with full credential object when edit clicked", () => {
+    const onEdit = vi.fn();
+    const cred = mockCred();
+    render(
+      <CredentialList
+        credentials={[cred]}
+        onActivate={vi.fn()}
+        onTest={vi.fn()}
+        onEdit={onEdit}
+        onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /edit/i }));
+    expect(onEdit).toHaveBeenCalledWith(cred);
+  });
 });
