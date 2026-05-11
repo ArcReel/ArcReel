@@ -239,13 +239,18 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     [editingCred, loadCreds, t],
   );
 
+  const credentialsRef = useRef<AgentCredential[]>([]);
+  useEffect(() => {
+    credentialsRef.current = credentials;
+  }, [credentials]);
+
   const handleActivate = useCallback(
     async (id: number) => {
       setBusyCredId(id);
       try {
         await API.activateAgentCredential(id);
         await loadCreds();
-        const c = credentials.find((x) => x.id === id);
+        const c = credentialsRef.current.find((x) => x.id === id);
         voidCall(useConfigStatusStore.getState().refresh());
         useAppStore
           .getState()
@@ -259,7 +264,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         setBusyCredId(null);
       }
     },
-    [credentials, loadCreds, t],
+    [loadCreds, t],
   );
 
   const handleTest = useCallback(
@@ -491,6 +496,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       />
 
       <AddCredentialModal
+        key={editingCred?.id ?? "edit-empty"}
         open={editingCred !== null}
         mode="edit"
         presets={presets}

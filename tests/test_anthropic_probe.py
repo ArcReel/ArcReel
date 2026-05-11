@@ -172,23 +172,23 @@ async def test_run_test_custom_mode_self_heals_with_anthropic_suffix() -> None:
     """用户填 https://api.deepseek.com，messages probe 失败 (404)；
     自动重试 https://api.deepseek.com/anthropic 成功 → suggestion 给出修复值。
     """
-    seq = [
+    # run_test 现在并发首轮 messages + discovery，按调用次序串行 stub 会乱序。
+    # 改为按 URL 路由：POST 用列表（先后两次 messages 调用），GET 始终返回 200。
+    post_seq = [
         # 第一次：原 URL → 404
         httpx.Response(404, text="not found"),
         # 第二次：补 /anthropic → 200 anthropic JSON
         httpx.Response(200, json={"id": "msg_1", "type": "message", "content": []}),
-        # discovery probe → 200 (随便)
-        httpx.Response(200, json={"data": []}),
     ]
     call_log: list[str] = []
 
     async def fake_post(*, url, **_kw):
         call_log.append(url)
-        return seq.pop(0)
+        return post_seq.pop(0)
 
     async def fake_get(*, url, **_kw):
         call_log.append(url)
-        return seq.pop(0)
+        return httpx.Response(200, json={"data": []})
 
     with (
         patch("lib.config.anthropic_probe._post", AsyncMock(side_effect=fake_post)),
@@ -206,9 +206,12 @@ async def test_run_test_custom_mode_self_heals_with_anthropic_suffix() -> None:
     assert resp.suggestion is not None
     assert resp.suggestion.kind == "replace_base_url"
     assert resp.suggestion.suggested_value == "https://api.deepseek.com/anthropic"
-    # 第一次和第二次都打的是 messages 端点
-    assert call_log[0] == "https://api.deepseek.com/v1/messages"
-    assert call_log[1] == "https://api.deepseek.com/anthropic/v1/messages"
+    # 验证两次 messages probe 都按预期 URL 调用过（并发+串行混合，过滤 POST 调用即可）
+    posted = [u for u in call_log if "/v1/messages" in u]
+    assert posted == [
+        "https://api.deepseek.com/v1/messages",
+        "https://api.deepseek.com/anthropic/v1/messages",
+    ]
 
 
 @pytest.mark.asyncio

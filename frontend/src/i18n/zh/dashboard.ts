@@ -1183,6 +1183,8 @@ export default {
   'cred_edit_label': '编辑',
   'cred_delete_label': '删除',
   'cred_test_label': '连接测试',
+  'cred_testing': '测试中…',
+  'raw_error': '原始错误',
   'is_active': '当前',
   'cred_delete_active_blocked': '当前凭证不可删除，请先切换到其他凭证',
   'cred_delete_confirm_title': '删除凭证',

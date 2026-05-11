@@ -1,5 +1,5 @@
 import { ChevronDown, ExternalLink, Loader2, Search, SlidersHorizontal, Star, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
@@ -11,6 +11,7 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type {
   CreateAgentCredentialRequest,
@@ -76,56 +77,19 @@ export function AddCredentialModal({
     return presets.find((p) => p.id === presetId) ?? null;
   }, [presetId, presets, customSentinelId]);
 
-  // 切换预设时同步 display_name 默认值;model/routing 永不预填(由用户主动决定)
-  useEffect(() => {
-    if (selected) {
-      setDisplayName((cur) => cur || selected.display_name);
-    }
-  }, [selected]);
+  // edit 模式下：所有字段未改且未填新 api_key = 没有可保存的变更
+  const isDirtyForEdit =
+    mode === "edit" &&
+    (apiKey.trim() !== "" ||
+      displayName !== (initial?.display_name ?? "") ||
+      baseUrl !== (initial?.base_url ?? "") ||
+      model !== (initial?.model ?? "") ||
+      haikuModel !== (initial?.haiku_model ?? "") ||
+      sonnetModel !== (initial?.sonnet_model ?? "") ||
+      opusModel !== (initial?.opus_model ?? "") ||
+      subagentModel !== (initial?.subagent_model ?? ""));
 
-  // 打开 modal 时按 initial 重置(edit 模式切换不同凭证 / create 复用)
-  useEffect(() => {
-    if (!open) return;
-    setPresetId(initial?.preset_id ?? customSentinelId);
-    setApiKey(initial?.api_key ?? "");
-    setBaseUrl(initial?.base_url ?? "");
-    setDisplayName(initial?.display_name ?? "");
-    setModel(initial?.model ?? "");
-    setHaikuModel(initial?.haiku_model ?? "");
-    setSonnetModel(initial?.sonnet_model ?? "");
-    setOpusModel(initial?.opus_model ?? "");
-    setSubagentModel(initial?.subagent_model ?? "");
-    setSubmitError(null);
-    setModelOptions([]);
-    setDiscoverError(null);
-    // 仅在 open 状态切换或 initial 引用变化时同步
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initial]);
-
-  const reset = () => {
-    setPresetId(customSentinelId);
-    setApiKey("");
-    setBaseUrl("");
-    setDisplayName("");
-    setModel("");
-    setHaikuModel("");
-    setSonnetModel("");
-    setOpusModel("");
-    setSubagentModel("");
-    setSubmitError(null);
-    setModelOptions([]);
-    setDiscoverError(null);
-  };
-
-  // Esc 关闭
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscapeClose(onClose, open);
 
   if (!open) return null;
 
@@ -203,7 +167,6 @@ export function AddCredentialModal({
         subagent_model: subagentModel || undefined,
       };
       await onSubmit(req);
-      reset();
       onClose();
     } catch (err) {
       setSubmitError(errMsg(err));
@@ -214,19 +177,18 @@ export function AddCredentialModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <button
-        type="button"
-        aria-label="close-overlay"
-        tabIndex={-1}
+      <div
+        data-testid="modal-overlay"
+        aria-hidden="true"
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-black/50"
+        className="absolute inset-0 bg-black/50"
       />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="cred-modal-title"
-        className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[12px] border border-hairline p-5"
+        className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-[12px] border border-hairline p-5"
         style={DROPDOWN_PANEL_STYLE}
       >
         {/* Header */}
@@ -238,6 +200,7 @@ export function AddCredentialModal({
             {mode === "edit" ? t("edit_credential_title") : t("add_credential")}
           </h3>
           <button
+            type="button"
             onClick={onClose}
             className="text-text-3 hover:text-text"
             aria-label="close"
@@ -290,6 +253,10 @@ export function AddCredentialModal({
           <Field label={t("api_base_url")} htmlFor="cred-url">
             <input
               id="cred-url"
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://api.example.com/anthropic"
@@ -320,6 +287,7 @@ export function AddCredentialModal({
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               autoComplete="off"
+              spellCheck={false}
               placeholder={mode === "edit" ? t("api_key_unchanged_hint") : undefined}
               className={INPUT_CLS}
             />
@@ -340,7 +308,7 @@ export function AddCredentialModal({
                 ) : (
                   <Search className="h-3 w-3" aria-hidden />
                 )}
-                {t("discover_models")}
+                {discovering ? t("discovering_models") : t("discover_models")}
               </button>
             }
           >
@@ -433,15 +401,17 @@ export function AddCredentialModal({
 
         {/* Footer */}
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className={GHOST_BTN_CLS}>
+          <button type="button" onClick={onClose} className={GHOST_BTN_CLS}>
             {t("common:cancel")}
           </button>
           <button
+            type="button"
             onClick={() => void handleSubmit()}
             disabled={
               submitting ||
               (mode === "create" && !apiKey.trim()) ||
-              !baseUrl.trim()
+              !baseUrl.trim() ||
+              (mode === "edit" && !isDirtyForEdit)
             }
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}

@@ -161,9 +161,7 @@ describe("AddCredentialModal", () => {
         onClose={onClose}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /close-overlay/i }),
-    );
+    fireEvent.click(screen.getByTestId("modal-overlay"));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -252,7 +250,11 @@ describe("AddCredentialModal", () => {
         onClose={vi.fn()}
       />,
     );
-    // 不填 api_key，直接点提交按钮 (label 应为 Save / 保存 / Lưu)
+    // 改一个非 api_key 字段触发 dirty,api_key 留空提交
+    fireEvent.change(
+      screen.getByLabelText(/display[_ ]name|显示名/i),
+      { target: { value: "DS Prod 2" } },
+    );
     const submitBtn = screen.getByRole("button", {
       name: /^save$|^保存$|^Lưu$/i,
     });
@@ -264,6 +266,29 @@ describe("AddCredentialModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ api_key: "" }),
     );
+  });
+
+  it("disables submit in edit mode when no field changed", () => {
+    render(
+      <AddCredentialModal
+        open
+        mode="edit"
+        presets={presets}
+        customSentinelId="__custom__"
+        initial={{
+          preset_id: "deepseek",
+          display_name: "DS Prod",
+          base_url: "https://api.deepseek.com/anthropic",
+          model: "deepseek-chat",
+        }}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const submitBtn = screen.getByRole("button", {
+      name: /^save$|^保存$|^Lưu$/i,
+    });
+    expect(submitBtn).toBeDisabled();
   });
 
   it("disables preset chips in edit mode", () => {

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, list_presets
+from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset, list_presets
 from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
@@ -127,8 +127,6 @@ class UpdateCredentialRequest(BaseModel):
 
 
 def _cred_to_response(cred) -> CredentialResponse:
-    from lib.agent_provider_catalog import get_preset
-
     preset = get_preset(cred.preset_id) if cred.preset_id != CUSTOM_SENTINEL_ID else None
     return CredentialResponse(
         id=cred.id,
@@ -168,8 +166,6 @@ async def create_credential(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
-    from lib.agent_provider_catalog import get_preset
-
     if body.preset_id != CUSTOM_SENTINEL_ID:
         preset = get_preset(body.preset_id)
         if preset is None:
@@ -323,22 +319,32 @@ def _serialize_test_response(r: TestConnectionResponseDC) -> TestConnectionRespo
     )
 
 
+async def _run_and_serialize(
+    *,
+    preset_id: str | None,
+    base_url: str | None,
+    api_key: str,
+    model: str | None,
+) -> TestConnectionResponseModel:
+    try:
+        result = await run_test(preset_id=preset_id, base_url=base_url, api_key=api_key, model=model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _serialize_test_response(result)
+
+
 @router.post("/test-connection", response_model=TestConnectionResponseModel)
 async def test_connection_draft(
     body: TestConnectionRequest,
     _user: CurrentUser,
     _t: Translator,
 ) -> TestConnectionResponseModel:
-    try:
-        result = await run_test(
-            preset_id=body.preset_id,
-            base_url=body.base_url,
-            api_key=body.api_key,
-            model=body.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    return _serialize_test_response(result)
+    return await _run_and_serialize(
+        preset_id=body.preset_id,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        model=body.model,
+    )
 
 
 @router.post("/credentials/{cred_id}/test", response_model=TestConnectionResponseModel)
@@ -352,13 +358,9 @@ async def test_credential(
     cred = await repo.get(cred_id)
     if cred is None:
         raise HTTPException(status_code=404, detail="credential not found")
-    try:
-        result = await run_test(
-            preset_id=cred.preset_id,
-            base_url=cred.base_url,
-            api_key=cred.api_key,
-            model=cred.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    return _serialize_test_response(result)
+    return await _run_and_serialize(
+        preset_id=cred.preset_id,
+        base_url=cred.base_url,
+        api_key=cred.api_key,
+        model=cred.model,
+    )

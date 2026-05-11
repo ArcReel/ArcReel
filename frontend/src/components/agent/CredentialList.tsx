@@ -71,8 +71,10 @@ export function CredentialList({
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 truncate font-mono text-[10.5px] text-text-4">
-                  {c.base_url} · {c.api_key_masked}
+                <div className="mt-0.5 flex items-center gap-2 font-mono text-[10.5px] text-text-4">
+                  <span className="truncate">{c.base_url}</span>
+                  <span className="shrink-0">·</span>
+                  <span className="shrink-0">{c.api_key_masked}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -80,6 +82,7 @@ export function CredentialList({
                   type="button"
                   onClick={() => onTest(c.id)}
                   disabled={busyId === c.id}
+                  aria-busy={busyId === c.id}
                   className={GHOST_BTN_CLS}
                 >
                   {busyId === c.id ? (
@@ -87,7 +90,7 @@ export function CredentialList({
                   ) : (
                     <PlayCircle className="h-3.5 w-3.5" aria-hidden />
                   )}
-                  {t("cred_test_label")}
+                  {busyId === c.id ? t("cred_testing") : t("cred_test_label")}
                 </button>
                 {!c.is_active && (
                   <button

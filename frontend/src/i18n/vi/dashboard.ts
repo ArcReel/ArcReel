@@ -1179,6 +1179,8 @@ export default {
   'cred_edit_label': 'Chỉnh sửa',
   'cred_delete_label': 'Xoá',
   'cred_test_label': 'Kiểm tra',
+  'cred_testing': 'Đang kiểm tra…',
+  'raw_error': 'Lỗi gốc',
   'is_active': 'ĐANG DÙNG',
   'cred_delete_active_blocked': 'Không thể xoá xác thực đang dùng. Hãy chuyển sang xác thực khác trước.',
   'cred_delete_confirm_title': 'Xoá xác thực',

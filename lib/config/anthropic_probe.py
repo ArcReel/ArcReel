@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -235,10 +236,13 @@ async def run_test(
         ep = derive_anthropic_endpoints(base_url)
         effective_model = model or _DEFAULT_TEST_MODEL
 
-    # 2. messages probe
-    msg = await probe_messages(messages_root=ep.messages_root, api_key=api_key, model=effective_model)
+    # 2. messages + discovery 并发首轮：discovery 是 warn 级独立信号，串行只浪费墙钟时间
+    msg, disc = await asyncio.gather(
+        probe_messages(messages_root=ep.messages_root, api_key=api_key, model=effective_model),
+        probe_discovery(discovery_root=ep.discovery_root or None, api_key=api_key),
+    )
 
-    # 3. 自定义模式 + 失败 + 没显式 anthropic 后缀 → 尝试自愈
+    # 3. 自定义模式 + 失败 + 没显式 anthropic 后缀 → 串行自愈
     suggestion: SuggestionAction | None = None
     diagnosis: DiagnosisCode | None = None
     final_messages_root = ep.messages_root
@@ -256,12 +260,6 @@ async def run_test(
             final_messages_root = retry_root
             suggestion = SuggestionAction(kind="replace_base_url", suggested_value=retry_root)
             diagnosis = DiagnosisCode.MISSING_ANTHROPIC_SUFFIX
-
-    # 4. discovery probe (warn 级)
-    disc = await probe_discovery(
-        discovery_root=ep.discovery_root or None,
-        api_key=api_key,
-    )
 
     # 5. 诊断 + 总评
     if msg.success:

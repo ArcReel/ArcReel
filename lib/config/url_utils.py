@@ -62,7 +62,7 @@ def ensure_anthropic_base_url(url: str | None) -> str | None:
 
     @anthropic-ai/sdk 内部会拼接 /v1/messages、/v1/models 等，所以
     base_url 必须是根级形态。如用户填了 https://example.com/v1 或
-    /v1/messages 等带版本前缀的形式，需要剥掉，否则会拼出
+    /v1beta、/v1/messages 等带版本前缀的形式，需要剥掉，否则会拼出
     /v1/v1/messages 报 404。
     """
     if not url:
@@ -70,6 +70,7 @@ def ensure_anthropic_base_url(url: str | None) -> str | None:
     s = url.strip().rstrip("/")
     if not s:
         return None
-    s = re.sub(r"/v\d+(?:/messages)?$", "", s)
+    # \w* 兼容 /v1beta /v2alpha 等带后缀的版本号
+    s = re.sub(r"/v\d+\w*(?:/messages)?$", "", s)
     s = re.sub(r"/messages$", "", s)
     return s

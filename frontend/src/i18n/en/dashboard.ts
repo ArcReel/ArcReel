@@ -1182,6 +1182,8 @@ export default {
   'cred_edit_label': 'Edit',
   'cred_delete_label': 'Delete',
   'cred_test_label': 'Test',
+  'cred_testing': 'Testing…',
+  'raw_error': 'Raw Error',
   'is_active': 'ACTIVE',
   'cred_delete_active_blocked': 'Cannot delete the active credential. Activate another first.',
   'cred_delete_confirm_title': 'Delete credential',

@@ -17,6 +17,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from lib.config.url_utils import ensure_anthropic_base_url
+
 # 已知的 Claude 兼容子路径。每个 pattern 是 (regex, keep_prefix_group)。
 # keep_prefix_group=True 表示 discovery_root 需要保留正则匹配段之前 + 捕获的前缀段。
 #
@@ -32,9 +34,6 @@ _SUFFIX_PATTERNS: list[tuple[re.Pattern[str], int]] = [
     # 其余已知子路径 — 整体剥掉（保留 0 字符）
     (re.compile(r"/(?:apps/anthropic|plan/anthropic|coding/anthropic|api/coding|anthropic)/?$"), 0),
 ]
-# 用户误带的版本路径，先剥。假设：末尾裸 /v1 是用户误操作（错误添加 Anthropic API 版本号），
-# 不是用户想要的路径段。真正的代理网关都用 /anthropic 形式子路径，不存在裸 /v1 根。
-_TRAILING_VERSION = re.compile(r"/v\d+\w*(?:/messages)?/?$")
 
 
 @dataclass(frozen=True)
@@ -55,16 +54,14 @@ def derive_anthropic_endpoints(user_url: str) -> AnthropicEndpoints:
     """派生 Anthropic 兼容端点。
 
     Steps:
-        1) 去首尾空白、剥末尾斜杠
-        2) 剥末尾的 /v\\d+ 或 /v\\d+/messages（用户误带）
-        3) 用 _SUFFIX_PATTERNS 匹配子路径：
+        1) 通过 ensure_anthropic_base_url 去空白 / 剥末尾斜杠 / 剥版本路径
+        2) 用 _SUFFIX_PATTERNS 匹配子路径：
            匹配 → messages_root = 原值, discovery_root = 剥掉子路径
            不匹配 → messages_root == discovery_root == 原值
     """
     if not user_url or not user_url.strip():
         raise ValueError("user_url is empty")
-    cleaned = user_url.strip().rstrip("/")
-    cleaned = _TRAILING_VERSION.sub("", cleaned).rstrip("/")
+    cleaned = (ensure_anthropic_base_url(user_url) or "").rstrip("/")
     for pattern, keep_extra in _SUFFIX_PATTERNS:
         match = pattern.search(cleaned)
         if match:
