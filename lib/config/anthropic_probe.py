@@ -1,14 +1,18 @@
-"""Anthropic 兼容端点的真实连通性体检 + 诊断分类。
+"""Anthropic 兼容端点的连通性体检 + 诊断分类。
 
-本模块只用 httpx 直调，不通过 Claude SDK，避免子进程副作用。
-日志严格只打 URL 与 status，不打 body / headers / api_key。
+messages probe 走 claude_agent_sdk.query() 单次调用，与运行时调用链一致；
+discovery probe 走 httpx 直调（SDK 无对应能力）。
+
+日志严格只打 URL/exit_code/elapsed，不打 body / headers / api_key / stderr 全文。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
@@ -22,6 +26,8 @@ from lib.httpx_shared import get_http_client
 logger = logging.getLogger(__name__)
 
 _ERR_TRUNCATE = 200
+# 从 stderr 文本里抠出疑似 HTTP status（"... 401 ..." / "status=429" 等）
+_STATUS_RE = re.compile(r"\b([45]\d{2})\b")
 
 
 class DiagnosisCode(StrEnum):
@@ -42,22 +48,46 @@ class ProbeResult:
     error: str | None  # 截断到 200 字符
 
 
-async def _post(
-    *,
-    url: str,
-    headers: dict[str, str],
-    payload: dict[str, Any],
-    timeout_s: float,
-) -> httpx.Response:
-    """间接层：测试时 patch 这一个。"""
-    client = get_http_client()
-    return await client.post(url, headers=headers, json=payload, timeout=timeout_s)
-
-
 def _truncate(s: str | None) -> str | None:
     if s is None:
         return None
     return s if len(s) <= _ERR_TRUNCATE else s[:_ERR_TRUNCATE] + "…"
+
+
+def _extract_status_code(text: str | None) -> int | None:
+    if not text:
+        return None
+    m = _STATUS_RE.search(text)
+    return int(m.group(1)) if m else None
+
+
+def _sdk_query_stream(
+    *,
+    messages_root: str,
+    api_key: str,
+    model: str,
+) -> AsyncIterator[Any]:
+    """间接层：测试时 patch 这一个，返回 SDK 消息的 async iterator。
+
+    通过 ClaudeAgentOptions.env 注入 ANTHROPIC_BASE_URL / API_KEY，与 ConfigService
+    在运行时写入进程环境的方式等价。setting_sources=[] / system_prompt="" / max_turns=1
+    最小化副作用：不读 user/project settings、不带预设 system prompt、单回合即返回。
+    """
+    from claude_agent_sdk import ClaudeAgentOptions, query
+
+    options = ClaudeAgentOptions(
+        model=model,
+        max_turns=1,
+        allowed_tools=[],
+        disallowed_tools=[],
+        system_prompt="",
+        setting_sources=[],
+        env={
+            "ANTHROPIC_BASE_URL": messages_root,
+            "ANTHROPIC_API_KEY": api_key,
+        },
+    )
+    return query(prompt="ping", options=options)
 
 
 async def probe_messages(
@@ -65,73 +95,92 @@ async def probe_messages(
     messages_root: str,
     api_key: str,
     model: str,
-    timeout_s: float = 10.0,
+    timeout_s: float = 30.0,
 ) -> ProbeResult:
-    """POST {messages_root}/v1/messages 发最小请求 (max_tokens=1)。
+    """SDK query() 单次调用：收到 AssistantMessage 且 ResultMessage 非 error 视为成功。
 
-    判定:
-    - 2xx 且响应 JSON 含 type=message → success
-    - 2xx 但响应不像 anthropic JSON → 判失败 (OPENAI_COMPAT_ONLY)
-    - 非 2xx → 失败
-    - 网络异常/超时 → 失败 (status_code=None)
+    失败映射：
+    - ProcessError → 从 stderr 抠 status；exit_code 进日志
+    - CLIConnectionError / ClaudeSDKError → status_code=None（网络/启动失败）
+    - asyncio.TimeoutError → status_code=None（视作 network）
     """
-    url = f"{messages_root.rstrip('/')}/v1/messages"
-    payload = {
-        "model": model,
-        "max_tokens": 1,
-        "messages": [{"role": "user", "content": "ping"}],
-    }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeSDKError,
+        ResultMessage,
+    )
+
     started = time.perf_counter()
+    got_assistant = False
+    result_msg: Any = None
+
     try:
-        resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s)
-    except httpx.TimeoutException as exc:
+        async with asyncio.timeout(timeout_s):
+            async for msg in _sdk_query_stream(messages_root=messages_root, api_key=api_key, model=model):
+                if isinstance(msg, AssistantMessage):
+                    got_assistant = True
+                elif isinstance(msg, ResultMessage):
+                    result_msg = msg
+                    break
+    except TimeoutError:
         elapsed = int((time.perf_counter() - started) * 1000)
-        logger.info("probe_messages timeout url=%s elapsed_ms=%d", url, elapsed)
-        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")
-    except httpx.HTTPError as exc:
+        logger.info("probe_messages sdk timeout base_url=%s elapsed_ms=%d", messages_root, elapsed)
+        return ProbeResult(
+            success=False,
+            status_code=None,
+            latency_ms=elapsed,
+            error=f"timeout after {timeout_s}s",
+        )
+    except ClaudeSDKError as exc:
+        # 涵盖 ProcessError / CLIConnectionError / CLIJSONDecodeError / CLINotFoundError
         elapsed = int((time.perf_counter() - started) * 1000)
-        logger.info("probe_messages network err url=%s elapsed_ms=%d", url, elapsed)
-        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=_truncate(str(exc)))
+        stderr = getattr(exc, "stderr", None) or str(exc)
+        exit_code = getattr(exc, "exit_code", None)
+        status = _extract_status_code(stderr)
+        logger.info(
+            "probe_messages sdk error base_url=%s exit_code=%s status=%s elapsed_ms=%d",
+            messages_root,
+            exit_code,
+            status,
+            elapsed,
+        )
+        return ProbeResult(
+            success=False,
+            status_code=status,
+            latency_ms=elapsed,
+            error=_truncate(stderr),
+        )
 
     elapsed = int((time.perf_counter() - started) * 1000)
-    logger.info("probe_messages url=%s status=%d elapsed_ms=%d", url, resp.status_code, elapsed)
 
-    if resp.status_code >= 400:
-        # 不打 body 全文，只截前 200 字符以便 UI 给用户看
+    if result_msg is not None and getattr(result_msg, "is_error", False):
+        # SDK 完成 turn 但 CLI 报告错误（例如 model 不存在、API 返回错误后被吞回 result）
+        err_text = getattr(result_msg, "result", None) or "sdk reported is_error=True"
         return ProbeResult(
             success=False,
-            status_code=resp.status_code,
+            status_code=_extract_status_code(str(err_text)),
             latency_ms=elapsed,
-            error=_truncate(resp.text),
+            error=_truncate(str(err_text)),
         )
 
-    # 2xx：检查是否真的是 anthropic JSON
-    try:
-        data = resp.json()
-    except ValueError:
+    if not got_assistant:
         return ProbeResult(
             success=False,
-            status_code=resp.status_code,
+            status_code=None,
             latency_ms=elapsed,
-            error="non-anthropic response: not JSON",
+            error="no assistant message received",
         )
-    if not isinstance(data, dict) or data.get("type") != "message":
-        return ProbeResult(
-            success=False,
-            status_code=resp.status_code,
-            latency_ms=elapsed,
-            error="non-anthropic JSON: missing type=message",
-        )
-    return ProbeResult(success=True, status_code=resp.status_code, latency_ms=elapsed, error=None)
+
+    logger.info("probe_messages sdk ok base_url=%s elapsed_ms=%d", messages_root, elapsed)
+    return ProbeResult(success=True, status_code=200, latency_ms=elapsed, error=None)
 
 
 def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
-    """把失败 ProbeResult 映射到 DiagnosisCode。"""
+    """把失败 ProbeResult 映射到 DiagnosisCode。
+
+    SDK 模式 status_code 是从 stderr 抠出来的近似值，可能为 None；
+    抠不到时退化到关键词匹配 error 文本。
+    """
     if result.success:
         return DiagnosisCode.UNKNOWN  # caller misuse
     err = (result.error or "").lower()
@@ -140,12 +189,19 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
         return DiagnosisCode.AUTH_FAILED
     if code == 429:
         return DiagnosisCode.RATE_LIMITED
-    # 启发式：404 body 含 "model" 关键词即视为模型不存在；后端改措辞时会退化到 UNKNOWN
     if code == 404 and ("model" in err or "model_not_found" in err):
         return DiagnosisCode.MODEL_NOT_FOUND
     if code is not None and 200 <= code < 300:
-        # 2xx 但 probe 判失败 = 协议不匹配
         return DiagnosisCode.OPENAI_COMPAT_ONLY
+    # status 缺失：关键词兜底
+    if any(kw in err for kw in ("timeout", "econnrefused", "enotfound", "connection")):
+        return DiagnosisCode.NETWORK
+    if any(kw in err for kw in ("unauthor", "api key", "api_key", "invalid_api_key")):
+        return DiagnosisCode.AUTH_FAILED
+    if "rate" in err or "throttl" in err:
+        return DiagnosisCode.RATE_LIMITED
+    if "model" in err and any(kw in err for kw in ("not found", "invalid", "unknown")):
+        return DiagnosisCode.MODEL_NOT_FOUND
     if code is None:
         return DiagnosisCode.NETWORK
     return DiagnosisCode.UNKNOWN
@@ -190,7 +246,6 @@ async def probe_discovery(
 
 
 _DEFAULT_TEST_MODEL = "claude-3-5-sonnet-20241022"
-_RETRYABLE_STATUS_FOR_SELF_HEAL = (404, 405, 502)
 
 
 @dataclass(frozen=True)
@@ -210,6 +265,14 @@ class TestConnectionResponse:
     derived_discovery_root: str
 
 
+# 自愈不该接管的诊断：用户问题，重试也救不回来
+_NON_SELF_HEALABLE = (
+    DiagnosisCode.AUTH_FAILED,
+    DiagnosisCode.RATE_LIMITED,
+    DiagnosisCode.MODEL_NOT_FOUND,
+)
+
+
 async def run_test(
     *,
     preset_id: str | None,
@@ -217,7 +280,7 @@ async def run_test(
     api_key: str,
     model: str | None,
 ) -> TestConnectionResponse:
-    """完整端到端测试：派生 → probe messages → 自定义模式自愈 → probe discovery → 诊断。"""
+    """完整端到端测试：派生 → SDK query 试调 → 自定义模式自愈 → discovery → 诊断。"""
     # 1. 派生 endpoints
     if preset_id and preset_id != CUSTOM_SENTINEL_ID:
         preset = get_preset(preset_id)
@@ -237,13 +300,14 @@ async def run_test(
         ep = derive_anthropic_endpoints(base_url)
         effective_model = model or _DEFAULT_TEST_MODEL
 
-    # 2. messages + discovery 并发首轮：discovery 是 warn 级独立信号，串行只浪费墙钟时间
+    # 2. messages (SDK) + discovery (httpx) 并发：discovery 是独立 warn 级信号
     msg, disc = await asyncio.gather(
         probe_messages(messages_root=ep.messages_root, api_key=api_key, model=effective_model),
         probe_discovery(discovery_root=ep.discovery_root or None, api_key=api_key),
     )
 
-    # 3. 自定义模式 + 失败 + 没显式 anthropic 后缀 → 串行自愈
+    # 3. 自定义模式 + 没显式 anthropic 后缀 + 失败且可自愈 → 补 /anthropic 串行重试
+    #    SDK 拿不到精确 status code，用诊断码代替 status_code in (404,405,502) 闸门
     suggestion: SuggestionAction | None = None
     diagnosis: DiagnosisCode | None = None
     final_messages_root = ep.messages_root
@@ -251,9 +315,8 @@ async def run_test(
         not msg.success
         and (preset_id is None or preset_id == CUSTOM_SENTINEL_ID)
         and not ep.has_explicit_suffix
-        and msg.status_code in _RETRYABLE_STATUS_FOR_SELF_HEAL
+        and classify_probe_failure(msg) not in _NON_SELF_HEALABLE
     ):
-        # 仅尝试补 /anthropic（覆盖 DeepSeek/Kimi/MiniMax/Hunyuan/MiMo）；其他网关 (/api/anthropic 等) 走预设
         retry_root = ep.messages_root.rstrip("/") + "/anthropic"
         retry = await probe_messages(messages_root=retry_root, api_key=api_key, model=effective_model)
         if retry.success:
@@ -262,7 +325,7 @@ async def run_test(
             suggestion = SuggestionAction(kind="replace_base_url", suggested_value=retry_root)
             diagnosis = DiagnosisCode.MISSING_ANTHROPIC_SUFFIX
 
-    # 5. 诊断 + 总评
+    # 4. 诊断 + 总评
     if msg.success:
         overall = "ok" if (disc is None or disc.success) else "warn"
     else:
