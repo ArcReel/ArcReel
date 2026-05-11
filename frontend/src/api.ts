@@ -48,6 +48,14 @@ import type {
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
+import type {
+  AgentCredential,
+  CreateAgentCredentialRequest,
+  PresetProvidersResponse,
+  TestConnectionRequest,
+  TestConnectionResponse,
+  UpdateAgentCredentialRequest,
+} from "@/types/agent-credential";
 import { getToken, clearToken } from "@/utils/auth";
 import i18n from "./i18n";
 
@@ -1524,6 +1532,56 @@ class API {
     );
     await throwIfNotOk(response, "上传凭证失败");
     return response.json() as Promise<ProviderCredential>;
+  }
+
+  // ==================== Agent 配置 / 凭证 API ====================
+
+  static async listAgentPresetProviders(): Promise<PresetProvidersResponse> {
+    return this.request("/agent/preset-providers");
+  }
+
+  static async listAgentCredentials(): Promise<{ credentials: AgentCredential[] }> {
+    return this.request("/agent/credentials");
+  }
+
+  static async createAgentCredential(
+    data: CreateAgentCredentialRequest,
+  ): Promise<AgentCredential> {
+    return this.request("/agent/credentials", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  static async updateAgentCredential(
+    id: number,
+    data: UpdateAgentCredentialRequest,
+  ): Promise<AgentCredential> {
+    return this.request(`/agent/credentials/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  static async deleteAgentCredential(id: number): Promise<void> {
+    return this.request(`/agent/credentials/${id}`, { method: "DELETE" });
+  }
+
+  static async activateAgentCredential(id: number): Promise<{ active_id: number }> {
+    return this.request(`/agent/credentials/${id}/activate`, { method: "POST" });
+  }
+
+  static async testAgentCredential(id: number): Promise<TestConnectionResponse> {
+    return this.request(`/agent/credentials/${id}/test`, { method: "POST" });
+  }
+
+  static async testAgentConnectionDraft(
+    data: TestConnectionRequest,
+  ): Promise<TestConnectionResponse> {
+    return this.request("/agent/test-connection", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
   // ==================== 自定义供应商 API ====================

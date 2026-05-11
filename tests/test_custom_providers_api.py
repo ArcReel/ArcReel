@@ -1396,10 +1396,17 @@ class TestDiscoverAnthropic:
         assert args[2] == "sk-ant"
 
     async def test_falls_back_to_stored_api_key(self, client: TestClient, session: AsyncSession):
-        """请求未带 api_key 时，从 anthropic_api_key 设置 fallback。"""
-        svc = ConfigService(session)
-        await svc.set_setting("anthropic_api_key", "sk-stored")
-        await svc.set_setting("anthropic_base_url", "https://stored.example")
+        """请求未带 api_key 时，从 active AgentAnthropicCredential fallback。"""
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+        repo = AgentCredentialRepository(session)
+        cred = await repo.create(
+            preset_id="__custom__",
+            display_name="stored",
+            base_url="https://stored.example",
+            api_key="sk-stored",
+        )
+        await repo.set_active(cred.id)
         await session.commit()
 
         with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
@@ -1422,9 +1429,17 @@ class TestDiscoverAnthropic:
         assert "API Key" in resp.json()["detail"]
 
     async def test_whitespace_only_api_key_falls_back_to_stored(self, client: TestClient, session: AsyncSession):
-        """body.api_key 仅含空白时按缺失处理，回退至已存配置而非送上游空白 key。"""
-        svc = ConfigService(session)
-        await svc.set_setting("anthropic_api_key", "sk-stored")
+        """body.api_key 仅含空白时按缺失处理，回退至 active credential 而非送上游空白 key。"""
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+        repo = AgentCredentialRepository(session)
+        cred = await repo.create(
+            preset_id="__custom__",
+            display_name="stored",
+            base_url="https://stored.example",
+            api_key="sk-stored",
+        )
+        await repo.set_active(cred.id)
         await session.commit()
 
         with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:

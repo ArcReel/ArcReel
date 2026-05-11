@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
@@ -7,7 +7,10 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { AgentConfigTab } from "@/components/pages/AgentConfigTab";
 import type { GetSystemConfigResponse } from "@/types";
-import type { CustomProviderInfo } from "@/types/custom-provider";
+import type {
+  AgentCredential,
+  PresetProvider,
+} from "@/types/agent-credential";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,153 +44,112 @@ function makeConfigResponse(): GetSystemConfigResponse {
   } as unknown as GetSystemConfigResponse;
 }
 
-function makeProvider(overrides?: Partial<CustomProviderInfo>): CustomProviderInfo {
+function makePreset(overrides?: Partial<PresetProvider>): PresetProvider {
+  return {
+    id: "anthropic",
+    display_name: "Anthropic",
+    icon_key: "anthropic",
+    messages_url: "https://api.anthropic.com",
+    discovery_url: "https://api.anthropic.com/v1/models",
+    default_model: "claude-sonnet-4",
+    suggested_models: ["claude-sonnet-4", "claude-haiku-4-5"],
+    docs_url: null,
+    api_key_url: null,
+    notes: null,
+    api_key_pattern: null,
+    is_recommended: true,
+    ...overrides,
+  };
+}
+
+function makeCredential(overrides?: Partial<AgentCredential>): AgentCredential {
   return {
     id: 1,
-    display_name: "OneAPI",
-    discovery_format: "openai",
-    base_url: "https://oneapi.example.com",
-    api_key_masked: "sk-***",
-    models: [],
+    preset_id: "anthropic",
+    display_name: "Anthropic 主号",
+    icon_key: "anthropic",
+    base_url: "https://api.anthropic.com",
+    api_key_masked: "sk-ant-***",
+    model: "claude-sonnet-4",
+    haiku_model: null,
+    sonnet_model: null,
+    opus_model: null,
+    subagent_model: null,
+    is_active: true,
     created_at: "2026-04-21T00:00:00Z",
     ...overrides,
   };
+}
+
+function setupBaseMocks(opts?: { credentials?: AgentCredential[] }) {
+  vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
+  vi.spyOn(API, "listAgentCredentials").mockResolvedValue({
+    credentials: opts?.credentials ?? [],
+  });
+  vi.spyOn(API, "listAgentPresetProviders").mockResolvedValue({
+    providers: [makePreset()],
+    custom_sentinel_id: "__custom__",
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("AgentConfigTab — provider import", () => {
+describe("AgentConfigTab — credentials directory", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
-
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [makeProvider()] });
-    vi.spyOn(API, "getCustomProviderCredentials").mockResolvedValue({
-      base_url: "https://oneapi.example.com",
-      api_key: "sk-secret",
-    });
   });
 
-  it("imports credentials from a custom provider into the API credentials inputs", async () => {
+  it("renders empty hint when no credentials are present", async () => {
+    setupBaseMocks();
     render(<AgentConfigTab visible />);
 
-    // Wait for the import button to appear (after initial load)
-    const importButton = await screen.findByRole("button", { name: /从供应商导入/ });
-    fireEvent.click(importButton);
+    expect(
+      await screen.findByTestId("credential-list-empty"),
+    ).toBeInTheDocument();
+  });
 
-    // Click the OneAPI entry in the dropdown
-    const providerOption = await screen.findByRole("button", { name: "OneAPI" });
-    fireEvent.click(providerOption);
+  it('shows the "+ Add credential" button in Section 1', async () => {
+    setupBaseMocks();
+    render(<AgentConfigTab visible />);
 
-    // Assert the API Key + Base URL inputs received the credential values
-    await waitFor(() => {
-      const keyInput = screen.getByLabelText("Anthropic API 密钥") as HTMLInputElement;
-      const baseUrlInput = screen.getByLabelText("API 代理地址") as HTMLInputElement;
-      expect(keyInput.value).toBe("sk-secret");
-      expect(baseUrlInput.value).toBe("https://oneapi.example.com");
+    // Use translated text + leading "+"
+    const btn = await screen.findByRole("button", { name: /\+ 添加供应商/ });
+    expect(btn).toBeInTheDocument();
+  });
+
+  it("renders existing credentials in the list", async () => {
+    setupBaseMocks({ credentials: [makeCredential()] });
+    render(<AgentConfigTab visible />);
+
+    expect(await screen.findByText("Anthropic 主号")).toBeInTheDocument();
+    expect(
+      screen.getByText(/sk-ant-\*\*\*/),
+    ).toBeInTheDocument();
+  });
+
+  it("opens edit modal when edit button clicked", async () => {
+    setupBaseMocks({ credentials: [makeCredential()] });
+    render(<AgentConfigTab visible />);
+
+    // 等待列表渲染
+    await screen.findByText("Anthropic 主号");
+
+    const user = userEvent.setup();
+    const editBtn = screen.getByRole("button", {
+      name: /edit|编辑|Chỉnh sửa/i,
     });
+    await user.click(editBtn);
 
-    expect(API.getCustomProviderCredentials).toHaveBeenCalledWith(1);
+    // edit modal 出现，标题应为 edit_credential 翻译
+    expect(
+      await screen.findByRole("heading", {
+        name: /edit[_ ]credential|编辑凭证|Chỉnh sửa xác thực/i,
+      }),
+    ).toBeInTheDocument();
   });
 });
 
-describe("AgentConfigTab — discover models", () => {
-  beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
-    vi.restoreAllMocks();
-
-    const cfg = makeConfigResponse();
-    cfg.settings.anthropic_api_key = { is_set: true, masked: "sk-ant-***" };
-    cfg.settings.anthropic_base_url = "https://example.com";
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(cfg);
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "discoverAnthropicModels").mockResolvedValue({
-      models: [
-        {
-          model_id: "claude-haiku-4-5",
-          display_name: "Haiku 4.5",
-          endpoint: "",
-          is_default: false,
-          is_enabled: true,
-        },
-        {
-          model_id: "claude-opus-4-7",
-          display_name: "Opus 4.7",
-          endpoint: "",
-          is_default: false,
-          is_enabled: true,
-        },
-      ],
-    });
-  });
-
-  it("renders combobox options after clicking discover", async () => {
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    const btn = await screen.findByRole("button", { name: /获取模型|Discover Models/i });
-    await user.click(btn);
-
-    // Wait for discover request to complete + populate candidates
-    await waitFor(() => {
-      expect(API.discoverAnthropicModels).toHaveBeenCalled();
-    });
-
-    // Open the default-model Combobox
-    const modelInput = await screen.findByRole("combobox", { name: "默认模型" });
-    await user.click(modelInput);
-
-    const options = await screen.findAllByRole("option");
-    const labels = options.map((o) => o.textContent);
-    expect(labels).toEqual(
-      expect.arrayContaining(["claude-haiku-4-5", "claude-opus-4-7"]),
-    );
-  });
-
-  it("sends undefined api_key when draft is empty (lets backend fallback)", async () => {
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
-
-    await waitFor(() => {
-      expect(API.discoverAnthropicModels).toHaveBeenCalledWith(
-        { base_url: "https://example.com", api_key: undefined },
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      );
-    });
-  });
-
-  it("shows error toast when discovery fails", async () => {
-    vi.mocked(API.discoverAnthropicModels).mockRejectedValueOnce(new Error("boom"));
-
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
-
-    await waitFor(() => {
-      const toast = useAppStore.getState().toast;
-      expect(toast?.text).toMatch(/boom/);
-      expect(toast?.tone).toBe("error");
-    });
-  });
-
-  it("shows success toast with model count on discovery", async () => {
-    render(<AgentConfigTab visible />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
-
-    await waitFor(() => {
-      const toast = useAppStore.getState().toast;
-      expect(toast?.tone).toBe("success");
-      expect(toast?.text).toMatch(/2/);
-    });
-  });
-});

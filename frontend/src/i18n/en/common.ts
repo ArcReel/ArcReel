@@ -24,6 +24,7 @@ export default {
   'required': 'required',
   'load_failed': 'Failed to load',
   'save': 'Save',
+  'add': 'Add',
   'save_settings': 'Save Settings',
   'saving': 'Saving...',
   'reset': 'Reset',
@@ -47,4 +48,5 @@ export default {
   'hide': 'Hide',
   'not_found_title': 'Page not found',
   'not_found_back': 'Back to home',
+  'recommended': 'Recommended',
 };

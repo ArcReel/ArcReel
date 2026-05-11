@@ -25,6 +25,7 @@ export default {
   'required': '必填',
   'load_failed': '加载失败',
   'save': '保存',
+  'add': '添加',
   'save_settings': '保存设置',
   'saving': '保存中...',
   'reset': '重置',
@@ -48,4 +49,5 @@ export default {
   'hide': '隐藏',
   'not_found_title': '页面未找到',
   'not_found_back': '返回首页',
+  'recommended': '推荐',
 } satisfies Record<keyof typeof enCommon, string>;

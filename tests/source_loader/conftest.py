@@ -1,10 +1,16 @@
-"""共享 fixtures：尽量在运行期构造测试样本，避免二进制入库。"""
+"""共享 fixtures：尽量在运行期构造测试样本，避免二进制入库。
+
+例外：PDF 因 pdf_oxide 暂无稳定的 Python 创建 API，改用 data/ 下预生成的
+真实 PDF（来源详见 data/SOURCES.md）。
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
+
+_PDF_DATA_DIR = Path(__file__).parent / "data"
 
 
 @pytest.fixture
@@ -68,32 +74,14 @@ def epub_factory(tmp_path: Path):
 
 
 @pytest.fixture
-def pdf_factory(tmp_path: Path):
-    """构造文字型或扫描型 PDF。"""
-    fitz = pytest.importorskip("fitz", reason="需要 PyMuPDF")
+def pdf_factory():
+    """返回预生成的 PDF fixture 路径（来自真实 PDF，见 data/SOURCES.md）。"""
 
-    def _make(pages_text: list[str], filename: str = "sample.pdf") -> Path:
-        doc = fitz.open()
-        for body in pages_text:
-            page = doc.new_page()
-            # 使用 china-s（PyMuPDF 内置 CJK 字体），否则默认 Helvetica 无法渲染中文；
-            # 使用 textbox 自动换行，避免长文本溢出页面被截断
-            rect = fitz.Rect(72, 72, page.rect.width - 72, page.rect.height - 72)
-            page.insert_textbox(rect, body, fontsize=12, fontname="china-s")
-        out = tmp_path / filename
-        doc.save(out)
-        doc.close()
-        return out
+    def _make() -> Path:
+        return _PDF_DATA_DIR / "sample_text.pdf"
 
-    def _make_scanned(num_pages: int, filename: str = "scanned.pdf") -> Path:
-        # 仅插入空白页 → 模拟扫描件无文本
-        doc = fitz.open()
-        for _ in range(num_pages):
-            doc.new_page()
-        out = tmp_path / filename
-        doc.save(out)
-        doc.close()
-        return out
+    def _make_scanned() -> Path:
+        return _PDF_DATA_DIR / "sample_scanned.pdf"
 
     _make.scanned = _make_scanned
     return _make

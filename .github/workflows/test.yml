@@ -67,10 +67,14 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
         run: uv run alembic upgrade head
 
-      - name: Run session-store tests against Postgres
+      - name: Run dialect-sensitive tests against Postgres
         env:
           DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
-        run: uv run python -m pytest tests/agent_session_store/ -v -m "not sqlite_only"
+        run: |
+          uv run python -m pytest \
+            tests/agent_session_store/ \
+            tests/test_agent_credential_repo.py \
+            -v -m "not sqlite_only"
 
   frontend-tests:
     runs-on: ubuntu-latest

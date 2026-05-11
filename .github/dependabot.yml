@@ -51,7 +51,7 @@ updates:
           - "pyjianyingdraft"
       document-parsing:
         patterns:
-          - "pymupdf"
+          - "pdf-oxide"
           - "mammoth"
           - "docx2txt"
           - "ebooklib"

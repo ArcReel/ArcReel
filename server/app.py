@@ -37,6 +37,7 @@ from server.fork_admin_guard import install_admin_guard  # fork-private
 from server.fork_project_guard import install_project_guards  # fork-private
 from server.routers import (
     agent_chat,
+    agent_config,
     api_keys,
     assets,
     assistant,
@@ -172,12 +173,10 @@ async def lifespan(app: FastAPI):
 
     # Sync Anthropic DB settings to env vars (Claude Agent SDK reads from os.environ)
     try:
-        from lib.config.service import ConfigService, sync_anthropic_env
+        from lib.config.service import sync_anthropic_env
 
         async with async_session_factory() as session:
-            svc = ConfigService(session)
-            all_settings = await svc.get_all_settings()
-            sync_anthropic_env(all_settings)
+            await sync_anthropic_env(session)
     except Exception as exc:
         logger.warning("DB→env Anthropic config sync failed (non-fatal): %s", exc)
 
@@ -306,6 +305,7 @@ app.include_router(providers.router, prefix="/api/v1", tags=["供应商管理"])
 app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
 app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key 管理"])
 app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
+app.include_router(agent_config.router, prefix="/api/v1", tags=["Agent 配置"])
 app.include_router(custom_providers.router, prefix="/api/v1", tags=["自定义供应商"])
 app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算"])
 app.include_router(grids.router, prefix="/api/v1", tags=["宫格图"])

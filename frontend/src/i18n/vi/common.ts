@@ -25,6 +25,7 @@ export default {
   'required': 'bắt buộc',
   'load_failed': 'Tải thất bại',
   'save': 'Lưu',
+  'add': 'Thêm',
   'save_settings': 'Lưu cài đặt',
   'saving': 'Đang lưu...',
   'reset': 'Đặt lại',
@@ -48,4 +49,5 @@ export default {
   'hide': 'Ẩn',
   'not_found_title': 'Không tìm thấy trang',
   'not_found_back': 'Về trang chủ',
+  'recommended': 'Được khuyến nghị',
 } satisfies Record<keyof typeof enCommon, string>;

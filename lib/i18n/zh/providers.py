@@ -15,4 +15,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_grok": "xAI Grok 模型，支持视频和图片生成。",
     "provider_desc_openai": "OpenAI 官方平台，支持 GPT-5.4 文本、GPT Image 图片和 Sora 视频生成。",
     "provider_desc_vidu": "生数科技 Vidu 视频生成平台，支持文生视频、图生视频、首尾帧、参考生视频与参考生图，仅图片与视频能力。",
+    # Agent preset notes (lib/agent_provider_catalog.py)
+    "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
+    "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",
 }
