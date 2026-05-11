@@ -34,6 +34,7 @@ from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
 from server.fork_admin_guard import install_admin_guard  # fork-private
+from server.fork_project_guard import install_project_guards  # fork-private
 from server.routers import (
     agent_chat,
     api_keys,
@@ -312,6 +313,7 @@ app.include_router(reference_videos.router, prefix="/api/v1", tags=["参考生�
 app.include_router(assets.router, prefix="/api/v1", tags=["全局资产库"])
 app.include_router(fork_users.router, prefix="/api/v1", tags=["用户管理"])  # fork-private
 install_admin_guard(app)  # fork-private: 路径白名单守卫 admin
+install_project_guards(app)  # fork-private: 项目级访问守卫 + owner 前缀注入
 
 
 def create_generation_worker() -> GenerationWorker:

@@ -31,6 +31,7 @@ import { useAuthStore } from "@/stores/auth-store"; // fork-private
 import { isAdmin, usePermissionsStore } from "@/stores/fork-permissions-store"; // fork-private
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
+import { ForkOwnerBadge } from "@/components/ForkOwnerBadge"; // fork-private
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -400,6 +401,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
 
           <div className="mb-3 flex items-center gap-2">
             <PhasePill phase={phase} label={phaseLabel} />
+            <ForkOwnerBadge owner={project.owner} />
           </div>
 
           <EpisodeStrip summary={episodes} />
@@ -570,6 +572,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
             />
             {t("dashboard:lobby_continue_editing_chip")}
           </span>
+          <ForkOwnerBadge owner={project.owner} />
         </div>
         <h3
           className="font-editorial relative mt-3 mb-1"

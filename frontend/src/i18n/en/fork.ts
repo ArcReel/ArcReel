@@ -9,6 +9,10 @@ const fork = {
       title: 'Access Denied',
       hint: 'You do not have permission to view this page.',
     },
+    project: {
+      owner_label: 'Owner',
+      owner_unknown: 'Unassigned',
+    },
     users: {
       nav: 'Users',
       title: 'User Management',

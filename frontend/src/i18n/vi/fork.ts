@@ -9,6 +9,10 @@ const fork = {
       title: 'Không có quyền',
       hint: 'Bạn không được phép xem trang này.',
     },
+    project: {
+      owner_label: 'Chủ sở hữu',
+      owner_unknown: 'Chưa phân công',
+    },
     users: {
       nav: 'Quản lý người dùng',
       title: 'Quản lý người dùng',

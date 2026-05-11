@@ -9,6 +9,10 @@ const fork = {
       title: '无权访问',
       hint: '当前角色无法访问此页面。',
     },
+    project: {
+      owner_label: '拥有者',
+      owner_unknown: '未分配',
+    },
     users: {
       nav: '用户管理',
       title: '用户管理',

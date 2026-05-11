@@ -36,6 +36,58 @@ def is_admin(role: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Project name <-> owner mapping
+# ---------------------------------------------------------------------------
+
+# 项目目录扁平布局：``projects/<owner>__<project>/``。``__`` 是 owner 段与
+# project 段的唯一切分符，username 校验里已禁用 ``__`` 出现。
+PROJECT_NAME_SEPARATOR: Final = "__"
+
+
+def parse_project_name(name: str) -> tuple[str | None, str]:
+    """拆解项目目录名 ``<owner>__<project>`` 为 ``(owner, project)``。
+
+    - 标准格式 ``alice__demo`` → ``("alice", "demo")``
+    - 历史遗留 / 无 owner 前缀 ``demo`` → ``(None, "demo")``
+    - 多个 ``__`` 出现时，按首个分隔符切分（owner 段不允许包含 ``__``，
+      因此剩余部分整体视为 project 段）
+
+    Returns:
+        ``(owner, project)``。owner 为 None 表示项目无 owner 前缀，
+        access 判断中视为仅 admin 可见。
+    """
+    if not isinstance(name, str) or not name:
+        return None, name or ""
+    sep_idx = name.find(PROJECT_NAME_SEPARATOR)
+    if sep_idx <= 0:
+        return None, name
+    owner = name[:sep_idx]
+    project = name[sep_idx + len(PROJECT_NAME_SEPARATOR) :]
+    if not project:
+        return None, name
+    return owner, project
+
+
+def make_project_name(owner: str, project: str) -> str:
+    """拼接 ``<owner>__<project>`` 项目目录名。"""
+    return f"{owner}{PROJECT_NAME_SEPARATOR}{project}"
+
+
+def can_access_project(role: str | None, sub: str | None, project_name: str) -> bool:
+    """当前用户能否访问该项目。
+
+    - admin：全部可见
+    - user：仅访问 ``<self>__*``；无 owner 前缀的历史项目对 user 不可见
+    """
+    if is_admin(role):
+        return True
+    if not sub:
+        return False
+    owner, _ = parse_project_name(project_name)
+    return owner is not None and owner == sub
+
+
+# ---------------------------------------------------------------------------
 # Principal name validation
 # ---------------------------------------------------------------------------
 

@@ -145,6 +145,12 @@ export interface ProjectData {
  */
 export interface ProjectSummary {
   name: string;
+  /**
+   * fork-private: 项目目录 `<owner>__<project>` 切分出的 owner 段；
+   * 后端列表接口注入。`null` 表示历史无 owner 前缀的项目（仅 admin 可见）。
+   * 字段为可选以便前端测试 mock 不必逐处补齐。
+   */
+  owner?: string | null;
   title: string;
   style: string;
   style_template_id?: string | null;
