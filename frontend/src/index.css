@@ -143,3 +143,89 @@ body {
     0%, 50% { opacity: 1; }
     50.01%, 100% { opacity: 0; }
 }
+
+/* === Modal / Glass panel chrome — 收拢 11 处弹窗 chrome 复制（issue #470 / #487） === */
+
+/* 玻璃面板 — GlassModal / GlassPopover 的内容容器样式 */
+.arc-glass-panel {
+    background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96));
+    border: 1px solid var(--color-hairline);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow:
+        0 24px 60px -12px oklch(0 0 0 / 0.6),
+        inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+/* 顶部 hairline 渐变线（accent 默认 / warm 用 data-tone="warm"） */
+.arc-glass-hairline {
+    pointer-events: none;
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-accent-soft), transparent);
+}
+.arc-glass-hairline[data-tone="warm"] {
+    background: linear-gradient(90deg, transparent, var(--color-warm-fade), transparent);
+}
+
+/* 玻璃 X 关闭按钮 */
+.arc-close-btn {
+    color: var(--color-text-3);
+    transition: color 150ms, background 150ms;
+}
+.arc-close-btn:hover {
+    color: var(--color-text);
+    background: oklch(1 0 0 / 0.05);
+}
+
+/* 玻璃次按钮（Cancel / 普通操作） */
+.arc-btn-secondary {
+    color: var(--color-text-3);
+    border: 1px solid var(--color-hairline);
+    background: oklch(0.22 0.011 265 / 0.5);
+    transition: color 150ms, background 150ms, border-color 150ms;
+}
+.arc-btn-secondary:hover:not(:disabled) {
+    color: var(--color-text);
+    background: oklch(0.26 0.013 265 / 0.7);
+    border-color: var(--color-hairline-strong);
+}
+.arc-btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 主按钮 CTA — accent 默认，warm/danger 用 data-tone */
+.arc-btn-primary {
+    color: oklch(0.14 0 0);
+    background: linear-gradient(135deg, var(--color-accent-2), var(--color-accent));
+    box-shadow:
+        inset 0 1px 0 oklch(1 0 0 / 0.35),
+        0 6px 18px -6px var(--color-accent-glow),
+        0 0 0 1px var(--color-accent-soft);
+    transition: transform 150ms, opacity 150ms;
+}
+.arc-btn-primary[data-tone="warm"] {
+    background: linear-gradient(135deg, var(--color-warm-bright), var(--color-warm));
+    box-shadow:
+        inset 0 1px 0 oklch(1 0 0 / 0.35),
+        0 6px 18px -6px var(--color-warm-glow),
+        0 0 0 1px var(--color-warm-ring);
+}
+.arc-btn-primary[data-tone="danger"] {
+    background: linear-gradient(135deg, var(--color-danger-bright), var(--color-danger-2));
+    box-shadow:
+        inset 0 1px 0 oklch(1 0 0 / 0.35),
+        0 6px 18px -6px var(--color-danger-glow),
+        0 0 0 1px var(--color-danger-ring);
+}
+.arc-btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+.arc-btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}

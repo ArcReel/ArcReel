@@ -7,7 +7,8 @@ import {
   Loader2,
   PackageCheck,
 } from "lucide-react";
-import { Popover } from "@/components/ui/Popover";
+import { GlassPopover } from "@/components/ui/GlassPopover";
+import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { useTranslation } from "react-i18next";
 import type { RefObject, ReactNode } from "react";
 import type { EpisodeMeta } from "@/types/project";
@@ -26,9 +27,6 @@ interface ExportScopeDialogProps {
   onJianyingExport?: (episode: number, draftPath: string, jianyingVersion: string) => void;
   jianyingExporting?: boolean;
 }
-
-const PANEL_BG =
-  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
 
 export function ExportScopeDialog({
   open,
@@ -75,32 +73,13 @@ export function ExportScopeDialog({
   };
 
   return (
-    <Popover
+    <GlassPopover
       open={open}
       onClose={onClose}
       anchorRef={anchorRef}
       sideOffset={8}
       width="w-[22rem]"
-      backgroundColor="transparent"
-      className="overflow-hidden rounded-xl"
-      style={{
-        background: PANEL_BG,
-        border: "1px solid var(--color-hairline)",
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
-        boxShadow:
-          "0 24px 60px -12px oklch(0 0 0 / 0.55), inset 0 1px 0 oklch(1 0 0 / 0.05)",
-      }}
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-px"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
-        }}
-      />
-
       {mode === "select" ? (
         <div className="px-4 pb-3 pt-3.5">
           <div className="mb-2.5 flex items-center gap-2">
@@ -181,16 +160,7 @@ export function ExportScopeDialog({
             <button
               type="button"
               onClick={() => setMode("select")}
-              className="focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors"
-              style={{ color: "var(--color-text-3)" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--color-text)";
-                e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--color-text-3)";
-                e.currentTarget.style.background = "transparent";
-              }}
+              className="arc-close-btn focus-ring grid h-6 w-6 place-items-center rounded-md"
               aria-label={t("common:back")}
             >
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -285,37 +255,25 @@ export function ExportScopeDialog({
               />
             </FormField>
 
-            <button
-              type="button"
+            <PrimaryButton
+              tone="warm"
+              size="sm"
               onClick={handleJianyingSubmit}
               disabled={!draftPath.trim() || jianyingExporting}
-              className="focus-ring inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                color: "oklch(0.14 0 0)",
-                background: `linear-gradient(135deg, var(--color-warm-bright), ${WARM_TONE.color})`,
-                boxShadow: `inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px ${WARM_TONE.glow}, 0 0 0 1px ${WARM_TONE.ring}`,
-              }}
-              onMouseEnter={(e) => {
-                if (!e.currentTarget.disabled)
-                  e.currentTarget.style.transform = "translateY(-1px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
-              }}
-            >
-              {jianyingExporting ? (
-                <>
+              leadingIcon={
+                jianyingExporting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {t("dashboard:exporting")}
-                </>
-              ) : (
-                t("dashboard:export_draft")
-              )}
-            </button>
+                ) : undefined
+              }
+            >
+              {jianyingExporting
+                ? t("dashboard:exporting")
+                : t("dashboard:export_draft")}
+            </PrimaryButton>
           </div>
         </div>
       )}
-    </Popover>
+    </GlassPopover>
   );
 }
 

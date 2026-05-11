@@ -27,12 +27,13 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { useEscapeClose } from "@/hooks/useEscapeClose";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { GlassModal } from "@/components/ui/GlassModal";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
+import { WARM_TONE } from "@/utils/severity-tone";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
@@ -1573,30 +1574,43 @@ function ConflictDialog({
   onCancel: () => void;
 }) {
   const { t } = useTranslation(["common", "dashboard"]);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useEscapeClose(onCancel, !importing);
-  useFocusTrap(dialogRef, true);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="lobby-conflict-title"
-        className="w-full max-w-lg overflow-hidden rounded-2xl border border-hairline bg-bg-grad-a p-6 shadow-2xl"
-      >
-        <div className="flex items-start gap-4">
-          <div
+    <GlassModal
+      open
+      onClose={onCancel}
+      labelledBy="lobby-conflict-title"
+      widthClassName="w-full max-w-lg"
+      hairlineTone="warm"
+      closeOnBackdrop={!importing}
+      closeOnEscape={!importing}
+    >
+      <div className="px-6 pb-6 pt-5">
+        <div className="flex items-start gap-3">
+          <span
             aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warm-tint text-warm-bright"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
+            style={{
+              background:
+                "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
+              border: `1px solid ${WARM_TONE.ring}`,
+              color: WARM_TONE.color,
+              boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
+            }}
           >
-            <AlertTriangle className="h-6 w-6" />
-          </div>
-          <div className="space-y-2">
-            <h2 id="lobby-conflict-title" className="text-lg font-semibold text-text">
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <h2
+              id="lobby-conflict-title"
+              className="display-serif text-[17px] font-semibold tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
               {t("dashboard:duplicate_project_id")}
             </h2>
-            <p className="text-sm leading-6 text-text-3">
+            <p
+              className="text-[12.5px] leading-relaxed"
+              style={{ color: "var(--color-text-3)" }}
+            >
               {t("dashboard:id_intended_hint")}
               <span className="mx-1 rounded bg-bg/70 px-1.5 py-0.5 font-mono text-text">
                 {projectName}
@@ -1641,16 +1655,11 @@ function ConflictDialog({
         </div>
 
         <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={importing}
-            className="rounded-lg border border-hairline px-4 py-2 text-sm text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <SecondaryButton size="sm" onClick={onCancel} disabled={importing}>
             {t("cancel")}
-          </button>
+          </SecondaryButton>
         </div>
       </div>
-    </div>
+    </GlassModal>
   );
 }

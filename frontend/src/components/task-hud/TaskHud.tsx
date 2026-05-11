@@ -9,14 +9,11 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { API } from "@/api";
 import type { TaskItem } from "@/types";
-import { Popover } from "@/components/ui/Popover";
+import { GlassPopover } from "@/components/ui/GlassPopover";
 
 // ---------------------------------------------------------------------------
 // Theme tokens — v3 cool oklch + accent purple
 // ---------------------------------------------------------------------------
-
-const PANEL_BG =
-  "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96))";
 
 const STATUS_COLORS: Record<TaskItem["status"], string> = {
   running: "var(--color-accent-2)",
@@ -460,22 +457,12 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
   const videoTasks = tasks.filter((task) => task.media_type === "video");
 
   return (
-    <Popover
+    <GlassPopover
       open={taskHudOpen}
       onClose={() => setTaskHudOpen(false)}
       anchorRef={anchorRef}
       sideOffset={6}
       width="w-[22rem]"
-      backgroundColor="transparent"
-      className="overflow-hidden rounded-xl"
-      style={{
-        background: PANEL_BG,
-        border: "1px solid var(--color-hairline)",
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
-        boxShadow:
-          "0 24px 60px -12px oklch(0 0 0 / 0.55), inset 0 1px 0 oklch(1 0 0 / 0.05)",
-      }}
     >
       <motion.div
         initial={{ opacity: 0, y: -6 }}
@@ -487,14 +474,6 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
           className="relative flex items-center gap-2 px-4 py-3"
           style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
         >
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-px"
-            style={{
-              background:
-                "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
-            }}
-          />
           <span
             aria-hidden
             className="grid h-7 w-7 place-items-center rounded-lg"
@@ -674,6 +653,6 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
           </div>
         )}
       </motion.div>
-    </Popover>
+    </GlassPopover>
   );
 }
