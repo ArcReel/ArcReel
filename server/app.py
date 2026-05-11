@@ -169,12 +169,10 @@ async def lifespan(app: FastAPI):
 
     # Sync Anthropic DB settings to env vars (Claude Agent SDK reads from os.environ)
     try:
-        from lib.config.service import ConfigService, sync_anthropic_env
+        from lib.config.service import sync_anthropic_env
 
         async with async_session_factory() as session:
-            svc = ConfigService(session)
-            all_settings = await svc.get_all_settings()
-            sync_anthropic_env(all_settings)
+            await sync_anthropic_env(session)
     except Exception as exc:
         logger.warning("DB→env Anthropic config sync failed (non-fatal): %s", exc)
 

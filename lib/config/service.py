@@ -26,18 +26,46 @@ _ANTHROPIC_ENV_MAP: dict[str, str] = {
 }
 
 
-def sync_anthropic_env(all_settings: dict[str, str]) -> None:
-    """Sync Anthropic-related DB settings to environment variables.
+async def sync_anthropic_env(session: AsyncSession) -> None:
+    """把 active credential 同步到 os.environ；无 active 时回退 system_settings。
 
-    The Claude Agent SDK reads config from os.environ, so DB values
-    must be mirrored to env vars for the SDK to pick them up.
+    Claude Agent SDK 子进程从 os.environ 读取这些值，所以必须实时写入。
     """
+    # 局部 import 避免循环依赖（agent_credential_repo → agent_credential model → base）
+    from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+    repo = AgentCredentialRepository(session)
+    cred = await repo.get_active()
+    if cred is not None:
+        env_map: dict[str, str] = {
+            "ANTHROPIC_API_KEY": cred.api_key,
+            "ANTHROPIC_BASE_URL": cred.base_url,
+            "ANTHROPIC_MODEL": cred.model or "",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": cred.haiku_model or "",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model or "",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or "",
+            "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or "",
+        }
+        _apply_env_map(env_map)
+        return
+    # 兼容回退：从旧 system_settings 读
+    settings = await SystemSettingRepository(session).get_all()
+    _sync_from_settings(settings)
+
+
+def _sync_from_settings(all_settings: dict[str, str]) -> None:
+    env_map: dict[str, str] = {}
     for db_key, env_key in _ANTHROPIC_ENV_MAP.items():
-        value = all_settings.get(db_key, "").strip()
-        if value:
-            os.environ[env_key] = value
+        env_map[env_key] = all_settings.get(db_key, "").strip()
+    _apply_env_map(env_map)
+
+
+def _apply_env_map(env_map: dict[str, str]) -> None:
+    for k, v in env_map.items():
+        if v:
+            os.environ[k] = v
         else:
-            os.environ.pop(env_key, None)
+            os.environ.pop(k, None)
 
 
 @dataclass

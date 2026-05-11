@@ -361,9 +361,9 @@ async def patch_system_config(
 
     await session.commit()
 
-    # Sync Anthropic settings to env vars so Claude Agent SDK picks them up
-    all_settings = await svc.get_all_settings()
-    sync_anthropic_env(all_settings)
+    # Sync Anthropic settings to env vars so Claude Agent SDK picks them up.
+    # 旧入口：保留以便用户在新 UI 没生效前还能改 system_settings；新交互通过 /agent/credentials/{id}/activate 触发同步。
+    await sync_anthropic_env(session)
 
     # Return updated config
     return await get_system_config(_user=_user, svc=svc)
