@@ -1,9 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { API } from "@/api";
 import type { PresetProvider } from "@/types/agent-credential";
 
 import { AddCredentialModal } from "../AddCredentialModal";
+
+beforeEach(() => {
+  // 默认 mock：没有自定义供应商，import 按钮不显示，不污染既有断言
+  vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+});
 
 const presets: PresetProvider[] = [
   {
@@ -289,6 +295,116 @@ describe("AddCredentialModal", () => {
       name: /^save$|^保存$|^Lưu$/i,
     });
     expect(submitBtn).toBeDisabled();
+  });
+
+  describe("import from provider", () => {
+    const sampleProvider: import("@/types/custom-provider").CustomProviderInfo = {
+      id: 42,
+      display_name: "DeepSeek (Custom)",
+      discovery_format: "openai",
+      base_url: "https://api.deepseek.com",
+      api_key_masked: "sk-abcd…1234",
+      models: [],
+      created_at: "2026-05-11T00:00:00Z",
+    };
+
+    it("hides import button when no custom providers configured", async () => {
+      render(
+        <AddCredentialModal
+          open
+          presets={presets}
+          customSentinelId="__custom__"
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+      // effect 跑完后仍无按钮（默认 mock 返回空数组）
+      await waitFor(() => {
+        expect(API.listCustomProviders).toHaveBeenCalled();
+      });
+      expect(screen.queryByTestId("import-from-provider")).not.toBeInTheDocument();
+    });
+
+    it("shows import button and lists providers when available", async () => {
+      vi.spyOn(API, "listCustomProviders").mockResolvedValue({
+        providers: [sampleProvider],
+      });
+
+      render(
+        <AddCredentialModal
+          open
+          presets={presets}
+          customSentinelId="__custom__"
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const btn = await screen.findByTestId("import-from-provider");
+      fireEvent.click(btn);
+      expect(await screen.findByTestId("import-provider-option")).toHaveTextContent(
+        "DeepSeek (Custom)",
+      );
+    });
+
+    it("populates base_url + api_key from selected provider", async () => {
+      vi.spyOn(API, "listCustomProviders").mockResolvedValue({
+        providers: [sampleProvider],
+      });
+      vi.spyOn(API, "getCustomProviderCredentials").mockResolvedValue({
+        api_key: "sk-real-key",
+        base_url: "https://api.deepseek.com/anthropic",
+      });
+
+      render(
+        <AddCredentialModal
+          open
+          presets={presets}
+          customSentinelId="__custom__"
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(await screen.findByTestId("import-from-provider"));
+      fireEvent.click(await screen.findByTestId("import-provider-option"));
+
+      const baseUrlInput = (await screen.findByLabelText(
+        /base[_ ]url|代理地址/i,
+      )) as HTMLInputElement;
+      await waitFor(() => {
+        expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
+      });
+
+      const apiKeyInput = screen.getByLabelText(
+        /anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i,
+      ) as HTMLInputElement;
+      expect(apiKeyInput.value).toBe("sk-real-key");
+    });
+
+    it("does not show import button in edit mode", async () => {
+      vi.spyOn(API, "listCustomProviders").mockResolvedValue({
+        providers: [sampleProvider],
+      });
+
+      render(
+        <AddCredentialModal
+          open
+          mode="edit"
+          presets={presets}
+          customSentinelId="__custom__"
+          initial={{ preset_id: "deepseek", display_name: "DS" }}
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      // edit 模式即使有可导入供应商也不显示按钮（避免误操作覆盖现有凭证）
+      // 等几个事件循环确保 effect 不会触发（edit 模式 effect 不该调 API）
+      await new Promise((r) => setTimeout(r, 0));
+      expect(API.listCustomProviders).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("import-from-provider")).not.toBeInTheDocument();
+    });
   });
 
   it("disables preset chips in edit mode", () => {

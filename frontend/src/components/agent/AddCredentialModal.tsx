@@ -1,5 +1,14 @@
-import { ChevronDown, ExternalLink, Loader2, Search, SlidersHorizontal, Star, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import {
+  ChevronDown,
+  Download,
+  ExternalLink,
+  Loader2,
+  Search,
+  SlidersHorizontal,
+  Star,
+  X,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
@@ -11,13 +20,16 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
+import { Popover } from "@/components/ui/Popover";
 import { useCredentialForm } from "@/hooks/useCredentialForm";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useAppStore } from "@/stores/app-store";
 import type {
   CreateAgentCredentialRequest,
   PresetProvider,
 } from "@/types/agent-credential";
+import type { CustomProviderInfo } from "@/types/custom-provider";
 import { errMsg } from "@/utils/async";
 
 import { PresetIcon } from "./PresetIcon";
@@ -58,6 +70,29 @@ export function AddCredentialModal({
         initial?.haiku_model || initial?.sonnet_model || initial?.opus_model || initial?.subagent_model,
       ),
   );
+  // 从自定义供应商导入：列出已配置 api_key 的 providers，选中后填充 baseUrl + apiKey 草稿
+  const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open || mode !== "create") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await API.listCustomProviders();
+        if (!cancelled) {
+          setProviders(res.providers.filter((p) => p.api_key_masked));
+        }
+      } catch {
+        // 静默：导入是可选快捷入口，失败不打断主流程
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode]);
 
   const selected: PresetProvider | null = useMemo(() => {
     if (form.presetId === customSentinelId) return null;
@@ -106,6 +141,30 @@ export function AddCredentialModal({
     }
   };
 
+  const handleImportProvider = async (provider: CustomProviderInfo) => {
+    setImporting(true);
+    try {
+      const cred = await API.getCustomProviderCredentials(provider.id);
+      // 切到 __custom__：避免预设的 messages_url 覆盖刚导入的 base_url
+      form.setPreset(customSentinelId);
+      form.setApiKey(cred.api_key);
+      form.setBaseUrl(cred.base_url);
+      if (!form.displayName.trim()) {
+        form.setDisplayName(provider.display_name);
+      }
+      setModelOptions([]);
+      setDiscoverError(null);
+      useAppStore
+        .getState()
+        .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setImporting(false);
+      setImportPickerOpen(false);
+    }
+  };
+
   const handleSubmit = async () => {
     setSubmitting(true);
     setSubmitError(null);
@@ -142,21 +201,61 @@ export function AddCredentialModal({
         style={DROPDOWN_PANEL_STYLE}
       >
         {/* Header */}
-        <div className="mb-4 flex items-start justify-between">
+        <div className="mb-4 flex items-start justify-between gap-3">
           <h3
             id="cred-modal-title"
             className="text-[15px] font-medium text-text"
           >
             {mode === "edit" ? t("edit_credential_title") : t("add_credential")}
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-text-3 hover:text-text"
-            aria-label="close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {mode === "create" && providers.length > 0 && (
+              <>
+                <button
+                  ref={importTriggerRef}
+                  type="button"
+                  onClick={() => setImportPickerOpen((v) => !v)}
+                  disabled={importing}
+                  data-testid="import-from-provider"
+                  className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-2 transition hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {importing ? (
+                    <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+                  ) : (
+                    <Download className="h-3 w-3" aria-hidden />
+                  )}
+                  {t("import_from_provider")}
+                </button>
+                <Popover
+                  open={importPickerOpen}
+                  onClose={() => setImportPickerOpen(false)}
+                  anchorRef={importTriggerRef}
+                  width="w-64"
+                  className="rounded-[8px] border border-hairline py-1 shadow-lg"
+                >
+                  {providers.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => void handleImportProvider(p)}
+                      data-testid="import-provider-option"
+                      className="block w-full truncate px-3 py-2 text-left text-[12px] text-text-2 hover:bg-bg-grad-a/50"
+                    >
+                      {p.display_name}
+                    </button>
+                  ))}
+                </Popover>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-text-3 hover:text-text"
+              aria-label="close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Preset grid — 3 列固定网格,自定义永远固定首格,推荐项次之 */}
