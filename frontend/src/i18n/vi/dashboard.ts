@@ -1170,7 +1170,7 @@ export default {
   'workspace_nav_scenes': 'Cảnh',
   'workspace_nav_source': 'Tệp gốc',
   'workspace_notifications_title': 'Thông báo không gian làm việc',
-  'anthropic_bridge': 'Cầu nối Anthropic',
+  'anthropic_bridge': 'Anthropic Bridge',
   'agent_credentials': 'Nhà cung cấp Agent',
   'claude_compat_providers': 'Nhà cung cấp Claude',
   'unified_providers_coming_soon': 'Nhà cung cấp thống nhất (sắp ra mắt)',
