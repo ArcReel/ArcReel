@@ -413,6 +413,8 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
             className={GHOST_BTN_CLS}
           >
             <Upload className="h-3 w-3" />
+            {/* 渲染期读取 <input type="file"> 的当前选择名展示给用户，仅读不写 */}
+            {/* eslint-disable-next-line react-hooks/refs */}
             {fileRef.current?.files?.[0]?.name ?? t("select_json_file")}
           </button>
           <input
@@ -509,6 +511,8 @@ export function CredentialList({ providerId, onChanged }: Props) {
   const isVertex = providerId === "gemini-vertex";
 
   const onChangedRef = useRef(onChanged);
+  // 每次渲染同步最新 onChanged 回调，供异步刷新后调用
+  // eslint-disable-next-line react-hooks/refs
   onChangedRef.current = onChanged;
 
   const refresh = useCallback(async () => {
@@ -526,6 +530,8 @@ export function CredentialList({ providerId, onChanged }: Props) {
   }, [refresh]);
 
   useEffect(() => {
+    // providerId 变化时重置加载态并重新拉取，属于动作驱动的状态重置
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setShowAdd(false);
     void refresh();
@@ -573,6 +579,8 @@ export function CredentialList({ providerId, onChanged }: Props) {
       )}
 
       <div className="space-y-1.5">
+        {/* 子组件 onChanged 通过 voidPromise 包装 ref 持有的最新回调 */}
+        {/* eslint-disable-next-line react-hooks/refs */}
         {credentials.map((c) => (
           <CredentialRow
             key={c.id}

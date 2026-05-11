@@ -180,6 +180,8 @@ export function GridPreviewPanel({
     let cancelled = false;
     // Clear stale data and show spinner when switching batches
     if (!grid || grid.id !== selectedGridId) {
+      // 切换批次时清空旧数据并展示加载状态，再触发异步 fetch
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(true);
       setGrid(null);
     }

@@ -91,7 +91,10 @@ export function StudioCanvasRouter() {
   }, [providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
 
   useEffect(() => {
+    // 依赖变化时清理旧的 resolved 选项；本地 lookup 有结果或缺项目名时同步清零，
+    // 否则在异步拉取新项目的 /video-capabilities 之前先 reset 以避免沿用旧值。
     if (localDurationOptions !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResolvedDurationOptions(undefined);
       return;
     }
@@ -99,7 +102,6 @@ export function StudioCanvasRouter() {
       setResolvedDurationOptions(undefined);
       return;
     }
-    // 切项目时先清空旧值，避免在新项目的 /video-capabilities 返回前继续沿用上个项目的时长选项
     setResolvedDurationOptions(undefined);
     let disposed = false;
     API.getVideoCapabilities(currentProjectName)

@@ -116,8 +116,6 @@ function isWorkspaceEditing(): boolean {
 
 export function useProjectEventsSSE(projectName?: string | null): void {
   const { t } = useTranslation("dashboard");
-  const tRef = useRef(t);
-  tRef.current = t;
   const [, setLocation] = useLocation();
   const setCurrentProject = useProjectsStore((s) => s.setCurrentProject);
   const invalidateEntities = useAppStore((s) => s.invalidateEntities);
@@ -172,20 +170,25 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
     refreshingRef.current = true;
     try {
-      const res = await API.getProject(projectName);
-      setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
+      // while 循环替代递归自调用，规避 react-hooks/immutability 的自引用限制。
+      // 任何在 API 调用过程中触发的额外刷新请求，会通过 needsRefreshRef 在循环内消费。
+      let again = true;
+      while (again) {
+        again = false;
+        const res = await API.getProject(projectName);
+        setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
+        if (needsRefreshRef.current) {
+          needsRefreshRef.current = false;
+          again = true;
+        }
+      }
     } catch (err) {
-      pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning");
+      pushNotification(t("project_sync_failed", { message: errMsg(err) }), "warning");
     } finally {
       refreshingRef.current = false;
     }
-    if (needsRefreshRef.current) {
-      needsRefreshRef.current = false;
-      void refreshProject();
-      return;
-    }
     flushQueuedFocus();
-  }, [flushQueuedFocus, projectName, pushNotification, setCurrentProject]);
+  }, [flushQueuedFocus, projectName, pushNotification, setCurrentProject, t]);
 
   useEffect(() => {
     lastFingerprintRef.current = null;

@@ -106,6 +106,8 @@ export function ProviderSection() {
 
   useEffect(() => {
     let disposed = false;
+    // mount 时重置 loading/error 后并行拉取 preset+custom 列表
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setLoadError(null);
     voidCall(

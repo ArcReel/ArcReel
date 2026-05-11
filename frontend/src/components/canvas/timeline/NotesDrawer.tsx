@@ -22,7 +22,6 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
 
   useEffect(() => {
     if (committedRef.current !== value) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部 value 变更时同步本地草稿（拷贝模式）
       setDraft(value);
       committedRef.current = value;
     }

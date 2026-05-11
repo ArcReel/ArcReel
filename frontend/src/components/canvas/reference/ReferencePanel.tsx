@@ -73,7 +73,7 @@ const SortableChip = memo(function SortableChip({
       removable
       onRemove={() => onRemove(refItem)}
       dragAttributes={attributes as unknown as Record<string, unknown>}
-      dragListeners={listeners as unknown as Record<string, unknown>}
+      dragListeners={listeners}
       isDragging={isDragging}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     />
