@@ -308,7 +308,7 @@ describe("AddCredentialModal", () => {
       created_at: "2026-05-11T00:00:00Z",
     };
 
-    it("hides import button when no custom providers configured", async () => {
+    it("shows empty state in popover when no custom providers configured", async () => {
       render(
         <AddCredentialModal
           open
@@ -318,11 +318,15 @@ describe("AddCredentialModal", () => {
           onClose={vi.fn()}
         />,
       );
-      // effect 跑完后仍无按钮（默认 mock 返回空数组）
+      // 按钮始终显示在 create 模式，点开后给空态文案，让用户知道功能存在
+      const btn = await screen.findByTestId("import-from-provider");
+      fireEvent.click(btn);
       await waitFor(() => {
-        expect(API.listCustomProviders).toHaveBeenCalled();
+        expect(
+          screen.getByText(/no custom providers|暂无可导入|Không có nhà cung cấp/i),
+        ).toBeInTheDocument();
       });
-      expect(screen.queryByTestId("import-from-provider")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("import-provider-option")).not.toBeInTheDocument();
     });
 
     it("shows import button and lists providers when available", async () => {
