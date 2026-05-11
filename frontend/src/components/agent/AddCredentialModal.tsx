@@ -91,6 +91,9 @@ export function AddCredentialModal({
   useEffect(() => {
     if (!open || mode !== "create") return;
     let cancelled = false;
+    // 拉取前先清旧列表：失败时不会残留上一轮 providers（同一 React 组件实例
+    // 跨 modal 会话保留 state），避免用户点到已删除/失效的 provider 触发 404。
+    setProviders([]);
     void (async () => {
       try {
         const res = await API.listCustomProviders();
@@ -632,6 +635,7 @@ function PresetChip({
       data-testid={dataTestid}
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={selected}
       title={title}
       className={`group inline-flex items-center justify-start gap-1.5 truncate rounded-[8px] border px-2.5 py-1.5 text-left text-[12px] transition disabled:cursor-not-allowed disabled:opacity-60 ${
         selected
