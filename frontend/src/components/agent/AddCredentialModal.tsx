@@ -209,7 +209,7 @@ export function AddCredentialModal({
             {mode === "edit" ? t("edit_credential_title") : t("add_credential")}
           </h3>
           <div className="flex items-center gap-2">
-            {mode === "create" && (
+            {mode === "create" && providers.length > 0 && (
               <>
                 <button
                   ref={importTriggerRef}
@@ -231,25 +231,21 @@ export function AddCredentialModal({
                   onClose={() => setImportPickerOpen(false)}
                   anchorRef={importTriggerRef}
                   width="w-64"
+                  // modal 容器是 z-50；默认 Popover layer 是 z-40 会被 modal 遮挡
+                  layer="modal"
                   className="rounded-[8px] border border-hairline py-1 shadow-lg"
                 >
-                  {providers.length === 0 ? (
-                    <div className="px-3 py-2 text-[12px] text-text-3">
-                      {t("import_no_providers")}
-                    </div>
-                  ) : (
-                    providers.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => void handleImportProvider(p)}
-                        data-testid="import-provider-option"
-                        className="block w-full truncate px-3 py-2 text-left text-[12px] text-text-2 hover:bg-bg-grad-a/50"
-                      >
-                        {p.display_name}
-                      </button>
-                    ))
-                  )}
+                  {providers.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => void handleImportProvider(p)}
+                      data-testid="import-provider-option"
+                      className="block w-full truncate px-3 py-2 text-left text-[12px] text-text-2 hover:bg-bg-grad-a/50"
+                    >
+                      {p.display_name}
+                    </button>
+                  ))}
                 </Popover>
               </>
             )}
