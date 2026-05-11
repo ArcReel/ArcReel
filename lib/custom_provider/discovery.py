@@ -8,7 +8,7 @@ import logging
 from google import genai
 from openai import OpenAI
 
-from lib.config.url_utils import ensure_anthropic_base_url
+from lib.config.anthropic_url import derive_anthropic_endpoints
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
 from lib.httpx_shared import get_http_client
 
@@ -78,7 +78,8 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     返回 dict 与 OpenAI/Google 路径同形态，但 endpoint 字段为空字符串
     （anthropic 不参与 ENDPOINT_REGISTRY 派发，前端只读 model_id）。
     """
-    normalized = ensure_anthropic_base_url(base_url) or "https://api.anthropic.com"
+    ep = derive_anthropic_endpoints(base_url or "https://api.anthropic.com")
+    normalized = ep.discovery_root or "https://api.anthropic.com"
     resp = await get_http_client().get(
         f"{normalized}/v1/models",
         headers={

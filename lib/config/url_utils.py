@@ -51,7 +51,8 @@ def ensure_google_base_url(url: str | None) -> str | None:
         return None
     url = url.rstrip("/")
     # 剥离末尾的版本路径（/v1, /v1beta, /v1alpha 等）
-    url = re.sub(r"/v\d+\w*$", "", url)
+    # 用 [a-zA-Z] 代替 \w：\d+\w* 的重叠会触发 CodeQL polynomial regex 警告
+    url = re.sub(r"/v\d+[a-zA-Z]*$", "", url)
     if not url.endswith("/"):
         url += "/"
     return url
@@ -62,7 +63,7 @@ def ensure_anthropic_base_url(url: str | None) -> str | None:
 
     @anthropic-ai/sdk 内部会拼接 /v1/messages、/v1/models 等，所以
     base_url 必须是根级形态。如用户填了 https://example.com/v1 或
-    /v1/messages 等带版本前缀的形式，需要剥掉，否则会拼出
+    /v1beta、/v1/messages 等带版本前缀的形式，需要剥掉，否则会拼出
     /v1/v1/messages 报 404。
     """
     if not url:
@@ -70,6 +71,8 @@ def ensure_anthropic_base_url(url: str | None) -> str | None:
     s = url.strip().rstrip("/")
     if not s:
         return None
-    s = re.sub(r"/v\d+(?:/messages)?$", "", s)
+    # [a-zA-Z]* 兼容 /v1beta /v2alpha 等带后缀的版本号
+    # 用 [a-zA-Z] 代替 \w：\d+\w* 的重叠会触发 CodeQL polynomial regex 警告
+    s = re.sub(r"/v\d+[a-zA-Z]*(?:/messages)?$", "", s)
     s = re.sub(r"/messages$", "", s)
     return s

@@ -243,6 +243,14 @@ class TestPatchSystemConfig:
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
 
+        # sync_anthropic_env 会调用 session.execute()。
+        # get_active() → execute → scalar_one_or_none() 返回 None（无 active 凭证）。
+        # get_all() (SystemSettingRepository) → execute → scalars() 返回空迭代器。
+        _exec_result = MagicMock()
+        _exec_result.scalar_one_or_none.return_value = None
+        _exec_result.scalars.return_value = iter([])
+        mock_session.execute = AsyncMock(return_value=_exec_result)
+
         async def _override_session():
             yield mock_session
 

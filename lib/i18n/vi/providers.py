@@ -15,4 +15,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_grok": "Các mô hình Grok của xAI hỗ trợ tạo video và tạo ảnh.",
     "provider_desc_openai": "Nền tảng OpenAI hỗ trợ văn bản GPT-5.4, GPT Image và tạo video Sora.",
     "provider_desc_vidu": "Nền tảng Vidu của Shengshu hỗ trợ tạo video từ văn bản, từ ảnh, khung đầu–cuối, video tham chiếu và ảnh tham chiếu. Chỉ hỗ trợ ảnh và video.",
+    # Agent preset notes (lib/agent_provider_catalog.py)
+    "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
+    "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",
 }

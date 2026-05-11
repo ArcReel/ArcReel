@@ -131,4 +131,11 @@ MESSAGES = {
     "image_endpoint_mismatch_no_t2i": "Mô hình {model} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image",
     "image_capability_missing_i2i": "{provider}/{model} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh",
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
+    # Agent credentials
+    "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
+    "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",
+    "agent_no_fields_to_update": "Không có trường nào để cập nhật",
+    "agent_credential_not_found": "Không tìm thấy xác thực",
+    "agent_cannot_delete_active": "Không thể xóa xác thực đang hoạt động; hãy kích hoạt xác thực khác trước",
+    "agent_test_validation_error": "Kiểm tra kết nối thất bại: {error}",
 }

@@ -198,6 +198,12 @@ class SystemConfigPatchRequest(BaseModel):
 
 
 # Setting keys that map directly to string DB settings
+#
+# DEPRECATED: anthropic_api_key / anthropic_base_url 已迁移至 agent_anthropic_credentials 表
+# (spec 2026-05-11-agent-url-config-optimization)。这里保留 anthropic_base_url 读写仅作旧客户端
+# 兼容；新 UI 走 /api/v1/agent/credentials/* 接口，sync_anthropic_env() 会优先读 active credential
+# 再回退到 system_settings。计划在 0.14.0 删除 anthropic_api_key / anthropic_base_url 字段，
+# anthropic_*_model 系列保留（仍由 Section 2 Model Routing 管理）。
 _STRING_SETTINGS = (
     "anthropic_base_url",
     "anthropic_model",
@@ -231,6 +237,14 @@ async def get_system_config(
         else ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
     )
     anthropic_key = all_s.get("anthropic_api_key", "")
+    # 兼容新凭证目录：旧 system_settings 没填但 agent_anthropic_credentials 有 active 时
+    # 也算 is_set，避免 dashboard "未配置" 红点误报
+    if not anthropic_key:
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+        active_cred = await AgentCredentialRepository(session).get_active()
+        if active_cred is not None:
+            anthropic_key = active_cred.api_key
 
     settings: dict[str, Any] = {
         "default_video_backend": all_s.get("default_video_backend", ""),
@@ -361,9 +375,9 @@ async def patch_system_config(
 
     await session.commit()
 
-    # Sync Anthropic settings to env vars so Claude Agent SDK picks them up
-    all_settings = await svc.get_all_settings()
-    sync_anthropic_env(all_settings)
+    # Sync Anthropic settings to env vars so Claude Agent SDK picks them up.
+    # 旧入口：保留以便用户在新 UI 没生效前还能改 system_settings；新交互通过 /agent/credentials/{id}/activate 触发同步。
+    await sync_anthropic_env(session)
 
     # Return updated config
-    return await get_system_config(_user=_user, svc=svc)
+    return await get_system_config(_user=_user, svc=svc, session=session)
