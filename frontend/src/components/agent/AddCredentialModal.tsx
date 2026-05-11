@@ -83,6 +83,11 @@ export function AddCredentialModal({
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
   const [testedBaseUrl, setTestedBaseUrl] = useState<string | null>(null);
 
+  // 异步竞态隔离：modal 重开（或父组件切到另一条凭证）后，旧 session 里
+  // discover/test/import 的 await 仍可能返回并写 state。每次 reset effect 里
+  // bump 一次，async 路径在 await 后比对 session id，不一致则丢弃结果。
+  const sessionRef = useRef(0);
+
   useEffect(() => {
     if (!open || mode !== "create") return;
     let cancelled = false;
@@ -102,16 +107,21 @@ export function AddCredentialModal({
   }, [open, mode]);
 
   // 父组件复用 modal 时只切换 open/initial，本地一次性诊断状态不会自动清。
-  // 重开（或切换到另一条凭证）时把模型列表、错误、测试结果全部归零，
-  // 并按新 initial 重算 advancedOpen，否则上一条凭证的"连接成功"面板会串到
-  // 新表单，且折叠状态也会泄漏。
+  // 重开（或切换到另一条凭证）时把模型列表、错误、测试结果、popover、inflight
+  // loading 全部归零，按新 initial 重算 advancedOpen，bump sessionRef 让旧
+  // session 的 await 返回时丢弃结果。
   useEffect(() => {
+    sessionRef.current += 1;
     if (!open) return;
     setModelOptions([]);
     setDiscoverError(null);
     setSubmitError(null);
     setTestResult(null);
     setTestedBaseUrl(null);
+    setImportPickerOpen(false);
+    setDiscovering(false);
+    setTesting(false);
+    setImporting(false);
     setAdvancedOpen(
       mode === "edit" &&
         Boolean(
@@ -137,14 +147,21 @@ export function AddCredentialModal({
     setTestedBaseUrl(null);
   };
 
-  const handlePresetClick = (id: string) => {
-    form.setPreset(id);
+  // modelOptions 是按 (endpoint, credential) 元组发现出来的；base_url 或 api_key
+  // 变了，旧列表里的 id 在新 endpoint 不一定支持，让它失效避免用户保存无效配置。
+  const invalidateDiscoveredModels = () => {
     setModelOptions([]);
     setDiscoverError(null);
+  };
+
+  const handlePresetClick = (id: string) => {
+    form.setPreset(id);
+    invalidateDiscoveredModels();
     invalidateDraftTest();
   };
 
   const handleDiscover = async () => {
+    const session = sessionRef.current;
     setDiscovering(true);
     setDiscoverError(null);
     try {
@@ -156,17 +173,18 @@ export function AddCredentialModal({
           ? ""
           : selected?.discovery_url || selected?.messages_url || "");
       if (!discoverBase) {
-        setDiscoverError(t("discover_no_base"));
+        if (session === sessionRef.current) setDiscoverError(t("discover_no_base"));
         return;
       }
       if (!form.apiKey.trim()) {
-        setDiscoverError(t("discover_api_key_required"));
+        if (session === sessionRef.current) setDiscoverError(t("discover_api_key_required"));
         return;
       }
       const res = await API.discoverAnthropicModels({
         base_url: discoverBase,
         api_key: form.apiKey,
       });
+      if (session !== sessionRef.current) return;
       setModelOptions(res.models.map((m) => m.model_id));
       const toast = useAppStore.getState().pushToast;
       if (res.models.length === 0) {
@@ -175,16 +193,18 @@ export function AddCredentialModal({
         toast(t("discover_models_success", { count: res.models.length }), "success");
       }
     } catch (err) {
-      setDiscoverError(errMsg(err));
+      if (session === sessionRef.current) setDiscoverError(errMsg(err));
     } finally {
-      setDiscovering(false);
+      if (session === sessionRef.current) setDiscovering(false);
     }
   };
 
   const handleImportProvider = async (provider: CustomProviderInfo) => {
+    const session = sessionRef.current;
     setImporting(true);
     try {
       const cred = await API.getCustomProviderCredentials(provider.id);
+      if (session !== sessionRef.current) return;
       // 切到 __custom__：避免预设的 messages_url 覆盖刚导入的 base_url
       form.setPreset(customSentinelId);
       form.setApiKey(cred.api_key);
@@ -192,21 +212,25 @@ export function AddCredentialModal({
       if (!form.displayName.trim()) {
         form.setDisplayName(provider.display_name);
       }
-      setModelOptions([]);
-      setDiscoverError(null);
+      invalidateDiscoveredModels();
       invalidateDraftTest();
       useAppStore
         .getState()
         .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
+      if (session === sessionRef.current) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      }
     } finally {
-      setImporting(false);
-      setImportPickerOpen(false);
+      if (session === sessionRef.current) {
+        setImporting(false);
+        setImportPickerOpen(false);
+      }
     }
   };
 
   const handleTest = async () => {
+    const session = sessionRef.current;
     setTesting(true);
     // 失败时清旧的"连接成功"面板，避免用户看到上一次的过期结果
     setTestResult(null);
@@ -219,19 +243,22 @@ export function AddCredentialModal({
         api_key: form.apiKey,
         model: form.model || undefined,
       });
+      if (session !== sessionRef.current) return;
       setTestResult(res);
     } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
+      if (session === sessionRef.current) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      }
     } finally {
-      setTesting(false);
+      if (session === sessionRef.current) setTesting(false);
     }
   };
 
   const handleApplyFix = (suggestedBaseUrl: string) => {
     form.setBaseUrl(suggestedBaseUrl);
-    // 修复后清空旧结果，鼓励用户再点测试验证
-    setTestResult(null);
-    setTestedBaseUrl(null);
+    // base_url 变了 → 旧 discovery 和测试结果都不再可信，鼓励用户重新发现+测试
+    invalidateDiscoveredModels();
+    invalidateDraftTest();
   };
 
   const handleSubmit = async () => {
@@ -380,6 +407,7 @@ export function AddCredentialModal({
               value={form.baseUrl}
               onChange={(e) => {
                 form.setBaseUrl(e.target.value);
+                invalidateDiscoveredModels();
                 invalidateDraftTest();
               }}
               placeholder="https://api.example.com/anthropic"
@@ -410,6 +438,7 @@ export function AddCredentialModal({
               value={form.apiKey}
               onChange={(e) => {
                 form.setApiKey(e.target.value);
+                invalidateDiscoveredModels();
                 invalidateDraftTest();
               }}
               autoComplete="off"
