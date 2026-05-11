@@ -222,6 +222,7 @@ async def run_test(
         preset = get_preset(preset_id)
         if preset is None:
             raise ValueError(f"unknown preset: {preset_id!r}")
+        # has_explicit_suffix=True 抑制自愈分支；preset URL 视为权威，不需补 /anthropic
         ep = AnthropicEndpoints(
             messages_root=preset.messages_url,
             discovery_root=preset.discovery_url or "",
@@ -247,6 +248,7 @@ async def run_test(
         and not ep.has_explicit_suffix
         and msg.status_code in _RETRYABLE_STATUS_FOR_SELF_HEAL
     ):
+        # 仅尝试补 /anthropic（覆盖 DeepSeek/Kimi/MiniMax/Hunyuan/MiMo）；其他网关 (/api/anthropic 等) 走预设
         retry_root = ep.messages_root.rstrip("/") + "/anthropic"
         retry = await probe_messages(messages_root=retry_root, api_key=api_key, model=effective_model)
         if retry.success:

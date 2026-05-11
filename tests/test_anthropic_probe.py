@@ -234,3 +234,71 @@ async def test_run_test_preset_skips_self_heal() -> None:
         )
     assert resp.overall == "fail"
     assert resp.suggestion is None
+
+
+@pytest.mark.asyncio
+async def test_run_test_custom_mode_requires_base_url() -> None:
+    with pytest.raises(ValueError, match="base_url required"):
+        await run_test(preset_id=None, base_url=None, api_key="sk", model=None)
+
+
+@pytest.mark.asyncio
+async def test_run_test_unknown_preset_raises() -> None:
+    with pytest.raises(ValueError, match="unknown preset"):
+        await run_test(preset_id="bogus-preset", base_url=None, api_key="sk", model=None)
+
+
+@pytest.mark.asyncio
+async def test_run_test_self_heal_retry_also_fails_keeps_original_failure() -> None:
+    """自愈重试也失败 → suggestion=None，diagnosis=UNKNOWN（来自 classify_probe_failure）。"""
+    seq = [
+        httpx.Response(404, text="not found"),  # 原 URL
+        httpx.Response(404, text="still not found"),  # +/anthropic 重试
+        httpx.Response(200, json={"data": []}),  # discovery
+    ]
+
+    async def fake_post(*, url, **_kw):
+        return seq.pop(0)
+
+    async def fake_get(*, url, **_kw):
+        return seq.pop(0)
+
+    with (
+        patch("lib.config.anthropic_probe._post", AsyncMock(side_effect=fake_post)),
+        patch("lib.config.anthropic_probe._get", AsyncMock(side_effect=fake_get)),
+    ):
+        resp = await run_test(
+            preset_id=CUSTOM_SENTINEL_ID,
+            base_url="https://api.example.com",
+            api_key="sk",
+            model=None,
+        )
+
+    assert resp.overall == "fail"
+    assert resp.suggestion is None
+    # 404 + body lacking "model" keyword → UNKNOWN
+    assert resp.diagnosis == DiagnosisCode.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_probe_discovery_non_2xx_marks_failure() -> None:
+    fake = httpx.Response(404, text="not found")
+    with patch("lib.config.anthropic_probe._get", AsyncMock(return_value=fake)):
+        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk")
+    assert result is not None
+    assert result.success is False
+    assert result.status_code == 404
+    assert "not found" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_probe_discovery_network_error() -> None:
+    with patch(
+        "lib.config.anthropic_probe._get",
+        AsyncMock(side_effect=httpx.ConnectError("dns fail")),
+    ):
+        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk")
+    assert result is not None
+    assert result.success is False
+    assert result.status_code is None
+    assert "dns fail" in (result.error or "").lower()
