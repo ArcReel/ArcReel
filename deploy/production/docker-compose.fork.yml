@@ -1,0 +1,30 @@
+# Fork-private compose override — self-hosted build for StoryFlow.
+#
+# 上游 docker-compose.yml 用预构建的 ghcr.io/arcreel/arcreel:latest 镜像；
+# 本 fork 包含上游没有的功能（user-roles、品牌定制等），所以需要本地构建。
+# 通过 override 文件分离改动，避免污染上游高频文件，rebase 不冲突。
+#
+# 使用方法：
+#   docker compose -f docker-compose.yml -f docker-compose.fork.yml up -d --build
+#
+# 前置：先把 frontend.env.fork 拷到 frontend/.env，Vite 会自动读取并注入
+# VITE_BRAND_* 到构建产物。
+
+services:
+  arcreel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    # 限制 json-file 日志大小，避免长期堆积占盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  postgres:
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
