@@ -237,6 +237,14 @@ async def get_system_config(
         else ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
     )
     anthropic_key = all_s.get("anthropic_api_key", "")
+    # 兼容新凭证目录：旧 system_settings 没填但 agent_anthropic_credentials 有 active 时
+    # 也算 is_set，避免 dashboard "未配置" 红点误报
+    if not anthropic_key:
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+        active_cred = await AgentCredentialRepository(session).get_active()
+        if active_cred is not None:
+            anthropic_key = active_cred.api_key
 
     settings: dict[str, Any] = {
         "default_video_backend": all_s.get("default_video_backend", ""),
@@ -372,4 +380,4 @@ async def patch_system_config(
     await sync_anthropic_env(session)
 
     # Return updated config
-    return await get_system_config(_user=_user, svc=svc)
+    return await get_system_config(_user=_user, svc=svc, session=session)
