@@ -26,7 +26,14 @@ from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
 logger = logging.getLogger(__name__)
 
-PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
+# fork-private 项目名称格式：允许单段 slug（如 my-demo-abcd1234）或双段 owner__project（如 alice__my-demo-abcd1234），
+# 项目目录名形式：
+#   - 上游原形：单段 slug ``my-demo-abcd1234``（仅 ``[A-Za-z0-9-]``）
+#   - fork 扩展：双段 ``<owner>__<project>``例如 ``alice__my-demo-abcd1234``
+#   — 只有一个 ``__`` 作为 owner / project 分隔符，两段内部仍严禁 ``_``。
+# fork 语义详见 :mod:`lib.fork_permissions`。之所以在上游模块内同步放宽，是因为 skill
+# 脚本在独立子进程中调用 ``ProjectManager``，server 运行时的 monkey-patch 无法跨进程生效。
+PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+(?:__[A-Za-z0-9-]+)?$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
 _VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}

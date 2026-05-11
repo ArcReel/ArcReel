@@ -64,7 +64,7 @@ class _FakePM:
         return {"current_stage": "source_ready"}
 
     def create_project(self, name):
-        if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
+        if not name or not re.fullmatch(r"[A-Za-z0-9-]+(?:__[A-Za-z0-9-]+)?", name):
             raise ValueError("项目标识仅允许英文字母、数字和中划线")
         if name == "exists":
             raise FileExistsError(name)

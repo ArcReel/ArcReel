@@ -5,17 +5,18 @@
 
 工作方式：
 - :func:`install_project_guards` 在所有 ``app.include_router`` 之后调用一次：
-  1. monkey-patch ``lib.project_manager.PROJECT_NAME_PATTERN`` 让其接受单一
-     ``__`` 切分符（owner 段与 project 段）。
-  2. 遍历 ``app.routes``，按 path param（``name`` / ``project_name``）识别项目
+  1. 遍历 ``app.routes``，按 path param（``name`` / ``project_name``）识别项目
      级路由，按需把 :func:`require_project_access`（或 ``_flexible`` 变体）注入到
      route 的 dependants 链 — 这跟 router 启动时手写 ``dependencies=[...]`` 等
      效，但代码侵入归零。
-  3. 注册一个 HTTP middleware：
+  2. 注册一个 HTTP middleware：
      - ``GET /api/v1/projects`` 列表响应按 role 过滤 + 注入 ``owner`` 字段。
      - ``POST /api/v1/projects`` 请求 body 注入 ``<owner>__`` 前缀。
 - ``/export``、``/export/jianying-draft`` 浏览器原生下载用 download_token 自带项目
   绑定，跳过 dep 注入和 middleware。
+- ``<owner>__<project>`` 形式的项目名校验在 ``lib/project_manager.py`` 的
+  ``PROJECT_NAME_PATTERN`` 内放宽（skill 脚本子进程也要走该校验，monkey-patch
+  无法跨进程，详见该模块注释）。
 
 漂移风险：
 - 上游若改 path param 名（如把 ``project_name`` 改成 ``project``）→
@@ -225,20 +226,11 @@ async def _filter_list_response(request: Request, response: Response) -> Respons
 # ---------------------------------------------------------------------------
 
 
-def _patch_project_name_pattern() -> None:
-    """允许项目目录名带单一 ``__`` 切分符（owner 段 / project 段）。"""
-    from lib import project_manager as pm_module
-
-    pm_module.PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+(?:__[A-Za-z0-9-]+)?$")
-
-
 def install_project_guards(app: FastAPI) -> None:
     """挂载项目级访问守卫到 ``app``。幂等。"""
     if getattr(app.state, "_fork_project_guard_installed", False):
         return
     app.state._fork_project_guard_installed = True
-
-    _patch_project_name_pattern()
 
     attached = 0
     for route in app.routes:
