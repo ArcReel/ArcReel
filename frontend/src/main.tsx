@@ -6,11 +6,20 @@ import { createRoot } from "react-dom/client";
 import { AppRoutes } from "./router";
 import { useAuthStore } from "@/stores/auth-store";
 import { i18nReady } from "@/i18n";
+import { BRAND, BRAND_DOCUMENT_TITLE } from "@/branding";
 
 import "./index.css";
 import "./css/styles.css";
 import "./css/app.css";
 import "./css/studio.css";
+
+// 启动时按 BRAND 设置文档标题与 meta description（index.html 中的
+// <title> 与 <meta name="description"> 仅作为加载阶段的占位）。
+document.title = BRAND_DOCUMENT_TITLE;
+const metaDescription = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+if (metaDescription) {
+  metaDescription.content = BRAND.description;
+}
 
 // 从 localStorage 恢复登录状态
 useAuthStore.getState().initialize();

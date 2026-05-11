@@ -5,6 +5,7 @@ import { errMsg, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
+import { BRAND } from "@/branding";
 import type { LoginResponse, ErrorResponse } from "@/api";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import {
@@ -79,7 +80,7 @@ export function LoginPage() {
           </div>
           <h1 className="font-editorial mt-1 flex items-center justify-center gap-2 text-[28px] tracking-tight text-text">
             <img src="/android-chrome-192x192.png" alt="" aria-hidden className="h-7 w-7" />
-            <span>ArcReel</span>
+            <span>{BRAND.name}</span>
           </h1>
         </div>
 

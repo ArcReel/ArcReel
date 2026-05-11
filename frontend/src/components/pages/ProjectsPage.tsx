@@ -38,6 +38,7 @@ import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
 import { ICON_BTN_FILLED_CLS, posterGridStyle } from "@/components/ui/darkroom-tokens";
+import { BRAND } from "@/branding";
 import {
   PHASE_ORDER,
   type Phase,
@@ -808,14 +809,14 @@ function TopBar({
         <div className="flex items-center gap-2.5">
           <img
             src="/android-chrome-192x192.png"
-            alt="ArcReel"
+            alt={BRAND.name}
             className="h-8 w-8 rounded-lg"
           />
           <span
             className="font-sans text-[17px] font-medium tracking-[-0.012em] text-text"
             aria-hidden
           >
-            ArcReel
+            {BRAND.name}
           </span>
         </div>
 
