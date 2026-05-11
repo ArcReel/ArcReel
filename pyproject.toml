@@ -33,9 +33,9 @@ dependencies = [
     "ebooklib>=0.20",
     "beautifulsoup4>=4.14.3",
     "lxml>=6.1.0",
-    "pymupdf>=1.27.2.2",
     "packaging>=24.0",
     "portalocker>=2.10.1",
+    "pdf-oxide>=0.3.46",
 ]
 
 [dependency-groups]
