@@ -143,20 +143,47 @@ class StatusCalculator:
             )
             return "generated", None
 
-    def calculate_current_phase(self, project: dict, episodes_stats: list[dict]) -> str:
-        """根据项目和集状态推断当前阶段"""
-        if not project.get("overview"):
-            return "setup"
-        if not episodes_stats:
-            return "worldbuilding"
-        any_generated = any(s["script_status"] == "generated" for s in episodes_stats)
-        all_generated = all(s["script_status"] == "generated" for s in episodes_stats)
-        if not any_generated:
-            return "worldbuilding"
-        if not all_generated:
+    def calculate_current_phase(
+        self,
+        project: dict,
+        episodes_stats: list[dict],
+        *,
+        assets_completed: int = 0,
+    ) -> str:
+        """根据项目和集状态推断当前阶段（按实际产物倒序判定）。
+
+        判定顺序（高优先级在前）：
+        1. 已有任意一集脚本生成 → ``scripting`` / ``production`` / ``completed``
+        2. 已有任意分段草稿、资产设计图（character/scene/prop sheet）或 overview
+           → ``worldbuilding``
+        3. 其它（全新项目）→ ``setup``
+
+        这避免了「用户跳过 overview 直接做剧本/分镜/视频，阶段却卡在 setup」
+        的体验问题——overview 只是 worldbuilding 的一种入口信号，而不是
+        离开 setup 的必经门票。
+        """
+        any_generated = False
+        all_generated = bool(episodes_stats)
+        any_segmented = False
+        all_completed = bool(episodes_stats)
+        for s in episodes_stats:
+            script_status = s["script_status"]
+            if script_status == "generated":
+                any_generated = True
+            else:
+                all_generated = False
+                if script_status == "segmented":
+                    any_segmented = True
+            if s.get("status") != "completed":
+                all_completed = False
+
+        if all_generated:
+            return "completed" if all_completed else "production"
+        if any_generated:
             return "scripting"
-        all_completed = all(s["status"] == "completed" for s in episodes_stats)
-        return "completed" if all_completed else "production"
+        if any_segmented or assets_completed > 0 or project.get("overview"):
+            return "worldbuilding"
+        return "setup"
 
     def _calculate_phase_progress(self, project: dict, phase: str, episodes_stats: list[dict]) -> float:
         """计算当前阶段完成率 0.0–1.0"""
@@ -270,7 +297,11 @@ class StatusCalculator:
         else:
             episodes_stats = self._build_episodes_stats(project_name, project, preloaded_scripts=preloaded_scripts)
 
-        phase = self.calculate_current_phase(project, episodes_stats)
+        phase = self.calculate_current_phase(
+            project,
+            episodes_stats,
+            assets_completed=chars_done + scenes_done + props_done,
+        )
         phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
         if phase == "worldbuilding":
             total_assets = chars_total + scenes_total + props_total

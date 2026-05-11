@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from lib.status_calculator import StatusCalculator
 
 
@@ -124,6 +126,8 @@ class TestStatusCalculator:
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project_no_overview = {}
         assert calc.calculate_current_phase(project_no_overview, []) == "setup"
+        # 即使有空集列表，但无 overview 且无资产 → 仍是 setup
+        assert calc.calculate_current_phase(project_no_overview, [], assets_completed=0) == "setup"
 
     def test_calculate_current_phase_worldbuilding(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -133,6 +137,10 @@ class TestStatusCalculator:
         assert calc.calculate_current_phase(project, episodes_stats) == "worldbuilding"
         # 无集 → worldbuilding
         assert calc.calculate_current_phase(project, []) == "worldbuilding"
+        # 没有 overview，但已有资产产出 → 仍判定为 worldbuilding（不卡在 setup）
+        assert calc.calculate_current_phase({}, [], assets_completed=1) == "worldbuilding"
+        # 没有 overview / 资产，但已有分段草稿 → 仍判定为 worldbuilding
+        assert calc.calculate_current_phase({}, [{"script_status": "segmented"}], assets_completed=0) == "worldbuilding"
 
     def test_calculate_current_phase_scripting(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -143,6 +151,8 @@ class TestStatusCalculator:
             {"script_status": "none"},
         ]
         assert calc.calculate_current_phase(project, episodes_stats) == "scripting"
+        # 没有 overview 也一样：脚本产物本身就是更强信号
+        assert calc.calculate_current_phase({}, episodes_stats) == "scripting"
 
     def test_calculate_current_phase_production_and_completed(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -158,6 +168,35 @@ class TestStatusCalculator:
             {"script_status": "generated", "status": "completed"},
         ]
         assert calc.calculate_current_phase(project, episodes_stats_done) == "completed"
+        # 没有 overview 也一样：production / completed 由脚本与视频状态决定
+        assert calc.calculate_current_phase({}, episodes_stats) == "production"
+        assert calc.calculate_current_phase({}, episodes_stats_done) == "completed"
+
+    @pytest.mark.unit
+    def test_calculate_current_phase_regression_no_overview_with_artifacts(self, tmp_path):
+        """回归：项目缺 overview 但已生成资产+脚本+部分视频，阶段必须前进。
+
+        历史 bug：``calculate_current_phase`` 早退判定 ``if not overview: return "setup"``
+        导致用户跳过 overview 直接做后续步骤时，阶段进度条永远卡在「筹备」。
+        """
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        project = {"title": "无 overview 的项目"}
+
+        # 仅有资产 → worldbuilding（之前会被错判为 setup）
+        assert calc.calculate_current_phase(project, [], assets_completed=2) == "worldbuilding"
+
+        # 资产 + 部分脚本 → scripting
+        partial_scripts = [
+            {"script_status": "generated", "status": "draft"},
+            {"script_status": "none"},
+        ]
+        assert calc.calculate_current_phase(project, partial_scripts, assets_completed=3) == "scripting"
+
+        # 资产 + 全部脚本 + 部分视频 → production
+        all_scripts_in_prod = [
+            {"script_status": "generated", "status": "in_production"},
+        ]
+        assert calc.calculate_current_phase(project, all_scripts_in_prod, assets_completed=3) == "production"
 
     def test_calculate_project_status(self, tmp_path):
         project_root = tmp_path / "projects"
