@@ -169,13 +169,13 @@ async def create_credential(
     if body.preset_id != CUSTOM_SENTINEL_ID:
         preset = get_preset(body.preset_id)
         if preset is None:
-            raise HTTPException(status_code=422, detail=f"unknown preset: {body.preset_id!r}")
+            raise HTTPException(status_code=422, detail=_t("agent_preset_unknown", preset_id=body.preset_id))
         base_url = body.base_url or preset.messages_url
         display_name = body.display_name or preset.display_name
         model = body.model or preset.default_model
     else:
         if not body.base_url:
-            raise HTTPException(status_code=422, detail="base_url required for __custom__ mode")
+            raise HTTPException(status_code=422, detail=_t("agent_base_url_required_custom"))
         base_url = body.base_url
         display_name = body.display_name or "Custom"
         model = body.model
@@ -218,10 +218,10 @@ async def update_credential(
     repo = AgentCredentialRepository(session)
     fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     if not fields:
-        raise HTTPException(status_code=400, detail="no fields to update")
+        raise HTTPException(status_code=400, detail=_t("agent_no_fields_to_update"))
     cred = await repo.update(cred_id, **fields)
     if cred is None:
-        raise HTTPException(status_code=404, detail="credential not found")
+        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     await session.commit()
     if cred.is_active:
         await sync_anthropic_env(session)
@@ -357,7 +357,7 @@ async def test_credential(
     repo = AgentCredentialRepository(session)
     cred = await repo.get(cred_id)
     if cred is None:
-        raise HTTPException(status_code=404, detail="credential not found")
+        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     return await _run_and_serialize(
         preset_id=cred.preset_id,
         base_url=cred.base_url,

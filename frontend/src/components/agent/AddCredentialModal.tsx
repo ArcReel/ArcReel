@@ -11,6 +11,7 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
+import { useCredentialForm } from "@/hooks/useCredentialForm";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type {
@@ -45,99 +46,54 @@ export function AddCredentialModal({
   const { t } = useTranslation("dashboard");
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef, open);
-  const [presetId, setPresetId] = useState<string>(
-    initial?.preset_id ?? customSentinelId,
-  );
-  const [apiKey, setApiKey] = useState<string>(initial?.api_key ?? "");
-  const [baseUrl, setBaseUrl] = useState<string>(initial?.base_url ?? "");
-  const [displayName, setDisplayName] = useState<string>(
-    initial?.display_name ?? "",
-  );
-  const [model, setModel] = useState<string>(initial?.model ?? "");
-  const [haikuModel, setHaikuModel] = useState<string>(initial?.haiku_model ?? "");
-  const [sonnetModel, setSonnetModel] = useState<string>(initial?.sonnet_model ?? "");
-  const [opusModel, setOpusModel] = useState<string>(initial?.opus_model ?? "");
-  const [subagentModel, setSubagentModel] = useState<string>(initial?.subagent_model ?? "");
+  const form = useCredentialForm(initial, customSentinelId, presets);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // Discover state — 共享给 5 个 ModelCombobox 的 options
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
-  // 高级路由折叠 - edit 模式下若已存在任一路由值则默认展开
-  const initialAdvancedOpen =
+  const [advancedOpen, setAdvancedOpen] = useState(
     mode === "edit" &&
-    Boolean(
-      initial?.haiku_model || initial?.sonnet_model || initial?.opus_model || initial?.subagent_model,
-    );
-  const [advancedOpen, setAdvancedOpen] = useState(initialAdvancedOpen);
+      Boolean(
+        initial?.haiku_model || initial?.sonnet_model || initial?.opus_model || initial?.subagent_model,
+      ),
+  );
 
   const selected: PresetProvider | null = useMemo(() => {
-    if (presetId === customSentinelId) return null;
-    return presets.find((p) => p.id === presetId) ?? null;
-  }, [presetId, presets, customSentinelId]);
-
-  // edit 模式下：所有字段未改且未填新 api_key = 没有可保存的变更
-  const isDirtyForEdit =
-    mode === "edit" &&
-    (apiKey.trim() !== "" ||
-      displayName !== (initial?.display_name ?? "") ||
-      baseUrl !== (initial?.base_url ?? "") ||
-      model !== (initial?.model ?? "") ||
-      haikuModel !== (initial?.haiku_model ?? "") ||
-      sonnetModel !== (initial?.sonnet_model ?? "") ||
-      opusModel !== (initial?.opus_model ?? "") ||
-      subagentModel !== (initial?.subagent_model ?? ""));
+    if (form.presetId === customSentinelId) return null;
+    return presets.find((p) => p.id === form.presetId) ?? null;
+  }, [form.presetId, presets, customSentinelId]);
 
   useEscapeClose(onClose, open);
 
   if (!open) return null;
 
   const handlePresetClick = (id: string) => {
-    if (id === presetId) return;
-    setPresetId(id);
-    // 切换预设/自定义时清空所有 model 字段(用户反馈:默认不要预填充)
-    setModel("");
-    setHaikuModel("");
-    setSonnetModel("");
-    setOpusModel("");
-    setSubagentModel("");
+    form.setPreset(id);
     setModelOptions([]);
     setDiscoverError(null);
-    // base_url & display_name:切预设 = 用该预设的默认值覆盖;切自定义 = 清空.
-    // 注:覆盖即使用户已改过 - 用户反馈期望"切换预设时名称跟着切换".
-    if (id === customSentinelId) {
-      setBaseUrl("");
-      setDisplayName("");
-    } else {
-      const next = presets.find((p) => p.id === id);
-      setBaseUrl(next?.messages_url ?? "");
-      setDisplayName(next?.display_name ?? "");
-    }
   };
 
   const handleDiscover = async () => {
     setDiscovering(true);
     setDiscoverError(null);
     try {
-      // 草稿态用 discoverAnthropicModels(base_url, api_key)。
-      // 预设模式:用预设的 discovery_url(若有);否则用 messages_url 的根。
-      // 自定义模式:用用户填的 base_url。
+      // 预设模式：用预设 discovery_url（若有），否则用 messages_url 根；自定义：用用户填的 base_url
       const discoverBase =
-        presetId === customSentinelId
-          ? baseUrl
+        form.presetId === customSentinelId
+          ? form.baseUrl
           : selected?.discovery_url || selected?.messages_url || "";
       if (!discoverBase) {
         setDiscoverError(t("discover_no_base"));
         return;
       }
-      if (!apiKey.trim()) {
+      if (!form.apiKey.trim()) {
         setDiscoverError(t("discover_api_key_required"));
         return;
       }
       const res = await API.discoverAnthropicModels({
         base_url: discoverBase,
-        api_key: apiKey,
+        api_key: form.apiKey,
       });
       setModelOptions(res.models.map((m) => m.model_id));
       if (res.models.length === 0) {
@@ -154,19 +110,7 @@ export function AddCredentialModal({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const req: CreateAgentCredentialRequest = {
-        preset_id: presetId,
-        api_key: apiKey,
-        display_name: displayName || undefined,
-        // 预设模式也透传 base_url:用户可在该字段改写预设默认值
-        base_url: baseUrl || undefined,
-        model: model || undefined,
-        haiku_model: haikuModel || undefined,
-        sonnet_model: sonnetModel || undefined,
-        opus_model: opusModel || undefined,
-        subagent_model: subagentModel || undefined,
-      };
-      await onSubmit(req);
+      await onSubmit(form.buildRequest());
       onClose();
     } catch (err) {
       setSubmitError(errMsg(err));
@@ -174,6 +118,12 @@ export function AddCredentialModal({
       setSubmitting(false);
     }
   };
+
+  const submitDisabled =
+    submitting ||
+    (mode === "create" && !form.apiKey.trim()) ||
+    !form.baseUrl.trim() ||
+    (mode === "edit" && !form.isDirty(initial));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -217,7 +167,7 @@ export function AddCredentialModal({
           <div className="grid grid-cols-3 gap-1.5">
             <PresetChip
               dataTestid="preset-chip"
-              selected={presetId === customSentinelId}
+              selected={form.presetId === customSentinelId}
               onClick={() => handlePresetClick(customSentinelId)}
               label={t("custom_config")}
               disabled={mode === "edit"}
@@ -227,7 +177,7 @@ export function AddCredentialModal({
               <PresetChip
                 key={p.id}
                 dataTestid="preset-chip"
-                selected={presetId === p.id}
+                selected={form.presetId === p.id}
                 onClick={() => handlePresetClick(p.id)}
                 label={p.display_name}
                 iconKey={p.icon_key}
@@ -244,8 +194,8 @@ export function AddCredentialModal({
           <Field label={t("display_name")} htmlFor="cred-name">
             <input
               id="cred-name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={form.displayName}
+              onChange={(e) => form.setDisplayName(e.target.value)}
               className={INPUT_CLS}
             />
           </Field>
@@ -257,8 +207,8 @@ export function AddCredentialModal({
               inputMode="url"
               autoComplete="off"
               spellCheck={false}
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
+              value={form.baseUrl}
+              onChange={(e) => form.setBaseUrl(e.target.value)}
               placeholder="https://api.example.com/anthropic"
               className={INPUT_CLS}
             />
@@ -284,8 +234,8 @@ export function AddCredentialModal({
             <input
               id="cred-key"
               type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              value={form.apiKey}
+              onChange={(e) => form.setApiKey(e.target.value)}
               autoComplete="off"
               spellCheck={false}
               placeholder={mode === "edit" ? t("api_key_unchanged_hint") : undefined}
@@ -314,8 +264,8 @@ export function AddCredentialModal({
           >
             <ModelCombobox
               id="cred-model"
-              value={model}
-              onChange={setModel}
+              value={form.model}
+              onChange={form.setModel}
               options={modelOptions}
               placeholder={selected?.default_model || ""}
               clearable
@@ -354,8 +304,8 @@ export function AddCredentialModal({
                 label={t("haiku_model")}
                 desc={t("haiku_desc")}
                 envVar="ANTHROPIC_DEFAULT_HAIKU_MODEL"
-                value={haikuModel}
-                onChange={setHaikuModel}
+                value={form.haikuModel}
+                onChange={form.setHaikuModel}
                 options={modelOptions}
               />
               <RoutingField
@@ -363,8 +313,8 @@ export function AddCredentialModal({
                 label={t("sonnet_model")}
                 desc={t("sonnet_desc")}
                 envVar="ANTHROPIC_DEFAULT_SONNET_MODEL"
-                value={sonnetModel}
-                onChange={setSonnetModel}
+                value={form.sonnetModel}
+                onChange={form.setSonnetModel}
                 options={modelOptions}
               />
               <RoutingField
@@ -372,8 +322,8 @@ export function AddCredentialModal({
                 label={t("opus_model")}
                 desc={t("opus_desc")}
                 envVar="ANTHROPIC_DEFAULT_OPUS_MODEL"
-                value={opusModel}
-                onChange={setOpusModel}
+                value={form.opusModel}
+                onChange={form.setOpusModel}
                 options={modelOptions}
               />
               <RoutingField
@@ -381,8 +331,8 @@ export function AddCredentialModal({
                 label={t("subagent_model")}
                 desc={t("subagent_desc")}
                 envVar="CLAUDE_CODE_SUBAGENT_MODEL"
-                value={subagentModel}
-                onChange={setSubagentModel}
+                value={form.subagentModel}
+                onChange={form.setSubagentModel}
                 options={modelOptions}
               />
             </div>
@@ -407,12 +357,7 @@ export function AddCredentialModal({
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={
-              submitting ||
-              (mode === "create" && !apiKey.trim()) ||
-              !baseUrl.trim() ||
-              (mode === "edit" && !isDirtyForEdit)
-            }
+            disabled={submitDisabled}
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >

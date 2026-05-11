@@ -131,4 +131,9 @@ MESSAGES = {
     "image_endpoint_mismatch_no_t2i": "Model {model} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image",
     "image_capability_missing_i2i": "{provider}/{model} does not support image-to-image; configure a default model that supports image edits",
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
+    # Agent credentials
+    "agent_preset_unknown": "Unknown preset provider: {preset_id}",
+    "agent_base_url_required_custom": "base_url is required for custom configuration",
+    "agent_no_fields_to_update": "No fields to update",
+    "agent_credential_not_found": "Credential not found",
 }
