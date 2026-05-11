@@ -130,6 +130,27 @@ describe("AgentConfigTab — credentials directory", () => {
       screen.getByText(/sk-ant-\*\*\*/),
     ).toBeInTheDocument();
   });
+
+  it("opens edit modal when edit button clicked", async () => {
+    setupBaseMocks({ credentials: [makeCredential()] });
+    render(<AgentConfigTab visible />);
+
+    // 等待列表渲染
+    await screen.findByText("Anthropic 主号");
+
+    const user = userEvent.setup();
+    const editBtn = screen.getByRole("button", {
+      name: /edit|编辑|Chỉnh sửa/i,
+    });
+    await user.click(editBtn);
+
+    // edit modal 出现，标题应为 edit_credential 翻译
+    expect(
+      await screen.findByRole("heading", {
+        name: /edit[_ ]credential|编辑凭证|Chỉnh sửa xác thực/i,
+      }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("AgentConfigTab — discover models", () => {

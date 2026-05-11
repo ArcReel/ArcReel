@@ -20,6 +20,9 @@ import { PresetIcon } from "./PresetIcon";
 
 interface Props {
   open: boolean;
+  /** "create" (default) renders the new-credential form; "edit" locks the preset chips
+   * and lets the user leave api_key empty to preserve the existing one. */
+  mode?: "create" | "edit";
   presets: PresetProvider[];
   customSentinelId: string;
   initial?: Partial<CreateAgentCredentialRequest>;
@@ -29,6 +32,7 @@ interface Props {
 
 export function AddCredentialModal({
   open,
+  mode = "create",
   presets,
   customSentinelId,
   initial,
@@ -63,6 +67,19 @@ export function AddCredentialModal({
     }
   }, [selected]);
 
+  // 打开 modal 时按 initial 重置（edit 模式切换不同凭证 / create 复用）
+  useEffect(() => {
+    if (!open) return;
+    setPresetId(initial?.preset_id ?? customSentinelId);
+    setApiKey(initial?.api_key ?? "");
+    setBaseUrl(initial?.base_url ?? "");
+    setDisplayName(initial?.display_name ?? "");
+    setModel(initial?.model ?? "");
+    setSubmitError(null);
+    // 仅在 open 状态切换或 initial 引用变化时同步；customSentinelId 几乎是稳定常量
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initial]);
+
   const reset = () => {
     setPresetId(customSentinelId);
     setApiKey("");
@@ -90,6 +107,7 @@ export function AddCredentialModal({
     try {
       const req: CreateAgentCredentialRequest = {
         preset_id: presetId,
+        // edit 模式留空表示保持原值；提交时仍带空字符串，由调用方决定是否透传
         api_key: apiKey,
         display_name: displayName || undefined,
         base_url: presetId === customSentinelId ? baseUrl : undefined,
@@ -128,7 +146,7 @@ export function AddCredentialModal({
             id="cred-modal-title"
             className="text-[15px] font-medium text-text"
           >
-            {t("add_credential")}
+            {mode === "edit" ? t("edit_credential_title") : t("add_credential")}
           </h3>
           <button
             onClick={onClose}
@@ -168,6 +186,8 @@ export function AddCredentialModal({
               selected={presetId === customSentinelId}
               onClick={() => setPresetId(customSentinelId)}
               label={t("custom_config")}
+              disabled={mode === "edit"}
+              title={mode === "edit" ? t("preset_locked_in_edit") : undefined}
             />
             {[...presets]
               .sort(
@@ -183,6 +203,8 @@ export function AddCredentialModal({
                   label={p.display_name}
                   iconKey={p.icon_key}
                   recommended={p.is_recommended}
+                  disabled={mode === "edit"}
+                  title={mode === "edit" ? t("preset_locked_in_edit") : undefined}
                 />
               ))}
           </div>
@@ -234,6 +256,7 @@ export function AddCredentialModal({
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               autoComplete="off"
+              placeholder={mode === "edit" ? t("api_key_unchanged_hint") : undefined}
               className={INPUT_CLS}
             />
           </Field>
@@ -269,7 +292,8 @@ export function AddCredentialModal({
             onClick={() => void handleSubmit()}
             disabled={
               submitting ||
-              !apiKey.trim() ||
+              // create 模式必须填 api_key；edit 模式留空表示保持原值
+              (mode === "create" && !apiKey.trim()) ||
               (presetId === customSentinelId && !baseUrl.trim())
             }
             className={ACCENT_BTN_CLS}
@@ -277,7 +301,9 @@ export function AddCredentialModal({
           >
             {submitting
               ? t("common:loading")
-              : t("common:add", { defaultValue: "Add" })}
+              : mode === "edit"
+                ? t("common:save")
+                : t("common:add", { defaultValue: "Add" })}
           </button>
         </div>
       </div>
@@ -292,6 +318,8 @@ function PresetChip({
   iconKey,
   recommended,
   dataTestid,
+  disabled,
+  title,
 }: {
   selected: boolean;
   onClick: () => void;
@@ -299,13 +327,17 @@ function PresetChip({
   iconKey?: string;
   recommended?: boolean;
   dataTestid?: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       data-testid={dataTestid}
       onClick={onClick}
-      className={`group inline-flex items-center justify-start gap-1.5 truncate rounded-[8px] border px-2.5 py-1.5 text-left text-[12px] transition ${
+      disabled={disabled}
+      title={title}
+      className={`group inline-flex items-center justify-start gap-1.5 truncate rounded-[8px] border px-2.5 py-1.5 text-left text-[12px] transition disabled:cursor-not-allowed disabled:opacity-60 ${
         selected
           ? "border-accent bg-accent/10 text-accent"
           : recommended

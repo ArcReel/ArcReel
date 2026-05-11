@@ -22,6 +22,7 @@ import type {
   CreateAgentCredentialRequest,
   PresetProvider,
   TestConnectionResponse,
+  UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
 import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
@@ -211,6 +212,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [testedCredId, setTestedCredId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [deletingCred, setDeletingCred] = useState(false);
+  const [editingCred, setEditingCred] = useState<AgentCredential | null>(null);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -352,6 +354,30 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       useAppStore.getState().pushToast(t("agent_config_saved"), "success");
     },
     [loadCreds, t],
+  );
+
+  const handleEdit = useCallback((c: AgentCredential) => {
+    setEditingCred(c);
+  }, []);
+
+  const handleUpdate = useCallback(
+    async (req: CreateAgentCredentialRequest) => {
+      if (editingCred == null) return;
+      // 从 create-shape req 提取 PATCH 字段（preset_id 锁死，activate 不在 edit 流程里）
+      const patch: UpdateAgentCredentialRequest = {
+        display_name: req.display_name,
+        base_url: req.base_url,
+        model: req.model,
+      };
+      // api_key 仅在用户输入非空时透传，留空 = 保持原值
+      if (req.api_key) patch.api_key = req.api_key;
+      await API.updateAgentCredential(editingCred.id, patch);
+      setEditingCred(null);
+      await loadCreds();
+      voidCall(useConfigStatusStore.getState().refresh());
+      useAppStore.getState().pushToast(t("agent_config_saved"), "success");
+    },
+    [editingCred, loadCreds, t],
   );
 
   const handleActivate = useCallback(
@@ -537,6 +563,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             busyId={busyCredId}
             onActivate={(id) => void handleActivate(id)}
             onTest={(id) => void handleTest(id)}
+            onEdit={handleEdit}
             onDelete={requestDelete}
           />
           {testResult && (
@@ -764,6 +791,26 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         customSentinelId={customSentinelId}
         onSubmit={handleCreate}
         onClose={() => setAddModalOpen(false)}
+      />
+
+      <AddCredentialModal
+        open={editingCred !== null}
+        mode="edit"
+        presets={presets}
+        customSentinelId={customSentinelId}
+        initial={
+          editingCred
+            ? {
+                preset_id: editingCred.preset_id,
+                display_name: editingCred.display_name,
+                base_url: editingCred.base_url,
+                model: editingCred.model ?? undefined,
+                // api_key 不预填（masked 不可用作真实 key）
+              }
+            : undefined
+        }
+        onSubmit={handleUpdate}
+        onClose={() => setEditingCred(null)}
       />
 
       <ConfirmDialog

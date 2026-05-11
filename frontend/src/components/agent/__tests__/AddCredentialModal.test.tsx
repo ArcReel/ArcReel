@@ -204,4 +204,79 @@ describe("AddCredentialModal", () => {
     // 用户值应被保留
     expect(nameInput.value).toBe("My Custom Name");
   });
+
+  it("renders edit title when mode=edit", () => {
+    render(
+      <AddCredentialModal
+        open
+        mode="edit"
+        presets={presets}
+        customSentinelId="__custom__"
+        initial={{
+          preset_id: "deepseek",
+          display_name: "DS Prod",
+          base_url: "https://api.deepseek.com/anthropic",
+          model: "deepseek-chat",
+        }}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("heading", { name: /edit[_ ]credential|编辑凭证|Chỉnh sửa xác thực/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not require apiKey in edit mode and submits with empty key", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <AddCredentialModal
+        open
+        mode="edit"
+        presets={presets}
+        customSentinelId="__custom__"
+        initial={{
+          preset_id: "deepseek",
+          display_name: "DS Prod",
+          base_url: "https://api.deepseek.com/anthropic",
+          model: "deepseek-chat",
+        }}
+        onSubmit={onSubmit}
+        onClose={vi.fn()}
+      />,
+    );
+    // 不填 api_key，直接点提交按钮 (label 应为 Save / 保存 / Lưu)
+    const submitBtn = screen.getByRole("button", {
+      name: /^save$|^保存$|^Lưu$/i,
+    });
+    expect(submitBtn).not.toBeDisabled();
+    fireEvent.click(submitBtn);
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalled();
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ api_key: "" }),
+    );
+  });
+
+  it("disables preset chips in edit mode", () => {
+    render(
+      <AddCredentialModal
+        open
+        mode="edit"
+        presets={presetsWithSecond}
+        customSentinelId="__custom__"
+        initial={{
+          preset_id: "deepseek",
+          display_name: "DS",
+        }}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const chips = screen.getAllByTestId("preset-chip");
+    for (const chip of chips) {
+      expect(chip).toBeDisabled();
+    }
+  });
 });

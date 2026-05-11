@@ -98,8 +98,11 @@ def upgrade() -> None:
     except Exception as exc:  # noqa: BLE001
         # 数据迁移失败不阻塞 schema 升级；用户可在 UI 里手动建
         import logging
+        import sys
 
-        logging.getLogger(__name__).warning("agent_anthropic_credentials data migration skipped: %s", exc)
+        msg = f"agent_anthropic_credentials data migration skipped: {exc}"
+        logging.getLogger(__name__).warning(msg)
+        print(f"[alembic] WARNING: {msg}", file=sys.stderr)
 
 
 def downgrade() -> None:
