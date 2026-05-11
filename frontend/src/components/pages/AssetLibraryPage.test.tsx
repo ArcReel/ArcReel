@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -57,38 +57,47 @@ describe("AssetLibraryPage tablist (issue #488)", () => {
     expect(prop).toHaveAttribute("tabindex", "-1");
   });
 
-  it("ArrowRight moves focus + selection to next tab and cycles at end", () => {
+  it("ArrowRight moves focus + selection to next tab and cycles at end", async () => {
     renderPage();
     const tabs = screen.getAllByRole("tab");
     tabs[0].focus();
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
     expect(tabs[0]).toHaveAttribute("aria-selected", "false");
+    // roving focus 是 WAI-ARIA Tabs 规范的核心：方向键后激活 tab 必须获得焦点。
+    // moveTabFocus 用 requestAnimationFrame 异步搬，所以要 waitFor。
+    await waitFor(() => expect(tabs[1]).toHaveFocus());
 
     fireEvent.keyDown(tabs[1], { key: "ArrowRight" });
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(tabs[2]).toHaveFocus());
 
     // cycle back to first
     fireEvent.keyDown(tabs[2], { key: "ArrowRight" });
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(tabs[0]).toHaveFocus());
   });
 
-  it("ArrowLeft moves focus + selection to previous tab and cycles at start", () => {
+  it("ArrowLeft moves focus + selection to previous tab and cycles at start", async () => {
     renderPage();
     const tabs = screen.getAllByRole("tab");
     tabs[0].focus();
     fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
     // wraps to last
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(tabs[2]).toHaveFocus());
   });
 
-  it("Home jumps to first tab; End jumps to last tab", () => {
+  it("Home jumps to first tab; End jumps to last tab", async () => {
     renderPage();
     const tabs = screen.getAllByRole("tab");
     fireEvent.keyDown(tabs[0], { key: "End" });
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(tabs[2]).toHaveFocus());
+
     fireEvent.keyDown(tabs[2], { key: "Home" });
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(tabs[0]).toHaveFocus());
   });
 
   it("renders tabpanel labelled by the active tab id with stable shared id", () => {
