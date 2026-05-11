@@ -5,7 +5,7 @@
 import { createRoot } from "react-dom/client";
 import { AppRoutes } from "./router";
 import { useAuthStore } from "@/stores/auth-store";
-import "./i18n/index";
+import { i18nReady } from "./i18n/index";
 
 import "./index.css";
 import "./css/styles.css";
@@ -49,5 +49,9 @@ useAuthStore.getState().initialize();
 
 const root = document.getElementById("app-root");
 if (root) {
-  createRoot(root).render(<AppRoutes />);
+  // 等 i18n 当前语言 + fallback 的 namespace 全部加载完再渲染，避免首屏闪 key。
+  // chunk 都是本地 lazy import，弱网下也只是几十 ms 延迟（cold start）。
+  void i18nReady.finally(() => {
+    createRoot(root).render(<AppRoutes />);
+  });
 }
