@@ -60,11 +60,14 @@ def upgrade() -> None:
             postgresql_where=sa.text("is_active"),
         )
 
-    # ── 数据迁移：旧 system_settings 中 anthropic_* → 一条 __custom__ active 记录 ──
+    # ── 数据迁移：旧 system_setting 中 anthropic_* → 一条 __custom__ active 记录 ──
     bind = op.get_bind()
+    # PG 在事务中遇到 ProgrammingError 会把事务标记为 aborted，后续操作全部失败。
+    # 用 SAVEPOINT 包裹数据迁移块，失败时回滚到 savepoint，不污染外层 alembic 事务。
+    savepoint = bind.begin_nested()
     try:
         rows = bind.execute(
-            sa.text("SELECT key, value FROM system_settings WHERE key IN :keys").bindparams(
+            sa.text("SELECT key, value FROM system_setting WHERE key IN :keys").bindparams(
                 sa.bindparam("keys", expanding=True)
             ),
             {"keys": list(_LEGACY_KEYS)},
@@ -96,8 +99,10 @@ def upgrade() -> None:
                     "now": now,
                 },
             )
+        savepoint.commit()
     except Exception as exc:  # noqa: BLE001
         # 数据迁移失败不阻塞 schema 升级；用户可在 UI 里手动建
+        savepoint.rollback()
         import logging
         import sys
 
