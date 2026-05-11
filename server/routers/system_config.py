@@ -198,6 +198,12 @@ class SystemConfigPatchRequest(BaseModel):
 
 
 # Setting keys that map directly to string DB settings
+#
+# DEPRECATED: anthropic_api_key / anthropic_base_url 已迁移至 agent_anthropic_credentials 表
+# (spec 2026-05-11-agent-url-config-optimization)。这里保留 anthropic_base_url 读写仅作旧客户端
+# 兼容；新 UI 走 /api/v1/agent/credentials/* 接口，sync_anthropic_env() 会优先读 active credential
+# 再回退到 system_settings。计划在 0.14.0 删除 anthropic_api_key / anthropic_base_url 字段，
+# anthropic_*_model 系列保留（仍由 Section 2 Model Routing 管理）。
 _STRING_SETTINGS = (
     "anthropic_base_url",
     "anthropic_model",
