@@ -57,10 +57,10 @@ class TestPermissionsHelpers:
     def test_validate_principal_name_ok(self):
         assert validate_principal_name("bob") == "bob"
         assert validate_principal_name("alice-1") == "alice-1"
-        assert validate_principal_name("foo_bar") == "foo_bar"
 
     def test_validate_principal_name_rejects(self):
-        cases = ["Bob", "ab", "x" * 33, "ali__ce", "admin", "user"]
+        # fork-private: 单下划线也禁，避免 username 与 project pattern 字符集错位
+        cases = ["Bob", "ab", "x" * 33, "ali__ce", "foo_bar", "admin", "user"]
         for name in cases:
             with pytest.raises(PrincipalNameError):
                 validate_principal_name(name)

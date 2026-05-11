@@ -22,7 +22,10 @@ VALID_ROLES: Final[frozenset[str]] = frozenset({ROLE_ADMIN, ROLE_USER})
 # 避免在路径段（projects/<owner>__<project>/）和鉴权字段里互相串味。
 RESERVED_PRINCIPAL_NAMES: Final[frozenset[str]] = frozenset({ROLE_ADMIN, ROLE_USER})
 
-_PRINCIPAL_NAME_RE: Final = re.compile(r"^[a-z0-9][a-z0-9_-]{2,31}$")
+# 字符集与 PROJECT_NAME_PATTERN 的单段格式严格对齐（``[A-Za-z0-9-]``），避免
+# ``make_project_name(owner, project)`` 拼出含 ``_`` 的 owner 段而被 normalize
+# 拒绝、或被 ``parse_project_name`` 按首个 ``__`` 错切。
+_PRINCIPAL_NAME_RE: Final = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +106,8 @@ class PrincipalNameError(ValueError):
 def validate_principal_name(name: str, kind: str = "username") -> str:
     """校验用户名 / 租户名字面量。
 
-    - 字符集：``[a-z0-9][a-z0-9_-]{2,31}``（小写字母数字开头，下划线/短横，3-32 长度）
+    - 字符集：``[a-z0-9][a-z0-9-]{2,31}``（小写字母数字开头，仅短横，3-32 长度；
+      与 ``PROJECT_NAME_PATTERN`` 单段字符集严格对齐）
     - 不允许包含 ``__``（与项目目录路径切分符冲突）
     - 不允许等于角色保留字（避免 username == role 字面量带来的歧义）
 
@@ -122,7 +126,7 @@ def validate_principal_name(name: str, kind: str = "username") -> str:
     if not _PRINCIPAL_NAME_RE.match(name):
         raise PrincipalNameError(
             "principal_name_invalid",
-            f"{kind} 必须为 3-32 位小写字母/数字/下划线/短横，且以字母或数字开头",
+            f"{kind} 必须为 3-32 位小写字母/数字/短横，且以字母或数字开头",
         )
     if "__" in name:
         raise PrincipalNameError(
