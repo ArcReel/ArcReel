@@ -1173,7 +1173,6 @@ export default {
   'openclaw_step_03_desc': 'Describe what you want; OpenClaw will call ArcReel to manage projects, generate scripts, and produce videos.',
   'openclaw_system_prompt': 'Read {{skillUrl}} and then follow the skill to learn how to create videos with ArcReel',
   'openclaw_get_api_token': 'Get API token',
-  'anthropic_bridge': 'Anthropic Bridge',
   'agent_credentials': 'Agent Providers',
   'claude_compat_providers': 'Claude providers',
   'unified_providers_coming_soon': 'Unified providers (coming soon)',

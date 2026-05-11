@@ -20,7 +20,7 @@ export function AgentPageIntro() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-            {t("anthropic_bridge")}
+            Anthropic Bridge
           </div>
           <h2
             className="font-editorial mt-1"

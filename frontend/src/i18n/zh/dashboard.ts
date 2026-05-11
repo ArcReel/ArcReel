@@ -1174,7 +1174,6 @@ export default {
   'openclaw_step_03_desc': '描述你的创作需求，OpenClaw 将调用 ArcReel 完成项目管理、剧本生成和视频创作',
   'openclaw_system_prompt': '学习 {{skillUrl}} 然后遵循 skill，了解如何使用 ArcReel 创作视频',
   'openclaw_get_api_token': '获取 API 令牌',
-  'anthropic_bridge': 'Anthropic Bridge',
   'agent_credentials': '智能体供应商',
   'claude_compat_providers': 'Claude 供应商',
   'unified_providers_coming_soon': '统一供应商 (敬请期待)',
