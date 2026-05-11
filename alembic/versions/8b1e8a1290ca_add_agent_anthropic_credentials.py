@@ -45,7 +45,7 @@ def upgrade() -> None:
         sa.Column("sonnet_model", sa.String(length=128), nullable=True),
         sa.Column("opus_model", sa.String(length=128), nullable=True),
         sa.Column("subagent_model", sa.String(length=128), nullable=True),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
@@ -81,7 +81,7 @@ def upgrade() -> None:
                        is_active, created_at, updated_at)
                     VALUES (:user_id, '__custom__', 'Migrated', :base_url, :api_key,
                             :model, :haiku, :sonnet, :opus, :subagent,
-                            1, :now, :now)
+                            :is_active, :now, :now)
                 """),
                 {
                     "user_id": DEFAULT_USER_ID,
@@ -92,6 +92,7 @@ def upgrade() -> None:
                     "sonnet": settings.get("anthropic_default_sonnet_model"),
                     "opus": settings.get("anthropic_default_opus_model"),
                     "subagent": settings.get("claude_code_subagent_model"),
+                    "is_active": True,
                     "now": now,
                 },
             )
