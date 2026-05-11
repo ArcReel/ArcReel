@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ModalShell } from "./ModalShell";
@@ -144,6 +144,50 @@ describe("ModalShell", () => {
       </ModalShell>,
     );
     expect(screen.getByTestId("name-input")).toBe(document.activeElement);
+  });
+
+  it("restores focus to the trigger element after close (not to the now-unmounted input)", () => {
+    // 真实场景：用户点 trigger button → modal 打开 → 内部表单 nameRef 抢焦
+    // → 关闭 modal → 焦点应该回到原 trigger，而不是丢到 body。
+    // 之前的 bug：useFocusTrap 缓存 previouslyFocused = document.activeElement，
+    // 等子组件抢完焦才记录，结果记录的是 nameRef 而不是 trigger。
+    function Inner() {
+      const inputRef = useRef<HTMLInputElement>(null);
+      useEffect(() => {
+        inputRef.current?.focus();
+      }, []);
+      return <input ref={inputRef} data-testid="name-input" />;
+    }
+    function Harness() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button
+            type="button"
+            data-testid="opener"
+            onClick={() => setOpen(true)}
+          >
+            open
+          </button>
+          <ModalShell open={open} onClose={() => setOpen(false)} ariaLabel="x">
+            <Inner />
+          </ModalShell>
+        </>
+      );
+    }
+    render(<Harness />);
+
+    const opener = screen.getByTestId("opener");
+    opener.focus();
+    expect(opener).toBe(document.activeElement);
+
+    fireEvent.click(opener);
+    // modal 打开后，子组件的 useEffect 把焦点放到 name-input
+    expect(screen.getByTestId("name-input")).toBe(document.activeElement);
+
+    // 关闭 modal，焦点应该回到 opener，而不是 body
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(opener).toBe(document.activeElement);
   });
 
   it("body overflow lock uses reference counting across stacked modals", () => {

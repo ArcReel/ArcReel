@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   type CSSProperties,
   type ReactNode,
@@ -84,8 +85,24 @@ export function ModalShell(props: ModalShellProps) {
   const ariaLabel = "ariaLabel" in props ? props.ariaLabel : undefined;
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // 在 open 从 false → true 的边沿用 useLayoutEffect 抓 document.activeElement。
+  // React 的提交后顺序是：layout effects（bottom-up）→ paint → useEffects（bottom-up）。
+  // 父组件的 layout effect 跑在所有 useEffect 之前，所以即使子组件（如
+  // AssetFormModal）随后在 useEffect 里调 nameRef.current?.focus()，此刻
+  // activeElement 仍是 modal 打开前真正的触发节点。直接读 useEffect 会拿到
+  // 已被子组件抢焦的输入框，关闭后 focus 一个即将卸载的节点 → 焦点丢到 body。
+  const returnTargetRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    returnTargetRef.current = (document.activeElement as HTMLElement | null) ?? null;
+  }, [open]);
+
   useEscapeClose(onClose, open && closeOnEscape);
-  useFocusTrap(dialogRef as RefObject<HTMLElement | null>, open);
+  useFocusTrap(
+    dialogRef as RefObject<HTMLElement | null>,
+    open,
+    returnTargetRef,
+  );
 
   useEffect(() => {
     if (!open) return;
