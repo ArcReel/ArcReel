@@ -38,7 +38,11 @@ export const i18nReady = i18n
     resourcesToBackend(async (lang: string, ns: string) => {
       const loader = loaders[pathFor(lang, ns)];
       if (!loader) {
-        throw new Error(`i18n: missing locale file ${pathFor(lang, ns)}`);
+        // LanguageDetector 可能解析出 zh-CN / en-GB 等带区域的 BCP47 代码，
+        // i18next 会先按完整代码请求一次再 fallback 到 zh/en。这是预期路径，
+        // 不应该升级成异常。返回空对象让 i18next 走 fallback 链。
+        console.warn(`i18n: no resource for ${pathFor(lang, ns)}, falling back`);
+        return {};
       }
       const mod = await loader();
       return mod.default;
