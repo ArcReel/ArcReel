@@ -7,11 +7,14 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID
 from lib.config.anthropic_probe import (
     DiagnosisCode,
     ProbeResult,
     classify_probe_failure,
+    probe_discovery,
     probe_messages,
+    run_test,
 )
 
 
@@ -142,3 +145,92 @@ def test_classify_probe_failure_unknown_404_no_model() -> None:
 def test_classify_probe_failure_403_also_auth() -> None:
     p = ProbeResult(success=False, status_code=403, latency_ms=10, error="forbidden")
     assert classify_probe_failure(p) == DiagnosisCode.AUTH_FAILED
+
+
+@pytest.mark.asyncio
+async def test_probe_discovery_none_root_returns_none() -> None:
+    assert await probe_discovery(discovery_root=None, api_key="sk") is None
+
+
+@pytest.mark.asyncio
+async def test_probe_discovery_success() -> None:
+    fake = httpx.Response(200, json={"data": [{"id": "m"}]})
+    with patch(
+        "lib.config.anthropic_probe._get",
+        AsyncMock(return_value=fake),
+    ) as mocked:
+        result = await probe_discovery(discovery_root="https://api.example.com", api_key="sk")
+    assert result is not None
+    assert result.success is True
+    assert result.status_code == 200
+    called_url = mocked.await_args.kwargs["url"]
+    assert called_url == "https://api.example.com/v1/models"
+
+
+@pytest.mark.asyncio
+async def test_run_test_custom_mode_self_heals_with_anthropic_suffix() -> None:
+    """用户填 https://api.deepseek.com，messages probe 失败 (404)；
+    自动重试 https://api.deepseek.com/anthropic 成功 → suggestion 给出修复值。
+    """
+    seq = [
+        # 第一次：原 URL → 404
+        httpx.Response(404, text="not found"),
+        # 第二次：补 /anthropic → 200 anthropic JSON
+        httpx.Response(200, json={"id": "msg_1", "type": "message", "content": []}),
+        # discovery probe → 200 (随便)
+        httpx.Response(200, json={"data": []}),
+    ]
+    call_log: list[str] = []
+
+    async def fake_post(*, url, **_kw):
+        call_log.append(url)
+        return seq.pop(0)
+
+    async def fake_get(*, url, **_kw):
+        call_log.append(url)
+        return seq.pop(0)
+
+    with (
+        patch("lib.config.anthropic_probe._post", AsyncMock(side_effect=fake_post)),
+        patch("lib.config.anthropic_probe._get", AsyncMock(side_effect=fake_get)),
+    ):
+        resp = await run_test(
+            preset_id=CUSTOM_SENTINEL_ID,
+            base_url="https://api.deepseek.com",
+            api_key="sk",
+            model=None,
+        )
+
+    assert resp.overall == "ok"
+    assert resp.diagnosis == DiagnosisCode.MISSING_ANTHROPIC_SUFFIX
+    assert resp.suggestion is not None
+    assert resp.suggestion.kind == "replace_base_url"
+    assert resp.suggestion.suggested_value == "https://api.deepseek.com/anthropic"
+    # 第一次和第二次都打的是 messages 端点
+    assert call_log[0] == "https://api.deepseek.com/v1/messages"
+    assert call_log[1] == "https://api.deepseek.com/anthropic/v1/messages"
+
+
+@pytest.mark.asyncio
+async def test_run_test_preset_skips_self_heal() -> None:
+    """preset_id != __custom__ 时不做自愈尝试。"""
+    seq = [httpx.Response(404, text="not found")]
+
+    async def fake_post(*, url, **_kw):
+        return seq.pop(0)
+
+    async def fake_get(**_kw):
+        return httpx.Response(200, json={"data": []})
+
+    with (
+        patch("lib.config.anthropic_probe._post", AsyncMock(side_effect=fake_post)),
+        patch("lib.config.anthropic_probe._get", AsyncMock(side_effect=fake_get)),
+    ):
+        resp = await run_test(
+            preset_id="anthropic-official",
+            base_url=None,
+            api_key="sk",
+            model=None,
+        )
+    assert resp.overall == "fail"
+    assert resp.suggestion is None
