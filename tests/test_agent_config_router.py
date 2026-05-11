@@ -80,3 +80,89 @@ async def test_list_preset_providers_returns_catalog(authed_client) -> None:
 async def test_list_preset_providers_requires_auth(unauth_client) -> None:
     resp = await unauth_client.get("/api/v1/agent/preset-providers")
     assert resp.status_code in (401, 403)
+
+
+# ── Task 10: /agent/credentials CRUD ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_credentials_initially_empty(authed_client) -> None:
+    resp = await authed_client.get("/api/v1/agent/credentials")
+    assert resp.status_code == 200
+    assert resp.json() == {"credentials": []}
+
+
+@pytest.mark.asyncio
+async def test_create_with_preset(authed_client) -> None:
+    body = {"preset_id": "deepseek", "api_key": "sk-testkey12345"}
+    resp = await authed_client.post("/api/v1/agent/credentials", json=body)
+    assert resp.status_code == 201
+    cred = resp.json()
+    assert cred["preset_id"] == "deepseek"
+    assert cred["base_url"] == "https://api.deepseek.com/anthropic"
+    assert cred["model"] == "deepseek-chat"
+    assert cred["display_name"] == "DeepSeek"
+    assert cred["api_key_masked"].startswith("sk-")
+    assert cred["icon_key"] == "DeepSeek"
+    # 第一条凭证应自动 active
+    assert cred["is_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_custom_requires_base_url(authed_client) -> None:
+    body = {"preset_id": "__custom__", "api_key": "sk"}
+    resp = await authed_client.post("/api/v1/agent/credentials", json=body)
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_custom_with_base_url(authed_client) -> None:
+    body = {
+        "preset_id": "__custom__",
+        "display_name": "My Proxy",
+        "base_url": "https://proxy.example.com/anthropic",
+        "api_key": "sk",
+        "model": "claude-sonnet-4",
+    }
+    resp = await authed_client.post("/api/v1/agent/credentials", json=body)
+    assert resp.status_code == 201
+    assert resp.json()["base_url"] == "https://proxy.example.com/anthropic"
+    assert resp.json()["icon_key"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_unknown_preset_rejected(authed_client) -> None:
+    resp = await authed_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "nonexistent", "api_key": "sk"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_credential(authed_client) -> None:
+    created = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk1"},
+        )
+    ).json()
+    cid = created["id"]
+    resp = await authed_client.patch(
+        f"/api/v1/agent/credentials/{cid}",
+        json={"display_name": "Renamed", "api_key": "sk2"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] == "Renamed"
+
+
+@pytest.mark.asyncio
+async def test_delete_active_blocked(authed_client) -> None:
+    created = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk"},
+        )
+    ).json()
+    resp = await authed_client.delete(f"/api/v1/agent/credentials/{created['id']}")
+    assert resp.status_code == 409
