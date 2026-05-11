@@ -166,3 +166,43 @@ async def test_delete_active_blocked(authed_client) -> None:
     ).json()
     resp = await authed_client.delete(f"/api/v1/agent/credentials/{created['id']}")
     assert resp.status_code == 409
+
+
+# ── Task 11: POST /agent/credentials/{id}/activate ────────────────
+
+
+@pytest.mark.asyncio
+async def test_activate_credential_switches(authed_client, monkeypatch) -> None:
+    import os
+
+    a = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk-A"},
+        )
+    ).json()
+    b = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "kimi", "api_key": "sk-B", "activate": False},
+        )
+    ).json()
+    assert a["is_active"] is True
+    assert b["is_active"] is False
+
+    resp = await authed_client.post(f"/api/v1/agent/credentials/{b['id']}/activate")
+    assert resp.status_code == 200
+    assert resp.json() == {"active_id": b["id"]}
+
+    listing = (await authed_client.get("/api/v1/agent/credentials")).json()["credentials"]
+    flags = {c["id"]: c["is_active"] for c in listing}
+    assert flags[a["id"]] is False
+    assert flags[b["id"]] is True
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-B"
+
+
+@pytest.mark.asyncio
+async def test_activate_unknown_id(authed_client) -> None:
+    resp = await authed_client.post("/api/v1/agent/credentials/99999/activate")
+    assert resp.status_code == 404

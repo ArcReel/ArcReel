@@ -241,3 +241,27 @@ async def delete_credential(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     await session.commit()
+
+
+# ── Activate endpoint ──────────────────────────────────────────────
+
+
+class ActivateResponse(BaseModel):
+    active_id: int
+
+
+@router.post("/credentials/{cred_id}/activate", response_model=ActivateResponse)
+async def activate_credential(
+    cred_id: int,
+    _user: CurrentUser,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ActivateResponse:
+    repo = AgentCredentialRepository(session)
+    try:
+        await repo.set_active(cred_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    await session.commit()
+    await sync_anthropic_env(session)
+    return ActivateResponse(active_id=cred_id)
