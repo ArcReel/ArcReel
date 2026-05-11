@@ -106,6 +106,18 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 
 
 @pytest.fixture()
+async def async_session():
+    """Generic in-memory AsyncSession for repository tests."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+    await engine.dispose()
+
+
+@pytest.fixture()
 async def generation_queue():
     """Create an async GenerationQueue backed by in-memory SQLite.
 
