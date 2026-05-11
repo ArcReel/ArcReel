@@ -52,7 +52,7 @@ describe("AddCredentialModal", () => {
       />,
     );
     const chips = screen.getAllByTestId("preset-chip");
-    expect(chips[0]).toHaveTextContent(/custom/i);
+    expect(chips[0]).toHaveTextContent(/custom|自定义|Tuỳ chỉnh/i);
   });
 
   it("when preset chosen, base_url is hidden (auto-filled)", () => {

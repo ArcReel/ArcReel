@@ -34,7 +34,7 @@ describe("CredentialList", () => {
         onDelete={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /set active|activate/i }));
+    fireEvent.click(screen.getByRole("button", { name: /set active|activate|设为当前|Đặt làm mặc định/i }));
     expect(onActivate).toHaveBeenCalledWith(1);
   });
 
@@ -48,7 +48,7 @@ describe("CredentialList", () => {
         onDelete={vi.fn()}
       />,
     );
-    const deleteBtn = screen.getByRole("button", { name: /delete|remove/i });
+    const deleteBtn = screen.getByRole("button", { name: /delete|remove|删除|Xoá/i });
     expect(deleteBtn).toBeDisabled();
   });
 
@@ -76,7 +76,9 @@ describe("CredentialList", () => {
         onDelete={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /test|cred_test_label/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^test$|cred_test_label|连接测试|Kiểm tra/i }),
+    );
     expect(onTest).toHaveBeenCalledWith(1);
   });
 
@@ -92,7 +94,7 @@ describe("CredentialList", () => {
         onDelete={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /edit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /edit|编辑|Chỉnh sửa/i }));
     expect(onEdit).toHaveBeenCalledWith(cred);
   });
 });
