@@ -32,7 +32,8 @@ _SUFFIX_PATTERNS: list[tuple[re.Pattern[str], int]] = [
     # 其余已知子路径 — 整体剥掉（保留 0 字符）
     (re.compile(r"/(?:apps/anthropic|plan/anthropic|coding/anthropic|api/coding|anthropic)/?$"), 0),
 ]
-# 用户误带的版本路径，先剥
+# 用户误带的版本路径，先剥。假设：末尾裸 /v1 是用户误操作（错误添加 Anthropic API 版本号），
+# 不是用户想要的路径段。真正的代理网关都用 /anthropic 形式子路径，不存在裸 /v1 根。
 _TRAILING_VERSION = re.compile(r"/v\d+\w*(?:/messages)?/?$")
 
 
@@ -56,7 +57,7 @@ def derive_anthropic_endpoints(user_url: str) -> AnthropicEndpoints:
     Steps:
         1) 去首尾空白、剥末尾斜杠
         2) 剥末尾的 /v\\d+ 或 /v\\d+/messages（用户误带）
-        3) 用 _KNOWN_ANTHROPIC_SUFFIX 匹配子路径：
+        3) 用 _SUFFIX_PATTERNS 匹配子路径：
            匹配 → messages_root = 原值, discovery_root = 剥掉子路径
            不匹配 → messages_root == discovery_root == 原值
     """

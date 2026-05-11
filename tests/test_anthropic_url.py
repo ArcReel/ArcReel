@@ -41,6 +41,15 @@ from lib.config.anthropic_url import AnthropicEndpoints, derive_anthropic_endpoi
                 True,
             ),
         ),
+        # /plan/anthropic (LKEAP Token Plan)
+        (
+            "https://api.lkeap.cloud.tencent.com/plan/anthropic",
+            AnthropicEndpoints(
+                "https://api.lkeap.cloud.tencent.com/plan/anthropic",
+                "https://api.lkeap.cloud.tencent.com",
+                True,
+            ),
+        ),
         # /api/coding (火山方舟 Coding Plan)
         (
             "https://ark.cn-beijing.volces.com/api/coding",
