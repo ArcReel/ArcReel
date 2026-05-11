@@ -243,9 +243,9 @@ class TestPatchSystemConfig:
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
 
-        # sync_anthropic_env は session.execute() を呼ぶ。
-        # get_active() → execute → scalar_one_or_none() が None を返すよう設定。
-        # get_all() (SystemSettingRepository) → execute → scalars() が空イテラブルを返すよう設定。
+        # sync_anthropic_env 会调用 session.execute()。
+        # get_active() → execute → scalar_one_or_none() 返回 None（无 active 凭证）。
+        # get_all() (SystemSettingRepository) → execute → scalars() 返回空迭代器。
         _exec_result = MagicMock()
         _exec_result.scalar_one_or_none.return_value = None
         _exec_result.scalars.return_value = iter([])

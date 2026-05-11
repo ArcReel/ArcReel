@@ -216,7 +216,12 @@ async def update_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     repo = AgentCredentialRepository(session)
-    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    # exclude_unset 保留客户端显式传入的 None（用于清空 model/haiku_model 等可选覆盖项）
+    # 必需字段 (display_name/base_url/api_key) 仍过滤 None：传 null 给它们没有意义
+    fields = body.model_dump(exclude_unset=True)
+    for required in ("display_name", "base_url", "api_key"):
+        if fields.get(required) is None:
+            fields.pop(required, None)
     if not fields:
         raise HTTPException(status_code=400, detail=_t("agent_no_fields_to_update"))
     cred = await repo.update(cred_id, **fields)
@@ -239,7 +244,9 @@ async def delete_credential(
     try:
         await repo.delete(cred_id)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        if "active" in str(exc):
+            raise HTTPException(status_code=409, detail=_t("agent_cannot_delete_active")) from exc
+        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found")) from exc
     await session.commit()
 
 
@@ -261,7 +268,7 @@ async def activate_credential(
     try:
         await repo.set_active(cred_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found")) from exc
     await session.commit()
     await sync_anthropic_env(session)
     return ActivateResponse(active_id=cred_id)
@@ -325,11 +332,12 @@ async def _run_and_serialize(
     base_url: str | None,
     api_key: str,
     model: str | None,
+    _t: Translator,
 ) -> TestConnectionResponseModel:
     try:
         result = await run_test(preset_id=preset_id, base_url=base_url, api_key=api_key, model=model)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=_t("agent_test_validation_error", error=str(exc))) from exc
     return _serialize_test_response(result)
 
 
@@ -344,6 +352,7 @@ async def test_connection_draft(
         base_url=body.base_url,
         api_key=body.api_key,
         model=body.model,
+        _t=_t,
     )
 
 
@@ -363,4 +372,5 @@ async def test_credential(
         base_url=cred.base_url,
         api_key=cred.api_key,
         model=cred.model,
+        _t=_t,
     )

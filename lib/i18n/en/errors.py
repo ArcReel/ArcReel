@@ -136,4 +136,6 @@ MESSAGES = {
     "agent_base_url_required_custom": "base_url is required for custom configuration",
     "agent_no_fields_to_update": "No fields to update",
     "agent_credential_not_found": "Credential not found",
+    "agent_cannot_delete_active": "Cannot delete the active credential; activate another first",
+    "agent_test_validation_error": "Test connection failed: {error}",
 }

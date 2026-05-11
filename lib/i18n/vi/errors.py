@@ -136,4 +136,6 @@ MESSAGES = {
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",
     "agent_no_fields_to_update": "Không có trường nào để cập nhật",
     "agent_credential_not_found": "Không tìm thấy xác thực",
+    "agent_cannot_delete_active": "Không thể xóa xác thực đang hoạt động; hãy kích hoạt xác thực khác trước",
+    "agent_test_validation_error": "Kiểm tra kết nối thất bại: {error}",
 }

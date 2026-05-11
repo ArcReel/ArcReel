@@ -136,4 +136,6 @@ MESSAGES = {
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",
     "agent_no_fields_to_update": "没有需要更新的字段",
     "agent_credential_not_found": "凭证不存在",
+    "agent_cannot_delete_active": "无法删除当前活跃凭证，请先切换到其他凭证",
+    "agent_test_validation_error": "测试连接失败：{error}",
 }

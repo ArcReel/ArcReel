@@ -223,9 +223,10 @@ async def run_test(
         preset = get_preset(preset_id)
         if preset is None:
             raise ValueError(f"unknown preset: {preset_id!r}")
-        # has_explicit_suffix=True 抑制自愈分支；preset URL 视为权威，不需补 /anthropic
+        # 凭证允许覆盖 preset.messages_url（如内部代理）；测试必须用与运行时一致的 URL。
+        # has_explicit_suffix=True 抑制自愈分支：preset 凭证视为权威，不补 /anthropic
         ep = AnthropicEndpoints(
-            messages_root=preset.messages_url,
+            messages_root=base_url or preset.messages_url,
             discovery_root=preset.discovery_url or "",
             has_explicit_suffix=True,
         )

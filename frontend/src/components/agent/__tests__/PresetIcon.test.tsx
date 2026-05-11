@@ -1,12 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PresetIcon } from "../PresetIcon";
+import { PresetIcon } from "@/components/agent/PresetIcon";
 
 describe("PresetIcon", () => {
   it("renders lobehub icon when iconKey known", async () => {
     render(<PresetIcon iconKey="DeepSeek" size={24} />);
-    await waitFor(() => expect(document.querySelector("svg")).not.toBeNull());
+    expect(await screen.findByTestId("lobehub-stub-icon")).toBeInTheDocument();
   });
 
   it("falls back to monogram on unknown iconKey", async () => {

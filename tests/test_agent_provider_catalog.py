@@ -93,10 +93,12 @@ def test_api_key_url_required() -> None:
 
 
 def test_preset_dataclass_is_frozen() -> None:
-    p = get_preset("anthropic-official")
-    assert p is not None
     import dataclasses
 
+    import pytest
+
+    p = get_preset("anthropic-official")
+    assert p is not None
     assert dataclasses.is_dataclass(p)
-    with __import__("pytest").raises(dataclasses.FrozenInstanceError):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         p.display_name = "x"  # type: ignore[misc]
