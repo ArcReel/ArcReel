@@ -24,7 +24,10 @@ from lib.httpx_shared import shutdown_http_client, startup_http_client
 async def case(label: str, **kw):
     print(f"\n{'═' * 78}")
     print(f"  {label}")
-    print(f"  args: {kw}")
+    # 脱敏 api_key：一旦本地把 fake key 换成真 key 跑，原样 print 会留进
+    # 终端历史/会话日志。
+    safe_kw = {**kw, "api_key": "***REDACTED***"} if kw.get("api_key") else kw
+    print(f"  args: {safe_kw}")
     print("─" * 78)
     try:
         resp = await run_test(**kw)
