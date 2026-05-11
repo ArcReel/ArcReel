@@ -91,11 +91,21 @@ describe("AssetLibraryPage tablist (issue #488)", () => {
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
   });
 
-  it("renders tabpanel labelled by the active tab id", () => {
+  it("renders tabpanel labelled by the active tab id with stable shared id", () => {
     renderPage();
     const panel = screen.getByRole("tabpanel");
-    expect(panel).toHaveAttribute("id", "asset-panel-character");
+    // 所有 tab 共用同一个 panel id，避免未激活 tab 的 aria-controls
+    // 指向不存在的 DOM 元素（WAI-ARIA 1.2 要求引用必须可解析）。
+    expect(panel).toHaveAttribute("id", "asset-panel");
     expect(panel).toHaveAttribute("aria-labelledby", "asset-tab-character");
+
+    // 每个 tab 的 aria-controls 都必须能在 DOM 中找到目标
+    const tabs = screen.getAllByRole("tab");
+    for (const tab of tabs) {
+      const controls = tab.getAttribute("aria-controls");
+      expect(controls).toBeTruthy();
+      expect(document.getElementById(controls!)).not.toBeNull();
+    }
   });
 
   it("respects URL ?tab=scene as initial active tab", () => {

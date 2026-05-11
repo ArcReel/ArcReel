@@ -261,7 +261,7 @@ export function AssetLibraryPage() {
                 role="tab"
                 id={`asset-tab-${type}`}
                 aria-selected={active}
-                aria-controls={`asset-panel-${type}`}
+                aria-controls="asset-panel"
                 tabIndex={active ? 0 : -1}
                 onClick={() => setActiveTab(type)}
                 onKeyDown={(e) => handleTabKeyDown(e, type)}
@@ -285,10 +285,10 @@ export function AssetLibraryPage() {
       <main className="relative mx-auto w-full max-w-6xl flex-1 px-6 py-8">
         <div
           role="tabpanel"
-          id={`asset-panel-${activeTab}`}
+          id="asset-panel"
           aria-labelledby={`asset-tab-${activeTab}`}
           tabIndex={0}
-          className="focus:outline-none"
+          className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
         {assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">
