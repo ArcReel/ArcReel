@@ -84,3 +84,28 @@ def test_sandbox_unsupported_platform_raises(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     with pytest.raises(RuntimeError, match="macOS / Linux only"):
         check_sandbox_available()
+
+
+from server.app import detect_docker_environment
+
+
+def test_detect_docker_via_dockerenv(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    fake_dockerenv = tmp_path / ".dockerenv"
+    fake_dockerenv.touch()
+    monkeypatch.setattr("server.app._DOCKERENV_PATH", fake_dockerenv)
+    monkeypatch.setattr("server.app._CGROUP_PATH", tmp_path / "nonexistent")
+    assert detect_docker_environment() is True
+
+
+def test_detect_docker_via_cgroup(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    fake_cgroup = tmp_path / "cgroup"
+    fake_cgroup.write_text("12:cpu:/docker/abc123\n")
+    monkeypatch.setattr("server.app._DOCKERENV_PATH", tmp_path / "nope")
+    monkeypatch.setattr("server.app._CGROUP_PATH", fake_cgroup)
+    assert detect_docker_environment() is True
+
+
+def test_detect_no_docker(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr("server.app._DOCKERENV_PATH", tmp_path / "nope")
+    monkeypatch.setattr("server.app._CGROUP_PATH", tmp_path / "also_nope")
+    assert detect_docker_environment() is False
