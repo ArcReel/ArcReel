@@ -291,6 +291,11 @@ class SessionManager:
     DEFAULT_ALLOWED_TOOLS = [
         "Skill",
         "Task",
+        # —— Bash 系列（sandbox 启用 + autoAllowBashIfSandboxed=True 协同放行）——
+        "Bash",
+        "BashOutput",
+        "KillBash",
+        # —— SDK 内置工具（仍走 PreToolUse hook 文件围栏 + settings.json deny）——
         "Read",
         "Write",
         "Edit",
@@ -301,9 +306,9 @@ class SessionManager:
     DEFAULT_SETTING_SOURCES = ["project"]
     _SDK_ID_TIMEOUT = 60.0
 
-    # Bash is NOT in DEFAULT_ALLOWED_TOOLS — it is controlled by declarative
-    # allow rules in settings.json (whitelist approach, default deny).
-    # File access control for Read/Write/Edit/Glob/Grep uses PreToolUse hooks.
+    # Sandbox 启用后 Bash 进入 allowed_tools；具体命令由 SDK Sandbox 自动放行
+    # (autoAllowBashIfSandboxed=True)。文件访问控制走 settings.json deny rules
+    # + PreToolUse hook 双重防线 (spec §4)。
     _PATH_TOOLS: dict[str, str] = {
         "Read": "file_path",
         "Write": "file_path",

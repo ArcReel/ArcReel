@@ -54,3 +54,10 @@ async def test_provider_env_overrides_includes_anthropic_and_empties(
     assert env["GEMINI_API_KEY"] == ""
     assert env["VIDU_API_KEY"] == ""
     assert env["GOOGLE_APPLICATION_CREDENTIALS"] == ""
+
+
+def test_default_allowed_tools_includes_bash() -> None:
+    """sandbox 启用后 Bash/BashOutput/KillBash 必须在 allowed_tools 列表。"""
+    assert "Bash" in SessionManager.DEFAULT_ALLOWED_TOOLS
+    assert "BashOutput" in SessionManager.DEFAULT_ALLOWED_TOOLS
+    assert "KillBash" in SessionManager.DEFAULT_ALLOWED_TOOLS
