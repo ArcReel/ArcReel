@@ -510,6 +510,24 @@ class SessionManager:
         self._session_store_resolved = True
         return store
 
+    async def _build_provider_env_overrides(self) -> dict[str, str]:
+        """构造 options.env 注入字典 — spec §6.2。
+
+        - ANTHROPIC_* 从 DB active credential 取真值
+        - 其他 provider env 全部空值覆盖（防御性兜底）
+        """
+        from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS
+        from lib.config.service import build_anthropic_env_dict
+        from lib.db import async_session_factory
+
+        async with async_session_factory() as session:
+            anthropic_env = await build_anthropic_env_dict(session)
+
+        result = dict(anthropic_env)
+        for key in OTHER_PROVIDER_ENV_KEYS:
+            result[key] = ""
+        return result
+
     def _build_options(
         self,
         project_name: str,
