@@ -1,39 +1,21 @@
 {
   "permissions": {
     "deny": [
-      "Edit(//app/docs/**)",
-      "Edit(//app/lib/**)",
-      "Edit(//app/agent_runtime_profile/**)",
-      "Edit(//app/scripts/**)",
-      "Edit(//app/alembic/**)",
-      "Write(//app/docs/**)",
-      "Write(//app/lib/**)",
-      "Write(//app/agent_runtime_profile/**)",
-      "Write(//app/scripts/**)",
-      "Write(//app/alembic/**)",
       "Read(//app/.env)",
       "Read(//app/.env.*)",
-      "Read(//app/vertex_keys/**)"
-    ],
-    "allow": [
-      "Bash(python .claude/skills/generate-video/scripts/generate_video.py:*)",
-      "Bash(python .claude/skills/generate-storyboard/scripts/generate_storyboard.py:*)",
-      "Bash(python .claude/skills/generate-assets/scripts/generate_asset.py:*)",
-      "Bash(python .claude/skills/generate-script/scripts/generate_script.py:*)",
-      "Bash(python .claude/skills/generate-script/scripts/normalize_drama_script.py:*)",
-      "Bash(python .claude/skills/manage-project/scripts/add_assets.py:*)",
-      "Bash(python .claude/skills/manage-project/scripts/get_video_capabilities.py:*)",
-      "Bash(python .claude/skills/manage-project/scripts/peek_split_point.py:*)",
-      "Bash(python .claude/skills/manage-project/scripts/split_episode.py:*)",
-      "Bash(python .claude/skills/generate-grid/scripts/generate_grid.py:*)",
-      "Bash(python .claude/skills/compose-video/scripts/compose_video.py:*)",
-      "Bash(ffmpeg:*)",
-      "Bash(ffprobe:*)",
-      "BashOutput",
-      "KillBash",
-      "Read",
-      "Grep",
-      "Glob"
+      "Read(//app/vertex_keys/**)",
+      "Read(//app/projects/.arcreel.db)",
+      "Read(//app/projects/.arcreel.db-*)",
+      "Read(//app/projects/.system_config.json)",
+      "Read(//app/projects/.system_config.json.bak)",
+      "Read(//app/agent_runtime_profile/.claude/settings.json)",
+      "Edit(//app/.env)",
+      "Edit(//app/.env.*)",
+      "Edit(//app/vertex_keys/**)",
+      "Edit(//app/projects/.arcreel.db)",
+      "Edit(//app/projects/.arcreel.db-*)",
+      "Edit(//app/projects/.system_config.json)",
+      "Edit(//app/projects/.system_config.json.bak)"
     ]
   }
 }
