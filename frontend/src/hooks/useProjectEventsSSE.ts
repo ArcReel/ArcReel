@@ -116,6 +116,12 @@ function isWorkspaceEditing(): boolean {
 
 export function useProjectEventsSSE(projectName?: string | null): void {
   const { t } = useTranslation("dashboard");
+  // 把 t 通过 ref 暴露给 callback，避免 i18n 切语言时 refreshProject
+  // 重建 → EventSource effect 跟着重连 → 通知/focus 提示丢失。
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [, setLocation] = useLocation();
   const setCurrentProject = useProjectsStore((s) => s.setCurrentProject);
   const invalidateEntities = useAppStore((s) => s.invalidateEntities);
@@ -180,7 +186,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           const res = await API.getProject(projectName);
           setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
         } catch (err) {
-          pushNotification(t("project_sync_failed", { message: errMsg(err) }), "warning");
+          pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning");
         }
         if (needsRefreshRef.current) {
           needsRefreshRef.current = false;
@@ -191,7 +197,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       refreshingRef.current = false;
     }
     flushQueuedFocus();
-  }, [flushQueuedFocus, projectName, pushNotification, setCurrentProject, t]);
+  }, [flushQueuedFocus, projectName, pushNotification, setCurrentProject]);
 
   useEffect(() => {
     lastFingerprintRef.current = null;
