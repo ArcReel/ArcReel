@@ -5,23 +5,20 @@ Ark (火山方舟) 共享工具模块
 
 包含：
 - ARK_BASE_URL — 火山方舟 API 基础 URL
-- resolve_ark_api_key — API Key 解析（含环境变量 fallback）
+- resolve_ark_api_key — API Key 解析（缺失即 raise，不再走 env fallback）
 - create_ark_client — Ark 客户端工厂
 """
 
 from __future__ import annotations
 
-import os
-
 ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 
 
 def resolve_ark_api_key(api_key: str | None = None) -> str:
-    """解析 Ark API Key，支持环境变量 fallback。"""
-    resolved = api_key or os.environ.get("ARK_API_KEY")
-    if not resolved:
-        raise ValueError("Ark API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
-    return resolved
+    """spec §5.4：不再读 env fallback；缺失即 raise。"""
+    if not api_key:
+        raise ValueError("请到系统配置页填写 Ark API Key")
+    return api_key
 
 
 def create_ark_client(*, api_key: str | None = None):

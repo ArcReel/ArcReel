@@ -57,14 +57,13 @@ class TestArkImageBackendInit:
         with pytest.raises(ValueError, match="Ark API Key"):
             ArkImageBackend(api_key=None)
 
-    def test_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch):
+    def test_api_key_from_env_no_longer_supported(self, monkeypatch: pytest.MonkeyPatch):
+        """spec §5.4：env fallback 已删除——即使 ARK_API_KEY 在环境中，缺失 api_key 仍 raise。"""
         monkeypatch.setenv("ARK_API_KEY", "env-key")
-        with patch("lib.image_backends.ark.create_ark_client") as mock_create:
-            from lib.image_backends.ark import ArkImageBackend
+        from lib.image_backends.ark import ArkImageBackend
 
-            backend = ArkImageBackend()
-            mock_create.assert_called_once_with(api_key=None)
-            assert backend.name == PROVIDER_ARK
+        with pytest.raises(ValueError, match="Ark API Key"):
+            ArkImageBackend(api_key=None)
 
     def test_api_key_from_param(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
