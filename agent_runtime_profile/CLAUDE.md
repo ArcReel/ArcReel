@@ -26,6 +26,8 @@
 ### 脚本调用
 - **Skill 内部脚本**：各 skill 的可执行脚本位于 `agent_runtime_profile/.claude/skills/{skill-name}/scripts/` 目录下
 - **虚拟环境**：默认已激活，脚本无需手动激活 .venv
+- **Bash 调用**：项目目录内可自由跑 `ls / cat / jq / python / curl` 等命令（沙箱化已启用），skill 脚本路径建议用相对路径以便跨项目通用，但绝对路径同样可用。
+- **敏感文件保护**：`.env` / `vertex_keys/` / `projects/.arcreel.db*` / `projects/.system_config.json*` 等敏感文件在 `settings.json` 的 `deny` 列表中被强制拒绝读写；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
 ---
 
