@@ -25,6 +25,7 @@ FROM python:3.12-slim AS production
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv
