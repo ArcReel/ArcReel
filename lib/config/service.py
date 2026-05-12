@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass
 from typing import Literal
 
@@ -26,25 +25,25 @@ _ANTHROPIC_ENV_MAP: dict[str, str] = {
 }
 
 
-async def sync_anthropic_env(session: AsyncSession) -> None:
-    """把 active credential 同步到 os.environ；无 active 时回退 system_settings。
+async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
+    """从 DB 读 active credential，返回 {ENV_KEY: value} dict，**不写 os.environ**。
 
-    Claude Agent SDK 子进程从 os.environ 读取这些值，所以必须实时写入。
+    返回值由 SessionManager._build_provider_env_overrides() 注入到
+    ClaudeAgentOptions.env（spec §6.2）。
 
-    双轨期 merge 策略：active credential 提供 API_KEY/BASE_URL；
-    *_MODEL 系列优先从 credential 读取，credential 字段为空时回退到 system_settings
-    （Section 2 Model Routing 仍写到 system_settings，下版本 0.14 迁移到 credential 子字段）。
+    双轨期 fallback：active credential 字段为空时从 system_settings 兜底。
     """
     # 局部 import 避免循环依赖（agent_credential_repo → agent_credential model → base）
     from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
     repo = AgentCredentialRepository(session)
     cred = await repo.get_active()
+
     if cred is not None:
         settings = await SystemSettingRepository(session).get_all()
-        env_map: dict[str, str] = {
-            "ANTHROPIC_API_KEY": cred.api_key,
-            "ANTHROPIC_BASE_URL": cred.base_url,
+        return {
+            "ANTHROPIC_API_KEY": cred.api_key or "",
+            "ANTHROPIC_BASE_URL": cred.base_url or "",
             "ANTHROPIC_MODEL": cred.model or settings.get("anthropic_model", "").strip(),
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": cred.haiku_model
             or settings.get("anthropic_default_haiku_model", "").strip(),
@@ -53,26 +52,10 @@ async def sync_anthropic_env(session: AsyncSession) -> None:
             "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or settings.get("anthropic_default_opus_model", "").strip(),
             "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or settings.get("claude_code_subagent_model", "").strip(),
         }
-        _apply_env_map(env_map)
-        return
-    # 兼容回退：从旧 system_settings 读
+
+    # 无 active credential — 回退 system_settings（双轨期兼容）
     settings = await SystemSettingRepository(session).get_all()
-    _sync_from_settings(settings)
-
-
-def _sync_from_settings(all_settings: dict[str, str]) -> None:
-    env_map: dict[str, str] = {}
-    for db_key, env_key in _ANTHROPIC_ENV_MAP.items():
-        env_map[env_key] = all_settings.get(db_key, "").strip()
-    _apply_env_map(env_map)
-
-
-def _apply_env_map(env_map: dict[str, str]) -> None:
-    for k, v in env_map.items():
-        if v:
-            os.environ[k] = v
-        else:
-            os.environ.pop(k, None)
+    return {env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()}
 
 
 @dataclass
