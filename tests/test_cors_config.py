@@ -67,24 +67,42 @@ class TestCorsOriginsParsing:
         assert mod._allow_origins == ["http://a", "http://b"]
         assert mod._allow_credentials is True
 
+    def test_mixed_wildcard_with_specific_origin_collapses_to_wildcard(self, reload_app_with_env):
+        """`*` 出现在白名单里时，整体降级为通配 + credentials=False，
+        避免 Starlette `RuntimeError` (CORS spec 禁止通配 + credentials 共存)。"""
+        mod = reload_app_with_env({"CORS_ORIGINS": "http://localhost:5173, *"})
+        assert mod._allow_origins == ["*"]
+        assert mod._allow_credentials is False
+
 
 class TestListenEnvVars:
     """LISTEN_HOST / LISTEN_PORT are only consumed by the ``__main__`` block.
     Verify the values are read from env without actually starting uvicorn."""
+
+    @staticmethod
+    def _resolve() -> tuple[str, int]:
+        host = os.environ.get("LISTEN_HOST") or "0.0.0.0"
+        port = int(os.environ.get("LISTEN_PORT") or "1241")
+        return host, port
 
     def test_defaults_match_existing_behavior(self):
         env = os.environ.copy()
         env.pop("LISTEN_HOST", None)
         env.pop("LISTEN_PORT", None)
         with patch.dict(os.environ, env, clear=True):
-            host = os.environ.get("LISTEN_HOST", "0.0.0.0")
-            port = int(os.environ.get("LISTEN_PORT", "1241"))
+            host, port = self._resolve()
         assert host == "0.0.0.0"
         assert port == 1241
 
     def test_env_overrides_take_effect(self):
         with patch.dict(os.environ, {"LISTEN_HOST": "127.0.0.1", "LISTEN_PORT": "18080"}):
-            host = os.environ.get("LISTEN_HOST", "0.0.0.0")
-            port = int(os.environ.get("LISTEN_PORT", "1241"))
+            host, port = self._resolve()
         assert host == "127.0.0.1"
         assert port == 18080
+
+    def test_empty_listen_port_falls_back_to_default(self):
+        """`.env` 误写 `LISTEN_PORT=`（空值）不应让 `int("")` 抛 ValueError。"""
+        with patch.dict(os.environ, {"LISTEN_HOST": "", "LISTEN_PORT": ""}):
+            host, port = self._resolve()
+        assert host == "0.0.0.0"
+        assert port == 1241

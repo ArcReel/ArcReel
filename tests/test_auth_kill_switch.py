@@ -40,7 +40,8 @@ class TestIsAuthEnabled:
             ("0", False),
             ("no", False),
             ("off", False),
-            ("", False),  # 空串视为关闭，防 .env 半空配置
+            ("", True),  # 空串视为未配置 → 回退默认（开启），fail-closed
+            ("  ", True),  # 仅空白同上
             ("  false  ", False),
         ],
     )

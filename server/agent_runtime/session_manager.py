@@ -350,8 +350,12 @@ class SessionManager:
         # Tests construct SessionManager directly without going through
         # AssistantService, so we fall back to the legacy ``project_root/projects``
         # convention. Production passes the configured app_data_dir() explicitly.
+        # 两路都 resolve，避免符号链接场景下 _resolve_project_cwd 的 relative_to
+        # 校验失败（project_cwd 已经 resolve 过）。strict=False 容忍目录不存在。
         self.projects_root = (
-            Path(projects_root) if projects_root is not None else (self.project_root / "projects").resolve()
+            Path(projects_root).resolve(strict=False)
+            if projects_root is not None
+            else (self.project_root / "projects").resolve()
         )
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}

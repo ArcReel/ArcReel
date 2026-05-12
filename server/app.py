@@ -232,14 +232,15 @@ app = FastAPI(
 )
 
 # CORS 配置（env 驱动）：
-#   - CORS_ORIGINS 未设置 / "*" → 通配 origins，credentials 强制关闭（CORS spec 不允许通配 + credentials 组合）
+#   - CORS_ORIGINS 未设置 / 空 / 包含 "*" → 通配 origins，credentials 强制关闭
+#     （CORS spec 不允许通配 + credentials 组合；Starlette 在初始化时会 RuntimeError）
 #   - 否则按逗号分隔解析为白名单，credentials 打开供前端附带 cookie / Authorization 跨域
 _cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
-if _cors_raw in ("", "*"):
-    _allow_origins: list[str] = ["*"]
+_allow_origins: list[str] = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not _allow_origins or "*" in _allow_origins:
+    _allow_origins = ["*"]
     _allow_credentials = False
 else:
-    _allow_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
     _allow_credentials = True
 
 app.add_middleware(
@@ -382,6 +383,7 @@ if frontend_dist_dir.exists():
 if __name__ == "__main__":
     import uvicorn
 
-    _host = os.environ.get("LISTEN_HOST", "0.0.0.0")
-    _port = int(os.environ.get("LISTEN_PORT", "1241"))
+    # 用 truthy 默认（`or`）兜底，避免 .env 误写 `LISTEN_PORT=` 空值时 int("") 崩溃。
+    _host = os.environ.get("LISTEN_HOST") or "0.0.0.0"
+    _port = int(os.environ.get("LISTEN_PORT") or "1241")
     uvicorn.run(app, host=_host, port=_port, reload=True)
