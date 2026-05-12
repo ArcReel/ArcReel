@@ -1819,11 +1819,8 @@ class SessionManager:
                     f"未授权的工具调用: {tool_name}"
                     f"({json.dumps(input_data, ensure_ascii=False)[:200]})\n"
                     f"{reason_line}"
-                    "当前 Bash 白名单仅允许以下命令:\n"
-                    "  - python .claude/skills/<skill>/scripts/<script>.py <args>（必须用相对路径）\n"
-                    "  - ffmpeg / ffprobe\n"
-                    "其他 Bash 命令均不可用。"
-                    "请检查命令格式是否匹配白名单规则。"
+                    "请检查工具名是否正确，以及 file_path / 命令是否触发了 "
+                    "settings.json 的 deny 规则或 PreToolUse hook（跨项目/cwd 外写/代码扩展名）。"
                 )
                 return PermissionResultDeny(message=hint)
             return PermissionResultAllow(updated_input=input_data)
