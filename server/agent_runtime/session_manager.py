@@ -415,7 +415,7 @@ class SessionManager:
 - 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
 - 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
 - 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
-- 你不能创建或编辑代码文件（.py/.js/.sh 等），Write/Edit 仅限 .json/.md/.txt
+- Write/Edit 不要写入代码文件（扩展名 .py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）；数据文件（.json/.md/.txt/.html/.csv 等）可以正常写入。代码逻辑应通过现有 skill 脚本完成
 - 你是用户的视频制作搭档，专业、友善、高效"""
 
     def _build_append_prompt(self, project_name: str, locale: str = "zh") -> str:
