@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from lib.config.env_keys import (
     ANTHROPIC_ENV_KEYS,
-    AUTH_ALLOWED_KEYS,
     OTHER_PROVIDER_ENV_KEYS,
     PROVIDER_SECRET_KEYS,
 )
@@ -17,12 +16,6 @@ def test_provider_secret_keys_is_subset_of_all_provider_keys():
             assert k in ANTHROPIC_ENV_KEYS
         else:
             assert k in OTHER_PROVIDER_ENV_KEYS, f"密钥 {k} 必须出现在 OTHER_PROVIDER_ENV_KEYS 中"
-
-
-def test_secret_keys_are_disjoint_from_auth_whitelist():
-    """密钥不能出现在 AUTH 白名单 — 否则启动断言会冲突。"""
-    overlap = PROVIDER_SECRET_KEYS & AUTH_ALLOWED_KEYS
-    assert not overlap, f"密钥与 AUTH 白名单冲突: {overlap}"
 
 
 def test_anthropic_keys_complete():

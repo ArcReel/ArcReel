@@ -114,7 +114,9 @@
 | `server/routers/agent_config.py:205,232,273` | 3 处 `sync_anthropic_env()` 调用全删 |
 | `server/routers/system_config.py:380` | 1 处 `sync_anthropic_env()` 调用删 |
 | `lib/system_config.py:228,376-384` | `_baseline_env` 字段删；`_set_env` / `_restore_or_unset` 不再写 `os.environ` |
-| `server/agent_runtime/service.py:1024-1035` `_load_project_env()` | 在 `load_dotenv()` 后立刻执行白名单过滤：仅保留 `AUTH_*` / `DATABASE_URL` / `LOG_LEVEL` / `ASSISTANT_*` / `ARCREEL_*`，其余 key 从 `os.environ` 删除。**白名单常量统一放在新模块 `lib/config/env_keys.py`**（同时供 §6.2 注入清单引用） |
+| `server/agent_runtime/service.py:1024-1035` `_load_project_env()` | 在 `load_dotenv()` 后立刻执行**保守黑名单**清理：`os.environ.pop()` 掉 `ANTHROPIC_ENV_KEYS + OTHER_PROVIDER_ENV_KEYS` 中的精确 key（来自 `lib/config/env_keys.py` 单一真相源），其余 key（`AUTH_*`/`DATABASE_URL`/`RANDOM_VAR`/未来新增的非 provider 配置）原样保留。**注入清单与黑名单同源** —— `lib/config/env_keys.py` 同时供 §6.2 注入和此处 pop 使用 |
+
+> **黑名单 vs 白名单的取舍**：早期方案曾考虑 `AUTH_* / DATABASE_URL / ...` 白名单过滤，但存在「白名单漏列合法运行时配置 → 误杀」风险。保守黑名单换走了「未来新增 provider key 漏列 → 泄漏」风险（漏列只意味着新 key 暂时绕过 pop 清理，并不会绕过 §6.2 `options.env` 空值覆盖兜底；而 6 个真密钥已被 §7.2 启动断言 `assert_no_provider_secrets_in_environ()` 兜底硬失败）。两害相权取其轻，选黑名单。
 
 **保留**：`server/auth.py:189` `os.environ["AUTH_PASSWORD"] = password` —— 属 AUTH 子系统兼容路径，非 provider。
 
