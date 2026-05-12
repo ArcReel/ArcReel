@@ -61,3 +61,25 @@ def test_default_allowed_tools_includes_bash() -> None:
     assert "Bash" in SessionManager.DEFAULT_ALLOWED_TOOLS
     assert "BashOutput" in SessionManager.DEFAULT_ALLOWED_TOOLS
     assert "KillBash" in SessionManager.DEFAULT_ALLOWED_TOOLS
+
+
+@pytest.mark.asyncio
+async def test_build_options_includes_sandbox_settings(
+    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    proj_dir = session_manager.project_root / "projects" / "test_proj"
+    proj_dir.mkdir(parents=True)
+    (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
+
+    async def fake_env(_self):
+        return {"ANTHROPIC_API_KEY": "sk", "ARK_API_KEY": ""}
+
+    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+
+    opts = await session_manager._build_options("test_proj")
+
+    assert opts.sandbox is not None
+    assert opts.sandbox.get("enabled") is True
+    assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
+    # 非 Docker 默认 weakerNested=False
+    assert opts.sandbox.get("enableWeakerNestedSandbox") is False

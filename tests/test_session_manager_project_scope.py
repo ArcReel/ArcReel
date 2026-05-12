@@ -32,9 +32,14 @@ async def _make_store():
     return store, engine
 
 
+async def _fake_provider_env(_self):
+    """Stub for SessionManager._build_provider_env_overrides — 跳过 DB 访问。"""
+    return {}
+
+
 class TestSessionManagerProjectScope:
     @pytest.mark.asyncio
-    async def test_build_options_uses_project_directory_as_cwd(self, tmp_path):
+    async def test_build_options_uses_project_directory_as_cwd(self, tmp_path, monkeypatch):
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
         store, engine = await _make_store()
@@ -43,19 +48,20 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
+        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
 
         with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
             with patch(
                 "server.agent_runtime.session_manager.ClaudeAgentOptions",
                 _FakeOptions,
             ):
-                options = manager._build_options("demo")
+                options = await manager._build_options("demo")
 
         assert options.kwargs["cwd"] == str(project_dir.resolve())
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_options_raises_when_project_missing(self, tmp_path):
+    async def test_build_options_raises_when_project_missing(self, tmp_path, monkeypatch):
         (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
         store, engine = await _make_store()
         manager = SessionManager(
@@ -63,6 +69,7 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
+        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
 
         with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
             with patch(
@@ -70,12 +77,12 @@ class TestSessionManagerProjectScope:
                 _FakeOptions,
             ):
                 with pytest.raises(FileNotFoundError):
-                    manager._build_options("missing-project")
+                    await manager._build_options("missing-project")
 
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_options_always_adds_file_access_hook(self, tmp_path):
+    async def test_build_options_always_adds_file_access_hook(self, tmp_path, monkeypatch):
         """File access hook is always registered, even without can_use_tool."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
@@ -85,6 +92,7 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
+        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
 
         with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
             with patch(
@@ -95,7 +103,7 @@ class TestSessionManagerProjectScope:
                     "server.agent_runtime.session_manager.HookMatcher",
                     _FakeHookMatcher,
                 ):
-                    options = manager._build_options("demo")
+                    options = await manager._build_options("demo")
 
         hooks = options.kwargs.get("hooks", {})
         assert "PreToolUse" in hooks
@@ -108,7 +116,7 @@ class TestSessionManagerProjectScope:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_options_with_can_use_tool_adds_keep_alive_hook(self, tmp_path):
+    async def test_build_options_with_can_use_tool_adds_keep_alive_hook(self, tmp_path, monkeypatch):
         """With can_use_tool: keep_stream_open + file_access hooks."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
@@ -118,6 +126,7 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
+        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
 
         async def _can_use_tool(_tool_name, _input_data, _context):
             return None
@@ -131,7 +140,7 @@ class TestSessionManagerProjectScope:
                     "server.agent_runtime.session_manager.HookMatcher",
                     _FakeHookMatcher,
                 ):
-                    options = manager._build_options(
+                    options = await manager._build_options(
                         "demo",
                         can_use_tool=_can_use_tool,
                     )
@@ -277,8 +286,11 @@ class TestAllowedToolsAndConstants:
         assert "AskUserQuestion" in tools
         assert "MultiEdit" not in tools
         assert "LS" not in tools
-        # Bash must NOT be in allowed_tools — controlled by settings.json whitelist
-        assert "Bash" not in tools
+        # Task 4.2: Bash 现在在 allowed_tools，由 SDK Sandbox autoAllowBashIfSandboxed
+        # 配合 SandboxSettings.enabled=True 自动放行命令。
+        assert "Bash" in tools
+        assert "BashOutput" in tools
+        assert "KillBash" in tools
         await engine.dispose()
 
     @pytest.mark.asyncio

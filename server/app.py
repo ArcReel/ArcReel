@@ -259,7 +259,7 @@ async def lifespan(app: FastAPI):
     await startup_http_client()
 
     # Initialize async services
-    await assistant.assistant_service.startup()
+    await assistant.assistant_service.startup(in_docker=is_docker)
     assistant.assistant_service.session_manager.start_patrol()
 
     logger.info("启动 GenerationWorker...")
