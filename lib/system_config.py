@@ -225,7 +225,8 @@ class SystemConfigManager:
             vertex_credentials_path=(self.project_root / "vertex_keys" / "vertex_credentials.json"),
         )
         self._lock = threading.Lock()
-        self._baseline_env = {key: os.environ.get(key) for key in self._ENV_KEYS}
+        # spec §5.3：不再快照 env baseline（os.environ 不再持有 provider secrets）
+        self._baseline_env: dict[str, str | None] = {}
 
     # ------------------------------------------------------------------
     # IO helpers
@@ -371,17 +372,10 @@ class SystemConfigManager:
     # ------------------------------------------------------------------
 
     def _restore_or_unset(self, env_key: str) -> None:
-        baseline_value = self._baseline_env.get(env_key)
-        if baseline_value is None:
-            os.environ.pop(env_key, None)
-        else:
-            os.environ[env_key] = baseline_value
+        """spec §5.3：不再写 os.environ；保留 noop 兼容旧调用。"""
 
     def _set_env(self, env_key: str, value: Any) -> None:
-        if _is_blank(value):
-            self._restore_or_unset(env_key)
-            return
-        os.environ[env_key] = str(value)
+        """spec §5.3：不再写 os.environ；保留 noop 兼容旧调用。"""
 
     def _apply_to_env(self, overrides: dict[str, Any]) -> None:
         # Backends
