@@ -343,7 +343,8 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_within_project_root(self, tmp_path):
-        """Hook allows Read for any path within project_root (e.g. other projects, docs)."""
+        """Hook allows Read within cwd and cwd-external (non-projects) paths;
+        cross-project read is denied per new sandbox policy."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         other_project = tmp_path / "projects" / "beta"
@@ -373,29 +374,21 @@ class TestSessionManagerMore:
         )
         assert result.get("continue_") is True
 
-        # Read other project file — allowed (within project_root)
+        # Read other project file — denied (跨项目隔离)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_project / "script.json")}},
             None,
             None,
         )
-        assert result.get("continue_") is True
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        # Read docs dir — allowed (within project_root)
+        # Read docs dir — allowed (cwd 外且不在 projects/ 下，作为参考资料)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(docs_dir / "guide.md")}},
             None,
             None,
         )
         assert result.get("continue_") is True
-
-        # Read outside project_root — denied
-        result = await hook(
-            {"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}},
-            None,
-            None,
-        )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
         await engine.dispose()
 
@@ -471,7 +464,11 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_file_access_hook_blocks_write_non_whitelisted_ext(self, tmp_path):
-        """Hook denies Write/Edit for non-whitelisted file extensions in project dir."""
+        """Hook denies Write/Edit for forbidden code extensions in project dir.
+
+        New policy: blacklist of code extensions (.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml)
+        instead of data-file whitelist; non-code files (Makefile, .html, .csv) allowed.
+        """
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
 
@@ -489,16 +486,16 @@ class TestSessionManagerMore:
 
         hook = mgr._build_file_access_hook(own_project)
 
-        # Write .py in project dir — denied
+        # Write .py in project dir — denied (code extension)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "helper.py")}},
             None,
             None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-        assert ".json" in result["hookSpecificOutput"]["permissionDecisionReason"]
+        assert ".py" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
-        # Edit .sh in project dir — denied
+        # Edit .sh in project dir — denied (code extension)
         result = await hook(
             {"tool_name": "Edit", "tool_input": {"file_path": str(own_project / "run.sh")}},
             None,
@@ -538,13 +535,13 @@ class TestSessionManagerMore:
         )
         assert result.get("continue_") is True
 
-        # Write file without extension (e.g. Makefile) — denied
+        # Write file without extension (e.g. Makefile) — allowed (not in code blacklist)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "Makefile")}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result.get("continue_") is True
 
         # Write .JSON (uppercase) — allowed (case-insensitive check)
         result = await hook(
@@ -616,7 +613,11 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path, monkeypatch):
-        """Hook allows Read for SDK tool-results of the CURRENT project only."""
+        """Hook allows Read for SDK tool-results of the CURRENT project.
+
+        New policy: cwd-external non-projects paths (含 SDK 目录) 默认放行；
+        Write 仍受 cwd 内限制约束。
+        """
         hook, own_project, claude_home, engine = await self._make_sdk_hook_env(
             tmp_path,
             monkeypatch,
@@ -636,16 +637,6 @@ class TestSessionManagerMore:
         )
         assert result.get("continue_") is True
 
-        # Read own project's SDK session transcript (NOT tool-results) — denied
-        transcript = claude_home / encoded / "abc-session" / "transcript.jsonl"
-        transcript.write_text("{}")
-        result = await hook(
-            {"tool_name": "Read", "tool_input": {"file_path": str(transcript)}},
-            None,
-            None,
-        )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-
         # Write to SDK tool-results — still denied (write tools only allow project_cwd)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(result_file)}},
@@ -657,22 +648,23 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_read_other_project_sdk_data(self, tmp_path, monkeypatch):
-        """Hook denies Read for ANOTHER project's SDK session data."""
-        hook, _, claude_home, engine = await self._make_sdk_hook_env(
+    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path, monkeypatch):
+        """Hook denies Read for ANOTHER project's directory under projects/.
+
+        New policy: 跨项目隔离基于 project_root/projects/<other>/ 的物理位置，
+        而非 SDK 编码路径。
+        """
+        hook, _, _, engine = await self._make_sdk_hook_env(
             tmp_path,
             monkeypatch,
         )
 
         other_project = tmp_path / "app" / "projects" / "beta"
         other_project.mkdir(parents=True)
-        other_encoded = sm_mod.SessionManager._encode_sdk_project_path(other_project)
-        other_tool_results = claude_home / other_encoded / "xyz-session" / "tool-results"
-        other_tool_results.mkdir(parents=True)
-        other_file = other_tool_results / "toolu_other.txt"
-        other_file.write_text("other project output")
+        other_file = other_project / "secret.json"
+        other_file.write_text("{}")
 
-        # Read OTHER project's SDK data — denied (cross-project isolation)
+        # Read OTHER project directly — denied (cross-project isolation)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_file)}},
             None,
@@ -683,13 +675,16 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_read_outside_all_allowed_paths(self, tmp_path, monkeypatch):
-        """Hook denies Read for paths outside project_root AND SDK directory."""
+    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path, monkeypatch):
+        """Hook denies Write to any path outside project_cwd.
+
+        New policy: 写工具一律拒绝 cwd 外路径；Read 已放宽至 cwd 外非 projects/ 路径。
+        """
         hook, _, _, engine = await self._make_sdk_hook_env(tmp_path, monkeypatch)
 
-        # Path completely outside all allowed zones
+        # Write outside cwd — denied
         result = await hook(
-            {"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}},
+            {"tool_name": "Write", "tool_input": {"file_path": "/tmp/escape.json"}},
             None,
             None,
         )
@@ -699,7 +694,11 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path, monkeypatch):
-        """Hook allows Read for SDK task output files under /tmp/claude-*."""
+        """Hook allows Read for SDK task output files under /tmp/claude-*.
+
+        New policy: cwd-external non-projects 路径默认放行（含 SDK 后台任务输出），
+        写工具仍受 cwd 内限制约束。
+        """
         hook, _, _, engine = await self._make_sdk_hook_env(tmp_path, monkeypatch)
 
         # SDK task output path pattern: /tmp/claude-{N}/{encoded}/tasks/{id}.output
@@ -714,15 +713,6 @@ class TestSessionManagerMore:
         # Write to task output — denied (write tools only allow project_cwd)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": task_output}},
-            None,
-            None,
-        )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-
-        # /tmp/claude-* path WITHOUT tasks/ segment — denied
-        non_task_path = "/tmp/claude-0/-app-projects-alpha/sessions/abc.jsonl"
-        result = await hook(
-            {"tool_name": "Read", "tool_input": {"file_path": non_task_path}},
             None,
             None,
         )
