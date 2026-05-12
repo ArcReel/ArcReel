@@ -230,7 +230,7 @@ async def run_test(
             raise ValueError(f"unknown preset: {preset_id!r}")
         if base_url:
             # 凭证覆盖了 preset.messages_url（如内部代理）：用 base_url 同时派生 messages
-            # 和 discovery 两个 root，保持与运行时 sync_anthropic_env 一致。
+            # 和 discovery 两个 root，保持与运行时 build_anthropic_env_dict 一致。
             # has_explicit_suffix=True 抑制自愈：preset 凭证视为权威，不补 /anthropic
             derived = derive_anthropic_endpoints(base_url)
             ep = AnthropicEndpoints(
