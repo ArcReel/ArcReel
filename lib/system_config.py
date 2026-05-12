@@ -225,8 +225,6 @@ class SystemConfigManager:
             vertex_credentials_path=(self.project_root / "vertex_keys" / "vertex_credentials.json"),
         )
         self._lock = threading.Lock()
-        # spec §5.3：不再快照 env baseline（os.environ 不再持有 provider secrets）
-        self._baseline_env: dict[str, str | None] = {}
 
     # ------------------------------------------------------------------
     # IO helpers
