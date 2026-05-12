@@ -78,9 +78,13 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   }, []);
 
   useEffect(() => {
+    // mount 时异步拉取配置后再 setState，属于受控的初始化加载。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
+  // 渲染期读取 savedRef.current 仅用于浅比较 isDirty，不写入 ref。
+  // eslint-disable-next-line react-hooks/refs
   const isDirty = !deepEqual(draft, savedRef.current);
   useWarnUnsaved(isDirty);
 

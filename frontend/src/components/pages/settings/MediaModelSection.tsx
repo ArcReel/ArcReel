@@ -83,6 +83,8 @@ export function MediaModelSection() {
   }, []);
 
   useEffect(() => {
+    // mount/依赖变更时异步拉取配置，回调内 setSettings 等（异步 fetch 后回写）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchConfig();
   }, [fetchConfig]);
 

@@ -51,6 +51,8 @@ export function PreprocessingView({
 
   useEffect(() => {
     let cancelled = false;
+    // 首次加载或切换草稿时展示加载状态并重置编辑态，再触发异步 fetch
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!content) setLoading(true);
     setEditing(false);
 

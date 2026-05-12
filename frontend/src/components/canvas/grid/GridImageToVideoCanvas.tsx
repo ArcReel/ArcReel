@@ -71,6 +71,8 @@ export function GridImageToVideoCanvas({
   const [activeTab, setActiveTab] = useState<GridTab>(defaultTab);
 
   useEffect(() => {
+    // 剧本加载完成后切到 units 标签页，由 hasScript 状态变化驱动
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (hasScript) setActiveTab("units");
   }, [hasScript]);
 

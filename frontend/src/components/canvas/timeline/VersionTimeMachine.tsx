@@ -67,6 +67,8 @@ export function VersionTimeMachine({
   // on next open. Do NOT close the panel — if it's open and a new generation
   // completes, the user should stay in context and see the refreshed list.
   useEffect(() => {
+    // 底层资源切换时重置版本列表与加载状态，等下次打开面板时重新拉取
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVersions([]);
     setCurrentVersion(0);
     setLoading(false);

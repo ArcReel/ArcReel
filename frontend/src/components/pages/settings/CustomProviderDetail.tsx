@@ -62,6 +62,8 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
   }, [providerId]);
 
   useEffect(() => {
+    // providerId 切换时重置编辑/删除/测试态并重新拉取（动作驱动重置）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEditing(false);
     setConfirmDelete(false);
     setTestResult(null);

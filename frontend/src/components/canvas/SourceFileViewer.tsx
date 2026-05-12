@@ -27,6 +27,8 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
 
   useEffect(() => {
     let cancelled = false;
+    // 切换文件时重置 loading/editing 状态，再触发异步 fetch
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setEditing(false);
 

@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -129,7 +129,7 @@ export function SystemConfigPage() {
         {
           background:
             "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
-        } as CSSProperties
+        }
       }
     >
       {/* ─── Top bar ─── */}

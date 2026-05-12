@@ -259,6 +259,8 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
 
   useEffect(() => {
     let disposed = false;
+    // providerId 变化时重置草稿/详情/错误后再异步拉取，属于动作驱动重置
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft({});
     setDetail(null);
     setLoadError(null);

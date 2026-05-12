@@ -123,7 +123,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
     setCopied(true);
     if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
     copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-  }, [created?.key]);
+  }, [created]);
 
   useEscapeClose(onClose);
 
@@ -311,7 +311,10 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
 export function ApiKeysTab() {
   const { t, i18n } = useTranslation("dashboard");
   const tRef = useRef(t);
-  tRef.current = t;
+  // 同步最新 t 到 ref，供异步回调读取最新翻译函数
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [keys, setApiKeys] = useState<ApiKeyInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -331,6 +334,8 @@ export function ApiKeysTab() {
   }, []);
 
   useEffect(() => {
+    // mount 时异步拉取 API Key 列表后回写状态，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchKeys();
   }, [fetchKeys]);
 

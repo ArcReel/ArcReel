@@ -314,7 +314,10 @@ export function ShotDetail({
   );
   const baselineSigRef = useRef(upstreamSig);
   const draftRef = useRef(draft);
-  draftRef.current = draft;
+  // 同步 draft 到 ref，供下方 effect 读取最新草稿而无需把 draft 加入 deps
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   // 上游变更（保存完成 / agent 编辑）：草稿干净时静默跟随；脏时保留用户输入。
   // 把 draft 放到 ref 里读，避免每次 keystroke 都重跑 effect+stringify。

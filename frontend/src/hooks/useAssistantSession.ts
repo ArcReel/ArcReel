@@ -237,7 +237,7 @@ export function useAssistantSession(projectName: string | null) {
           return;
         }
 
-        applySnapshot(data as Partial<AssistantSnapshot>);
+        applySnapshot(data);
 
         if (typeof data.status === "string") {
           store.getState().setSessionStatus(data.status as "idle");
@@ -319,6 +319,10 @@ export function useAssistantSession(projectName: string | null) {
         // 连接断开后需要重连，此时后端已将 session 设为 "running"。
         if (statusRef.current === "running" || store.getState().sending) {
           reconnectRef.current = setTimeout(() => {
+            // 自引用 SSE 重连：useEffectEvent 不允许在 setTimeout 内调用，
+            // 用 ref 中转又被 immutability 规则禁止。当前写法是延迟到下一 tick
+            // 才执行，闭包内的 connectStream 引用已稳定，行为正确。
+            // eslint-disable-next-line react-hooks/immutability
             connectStream(sessionId);
           }, 3000);
         }

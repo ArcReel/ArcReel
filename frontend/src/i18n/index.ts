@@ -78,11 +78,11 @@ export const i18nReady = i18n
   .use(initReactI18next)
   .init({
     fallbackLng: 'zh',
-    supportedLngs: SUPPORTED_LANGUAGES as unknown as string[],
+    supportedLngs: SUPPORTED_LANGUAGES,
     debug: false,
     interpolation: { escapeValue: false },
     defaultNS: 'common',
-    ns: I18N_NAMESPACES as unknown as string[],
+    ns: I18N_NAMESPACES,
     partialBundledLanguages: true,
     react: { useSuspense: false },
   });
