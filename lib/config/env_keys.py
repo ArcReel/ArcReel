@@ -45,10 +45,6 @@ PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# —— `_load_project_env` 白名单：load_dotenv 后只保留这些前缀/精确名 ——
-AUTH_ALLOWED_PREFIXES: tuple[str, ...] = ("AUTH_", "ASSISTANT_", "ARCREEL_")
-AUTH_ALLOWED_KEYS: frozenset[str] = frozenset({"DATABASE_URL", "LOG_LEVEL", "AI_ANIME_PROJECTS"})
-
 
 def is_provider_env_key(name: str) -> bool:
     """判断给定 env key 是否属于 provider 相关。"""
