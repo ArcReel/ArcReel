@@ -1,0 +1,90 @@
+"""Tests for env-driven CORS / network binding configuration."""
+
+from __future__ import annotations
+
+import importlib
+import os
+from unittest.mock import patch
+
+import pytest
+
+
+@pytest.fixture()
+def reload_app_with_env(monkeypatch: pytest.MonkeyPatch):
+    """Reload server.app under controlled env so module-level CORS config rebuilds."""
+
+    def _reload(env_overrides: dict[str, str | None]):
+        env = os.environ.copy()
+        for k, v in env_overrides.items():
+            if v is None:
+                env.pop(k, None)
+            else:
+                env[k] = v
+        with patch.dict(os.environ, env, clear=True):
+            import server.app as module
+
+            return importlib.reload(module)
+
+    return _reload
+
+
+class TestCorsOriginsParsing:
+    """The CORS middleware values come from CORS_ORIGINS at module import time."""
+
+    def test_unset_defaults_to_wildcard_no_credentials(self, reload_app_with_env):
+        mod = reload_app_with_env({"CORS_ORIGINS": None})
+        assert mod._allow_origins == ["*"]
+        assert mod._allow_credentials is False
+
+    def test_explicit_wildcard_keeps_credentials_off(self, reload_app_with_env):
+        mod = reload_app_with_env({"CORS_ORIGINS": "*"})
+        assert mod._allow_origins == ["*"]
+        assert mod._allow_credentials is False
+
+    def test_empty_string_falls_back_to_wildcard(self, reload_app_with_env):
+        mod = reload_app_with_env({"CORS_ORIGINS": "   "})
+        assert mod._allow_origins == ["*"]
+        assert mod._allow_credentials is False
+
+    def test_single_origin_enables_credentials(self, reload_app_with_env):
+        mod = reload_app_with_env({"CORS_ORIGINS": "http://localhost:5173"})
+        assert mod._allow_origins == ["http://localhost:5173"]
+        assert mod._allow_credentials is True
+
+    def test_multiple_origins_parsed_and_stripped(self, reload_app_with_env):
+        mod = reload_app_with_env(
+            {"CORS_ORIGINS": " http://a.example.com , http://b.example.com,http://c.example.com "}
+        )
+        assert mod._allow_origins == [
+            "http://a.example.com",
+            "http://b.example.com",
+            "http://c.example.com",
+        ]
+        assert mod._allow_credentials is True
+
+    def test_empty_segments_dropped(self, reload_app_with_env):
+        mod = reload_app_with_env({"CORS_ORIGINS": "http://a,,http://b,"})
+        assert mod._allow_origins == ["http://a", "http://b"]
+        assert mod._allow_credentials is True
+
+
+class TestListenEnvVars:
+    """LISTEN_HOST / LISTEN_PORT are only consumed by the ``__main__`` block.
+    Verify the values are read from env without actually starting uvicorn."""
+
+    def test_defaults_match_existing_behavior(self):
+        env = os.environ.copy()
+        env.pop("LISTEN_HOST", None)
+        env.pop("LISTEN_PORT", None)
+        with patch.dict(os.environ, env, clear=True):
+            host = os.environ.get("LISTEN_HOST", "0.0.0.0")
+            port = int(os.environ.get("LISTEN_PORT", "1241"))
+        assert host == "0.0.0.0"
+        assert port == 1241
+
+    def test_env_overrides_take_effect(self):
+        with patch.dict(os.environ, {"LISTEN_HOST": "127.0.0.1", "LISTEN_PORT": "18080"}):
+            host = os.environ.get("LISTEN_HOST", "0.0.0.0")
+            port = int(os.environ.get("LISTEN_PORT", "1241"))
+        assert host == "127.0.0.1"
+        assert port == 18080

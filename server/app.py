@@ -11,6 +11,7 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -230,11 +231,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置
+# CORS 配置（env 驱动）：
+#   - CORS_ORIGINS 未设置 / "*" → 通配 origins，credentials 强制关闭（CORS spec 不允许通配 + credentials 组合）
+#   - 否则按逗号分隔解析为白名单，credentials 打开供前端附带 cookie / Authorization 跨域
+_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
+if _cors_raw in ("", "*"):
+    _allow_origins: list[str] = ["*"]
+    _allow_credentials = False
+else:
+    _allow_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+    _allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_allow_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -371,4 +382,6 @@ if frontend_dist_dir.exists():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=1241, reload=True)
+    _host = os.environ.get("LISTEN_HOST", "0.0.0.0")
+    _port = int(os.environ.get("LISTEN_PORT", "1241"))
+    uvicorn.run(app, host=_host, port=_port, reload=True)
