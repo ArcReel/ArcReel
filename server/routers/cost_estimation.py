@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
@@ -18,7 +18,7 @@ from server.services.cost_estimation import CostEstimationService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 
 
 @router.get("/projects/{project_name}/cost-estimate")

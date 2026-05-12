@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_TYPES, BUCKET_KEY, SHEET_KEY
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/assets", tags=["全局资产库"])
 
 # Module-level PM; overridable via monkeypatch in tests
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 
 
 def get_project_manager() -> ProjectManager:

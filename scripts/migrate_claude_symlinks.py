@@ -14,6 +14,13 @@ import argparse
 import sys
 from pathlib import Path
 
+# Put repo root on sys.path so `from lib.app_data_dir import app_data_dir` resolves
+# when this script is invoked directly (python scripts/migrate_claude_symlinks.py).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+from lib.app_data_dir import app_data_dir  # noqa: E402
+
 SYMLINKS = {
     ".claude": "../../agent_runtime_profile/.claude",
     "CLAUDE.md": "../../agent_runtime_profile/CLAUDE.md",
@@ -25,8 +32,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Preview without making changes")
     args = parser.parse_args()
 
-    project_root = Path(__file__).resolve().parent.parent
-    projects_dir = project_root / "projects"
+    project_root = _REPO_ROOT
+    projects_dir = app_data_dir()
     profile_dir = project_root / "agent_runtime_profile"
 
     if not profile_dir.exists():

@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 
 logger = logging.getLogger(__name__)
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -23,7 +23,7 @@ from server.auth import CurrentUser
 router = APIRouter()
 
 # 初始化项目管理器
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 
 _RESOURCE_FILE_PATTERNS: dict[str, tuple[str, str]] = {
     "storyboards": ("storyboards", "scene_{id}.png"),

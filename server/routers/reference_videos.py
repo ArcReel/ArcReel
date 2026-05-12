@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
 from lib.project_manager import ProjectManager
@@ -26,7 +26,7 @@ router = APIRouter(
     tags=["reference-videos"],
 )
 
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 
 
 def get_project_manager() -> ProjectManager:

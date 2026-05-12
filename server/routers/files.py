@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_TYPES
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image
@@ -36,7 +36,7 @@ from server.auth import CurrentUser
 router = APIRouter()
 
 # 初始化项目管理器
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 
 
 def get_project_manager() -> ProjectManager:

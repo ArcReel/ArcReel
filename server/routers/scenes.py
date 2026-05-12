@@ -1,10 +1,10 @@
 """场景管理路由（CRUD 由 _asset_router_factory 统一生成）。"""
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.project_manager import ProjectManager
 from server.routers._asset_router_factory import build_asset_router
 
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 
 
 def get_project_manager() -> ProjectManager:

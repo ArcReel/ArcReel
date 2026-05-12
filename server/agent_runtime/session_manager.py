@@ -343,9 +343,16 @@ class SessionManager:
         project_root: Path,
         data_dir: Path,
         meta_store: SessionMetaStore,
+        projects_root: Path | None = None,
     ):
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
+        # Tests construct SessionManager directly without going through
+        # AssistantService, so we fall back to the legacy ``project_root/projects``
+        # convention. Production passes the configured app_data_dir() explicitly.
+        self.projects_root = (
+            Path(projects_root) if projects_root is not None else (self.project_root / "projects").resolve()
+        )
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
         self._disconnecting: set[str] = set()
@@ -907,7 +914,7 @@ class SessionManager:
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
-        projects_root = (self.project_root / "projects").resolve()
+        projects_root = self.projects_root
         project_cwd = (projects_root / project_name).resolve()
         try:
             project_cwd.relative_to(projects_root)

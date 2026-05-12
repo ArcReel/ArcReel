@@ -26,6 +26,7 @@ from lib import PROJECT_ROOT
 from lib.agent_session_store import session_store_enabled
 from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent_session_store.store import DbSessionStore
+from lib.app_data_dir import app_data_dir
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
@@ -122,7 +123,7 @@ async def lifespan(app: FastAPI):
     # Run any pending project.json schema migrations (file-based).
     # Both calls are synchronous filesystem walks — offload to a worker thread
     # so they don't block the event loop during uvicorn startup.
-    projects_root = PROJECT_ROOT / "projects"
+    projects_root = app_data_dir()
     migration_summary = await asyncio.to_thread(run_project_migrations, projects_root)
     if migration_summary.migrated or migration_summary.failed:
         logger.info(
@@ -162,7 +163,7 @@ async def lifespan(app: FastAPI):
     try:
         from lib.config.migration import migrate_json_to_db
 
-        json_path = PROJECT_ROOT / "projects" / ".system_config.json"
+        json_path = app_data_dir() / ".system_config.json"
         async with async_session_factory() as session:
             await migrate_json_to_db(session, json_path)
     except Exception as exc:
@@ -180,7 +181,7 @@ async def lifespan(app: FastAPI):
     # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
     from lib.project_manager import ProjectManager
 
-    _pm = ProjectManager(PROJECT_ROOT / "projects")
+    _pm = ProjectManager(app_data_dir())
     _symlink_stats = await asyncio.to_thread(_pm.repair_all_symlinks)
     if any(v > 0 for v in _symlink_stats.values()):
         logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)

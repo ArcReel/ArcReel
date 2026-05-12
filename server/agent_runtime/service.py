@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 from fastapi.sse import ServerSentEvent
 
+from lib.app_data_dir import app_data_dir
 from lib.project_manager import ProjectManager
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
@@ -55,7 +56,7 @@ class AssistantService:
     def __init__(self, project_root: Path):
         self.project_root = Path(project_root)
         self._load_project_env(self.project_root)
-        self.projects_root = self.project_root / "projects"
+        self.projects_root = app_data_dir()
         self.data_dir = self.projects_root / ".agent_data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -65,6 +66,7 @@ class AssistantService:
             project_root=self.project_root,
             data_dir=self.data_dir,
             meta_store=self.meta_store,
+            projects_root=self.projects_root,
         )
         # Shared with SessionManager (lazy-cached there) so reads via the
         # adapter and writes via SDK options use the same per-user namespace.
