@@ -55,7 +55,6 @@ from server.agent_runtime.turn_grouper import (
 class AssistantService:
     def __init__(self, project_root: Path):
         self.project_root = Path(project_root)
-        self._load_project_env(self.project_root)
         self.projects_root = app_data_dir()
         self.data_dir = self.projects_root / ".agent_data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -92,6 +91,10 @@ class AssistantService:
         async with self._startup_lock:
             if self._startup_done:
                 return
+            # spec §5.3：必须在 lifespan 的 assert_no_provider_secrets_in_environ()
+            # 之后再 load .env 并 strip provider keys，否则启动断言永远拿不到
+            # 用户残留的 provider env，迁移告警会被静默吞掉。
+            self._load_project_env(self.project_root)
             # Task 4.3: 透传 in_docker 标志给 SessionManager
             self.session_manager._in_docker = bool(in_docker)
             await self._interrupt_stale_running_sessions()
