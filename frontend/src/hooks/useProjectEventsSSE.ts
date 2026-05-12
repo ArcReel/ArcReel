@@ -171,19 +171,22 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     refreshingRef.current = true;
     try {
       // while 循环替代递归自调用，规避 react-hooks/immutability 的自引用限制。
-      // 任何在 API 调用过程中触发的额外刷新请求，会通过 needsRefreshRef 在循环内消费。
+      // API 异常单独捕获，确保失败路径也消费排队中的 needsRefreshRef
+      // （与旧递归实现的"成功或失败都会再跑一轮"语义一致）。
       let again = true;
       while (again) {
         again = false;
-        const res = await API.getProject(projectName);
-        setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
+        try {
+          const res = await API.getProject(projectName);
+          setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
+        } catch (err) {
+          pushNotification(t("project_sync_failed", { message: errMsg(err) }), "warning");
+        }
         if (needsRefreshRef.current) {
           needsRefreshRef.current = false;
           again = true;
         }
       }
-    } catch (err) {
-      pushNotification(t("project_sync_failed", { message: errMsg(err) }), "warning");
     } finally {
       refreshingRef.current = false;
     }

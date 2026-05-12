@@ -311,9 +311,10 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
 export function ApiKeysTab() {
   const { t, i18n } = useTranslation("dashboard");
   const tRef = useRef(t);
-  // 每次渲染同步最新 t，供异步回调读取最新翻译函数
-  // eslint-disable-next-line react-hooks/refs
-  tRef.current = t;
+  // 同步最新 t 到 ref，供异步回调读取最新翻译函数
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [keys, setApiKeys] = useState<ApiKeyInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);

@@ -346,6 +346,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const nameRef = useAutoFocus<HTMLInputElement>();
 
   const handleSubmit = async () => {
@@ -413,9 +414,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
             className={GHOST_BTN_CLS}
           >
             <Upload className="h-3 w-3" />
-            {/* 渲染期读取 <input type="file"> 的当前选择名展示给用户，仅读不写 */}
-            {/* eslint-disable-next-line react-hooks/refs */}
-            {fileRef.current?.files?.[0]?.name ?? t("select_json_file")}
+            {selectedFileName ?? t("select_json_file")}
           </button>
           <input
             ref={fileRef}
@@ -423,7 +422,10 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
             accept=".json,application/json"
             aria-label={t("import_credential_file_aria")}
             className="hidden"
-            onChange={() => setError(null)}
+            onChange={(e) => {
+              setError(null);
+              setSelectedFileName(e.currentTarget.files?.[0]?.name ?? null);
+            }}
           />
         </div>
       ) : (
@@ -511,9 +513,10 @@ export function CredentialList({ providerId, onChanged }: Props) {
   const isVertex = providerId === "gemini-vertex";
 
   const onChangedRef = useRef(onChanged);
-  // 每次渲染同步最新 onChanged 回调，供异步刷新后调用
-  // eslint-disable-next-line react-hooks/refs
-  onChangedRef.current = onChanged;
+  // 同步最新 onChanged 回调到 ref，供异步刷新后调用
+  useEffect(() => {
+    onChangedRef.current = onChanged;
+  }, [onChanged]);
 
   const refresh = useCallback(async () => {
     try {
