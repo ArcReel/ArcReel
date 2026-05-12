@@ -77,13 +77,21 @@ class AssistantService:
         self._snapshot_cache_max = 128
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
-    async def startup(self) -> None:
-        """Run async initialization (must be called from event loop)."""
+    async def startup(self, *, in_docker: bool = False) -> None:
+        """Run async initialization (must be called from event loop).
+
+        Args:
+            in_docker: 从 app.state.in_docker 透传，最终写入
+                SessionManager._in_docker，影响 SandboxSettings
+                的 enableWeakerNestedSandbox 标志（Task 4.3）。
+        """
         if self._startup_done:
             return
         async with self._startup_lock:
             if self._startup_done:
                 return
+            # Task 4.3: 透传 in_docker 标志给 SessionManager
+            self.session_manager._in_docker = bool(in_docker)
             await self._interrupt_stale_running_sessions()
             self._startup_done = True
 

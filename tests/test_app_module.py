@@ -7,7 +7,7 @@ import server.app as app_module
 from server.routers import assistant as assistant_router
 
 
-async def _noop_async():
+async def _noop_async(*args, **kwargs):
     """No-op coroutine for mocking async functions in tests."""
 
 

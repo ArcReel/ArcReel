@@ -348,6 +348,7 @@ class SessionManager:
         project_root: Path,
         data_dir: Path,
         meta_store: SessionMetaStore,
+        in_docker: bool = False,
     ):
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
@@ -356,6 +357,9 @@ class SessionManager:
         self._disconnecting: set[str] = set()
         self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
         self._connect_locks: dict[str, asyncio.Lock] = {}
+        # Task 4.3: SandboxSettings.enableWeakerNestedSandbox 标志，
+        # 由 AssistantService 从 app.state.in_docker 透传。
+        self._in_docker = in_docker
         self._load_config()
 
     def _load_config(self) -> None:
@@ -533,7 +537,7 @@ class SessionManager:
             result[key] = ""
         return result
 
-    def _build_options(
+    async def _build_options(
         self,
         project_name: str,
         resume_id: str | None = None,
@@ -586,6 +590,17 @@ class SessionManager:
                 ],
             }
 
+        # —— SandboxSettings 注入（spec §6.1）+ provider env 覆盖（spec §6.2）——
+        from claude_agent_sdk.types import SandboxSettings
+
+        provider_env = await self._build_provider_env_overrides()
+
+        sandbox_settings: SandboxSettings = {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": True,
+            "enableWeakerNestedSandbox": bool(getattr(self, "_in_docker", False)),
+        }
+
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self.DEFAULT_SETTING_SOURCES,
@@ -602,6 +617,8 @@ class SessionManager:
             hooks=hooks,
             session_store=self._build_session_store(),
             session_store_flush=session_store_flush_mode(),
+            sandbox=sandbox_settings,
+            env=provider_env,
         )
 
     @staticmethod
@@ -1030,7 +1047,7 @@ class SessionManager:
         temp_id = uuid4().hex
         managed_ref: list[ManagedSession | None] = [None]
 
-        options = self._build_options(
+        options = await self._build_options(
             project_name,
             resume_id=None,
             can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
@@ -1233,7 +1250,7 @@ class SessionManager:
 
             await self._ensure_capacity()
             managed_ref: list[ManagedSession | None] = [None]
-            options = self._build_options(
+            options = await self._build_options(
                 meta.project_name,
                 meta.id,  # SessionMeta.id 就是 sdk_session_id
                 can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),

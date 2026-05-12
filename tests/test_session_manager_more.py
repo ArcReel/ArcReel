@@ -117,10 +117,15 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_build_options_and_connect_paths(self, session_manager, meta_store, tmp_path, monkeypatch):
+        async def _fake_env(_self):
+            return {}
+
+        monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
+
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", False)
             with pytest.raises(RuntimeError):
-                session_manager._build_options("demo")
+                await session_manager._build_options("demo")
 
         projects_demo = tmp_path / "projects" / "demo"
         projects_demo.mkdir(parents=True)
