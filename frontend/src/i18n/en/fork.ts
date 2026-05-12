@@ -32,5 +32,9 @@ const fork = {
       deleted_toast: 'User "{{name}}" deleted.',
     },
   },
+  login: {
+    slogan_primary: 'Director, please begin',
+    slogan_secondary: 'Call your Action',
+  },
 };
 export default fork;
