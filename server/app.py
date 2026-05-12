@@ -233,14 +233,8 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
-    # Sync Anthropic DB settings to env vars (Claude Agent SDK reads from os.environ)
-    try:
-        from lib.config.service import sync_anthropic_env
-
-        async with async_session_factory() as session:
-            await sync_anthropic_env(session)
-    except Exception as exc:
-        logger.warning("DB→env Anthropic config sync failed (non-fatal): %s", exc)
+    # NOTE: Anthropic credential 不再写入 os.environ（spec §6.3）。
+    # SDK 子进程在 SessionManager._build_options() 阶段通过 options.env 注入。
 
     # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
     from lib.project_manager import ProjectManager
