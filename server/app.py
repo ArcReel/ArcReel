@@ -12,6 +12,8 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 import asyncio
 import logging
 import os
+import platform
+import shutil
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -75,6 +77,33 @@ def assert_no_provider_secrets_in_environ() -> None:
             f"SECURITY: 父进程 os.environ 含 provider 密钥: {leaked}. "
             "请到 WebUI 系统配置页填写，并从 env / .env 中移除对应条目。"
         )
+
+
+def check_sandbox_available() -> None:
+    """启动期检测 sandbox 工具可用性，缺失即 fail-fast。
+
+    spec §7.1 step [2]。沿用项目策略：硬失败，不降级。
+    """
+    system = platform.system()
+    if system == "Darwin":
+        if shutil.which("sandbox-exec") is None:
+            raise RuntimeError(
+                "SANDBOX_UNAVAILABLE on macOS\n"
+                "  sandbox-exec: not found in PATH (should be system-installed)\n"
+                "Required for ArcReel agent runtime."
+            )
+        return
+    if system == "Linux":
+        if shutil.which("bwrap") is None:
+            raise RuntimeError(
+                "SANDBOX_UNAVAILABLE on linux\n"
+                "  bwrap: not found in PATH\n"
+                "Required for ArcReel agent runtime. Install bubblewrap:\n"
+                "  Ubuntu/Debian: sudo apt install bubblewrap\n"
+                "  Arch:          sudo pacman -S bubblewrap"
+            )
+        return
+    raise RuntimeError(f"SANDBOX_UNAVAILABLE on {system}\nAgent sandbox supports macOS / Linux only.")
 
 
 # 初始化日志

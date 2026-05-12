@@ -47,3 +47,34 @@ def test_empty_string_value_not_treated_as_leak(monkeypatch: pytest.MonkeyPatch)
     _clear_secret_envs(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     assert_no_provider_secrets_in_environ()  # 空值不 raise
+
+
+import platform
+
+from server.app import check_sandbox_available
+
+
+def test_sandbox_available_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None)
+    check_sandbox_available()  # no raise
+
+
+def test_sandbox_missing_macos_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    with pytest.raises(RuntimeError, match="SANDBOX_UNAVAILABLE"):
+        check_sandbox_available()
+
+
+def test_sandbox_available_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/bwrap" if name == "bwrap" else None)
+    check_sandbox_available()  # no raise
+
+
+def test_sandbox_missing_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    with pytest.raises(RuntimeError, match="bubblewrap"):
+        check_sandbox_available()
