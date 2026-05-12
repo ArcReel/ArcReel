@@ -78,3 +78,9 @@ def test_sandbox_missing_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("shutil.which", lambda _name: None)
     with pytest.raises(RuntimeError, match="bubblewrap"):
         check_sandbox_available()
+
+
+def test_sandbox_unsupported_platform_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    with pytest.raises(RuntimeError, match="macOS / Linux only"):
+        check_sandbox_available()
