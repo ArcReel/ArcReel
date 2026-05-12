@@ -317,7 +317,16 @@ class SessionManager:
         "Grep": "path",
     }
     _WRITE_TOOLS = {"Write", "Edit"}
-    _WRITABLE_EXTENSIONS = {".json", ".md", ".txt"}
+    _CODE_EXTENSIONS_FORBIDDEN = {
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".sh",
+        ".yaml",
+        ".yml",
+        ".toml",
+    }
 
     # Sentinel used in pending_user_echoes for image-only messages (no text).
     # The SDK parser drops image blocks, so the replayed UserMessage arrives
@@ -1668,14 +1677,14 @@ class SessionManager:
         tool_name: str,
         project_cwd: Path,
     ) -> tuple[bool, str | None]:
-        """Check if file_path is allowed for the given tool.
+        """检查 file_path 是否允许给定工具访问。
 
-        Returns (allowed, deny_reason).  deny_reason is a human-readable
-        message when allowed is False, None otherwise.
+        spec §5.1 / Level B 简化方案 — 三条普适规则：
+        1. Read/Glob/Grep：projects/<other>/ 跨项目拒；cwd 外其他路径放行
+        2. Write/Edit：cwd 外一律拒
+        3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）
 
-        Write tools: only project_cwd, restricted to _WRITABLE_EXTENSIONS.
-        Read tools: project_cwd + project_root + SDK session dir for
-        this project (sensitive files protected by settings.json deny rules).
+        SDK tool-results / /tmp/claude-*/tasks 例外保留（SDK 内部产物）。
         """
         try:
             p = Path(file_path)
@@ -1683,50 +1692,44 @@ class SessionManager:
         except (ValueError, OSError):
             return False, "访问被拒绝：无效的文件路径"
 
-        # 1. Within project directory
-        if resolved.is_relative_to(project_cwd):
-            if tool_name in self._WRITE_TOOLS:
-                ext = resolved.suffix.lower()
-                if ext not in self._WRITABLE_EXTENSIONS:
-                    return False, (
-                        f"不允许创建/编辑 {ext} 类型的文件。"
-                        "Write/Edit 仅限 .json、.md、.txt 文件。"
-                        "如果你需要执行数据处理，请使用现有的 skill 脚本。"
-                    )
+        is_write = tool_name in self._WRITE_TOOLS
+        is_inside_cwd = resolved.is_relative_to(project_cwd)
+        projects_root = self.project_root / "projects"
+
+        # 规则 1: Read 类工具的跨项目隔离
+        if not is_write:
+            # cwd 内通过
+            if is_inside_cwd:
+                return True, None
+            # cwd 外但在其他项目目录 → 拒
+            if resolved.is_relative_to(projects_root):
+                return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+            # SDK tool-results 例外
+            encoded = self._encode_sdk_project_path(project_cwd)
+            sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
+            if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
+                return True, None
+            # SDK 后台任务输出例外
+            _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
+            if str(resolved).startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
+                return True, None
+            # 其他 cwd 外路径放行（lib/docs/agent_runtime_profile 等参考资料）
             return True, None
 
-        # 2. Write tools: only project directory allowed
-        if tool_name in self._WRITE_TOOLS:
-            return False, "访问被拒绝：不允许访问当前项目目录之外的路径"
+        # 规则 2: 写工具 cwd 外拒
+        if not is_inside_cwd:
+            return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
 
-        # 3. Read tools: allow entire project_root for shared resources
-        #    Sensitive files protected by settings.json deny rules
-        if resolved.is_relative_to(self.project_root):
-            return True, None
+        # 规则 3: cwd 内写代码扩展名拒
+        ext = resolved.suffix.lower()
+        if ext in self._CODE_EXTENSIONS_FORBIDDEN:
+            return False, (
+                f"不允许在项目内创建/编辑 {ext} 类型的代码文件。"
+                "Write/Edit 应用于数据文件 (.json/.md/.txt 等)；"
+                "代码逻辑请通过现有 skill 脚本完成。"
+            )
 
-        # 4. Read tools: allow SDK tool-results for THIS project only.
-        #    When tool output exceeds the inline limit, the SDK saves the
-        #    full result to ~/.claude/projects/{encoded-cwd}/{session}/
-        #    tool-results/{id}.txt and instructs the agent to Read it.
-        #    Only tool-results/ subdirectories are allowed — other SDK
-        #    session data (transcripts, etc.) remains inaccessible.
-        encoded = self._encode_sdk_project_path(project_cwd)
-        sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
-        if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
-            return True, None
-
-        # 5. Read tools: allow SDK task output files.
-        #    Background tasks (Agent/Bash run_in_background) write their
-        #    output to /tmp/claude-{N}/{encoded-cwd}/tasks/{id}.output.
-        #    The SDK instructs the agent to Read the file after the task
-        #    completes.  Only the tasks/ subdirectory is allowed.
-        #    macOS: /tmp → /private/tmp symlink, so check both prefixes.
-        _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
-        resolved_str = str(resolved)
-        if resolved_str.startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
-            return True, None
-
-        return False, "访问被拒绝：不允许访问当前项目和公共目录之外的路径"
+        return True, None
 
     async def _handle_ask_user_question(
         self,
