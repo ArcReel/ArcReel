@@ -190,6 +190,19 @@ class TestArkImageBackendGenerate:
         await backend.generate(request)
         assert mock_client.images.generate.call_args.kwargs["size"] == "720x1280"
 
+    async def test_size_fallback_unknown_aspect_ratio_seedream_3(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """3.0-t2i 未识别比例必须回退到 '1K' 而非 '2K'（单边像素上限 2048）。"""
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        mock_client = _make_client_mock()
+        with patch("lib.image_backends.ark.create_ark_client", return_value=mock_client):
+            from lib.image_backends.ark import ArkImageBackend
+
+            backend = ArkImageBackend(api_key="test-key", model="doubao-seedream-3-0-t2i-250415")
+
+        request = ImageGenerationRequest(prompt="x", output_path=tmp_path / "u3.png", aspect_ratio="weird")
+        await backend.generate(request)
+        assert mock_client.images.generate.call_args.kwargs["size"] == "1K"
+
     async def test_explicit_image_size_overrides_aspect_ratio(self, backend_and_client, tmp_path: Path):
         """caller 显式传入 image_size（如 grid 路径的 '2K'）必须保留，不被 aspect_ratio 推导覆盖。"""
         backend, client = backend_and_client
