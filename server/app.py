@@ -106,6 +106,25 @@ def check_sandbox_available() -> None:
     raise RuntimeError(f"SANDBOX_UNAVAILABLE on {system}\nAgent sandbox supports macOS / Linux only.")
 
 
+_DOCKERENV_PATH = Path("/.dockerenv")
+_CGROUP_PATH = Path("/proc/1/cgroup")
+
+
+def detect_docker_environment() -> bool:
+    """启动期一次性检测当前是否在 Docker / Podman 容器内。
+
+    用于决定是否启用 `SandboxSettings.enableWeakerNestedSandbox`。
+    spec §5.1 / §7.1。
+    """
+    if _DOCKERENV_PATH.exists():
+        return True
+    try:
+        content = _CGROUP_PATH.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return "docker" in content or "podman" in content
+
+
 # 初始化日志
 setup_logging()
 logger = logging.getLogger(__name__)
