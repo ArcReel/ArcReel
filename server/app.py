@@ -179,6 +179,16 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # Startup
+    # —— 安全红线检测（spec §7.1）——
+    # 顺序：先父进程 env 净化，再 sandbox 可用性，再 docker 检测
+    assert_no_provider_secrets_in_environ()
+    check_sandbox_available()
+    is_docker = detect_docker_environment()
+    logger.info("Sandbox runtime: docker=%s", is_docker)
+
+    # 保存到 app.state 供 SessionManager 读取（Task 4.3 使用）
+    app.state.in_docker = is_docker
+
     ensure_auth_password()
 
     # Run Alembic migrations (auto-creates tables on first start)
