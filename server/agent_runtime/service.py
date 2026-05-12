@@ -1025,13 +1025,22 @@ class AssistantService:
 
     @staticmethod
     def _load_project_env(project_root: Path) -> None:
-        """Load .env file if exists."""
-        env_path = project_root / ".env"
-        if not env_path.exists():
-            return
-        try:
-            from dotenv import load_dotenv
+        """Load .env file, then strip known provider env keys.
 
-            load_dotenv(env_path, override=False)
-        except ImportError:
-            pass
+        spec §5.3：父进程禁止持有 provider secrets。先 load_dotenv 再过滤，
+        防止 .env 中遗留的旧 provider key 污染 os.environ。
+        """
+        env_path = project_root / ".env"
+        if env_path.exists():
+            try:
+                from dotenv import load_dotenv
+
+                load_dotenv(env_path, override=False)
+            except ImportError:
+                pass
+
+        # —— 把 dotenv 引入的 provider keys 立即移除（保守名单）——
+        from lib.config.env_keys import ANTHROPIC_ENV_KEYS, OTHER_PROVIDER_ENV_KEYS
+
+        for key in ANTHROPIC_ENV_KEYS + OTHER_PROVIDER_ENV_KEYS:
+            os.environ.pop(key, None)
