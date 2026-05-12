@@ -152,6 +152,53 @@ class TestArkImageBackendGenerate:
         call_kwargs = client.images.generate.call_args.kwargs
         assert call_kwargs["seed"] == 42
 
+    async def test_size_from_aspect_ratio(self, backend_and_client, tmp_path: Path):
+        """aspect_ratio 必须映射成显式 size 传给 SDK，否则 Seedream 默认 2048x2048（1:1），
+        导致项目设置失效。尺寸值按 Ark 官方推荐宽高像素表（2K 档，4.x/5.x 系列）。"""
+        backend, client = backend_and_client
+
+        cases = [
+            ("9:16", "1600x2848"),
+            ("16:9", "2848x1600"),
+            ("1:1", "2048x2048"),
+            ("4:3", "2304x1728"),
+            ("3:4", "1728x2304"),
+        ]
+        for i, (ar, expected) in enumerate(cases):
+            request = ImageGenerationRequest(prompt="x", output_path=tmp_path / f"{i}.png", aspect_ratio=ar)
+            await backend.generate(request)
+            assert client.images.generate.call_args.kwargs["size"] == expected, f"aspect_ratio={ar} 应映射到 {expected}"
+
+    async def test_size_fallback_unknown_aspect_ratio(self, backend_and_client, tmp_path: Path):
+        """未识别比例回退到 '2K' keyword（方式 1），由模型按 prompt 自适应，
+        避免传错宽高被 API 拒（4.x/5.x 方式 2 总像素须 ≥ 3_686_400）。"""
+        backend, client = backend_and_client
+        request = ImageGenerationRequest(prompt="x", output_path=tmp_path / "u.png", aspect_ratio="weird")
+        await backend.generate(request)
+        assert client.images.generate.call_args.kwargs["size"] == "2K"
+
+    async def test_size_for_seedream_3_uses_1k_table(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """3.0-t2i 模型族单边像素 ∈ [512, 2048]，必须用 1K 表而非 2K 表。"""
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        mock_client = _make_client_mock()
+        with patch("lib.image_backends.ark.create_ark_client", return_value=mock_client):
+            from lib.image_backends.ark import ArkImageBackend
+
+            backend = ArkImageBackend(api_key="test-key", model="doubao-seedream-3-0-t2i-250415")
+
+        request = ImageGenerationRequest(prompt="x", output_path=tmp_path / "v.png", aspect_ratio="9:16")
+        await backend.generate(request)
+        assert mock_client.images.generate.call_args.kwargs["size"] == "720x1280"
+
+    async def test_explicit_image_size_overrides_aspect_ratio(self, backend_and_client, tmp_path: Path):
+        """caller 显式传入 image_size（如 grid 路径的 '2K'）必须保留，不被 aspect_ratio 推导覆盖。"""
+        backend, client = backend_and_client
+        request = ImageGenerationRequest(
+            prompt="x", output_path=tmp_path / "g.png", aspect_ratio="9:16", image_size="2K"
+        )
+        await backend.generate(request)
+        assert client.images.generate.call_args.kwargs["size"] == "2K"
+
     async def test_i2i_single_ref(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client
 
