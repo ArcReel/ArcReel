@@ -76,14 +76,15 @@ class TestCorsOriginsParsing:
 
 
 class TestListenEnvVars:
-    """LISTEN_HOST / LISTEN_PORT are only consumed by the ``__main__`` block.
-    Verify the values are read from env without actually starting uvicorn."""
+    """``LISTEN_HOST`` / ``LISTEN_PORT`` 的解析仅在 ``__main__`` 块被 uvicorn 消费，
+    导入 ``server.app`` 不会触发；通过共用的模块级 ``_resolve_listen_addr()`` 函数
+    测试同一份生产解析逻辑，避免测试 / 生产代码漂移。"""
 
     @staticmethod
     def _resolve() -> tuple[str, int]:
-        host = os.environ.get("LISTEN_HOST") or "0.0.0.0"
-        port = int(os.environ.get("LISTEN_PORT") or "1241")
-        return host, port
+        from server.app import _resolve_listen_addr
+
+        return _resolve_listen_addr()
 
     def test_defaults_match_existing_behavior(self):
         env = os.environ.copy()

@@ -252,6 +252,16 @@ app.add_middleware(
 )
 
 
+def _resolve_listen_addr() -> tuple[str, int]:
+    """解析 ``LISTEN_HOST`` / ``LISTEN_PORT``，供 ``__main__`` 块与测试共用。
+
+    truthy 默认（``or``）兜底，覆盖 ``.env`` 误写空值（如 ``LISTEN_PORT=``）的场景。
+    """
+    host = os.environ.get("LISTEN_HOST") or "0.0.0.0"
+    port = int(os.environ.get("LISTEN_PORT") or "1241")
+    return host, port
+
+
 # 前端每 3s 轮询下述接口获取任务状态；稳态下成功响应会把真正的错误/慢请求淹没，
 # 所以对 2xx + 快速响应降级到 DEBUG，异常/慢响应仍走 INFO 保证可观测。
 _QUIET_POLL_ENDPOINTS: frozenset[tuple[str, str]] = frozenset(
@@ -383,7 +393,5 @@ if frontend_dist_dir.exists():
 if __name__ == "__main__":
     import uvicorn
 
-    # 用 truthy 默认（`or`）兜底，避免 .env 误写 `LISTEN_PORT=` 空值时 int("") 崩溃。
-    _host = os.environ.get("LISTEN_HOST") or "0.0.0.0"
-    _port = int(os.environ.get("LISTEN_PORT") or "1241")
+    _host, _port = _resolve_listen_addr()
     uvicorn.run(app, host=_host, port=_port, reload=True)
