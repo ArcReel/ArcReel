@@ -49,7 +49,7 @@ class TestGrokVideoBackend:
     def test_missing_api_key_raises(self):
         from lib.video_backends.grok import GrokVideoBackend
 
-        with pytest.raises(ValueError, match="XAI_API_KEY"):
+        with pytest.raises(ValueError, match="xAI API Key"):
             GrokVideoBackend(api_key=None)
 
     async def test_text_to_video(self, output_path: Path):
