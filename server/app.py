@@ -11,6 +11,7 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,6 +27,7 @@ from lib import PROJECT_ROOT
 from lib.agent_session_store import session_store_enabled
 from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent_session_store.store import DbSessionStore
+from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
@@ -58,6 +60,21 @@ from server.routers import (
 )
 from server.routers import auth as auth_router
 from server.services.project_events import ProjectEventService
+
+
+def assert_no_provider_secrets_in_environ() -> None:
+    """父进程禁止持有任何 provider 密钥。违反即 fail-fast。
+
+    安全红线：spec §7.2。Bash 沙箱子进程通过 fork 继承父 env，
+    所以父进程必须先把 provider secrets 全部下线到 DB。
+    """
+    leaked = sorted(k for k in PROVIDER_SECRET_KEYS if os.environ.get(k))
+    if leaked:
+        raise RuntimeError(
+            f"SECURITY: 父进程 os.environ 含 provider 密钥: {leaked}. "
+            "请到 WebUI 系统配置页填写，并从 env / .env 中移除对应条目。"
+        )
+
 
 # 初始化日志
 setup_logging()
