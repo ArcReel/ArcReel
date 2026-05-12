@@ -32,5 +32,9 @@ const fork = {
       deleted_toast: '用户「{{name}}」已删除。',
     },
   },
+  login: {
+    slogan_primary: '导演，请开始',
+    slogan_secondary: '喊出你的Action',
+  },
 };
 export default fork;
