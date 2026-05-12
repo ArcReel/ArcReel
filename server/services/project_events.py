@@ -57,10 +57,16 @@ class ProjectEventService:
         self,
         project_root: Path | None = None,
         *,
+        projects_root: Path | None = None,
         poll_interval: float = PROJECT_EVENTS_POLL_SECONDS,
     ):
         self.project_root = Path(project_root or PROJECT_ROOT)
-        self.pm = ProjectManager(self.project_root / "projects")
+        # 显式传入 ``projects_root`` 时优先使用（生产入口走 ``app_data_dir()``），
+        # 否则保留旧契约（仓库根下的 ``projects/``）兼容测试 fixture。
+        projects_dir = (
+            Path(projects_root).resolve(strict=False) if projects_root is not None else self.project_root / "projects"
+        )
+        self.pm = ProjectManager(projects_dir)
         self.poll_interval = max(0.1, float(poll_interval))
         self._channels: dict[str, _ProjectChannel] = {}
         self._listener_unregister = None

@@ -201,7 +201,7 @@ async def lifespan(app: FastAPI):
     logger.info("GenerationWorker 已启动")
 
     logger.info("启动 ProjectEventService...")
-    project_event_service = ProjectEventService(PROJECT_ROOT)
+    project_event_service = ProjectEventService(PROJECT_ROOT, projects_root=app_data_dir())
     app.state.project_event_service = project_event_service
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
