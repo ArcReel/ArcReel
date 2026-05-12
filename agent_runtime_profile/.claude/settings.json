@@ -15,7 +15,14 @@
       "Edit(//app/projects/.arcreel.db)",
       "Edit(//app/projects/.arcreel.db-*)",
       "Edit(//app/projects/.system_config.json)",
-      "Edit(//app/projects/.system_config.json.bak)"
+      "Edit(//app/projects/.system_config.json.bak)",
+      "Write(//app/.env)",
+      "Write(//app/.env.*)",
+      "Write(//app/vertex_keys/**)",
+      "Write(//app/projects/.arcreel.db)",
+      "Write(//app/projects/.arcreel.db-*)",
+      "Write(//app/projects/.system_config.json)",
+      "Write(//app/projects/.system_config.json.bak)"
     ]
   }
 }
