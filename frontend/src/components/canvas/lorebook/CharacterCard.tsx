@@ -86,15 +86,21 @@ export function CharacterCard({
   };
 
   useEffect(() => {
+    // 上游角色变化时同步本地草稿字段
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDescription(character.description);
     setVoiceStyle(character.voice_style ?? "");
   }, [character.description, character.voice_style]);
 
   useEffect(() => {
+    // 角色立绘变化时重置图片加载错误标记
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setImgError(false);
   }, [character.character_sheet, sheetFp]);
 
   useEffect(() => {
+    // 上游参考图变化时清空本地未提交的上传文件 + 释放 blob URL
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReferenceFile(null);
     setReferencePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);

@@ -116,8 +116,12 @@ function isWorkspaceEditing(): boolean {
 
 export function useProjectEventsSSE(projectName?: string | null): void {
   const { t } = useTranslation("dashboard");
+  // 把 t 通过 ref 暴露给 callback，避免 i18n 切语言时 refreshProject
+  // 重建 → EventSource effect 跟着重连 → 通知/focus 提示丢失。
   const tRef = useRef(t);
-  tRef.current = t;
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [, setLocation] = useLocation();
   const setCurrentProject = useProjectsStore((s) => s.setCurrentProject);
   const invalidateEntities = useAppStore((s) => s.invalidateEntities);
@@ -172,17 +176,25 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
     refreshingRef.current = true;
     try {
-      const res = await API.getProject(projectName);
-      setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
-    } catch (err) {
-      pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning");
+      // while 循环替代递归自调用，规避 react-hooks/immutability 的自引用限制。
+      // API 异常单独捕获，确保失败路径也消费排队中的 needsRefreshRef
+      // （与旧递归实现的"成功或失败都会再跑一轮"语义一致）。
+      let again = true;
+      while (again) {
+        again = false;
+        try {
+          const res = await API.getProject(projectName);
+          setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
+        } catch (err) {
+          pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning");
+        }
+        if (needsRefreshRef.current) {
+          needsRefreshRef.current = false;
+          again = true;
+        }
+      }
     } finally {
       refreshingRef.current = false;
-    }
-    if (needsRefreshRef.current) {
-      needsRefreshRef.current = false;
-      void refreshProject();
-      return;
     }
     flushQueuedFocus();
   }, [flushQueuedFocus, projectName, pushNotification, setCurrentProject]);

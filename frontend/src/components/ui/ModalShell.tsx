@@ -4,7 +4,6 @@ import {
   useRef,
   type CSSProperties,
   type ReactNode,
-  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
@@ -99,7 +98,7 @@ export function ModalShell(props: ModalShellProps) {
 
   useEscapeClose(onClose, open && closeOnEscape);
   useFocusTrap(
-    dialogRef as RefObject<HTMLElement | null>,
+    dialogRef,
     open,
     returnTargetRef,
   );

@@ -140,6 +140,8 @@ export function ProviderModelSelect({
   useEffect(() => {
     if (open) {
       const idx = flatOptions.findIndex((o) => o.fullValue === value);
+      // 动作驱动的重置（open 切换为 true 时），无法用 derived state 表达。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveIndex(idx >= 0 ? idx : 0);
     }
   }, [open, flatOptions, value]);
@@ -155,6 +157,8 @@ export function ProviderModelSelect({
   // Clear stale query whenever the search input is hidden, so a later
   // showSearch flip back to true cannot resurface a forgotten query.
   useEffect(() => {
+    // 动作驱动的重置，无法用 derived state 表达。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!showSearch) setQuery("");
   }, [showSearch]);
 

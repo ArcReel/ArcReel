@@ -67,7 +67,7 @@ function TemplateCard({
         decoding="async"
         className="h-full w-full object-cover"
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = "none";
+          e.currentTarget.style.display = "none";
         }}
       />
       {/* Fallback gradient if image errors out */}

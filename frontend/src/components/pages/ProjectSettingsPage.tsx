@@ -1,6 +1,6 @@
 import { useParams, useLocation } from "wouter";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
-import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { API } from "@/api";
@@ -136,7 +136,7 @@ export function ProjectSettingsPage() {
   const initialRef = useRef({
     videoBackend: "", imageBackendT2I: "", imageBackendI2I: "", audioOverride: null as boolean | null,
     textScript: "", textOverview: "", textStyle: "",
-    aspectRatio: "", generationMode: "storyboard" as GenerationMode,
+    aspectRatio: "", generationMode: "storyboard",
     defaultDuration: null as number | null,
     videoResolution: null as string | null,
     imageResolution: null as string | null,
@@ -251,6 +251,11 @@ export function ProjectSettingsPage() {
     return () => URL.revokeObjectURL(url);
   }, [styleValue?.uploadedPreview]);
 
+  // initialRef / initialStyleRef 是加载时快照，用于 dirty-check。
+  // react-hooks v7 的 react-hooks/refs 规则禁止 render 阶段读 ref，
+  // 但本场景 ref 内容只在 fetch 完成时写一次，render 阶段读是稳定的。
+  // 改 state 会导致 fetch effect 内 setState 触发 set-state-in-effect。
+  /* eslint-disable react-hooks/refs */
   const styleIsDirty = (() => {
     const init = initialStyleRef.current;
     if (!styleValue || !init) return false;
@@ -283,6 +288,7 @@ export function ProjectSettingsPage() {
     videoResolution !== initialRef.current.videoResolution ||
     imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
+  /* eslint-enable react-hooks/refs */
 
   useWarnUnsaved(isDirty);
 
@@ -379,7 +385,7 @@ export function ProjectSettingsPage() {
         generation_mode: generationMode,
         default_duration: defaultDuration,
         model_settings: newModelSettings,
-      } as Record<string, unknown>);
+      });
       setModelSettings(newModelSettings);
       initialRef.current = {
         videoBackend, imageBackendT2I, imageBackendI2I, audioOverride,
@@ -402,7 +408,7 @@ export function ProjectSettingsPage() {
         {
           background:
             "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
-        } as CSSProperties
+        }
       }
     >
       {/* ─── Sticky top bar ─── */}
@@ -473,6 +479,8 @@ export function ProjectSettingsPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
+                    // handleSaveStyle 在 onClick 时才执行，ref 写入是合法的；规则误报。
+                    // eslint-disable-next-line react-hooks/refs
                     onClick={voidPromise(handleSaveStyle)}
                     disabled={isStyleSaveDisabled}
                     className={ACCENT_BTN_CLS}
@@ -697,6 +705,8 @@ export function ProjectSettingsPage() {
               {t("common:cancel")}
             </button>
             <button
+              // handleSave 在 onClick 时才执行；规则误报。
+              // eslint-disable-next-line react-hooks/refs
               onClick={voidPromise(handleSave)}
               disabled={saving}
               className={`${ACCENT_BTN_CLS} px-5`}

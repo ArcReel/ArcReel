@@ -403,7 +403,6 @@ function PromptColumn({
     }
 
     prevSegmentIdRef.current = segmentId;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换镜头时重置本地草稿，是导航驱动的有意状态重置
     setImgText(promptToStr(image_prompt, "scene"));
     setVidText(promptToStr(video_prompt, "action"));
     setImgDraft(isStructuredImage ? image_prompt : null);
