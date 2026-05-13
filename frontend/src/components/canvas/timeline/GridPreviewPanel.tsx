@@ -175,9 +175,9 @@ export function GridPreviewPanel({
   const safeIdx = Math.min(selectedIdx, Math.max(0, gridIds.length - 1));
   const selectedGridId = gridIds[safeIdx] ?? null;
 
-  // 直接订阅全局 grid 变更信号；不再依赖 parent 透传的 refreshKey，
-  // 避免链路中任一环节（list 抛错被吞、remount、初始 refreshKey 与 prop 相等）
-  // 导致 SSE grid_ready 到达后面板状态永远停在 pending。
+  // 直接订阅全局 grid 变更信号作为唯一 refetch 触发源；
+  // parent 透传的 refreshKey 是同一事件流（gridsRevision → listGrids → setRefreshKey）
+  // 的下游产物，加入 deps 会导致每次事件多发一次冗余 GET /grids/{id}。
   const gridsRevision = useAppStore((s) => s.gridsRevision);
 
   // safeIdx already clamps selectedIdx to valid range; no effect needed
@@ -213,8 +213,8 @@ export function GridPreviewPanel({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 用于判断是否切换批次，加入 deps 会在每次拉取完成后触发重新拉取，导致无限循环；t 稳定可忽略
-  }, [expanded, selectedGridId, projectName, refreshKey, gridsRevision]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 仅用于切换批次判断；refreshKey 与 gridsRevision 同源，仅保留后者避免双触发；t 稳定
+  }, [expanded, selectedGridId, projectName, gridsRevision]);
 
   const isInProgress =
     grid?.status === "pending" || grid?.status === "generating" || grid?.status === "splitting";
