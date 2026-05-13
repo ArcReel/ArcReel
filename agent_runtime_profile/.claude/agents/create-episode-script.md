@@ -37,7 +37,7 @@ skills:
 
 ### Step 2: 调用工具生成 JSON 剧本
 
-```
+```text
 mcp__arcreel__generate_episode_script({"episode": {N}})
 ```
 

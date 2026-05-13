@@ -11,8 +11,6 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.config.resolver import ConfigResolver
-from lib.db import async_session_factory
 from lib.generation_queue_client import (
     BatchTaskResult,
     BatchTaskSpec,
@@ -22,7 +20,12 @@ from lib.generation_queue_client import (
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import is_structured_video_prompt, video_prompt_to_yaml
 from lib.storyboard_sequence import get_storyboard_items
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    fetch_video_caps,
+    tool_error,
+    validate_script_filename,
+)
 
 
 def _get_video_prompt(item: dict[str, Any]) -> str:
@@ -48,19 +51,12 @@ def _is_reference_script(script: dict[str, Any]) -> bool:
 
 
 async def _fetch_video_caps(project: dict[str, Any]) -> tuple[int | None, list[int]]:
-    """Resolve (default_duration, supported_durations) via ConfigResolver.
-
-    Why: single source of truth for video model capabilities — same path used
-    by text_generation; avoids per-tool fallback ladders + `_supported_durations`
-    magic project field.
-    """
-    resolver = ConfigResolver(async_session_factory)
-    caps = await resolver.video_capabilities_for_project(project)
-    durations = [int(d) for d in caps.get("supported_durations") or []]
+    """Video generation requires non-empty supported_durations — hard fail when
+    ``ConfigResolver`` returns nothing (script normalization uses a soft
+    fallback path, see ``_fetch_caps_with_fallback`` in ``text_generation``)."""
+    default_int, durations = await fetch_video_caps(project)
     if not durations:
         raise ValueError("supported_durations 无法解析：ConfigResolver 未返回任何时长")
-    default = caps.get("default_duration")
-    default_int = int(default) if isinstance(default, int | float) else None
     return default_int, durations
 
 
@@ -221,6 +217,14 @@ def _scan_completed_items(
     return ordered_paths, already_done, completed_filtered
 
 
+def _scene_fallback_relpath(resource_id: str) -> str:
+    return f"videos/scene_{resource_id}.mp4"
+
+
+def _reference_fallback_relpath(resource_id: str) -> str:
+    return f"reference_videos/{resource_id}.mp4"
+
+
 async def _submit_with_checkpoint(
     *,
     project_name: str,
@@ -229,14 +233,20 @@ async def _submit_with_checkpoint(
     order_map: dict[str, int],
     ordered_paths: list[Path | None],
     completed: list[str],
+    fallback_relpath: Callable[[str], str],
     save_fn: Callable[[], None],
     log: list[str],
 ) -> list[BatchTaskResult]:
-    """Run a batch and update checkpoint per success. Returns failures."""
+    """Run a batch and update checkpoint per success. Returns failures.
+
+    ``fallback_relpath`` is called only when the queue result lacks
+    ``file_path``; reference_video tasks need a different naming convention
+    than scene videos, so the caller chooses per task family.
+    """
 
     def on_success(br: BatchTaskResult) -> None:
         result = br.result or {}
-        relative_path = result.get("file_path") or f"videos/scene_{br.resource_id}.mp4"
+        relative_path = result.get("file_path") or fallback_relpath(br.resource_id)
         output_path = project_dir / relative_path
         ordered_paths[order_map[br.resource_id]] = output_path
         completed.append(br.resource_id)
@@ -308,6 +318,7 @@ async def _generate_reference_episode(
             order_map=order_map,
             ordered_paths=ordered_paths,
             completed=completed,
+            fallback_relpath=_reference_fallback_relpath,
             save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode),
             log=log,
         )
@@ -425,6 +436,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     order_map=order_map,
                     ordered_paths=ordered_paths,
                     completed=completed,
+                    fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode),
                     log=log,
                 )
@@ -479,10 +491,14 @@ def generate_video_scene_tool(ctx: ToolContext):
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
                 raise ValueError(f"场景/片段 '{scene_id}' 不存在")
+            # 调用方可能用 ``scene_id`` 别名命中条目，但入队 / 文件名 / fallback
+            # 必须用脚本里的规范 ``id_field`` 值，否则下游 generate_video_all 和
+            # checkpoint 扫描会找不到产物。
+            item_id = str(item[id_field])
 
             storyboard_image = item.get("generated_assets", {}).get("storyboard_image")
             if not storyboard_image:
-                raise ValueError(f"场景/片段 '{scene_id}' 没有分镜图，请先运行 generate_storyboards")
+                raise ValueError(f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards")
             if not (project_dir / storyboard_image).exists():
                 raise FileNotFoundError(f"分镜图不存在: {project_dir / storyboard_image}")
 
@@ -499,7 +515,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 project_name=ctx.project_name,
                 task_type="video",
                 media_type="video",
-                resource_id=scene_id,
+                resource_id=item_id,
                 payload={
                     "prompt": prompt,
                     "script_file": script_filename,
@@ -509,7 +525,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 source="skill",
             )
             result = queued.get("result") or {}
-            rel = result.get("file_path") or f"videos/scene_{scene_id}.mp4"
+            rel = result.get("file_path") or f"videos/scene_{item_id}.mp4"
             output_path = project_dir / rel
             return {"content": [{"type": "text", "text": f"✅ 视频已保存: {output_path}"}]}
         except Exception as exc:  # noqa: BLE001
@@ -613,7 +629,9 @@ def generate_video_selected_tool(ctx: ToolContext):
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
-            scene_ids: list[str] = list(args["scene_ids"])
+            # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志，
+            # checkpoint hash 再单独排序（见下方 ``canonical_scene_ids``）。
+            scene_ids: list[str] = list(dict.fromkeys(args["scene_ids"]))
             resume = bool(args.get("resume"))
 
             project_dir = ctx.project_path
@@ -646,7 +664,10 @@ def generate_video_selected_tool(ctx: ToolContext):
             if not selected:
                 raise ValueError("没有找到任何有效的场景/片段")
 
-            scenes_hash = hashlib.md5(",".join(scene_ids).encode()).hexdigest()[:8]
+            # checkpoint hash 用规范化后的 scene_ids（sorted+dedup）以让"同一组
+            # ID 不同顺序"命中相同 checkpoint 文件，避免 resume 失效。
+            canonical_scene_ids = sorted(set(scene_ids))
+            scenes_hash = hashlib.md5(",".join(canonical_scene_ids).encode("utf-8")).hexdigest()[:8]
             ckpt_path = _selected_checkpoint_path(project_dir, scenes_hash)
             completed: list[str] = []
             started_at = datetime.now().isoformat()
@@ -683,6 +704,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     order_map=order_map,
                     ordered_paths=ordered_paths,
                     completed=completed,
+                    fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, scene_ids=scene_ids),
                     log=log,
                 )

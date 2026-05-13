@@ -17,10 +17,14 @@ from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segmen
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 
-def _list_groups(project: dict, script: dict) -> list[str]:
+def _list_groups(project: dict, script: dict, scene_ids: list[str] | None = None) -> list[str]:
+    """List grid groups, optionally filtered to groups containing ``scene_ids``."""
     items, id_field, _, _, _ = get_storyboard_items(script)
     aspect_ratio = project.get("aspect_ratio", "9:16")
     groups = group_scenes_by_segment_break(items, id_field)
+    if scene_ids:
+        wanted = set(scene_ids)
+        groups = [g for g in groups if any(item[id_field] in wanted for item in g)]
     lines = [f"共 {len(groups)} 个分组："]
     for i, group in enumerate(groups):
         ids = [item[id_field] for item in group]
@@ -62,7 +66,7 @@ def generate_grid_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             if list_only:
-                return {"content": [{"type": "text", "text": "\n".join(_list_groups(project, script))}]}
+                return {"content": [{"type": "text", "text": "\n".join(_list_groups(project, script, scene_ids))}]}
 
             if project.get("generation_mode") != "grid":
                 return {

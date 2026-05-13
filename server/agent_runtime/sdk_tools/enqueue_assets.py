@@ -145,10 +145,18 @@ def generate_assets_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
             asset_type = args.get("type")
-            names = args.get("names")
+            # ``dict.fromkeys`` 保序去重，避免同名重复入队但仍尊重调用方意图的顺序。
+            raw_names = args.get("names")
+            names: list[str] | None = list(dict.fromkeys(raw_names)) if raw_names else None
+            all_flag = bool(args.get("all"))
             if names and not asset_type:
                 return {
                     "content": [{"type": "text", "text": "names 必须配合 type 使用"}],
+                    "is_error": True,
+                }
+            if names and all_flag:
+                return {
+                    "content": [{"type": "text", "text": "all 与 names 互斥，不能同时使用"}],
                     "is_error": True,
                 }
 

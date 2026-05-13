@@ -283,22 +283,28 @@ def build_normalize_prompt(
     scene_list = _format_names(scenes)
     prop_list = _format_names(props)
 
-    durations_str = ", ".join(str(d) for d in supported_durations) if supported_durations else "—"
-    max_dur = max(supported_durations) if supported_durations else None
+    # 规范化 + 校验：空集合或 default 不在集合内都会产出自相矛盾的提示词，
+    # 让生成阶段失败比让 LLM 见到"只能取 — 中的值"更便于诊断（PR #528 review）。
+    normalized_durations = sorted({int(d) for d in supported_durations})
+    if not normalized_durations:
+        raise ValueError("supported_durations 不能为空：必须提供模型支持的秒数集合")
+    if default_duration is not None and int(default_duration) not in normalized_durations:
+        raise ValueError(f"default_duration={default_duration} 不在 supported_durations={normalized_durations} 内")
 
-    if default_duration is not None and max_dur is not None:
+    durations_str = ", ".join(str(d) for d in normalized_durations)
+    max_dur = normalized_durations[-1]
+
+    if default_duration is not None:
         duration_rules = (
             f"- 时长：只能取 {durations_str} 中的值（该视频模型支持的秒数集合）\n"
             f"- 每场景默认 {default_duration} 秒；打斗、大场面、情绪铺陈等画面可取更长值至上限 {max_dur} 秒，"
             "不要默认挑最短值"
         )
-    elif max_dur is not None:
+    else:
         duration_rules = (
             f"- 时长：只能取 {durations_str} 中的值（该视频模型支持的秒数集合）\n"
             f"- 按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
         )
-    else:
-        duration_rules = f"- 时长：只能取 {durations_str} 中的值"
 
     return f"""你的任务是将小说原文改编为结构化的分镜场景表（Markdown 格式），用于后续 AI 视频生成。
 

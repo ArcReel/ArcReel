@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
 from lib.project_manager import ProjectManager
 
 
@@ -32,6 +34,22 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     msg = f"{name} 失败: {exc}"
     text = "\n".join([msg, *log]) if log else msg
     return {"content": [{"type": "text", "text": text}], "is_error": True}
+
+
+async def fetch_video_caps(project: dict[str, Any]) -> tuple[int | None, list[int]]:
+    """Resolve ``(default_duration, supported_durations)`` for an MCP tool call.
+
+    Single source of truth for video model capability lookup across SDK MCP
+    tools (``enqueue_videos`` and ``text_generation`` both depend on this).
+    Returns the raw resolved durations; callers decide whether an empty result
+    is a hard error (video generation) or a soft fallback (script normalization).
+    """
+    resolver = ConfigResolver(async_session_factory)
+    caps = await resolver.video_capabilities_for_project(project)
+    durations = [int(d) for d in caps.get("supported_durations") or []]
+    default = caps.get("default_duration")
+    default_int = int(default) if isinstance(default, int | float) else None
+    return default_int, durations
 
 
 def validate_script_filename(value: str) -> str:

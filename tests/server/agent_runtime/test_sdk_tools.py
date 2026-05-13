@@ -512,7 +512,7 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     async def fake_caps(_p):
         return 4, [4, 6, 8]
 
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True

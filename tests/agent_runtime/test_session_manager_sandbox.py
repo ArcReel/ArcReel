@@ -132,8 +132,12 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     (root / "projects").mkdir()
     (root / "projects" / ".arcreel.db").write_bytes(b"sqlite-fake")
     (root / "projects" / ".arcreel.db-shm").write_bytes(b"shm")
-    (root / "agent_runtime_profile" / ".claude").mkdir(parents=True)
-    (root / "agent_runtime_profile" / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+    # ``ARCREEL_PROFILE_DIR`` autouse fixture (tests/conftest.py) pins
+    # agent_profile_dir to ``tmp_path/agent_runtime_profile`` — populate that
+    # location so the sandbox helper picks it up via the env-aware resolver.
+    profile_dir = tmp_path / "agent_runtime_profile"
+    (profile_dir / ".claude").mkdir(parents=True)
+    (profile_dir / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
     (root / "vertex_keys").mkdir()
 
     sm = SessionManager(root, tmp_path / "data", SessionMetaStore())
@@ -142,7 +146,7 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     # 必须命中真实存在的关键路径
     assert str(root.resolve() / ".env") in paths
     assert str(root.resolve() / ".env.local") in paths
-    assert str(root.resolve() / "agent_runtime_profile" / ".claude" / "settings.json") in paths
+    assert str(profile_dir.resolve() / ".claude" / "settings.json") in paths
     assert str(root.resolve() / "vertex_keys") in paths
 
     # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
@@ -150,6 +154,51 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     # .arcreel.db + WAL 辅助文件已迁回敏感清单（issue #519 — 入队走 MCP tool）
     assert str(root.resolve() / "projects" / ".arcreel.db") in paths
     assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
+
+
+def test_build_sensitive_abs_paths_honors_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 把数据/profile 目录搬到
+    项目外时，sandbox denyRead 必须跟着指到新位置——否则源码根下的硬编码
+    清单实际什么都护不到（gemini security-high review feedback / PR #528）。"""
+    from server.agent_runtime.session_manager import SessionManager
+    from server.agent_runtime.session_store import SessionMetaStore
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    # 数据目录搬到 repo 之外
+    external_data = tmp_path / "external_data" / "projects"
+    external_data.mkdir(parents=True)
+    (external_data / ".arcreel.db").write_bytes(b"db")
+    (external_data / ".arcreel.db-wal").write_bytes(b"wal")
+    (external_data / ".system_config.json").write_text("{}", encoding="utf-8")
+    (external_data.parent / "vertex_keys").mkdir()
+    # profile 目录搬到 repo 之外
+    external_profile = tmp_path / "external_profile"
+    (external_profile / ".claude").mkdir(parents=True)
+    (external_profile / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(external_profile))
+
+    sm = SessionManager(
+        repo,
+        tmp_path / "agent_data",
+        SessionMetaStore(),
+        projects_root=external_data,
+    )
+    paths = sm._build_sensitive_abs_paths()
+
+    assert str(external_data / ".arcreel.db") in paths
+    assert str(external_data / ".arcreel.db-wal") in paths
+    assert str(external_data / ".system_config.json") in paths
+    assert str(external_data.parent / "vertex_keys") in paths
+    assert str(external_profile.resolve() / ".claude" / "settings.json") in paths
+    # 旧的 ``repo/projects/.arcreel.db`` 路径已不复存在 — 不再误指 deny 到空位置
+    assert not any(str(repo) + "/projects/" in p for p in paths)
+
+    # _is_sensitive_path 也必须能识别 env 覆盖后的真实位置
+    assert sm._is_sensitive_path((external_data / ".arcreel.db").resolve())
+    assert sm._is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
+    assert sm._is_sensitive_path((external_data.parent / "vertex_keys" / "k.json").resolve())
 
 
 @pytest.mark.asyncio

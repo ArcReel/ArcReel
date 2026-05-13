@@ -23,7 +23,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 通过 SDK in-process MCP tool 调用（项目名由 session 闭包绑定，文本模型直连主进程，不受 sandbox 网络白名单约束）：
 
-```
+```text
 mcp__arcreel__generate_episode_script({"episode": N})
 mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅预览 prompt
 ```

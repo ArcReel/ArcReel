@@ -23,12 +23,11 @@
 ### 音频规范
 - **BGM 自动禁止**：在视频 prompt 末尾统一追加"禁止出现：BGM、文字字幕、水印"
 
-### 脚本调用
-- **Skill 内部脚本**：各 skill 的可执行脚本位于 `agent_runtime_profile/.claude/skills/{skill-name}/scripts/` 目录下
-- **虚拟环境**：默认已激活，脚本无需手动激活 .venv
-- **Bash 调用**：项目目录内可自由跑 `ls / cat / jq / python / curl` 等命令（沙箱化已启用），skill 脚本路径建议用相对路径以便跨项目通用，但绝对路径同样可用。
-- **敏感文件保护**：`.env` / `vertex_keys/` / `projects/.system_config.json*` / `projects/.arcreel.db*` / `agent_runtime_profile/.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
-- **入队 / 文本生成走 SDK MCP tool**：`mcp__arcreel__*` 系列工具（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）跑在 server 主进程，不受 sandbox 网络白名单约束；agent 直接 tool 调用，**不要**再 Bash 调用 `.claude/skills/.../scripts/*.py`（这些脚本已删除）。
+### 工具调用
+- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
+- **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），项目目录内可自由跑。
+- **禁止旧路径**：不要 Bash 调用 `.claude/skills/.../scripts/*.py` —— 这些脚本已删除，相关入口已迁到 `mcp__arcreel__*`。
+- **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
 ---
 

@@ -34,13 +34,13 @@ description: "剧集动画模式单集规范化剧本 subagent（drama 模式专
 
 ### Step 0: 查视频模型能力与用户偏好
 
-用 Bash 工具执行：
+通过 SDK in-process MCP tool 查询：
 
-```bash
-python .claude/skills/manage-project/scripts/get_video_capabilities.py --project {项目名}
+```text
+mcp__arcreel__get_video_capabilities({})
 ```
 
-解析 stdout JSON，记录：
+解析返回的 JSON，记录：
 - `supported_durations`：单场景时长允许取值集合
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 - `max_duration`：当前视频模型单场景时长上限
@@ -48,7 +48,7 @@ python .claude/skills/manage-project/scripts/get_video_capabilities.py --project
 情况 A（首次生成）时由 `mcp__arcreel__normalize_drama_script` 自行查询并注入 prompt，subagent 可不直接使用；
 情况 B（修改已有剧本调整时长）需参考这些值决定新值。
 
-若脚本退出非 0，停止并把 stderr 报告给主 agent。
+工具返回 `is_error: true` 时，停止并把错误文本报告给主 agent。
 
 ### 情况 A：首次生成规范化剧本
 
@@ -63,7 +63,7 @@ python .claude/skills/manage-project/scripts/get_video_capabilities.py --project
 
 通过 SDK in-process MCP tool 调用（项目名由 session 闭包绑定，不需要传）：
 
-```
+```text
 mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.txt"})
 ```
 

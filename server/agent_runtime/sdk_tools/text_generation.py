@@ -21,7 +21,7 @@ from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_backends.factory import create_text_backend_for_task
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
+from server.agent_runtime.sdk_tools._context import ToolContext, fetch_video_caps, tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -141,20 +141,22 @@ def generate_episode_script_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_video_caps(project_name: str) -> tuple[int | None, list[int]]:
-    resolver = ConfigResolver(async_session_factory)
+async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None, list[int]]:
+    """Script normalization is best-effort: prompt生成 不该被能力查询失败堵住。
+
+    Soft-fallbacks to ``_FALLBACK_SUPPORTED_DURATIONS`` so the LLM still
+    receives a usable duration constraint set if the resolver hiccups.
+    """
     try:
-        caps = await resolver.video_capabilities(project_name)
+        default_int, durations = await fetch_video_caps(project)
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback [4,6,8]：%s", exc)
         return None, list(_FALLBACK_SUPPORTED_DURATIONS)
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback [4,6,8]：%s", exc)
         return None, list(_FALLBACK_SUPPORTED_DURATIONS)
-
-    durations = list(caps.get("supported_durations") or []) or list(_FALLBACK_SUPPORTED_DURATIONS)
-    default = caps.get("default_duration")
-    default_int = int(default) if isinstance(default, int) else None
+    if not durations:
+        return default_int, list(_FALLBACK_SUPPORTED_DURATIONS)
     return default_int, durations
 
 
@@ -216,7 +218,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
             if not novel_text.strip():
                 return {"content": [{"type": "text", "text": "❌ 小说原文为空"}], "is_error": True}
 
-            default_duration, supported_durations = await _fetch_video_caps(ctx.project_name)
+            default_duration, supported_durations = await _fetch_caps_with_fallback(project)
             prompt = build_normalize_prompt(
                 novel_text=novel_text,
                 project_overview=project.get("overview", {}),

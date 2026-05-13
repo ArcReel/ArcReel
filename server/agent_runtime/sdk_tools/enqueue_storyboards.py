@@ -62,7 +62,6 @@ def _build_prompt(
     style: str,
     style_description: str,
     id_field: str,
-    content_mode: str,
 ) -> str:
     image_prompt = segment.get("image_prompt", "")
     if not image_prompt:
@@ -75,14 +74,10 @@ def _build_prompt(
         style_parts.append(f"Visual style: {style_description}")
     style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
 
-    composition_suffix = ""
-    if content_mode == "narration":
-        composition_suffix = "\n竖屏构图。" if is_structured_image_prompt(image_prompt) else " 竖屏构图。"
-
     if is_structured_image_prompt(image_prompt):
         yaml_prompt = image_prompt_to_yaml(image_prompt, style)
-        return f"{style_prefix}{yaml_prompt}{composition_suffix}"
-    return f"{style_prefix}{image_prompt}{composition_suffix}"
+        return f"{style_prefix}{yaml_prompt}"
+    return f"{style_prefix}{image_prompt}"
 
 
 def _select_items(items: list[dict[str, Any]], id_field: str, segment_ids: list[str] | None) -> list[dict[str, Any]]:
@@ -98,13 +93,12 @@ def _build_specs(
     style: str,
     style_description: str,
     id_field: str,
-    content_mode: str,
     script_filename: str,
 ) -> list[BatchTaskSpec]:
     specs: list[BatchTaskSpec] = []
     for plan in plans:
         item = items_by_id[plan.resource_id]
-        prompt = _build_prompt(item, style, style_description, id_field, content_mode)
+        prompt = _build_prompt(item, style, style_description, id_field)
         specs.append(
             BatchTaskSpec(
                 task_type="storyboard",
@@ -148,7 +142,6 @@ def generate_storyboards_tool(ctx: ToolContext):
 
             script = ctx.pm.load_script(ctx.project_name, script_filename)
             project_dir = ctx.project_path
-            content_mode = script.get("content_mode", "narration")
 
             try:
                 project_data = ctx.pm.load_project(ctx.project_name)
@@ -158,6 +151,18 @@ def generate_storyboards_tool(ctx: ToolContext):
             items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
             selected = _select_items(items, id_field, segment_ids)
             if not selected:
+                # 区分两种零结果：调用方传了 segment_ids 但没命中（无效 ID）
+                # vs 全部已生成（真无事可做），后者才是 success 文案。
+                if segment_ids:
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"❌ 没有找到匹配的片段/场景：segment_ids={segment_ids}",
+                            }
+                        ],
+                        "is_error": True,
+                    }
                 return {"content": [{"type": "text", "text": "✨ 所有片段的分镜图都已生成"}]}
 
             style = project_data.get("style", "")
@@ -175,7 +180,6 @@ def generate_storyboards_tool(ctx: ToolContext):
                 style,
                 style_description,
                 id_field,
-                content_mode,
                 script_filename,
             )
 

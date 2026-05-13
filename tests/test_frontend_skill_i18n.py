@@ -37,7 +37,10 @@ def _is_user_invocable(skill_md: Path) -> bool:
     match = _USER_INVOCABLE_RE.search(parts[1])
     if not match:
         return True  # Default when field absent
-    return match.group(1).strip().lower() not in {"false", "no", "0"}
+    # YAML 允许 ``user-invocable: "false"`` / ``'false'`` —— 解析时要去掉引号
+    # 再判断，否则带引号的 false 会被误判为 truthy。
+    raw = match.group(1).strip().strip("'\"").lower()
+    return raw not in {"false", "no", "0"}
 
 
 def _user_invocable_skill_ids() -> set[str]:
