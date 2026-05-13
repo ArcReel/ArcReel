@@ -36,6 +36,7 @@ dependencies = [
     "packaging>=24.0",
     "portalocker>=2.10.1",
     "pdf-oxide>=0.3.46",
+    "socksio>=1.0.0",
 ]
 
 [dependency-groups]
