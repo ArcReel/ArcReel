@@ -16,6 +16,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
+import { useProjectsStore } from "@/stores/projects-store";
+import { useAppStore } from "@/stores/app-store";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
@@ -100,10 +102,12 @@ function ReferenceImageStrip({
   projectName: string;
   refreshKey: number;
 }) {
+  const fingerprints = useProjectsStore((s) => s.assetFingerprints);
   return (
     <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-thin">
       {references.map((ref, idx) => {
         const isChar = ref.ref_type === "character";
+        const cacheBust = fingerprints[ref.path] ?? refreshKey;
         return (
           <motion.div
             key={ref.path}
@@ -120,7 +124,7 @@ function ReferenceImageStrip({
               }`}
             >
               <img
-                src={API.getFileUrl(projectName, ref.path, refreshKey)}
+                src={API.getFileUrl(projectName, ref.path, cacheBust)}
                 alt={ref.name}
                 className="block aspect-square w-full object-cover transition-transform duration-200 group-hover:scale-105"
               />
@@ -171,6 +175,11 @@ export function GridPreviewPanel({
   const safeIdx = Math.min(selectedIdx, Math.max(0, gridIds.length - 1));
   const selectedGridId = gridIds[safeIdx] ?? null;
 
+  // 直接订阅全局 grid 变更信号；不再依赖 parent 透传的 refreshKey，
+  // 避免链路中任一环节（list 抛错被吞、remount、初始 refreshKey 与 prop 相等）
+  // 导致 SSE grid_ready 到达后面板状态永远停在 pending。
+  const gridsRevision = useAppStore((s) => s.gridsRevision);
+
   // safeIdx already clamps selectedIdx to valid range; no effect needed
 
   // Fetch grid data when expanded and selectedGridId is available
@@ -205,14 +214,19 @@ export function GridPreviewPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 用于判断是否切换批次，加入 deps 会在每次拉取完成后触发重新拉取，导致无限循环；t 稳定可忽略
-  }, [expanded, selectedGridId, projectName, refreshKey]);
+  }, [expanded, selectedGridId, projectName, refreshKey, gridsRevision]);
 
   const isInProgress =
     grid?.status === "pending" || grid?.status === "generating" || grid?.status === "splitting";
 
+  // 优先使用持久化的 mtime 指纹做 cache-bust，跨页面刷新仍然有效；
+  // 回退到 refreshKey 仅用于指纹尚未送达前的当次会话。
+  const gridFp = useProjectsStore((s) =>
+    grid?.grid_image_path ? (s.assetFingerprints[grid.grid_image_path] ?? null) : null,
+  );
   const imageUrl =
     grid?.grid_image_path
-      ? API.getFileUrl(projectName, grid.grid_image_path, refreshKey)
+      ? API.getFileUrl(projectName, grid.grid_image_path, gridFp ?? refreshKey)
       : null;
 
   const refs = grid?.reference_images ?? [];
