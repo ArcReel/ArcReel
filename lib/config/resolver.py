@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.app_data_dir import app_data_dir
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import (
     _DEFAULT_IMAGE_BACKEND,
@@ -28,7 +29,6 @@ from lib.config.service import (
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.env_init import PROJECT_ROOT
 from lib.project_manager import ProjectManager
 from lib.reference_video.limits import DEFAULT_MAX_REFS, PROVIDER_MAX_REFS, normalize_provider_id
 from lib.text_backends.base import TextTaskType
@@ -40,7 +40,7 @@ def get_project_manager() -> ProjectManager:
     """返回共享的 ProjectManager 单例（使用标准项目根目录）。"""
     global _project_manager
     if _project_manager is None:
-        _project_manager = ProjectManager(PROJECT_ROOT / "projects")
+        _project_manager = ProjectManager(app_data_dir())
     return _project_manager
 
 

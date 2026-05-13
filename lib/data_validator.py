@@ -66,18 +66,20 @@ class DataValidator:
         "grids",
     }
 
-    def __init__(self, projects_root: str | None = None):
+    def __init__(self, projects_root: str | Path | None = None):
         """
         初始化验证器
 
         Args:
-            projects_root: 项目根目录，默认为 projects/
+            projects_root: 项目根目录；默认走 ``app_data_dir()``
+                （兼顾 ``ARCREEL_DATA_DIR`` / ``AI_ANIME_PROJECTS`` env）。
         """
-        import os
-
         if projects_root is None:
-            projects_root = os.environ.get("AI_ANIME_PROJECTS", "projects")
-        self.projects_root = Path(projects_root)
+            from lib.app_data_dir import app_data_dir
+
+            self.projects_root = app_data_dir()
+        else:
+            self.projects_root = Path(projects_root)
 
     @staticmethod
     def _is_hidden_path(path: Path) -> bool:

@@ -11,6 +11,7 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,6 +27,7 @@ from lib import PROJECT_ROOT
 from lib.agent_session_store import session_store_enabled
 from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent_session_store.store import DbSessionStore
+from lib.app_data_dir import app_data_dir
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
@@ -122,7 +124,7 @@ async def lifespan(app: FastAPI):
     # Run any pending project.json schema migrations (file-based).
     # Both calls are synchronous filesystem walks — offload to a worker thread
     # so they don't block the event loop during uvicorn startup.
-    projects_root = PROJECT_ROOT / "projects"
+    projects_root = app_data_dir()
     migration_summary = await asyncio.to_thread(run_project_migrations, projects_root)
     if migration_summary.migrated or migration_summary.failed:
         logger.info(
@@ -162,7 +164,7 @@ async def lifespan(app: FastAPI):
     try:
         from lib.config.migration import migrate_json_to_db
 
-        json_path = PROJECT_ROOT / "projects" / ".system_config.json"
+        json_path = app_data_dir() / ".system_config.json"
         async with async_session_factory() as session:
             await migrate_json_to_db(session, json_path)
     except Exception as exc:
@@ -180,7 +182,7 @@ async def lifespan(app: FastAPI):
     # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
     from lib.project_manager import ProjectManager
 
-    _pm = ProjectManager(PROJECT_ROOT / "projects")
+    _pm = ProjectManager(app_data_dir())
     _symlink_stats = await asyncio.to_thread(_pm.repair_all_symlinks)
     if any(v > 0 for v in _symlink_stats.values()):
         logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)
@@ -199,7 +201,7 @@ async def lifespan(app: FastAPI):
     logger.info("GenerationWorker 已启动")
 
     logger.info("启动 ProjectEventService...")
-    project_event_service = ProjectEventService(PROJECT_ROOT)
+    project_event_service = ProjectEventService(PROJECT_ROOT, projects_root=app_data_dir())
     app.state.project_event_service = project_event_service
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
@@ -229,14 +231,41 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置
+# CORS 配置（env 驱动）：
+#   - CORS_ORIGINS 未设置 / 空 / 包含 "*" → 通配 origins，credentials 强制关闭
+#     （CORS spec 不允许通配 + credentials 组合；Starlette 在初始化时会 RuntimeError）
+#   - 否则按逗号分隔解析为白名单，credentials 打开供前端附带 cookie / Authorization 跨域
+_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
+_allow_origins: list[str] = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not _allow_origins or "*" in _allow_origins:
+    _allow_origins = ["*"]
+    _allow_credentials = False
+else:
+    _allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_allow_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _resolve_listen_addr() -> tuple[str, int]:
+    """解析 ``LISTEN_HOST`` / ``LISTEN_PORT``，供 ``__main__`` 块与测试共用。
+
+    **作用范围**：仅当通过 ``python server/app.py`` 直接执行（走下方 ``__main__``）
+    时生效。通过 ``uvicorn server.app:app`` 这种标准 ASGI CLI 启动时，listen 地址
+    由 uvicorn 进程自身的 ``--host`` / ``--port`` 参数决定，本函数不参与 —— 因为
+    ASGI app 模块在 import 时无法回头改 uvicorn 进程的绑定。Docker、systemd 等
+    部署需要把 host/port 作为 uvicorn CLI 参数显式传入。
+
+    truthy 默认（``or``）兜底，覆盖 ``.env`` 误写空值（如 ``LISTEN_PORT=``）的场景。
+    """
+    host = os.environ.get("LISTEN_HOST") or "0.0.0.0"
+    port = int(os.environ.get("LISTEN_PORT") or "1241")
+    return host, port
 
 
 # 前端每 3s 轮询下述接口获取任务状态；稳态下成功响应会把真正的错误/慢请求淹没，
@@ -370,4 +399,5 @@ if frontend_dist_dir.exists():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=1241, reload=True)
+    _host, _port = _resolve_listen_addr()
+    uvicorn.run(app, host=_host, port=_port, reload=True)

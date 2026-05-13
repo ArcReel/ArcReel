@@ -43,6 +43,29 @@ _cached_token_secret: str | None = None
 # Token 有效期：7 天
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
 
+# 关闭认证时返回的匿名用户标识
+_ANONYMOUS_USER_SUB = "local"
+
+# 视为"关闭认证"的 env 取值。空串不在内 —— .env 误写 `AUTH_ENABLED=` 应回退到默认（开启），
+# 避免静默 fail-open。
+_AUTH_DISABLED_VALUES = frozenset({"false", "0", "no", "off"})
+
+
+def is_auth_enabled() -> bool:
+    """``AUTH_ENABLED`` env 解析。默认 ``true``，保持现有部署行为；空值也按默认。
+
+    ``false`` / ``0`` / ``no`` / ``off`` 一律视为关闭（不区分大小写）。
+    """
+    return os.environ.get("AUTH_ENABLED", "true").strip().lower() not in _AUTH_DISABLED_VALUES
+
+
+def _anonymous_user() -> "CurrentUserInfo":
+    """关闭认证时返回的固定匿名用户。"""
+    from lib.db.base import DEFAULT_USER_ID
+
+    return CurrentUserInfo(id=DEFAULT_USER_ID, sub=_ANONYMOUS_USER_SUB, role="admin")
+
+
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
@@ -138,6 +161,12 @@ def verify_download_token(token: str, project_name: str) -> dict:
         jwt.InvalidTokenError: token 无效
         ValueError: purpose 或 project 不匹配
     """
+    if not is_auth_enabled():
+        return {
+            "sub": _ANONYMOUS_USER_SUB,
+            "project": project_name,
+            "purpose": "download",
+        }
     payload = jwt.decode(token, get_token_secret(), algorithms=["HS256"])
     if payload.get("purpose") != "download":
         raise ValueError("token purpose 不匹配")
@@ -160,7 +189,11 @@ def check_credentials(username: str, password: str) -> bool:
 
     从 AUTH_USERNAME（默认 admin）和 AUTH_PASSWORD 环境变量读取。
     即使用户名不匹配也执行哈希验证，防止时序攻击。
+
+    ``AUTH_ENABLED=false`` 时无条件返回 True。
     """
+    if not is_auth_enabled():
+        return True
     expected_username = os.environ.get("AUTH_USERNAME", "admin")
     pw_hash = _get_password_hash()
     username_ok = secrets.compare_digest(username, expected_username)
@@ -174,12 +207,16 @@ def ensure_auth_password(env_path: str | None = None) -> str:
     如果 AUTH_PASSWORD 环境变量为空，自动生成密码，写入环境变量，
     回写到 .env 文件，并用 logger.warning 输出到控制台。
 
+    ``AUTH_ENABLED=false`` 时整个步骤跳过（不生成、不回写）。
+
     Args:
         env_path: .env 文件路径，默认为项目根目录的 .env
 
     Returns:
-        当前的 AUTH_PASSWORD 值
+        当前的 AUTH_PASSWORD 值；关闭认证时返回空串。
     """
+    if not is_auth_enabled():
+        return ""
     password = os.environ.get("AUTH_PASSWORD")
     if password:
         return password
@@ -379,9 +416,21 @@ def _payload_to_user(payload: dict) -> CurrentUserInfo:
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
 ) -> CurrentUserInfo:
-    """标准认证依赖 — 支持 JWT 和 API Key Bearer token。"""
+    """标准认证依赖 — 支持 JWT 和 API Key Bearer token。
+
+    ``AUTH_ENABLED=false`` 时无视 token，直接返回匿名 admin。
+    启用时缺 token 抛 401（与旧 oauth2_scheme auto_error 行为等价）。
+    """
+    if not is_auth_enabled():
+        return _anonymous_user()
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="未认证",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     payload = await _verify_and_get_payload_async(token)
     return _payload_to_user(payload)
 
@@ -390,7 +439,12 @@ async def get_current_user_flexible(
     token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
     query_token: str | None = Query(None, alias="token"),
 ) -> CurrentUserInfo:
-    """SSE 认证依赖 — 同时支持 Authorization header 和 ?token= query param。"""
+    """SSE 认证依赖 — 同时支持 Authorization header 和 ?token= query param。
+
+    ``AUTH_ENABLED=false`` 时无视 token，直接返回匿名 admin。
+    """
+    if not is_auth_enabled():
+        return _anonymous_user()
     raw = token or query_token
     if not raw:
         raise HTTPException(

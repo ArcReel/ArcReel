@@ -12,7 +12,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
 from lib.i18n import Translator
-from server.auth import CurrentUser, check_credentials, create_token
+from server.auth import CurrentUser, check_credentials, create_token, is_auth_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,10 @@ async def login_for_access_token(
     """用户登录
 
     使用 OAuth2 标准表单格式验证凭据，成功返回 access_token。
+    ``AUTH_ENABLED=false`` 时跳过凭据校验，直接签发 token，让前端
+    LoginPage 即便被打开也能正常跳转主界面。
     """
-    if not check_credentials(form_data.username, form_data.password):
+    if is_auth_enabled() and not check_credentials(form_data.username, form_data.password):
         logger.warning("登录失败: 用户名或密码错误 (用户: %s)", form_data.username)
         raise HTTPException(
             status_code=401,

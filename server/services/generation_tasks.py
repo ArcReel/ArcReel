@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider import is_custom_provider
@@ -42,7 +42,7 @@ from lib.storyboard_sequence import (
 from lib.thumbnail import extract_video_thumbnail
 from server.services.resolution_resolver import resolve_resolution
 
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 rate_limiter = get_shared_rate_limiter()
 logger = logging.getLogger(__name__)
 

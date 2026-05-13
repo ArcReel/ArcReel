@@ -54,6 +54,18 @@ def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> 
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_app_data_dir_cache():
+    """``app_data_dir()`` uses ``functools.cache`` for production; reset it between
+    tests so per-test monkeypatching of ARCREEL_DATA_DIR / AI_ANIME_PROJECTS takes
+    effect immediately."""
+    from lib.app_data_dir import _reset_for_tests
+
+    _reset_for_tests()
+    yield
+    _reset_for_tests()
+
+
 @pytest.fixture()
 def fd_count():
     """Return a callable that reports the current process file-descriptor count.

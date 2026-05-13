@@ -27,7 +27,7 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
@@ -47,7 +47,7 @@ from server.services.project_cover import resolve_project_cover
 router = APIRouter()
 
 # 初始化项目管理器和状态计算器
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 calc = StatusCalculator(pm)
 
 # episode 字段白名单：只允许持久化合法的 on-disk 字段。

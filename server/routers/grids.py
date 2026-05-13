@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from lib import PROJECT_ROOT
+from lib.app_data_dir import app_data_dir
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
@@ -27,7 +27,7 @@ from server.auth import CurrentUser
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
 # 初始化管理器
-pm = ProjectManager(PROJECT_ROOT / "projects")
+pm = ProjectManager(app_data_dir())
 
 
 def get_project_manager() -> ProjectManager:

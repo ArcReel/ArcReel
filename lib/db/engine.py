@@ -7,7 +7,6 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncGenerator
-from pathlib import Path
 
 from sqlalchemy import event
 from sqlalchemy.exc import OperationalError
@@ -30,8 +29,9 @@ def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL", "").strip()
     if url:
         return url
-    project_root = Path(__file__).parent.parent.parent
-    db_path = project_root / "projects" / ".arcreel.db"
+    from lib.app_data_dir import app_data_dir
+
+    db_path = app_data_dir() / ".arcreel.db"
     return f"sqlite+aiosqlite:///{db_path}"
 
 
