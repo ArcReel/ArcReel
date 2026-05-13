@@ -26,9 +26,9 @@ export function isDesktop(): boolean {
 }
 
 export function isMac(): boolean {
-  return window.arcreel?.os === "darwin";
+  return typeof window !== "undefined" && window.arcreel?.os === "darwin";
 }
 
 export function isWindows(): boolean {
-  return window.arcreel?.os === "win32";
+  return typeof window !== "undefined" && window.arcreel?.os === "win32";
 }
