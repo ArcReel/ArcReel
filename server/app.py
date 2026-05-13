@@ -57,6 +57,7 @@ from server.routers import (
     versions,
 )
 from server.routers import auth as auth_router
+from server.rate_limiter import setup_rate_limiter
 from server.services.project_events import ProjectEventService
 
 # 初始化日志
@@ -229,14 +230,46 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置
+# CORS 配置 — 安全默认值：development 模式才允许 *，production 必须明确配置
+# CORS config — safe default: allow * only in development; production requires explicit CORS_ORIGINS
+# Cấu hình CORS — mặc định an toàn: chỉ development mới cho phép *, production phải cấu hình rõ
+import os as _os
+_env_name = _os.environ.get("ENV", "production").lower().strip()
+_is_dev = _env_name == "development"
+_cors_origins_raw = _os.environ.get("CORS_ORIGINS", "*" if _is_dev else None)
+
+if _cors_origins_raw is None and not _is_dev:
+    logger.warning(
+        "SECURITY: CORS_ORIGINS is not set in production environment. "
+        "All cross-origin requests will be blocked. "
+        "Set CORS_ORIGINS=https://yourdomain.com or ENV=development to allow."
+    )
+    _cors_origins: list[str] = []
+elif _cors_origins_raw == "*":
+    if not _is_dev:
+        logger.warning(
+            "SECURITY: CORS_ORIGINS=* in production. "
+            "Consider restricting to specific origins for security."
+        )
+    _cors_origins = ["*"]
+else:
+    _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+
+logger.info(
+    "CORS origins: %s (ENV=%s)",
+    _cors_origins if _cors_origins else "[deny all]",
+    _env_name,
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiter (additive — does not change any existing logic)
+setup_rate_limiter(app)
 
 
 # 前端每 3s 轮询下述接口获取任务状态；稳态下成功响应会把真正的错误/慢请求淹没，
@@ -316,8 +349,59 @@ def create_generation_worker() -> GenerationWorker:
 
 @app.get("/health")
 async def health_check():
-    """健康检查"""
+    """健康检查 / Health Check / Kiểm tra sức khỏe"""
     return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
+
+
+@app.get("/health/detailed", include_in_schema=False)
+async def health_check_detailed():
+    """
+    Chi tiết sức khỏe hệ thống (dành cho admin/monitoring).
+    Detailed system health (for admin/monitoring).
+    详细系统健康信息（管理员/监控用）。
+    """
+    import platform
+    import shutil
+
+    from lib import PROJECT_ROOT
+
+    checks = {
+        "status": "ok",
+        "version": "0.9.0",
+        "python": platform.python_version(),
+        "platform": f"{platform.system()} {platform.machine()}",
+    }
+
+    # DB check
+    try:
+        async with async_session_factory() as session:
+            from sqlalchemy import text
+            await session.execute(text("SELECT 1"))
+        checks["database"] = "connected"
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+        checks["status"] = "degraded"
+
+    # Disk check
+    try:
+        disk = shutil.disk_usage(str(PROJECT_ROOT))
+        checks["disk_free_gb"] = round(disk.free / (1024**3), 1)
+        checks["disk_total_gb"] = round(disk.total / (1024**3), 1)
+        if disk.free / disk.total < 0.1:
+            checks["disk_warning"] = "Less than 10% disk space remaining"
+            checks["status"] = "degraded"
+    except Exception:
+        checks["disk_free_gb"] = "unknown"
+
+    # Worker check
+    worker = getattr(app.state, "generation_worker", None)
+    checks["generation_worker"] = "running" if worker else "not_started"
+
+    # Event service check
+    evt_svc = getattr(app.state, "project_event_service", None)
+    checks["event_service"] = "running" if evt_svc else "not_started"
+
+    return checks
 
 
 @app.get("/skill.md", include_in_schema=False)
