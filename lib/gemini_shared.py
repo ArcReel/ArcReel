@@ -178,9 +178,9 @@ _SHARED_VIDEO_MODEL_NAME = cost_calculator.DEFAULT_VIDEO_MODEL
 
 
 def resolve_gemini_api_key(api_key: str | None = None) -> str:
-    if not api_key:
+    if api_key is None or not api_key.strip():
         raise ValueError("请到系统配置页填写 Gemini API Key")
-    return api_key
+    return api_key.strip()
 
 
 _shared_rate_limiter: Optional["RateLimiter"] = None

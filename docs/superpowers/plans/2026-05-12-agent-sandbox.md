@@ -2428,11 +2428,11 @@ Create `docs/superpowers/specs/2026-05-12-agent-sandbox-design.acceptance.md`：
 
 - [ ] Bash 子进程不可见 provider 密钥
   - 步骤：启 session → agent 跑 `Bash("env | grep -E 'ANTHROPIC|ARK|XAI|GEMINI|VIDU'")`
-  - 期望：输出为空 或 仅显示 ANTHROPIC_*（PoC #1 决定）
+  - 期望：输出完全为空（含 ANTHROPIC_*；env scrub hook 会 unset 后再执行命令）
 - [ ] agent 不能读 `.env`
   - agent 跑 `Bash("cat /app/.env")` → 输出含 violation
-- [ ] agent 不能读 `.arcreel.db`
-  - agent 跑 `Bash("cat /app/projects/.arcreel.db")` → violation
+- [ ] agent 不能读 `.arcreel.db`（已知限制：暂未纳入 denyRead，issue #519 跟踪）
+  - 当前状态：可读，但 db 内 provider 密钥不会进入 Bash env（双层防线之一被关闭，另一层仍生效）
 - [ ] agent 不能读 `vertex_keys/`
   - agent 跑 `Bash("ls /app/vertex_keys")` → violation
 - [ ] agent 不能读 `agent_runtime_profile/.claude/settings.json`

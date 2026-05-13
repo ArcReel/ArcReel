@@ -180,6 +180,8 @@ async def test_bash_env_scrub_hook_wraps_command_with_env_unset() -> None:
     out = result.get("hookSpecificOutput")
     assert out is not None
     assert out["hookEventName"] == "PreToolUse"
+    # updatedInput 必须配 permissionDecision=allow，否则修改后命令仍会触发权限询问（SDK hooks.md）
+    assert out["permissionDecision"] == "allow"
     new_cmd = out["updatedInput"]["command"]
     # 每个 ANTHROPIC_* key 都被 unset
     for key in ANTHROPIC_ENV_KEYS:

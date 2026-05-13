@@ -401,7 +401,6 @@ class SessionManager:
         self._in_docker = in_docker
         # 实例不变量缓存：避免每次 _build_options / hook 都重做 path resolve。
         self._project_root_resolved = self.project_root.resolve()
-        self._sensitive_abs_paths_cache: list[str] | None = None
         self._load_config()
 
     def _load_config(self) -> None:
@@ -734,6 +733,7 @@ class SessionManager:
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "updatedInput": updated_input,
+                "permissionDecision": "allow",
             },
         }
 
@@ -1845,17 +1845,17 @@ class SessionManager:
         SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
         所以这里枚举 worktree 下当前真实存在的固定清单 + glob 命中项 +
         prefix 目录（vertex_keys 整目录交给 sandbox profile 递归 deny）。
-        结果在实例生命周期内稳定，首次调用后缓存。
+
+        每次会话启动重新枚举，避免后建敏感文件（.env / .env.local）绕过
+        sandbox profile — sandbox profile 在 ClaudeSDKClient 启动时一次性生效，
+        run-time 新增的文件若已落入命名约定就要立刻进入 denyRead。
         """
-        if self._sensitive_abs_paths_cache is not None:
-            return self._sensitive_abs_paths_cache
         root = self._project_root_resolved
         candidates: list[Path] = [root / rel for rel in self._SENSITIVE_RELATIVE_FILES]
         candidates.extend(root / prefix for prefix in self._SENSITIVE_RELATIVE_PREFIXES)
         for pattern in self._SENSITIVE_RELATIVE_GLOBS:
             candidates.extend(root.glob(pattern))
-        self._sensitive_abs_paths_cache = [str(p) for p in candidates if p.exists()]
-        return self._sensitive_abs_paths_cache
+        return [str(p) for p in candidates if p.exists()]
 
     def _is_sensitive_path(self, resolved: Path) -> bool:
         """判断已 resolve 的路径是否命中敏感文件清单。
@@ -1885,13 +1885,15 @@ class SessionManager:
     ) -> tuple[bool, str | None]:
         """检查 file_path 是否允许给定工具访问。
 
-        四条普适规则：
+        规则：
         0. 敏感文件（.env / vertex_keys / settings.json 等）一律拒
-        1. Read/Glob/Grep：projects/<other>/ 跨项目拒；cwd 外其他路径放行
+        1. Read/Glob/Grep：
+           - cwd 内放行；SDK tool-results / /tmp/claude-*/tasks 例外放行
+           - projects_root 下其他项目子目录拒；projects_root 根直放文件放行
+           - 仓库根（project_root）内其他参考资料（lib/docs 等）放行
+           - 其余（host 文件系统：~/.ssh、/etc 等）默认拒
         2. Write/Edit：cwd 外一律拒
         3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）
-
-        SDK tool-results / /tmp/claude-*/tasks 例外保留（SDK 内部产物）。
         """
         try:
             p = Path(file_path)
@@ -1905,21 +1907,11 @@ class SessionManager:
 
         is_write = tool_name in self._WRITE_TOOLS
         is_inside_cwd = resolved.is_relative_to(project_cwd)
-        projects_root = self.project_root / "projects"
 
-        # 规则 1: Read 类工具的跨项目隔离
+        # 规则 1: Read 类工具的跨项目隔离 + host 文件系统封锁
         if not is_write:
-            # cwd 内通过
             if is_inside_cwd:
                 return True, None
-            # cwd 外但落在某个其他项目子目录 → 拒
-            # projects/ 根下直放的文件（如 .arcreel.db）不属于跨项目读，放行
-            if resolved.is_relative_to(projects_root):
-                rel_to_projects = resolved.relative_to(projects_root)
-                if rel_to_projects.parts:
-                    first_entry = projects_root / rel_to_projects.parts[0]
-                    if first_entry.is_dir() and first_entry.name != project_cwd.name:
-                        return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
             # SDK tool-results 例外
             encoded = self._encode_sdk_project_path(project_cwd)
             sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
@@ -1929,8 +1921,20 @@ class SessionManager:
             _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
             if str(resolved).startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
                 return True, None
-            # 其他 cwd 外路径放行（lib/docs/agent_runtime_profile 等参考资料）
-            return True, None
+            # projects_root 下：当前项目以外的子目录拒，根直放文件放行
+            projects_root = self.projects_root
+            if resolved.is_relative_to(projects_root):
+                rel_to_projects = resolved.relative_to(projects_root)
+                if rel_to_projects.parts:
+                    first_entry = projects_root / rel_to_projects.parts[0]
+                    if first_entry.is_dir() and first_entry.name != project_cwd.name:
+                        return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+                return True, None
+            # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
+            if resolved.is_relative_to(self._project_root_resolved):
+                return True, None
+            # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
+            return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
 
         # 规则 2: 写工具 cwd 外拒
         if not is_inside_cwd:

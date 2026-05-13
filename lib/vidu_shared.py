@@ -48,9 +48,9 @@ _IMAGE_MIME_TYPES: dict[str, str] = {
 
 
 def resolve_vidu_api_key(api_key: str | None = None) -> str:
-    if not api_key:
+    if api_key is None or not api_key.strip():
         raise ValueError("请到系统配置页填写 Vidu API Key")
-    return api_key
+    return api_key.strip()
 
 
 def create_vidu_client(

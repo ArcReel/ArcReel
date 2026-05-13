@@ -98,6 +98,19 @@ def test_arcreel_db_not_in_sensitive_list(sm: SessionManager) -> None:
     assert allowed
 
 
+def test_read_host_file_outside_project_root_denied(sm: SessionManager, tmp_path: Path) -> None:
+    """project_root 外的 host 文件（~/.ssh、/etc 等）不允许 Read/Glob/Grep。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    # tmp_path 在 sm.project_root 之外（project_root = tmp_path / "repo"）
+    outside = tmp_path / "host_fake_ssh"
+    outside.mkdir()
+    (outside / "id_rsa").write_text("secret", encoding="utf-8")
+    for tool in ("Read", "Glob", "Grep"):
+        allowed, reason = sm._is_path_allowed(str(outside / "id_rsa"), tool, cwd)
+        assert not allowed, f"{tool} 不应允许读 project_root 外的 host 文件"
+        assert reason and "项目根外" in reason
+
+
 def test_sensitive_glob_pattern_does_not_overmatch(sm: SessionManager, tmp_path: Path) -> None:
     """`.env.*` 不能误伤 `.environment` 这种命名的合法目录/文件。"""
     cwd = sm.project_root / "projects" / "selfproj"
