@@ -12,7 +12,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
 from lib.i18n import Translator
-from server.auth import CurrentUser, check_credentials, create_token, is_auth_enabled
+from server.auth import (
+    CurrentUser,
+    check_credentials,
+    create_token,
+    is_auth_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,23 @@ class VerifyResponse(BaseModel):
     username: str
 
 
+class AuthStatusResponse(BaseModel):
+    enabled: bool
+
+
 # ==================== 路由 ====================
+
+
+@router.get("/auth/status", response_model=AuthStatusResponse)
+async def auth_status():
+    """暴露 ``AUTH_ENABLED`` 状态供前端 bootstrap 判断是否需要登录拦截。
+
+    前端 ``auth-store.initialize()`` 在 localStorage 无 token 时调用本接口：
+    ``enabled=false`` 时跳过登录页直接进主界面；``enabled=true`` 时保留原
+    登录链路。本接口本身**不要求认证**——一个 boolean 比 401 探针更直观，
+    且实际"是否需要登录"通过 401/200 也能从外部观察到，因此不增量泄露。
+    """
+    return AuthStatusResponse(enabled=is_auth_enabled())
 
 
 @router.post("/auth/token", response_model=TokenResponse)
