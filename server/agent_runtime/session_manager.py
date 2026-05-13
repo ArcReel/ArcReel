@@ -1826,30 +1826,22 @@ class SessionManager:
         """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
 
         SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
-        所以这里枚举 worktree 下当前真实存在的敏感文件 + 动态匹配 ``.env.*`` /
-        ``projects/.arcreel.db-*`` 等 glob 命中项。vertex_keys 整个目录加入，
-        bwrap / sandbox-exec 会对目录树递归 deny。
+        所以这里枚举 worktree 下当前真实存在的固定清单 + glob 命中项 +
+        prefix 目录（vertex_keys 整目录交给 sandbox profile 递归 deny）。
         """
         root = self.project_root.resolve()
         candidates: list[Path] = [root / rel for rel in self._SENSITIVE_RELATIVE_FILES]
         candidates.extend(root / prefix for prefix in self._SENSITIVE_RELATIVE_PREFIXES)
-        # glob：.env.local / .arcreel.db-shm / .arcreel.db-wal 等
         for pattern in self._SENSITIVE_RELATIVE_GLOBS:
-            base = root if "/" not in pattern else root / pattern.split("/")[0]
-            tail = pattern.rsplit("/", 1)[-1]
-            if not base.is_dir():
-                continue
-            for p in base.glob(tail):
-                candidates.append(p)
-
+            candidates.extend(root.glob(pattern))
         return [str(p) for p in candidates if p.exists()]
 
     def _is_sensitive_path(self, resolved: Path) -> bool:
         """判断已 resolve 的路径是否命中敏感文件清单。
 
-        基于 self.project_root 动态匹配，覆盖 ``.env`` / ``vertex_keys/`` 子树 /
-        ``projects/.arcreel.db*`` / ``projects/.system_config.json*`` /
-        ``agent_runtime_profile/.claude/settings.json`` 等。
+        基于 self.project_root 动态匹配，覆盖 ``.env`` / ``.env.*`` /
+        ``vertex_keys/`` 子树 / ``projects/.system_config.json*`` /
+        ``agent_runtime_profile/.claude/settings.json``。
         """
         try:
             rel = resolved.relative_to(self.project_root.resolve())
@@ -1873,7 +1865,7 @@ class SessionManager:
         """检查 file_path 是否允许给定工具访问。
 
         四条普适规则：
-        0. 敏感文件（.env / vertex_keys / .arcreel.db / settings.json 等）一律拒
+        0. 敏感文件（.env / vertex_keys / settings.json 等）一律拒
         1. Read/Glob/Grep：projects/<other>/ 跨项目拒；cwd 外其他路径放行
         2. Write/Edit：cwd 外一律拒
         3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）

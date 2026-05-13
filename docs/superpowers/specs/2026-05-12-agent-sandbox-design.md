@@ -1,10 +1,47 @@
 # Agent 沙箱化 — 设计 Spec
 
-> 日期：2026-05-12
-> 状态：Design (Pending Plan)
+> 日期：2026-05-12（实测调整 2026-05-13）
+> 状态：Implemented，实测验收通过
 > 关联：[2026-05-11 提案](../../proposals/2026-05-11-agent-sandbox-and-project-skill-overlay-proposal.md)
 > SDK 版本：claude-agent-sdk-python 0.1.80
 > 范围：提案中「决策 1 / 2 / 4 / 5 + 安全红线」的沙箱部分。决策 3「项目级 Skill Overlay」单独立 spec。
+
+---
+
+## 0. 实施后实测调整（2026-05-13）
+
+下列偏离原始设计的事项在 manual acceptance 阶段实测确认，下文相关章节均反映**实测后**的最终方案。原始设计文本保留以便追溯决策线索。
+
+### 0.1 SDK 0.1.80 的实测限制
+
+| 假设 | 实测 |
+|---|---|
+| 「`settings.json` 中 `Read(//app/...)` deny rules 自动翻译给 Bash sandbox 内核级 file-read deny」 | **部分正确**。SDK CLI 会把 `permissions.deny` 中的 `Read(<path>)` 翻译给 sandbox profile，**但路径必须真实存在且为绝对路径**——CLI strings 含 `"Skipping non-existent deny path"`。`//app/.env` 在宿主开发态（Mac worktree）不存在，被静默跳过，导致 `cat ../../.env` 可读。**结论：宿主路径 deny 必须在代码里动态构造绝对路径，通过 `sandbox.filesystem.denyRead` 字段注入。** |
+| 「`SandboxSettings.network.allowedDomains = ["*"]` 即可放行所有域名」 | **错**。SDK 0.1.80 网络代理只支持 `*.example.com` 这种 subdomain wildcard，`["*"]` 单独不被识别为"全放行"，触发 `X-Proxy-Error: blocked-by-allowlist`。**结论：决策 5「网络默认放行」在 SDK 当前版本下做不到，须维护白名单**。 |
+| 「敏感文件读由 sandbox profile 拦下，hook 不必兜底 Bash 路径」 | 反向也正确——hook 拦不住 Bash（agent 用 `Bash("cat ...")` 走 Bash 工具不经 `_is_path_allowed`）。两条路径职责互补：**Bash 由 sandbox profile 拦，SDK Read/Write/Edit/Glob/Grep 由 hook 拦**。 |
+| 「`OTHER_PROVIDER_ENV_KEYS` 用空值覆盖即可对齐"Bash 不见 provider 密钥"红线」 | **部分正确**。空值覆盖让真值消失，但变量**名**仍在 Bash subshell 可见（`env \| grep ARK_API_KEY` 返回 `ARK_API_KEY=`），acceptance 严格读视为 noise；同时实测发现 SDK 子进程还可能继承宿主或 CLI 自身注入的密钥变量（如 `GEMINI_CLI_IDE_AUTH_TOKEN`），固定清单兜不住。**结论：用 PreToolUse Bash hook `env -u` 包装命令，固定清单 + 动态模式匹配两路汇总。** |
+
+### 0.2 红线 2 范围调整：`.arcreel.db` 暂从 `denyRead` 清单移除
+
+skill 脚本通过 `lib.generation_queue_client` 直连本地 SQLite (`projects/.arcreel.db`) 入队任务——sandbox 把 db 加进 `denyRead` 会让任务队列功能整体失效。当前**接受 db 可被 sandbox 内进程读**（含明文 `agent_credential` / `credential` / `custom_provider` 的 `api_key` 字段）的限制。
+
+**后续路径**：把入队链路改造为 SDK 原生 tool（in-process MCP server），agent 直接调 tool 而不再 Bash → python 脚本。sandboxing.md §"What sandboxing does not cover"明确"sandbox 只隔离 Bash 子进程"——SDK Custom Tool 的 callback 跑在 server 主进程上下文，**不经 sandbox-exec/bwrap 包装**。改造完成后 db 可重新加回敏感清单。已开 follow-up issue。
+
+### 0.3 决策 5 调整：网络白名单 + ENV 扩展
+
+`sandbox.network.allowedDomains` 默认覆盖：
+- ArcReel 内置 provider 域名：`anthropic.com` / `*.anthropic.com` / `*.volces.com` / `x.ai` / `*.x.ai` / `*.googleapis.com` / `*.google.com` / `vidu.cn` / `*.vidu.cn` / `*.viduai.cn`
+- 常见 dev 域名：`code.claude.com` / `github.com` / `*.github.com` / `*.githubusercontent.com` / `pypi.org` / `*.pypi.org` / `*.npmjs.org` / `registry.yarnpkg.com` / `example.com`
+
+`ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS`（逗号分隔）允许运维补充自定义 provider 域名。**spec 第 § 2 决策 5 文字相应修订**。
+
+### 0.4 新增：`allowUnsandboxedCommands: false`
+
+文档 sandboxing.md §Best practices 建议生产部署关掉 escape hatch，防 agent 通过 `dangerouslyDisableSandbox` 参数请求绕过 sandbox。已加。
+
+### 0.5 跨项目读隔离 bug 修复
+
+`_is_path_allowed` 规则 1 原判断"路径在 `projects/` 下且不在 cwd 内 → 跨项目拒"，把 `projects/` 根下直放的文件（如 `.arcreel.db`）误判为跨项目读。修正为"路径落入 `projects/<某子目录>/` 才算跨项目"，根下直放文件放行。
 
 ---
 
@@ -12,8 +49,8 @@
 
 落地 claude-agent-sdk 0.1.80 的原生 Bash 沙箱，让 agent 在项目 cwd 内自由跑 `ls / cat / jq / python -c / curl`，同时把 provider 密钥从 `os.environ` 全面下线，达到提案安全红线四条：
 
-1. Bash 子进程不可见任何 provider 密钥（含 Anthropic 自身）
-2. agent 不能读取 `.env` / `projects/.arcreel.db` / `projects/.system_config.json.bak` / `vertex_keys/**` / `agent_runtime_profile/.claude/settings.json`
+1. Bash 子进程不可见任何 provider 密钥（含 Anthropic 自身） — 实测调整见 §0.1（第 4 行）
+2. agent 不能读取 `.env` / `projects/.system_config.json{,.bak}` / `vertex_keys/**` / `agent_runtime_profile/.claude/settings.json` — `projects/.arcreel.db*` **暂不在范围**，见 §0.2
 3. agent 不能写项目目录外
 4. 父进程 `os.environ` 不含 provider 密钥
 
@@ -21,8 +58,8 @@
 
 - 决策 1：启用 SDK sandbox + `autoAllowBashIfSandboxed=True`，删除 Bash 精确路径白名单
 - 决策 2：Docker 部署启用 `enableWeakerNestedSandbox=True`
-- 决策 4：provider secrets 全面下线 `os.environ`，DB 为唯一真相源；ANTHROPIC_* 通过 `options.env` 注入 SDK 子进程；其他 provider 用空值覆盖兜底
-- 决策 5：沙箱网络默认放行
+- 决策 4：provider secrets 全面下线 `os.environ`，DB 为唯一真相源；ANTHROPIC_* 通过 `options.env` 注入 SDK 子进程；其他 provider 用空值覆盖兜底 + PreToolUse Bash hook `env -u` 包装把变量名一并从 Bash subshell 剥离（实测扩展，见 §0.1）
+- 决策 5：~~沙箱网络默认放行~~ → **维护内置 provider + 常用 dev 域名白名单，ENV `ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS` 扩展**（SDK 0.1.80 不支持 `["*"]` 全放行，见 §0.3）
 
 ## 3. 本次新增决策（spec 阶段）
 
@@ -60,7 +97,10 @@
 | 改动 | 内容 | 理由 |
 |---|---|---|
 | `DEFAULT_ALLOWED_TOOLS` | 加入 `Bash` / `BashOutput` / `KillBash` | 工具白名单集中到代码 |
-| `_build_options()` | 新增 `sandbox=SandboxSettings(enabled=True, autoAllowBashIfSandboxed=True, enableWeakerNestedSandbox=in_docker())`；新增 `env=self._build_provider_env_overrides()` | 决策 1+2+4 落地点 |
+| `_build_options()` | 新增 sandbox 设置含以下字段（实测调整，原始设计只列 enabled/autoAllowBashIfSandboxed/enableWeakerNestedSandbox）：`enabled=True` / `autoAllowBashIfSandboxed=True` / `enableWeakerNestedSandbox=in_docker()` / `allowUnsandboxedCommands=False`（关 escape hatch）/ `network.allowedDomains=_build_sandbox_allowed_domains()`（保守白名单 + ENV 扩展，见 §0.3） / `filesystem.denyRead=_build_sensitive_abs_paths()`（动态构造真实绝对路径，见 §0.1）；新增 `env=self._build_provider_env_overrides()` | 决策 1+2+4+5 落地点 |
+| 新增 `_bash_env_scrub_hook` | PreToolUse 钩 Bash 工具，把 command 包成 `env -u VAR ... sh -c '<orig>'` 剥离所有 provider 密钥变量（固定清单 + 动态匹配 `*API_KEY*` / `*AUTH_TOKEN*` / `*CREDENTIAL*` 等模式） | §0.1 红线 1 实测扩展 |
+| 新增 `_build_sensitive_abs_paths()` | 枚举 worktree 下真实存在的敏感文件绝对路径，给 sandbox profile 的 file-read deny 用；SDK CLI 会跳过不存在路径，所以宿主开发态必须动态构造 | §0.1 实测发现 |
+| 新增 `_build_sandbox_allowed_domains()` | 默认清单 + `ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS` ENV 扩展 | §0.3 |
 | 新增 `_build_provider_env_overrides()` | 见 §6.2 注入清单 | 决策 4 实施 |
 | 新增模块级 `check_sandbox_available()` | macOS 判 `shutil.which("sandbox-exec")`；Linux 判 `shutil.which("bwrap")`；不可用 `raise RuntimeError` | 启动期硬失败检测 |
 | 新增模块级 `detect_docker_environment()` | 检查 `/.dockerenv` 存在 或 `/proc/1/cgroup` 含 `docker`/`podman`。**启动期一次性检测**，结果缓存到 `SessionManager._in_docker`（容器内/外运行时不会变） | 自动开 `enableWeakerNestedSandbox` |
@@ -70,7 +110,9 @@
 
 ### 5.2 `agent_runtime_profile/.claude/settings.json`
 
-只保留**敏感文件 deny**（sandbox 无法自识别敏感文件，必须通过 deny rules 翻译给底层 Seatbelt/bwrap profile；同时也是 SDK Read/Edit 工具的拦截规则）。普适规则「cwd 外写禁」「代码扩展名禁」全部由 §5.1 PreToolUse hook 表达。
+> **实测调整（见 §0.1）**：原方案靠 settings.json 的 `Read(//app/...)` deny rules 给 sandbox profile 翻译路径，但 SDK CLI 跳过不存在路径——`//app/` 在宿主开发态（Mac worktree）不存在，deny 不生效。**实际主防线挪到 §5.1 `_build_sensitive_abs_paths()` 动态构造真实绝对路径**，通过 `sandbox.filesystem.denyRead` 字段注入。settings.json 里的 `//app/...` deny 仅在 Docker 部署里有效，作为兜底保留。
+
+下面是 settings.json 中保留的敏感文件 deny（同时也是 SDK Read/Edit 工具的拦截规则）。普适规则「cwd 外写禁」「代码扩展名禁」全部由 §5.1 PreToolUse hook 表达。
 
 完整改造后内容：
 
@@ -301,6 +343,8 @@ Required for ArcReel agent runtime. Install bubblewrap:
 
 ## 8. PoC 前置调研（spec → plan 之间执行）
 
+> **状态（2026-05-13）**：PoC #1-6 已被合并前 manual acceptance 覆盖并通过；实测发现的偏差汇总在 §0；下表保留为设计意图记录。PoC #1（`options.env` 是否被 Bash 子进程继承）阳性确认，spec 增补了 PreToolUse Bash env scrub hook（见 §0.1 / §5.1 `_bash_env_scrub_hook`）。
+
 `scripts/dev/sandbox_poc.py` 一次性脚本，输出结构化报告归档到 `docs/superpowers/specs/2026-05-12-agent-sandbox-design.poc-report.md`。
 
 | # | 平台 | 验证项 | 期望 | 失败处置 |
@@ -392,3 +436,5 @@ CI 跳过策略：macOS runner 跑 1-5（Seatbelt 可用）；Linux runner 需 b
 | Sandbox 不兼容的 Bash 命令（`docker` / `watchman` 等） | SDK 文档 | ArcReel 不用；未来引入需走 `excludedCommands` |
 | PoC #1 结果阳性 → 需扩展 Bash hook 剥离 env | SDK 子进程 env 继承行为不明 | spec 已留扩展路径，plan 阶段并入 |
 | 用户已存在 .env 含 provider 密钥导致启动失败 | 历史配置 | 启动错误提示明确引导到 WebUI；文档说明迁移步骤 |
+| `.arcreel.db` 含明文 provider 密钥仍可被 sandbox 内 skill 脚本读取 | §0.2 实测限制 | 已开 follow-up issue：把 generation queue 入队链路改造为 SDK 原生 tool（in-process MCP），让 agent 不再 Bash → python 脚本路径访问 db。改造完成后 db 加回 `denyRead`。当前缓解：`agent_credential` / `credential` / `custom_provider` 表的 `api_key` 字段保持 application-level 加密的优先级提升 |
+| 用户自定义 provider 域名未在默认白名单内 → skill HTTP 请求被沙箱拦 | §0.3 SDK 限制 | `ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS` ENV 扩展。后续 PR 加"新域请求 → 用户确认 → 永久放行"流，避免运维手动维护 |
