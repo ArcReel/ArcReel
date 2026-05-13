@@ -21,7 +21,7 @@ from lib.storyboard_sequence import (
     build_storyboard_dependency_plan,
     get_storyboard_items,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._context import ToolContext, validate_script_filename
 
 
 class _FailureRecorder:
@@ -128,7 +128,10 @@ def generate_storyboards_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
-                "script": {"type": "string", "description": "剧本文件名"},
+                "script": {
+                    "type": "string",
+                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
+                },
                 "segment_ids": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -140,7 +143,7 @@ def generate_storyboards_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            script_filename = args["script"]
+            script_filename = validate_script_filename(args["script"])
             segment_ids = args.get("segment_ids")
 
             script = ctx.pm.load_script(ctx.project_name, script_filename)

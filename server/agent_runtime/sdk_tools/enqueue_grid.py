@@ -13,7 +13,7 @@ from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._context import ToolContext, validate_script_filename
 
 
 def _list_groups(project: dict, script: dict) -> list[str]:
@@ -37,7 +37,10 @@ def generate_grid_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
-                "script": {"type": "string", "description": "剧本文件名"},
+                "script": {
+                    "type": "string",
+                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
+                },
                 "scene_ids": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -50,7 +53,7 @@ def generate_grid_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            script_filename = args["script"]
+            script_filename = validate_script_filename(args["script"])
             scene_ids = args.get("scene_ids")
             list_only = bool(args.get("list_only"))
 

@@ -122,6 +122,44 @@ def test_build_arcreel_mcp_server_contains_all_tools(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# validate_script_filename — shared guard for all enqueue tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "scripts/episode_1.json",  # 任何分隔符都拒（包括 scripts/ 前缀）
+        "../etc/passwd",
+        "sub/dir/file.json",
+        "a\\b.json",
+        ".",
+        "..",
+    ],
+)
+def test_validate_script_filename_rejects_paths(bad: str) -> None:
+    from server.agent_runtime.sdk_tools._context import validate_script_filename
+
+    with pytest.raises(ValueError):
+        validate_script_filename(bad)
+
+
+def test_validate_script_filename_accepts_basename() -> None:
+    from server.agent_runtime.sdk_tools._context import validate_script_filename
+
+    assert validate_script_filename("episode_1.json") == "episode_1.json"
+
+
+async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolContext) -> None:
+    """Agent 传带路径分隔符的 script 名必须被 handler 拒绝（共享 validate_script_filename 防御）。"""
+    tool_obj = generate_storyboards_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "../etc/passwd"})
+    assert out.get("is_error") is True
+    assert "路径分隔符" in out["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
 # enqueue_assets
 # ---------------------------------------------------------------------------
 
@@ -419,6 +457,36 @@ async def test_generate_episode_script_missing_step1(fake_ctx: ToolContext) -> N
     tool_obj = generate_episode_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 99})
     assert out.get("is_error") is True
+
+
+async def test_generate_episode_script_writes_to_default_project_scripts(fake_ctx: ToolContext, monkeypatch) -> None:
+    """output 参数已下线；写出路径必须由 ScriptGenerator 内部决定，handler 不应让 agent 控制。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    drafts = project_path / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_segments.md").write_text("step1", encoding="utf-8")
+    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
+
+    captured: dict[str, dict[str, Any]] = {"calls": {}}
+
+    class _FakeGenerator:
+        @classmethod
+        async def create(cls, _path):
+            return cls()
+
+        async def generate(self, **kwargs) -> Path:
+            captured["calls"] = kwargs
+            return project_path / "scripts" / "episode_1.json"
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    tool_obj = generate_episode_script_tool(fake_ctx)
+
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is not True
+    # handler 不再传 output_path —— ScriptGenerator 自己决定写到哪里
+    assert "output_path" not in captured["calls"]
 
 
 async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:

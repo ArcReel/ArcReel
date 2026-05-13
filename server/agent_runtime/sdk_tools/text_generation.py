@@ -91,15 +91,12 @@ def generate_episode_script_tool(ctx: ToolContext):
     @tool(
         "generate_episode_script",
         "调用项目配置的文本模型生成 JSON 剧本（agent 内置 in-process MCP tool，"
-        "无 sandbox provider 域名约束）。dry_run=true 时仅返回 prompt 不调用 API。",
+        "无 sandbox provider 域名约束）。输出固定写入 {project}/scripts/episode_N.json，"
+        "dry_run=true 时仅返回 prompt 不调用 API。",
         {
             "type": "object",
             "properties": {
                 "episode": {"type": "integer", "description": "剧集编号"},
-                "output": {
-                    "type": "string",
-                    "description": "输出文件路径，相对项目目录；默认 scripts/episode_N.json",
-                },
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},
             },
             "required": ["episode"],
@@ -108,7 +105,6 @@ def generate_episode_script_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
             episode = int(args["episode"])
-            output = args.get("output")
             dry_run = bool(args.get("dry_run"))
 
             project_path = ctx.project_path
@@ -132,8 +128,7 @@ def generate_episode_script_tool(ctx: ToolContext):
                 }
 
             generator = await ScriptGenerator.create(project_path)
-            output_path = Path(output) if output else None
-            result_path = await generator.generate(episode=episode, output_path=output_path)
+            result_path = await generator.generate(episode=episode)
             return {"content": [{"type": "text", "text": f"✅ 剧本生成完成: {result_path}"}]}
         except FileNotFoundError as exc:
             return {"content": [{"type": "text", "text": f"❌ 文件错误: {exc}"}], "is_error": True}

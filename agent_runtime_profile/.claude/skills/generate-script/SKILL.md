@@ -25,16 +25,18 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 ```
 mcp__arcreel__generate_episode_script({"episode": N})
-mcp__arcreel__generate_episode_script({"episode": N, "output": "scripts/ep1.json"})
 mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅预览 prompt
 ```
+
+输出路径由工具内部固定为 `{project}/scripts/episode_{N}.json`，不支持自定义；
+如需重命名或归档，请在 Web 端操作。
 
 ### 旧 CLI → 新 tool 对照
 
 | 旧脚本（已删除） | 新 tool |
 |---|---|
 | `python ... generate_script.py --episode N` | `mcp__arcreel__generate_episode_script({"episode": N})` |
-| `... --output path` | 加 `"output": "path"` |
+| `... --output path` | （已下线，输出路径固定） |
 | `... --dry-run` | 加 `"dry_run": true` |
 | `python ... normalize_drama_script.py --episode N` | `mcp__arcreel__normalize_drama_script({"episode": N})` |
 | `... --source path` | 加 `"source": "path"` |

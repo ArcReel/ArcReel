@@ -19,7 +19,7 @@ from lib.generation_queue_client import (
 )
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import is_structured_video_prompt, video_prompt_to_yaml
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._context import ToolContext, validate_script_filename
 
 
 def _get_video_prompt(item: dict[str, Any]) -> str:
@@ -339,7 +339,10 @@ def generate_video_episode_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
-                "script": {"type": "string", "description": "剧本文件名"},
+                "script": {
+                    "type": "string",
+                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
+                },
                 "resume": {"type": "boolean", "description": "是否从上次中断处继续"},
             },
             "required": ["script"],
@@ -348,7 +351,7 @@ def generate_video_episode_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
-            script_filename = args["script"]
+            script_filename = validate_script_filename(args["script"])
             resume = bool(args.get("resume"))
 
             project_dir = ctx.project_path
@@ -432,7 +435,10 @@ def generate_video_scene_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
-                "script": {"type": "string", "description": "剧本文件名"},
+                "script": {
+                    "type": "string",
+                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
+                },
                 "scene_id": {"type": "string", "description": "场景或片段 ID"},
             },
             "required": ["script", "scene_id"],
@@ -440,7 +446,7 @@ def generate_video_scene_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            script_filename = args["script"]
+            script_filename = validate_script_filename(args["script"])
             scene_id = args["scene_id"]
 
             project_dir = ctx.project_path
@@ -514,14 +520,19 @@ def generate_video_all_tool(ctx: ToolContext):
         "为剧本批量生成所有缺视频的场景/片段（独立模式，不拼接）。reference_video 模式等同 episode 模式。",
         {
             "type": "object",
-            "properties": {"script": {"type": "string", "description": "剧本文件名"}},
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
+                }
+            },
             "required": ["script"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
-            script_filename = args["script"]
+            script_filename = validate_script_filename(args["script"])
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
@@ -586,7 +597,10 @@ def generate_video_selected_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
-                "script": {"type": "string", "description": "剧本文件名"},
+                "script": {
+                    "type": "string",
+                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
+                },
                 "scene_ids": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -600,7 +614,7 @@ def generate_video_selected_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
-            script_filename = args["script"]
+            script_filename = validate_script_filename(args["script"])
             scene_ids: list[str] = list(args["scene_ids"])
             resume = bool(args.get("resume"))
 

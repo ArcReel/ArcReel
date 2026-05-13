@@ -24,3 +24,18 @@ class ToolContext:
     @property
     def project_path(self) -> Path:
         return self.pm.get_project_path(self.project_name)
+
+
+def validate_script_filename(value: str) -> str:
+    """Reject any agent-provided ``script`` arg that is not a bare basename.
+
+    Agents must reference scripts by filename only (e.g. ``episode_1.json``);
+    the project root is bound by ``ToolContext`` and the ``scripts/`` subdir
+    is fixed inside ``ProjectManager.load_script``. Any path separator —
+    including a ``scripts/`` prefix or ``..`` segments — is rejected.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError("script 文件名不能为空")
+    if "/" in value or "\\" in value or value in (".", ".."):
+        raise ValueError(f"script 必须是纯文件名，禁止路径分隔符: {value!r}")
+    return value
