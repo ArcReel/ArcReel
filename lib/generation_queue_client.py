@@ -292,17 +292,22 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
     )
 
 
-async def _batch_enqueue_and_wait(
+async def batch_enqueue_and_wait(
+    *,
     project_name: str,
     specs: list[BatchTaskSpec],
-    on_success: Callable[[BatchTaskResult], None] | None,
-    on_failure: Callable[[BatchTaskResult], None] | None,
+    on_success: Callable[[BatchTaskResult], None] | None = None,
+    on_failure: Callable[[BatchTaskResult], None] | None = None,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
-    """Async implementation: enqueue sequentially, then gather-wait all tasks.
+    """Async: enqueue sequentially, then gather-wait all tasks.
 
     Runs entirely within a single event loop, so all asyncpg connections
     are bound to the same loop — no cross-loop errors.
+
+    Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
     """
+    if not specs:
+        return [], []
     # Phase 1 — Sequential enqueue (dependency resolution requires order)
     task_ids: dict[str, str] = {}
     for spec in specs:
@@ -375,7 +380,11 @@ def batch_enqueue_and_wait_sync(
 
     Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
     """
-    if not specs:
-        return [], []
-
-    return _run_sync(_batch_enqueue_and_wait(project_name, specs, on_success, on_failure))
+    return _run_sync(
+        batch_enqueue_and_wait(
+            project_name=project_name,
+            specs=specs,
+            on_success=on_success,
+            on_failure=on_failure,
+        )
+    )

@@ -25,6 +25,7 @@ from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
 
@@ -654,10 +655,18 @@ class SessionManager:
 
         # Windows 回退：sandbox 关闭时把 Bash 系列从 allowed_tools 剥离，
         # 让 _can_use_tool 接管 prefix 白名单匹配（_WINDOWS_BASH_PREFIX_WHITELIST）。
-        allowed_tools = self.DEFAULT_ALLOWED_TOOLS
+        allowed_tools = list(self.DEFAULT_ALLOWED_TOOLS)
         if not self._sandbox_enabled:
             bash_tools = set(self._BASH_TOOLS)
             allowed_tools = [t for t in allowed_tools if t not in bash_tools]
+        # 内置 ArcReel SDK MCP server — handler 跑在主进程，绕过 sandbox。
+        # 通配符让后续新增 tool 不必同步改 allowed_tools。
+        allowed_tools.append("mcp__arcreel__*")
+
+        arcreel_server = build_arcreel_mcp_server(
+            project_name=project_name,
+            projects_root=self.projects_root,
+        )
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
@@ -673,6 +682,7 @@ class SessionManager:
             resume=resume_id,
             can_use_tool=can_use_tool,
             hooks=hooks,
+            mcp_servers={"arcreel": arcreel_server},
             session_store=self._build_session_store(),
             session_store_flush=session_store_flush_mode(),
             sandbox=sandbox_typed,
