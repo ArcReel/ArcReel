@@ -88,14 +88,15 @@ def test_sensitive_file_denied(sm: SessionManager, tool: str, relative: str) -> 
     assert reason and "敏感文件" in reason
 
 
-def test_arcreel_db_not_in_sensitive_list(sm: SessionManager) -> None:
-    """skill 脚本通过 generation_queue_client 直连 SQLite 入队，.arcreel.db 必须放行。"""
+def test_arcreel_db_in_sensitive_list(sm: SessionManager) -> None:
+    """入队链路已迁到 in-process MCP tool (issue #519)，sandbox 内 agent 不再需要直读 db。"""
     cwd = sm.project_root / "projects" / "selfproj"
     db = sm.project_root / "projects" / ".arcreel.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     db.write_bytes(b"sqlite-fake")
-    allowed, _ = sm._is_path_allowed(str(db), "Read", cwd)
-    assert allowed
+    allowed, reason = sm._is_path_allowed(str(db), "Read", cwd)
+    assert not allowed
+    assert reason and "敏感文件" in reason
 
 
 def test_read_host_file_outside_project_root_denied(sm: SessionManager, tmp_path: Path) -> None:

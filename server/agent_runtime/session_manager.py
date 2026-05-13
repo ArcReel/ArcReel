@@ -343,21 +343,21 @@ class SessionManager:
         ".toml",
     }
 
-    # 敏感文件相对 self.project_root 的路径清单：env/凭据/agent settings。
-    # 注意：.arcreel.db 暂未列入 — skill 脚本通过 lib.generation_queue_client
-    # 直连 SQLite 入队任务，db 加进 sandbox denyRead 会让任务队列功能整体瘫痪。
-    # 后续若把入队链路改造为 SDK 原生 tool / MCP server（agent 直接调 tool
-    # 而不再 Bash → python 脚本），sandbox 内无需访问 db，届时可加回敏感清单。
+    # 敏感文件相对 self.project_root 的路径清单：env/凭据/agent settings/任务队列 DB。
+    # 入队链路已迁到 server/agent_runtime/sdk_tools/（in-process MCP tool，主进程跑，
+    # 不经 sandbox），所以 .arcreel.db 加进 denyRead 不再让队列瘫痪（issue #519）。
     _SENSITIVE_RELATIVE_FILES: tuple[str, ...] = (
         ".env",
+        "projects/.arcreel.db",
         "projects/.system_config.json",
         "projects/.system_config.json.bak",
         "agent_runtime_profile/.claude/settings.json",
     )
     # 任意深度子路径都视为敏感（如 vertex_keys 下的全部凭据文件）。
     _SENSITIVE_RELATIVE_PREFIXES: tuple[str, ...] = ("vertex_keys",)
-    # 单层 fnmatch 模式（命中即拒）。
-    _SENSITIVE_RELATIVE_GLOBS: tuple[str, ...] = (".env.*",)
+    # 单层 fnmatch 模式（命中即拒）。``.arcreel.db-wal`` / ``.arcreel.db-shm`` 是
+    # SQLite WAL 模式的辅助文件，与主 db 一起 deny。
+    _SENSITIVE_RELATIVE_GLOBS: tuple[str, ...] = (".env.*", "projects/.arcreel.db-*")
 
     # Sentinel used in pending_user_echoes for image-only messages (no text).
     # The SDK parser drops image blocks, so the replayed UserMessage arrives
@@ -1802,27 +1802,14 @@ class SessionManager:
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
-    # 沙箱网络默认允许的域名。SDK 0.1.80 sandbox.network.allowedDomains 只支持
-    # 形如 "*.example.com" 的 subdomain wildcard，不支持 "*" 全放行；缺省/拼写错
-    # 都会让 sandbox 内 curl 触发 X-Proxy-Error: blocked-by-allowlist。
-    # 这里覆盖 ArcReel 内置 provider + 常见 dev 域名，自定义 provider 需通过
-    # ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS（逗号分隔）补充。
+    # 沙箱网络默认允许的域名。所有 provider HTTP 调用已迁到 in-process MCP tool
+    # （server/agent_runtime/sdk_tools/，主进程跑不经 sandbox，issue #519），所以
+    # sandbox 内只需要保留 Anthropic SDK 自身 + 通用 dev 域名（docs / 包仓库等）。
+    # 自定义 provider 不再需要手动 ALLOWED_DOMAINS 放行。
     _DEFAULT_SANDBOX_ALLOWED_DOMAINS: tuple[str, ...] = (
         # Anthropic
         "anthropic.com",
         "*.anthropic.com",
-        # 火山引擎 ARK
-        "*.volces.com",
-        # xAI / Grok
-        "x.ai",
-        "*.x.ai",
-        # Google / Gemini / Vertex
-        "*.googleapis.com",
-        "*.google.com",
-        # Vidu
-        "vidu.cn",
-        "*.vidu.cn",
-        "*.viduai.cn",
         # dev: docs / 包仓库 / acceptance 用例
         "code.claude.com",
         "github.com",
@@ -1834,23 +1821,6 @@ class SessionManager:
         "registry.yarnpkg.com",
         "example.com",
     )
-
-    @classmethod
-    @functools.cache
-    def _build_sandbox_allowed_domains(cls) -> tuple[str, ...]:
-        """构造 sandbox.network.allowedDomains，含默认清单 + ENV 扩展。
-
-        ``ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS`` 是启动期 env，运行期视为不变；
-        测试中切换值需调 ``cls._build_sandbox_allowed_domains.cache_clear()``。
-        """
-        domains = list(cls._DEFAULT_SANDBOX_ALLOWED_DOMAINS)
-        extra = os.environ.get("ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS", "").strip()
-        if extra:
-            for piece in extra.split(","):
-                piece = piece.strip()
-                if piece and piece not in domains:
-                    domains.append(piece)
-        return tuple(domains)
 
     def _build_sandbox_settings(self) -> dict[str, Any]:
         """构造 SandboxSettings dict（SDK 0.1.80 Python TypedDict 未声明
@@ -1869,7 +1839,7 @@ class SessionManager:
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             "allowUnsandboxedCommands": False,
-            "network": {"allowedDomains": list(self._build_sandbox_allowed_domains())},
+            "network": {"allowedDomains": list(self._DEFAULT_SANDBOX_ALLOWED_DOMAINS)},
             "enableWeakerNestedSandbox": bool(self._in_docker),
             "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
         }

@@ -83,35 +83,18 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
     # 非 Docker 默认 weakerNested=False
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
-    # 网络白名单覆盖 ArcReel 内置 provider + dev 常用域
+    # 网络白名单仅保留 Anthropic + dev 常用域；provider 域名走 in-process MCP tool
+    # （issue #519），不再放行
     # 用 any(==) 显式列表成员比较，避免 CodeQL py/incomplete-url-substring-sanitization 误报
     allowed_domains = opts.sandbox.get("network", {}).get("allowedDomains", [])
     assert any(d == "anthropic.com" for d in allowed_domains)
-    assert any(d == "*.googleapis.com" for d in allowed_domains)
     assert any(d == "example.com" for d in allowed_domains)
+    # provider 域名已下线
+    assert not any(d == "*.googleapis.com" for d in allowed_domains)
+    assert not any(d == "*.volces.com" for d in allowed_domains)
     # filesystem.denyRead 注入：sandbox profile 内核级文件读拒绝
     deny_read = opts.sandbox.get("filesystem", {}).get("denyRead", [])
     assert isinstance(deny_read, list)
-
-
-def test_sandbox_allowed_domains_env_extension(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS 逗号分隔扩展白名单。"""
-    from server.agent_runtime.session_manager import SessionManager
-
-    monkeypatch.setenv(
-        "ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS",
-        "custom-provider.com, *.internal.corp",
-    )
-    SessionManager._build_sandbox_allowed_domains.cache_clear()
-    try:
-        domains = SessionManager._build_sandbox_allowed_domains()
-        # 用 any(==) 显式列表成员比较，避免 CodeQL py/incomplete-url-substring-sanitization 误报
-        assert any(d == "custom-provider.com" for d in domains)
-        assert any(d == "*.internal.corp" for d in domains)
-        # 默认清单仍保留
-        assert any(d == "anthropic.com" for d in domains)
-    finally:
-        SessionManager._build_sandbox_allowed_domains.cache_clear()
 
 
 def test_bash_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,8 +147,9 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
 
     # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
     assert all(".system_config.json" not in p for p in paths)
-    # .arcreel.db 不在敏感清单里 — skill 入队需要访问
-    assert all(".arcreel.db" not in p for p in paths)
+    # .arcreel.db + WAL 辅助文件已迁回敏感清单（issue #519 — 入队走 MCP tool）
+    assert str(root.resolve() / "projects" / ".arcreel.db") in paths
+    assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
 
 
 @pytest.mark.asyncio

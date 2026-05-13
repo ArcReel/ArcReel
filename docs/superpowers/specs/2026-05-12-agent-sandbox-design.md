@@ -21,13 +21,17 @@
 | 「敏感文件读由 sandbox profile 拦下，hook 不必兜底 Bash 路径」 | 反向也正确——hook 拦不住 Bash（agent 用 `Bash("cat ...")` 走 Bash 工具不经 `_is_path_allowed`）。两条路径职责互补：**Bash 由 sandbox profile 拦，SDK Read/Write/Edit/Glob/Grep 由 hook 拦**。 |
 | 「`OTHER_PROVIDER_ENV_KEYS` 用空值覆盖即可对齐"Bash 不见 provider 密钥"红线」 | **部分正确**。空值覆盖让真值消失，但变量**名**仍在 Bash subshell 可见（`env \| grep ARK_API_KEY` 返回 `ARK_API_KEY=`），acceptance 严格读视为 noise；同时实测发现 SDK 子进程还可能继承宿主或 CLI 自身注入的密钥变量（如 `GEMINI_CLI_IDE_AUTH_TOKEN`），固定清单兜不住。**结论：用 PreToolUse Bash hook `env -u` 包装命令，固定清单 + 动态模式匹配两路汇总。** |
 
-### 0.2 红线 2 范围调整：`.arcreel.db` 暂从 `denyRead` 清单移除
+### 0.2 红线 2 范围调整：`.arcreel.db` 暂从 `denyRead` 清单移除 ✅ 已通过 issue #519 解除
+
+> **2026-05 更新**：入队链路（5 个 enqueue skill 脚本）已改造为 SDK in-process MCP tool（`server/agent_runtime/sdk_tools/`），handler 跑在 server 主进程，不经 sandbox。`projects/.arcreel.db` + WAL 辅助文件已加回 `_SENSITIVE_RELATIVE_FILES` / `_SENSITIVE_RELATIVE_GLOBS`。原文保留作决策线索。
 
 skill 脚本通过 `lib.generation_queue_client` 直连本地 SQLite (`projects/.arcreel.db`) 入队任务——sandbox 把 db 加进 `denyRead` 会让任务队列功能整体失效。当前**接受 db 可被 sandbox 内进程读**（含明文 `agent_credential` / `credential` / `custom_provider` 的 `api_key` 字段）的限制。
 
 **后续路径**：把入队链路改造为 SDK 原生 tool（in-process MCP server），agent 直接调 tool 而不再 Bash → python 脚本。sandboxing.md §"What sandboxing does not cover"明确"sandbox 只隔离 Bash 子进程"——SDK Custom Tool 的 callback 跑在 server 主进程上下文，**不经 sandbox-exec/bwrap 包装**。改造完成后 db 可重新加回敏感清单。已开 follow-up issue。
 
-### 0.3 决策 5 调整：网络白名单 + ENV 扩展
+### 0.3 决策 5 调整：网络白名单 + ENV 扩展 ✅ 已通过 issue #519 解除 provider 域名段
+
+> **2026-05 更新**：所有 provider HTTP 调用已迁到 in-process MCP tool（主进程跑，不经 sandbox），sandbox 内不再需要放行 provider 域名。`_DEFAULT_SANDBOX_ALLOWED_DOMAINS` 仅保留 Anthropic SDK 自身 + 通用 dev 域名（docs / 包仓库等）。`ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS` ENV hook 已删除。原文保留作决策线索。
 
 `sandbox.network.allowedDomains` 默认覆盖：
 - ArcReel 内置 provider 域名：`anthropic.com` / `*.anthropic.com` / `*.volces.com` / `x.ai` / `*.x.ai` / `*.googleapis.com` / `*.google.com` / `vidu.cn` / `*.vidu.cn` / `*.viduai.cn`
