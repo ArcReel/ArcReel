@@ -30,7 +30,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     fetch("/api/v1/auth/status")
       .then(async (res) => {
         if (!res.ok) throw new Error(`status ${res.status}`);
-        const data: { enabled: boolean } = await res.json();
+        const data = (await res.json()) as { enabled: boolean };
         if (!data.enabled) {
           set({ isAuthenticated: true, isLoading: false });
         } else {
