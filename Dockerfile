@@ -6,6 +6,9 @@ FROM node:22-slim AS frontend-builder
 WORKDIR /build/frontend
 
 # 启用 corepack；pnpm 版本由 frontend/package.json 的 packageManager 字段固定
+# 关闭交互式下载确认，否则 docker build 这种非 TTY 环境会卡在
+# "Corepack is about to download ..." 直到超时
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 
 # 先复制依赖文件，利用缓存（corepack 按 packageManager 字段自动下载对应 pnpm）
