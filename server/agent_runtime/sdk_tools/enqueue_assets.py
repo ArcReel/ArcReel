@@ -6,46 +6,30 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.asset_types import ASSET_SPECS, AssetSpec
 from lib.generation_queue_client import (
     BatchTaskSpec,
     batch_enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
-TYPE_CONFIG: dict[str, dict[str, Any]] = {
-    "character": {
-        "project_key": "characters",
-        "pending_method": "get_pending_characters",
-        "task_type": "character",
-        "label": "角色",
-        "emoji": "🧑",
-        "default_dir": "characters",
-    },
-    "scene": {
-        "project_key": "scenes",
-        "pending_method": "get_pending_project_scenes",
-        "task_type": "scene",
-        "label": "场景",
-        "emoji": "🏠",
-        "default_dir": "scenes",
-    },
-    "prop": {
-        "project_key": "props",
-        "pending_method": "get_pending_project_props",
-        "task_type": "prop",
-        "label": "道具",
-        "emoji": "📦",
-        "default_dir": "props",
-    },
+# Asset-type emoji shown in tool output. Other display fields (bucket_key,
+# label_zh, subdir) come from lib.asset_types.ASSET_SPECS — the cross-app
+# source of truth.
+_EMOJI: dict[str, str] = {"character": "🧑", "scene": "🏠", "prop": "📦"}
+
+ALL_TYPES: tuple[str, ...] = tuple(ASSET_SPECS.keys())
+
+_PENDING_DISPATCH = {
+    "character": lambda pm, name: pm.get_pending_characters(name),
+    "scene": lambda pm, name: pm.get_pending_project_scenes(name),
+    "prop": lambda pm, name: pm.get_pending_project_props(name),
 }
-
-ALL_TYPES: tuple[str, ...] = ("character", "scene", "prop")
 
 
 def _get_pending(pm: ProjectManager, project_name: str, asset_type: str) -> list[dict]:
-    method = getattr(pm, TYPE_CONFIG[asset_type]["pending_method"])
-    return method(project_name)
+    return _PENDING_DISPATCH[asset_type](pm, project_name)
 
 
 def _build_specs(
@@ -55,18 +39,18 @@ def _build_specs(
     names: list[str] | None,
     warnings: list[str],
 ) -> list[BatchTaskSpec]:
-    cfg = TYPE_CONFIG[asset_type]
+    spec: AssetSpec = ASSET_SPECS[asset_type]
     project = pm.load_project(project_name)
-    assets_dict = project.get(cfg["project_key"], {})
+    assets_dict = project.get(spec.bucket_key, {})
 
     if names:
         resolved: list[str] = []
         for name in names:
             if name not in assets_dict:
-                warnings.append(f"⚠️  {cfg['label']} '{name}' 不存在于 project.json 中，跳过")
+                warnings.append(f"⚠️  {spec.label_zh} '{name}' 不存在于 project.json 中，跳过")
                 continue
             if not assets_dict[name].get("description"):
-                warnings.append(f"⚠️  {cfg['label']} '{name}' 缺少描述，跳过")
+                warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)
     else:
@@ -75,13 +59,13 @@ def _build_specs(
         for item in pending:
             name = item["name"]
             if not assets_dict.get(name, {}).get("description"):
-                warnings.append(f"⚠️  {cfg['label']} '{name}' 缺少描述，跳过")
+                warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)
 
     return [
         BatchTaskSpec(
-            task_type=cfg["task_type"],
+            task_type=spec.asset_type,
             media_type="image",
             resource_id=name,
             payload={"prompt": assets_dict[name]["description"]},
@@ -112,25 +96,22 @@ def list_pending_assets_tool(ctx: ToolContext):
             lines: list[str] = []
             total = 0
             for t in types:
-                cfg = TYPE_CONFIG[t]
+                spec = ASSET_SPECS[t]
                 pending = _get_pending(ctx.pm, ctx.project_name, t)
                 if not pending:
-                    lines.append(f"✅ 项目 '{ctx.project_name}' 所有{cfg['label']}都已有设计图")
+                    lines.append(f"✅ 项目 '{ctx.project_name}' 所有{spec.label_zh}都已有设计图")
                     continue
                 total += len(pending)
-                lines.append(f"\n📋 待生成的{cfg['label']} ({len(pending)} 个):")
+                lines.append(f"\n📋 待生成的{spec.label_zh} ({len(pending)} 个):")
                 for item in pending:
                     desc = item.get("description", "") or ""
                     desc_preview = desc[:60] + "..." if len(desc) > 60 else desc
-                    lines.append(f"  {cfg['emoji']} {item['name']} — {desc_preview}")
+                    lines.append(f"  {_EMOJI[t]} {item['name']} — {desc_preview}")
             if not asset_type and total == 0:
                 lines.append(f"\n✅ 项目 '{ctx.project_name}' 所有资产均已有设计图")
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"list_pending_assets 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("list_pending_assets", exc)
 
     return _handler
 
@@ -178,7 +159,7 @@ def generate_assets_tool(ctx: ToolContext):
             details: list[str] = []
 
             for t in types:
-                cfg = TYPE_CONFIG[t]
+                spec = ASSET_SPECS[t]
                 specs = _build_specs(ctx.pm, ctx.project_name, t, names, warnings)
                 if not specs:
                     continue
@@ -191,10 +172,10 @@ def generate_assets_tool(ctx: ToolContext):
                 for br in successes_acc:
                     version = (br.result or {}).get("version")
                     version_text = f" (v{version})" if version is not None else ""
-                    file_path = (br.result or {}).get("file_path") or f"{cfg['default_dir']}/{br.resource_id}.png"
-                    details.append(f"  ✓ {cfg['label']} '{br.resource_id}' → {file_path}{version_text}")
+                    file_path = (br.result or {}).get("file_path") or f"{spec.subdir}/{br.resource_id}.png"
+                    details.append(f"  ✓ {spec.label_zh} '{br.resource_id}' → {file_path}{version_text}")
                 for br in failures_acc:
-                    details.append(f"  ✗ {cfg['label']} '{br.resource_id}': {br.error}")
+                    details.append(f"  ✗ {spec.label_zh} '{br.resource_id}': {br.error}")
                 total_success += len(successes_acc)
                 total_failure += len(failures_acc)
 
@@ -208,16 +189,12 @@ def generate_assets_tool(ctx: ToolContext):
                 "is_error": total_failure > 0,
             }
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"generate_assets 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("generate_assets", exc)
 
     return _handler
 
 
 __all__ = [
-    "TYPE_CONFIG",
     "ALL_TYPES",
     "list_pending_assets_tool",
     "generate_assets_tool",

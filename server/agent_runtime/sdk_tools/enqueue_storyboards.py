@@ -21,7 +21,7 @@ from lib.storyboard_sequence import (
     build_storyboard_dependency_plan,
     get_storyboard_items,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext, validate_script_filename
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 
 class _FailureRecorder:
@@ -206,10 +206,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 "is_error": bool(failures),
             }
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"generate_storyboards 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("generate_storyboards", exc)
 
     return _handler
 

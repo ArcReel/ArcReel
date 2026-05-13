@@ -17,10 +17,11 @@ from claude_agent_sdk import tool
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.project_manager import effective_mode
+from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_backends.factory import create_text_backend_for_task
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +59,7 @@ def get_video_capabilities_tool(ctx: ToolContext):
                 "is_error": True,
             }
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"get_video_capabilities 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("get_video_capabilities", exc)
 
     return _handler
 
@@ -133,10 +131,7 @@ def generate_episode_script_tool(ctx: ToolContext):
         except FileNotFoundError as exc:
             return {"content": [{"type": "text", "text": f"❌ 文件错误: {exc}"}], "is_error": True}
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"generate_episode_script 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("generate_episode_script", exc)
 
     return _handler
 
@@ -144,93 +139,6 @@ def generate_episode_script_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 # normalize_drama_script
 # ---------------------------------------------------------------------------
-
-
-def build_normalize_prompt(
-    novel_text: str,
-    project_overview: dict[str, Any],
-    style: str,
-    characters: dict[str, Any],
-    scenes: dict[str, Any],
-    props: dict[str, Any],
-    default_duration: int | None,
-    supported_durations: list[int],
-) -> str:
-    char_list = "\n".join(f"- {name}" for name in characters.keys()) or "（暂无）"
-    scene_list = "\n".join(f"- {name}" for name in scenes.keys()) or "（暂无）"
-    prop_list = "\n".join(f"- {name}" for name in props.keys()) or "（暂无）"
-
-    durations_str = ", ".join(str(d) for d in supported_durations) if supported_durations else "—"
-    max_dur = max(supported_durations) if supported_durations else None
-
-    if default_duration is not None and max_dur is not None:
-        duration_rules = (
-            f"- 时长：只能取 {durations_str} 中的值（该视频模型支持的秒数集合）\n"
-            f"- 每场景默认 {default_duration} 秒；打斗、大场面、情绪铺陈等画面可取更长值至上限 {max_dur} 秒，"
-            "不要默认挑最短值"
-        )
-    elif max_dur is not None:
-        duration_rules = (
-            f"- 时长：只能取 {durations_str} 中的值（该视频模型支持的秒数集合）\n"
-            f"- 按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
-        )
-    else:
-        duration_rules = f"- 时长：只能取 {durations_str} 中的值"
-
-    return f"""你的任务是将小说原文改编为结构化的分镜场景表（Markdown 格式），用于后续 AI 视频生成。
-
-## 项目信息
-
-<overview>
-{project_overview.get("synopsis", "")}
-
-题材类型：{project_overview.get("genre", "")}
-核心主题：{project_overview.get("theme", "")}
-世界观设定：{project_overview.get("world_setting", "")}
-</overview>
-
-<style>
-{style}
-</style>
-
-<characters>
-{char_list}
-</characters>
-
-<scenes>
-{scene_list}
-</scenes>
-
-<props>
-{prop_list}
-</props>
-
-## 小说原文
-
-<novel>
-{novel_text}
-</novel>
-
-## 输出要求
-
-将小说改编为场景列表，使用 Markdown 表格格式：
-
-| 场景 ID | 场景描述 | 时长 | 场景类型 | segment_break |
-|---------|---------|------|---------|---------------|
-| E{{N}}S01 | 详细的场景描述... | <duration> | 剧情 | 是 |
-| E{{N}}S02 | 详细的场景描述... | <duration> | 对话 | 否 |
-
-规则：
-- 场景 ID 格式：E{{集数}}S{{两位序号}}（如 E1S01, E1S02）
-- 场景描述：改编后的剧本化描述，包含角色动作、对话、环境，适合视觉化呈现
-{duration_rules}
-- 场景类型：剧情、动作、对话、过渡、空镜
-- segment_break：场景切换点标记"是"，同一连续场景标"否"
-- 每个场景应为一个独立的视觉画面，可以在指定时长内完成
-- 避免一个场景包含多个不同的动作或画面切换
-
-仅输出 Markdown 表格，不要包含其他解释文字。
-"""
 
 
 async def _fetch_video_caps(project_name: str) -> tuple[int | None, list[int]]:
@@ -353,10 +261,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 ]
             }
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"normalize_drama_script 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("normalize_drama_script", exc)
 
     return _handler
 
@@ -365,5 +270,4 @@ __all__ = [
     "get_video_capabilities_tool",
     "generate_episode_script_tool",
     "normalize_drama_script_tool",
-    "build_normalize_prompt",
 ]

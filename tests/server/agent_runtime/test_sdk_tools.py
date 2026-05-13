@@ -287,7 +287,10 @@ async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
 async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.project_payload["_supported_durations"] = [4, 6, 8]  # type: ignore[attr-defined]
+    async def fake_caps(_project):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
@@ -319,7 +322,10 @@ async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
 async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.project_payload["_supported_durations"] = [4, 6, 8]  # type: ignore[attr-defined]
+    async def fake_caps(_project):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
 
     async def fake_enqueue(**kwargs):
         return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
@@ -339,7 +345,10 @@ async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
 async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.project_payload["_supported_durations"] = [4, 6, 8]  # type: ignore[attr-defined]
+    async def fake_caps(_project):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
@@ -371,7 +380,10 @@ async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
 async def test_generate_video_selected_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.project_payload["_supported_durations"] = [4, 6, 8]  # type: ignore[attr-defined]
+    async def fake_caps(_project):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from lib.project_manager import ProjectManager
 
@@ -24,6 +25,13 @@ class ToolContext:
     @property
     def project_path(self) -> Path:
         return self.pm.get_project_path(self.project_name)
+
+
+def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> dict[str, Any]:
+    """Build the ``{"is_error": True}`` response every SDK tool handler emits on failure."""
+    msg = f"{name} 失败: {exc}"
+    text = "\n".join([msg, *log]) if log else msg
+    return {"content": [{"type": "text", "text": text}], "is_error": True}
 
 
 def validate_script_filename(value: str) -> str:

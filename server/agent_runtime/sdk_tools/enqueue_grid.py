@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -13,7 +14,7 @@ from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from server.agent_runtime.sdk_tools._context import ToolContext, validate_script_filename
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 
 def _list_groups(project: dict, script: dict) -> list[str]:
@@ -143,19 +144,24 @@ def generate_grid_tool(ctx: ToolContext):
             details: list[str] = list(skipped)
             successes: list[str] = []
             failures: list[tuple[str, str]] = []
-            for grid, task_id in pending:
-                try:
-                    task = await wait_for_task(task_id)
-                    if task.get("status") == "succeeded":
-                        successes.append(grid.id)
-                        details.append(f"  ✓ {grid.id}（{grid.scene_ids[0]}..{grid.scene_ids[-1]}）")
-                    else:
-                        err = task.get("error_message") or "unknown"
-                        failures.append((grid.id, err))
-                        details.append(f"  ✗ {grid.id}: {err}")
-                except Exception as exc:  # noqa: BLE001
-                    failures.append((grid.id, str(exc)))
-                    details.append(f"  ✗ {grid.id}: {exc}")
+            # Wait for all queued grids concurrently — image worker channel can run
+            # multiple in parallel, so serial wait_for_task would mask that throughput.
+            results = await asyncio.gather(
+                *(wait_for_task(task_id) for _, task_id in pending),
+                return_exceptions=True,
+            )
+            for (grid, _task_id), result in zip(pending, results, strict=True):
+                if isinstance(result, BaseException):
+                    failures.append((grid.id, str(result)))
+                    details.append(f"  ✗ {grid.id}: {result}")
+                    continue
+                if result.get("status") == "succeeded":
+                    successes.append(grid.id)
+                    details.append(f"  ✓ {grid.id}（{grid.scene_ids[0]}..{grid.scene_ids[-1]}）")
+                else:
+                    err = result.get("error_message") or "unknown"
+                    failures.append((grid.id, err))
+                    details.append(f"  ✗ {grid.id}: {err}")
 
             header = f"generate_grid summary: {len(successes)} succeeded, {len(failures)} failed"
             return {
@@ -163,10 +169,7 @@ def generate_grid_tool(ctx: ToolContext):
                 "is_error": bool(failures),
             }
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"generate_grid 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("generate_grid", exc)
 
     return _handler
 

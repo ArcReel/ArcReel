@@ -11,6 +11,8 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
 from lib.generation_queue_client import (
     BatchTaskResult,
     BatchTaskSpec,
@@ -19,7 +21,8 @@ from lib.generation_queue_client import (
 )
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import is_structured_video_prompt, video_prompt_to_yaml
-from server.agent_runtime.sdk_tools._context import ToolContext, validate_script_filename
+from lib.storyboard_sequence import get_storyboard_items
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 
 def _get_video_prompt(item: dict[str, Any]) -> str:
@@ -38,84 +41,63 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
     return prompt
 
 
-def _items_from_script(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
-    content_mode = script.get("content_mode", "narration")
-    if content_mode == "narration" and "segments" in script:
-        return script["segments"], "segment_id", "characters_in_segment"
-    return script.get("scenes", []), "scene_id", "characters_in_scene"
-
-
 def _is_reference_script(script: dict[str, Any]) -> bool:
     if script.get("content_mode") == "reference_video":
         return True
     return bool(script.get("video_units"))
 
 
-def _get_supported_durations(project: dict[str, Any]) -> list[int]:
-    durations = project.get("_supported_durations")
-    if durations and isinstance(durations, list):
-        return durations
-    video_backend = project.get("video_backend")
-    if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-        try:
-            from lib.config.registry import PROVIDER_REGISTRY
+async def _fetch_video_caps(project: dict[str, Any]) -> tuple[int | None, list[int]]:
+    """Resolve (default_duration, supported_durations) via ConfigResolver.
 
-            provider_id, model_id = video_backend.split("/", 1)
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta:
-                model_info = provider_meta.models.get(model_id)
-                if model_info and model_info.supported_durations:
-                    return list(model_info.supported_durations)
-        except ImportError:
-            pass
-    raise ValueError(
-        "supported_durations 无法解析：project 缺 _supported_durations 且 video_backend 不在 PROVIDER_REGISTRY 中"
-    )
+    Why: single source of truth for video model capabilities — same path used
+    by text_generation; avoids per-tool fallback ladders + `_supported_durations`
+    magic project field.
+    """
+    resolver = ConfigResolver(async_session_factory)
+    caps = await resolver.video_capabilities_for_project(project)
+    durations = [int(d) for d in caps.get("supported_durations") or []]
+    if not durations:
+        raise ValueError("supported_durations 无法解析：ConfigResolver 未返回任何时长")
+    default = caps.get("default_duration")
+    default_int = int(default) if isinstance(default, int | float) else None
+    return default_int, durations
 
 
-# ---------------------------------------------------------------------------
 # Checkpoint helpers
-# ---------------------------------------------------------------------------
 
 
-def _checkpoint_path(project_dir: Path, episode: int) -> Path:
+def _episode_checkpoint_path(project_dir: Path, episode: int) -> Path:
     return project_dir / "videos" / f".checkpoint_ep{episode}.json"
 
 
-def _load_checkpoint(project_dir: Path, episode: int) -> dict[str, Any] | None:
-    p = _checkpoint_path(project_dir, episode)
-    if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
+def _selected_checkpoint_path(project_dir: Path, scenes_hash: str) -> Path:
+    return project_dir / "videos" / f".checkpoint_selected_{scenes_hash}.json"
+
+
+def _load_checkpoint_at(path: Path) -> dict[str, Any] | None:
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
     return None
 
 
-def _save_checkpoint(project_dir: Path, episode: int, completed: list[str], started_at: str) -> None:
-    p = _checkpoint_path(project_dir, episode)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(
-        json.dumps(
-            {
-                "episode": episode,
-                "completed_scenes": completed,
-                "started_at": started_at,
-                "updated_at": datetime.now().isoformat(),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+def _save_checkpoint_at(path: Path, completed: list[str], started_at: str, **extra: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "completed_scenes": completed,
+        "started_at": started_at,
+        "updated_at": datetime.now().isoformat(),
+        **extra,
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-def _clear_checkpoint(project_dir: Path, episode: int) -> None:
-    p = _checkpoint_path(project_dir, episode)
-    if p.exists():
-        p.unlink()
-
-
-# ---------------------------------------------------------------------------
-# Spec / scan helpers (平移自原 generate_video.py)
-# ---------------------------------------------------------------------------
+def _clear_checkpoint_at(path: Path) -> None:
+    if path.exists():
+        path.unlink()
 
 
 def _build_video_specs(
@@ -125,14 +107,12 @@ def _build_video_specs(
     content_mode: str,
     script_filename: str,
     project_dir: Path,
-    project: dict[str, Any] | None,
+    default_duration: int,
+    supported_durations: list[int],
     skip_ids: list[str] | None,
     log: list[str],
 ) -> tuple[list[BatchTaskSpec], dict[str, int]]:
-    proj = project or {}
     item_type = "片段" if content_mode == "narration" else "场景"
-    default_duration = proj.get("default_duration") or (4 if content_mode == "narration" else 8)
-    supported = _get_supported_durations(proj)
     skip_set = set(skip_ids or [])
 
     specs: list[BatchTaskSpec] = []
@@ -158,8 +138,8 @@ def _build_video_specs(
             continue
 
         duration = item.get("duration_seconds", default_duration)
-        if duration not in supported:
-            raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported} 内")
+        if duration not in supported_durations:
+            raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported_durations} 内")
 
         specs.append(
             BatchTaskSpec(
@@ -213,18 +193,32 @@ def _scan_completed_items(
     id_field: str,
     completed_scenes: list[str],
     videos_dir: Path,
-) -> tuple[list[Path | None], list[str]]:
+) -> tuple[list[Path | None], list[str], list[str]]:
+    """Pure scan: reconcile checkpoint claims against on-disk videos.
+
+    Returns ``(ordered_paths, already_done, completed_filtered)``:
+    - ``ordered_paths[i]`` is the existing mp4 path for items[i] iff the
+      checkpoint claimed it AND the file is on disk; else ``None``.
+    - ``already_done`` is the subset of items the caller can skip enqueueing.
+    - ``completed_filtered`` drops ids the checkpoint claimed but whose file
+      is missing — caller should write this back instead of mutating its
+      checkpoint list in place.
+    """
     ordered_paths: list[Path | None] = [None] * len(items)
     already_done: list[str] = []
+    stale_completions: set[str] = set()
     for idx, item in enumerate(items):
         item_id = item.get(id_field, item.get("scene_id", f"item_{idx}"))
+        if item_id not in completed_scenes:
+            continue
         video_output = videos_dir / f"scene_{item_id}.mp4"
-        if item_id in completed_scenes and video_output.exists():
+        if video_output.exists():
             ordered_paths[idx] = video_output
             already_done.append(item_id)
-        elif item_id in completed_scenes:
-            completed_scenes.remove(item_id)
-    return ordered_paths, already_done
+        else:
+            stale_completions.add(item_id)
+    completed_filtered = [cid for cid in completed_scenes if cid not in stale_completions]
+    return ordered_paths, already_done, completed_filtered
 
 
 async def _submit_with_checkpoint(
@@ -261,11 +255,6 @@ async def _submit_with_checkpoint(
     return failures
 
 
-# ---------------------------------------------------------------------------
-# Episode / scene / all / selected handlers
-# ---------------------------------------------------------------------------
-
-
 async def _generate_reference_episode(
     *,
     ctx: ToolContext,
@@ -280,10 +269,11 @@ async def _generate_reference_episode(
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
 
+    ckpt_path = _episode_checkpoint_path(project_dir, episode)
     completed: list[str] = []
     started_at = datetime.now().isoformat()
     if resume:
-        ckpt = _load_checkpoint(project_dir, episode)
+        ckpt = _load_checkpoint_at(ckpt_path)
         if ckpt:
             completed = ckpt.get("completed_scenes", [])
             started_at = ckpt.get("started_at", started_at)
@@ -318,7 +308,7 @@ async def _generate_reference_episode(
             order_map=order_map,
             ordered_paths=ordered_paths,
             completed=completed,
-            save_fn=lambda: _save_checkpoint(project_dir, episode, completed, started_at),
+            save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode),
             log=log,
         )
         if failures:
@@ -327,8 +317,35 @@ async def _generate_reference_episode(
     final = [p for p in ordered_paths if p is not None]
     if not final:
         raise RuntimeError("没有生成任何 video_unit")
-    _clear_checkpoint(project_dir, episode)
+    _clear_checkpoint_at(ckpt_path)
     return final
+
+
+async def _run_reference_episode(
+    *,
+    ctx: ToolContext,
+    script: dict[str, Any],
+    script_filename: str,
+    resume: bool,
+    log: list[str],
+) -> dict[str, Any]:
+    """Run reference_video-mode generation and format the tool response.
+
+    All 4 video handlers fall through to whole-episode reference generation
+    when ``_is_reference_script`` returns True; this captures the shared tail
+    (resolve episode → call _generate_reference_episode → header + log).
+    """
+    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    paths = await _generate_reference_episode(
+        ctx=ctx,
+        script=script,
+        script_filename=script_filename,
+        episode=episode,
+        resume=resume,
+        log=log,
+    )
+    header = f"第 {episode} 集参考视频生成完成，共 {len(paths)} 个 unit"
+    return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
 
 def generate_video_episode_tool(ctx: ToolContext):
@@ -356,44 +373,43 @@ def generate_video_episode_tool(ctx: ToolContext):
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
-            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
             if _is_reference_script(script):
-                paths = await _generate_reference_episode(
-                    ctx=ctx,
-                    script=script,
-                    script_filename=script_filename,
-                    episode=episode,
-                    resume=resume,
-                    log=log,
+                return await _run_reference_episode(
+                    ctx=ctx, script=script, script_filename=script_filename, resume=resume, log=log
                 )
-                header = f"第 {episode} 集参考视频生成完成，共 {len(paths)} 个 unit"
-                return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
+            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             project = ctx.pm.load_project(ctx.project_name)
+            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
-            items, id_field, _ = _items_from_script(script)
+            caps_default, supported_durations = await _fetch_video_caps(project)
+            default_duration = (
+                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
+            )
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
+            ckpt_path = _episode_checkpoint_path(project_dir, episode)
             completed: list[str] = []
             started_at = datetime.now().isoformat()
             if resume:
-                ckpt = _load_checkpoint(project_dir, episode)
+                ckpt = _load_checkpoint_at(ckpt_path)
                 if ckpt:
                     completed = ckpt.get("completed_scenes", [])
                     started_at = ckpt.get("started_at", started_at)
 
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
-            ordered_paths, already_done = _scan_completed_items(items, id_field, completed, videos_dir)
+            ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
-                project=project,
+                default_duration=default_duration,
+                supported_durations=supported_durations,
                 skip_ids=already_done,
                 log=log,
             )
@@ -409,21 +425,18 @@ def generate_video_episode_tool(ctx: ToolContext):
                     order_map=order_map,
                     ordered_paths=ordered_paths,
                     completed=completed,
-                    save_fn=lambda: _save_checkpoint(project_dir, episode, completed, started_at),
+                    save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode),
                     log=log,
                 )
                 if failures:
                     raise RuntimeError(f"{len(failures)} 个视频生成失败（使用 resume=true 续传）")
 
             scene_videos = [p for p in ordered_paths if p is not None]
-            _clear_checkpoint(project_dir, episode)
+            _clear_checkpoint_at(ckpt_path)
             header = f"第 {episode} 集视频生成完成，共 {len(scene_videos)} 个片段"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": "\n".join(["generate_video_episode 失败: " + str(exc), *log])}],
-                "is_error": True,
-            }
+            return tool_error("generate_video_episode", exc, log)
 
     return _handler
 
@@ -456,21 +469,13 @@ def generate_video_scene_tool(ctx: ToolContext):
                 log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
-                episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-                paths = await _generate_reference_episode(
-                    ctx=ctx,
-                    script=script,
-                    script_filename=script_filename,
-                    episode=episode,
-                    resume=False,
-                    log=log,
+                return await _run_reference_episode(
+                    ctx=ctx, script=script, script_filename=script_filename, resume=False, log=log
                 )
-                header = f"第 {episode} 集参考视频生成完成，共 {len(paths)} 个 unit"
-                return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
             project = ctx.pm.load_project(ctx.project_name)
+            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
-            items, id_field, _ = _items_from_script(script)
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
                 raise ValueError(f"场景/片段 '{scene_id}' 不存在")
@@ -482,11 +487,13 @@ def generate_video_scene_tool(ctx: ToolContext):
                 raise FileNotFoundError(f"分镜图不存在: {project_dir / storyboard_image}")
 
             prompt = _get_video_prompt(item)
-            default_duration = project.get("default_duration") or (4 if content_mode == "narration" else 8)
+            caps_default, supported_durations = await _fetch_video_caps(project)
+            default_duration = (
+                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
+            )
             duration = item.get("duration_seconds", default_duration)
-            supported = _get_supported_durations(project)
-            if duration not in supported:
-                raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported} 内")
+            if duration not in supported_durations:
+                raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported_durations} 内")
 
             queued = await enqueue_and_wait(
                 project_name=ctx.project_name,
@@ -506,10 +513,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             output_path = project_dir / rel
             return {"content": [{"type": "text", "text": f"✅ 视频已保存: {output_path}"}]}
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": f"generate_video_scene 失败: {exc}"}],
-                "is_error": True,
-            }
+            return tool_error("generate_video_scene", exc)
 
     return _handler
 
@@ -537,32 +541,29 @@ def generate_video_all_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             if _is_reference_script(script):
-                episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-                paths = await _generate_reference_episode(
-                    ctx=ctx,
-                    script=script,
-                    script_filename=script_filename,
-                    episode=episode,
-                    resume=False,
-                    log=log,
+                return await _run_reference_episode(
+                    ctx=ctx, script=script, script_filename=script_filename, resume=False, log=log
                 )
-                header = f"第 {episode} 集参考视频生成完成，共 {len(paths)} 个 unit"
-                return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
             project = ctx.pm.load_project(ctx.project_name)
+            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
-            items, id_field, _ = _items_from_script(script)
             pending = [it for it in items if not (it.get("generated_assets") or {}).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
+            caps_default, supported_durations = await _fetch_video_caps(project)
+            default_duration = (
+                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
+            )
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
-                project=project,
+                default_duration=default_duration,
+                supported_durations=supported_durations,
                 skip_ids=None,
                 log=log,
             )
@@ -582,10 +583,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 "is_error": bool(failures),
             }
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": "\n".join([f"generate_video_all 失败: {exc}", *log])}],
-                "is_error": True,
-            }
+            return tool_error("generate_video_all", exc, log)
 
     return _handler
 
@@ -622,24 +620,16 @@ def generate_video_selected_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             if _is_reference_script(script):
-                episode = ProjectManager.resolve_episode_from_script(script, script_filename)
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
-                paths = await _generate_reference_episode(
-                    ctx=ctx,
-                    script=script,
-                    script_filename=script_filename,
-                    episode=episode,
-                    resume=resume,
-                    log=log,
+                return await _run_reference_episode(
+                    ctx=ctx, script=script, script_filename=script_filename, resume=resume, log=log
                 )
-                header = f"第 {episode} 集参考视频生成完成，共 {len(paths)} 个 unit"
-                return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
             project = ctx.pm.load_project(ctx.project_name)
+            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
-            items, id_field, _ = _items_from_script(script)
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:
@@ -657,43 +647,33 @@ def generate_video_selected_tool(ctx: ToolContext):
                 raise ValueError("没有找到任何有效的场景/片段")
 
             scenes_hash = hashlib.md5(",".join(scene_ids).encode()).hexdigest()[:8]
-            checkpoint_path = project_dir / "videos" / f".checkpoint_selected_{scenes_hash}.json"
+            ckpt_path = _selected_checkpoint_path(project_dir, scenes_hash)
             completed: list[str] = []
             started_at = datetime.now().isoformat()
-            if resume and checkpoint_path.exists():
-                ckpt = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-                completed = ckpt.get("completed_scenes", [])
-                started_at = ckpt.get("started_at", started_at)
+            if resume:
+                ckpt = _load_checkpoint_at(ckpt_path)
+                if ckpt:
+                    completed = ckpt.get("completed_scenes", [])
+                    started_at = ckpt.get("started_at", started_at)
 
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
-            ordered_paths, already_done = _scan_completed_items(selected, id_field, completed, videos_dir)
+            caps_default, supported_durations = await _fetch_video_caps(project)
+            default_duration = (
+                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
+            )
+            ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
-                project=project,
+                default_duration=default_duration,
+                supported_durations=supported_durations,
                 skip_ids=already_done,
                 log=log,
             )
-
-            def _save() -> None:
-                checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-                checkpoint_path.write_text(
-                    json.dumps(
-                        {
-                            "scene_ids": scene_ids,
-                            "completed_scenes": completed,
-                            "started_at": started_at,
-                            "updated_at": datetime.now().isoformat(),
-                        },
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                    encoding="utf-8",
-                )
 
             if specs:
                 failures = await _submit_with_checkpoint(
@@ -703,22 +683,18 @@ def generate_video_selected_tool(ctx: ToolContext):
                     order_map=order_map,
                     ordered_paths=ordered_paths,
                     completed=completed,
-                    save_fn=_save,
+                    save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, scene_ids=scene_ids),
                     log=log,
                 )
                 if failures:
                     raise RuntimeError(f"{len(failures)} 个视频生成失败（使用 resume=true 续传）")
 
             final_results = [p for p in ordered_paths if p is not None]
-            if checkpoint_path.exists():
-                checkpoint_path.unlink()
+            _clear_checkpoint_at(ckpt_path)
             header = f"generate_video_selected 完成：{len(final_results)} 个"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
         except Exception as exc:  # noqa: BLE001
-            return {
-                "content": [{"type": "text", "text": "\n".join([f"generate_video_selected 失败: {exc}", *log])}],
-                "is_error": True,
-            }
+            return tool_error("generate_video_selected", exc, log)
 
     return _handler
 
