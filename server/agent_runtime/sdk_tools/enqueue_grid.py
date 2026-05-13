@@ -65,14 +65,17 @@ def generate_grid_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if list_only:
-                return {"content": [{"type": "text", "text": "\n".join(_list_groups(project, script, scene_ids))}]}
-
+            # ``list_only`` 是 ``generate_grid`` 工具的预览模式，与生成分支一样
+            # 必须先过 generation_mode 校验——否则非 grid 项目靠 ``list_only=true``
+            # 就能拿到成功响应，调用方会误以为该工具适用于当前项目。
             if project.get("generation_mode") != "grid":
                 return {
                     "content": [{"type": "text", "text": "⚠️  项目未启用宫格模式（generation_mode != 'grid'）"}],
                     "is_error": True,
                 }
+
+            if list_only:
+                return {"content": [{"type": "text", "text": "\n".join(_list_groups(project, script, scene_ids))}]}
 
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             project_path = ctx.project_path
