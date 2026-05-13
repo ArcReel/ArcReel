@@ -83,11 +83,46 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
     # 非 Docker 默认 weakerNested=False
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
-    # 网络默认放行：缺省时 curl 会被 SDK 严格白名单拦截
-    assert opts.sandbox.get("network", {}).get("allowedDomains") == ["*"]
+    # 网络白名单覆盖 ArcReel 内置 provider + dev 常用域
+    allowed_domains = opts.sandbox.get("network", {}).get("allowedDomains", [])
+    assert "anthropic.com" in allowed_domains
+    assert "*.googleapis.com" in allowed_domains
+    assert "example.com" in allowed_domains
     # filesystem.denyRead 注入：sandbox profile 内核级文件读拒绝
     deny_read = opts.sandbox.get("filesystem", {}).get("denyRead", [])
     assert isinstance(deny_read, list)
+
+
+def test_sandbox_allowed_domains_env_extension(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS 逗号分隔扩展白名单。"""
+    from server.agent_runtime.session_manager import SessionManager
+
+    monkeypatch.setenv(
+        "ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS",
+        "custom-provider.com, *.internal.corp",
+    )
+    domains = SessionManager._build_sandbox_allowed_domains()
+    assert "custom-provider.com" in domains
+    assert "*.internal.corp" in domains
+    # 默认清单仍保留
+    assert "anthropic.com" in domains
+
+
+def test_bash_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """unset 清单除了固定名单还要动态命中 *_API_KEY / *_AUTH_TOKEN 等模式。"""
+    from server.agent_runtime.session_manager import SessionManager
+
+    monkeypatch.setenv("GEMINI_CLI_IDE_AUTH_TOKEN", "abc")
+    monkeypatch.setenv("RANDOM_VENDOR_API_KEY", "def")
+    monkeypatch.setenv("PATH", "/usr/bin")  # 不应命中
+
+    keys = SessionManager._collect_env_keys_to_scrub()
+    assert "GEMINI_CLI_IDE_AUTH_TOKEN" in keys
+    assert "RANDOM_VENDOR_API_KEY" in keys
+    assert "PATH" not in keys
+    # 固定清单
+    assert "ANTHROPIC_API_KEY" in keys
+    assert "ARK_API_KEY" in keys
 
 
 def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> None:
@@ -112,13 +147,13 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     # 必须命中真实存在的关键路径
     assert str(root.resolve() / ".env") in paths
     assert str(root.resolve() / ".env.local") in paths
-    assert str(root.resolve() / "projects" / ".arcreel.db") in paths
-    assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
     assert str(root.resolve() / "agent_runtime_profile" / ".claude" / "settings.json") in paths
     assert str(root.resolve() / "vertex_keys") in paths
 
     # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
     assert all(".system_config.json" not in p for p in paths)
+    # .arcreel.db 不在敏感清单里 — skill 入队需要访问
+    assert all(".arcreel.db" not in p for p in paths)
 
 
 @pytest.mark.asyncio

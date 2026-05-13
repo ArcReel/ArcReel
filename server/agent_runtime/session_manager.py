@@ -330,12 +330,13 @@ class SessionManager:
         ".toml",
     }
 
-    # 敏感文件相对 self.project_root 的路径清单：env/凭据/数据库/agent settings。
-    # settings.json 里的 //app/... deny 规则仅在 Docker 部署内匹配，宿主开发态走
-    # 这里做动态路径比对。
+    # 敏感文件相对 self.project_root 的路径清单：env/凭据/agent settings。
+    # 注意：.arcreel.db 暂未列入 — skill 脚本通过 lib.generation_queue_client
+    # 直连 SQLite 入队任务，db 加进 sandbox denyRead 会让任务队列功能整体瘫痪。
+    # 后续若把入队链路改造为 SDK 原生 tool / MCP server（agent 直接调 tool
+    # 而不再 Bash → python 脚本），sandbox 内无需访问 db，届时可加回敏感清单。
     _SENSITIVE_RELATIVE_FILES: tuple[str, ...] = (
         ".env",
-        "projects/.arcreel.db",
         "projects/.system_config.json",
         "projects/.system_config.json.bak",
         "agent_runtime_profile/.claude/settings.json",
@@ -343,10 +344,7 @@ class SessionManager:
     # 任意深度子路径都视为敏感（如 vertex_keys 下的全部凭据文件）。
     _SENSITIVE_RELATIVE_PREFIXES: tuple[str, ...] = ("vertex_keys",)
     # 单层 fnmatch 模式（命中即拒）。
-    _SENSITIVE_RELATIVE_GLOBS: tuple[str, ...] = (
-        ".env.*",
-        "projects/.arcreel.db-*",
-    )
+    _SENSITIVE_RELATIVE_GLOBS: tuple[str, ...] = (".env.*",)
 
     # Sentinel used in pending_user_echoes for image-only messages (no text).
     # The SDK parser drops image blocks, so the replayed UserMessage arrives
@@ -628,19 +626,18 @@ class SessionManager:
 
         provider_env = await self._build_provider_env_overrides()
 
-        # 沙箱网络默认放行：缺省时 SDK 走严格白名单，curl 会被拦截
-        # (X-Proxy-Error: blocked-by-allowlist)。
         # sandbox.filesystem.denyRead 是内核级文件读拒绝（macOS Seatbelt /
         # Linux bwrap profile），对 sandbox 内所有子进程生效，包括 Bash 跑的
         # cat/jq/python 等。SDK 0.1.80 Python TypedDict 未声明 filesystem
         # 子结构，但 CLI 接受（运行时 JSON 透传）。
+        # network.allowedDomains 见 _DEFAULT_SANDBOX_ALLOWED_DOMAINS 注释。
         sandbox_settings: dict[str, Any] = {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             # 关掉 dangerouslyDisableSandbox 这个 agent 自救门：默认 agent 可在
             # sandbox 失败时请求"重试 unsandboxed"，对我们的红线场景不可接受。
             "allowUnsandboxedCommands": False,
-            "network": {"allowedDomains": ["*"]},
+            "network": {"allowedDomains": self._build_sandbox_allowed_domains()},
             "enableWeakerNestedSandbox": bool(getattr(self, "_in_docker", False)),
             "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
         }
@@ -673,27 +670,59 @@ class SessionManager:
         """Required keep-alive hook for Python can_use_tool callback."""
         return {"continue_": True}
 
-    @staticmethod
+    # Bash unset 时额外匹配的环境变量名模式：兜底 SDK 子进程里可能注入或宿主机
+    # 继承下来的密钥类变量（如 GEMINI_CLI_IDE_AUTH_TOKEN），名单覆盖不到时靠模式拦。
+    _SECRET_ENV_NAME_PATTERNS: tuple[str, ...] = (
+        "API_KEY",
+        "AUTH_TOKEN",
+        "ACCESS_KEY",
+        "ACCESS_TOKEN",
+        "SECRET_KEY",
+        "CREDENTIAL",
+        "CLIENT_SECRET",
+    )
+
+    @classmethod
+    def _collect_env_keys_to_scrub(cls) -> list[str]:
+        """汇总要从 Bash 子进程剥离的 env 变量名。
+
+        来源三路：固定清单（ANTHROPIC + OTHER provider）+ 模式匹配（动态扫
+        ``os.environ`` 找名字含 KEY/TOKEN/CREDENTIAL 等模式的变量）+ 去重。
+        hook 在 SDK 子进程上下文里执行，``os.environ`` 反映的是 SDK 子进程 env
+        （含 options.env 注入），匹配到的就是 Bash 子壳实际会继承到的密钥变量。
+        """
+        from lib.config.env_keys import ANTHROPIC_ENV_KEYS, OTHER_PROVIDER_ENV_KEYS
+
+        keys: set[str] = set(ANTHROPIC_ENV_KEYS)
+        keys.update(OTHER_PROVIDER_ENV_KEYS)
+        for name in os.environ:
+            upper = name.upper()
+            if any(pat in upper for pat in cls._SECRET_ENV_NAME_PATTERNS):
+                keys.add(name)
+        return sorted(keys)
+
+    @classmethod
     async def _bash_env_scrub_hook(
+        cls,
         input_data: dict[str, Any],
         _tool_use_id: str | None,
         _context: Any,
     ) -> dict[str, Any]:
-        """剥离 ANTHROPIC_* env，让 Bash 子进程看不到 Anthropic 认证密钥。
+        """从 Bash 子进程剥离 provider 密钥变量，包括变量名本身。
 
-        SDK 子进程持有 ANTHROPIC_API_KEY 用于认证，Bash sandbox 默认从父进程继承
-        全部 env，agent 跑 ``env | grep ANTHROPIC`` 能拿到真值。通过
-        ``env -u VAR ... sh -c '<cmd>'`` 包装把 ANTHROPIC_* 从 Bash subshell 中
-        unset，原 command 经 ``shlex.quote`` 保护后整体作为 sh 子壳的 -c 参数。
+        SDK 子进程持有真值的 ANTHROPIC_*（认证需要），及空值 placeholder 的
+        OTHER_PROVIDER_*（options.env 空字符串覆盖），Bash sandbox 默认从父进程
+        继承全部 env，agent 跑 ``env | grep`` 能看到变量名。通过
+        ``env -u VAR ... sh -c '<cmd>'`` 把所有命中的变量名从 Bash subshell 中
+        unset，原 command 经 ``shlex.quote`` 整体作为 sh 子壳的 -c 参数。
         """
-        from lib.config.env_keys import ANTHROPIC_ENV_KEYS
-
         tool_input = input_data.get("tool_input") or {}
         command = tool_input.get("command")
         if not isinstance(command, str) or not command.strip():
             return {"continue_": True}
 
-        unset_flags = " ".join(f"-u {key}" for key in ANTHROPIC_ENV_KEYS)
+        keys = cls._collect_env_keys_to_scrub()
+        unset_flags = " ".join(f"-u {key}" for key in keys)
         wrapped = f"env {unset_flags} sh -c {shlex.quote(command)}"
         updated_input = {**tool_input, "command": wrapped}
         return {
@@ -1737,6 +1766,51 @@ class SessionManager:
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
+    # 沙箱网络默认允许的域名。SDK 0.1.80 sandbox.network.allowedDomains 只支持
+    # 形如 "*.example.com" 的 subdomain wildcard，不支持 "*" 全放行；缺省/拼写错
+    # 都会让 sandbox 内 curl 触发 X-Proxy-Error: blocked-by-allowlist。
+    # 这里覆盖 ArcReel 内置 provider + 常见 dev 域名，自定义 provider 需通过
+    # ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS（逗号分隔）补充。
+    _DEFAULT_SANDBOX_ALLOWED_DOMAINS: tuple[str, ...] = (
+        # Anthropic
+        "anthropic.com",
+        "*.anthropic.com",
+        # 火山引擎 ARK
+        "*.volces.com",
+        # xAI / Grok
+        "x.ai",
+        "*.x.ai",
+        # Google / Gemini / Vertex
+        "*.googleapis.com",
+        "*.google.com",
+        # Vidu
+        "vidu.cn",
+        "*.vidu.cn",
+        "*.viduai.cn",
+        # dev: docs / 包仓库 / acceptance 用例
+        "code.claude.com",
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "pypi.org",
+        "*.pypi.org",
+        "*.npmjs.org",
+        "registry.yarnpkg.com",
+        "example.com",
+    )
+
+    @classmethod
+    def _build_sandbox_allowed_domains(cls) -> list[str]:
+        """构造 sandbox.network.allowedDomains，含默认清单 + ENV 扩展。"""
+        domains = list(cls._DEFAULT_SANDBOX_ALLOWED_DOMAINS)
+        extra = os.environ.get("ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS", "").strip()
+        if extra:
+            for piece in extra.split(","):
+                piece = piece.strip()
+                if piece and piece not in domains:
+                    domains.append(piece)
+        return domains
+
     def _build_sensitive_abs_paths(self) -> list[str]:
         """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
 
@@ -1814,9 +1888,14 @@ class SessionManager:
             # cwd 内通过
             if is_inside_cwd:
                 return True, None
-            # cwd 外但在其他项目目录 → 拒
+            # cwd 外但落在某个其他项目子目录 → 拒
+            # projects/ 根下直放的文件（如 .arcreel.db）不属于跨项目读，放行
             if resolved.is_relative_to(projects_root):
-                return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+                rel_to_projects = resolved.relative_to(projects_root)
+                if rel_to_projects.parts:
+                    first_entry = projects_root / rel_to_projects.parts[0]
+                    if first_entry.is_dir() and first_entry.name != project_cwd.name:
+                        return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
             # SDK tool-results 例外
             encoded = self._encode_sdk_project_path(project_cwd)
             sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
