@@ -176,8 +176,6 @@ async def test_delete_active_blocked(authed_client) -> None:
 
 @pytest.mark.asyncio
 async def test_activate_credential_switches(authed_client, monkeypatch) -> None:
-    import os
-
     a = (
         await authed_client.post(
             "/api/v1/agent/credentials",
@@ -201,8 +199,6 @@ async def test_activate_credential_switches(authed_client, monkeypatch) -> None:
     flags = {c["id"]: c["is_active"] for c in listing}
     assert flags[a["id"]] is False
     assert flags[b["id"]] is True
-
-    assert os.environ["ANTHROPIC_API_KEY"] == "sk-B"
 
 
 @pytest.mark.asyncio

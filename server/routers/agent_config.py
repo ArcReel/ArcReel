@@ -17,7 +17,6 @@ from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
 from lib.config.repository import mask_secret
-from lib.config.service import sync_anthropic_env
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
@@ -201,8 +200,6 @@ async def create_credential(
     if should_activate:
         await repo.set_active(cred.id)
     await session.commit()
-    if should_activate:
-        await sync_anthropic_env(session)
     await session.refresh(cred)
     return _cred_to_response(cred)
 
@@ -228,8 +225,6 @@ async def update_credential(
     if cred is None:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     await session.commit()
-    if cred.is_active:
-        await sync_anthropic_env(session)
     return _cred_to_response(cred)
 
 
@@ -270,7 +265,6 @@ async def activate_credential(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found")) from exc
     await session.commit()
-    await sync_anthropic_env(session)
     return ActivateResponse(active_id=cred_id)
 
 

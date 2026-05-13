@@ -4,9 +4,12 @@ Manages ClaudeSDKClient instances with background execution and reconnection sup
 
 import asyncio
 import contextlib
+import fnmatch
+import functools
 import json
 import logging
 import os
+import shlex
 import time
 from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field
@@ -291,6 +294,11 @@ class SessionManager:
     DEFAULT_ALLOWED_TOOLS = [
         "Skill",
         "Task",
+        # —— Bash 系列（sandbox 启用 + autoAllowBashIfSandboxed=True 协同放行）——
+        "Bash",
+        "BashOutput",
+        "KillBash",
+        # —— SDK 内置工具（仍走 PreToolUse hook 文件围栏 + settings.json deny）——
         "Read",
         "Write",
         "Edit",
@@ -301,9 +309,20 @@ class SessionManager:
     DEFAULT_SETTING_SOURCES = ["project"]
     _SDK_ID_TIMEOUT = 60.0
 
-    # Bash is NOT in DEFAULT_ALLOWED_TOOLS — it is controlled by declarative
-    # allow rules in settings.json (whitelist approach, default deny).
-    # File access control for Read/Write/Edit/Glob/Grep uses PreToolUse hooks.
+    _BASH_TOOLS: tuple[str, ...] = ("Bash", "BashOutput", "KillBash")
+
+    # Windows 回退（_sandbox_enabled=False）的 Bash 命令白名单：等价于 PR 沙箱化前
+    # main 分支 settings.json permissions.allow 段。也是 _can_use_tool deny hint
+    # 文案的单一真相源（_format_bash_whitelist_deny_message 从此派生）。
+    _WINDOWS_BASH_PREFIX_WHITELIST: tuple[str, ...] = (
+        "python .claude/skills/",
+        "ffmpeg",
+        "ffprobe",
+    )
+
+    # Sandbox 启用后 Bash 进入 allowed_tools；具体命令由 SDK Sandbox 自动放行
+    # (autoAllowBashIfSandboxed=True)。文件访问控制走 settings.json deny rules
+    # + PreToolUse hook 双重防线。
     _PATH_TOOLS: dict[str, str] = {
         "Read": "file_path",
         "Write": "file_path",
@@ -312,7 +331,32 @@ class SessionManager:
         "Grep": "path",
     }
     _WRITE_TOOLS = {"Write", "Edit"}
-    _WRITABLE_EXTENSIONS = {".json", ".md", ".txt"}
+    _CODE_EXTENSIONS_FORBIDDEN = {
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".sh",
+        ".yaml",
+        ".yml",
+        ".toml",
+    }
+
+    # 敏感文件相对 self.project_root 的路径清单：env/凭据/agent settings。
+    # 注意：.arcreel.db 暂未列入 — skill 脚本通过 lib.generation_queue_client
+    # 直连 SQLite 入队任务，db 加进 sandbox denyRead 会让任务队列功能整体瘫痪。
+    # 后续若把入队链路改造为 SDK 原生 tool / MCP server（agent 直接调 tool
+    # 而不再 Bash → python 脚本），sandbox 内无需访问 db，届时可加回敏感清单。
+    _SENSITIVE_RELATIVE_FILES: tuple[str, ...] = (
+        ".env",
+        "projects/.system_config.json",
+        "projects/.system_config.json.bak",
+        "agent_runtime_profile/.claude/settings.json",
+    )
+    # 任意深度子路径都视为敏感（如 vertex_keys 下的全部凭据文件）。
+    _SENSITIVE_RELATIVE_PREFIXES: tuple[str, ...] = ("vertex_keys",)
+    # 单层 fnmatch 模式（命中即拒）。
+    _SENSITIVE_RELATIVE_GLOBS: tuple[str, ...] = (".env.*",)
 
     # Sentinel used in pending_user_echoes for image-only messages (no text).
     # The SDK parser drops image blocks, so the replayed UserMessage arrives
@@ -344,6 +388,8 @@ class SessionManager:
         data_dir: Path,
         meta_store: SessionMetaStore,
         projects_root: Path | None = None,
+        in_docker: bool = False,
+        sandbox_enabled: bool = True,
     ):
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
@@ -362,6 +408,13 @@ class SessionManager:
         self._disconnecting: set[str] = set()
         self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
         self._connect_locks: dict[str, asyncio.Lock] = {}
+        # SandboxSettings.enableWeakerNestedSandbox 标志，由 AssistantService
+        # 从 app.state.in_docker 透传。
+        self._in_docker = in_docker
+        # False 表示 SDK 不支持当前平台（目前仅 Windows） — Bash 工具走代码白名单回退。
+        self._sandbox_enabled = sandbox_enabled
+        # 实例不变量缓存：避免每次 _build_options / hook 都重做 path resolve。
+        self._project_root_resolved = self.project_root.resolve()
         self._load_config()
 
     def _load_config(self) -> None:
@@ -397,7 +450,7 @@ class SessionManager:
 - 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
 - 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
 - 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
-- 你不能创建或编辑代码文件（.py/.js/.sh 等），Write/Edit 仅限 .json/.md/.txt
+- Write/Edit 不要写入代码文件（扩展名 .py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）；数据文件（.json/.md/.txt/.html/.csv 等）可以正常写入。代码逻辑应通过现有 skill 脚本完成
 - 你是用户的视频制作搭档，专业、友善、高效"""
 
     def _build_append_prompt(self, project_name: str, locale: str = "zh") -> str:
@@ -521,7 +574,25 @@ class SessionManager:
         self._session_store_resolved = True
         return store
 
-    def _build_options(
+    async def _build_provider_env_overrides(self) -> dict[str, str]:
+        """构造 options.env 注入字典。
+
+        - ANTHROPIC_* 从 DB active credential 取真值
+        - 其他 provider env 全部空值覆盖（防御性兜底）
+        """
+        from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS
+        from lib.config.service import build_anthropic_env_dict
+        from lib.db import async_session_factory
+
+        async with async_session_factory() as session:
+            anthropic_env = await build_anthropic_env_dict(session)
+
+        result = dict(anthropic_env)
+        for key in OTHER_PROVIDER_ENV_KEYS:
+            result[key] = ""
+        return result
+
+    async def _build_options(
         self,
         project_name: str,
         resume_id: str | None = None,
@@ -558,6 +629,10 @@ class SessionManager:
                 "PreToolUse": [
                     HookMatcher(matcher=None, hooks=hook_callbacks),
                     HookMatcher(
+                        matcher="Bash",
+                        hooks=[self._bash_env_scrub_hook],
+                    ),
+                    HookMatcher(
                         matcher="Write|Edit",
                         hooks=[
                             self._build_json_validation_hook(project_cwd, json_backups),
@@ -574,10 +649,20 @@ class SessionManager:
                 ],
             }
 
+        provider_env = await self._build_provider_env_overrides()
+        sandbox_typed = self._build_sandbox_settings()
+
+        # Windows 回退：sandbox 关闭时把 Bash 系列从 allowed_tools 剥离，
+        # 让 _can_use_tool 接管 prefix 白名单匹配（_WINDOWS_BASH_PREFIX_WHITELIST）。
+        allowed_tools = self.DEFAULT_ALLOWED_TOOLS
+        if not self._sandbox_enabled:
+            bash_tools = set(self._BASH_TOOLS)
+            allowed_tools = [t for t in allowed_tools if t not in bash_tools]
+
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self.DEFAULT_SETTING_SOURCES,
-            allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
+            allowed_tools=allowed_tools,
             max_turns=self.max_turns,
             system_prompt=SystemPromptPreset(
                 type="preset",
@@ -590,6 +675,8 @@ class SessionManager:
             hooks=hooks,
             session_store=self._build_session_store(),
             session_store_flush=session_store_flush_mode(),
+            sandbox=sandbox_typed,
+            env=provider_env,
         )
 
     @staticmethod
@@ -598,6 +685,78 @@ class SessionManager:
     ) -> dict[str, bool]:
         """Required keep-alive hook for Python can_use_tool callback."""
         return {"continue_": True}
+
+    # Bash unset 时额外匹配的环境变量名模式：兜底 SDK 子进程里可能注入或宿主机
+    # 继承下来的密钥类变量（如 GEMINI_CLI_IDE_AUTH_TOKEN），名单覆盖不到时靠模式拦。
+    _SECRET_ENV_NAME_PATTERNS: tuple[str, ...] = (
+        "API_KEY",
+        "AUTH_TOKEN",
+        "ACCESS_KEY",
+        "ACCESS_TOKEN",
+        "SECRET_KEY",
+        "CREDENTIAL",
+        "CLIENT_SECRET",
+    )
+
+    @classmethod
+    @functools.cache
+    def _collect_env_keys_to_scrub(cls) -> tuple[str, ...]:
+        """汇总要从 Bash 子进程剥离的 env 变量名。
+
+        来源三路：固定清单（ANTHROPIC + OTHER provider）+ 模式匹配（扫
+        ``os.environ`` 找名字含 KEY/TOKEN/CREDENTIAL 等模式的变量）+ 去重。
+        父进程 environ 在启动后不再增减密钥类变量，结果稳定 — cache 避免每条
+        Bash 命令都重扫。测试需要切环境时调
+        ``cls._collect_env_keys_to_scrub.cache_clear()``。
+        """
+        from lib.config.env_keys import ANTHROPIC_ENV_KEYS, OTHER_PROVIDER_ENV_KEYS
+
+        keys: set[str] = set(ANTHROPIC_ENV_KEYS)
+        keys.update(OTHER_PROVIDER_ENV_KEYS)
+        for name in os.environ:
+            upper = name.upper()
+            if any(pat in upper for pat in cls._SECRET_ENV_NAME_PATTERNS):
+                keys.add(name)
+        return tuple(sorted(keys))
+
+    @classmethod
+    @functools.cache
+    def _env_scrub_wrap_prefix(cls) -> str:
+        """``env -u VAR1 -u VAR2 ... sh -c `` 前缀。命中清单由
+        ``_collect_env_keys_to_scrub`` 决定，运行期不变 — cache 复用整段字符串。
+        """
+        unset_flags = " ".join(f"-u {key}" for key in cls._collect_env_keys_to_scrub())
+        return f"env {unset_flags} sh -c "
+
+    @classmethod
+    async def _bash_env_scrub_hook(
+        cls,
+        input_data: dict[str, Any],
+        _tool_use_id: str | None,
+        _context: Any,
+    ) -> dict[str, Any]:
+        """从 Bash 子进程剥离 provider 密钥变量，包括变量名本身。
+
+        SDK 子进程持有真值的 ANTHROPIC_*（认证需要），及空值 placeholder 的
+        OTHER_PROVIDER_*（options.env 空字符串覆盖），Bash sandbox 默认从父进程
+        继承全部 env，agent 跑 ``env | grep`` 能看到变量名。通过
+        ``env -u VAR ... sh -c '<cmd>'`` 把所有命中的变量名从 Bash subshell 中
+        unset，原 command 经 ``shlex.quote`` 整体作为 sh 子壳的 -c 参数。
+        """
+        tool_input = input_data.get("tool_input") or {}
+        command = tool_input.get("command")
+        if not isinstance(command, str) or not command.strip():
+            return {"continue_": True}
+
+        wrapped = f"{cls._env_scrub_wrap_prefix()}{shlex.quote(command)}"
+        updated_input = {**tool_input, "command": wrapped}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": updated_input,
+                "permissionDecision": "allow",
+            },
+        }
 
     def _build_file_access_hook(
         self,
@@ -1018,7 +1177,7 @@ class SessionManager:
         temp_id = uuid4().hex
         managed_ref: list[ManagedSession | None] = [None]
 
-        options = self._build_options(
+        options = await self._build_options(
             project_name,
             resume_id=None,
             can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
@@ -1221,7 +1380,7 @@ class SessionManager:
 
             await self._ensure_capacity()
             managed_ref: list[ManagedSession | None] = [None]
-            options = self._build_options(
+            options = await self._build_options(
                 meta.project_name,
                 meta.id,  # SessionMeta.id 就是 sdk_session_id
                 can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
@@ -1633,20 +1792,133 @@ class SessionManager:
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
+    # 沙箱网络默认允许的域名。SDK 0.1.80 sandbox.network.allowedDomains 只支持
+    # 形如 "*.example.com" 的 subdomain wildcard，不支持 "*" 全放行；缺省/拼写错
+    # 都会让 sandbox 内 curl 触发 X-Proxy-Error: blocked-by-allowlist。
+    # 这里覆盖 ArcReel 内置 provider + 常见 dev 域名，自定义 provider 需通过
+    # ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS（逗号分隔）补充。
+    _DEFAULT_SANDBOX_ALLOWED_DOMAINS: tuple[str, ...] = (
+        # Anthropic
+        "anthropic.com",
+        "*.anthropic.com",
+        # 火山引擎 ARK
+        "*.volces.com",
+        # xAI / Grok
+        "x.ai",
+        "*.x.ai",
+        # Google / Gemini / Vertex
+        "*.googleapis.com",
+        "*.google.com",
+        # Vidu
+        "vidu.cn",
+        "*.vidu.cn",
+        "*.viduai.cn",
+        # dev: docs / 包仓库 / acceptance 用例
+        "code.claude.com",
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "pypi.org",
+        "*.pypi.org",
+        "*.npmjs.org",
+        "registry.yarnpkg.com",
+        "example.com",
+    )
+
+    @classmethod
+    @functools.cache
+    def _build_sandbox_allowed_domains(cls) -> tuple[str, ...]:
+        """构造 sandbox.network.allowedDomains，含默认清单 + ENV 扩展。
+
+        ``ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS`` 是启动期 env，运行期视为不变；
+        测试中切换值需调 ``cls._build_sandbox_allowed_domains.cache_clear()``。
+        """
+        domains = list(cls._DEFAULT_SANDBOX_ALLOWED_DOMAINS)
+        extra = os.environ.get("ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS", "").strip()
+        if extra:
+            for piece in extra.split(","):
+                piece = piece.strip()
+                if piece and piece not in domains:
+                    domains.append(piece)
+        return tuple(domains)
+
+    def _build_sandbox_settings(self) -> dict[str, Any]:
+        """构造 SandboxSettings dict（SDK 0.1.80 Python TypedDict 未声明
+        filesystem 子结构，但 CLI 运行时透传 JSON 接受）。
+
+        - ``_sandbox_enabled=False``（Windows 回退）：仅返回 ``{"enabled": False}``，
+          Bash 工具改走 ``_WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
+        - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
+          bwrap profile），对 sandbox 内所有子进程生效。
+        - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
+          请求"重试 unsandboxed"，对红线场景不可接受。
+        """
+        if not self._sandbox_enabled:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": True,
+            "allowUnsandboxedCommands": False,
+            "network": {"allowedDomains": list(self._build_sandbox_allowed_domains())},
+            "enableWeakerNestedSandbox": bool(self._in_docker),
+            "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
+        }
+
+    def _build_sensitive_abs_paths(self) -> list[str]:
+        """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
+
+        SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
+        所以这里枚举 worktree 下当前真实存在的固定清单 + glob 命中项 +
+        prefix 目录（vertex_keys 整目录交给 sandbox profile 递归 deny）。
+
+        每次会话启动重新枚举，避免后建敏感文件（.env / .env.local）绕过
+        sandbox profile — sandbox profile 在 ClaudeSDKClient 启动时一次性生效，
+        run-time 新增的文件若已落入命名约定就要立刻进入 denyRead。
+        """
+        root = self._project_root_resolved
+        candidates: list[Path] = [root / rel for rel in self._SENSITIVE_RELATIVE_FILES]
+        candidates.extend(root / prefix for prefix in self._SENSITIVE_RELATIVE_PREFIXES)
+        for pattern in self._SENSITIVE_RELATIVE_GLOBS:
+            candidates.extend(root.glob(pattern))
+        return [str(p) for p in candidates if p.exists()]
+
+    def _is_sensitive_path(self, resolved: Path) -> bool:
+        """判断已 resolve 的路径是否命中敏感文件清单。
+
+        基于 self.project_root 动态匹配，覆盖 ``.env`` / ``.env.*`` /
+        ``vertex_keys/`` 子树 / ``projects/.system_config.json*`` /
+        ``agent_runtime_profile/.claude/settings.json``。
+        """
+        try:
+            rel = resolved.relative_to(self._project_root_resolved)
+        except ValueError:
+            return False
+        rel_posix = rel.as_posix()
+
+        if rel_posix in self._SENSITIVE_RELATIVE_FILES:
+            return True
+        for prefix in self._SENSITIVE_RELATIVE_PREFIXES:
+            if rel_posix == prefix or rel_posix.startswith(prefix + "/"):
+                return True
+        return any(fnmatch.fnmatchcase(rel_posix, pat) for pat in self._SENSITIVE_RELATIVE_GLOBS)
+
     def _is_path_allowed(
         self,
         file_path: str,
         tool_name: str,
         project_cwd: Path,
     ) -> tuple[bool, str | None]:
-        """Check if file_path is allowed for the given tool.
+        """检查 file_path 是否允许给定工具访问。
 
-        Returns (allowed, deny_reason).  deny_reason is a human-readable
-        message when allowed is False, None otherwise.
-
-        Write tools: only project_cwd, restricted to _WRITABLE_EXTENSIONS.
-        Read tools: project_cwd + project_root + SDK session dir for
-        this project (sensitive files protected by settings.json deny rules).
+        规则：
+        0. 敏感文件（.env / vertex_keys / settings.json 等）一律拒
+        1. Read/Glob/Grep：
+           - cwd 内放行；SDK tool-results / /tmp/claude-*/tasks 例外放行
+           - projects_root 下其他项目子目录拒；projects_root 根直放文件放行
+           - 仓库根（project_root）内其他参考资料（lib/docs 等）放行
+           - 其余（host 文件系统：~/.ssh、/etc 等）默认拒
+        2. Write/Edit：cwd 外一律拒
+        3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）
         """
         try:
             p = Path(file_path)
@@ -1654,50 +1926,55 @@ class SessionManager:
         except (ValueError, OSError):
             return False, "访问被拒绝：无效的文件路径"
 
-        # 1. Within project directory
-        if resolved.is_relative_to(project_cwd):
-            if tool_name in self._WRITE_TOOLS:
-                ext = resolved.suffix.lower()
-                if ext not in self._WRITABLE_EXTENSIONS:
-                    return False, (
-                        f"不允许创建/编辑 {ext} 类型的文件。"
-                        "Write/Edit 仅限 .json、.md、.txt 文件。"
-                        "如果你需要执行数据处理，请使用现有的 skill 脚本。"
-                    )
-            return True, None
+        # 规则 0: 敏感文件强制拒绝
+        if self._is_sensitive_path(resolved):
+            return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
 
-        # 2. Write tools: only project directory allowed
-        if tool_name in self._WRITE_TOOLS:
-            return False, "访问被拒绝：不允许访问当前项目目录之外的路径"
+        is_write = tool_name in self._WRITE_TOOLS
+        is_inside_cwd = resolved.is_relative_to(project_cwd)
 
-        # 3. Read tools: allow entire project_root for shared resources
-        #    Sensitive files protected by settings.json deny rules
-        if resolved.is_relative_to(self.project_root):
-            return True, None
+        # 规则 1: Read 类工具的跨项目隔离 + host 文件系统封锁
+        if not is_write:
+            if is_inside_cwd:
+                return True, None
+            # SDK tool-results 例外
+            encoded = self._encode_sdk_project_path(project_cwd)
+            sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
+            if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
+                return True, None
+            # SDK 后台任务输出例外
+            _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
+            if str(resolved).startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
+                return True, None
+            # projects_root 下：当前项目以外的子目录拒，根直放文件放行
+            projects_root = self.projects_root
+            if resolved.is_relative_to(projects_root):
+                rel_to_projects = resolved.relative_to(projects_root)
+                if rel_to_projects.parts:
+                    first_entry = projects_root / rel_to_projects.parts[0]
+                    if first_entry.is_dir() and first_entry.name != project_cwd.name:
+                        return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+                return True, None
+            # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
+            if resolved.is_relative_to(self._project_root_resolved):
+                return True, None
+            # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
+            return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
 
-        # 4. Read tools: allow SDK tool-results for THIS project only.
-        #    When tool output exceeds the inline limit, the SDK saves the
-        #    full result to ~/.claude/projects/{encoded-cwd}/{session}/
-        #    tool-results/{id}.txt and instructs the agent to Read it.
-        #    Only tool-results/ subdirectories are allowed — other SDK
-        #    session data (transcripts, etc.) remains inaccessible.
-        encoded = self._encode_sdk_project_path(project_cwd)
-        sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
-        if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
-            return True, None
+        # 规则 2: 写工具 cwd 外拒
+        if not is_inside_cwd:
+            return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
 
-        # 5. Read tools: allow SDK task output files.
-        #    Background tasks (Agent/Bash run_in_background) write their
-        #    output to /tmp/claude-{N}/{encoded-cwd}/tasks/{id}.output.
-        #    The SDK instructs the agent to Read the file after the task
-        #    completes.  Only the tasks/ subdirectory is allowed.
-        #    macOS: /tmp → /private/tmp symlink, so check both prefixes.
-        _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
-        resolved_str = str(resolved)
-        if resolved_str.startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
-            return True, None
+        # 规则 3: cwd 内写代码扩展名拒
+        ext = resolved.suffix.lower()
+        if ext in self._CODE_EXTENSIONS_FORBIDDEN:
+            return False, (
+                f"不允许在项目内创建/编辑 {ext} 类型的代码文件。"
+                "Write/Edit 应用于数据文件 (.json/.md/.txt 等)；"
+                "代码逻辑请通过现有 skill 脚本完成。"
+            )
 
-        return False, "访问被拒绝：不允许访问当前项目和公共目录之外的路径"
+        return True, None
 
     async def _handle_ask_user_question(
         self,
@@ -1778,6 +2055,20 @@ class SessionManager:
                     input_data,
                 )
 
+            # Windows 回退：sandbox 关闭时 Bash 系列不在 allowed_tools，
+            # 落到这里走 _WINDOWS_BASH_PREFIX_WHITELIST 代码白名单。
+            if not self._sandbox_enabled and tool_name == "Bash":
+                cmd = str((input_data or {}).get("command") or "").strip()
+                if cmd.startswith(self._WINDOWS_BASH_PREFIX_WHITELIST):
+                    return PermissionResultAllow(updated_input=input_data)
+                if PermissionResultDeny is not None:
+                    return PermissionResultDeny(
+                        message=self._format_bash_whitelist_deny_message(cmd),
+                    )
+            # BashOutput / KillBash 是 Bash 管理类工具，回退模式直接放行。
+            if not self._sandbox_enabled and tool_name in ("BashOutput", "KillBash"):
+                return PermissionResultAllow(updated_input=input_data)
+
             # Whitelist fallback: deny any tool that was not pre-approved
             # by allowed_tools or settings.json allow rules.
             if PermissionResultDeny is not None:
@@ -1787,16 +2078,25 @@ class SessionManager:
                     f"未授权的工具调用: {tool_name}"
                     f"({json.dumps(input_data, ensure_ascii=False)[:200]})\n"
                     f"{reason_line}"
-                    "当前 Bash 白名单仅允许以下命令:\n"
-                    "  - python .claude/skills/<skill>/scripts/<script>.py <args>（必须用相对路径）\n"
-                    "  - ffmpeg / ffprobe\n"
-                    "其他 Bash 命令均不可用。"
-                    "请检查命令格式是否匹配白名单规则。"
+                    "请检查工具名是否正确，以及 file_path / 命令是否触发了 "
+                    "settings.json 的 deny 规则或 PreToolUse hook（跨项目/cwd 外写/代码扩展名）。"
                 )
                 return PermissionResultDeny(message=hint)
             return PermissionResultAllow(updated_input=input_data)
 
         return _can_use_tool
+
+    @classmethod
+    def _format_bash_whitelist_deny_message(cls, command: str) -> str:
+        """Windows 回退 Bash 白名单拒绝文案。从 _WINDOWS_BASH_PREFIX_WHITELIST
+        派生 allowed 列表，避免常量与文案双份漂移。"""
+        allowed_lines = "\n".join(f"  - {prefix}" for prefix in cls._WINDOWS_BASH_PREFIX_WHITELIST)
+        return (
+            f"未授权的 Bash 命令: {command[:200]}\n"
+            "当前 Bash 白名单仅允许以下前缀:\n"
+            f"{allowed_lines}\n"
+            "其他 Bash 命令在 Windows 回退模式下不可用。"
+        )
 
     def _message_to_dict(self, message: Any) -> dict[str, Any]:
         """Convert SDK message to dict for JSON serialization."""

@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json as json_module
 import logging
-import os
 from pathlib import Path
 
 from PIL import Image
 
 from lib.config.url_utils import normalize_base_url
-from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
+from lib.gemini_shared import (
+    VERTEX_SCOPES,
+    RateLimiter,
+    get_shared_rate_limiter,
+    resolve_gemini_api_key,
+    with_retry_async,
+)
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -49,7 +54,7 @@ class GeminiImageBackend:
         self._types = _types
         self._rate_limiter = rate_limiter or get_shared_rate_limiter()
         self._backend_type = backend_type.strip().lower()
-        self._image_model = image_model or os.environ.get("GEMINI_IMAGE_MODEL", DEFAULT_IMAGE_MODEL)
+        self._image_model = image_model or DEFAULT_IMAGE_MODEL
 
         if self._backend_type == "vertex":
             from google.oauth2 import service_account
@@ -78,13 +83,10 @@ class GeminiImageBackend:
                 credentials=credentials,
             )
         else:
-            _api_key = api_key or os.environ.get("GEMINI_API_KEY")
-            if not _api_key:
-                raise ValueError("Gemini API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
-
-            effective_base_url = normalize_base_url(base_url or os.environ.get("GEMINI_BASE_URL"))
+            api_key = resolve_gemini_api_key(api_key)
+            effective_base_url = normalize_base_url(base_url)
             http_options = {"base_url": effective_base_url} if effective_base_url else None
-            self._client = _genai.Client(api_key=_api_key, http_options=http_options)
+            self._client = _genai.Client(api_key=api_key, http_options=http_options)
 
         self._capabilities: set[ImageCapability] = {
             ImageCapability.TEXT_TO_IMAGE,

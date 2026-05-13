@@ -23,10 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
-from lib.config.service import (
-    ConfigService,
-    sync_anthropic_env,
-)
+from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.httpx_shared import get_http_client
 from lib.i18n import Translator
@@ -201,9 +198,8 @@ class SystemConfigPatchRequest(BaseModel):
 #
 # DEPRECATED: anthropic_api_key / anthropic_base_url 已迁移至 agent_anthropic_credentials 表
 # (spec 2026-05-11-agent-url-config-optimization)。这里保留 anthropic_base_url 读写仅作旧客户端
-# 兼容；新 UI 走 /api/v1/agent/credentials/* 接口，sync_anthropic_env() 会优先读 active credential
-# 再回退到 system_settings。计划在 0.14.0 删除 anthropic_api_key / anthropic_base_url 字段，
-# anthropic_*_model 系列保留（仍由 Section 2 Model Routing 管理）。
+# 兼容；新 UI 走 /api/v1/agent/credentials/* 接口。计划在 0.14.0 删除 anthropic_api_key /
+# anthropic_base_url 字段，anthropic_*_model 系列保留（仍由 Section 2 Model Routing 管理）。
 _STRING_SETTINGS = (
     "anthropic_base_url",
     "anthropic_model",
@@ -374,10 +370,6 @@ async def patch_system_config(
             await svc.set_setting(key, str(value).strip() if value else "")
 
     await session.commit()
-
-    # Sync Anthropic settings to env vars so Claude Agent SDK picks them up.
-    # 旧入口：保留以便用户在新 UI 没生效前还能改 system_settings；新交互通过 /agent/credentials/{id}/activate 触发同步。
-    await sync_anthropic_env(session)
 
     # Return updated config
     return await get_system_config(_user=_user, svc=svc, session=session)

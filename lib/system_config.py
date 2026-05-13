@@ -191,33 +191,6 @@ class SystemConfigManager:
         This class is retained for backward-compatibility with existing tests only.
     """
 
-    _ENV_KEYS = (
-        "GEMINI_IMAGE_BACKEND",
-        "GEMINI_VIDEO_BACKEND",
-        "GEMINI_API_KEY",
-        "GEMINI_BASE_URL",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL",
-        "CLAUDE_CODE_SUBAGENT_MODEL",
-        "GEMINI_IMAGE_MODEL",
-        "GEMINI_VIDEO_MODEL",
-        "GEMINI_VIDEO_GENERATE_AUDIO",
-        "GEMINI_IMAGE_RPM",
-        "GEMINI_VIDEO_RPM",
-        "GEMINI_REQUEST_GAP",
-        "IMAGE_MAX_WORKERS",
-        "VIDEO_MAX_WORKERS",
-        "VERTEX_GCS_BUCKET",
-        "DEFAULT_VIDEO_PROVIDER",
-        "ARK_API_KEY",
-        "FILE_SERVICE_BASE_URL",
-        "XAI_API_KEY",
-    )
-
     def __init__(self, project_root: Path):
         self.project_root = Path(project_root)
         self.paths = SystemConfigPaths(
@@ -225,7 +198,6 @@ class SystemConfigManager:
             vertex_credentials_path=(self.project_root / "vertex_keys" / "vertex_credentials.json"),
         )
         self._lock = threading.Lock()
-        self._baseline_env = {key: os.environ.get(key) for key in self._ENV_KEYS}
 
     # ------------------------------------------------------------------
     # IO helpers
@@ -350,12 +322,14 @@ class SystemConfigManager:
 
             data["overrides"] = overrides
             self._save_file(data)
-            # Always apply after update.
-            self._apply_to_env(overrides)
             return dict(overrides)
 
     def apply(self) -> dict[str, Any]:
-        """Load overrides (and migrate), then apply to env. Returns overrides."""
+        """Load overrides (and migrate). Returns overrides.
+
+        Provider 密钥不再写 os.environ — 真相源是 DB，调用方通过
+        ``lib.config.service`` 显式拿值。
+        """
         with self._lock:
             data, migrated = self._load_file()
             if migrated:
@@ -363,101 +337,4 @@ class SystemConfigManager:
             overrides = data.get("overrides") or {}
             if not isinstance(overrides, dict):
                 overrides = {}
-            self._apply_to_env(overrides)
             return dict(overrides)
-
-    # ------------------------------------------------------------------
-    # Env application
-    # ------------------------------------------------------------------
-
-    def _restore_or_unset(self, env_key: str) -> None:
-        baseline_value = self._baseline_env.get(env_key)
-        if baseline_value is None:
-            os.environ.pop(env_key, None)
-        else:
-            os.environ[env_key] = baseline_value
-
-    def _set_env(self, env_key: str, value: Any) -> None:
-        if _is_blank(value):
-            self._restore_or_unset(env_key)
-            return
-        os.environ[env_key] = str(value)
-
-    def _apply_to_env(self, overrides: dict[str, Any]) -> None:
-        # Backends
-        image_backend = _safe_str(overrides.get("image_backend"))
-        video_backend = _safe_str(overrides.get("video_backend"))
-        if image_backend is not None:
-            self._set_env("GEMINI_IMAGE_BACKEND", image_backend.strip().lower())
-        else:
-            self._restore_or_unset("GEMINI_IMAGE_BACKEND")
-
-        if video_backend is not None:
-            self._set_env("GEMINI_VIDEO_BACKEND", video_backend.strip().lower())
-        else:
-            self._restore_or_unset("GEMINI_VIDEO_BACKEND")
-
-        # Secrets & base URLs
-        for override_key, env_key in (
-            ("gemini_api_key", "GEMINI_API_KEY"),
-            ("gemini_base_url", "GEMINI_BASE_URL"),
-            ("anthropic_api_key", "ANTHROPIC_API_KEY"),
-            ("anthropic_base_url", "ANTHROPIC_BASE_URL"),
-        ):
-            if override_key in overrides:
-                self._set_env(env_key, overrides.get(override_key))
-            else:
-                self._restore_or_unset(env_key)
-
-        # Anthropic model routing
-        for override_key, env_key in (
-            ("anthropic_model", "ANTHROPIC_MODEL"),
-            ("anthropic_default_haiku_model", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
-            ("anthropic_default_opus_model", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
-            ("anthropic_default_sonnet_model", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
-            ("claude_code_subagent_model", "CLAUDE_CODE_SUBAGENT_MODEL"),
-        ):
-            if override_key in overrides:
-                self._set_env(env_key, overrides.get(override_key))
-            else:
-                self._restore_or_unset(env_key)
-
-        # Models, provider keys & misc simple overrides
-        for override_key, env_key in (
-            ("image_model", "GEMINI_IMAGE_MODEL"),
-            ("video_model", "GEMINI_VIDEO_MODEL"),
-            ("vertex_gcs_bucket", "VERTEX_GCS_BUCKET"),
-            ("video_provider", "DEFAULT_VIDEO_PROVIDER"),
-            ("ark_api_key", "ARK_API_KEY"),
-            ("file_service_base_url", "FILE_SERVICE_BASE_URL"),
-            ("xai_api_key", "XAI_API_KEY"),
-        ):
-            if override_key in overrides:
-                self._set_env(env_key, overrides.get(override_key))
-            else:
-                self._restore_or_unset(env_key)
-
-        # Video audio toggle (special: needs bool parsing)
-        if "video_generate_audio" in overrides:
-            configured = parse_bool_env(overrides.get("video_generate_audio"), True)
-            self._set_env("GEMINI_VIDEO_GENERATE_AUDIO", "true" if configured else "false")
-        else:
-            self._restore_or_unset("GEMINI_VIDEO_GENERATE_AUDIO")
-
-        # Rate limiting / performance
-        for override_key, env_key, cast in (
-            ("gemini_image_rpm", "GEMINI_IMAGE_RPM", _read_int),
-            ("gemini_video_rpm", "GEMINI_VIDEO_RPM", _read_int),
-            ("gemini_request_gap", "GEMINI_REQUEST_GAP", _read_float),
-            ("image_max_workers", "IMAGE_MAX_WORKERS", _read_int),
-            ("video_max_workers", "VIDEO_MAX_WORKERS", _read_int),
-        ):
-            if override_key in overrides:
-                raw_value = overrides.get(override_key)
-                normalized = cast(raw_value)
-                if normalized is None:
-                    self._restore_or_unset(env_key)
-                else:
-                    self._set_env(env_key, normalized)
-            else:
-                self._restore_or_unset(env_key)

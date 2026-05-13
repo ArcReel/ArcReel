@@ -26,6 +26,8 @@
 ### 脚本调用
 - **Skill 内部脚本**：各 skill 的可执行脚本位于 `agent_runtime_profile/.claude/skills/{skill-name}/scripts/` 目录下
 - **虚拟环境**：默认已激活，脚本无需手动激活 .venv
+- **Bash 调用**：项目目录内可自由跑 `ls / cat / jq / python / curl` 等命令（沙箱化已启用），skill 脚本路径建议用相对路径以便跨项目通用，但绝对路径同样可用。
+- **敏感文件保护**：`.env` / `vertex_keys/` / `projects/.system_config.json*` / `agent_runtime_profile/.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
 ---
 

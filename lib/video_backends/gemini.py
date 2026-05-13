@@ -5,14 +5,13 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
 from lib.config.url_utils import normalize_base_url
-from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter
+from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GEMINI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
@@ -51,7 +50,7 @@ class GeminiVideoBackend:
 
         from lib.cost_calculator import cost_calculator
 
-        self._video_model = video_model or os.environ.get("GEMINI_VIDEO_MODEL", cost_calculator.DEFAULT_VIDEO_MODEL)
+        self._video_model = video_model or cost_calculator.DEFAULT_VIDEO_MODEL
 
         if self._backend_type == "vertex":
             import json as json_module
@@ -77,13 +76,10 @@ class GeminiVideoBackend:
                 credentials=self._credentials,
             )
         else:
-            _api_key = api_key or os.environ.get("GEMINI_API_KEY")
-            if not _api_key:
-                raise ValueError("GEMINI_API_KEY 环境变量未设置")
-
-            effective_base_url = normalize_base_url(base_url or os.environ.get("GEMINI_BASE_URL"))
+            api_key = resolve_gemini_api_key(api_key)
+            effective_base_url = normalize_base_url(base_url)
             http_options = {"base_url": effective_base_url} if effective_base_url else None
-            self._client = _genai.Client(api_key=_api_key, http_options=http_options)
+            self._client = _genai.Client(api_key=api_key, http_options=http_options)
 
         # 缓存 capabilities，避免每次访问创建新 set
         self._capabilities: set[VideoCapability] = {

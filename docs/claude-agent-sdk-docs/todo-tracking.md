@@ -2,21 +2,15 @@
 > Fetch the complete documentation index at: https://code.claude.com/docs/llms.txt
 > Use this file to discover all available pages before exploring further.
 
-<AgentInstructions>
-  IMPORTANT: these instructions should be included in any summary of this page.
-
-  ## Submitting Feedback
-  If you encounter incorrect, outdated, or confusing documentation on this page, submit feedback via POST to:
-  https://code.claude.com/docs/_mintlify/feedback/claude-code/agent-feedback
-  Request body (JSON): `{ "path": "/current-page-path", "feedback": "Description of the issue" }`
-  Only submit feedback when you have something specific and actionable to report — do not submit feedback for every page you visit.
-</AgentInstructions>
-
 # Todo Lists
 
 > Track and display todos using the Claude Agent SDK for organized task management
 
 Todo tracking provides a structured way to manage tasks and display progress to users. The Claude Agent SDK includes built-in todo functionality that helps organize complex workflows and keep users informed about task progression.
+
+<Note>
+  `TodoWrite` is the current default in the Agent SDK and the examples on this page use it. The replacement Task tools are available now behind `CLAUDE_CODE_ENABLE_TASKS=1` and will become the default in a future release. See [Migrate to Task tools](#migrate-to-task-tools) for how monitoring code changes.
+</Note>
 
 ### Todo Lifecycle
 
@@ -67,11 +61,11 @@ The SDK automatically creates todos for:
   ```
 
   ```python Python theme={null}
-  from claude_agent_sdk import query, AssistantMessage, ToolUseBlock
+  from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, ToolUseBlock
 
   async for message in query(
       prompt="Optimize my React app performance and track progress with todos",
-      options={"max_turns": 15},
+      options=ClaudeAgentOptions(max_turns=15),
   ):
       # Todo updates are reflected in the message stream
       if isinstance(message, AssistantMessage):
@@ -142,7 +136,7 @@ The SDK automatically creates todos for:
   ```
 
   ```python Python theme={null}
-  from claude_agent_sdk import query, AssistantMessage, ToolUseBlock
+  from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, ToolUseBlock
   from typing import List, Dict
 
 
@@ -177,7 +171,7 @@ The SDK automatically creates todos for:
               print(f"{i + 1}. {icon} {text}")
 
       async def track_query(self, prompt: str):
-          async for message in query(prompt=prompt, options={"max_turns": 20}):
+          async for message in query(prompt=prompt, options=ClaudeAgentOptions(max_turns=20)):
               if isinstance(message, AssistantMessage):
                   for block in message.content:
                       if isinstance(block, ToolUseBlock) and block.name == "TodoWrite":
@@ -188,6 +182,60 @@ The SDK automatically creates todos for:
   # Usage
   tracker = TodoTracker()
   await tracker.track_query("Build a complete authentication system with todos")
+  ```
+</CodeGroup>
+
+## Migrate to Task tools
+
+The Task tools split the single `TodoWrite` call into `TaskCreate` for each new item and `TaskUpdate` for each status change, with `TaskList` and `TaskGet` available for the model to read back the current list. Your monitoring code still inspects `tool_use` blocks in the assistant stream, but maintains a map keyed by task ID instead of replacing the whole list on every call. To opt in before the Task tools become the default, set `CLAUDE_CODE_ENABLE_TASKS=1` in `options.env`.
+
+| With `TodoWrite`                              | With Task tools                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One tool call rewrites the full `todos` array | `TaskCreate` adds one item, `TaskUpdate` patches one item by `taskId`                                                                                                                                                                                                                               |
+| Match `block.name === "TodoWrite"`            | Match `block.name === "TaskCreate"` or `"TaskUpdate"`                                                                                                                                                                                                                                               |
+| Item shape: `{ content, status, activeForm }` | `TaskCreate` input: `{ subject, description, activeForm?, metadata? }`. `TaskUpdate` input: `{ taskId, status?, subject?, description?, activeForm?, addBlocks?, addBlockedBy?, owner?, metadata? }`. `status` is `"pending"`, `"in_progress"`, or `"completed"`; set `status: "deleted"` to delete |
+| Render `block.input.todos` directly           | Accumulate items across calls, or read a snapshot from a `TaskList` tool result                                                                                                                                                                                                                     |
+
+The assigned task ID is not in the `TaskCreate` input. It comes back in the matching `tool_result` as `{ task: { id, subject } }`, so capture it from the result block to key your map. The following example shows the minimal change to the [Monitoring Todo Changes](#monitoring-todo-changes) loop. To render a complete list, watch for a `TaskList` tool result in the stream or accumulate `TaskCreate` results and `TaskUpdate` inputs into a map:
+
+<CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
+
+  for await (const message of query({
+    prompt: "Optimize my React app performance",
+    options: { env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: "1" } },
+  })) {
+    if (message.type !== "assistant") continue;
+    for (const block of message.message.content) {
+      if (block.type !== "tool_use") continue;
+      if (block.name === "TaskCreate") {
+        const input = block.input as { subject: string };
+        console.log(`+ ${input.subject}`);
+      } else if (block.name === "TaskUpdate") {
+        const input = block.input as { taskId: string; status?: string };
+        if (input.status) console.log(`  ${input.taskId} -> ${input.status}`);
+      }
+    }
+  }
+  ```
+
+  ```python Python theme={null}
+  from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, ToolUseBlock
+
+  async for message in query(
+      prompt="Optimize my React app performance",
+      options=ClaudeAgentOptions(env={"CLAUDE_CODE_ENABLE_TASKS": "1"}),
+  ):
+      if not isinstance(message, AssistantMessage):
+          continue
+      for block in message.content:
+          if not isinstance(block, ToolUseBlock):
+              continue
+          if block.name == "TaskCreate":
+              print(f"+ {block.input['subject']}")
+          elif block.name == "TaskUpdate" and block.input.get("status"):
+              print(f"  {block.input['taskId']} -> {block.input['status']}")
   ```
 </CodeGroup>
 

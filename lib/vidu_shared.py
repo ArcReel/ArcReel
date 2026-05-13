@@ -2,7 +2,7 @@
 
 供 image_backends / video_backends / cost_calculator / providers router 复用。包含：
 - VIDU_BASE_URL — Vidu 开放平台 API 基础 URL
-- resolve_vidu_api_key — API Key 解析（含环境变量 fallback）
+- resolve_vidu_api_key — API Key 解析（缺失即 raise，不再走 env fallback）
 - create_vidu_client — httpx.AsyncClient 工厂
 - image_to_data_uri — 本地图片 → base64 data URI（API 限制 body ≤20MB）
 - fetch_vidu_task / is_vidu_done / vidu_failure_reason / extract_vidu_url — 任务轮询工具
@@ -18,7 +18,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 from pathlib import Path
 
 import httpx
@@ -48,18 +47,10 @@ _IMAGE_MIME_TYPES: dict[str, str] = {
 }
 
 
-def resolve_vidu_api_key(api_key: str | None = None, *, allow_env_fallback: bool = True) -> str:
-    """解析 Vidu API Key。
-
-    默认允许环境变量 ``VIDU_API_KEY`` 兜底，便于本地脚本/CLI 直跑。
-    连接测试场景须传 ``allow_env_fallback=False``——否则当用户在 settings
-    页未填 key 但开发机环境恰好导出了 ``VIDU_API_KEY`` 时，会用环境变量假成功，
-    误导用户以为新填的凭证有效。
-    """
-    resolved = api_key or (os.environ.get("VIDU_API_KEY") if allow_env_fallback else None)
-    if not resolved:
-        raise ValueError("Vidu API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
-    return resolved
+def resolve_vidu_api_key(api_key: str | None = None) -> str:
+    if api_key is None or not api_key.strip():
+        raise ValueError("请到系统配置页填写 Vidu API Key")
+    return api_key.strip()
 
 
 def create_vidu_client(
@@ -222,7 +213,7 @@ def test_vidu_connection(config: dict[str, str]) -> None:
     采用白名单：凭证有效时返回 404（task 不存在）；401/403 视为凭证无效；
     其他状态码（含 5xx）一律视为不可判定，抛错避免误判成功。
     """
-    api_key = resolve_vidu_api_key(config.get("api_key"), allow_env_fallback=False)
+    api_key = resolve_vidu_api_key(config.get("api_key"))
     base_url = (config.get("base_url") or VIDU_BASE_URL).rstrip("/")
     headers = {"Authorization": f"Token {api_key}"}
     # 用一个语法上合法但极不可能存在的数字 id（避开整数解析失败的 400 CODEC）

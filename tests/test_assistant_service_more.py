@@ -420,6 +420,3 @@ class TestAssistantServiceMore:
         fallback = service._load_skill_metadata(fallback_skill_dir / "SKILL.md", "fallback")
         assert fallback["name"] == "fallback"
         assert fallback["description"] == "first non heading line"
-
-        # no .env => no-op path
-        service._load_project_env(tmp_path / "missing")

@@ -41,10 +41,14 @@ def grok_should_retry(exc: Exception) -> bool:
     return _should_retry(exc, BASE_RETRYABLE_ERRORS)
 
 
+def resolve_grok_api_key(api_key: str | None = None) -> str:
+    if api_key is None or not api_key.strip():
+        raise ValueError("请到系统配置页填写 xAI API Key")
+    return api_key.strip()
+
+
 def create_grok_client(*, api_key: str | None = None):
     """创建 xAI AsyncClient，统一校验和构造。"""
     import xai_sdk
 
-    if not api_key:
-        raise ValueError("XAI_API_KEY 未设置\n请在系统配置页中配置 xAI API Key")
-    return xai_sdk.AsyncClient(api_key=api_key)
+    return xai_sdk.AsyncClient(api_key=resolve_grok_api_key(api_key))

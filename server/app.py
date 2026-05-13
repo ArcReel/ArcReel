@@ -12,6 +12,8 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 import asyncio
 import logging
 import os
+import platform
+import shutil
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,6 +30,7 @@ from lib.agent_session_store import session_store_enabled
 from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent_session_store.store import DbSessionStore
 from lib.app_data_dir import app_data_dir
+from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
@@ -60,6 +63,76 @@ from server.routers import (
 )
 from server.routers import auth as auth_router
 from server.services.project_events import ProjectEventService
+
+
+def assert_no_provider_secrets_in_environ() -> None:
+    """父进程禁止持有任何 provider 密钥；违反即 fail-fast。
+
+    Bash 沙箱子进程通过 fork 继承父 env，父进程必须把 provider secrets
+    全部下线到 DB，由 SDK options.env 显式注入子进程。
+    """
+    leaked = sorted(k for k in PROVIDER_SECRET_KEYS if os.environ.get(k))
+    if leaked:
+        raise RuntimeError(
+            f"SECURITY: 父进程 os.environ 含 provider 密钥: {leaked}. "
+            "请到 WebUI 系统配置页填写，并从 env / .env 中移除对应条目。"
+        )
+
+
+def check_sandbox_available() -> bool:
+    """启动期检测 sandbox 工具可用性。
+
+    返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持
+    当前平台（目前仅 Windows — sandboxing.md §"Platform support"），server
+    仍可启动但 sandbox 关闭，Bash 工具回退到
+    ``SessionManager._WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
+    macOS / Linux 工具缺失仍硬失败（受支持平台禁止降级）。
+    """
+    system = platform.system()
+    if system == "Darwin":
+        if shutil.which("sandbox-exec") is None:
+            raise RuntimeError(
+                "SANDBOX_UNAVAILABLE on macOS\n"
+                "  sandbox-exec: not found in PATH (should be system-installed)\n"
+                "Required for ArcReel agent runtime."
+            )
+        return True
+    if system == "Linux":
+        if shutil.which("bwrap") is None:
+            raise RuntimeError(
+                "SANDBOX_UNAVAILABLE on linux\n"
+                "  bwrap: not found in PATH\n"
+                "Required for ArcReel agent runtime. Install bubblewrap:\n"
+                "  Ubuntu/Debian: sudo apt install bubblewrap\n"
+                "  Arch:          sudo pacman -S bubblewrap"
+            )
+        return True
+    logger.warning(
+        "SANDBOX_UNSUPPORTED on %s — server 启动 sandbox=disabled，Bash 工具回退到代码白名单"
+        "（python .claude/skills/.../scripts/*.py / ffmpeg / ffprobe）。"
+        "生产部署推荐 macOS / Linux / Docker；Windows 用户建议使用 WSL2。",
+        system,
+    )
+    return False
+
+
+_DOCKERENV_PATH = Path("/.dockerenv")
+_CGROUP_PATH = Path("/proc/1/cgroup")
+
+
+def detect_docker_environment() -> bool:
+    """启动期一次性检测当前是否在 Docker / Podman 容器内。
+
+    用于决定是否启用 ``SandboxSettings.enableWeakerNestedSandbox``。
+    """
+    if _DOCKERENV_PATH.exists():
+        return True
+    try:
+        content = _CGROUP_PATH.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return "docker" in content or "podman" in content
+
 
 # 初始化日志
 setup_logging()
@@ -116,6 +189,17 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # Startup
+    # 安全红线检测：先父进程 env 净化，再 sandbox 工具可用性，再 docker 检测
+    assert_no_provider_secrets_in_environ()
+    sandbox_enabled = check_sandbox_available()
+    # detect_docker_environment 仅在 sandbox 可用平台有意义（Linux 路径探测）；
+    # Windows 回退时跳过，避免无意义的文件系统调用。
+    is_docker = detect_docker_environment() if sandbox_enabled else False
+    logger.info("Sandbox runtime: enabled=%s docker=%s", sandbox_enabled, is_docker)
+
+    app.state.in_docker = is_docker
+    app.state.sandbox_enabled = sandbox_enabled
+
     ensure_auth_password()
 
     # Run Alembic migrations (auto-creates tables on first start)
@@ -170,15 +254,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
-    # Sync Anthropic DB settings to env vars (Claude Agent SDK reads from os.environ)
-    try:
-        from lib.config.service import sync_anthropic_env
-
-        async with async_session_factory() as session:
-            await sync_anthropic_env(session)
-    except Exception as exc:
-        logger.warning("DB→env Anthropic config sync failed (non-fatal): %s", exc)
-
     # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
     from lib.project_manager import ProjectManager
 
@@ -191,7 +266,7 @@ async def lifespan(app: FastAPI):
     await startup_http_client()
 
     # Initialize async services
-    await assistant.assistant_service.startup()
+    await assistant.assistant_service.startup(in_docker=is_docker, sandbox_enabled=sandbox_enabled)
     assistant.assistant_service.session_manager.start_patrol()
 
     logger.info("启动 GenerationWorker...")
