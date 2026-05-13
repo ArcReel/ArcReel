@@ -2,19 +2,7 @@
 
 from pathlib import Path
 
-import pytest
-
 from lib.project_manager import ProjectManager
-
-
-@pytest.fixture(autouse=True)
-def _profile_env(monkeypatch, tmp_path):
-    """Point agent_profile_dir() at the per-test tmp_path/agent_runtime_profile.
-
-    Reflects the new env-driven contract (see lib/agent_profile.py). Tests no
-    longer rely on the legacy projects_root.parent assumption.
-    """
-    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "agent_runtime_profile"))
 
 
 class TestProjectSymlink:

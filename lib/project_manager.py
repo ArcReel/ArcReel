@@ -193,11 +193,24 @@ class ProjectManager:
         def _link_or_copy(name: str, target_source: Path, link_path: Path) -> None:
             """Create symlink to target_source. On Windows, fall back to copy
             when symlink creation fails (Developer Mode off / non-admin)."""
-            rel_target = os.path.relpath(target_source, link_path.parent)
+            try:
+                rel_target: str = os.path.relpath(target_source, link_path.parent)
+            except ValueError:
+                # Windows: target and project_dir on different drives — relpath
+                # is undefined, fall through with the absolute path.
+                rel_target = str(target_source)
             try:
                 os.symlink(rel_target, link_path, target_is_directory=target_source.is_dir())
-            except OSError:
+            except OSError as exc:
                 if os.name == "nt":
+                    # Copy fallback when Developer Mode off / non-admin. The copy
+                    # is a static snapshot — later profile updates won't propagate.
+                    logger.warning(
+                        "项目 %s 的 %s 软链接创建失败，降级为复制（profile 更新不会自动同步）: %s",
+                        project_dir.name,
+                        name,
+                        exc,
+                    )
                     if target_source.is_dir():
                         shutil.copytree(target_source, link_path)
                     else:

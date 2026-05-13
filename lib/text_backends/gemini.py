@@ -51,7 +51,7 @@ class GeminiTextBackend:
 
             from ..system_config import resolve_vertex_credentials_path
 
-            credentials_file = resolve_vertex_credentials_path(Path(__file__).parent.parent.parent)
+            credentials_file = resolve_vertex_credentials_path()
             if credentials_file is None:
                 raise ValueError("未找到 Vertex AI 凭证文件\n请将服务账号 JSON 文件放入 vertex_keys/ 目录")
 

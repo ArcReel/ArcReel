@@ -2,15 +2,7 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from server.agent_runtime.service import AssistantService
-
-
-@pytest.fixture(autouse=True)
-def _profile_env(monkeypatch, tmp_path):
-    """Pin agent_profile_dir() to tmp_path/agent_runtime_profile for each test."""
-    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "agent_runtime_profile"))
 
 
 class TestListAvailableSkills:
