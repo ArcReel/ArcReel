@@ -656,11 +656,20 @@ def generate_video_selected_tool(ctx: ToolContext):
                     items_by_id[item["scene_id"]] = item
 
             selected: list[dict[str, Any]] = []
+            seen_canonical: set[str] = set()
+            # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
+            # 调用方若把两个值都列入 ``scene_ids`` 会让同一场景重复入队——必须按
+            # 规范 ``id_field`` 再去一次重。
             for sid in scene_ids:
-                if sid in items_by_id:
-                    selected.append(items_by_id[sid])
-                else:
+                if sid not in items_by_id:
                     log.append(f"⚠️  场景/片段 '{sid}' 不存在，跳过")
+                    continue
+                item = items_by_id[sid]
+                canonical = str(item.get(id_field, ""))
+                if canonical and canonical in seen_canonical:
+                    continue
+                seen_canonical.add(canonical)
+                selected.append(item)
             if not selected:
                 raise ValueError("没有找到任何有效的场景/片段")
 

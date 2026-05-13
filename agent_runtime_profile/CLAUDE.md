@@ -24,6 +24,7 @@
 - **BGM 自动禁止**：在视频 prompt 末尾统一追加"禁止出现：BGM、文字字幕、水印"
 
 ### 工具调用
+
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），项目目录内可自由跑。
 - **禁止旧路径**：不要 Bash 调用 `.claude/skills/.../scripts/*.py` —— 这些脚本已删除，相关入口已迁到 `mcp__arcreel__*`。

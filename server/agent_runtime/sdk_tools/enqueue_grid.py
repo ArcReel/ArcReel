@@ -86,7 +86,13 @@ def generate_grid_tool(ctx: ToolContext):
                 groups = [g for g in groups if any(item[id_field] in wanted for item in g)]
 
             if not groups:
-                return {"content": [{"type": "text", "text": "没有匹配的场景组"}]}
+                # 显式传了 ``scene_ids`` 却全部不命中 → 报错；不传 ``scene_ids``
+                # 但脚本本身就没有 segment_break 分组也走这条路（罕见），按
+                # 信息文案不带 is_error。
+                return {
+                    "content": [{"type": "text", "text": "没有匹配的场景组"}],
+                    "is_error": bool(scene_ids),
+                }
 
             gm = GridManager(project_path)
             pending: list[tuple[GridGeneration, str]] = []
