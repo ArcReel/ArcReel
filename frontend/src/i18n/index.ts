@@ -31,6 +31,7 @@ export const I18N_NAMESPACES = [
   'errors',
   'templates',
   'assets',
+  'fork',
 ] as const;
 
 // Replace every [[brand]] placeholder in a loaded namespace with the current
