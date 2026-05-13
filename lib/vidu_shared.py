@@ -48,7 +48,6 @@ _IMAGE_MIME_TYPES: dict[str, str] = {
 
 
 def resolve_vidu_api_key(api_key: str | None = None) -> str:
-    """spec §5.4：不再支持 env fallback；缺失即 raise。"""
     if not api_key:
         raise ValueError("请到系统配置页填写 Vidu API Key")
     return api_key

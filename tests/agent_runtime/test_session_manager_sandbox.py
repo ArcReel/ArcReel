@@ -101,11 +101,15 @@ def test_sandbox_allowed_domains_env_extension(monkeypatch: pytest.MonkeyPatch) 
         "ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS",
         "custom-provider.com, *.internal.corp",
     )
-    domains = SessionManager._build_sandbox_allowed_domains()
-    assert "custom-provider.com" in domains
-    assert "*.internal.corp" in domains
-    # 默认清单仍保留
-    assert "anthropic.com" in domains
+    SessionManager._build_sandbox_allowed_domains.cache_clear()
+    try:
+        domains = SessionManager._build_sandbox_allowed_domains()
+        assert "custom-provider.com" in domains
+        assert "*.internal.corp" in domains
+        # 默认清单仍保留
+        assert "anthropic.com" in domains
+    finally:
+        SessionManager._build_sandbox_allowed_domains.cache_clear()
 
 
 def test_bash_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,13 +120,19 @@ def test_bash_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.Monkey
     monkeypatch.setenv("RANDOM_VENDOR_API_KEY", "def")
     monkeypatch.setenv("PATH", "/usr/bin")  # 不应命中
 
-    keys = SessionManager._collect_env_keys_to_scrub()
-    assert "GEMINI_CLI_IDE_AUTH_TOKEN" in keys
-    assert "RANDOM_VENDOR_API_KEY" in keys
-    assert "PATH" not in keys
-    # 固定清单
-    assert "ANTHROPIC_API_KEY" in keys
-    assert "ARK_API_KEY" in keys
+    SessionManager._collect_env_keys_to_scrub.cache_clear()
+    SessionManager._env_scrub_wrap_prefix.cache_clear()
+    try:
+        keys = SessionManager._collect_env_keys_to_scrub()
+        assert "GEMINI_CLI_IDE_AUTH_TOKEN" in keys
+        assert "RANDOM_VENDOR_API_KEY" in keys
+        assert "PATH" not in keys
+        # 固定清单
+        assert "ANTHROPIC_API_KEY" in keys
+        assert "ARK_API_KEY" in keys
+    finally:
+        SessionManager._collect_env_keys_to_scrub.cache_clear()
+        SessionManager._env_scrub_wrap_prefix.cache_clear()
 
 
 def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> None:

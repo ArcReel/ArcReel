@@ -9,7 +9,13 @@ from pathlib import Path
 from PIL import Image
 
 from lib.config.url_utils import normalize_base_url
-from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
+from lib.gemini_shared import (
+    VERTEX_SCOPES,
+    RateLimiter,
+    get_shared_rate_limiter,
+    resolve_gemini_api_key,
+    with_retry_async,
+)
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -77,10 +83,7 @@ class GeminiImageBackend:
                 credentials=credentials,
             )
         else:
-            # spec §5.4：不再读 env fallback；缺失即 raise。
-            if not api_key:
-                raise ValueError("请到系统配置页填写 Gemini API Key")
-
+            api_key = resolve_gemini_api_key(api_key)
             effective_base_url = normalize_base_url(base_url)
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = _genai.Client(api_key=api_key, http_options=http_options)

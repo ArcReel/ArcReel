@@ -66,10 +66,10 @@ from server.services.project_events import ProjectEventService
 
 
 def assert_no_provider_secrets_in_environ() -> None:
-    """父进程禁止持有任何 provider 密钥。违反即 fail-fast。
+    """父进程禁止持有任何 provider 密钥；违反即 fail-fast。
 
-    安全红线：spec §7.2。Bash 沙箱子进程通过 fork 继承父 env，
-    所以父进程必须先把 provider secrets 全部下线到 DB。
+    Bash 沙箱子进程通过 fork 继承父 env，父进程必须把 provider secrets
+    全部下线到 DB，由 SDK options.env 显式注入子进程。
     """
     leaked = sorted(k for k in PROVIDER_SECRET_KEYS if os.environ.get(k))
     if leaked:
@@ -80,10 +80,7 @@ def assert_no_provider_secrets_in_environ() -> None:
 
 
 def check_sandbox_available() -> None:
-    """启动期检测 sandbox 工具可用性，缺失即 fail-fast。
-
-    spec §7.1 step [2]。沿用项目策略：硬失败，不降级。
-    """
+    """启动期检测 sandbox 工具可用性，缺失即 fail-fast（不降级）。"""
     system = platform.system()
     if system == "Darwin":
         if shutil.which("sandbox-exec") is None:
@@ -113,8 +110,7 @@ _CGROUP_PATH = Path("/proc/1/cgroup")
 def detect_docker_environment() -> bool:
     """启动期一次性检测当前是否在 Docker / Podman 容器内。
 
-    用于决定是否启用 `SandboxSettings.enableWeakerNestedSandbox`。
-    spec §5.1 / §7.1。
+    用于决定是否启用 ``SandboxSettings.enableWeakerNestedSandbox``。
     """
     if _DOCKERENV_PATH.exists():
         return True
@@ -180,14 +176,12 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # Startup
-    # —— 安全红线检测（spec §7.1）——
-    # 顺序：先父进程 env 净化，再 sandbox 可用性，再 docker 检测
+    # 安全红线检测：先父进程 env 净化，再 sandbox 工具可用性，再 docker 检测
     assert_no_provider_secrets_in_environ()
     check_sandbox_available()
     is_docker = detect_docker_environment()
     logger.info("Sandbox runtime: docker=%s", is_docker)
 
-    # 保存到 app.state 供 SessionManager 读取（Task 4.3 使用）
     app.state.in_docker = is_docker
 
     ensure_auth_password()
@@ -243,9 +237,6 @@ async def lifespan(app: FastAPI):
             await migrate_json_to_db(session, json_path)
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
-
-    # NOTE: Anthropic credential 不再写入 os.environ（spec §6.3）。
-    # SDK 子进程在 SessionManager._build_options() 阶段通过 options.env 注入。
 
     # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
     from lib.project_manager import ProjectManager

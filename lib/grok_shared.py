@@ -42,7 +42,6 @@ def grok_should_retry(exc: Exception) -> bool:
 
 
 def resolve_grok_api_key(api_key: str | None = None) -> str:
-    """spec §5.4：不再读 env fallback；缺失即 raise。"""
     if not api_key:
         raise ValueError("请到系统配置页填写 xAI API Key")
     return api_key

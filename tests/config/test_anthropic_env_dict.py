@@ -65,6 +65,35 @@ async def test_no_active_credential_returns_empty_strings(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
+async def test_no_active_credential_falls_back_to_system_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """双轨期兼容：无 active credential 时从 system_settings legacy key 读取。"""
+    session = AsyncMock()
+    repo_mock = AsyncMock()
+    repo_mock.get_active = AsyncMock(return_value=None)
+
+    legacy = {
+        "anthropic_api_key": "legacy-sk",
+        "anthropic_base_url": "https://legacy.anthropic.com",
+        "anthropic_model": "claude-legacy-model",
+    }
+    setting_repo = AsyncMock()
+    setting_repo.get_all = AsyncMock(return_value=legacy)
+
+    monkeypatch.setattr(
+        "lib.db.repositories.agent_credential_repo.AgentCredentialRepository",
+        lambda _s: repo_mock,
+    )
+    monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
+
+    result = await build_anthropic_env_dict(session)
+    assert result["ANTHROPIC_API_KEY"] == "legacy-sk"
+    assert result["ANTHROPIC_BASE_URL"] == "https://legacy.anthropic.com"
+    assert result["ANTHROPIC_MODEL"] == "claude-legacy-model"
+    # 未在 settings 中的 key 仍返回空串
+    assert result["CLAUDE_CODE_SUBAGENT_MODEL"] == ""
+
+
+@pytest.mark.asyncio
 async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) -> None:
     """spec §6.3 红线：build 函数不能写 os.environ。"""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

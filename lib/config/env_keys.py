@@ -33,7 +33,7 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     "DEFAULT_VIDEO_PROVIDER",
 )
 
-# —— 启动断言：真密钥子集，命中即 fail-fast（spec §7.2）——
+# —— 启动断言：真密钥子集，命中即 fail-fast ——
 PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
     {
         "ANTHROPIC_API_KEY",

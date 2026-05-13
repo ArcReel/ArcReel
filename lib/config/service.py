@@ -5,6 +5,7 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.db.repositories.credential_repository import CredentialRepository
@@ -23,13 +24,17 @@ _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_default_sonnet_model": "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "claude_code_subagent_model": "CLAUDE_CODE_SUBAGENT_MODEL",
 }
+# 一致性守护：env 名单与 ANTHROPIC_ENV_KEYS 必须对齐。
+assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
+    "_ANTHROPIC_ENV_MAP 与 lib.config.env_keys.ANTHROPIC_ENV_KEYS 漂移"
+)
 
 
 async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
     """从 DB 读 active credential，返回 {ENV_KEY: value} dict，**不写 os.environ**。
 
     返回值由 SessionManager._build_provider_env_overrides() 注入到
-    ClaudeAgentOptions.env（spec §6.2）。
+    ClaudeAgentOptions.env。
 
     双轨期 fallback：active credential 字段为空时从 system_settings 兜底。
     """

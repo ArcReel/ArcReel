@@ -5,6 +5,7 @@ Manages ClaudeSDKClient instances with background execution and reconnection sup
 import asyncio
 import contextlib
 import fnmatch
+import functools
 import json
 import logging
 import os
@@ -310,7 +311,7 @@ class SessionManager:
 
     # Sandbox 启用后 Bash 进入 allowed_tools；具体命令由 SDK Sandbox 自动放行
     # (autoAllowBashIfSandboxed=True)。文件访问控制走 settings.json deny rules
-    # + PreToolUse hook 双重防线 (spec §4)。
+    # + PreToolUse hook 双重防线。
     _PATH_TOOLS: dict[str, str] = {
         "Read": "file_path",
         "Write": "file_path",
@@ -395,9 +396,12 @@ class SessionManager:
         self._disconnecting: set[str] = set()
         self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
         self._connect_locks: dict[str, asyncio.Lock] = {}
-        # Task 4.3: SandboxSettings.enableWeakerNestedSandbox 标志，
-        # 由 AssistantService 从 app.state.in_docker 透传。
+        # SandboxSettings.enableWeakerNestedSandbox 标志，由 AssistantService
+        # 从 app.state.in_docker 透传。
         self._in_docker = in_docker
+        # 实例不变量缓存：避免每次 _build_options / hook 都重做 path resolve。
+        self._project_root_resolved = self.project_root.resolve()
+        self._sensitive_abs_paths_cache: list[str] | None = None
         self._load_config()
 
     def _load_config(self) -> None:
@@ -558,7 +562,7 @@ class SessionManager:
         return store
 
     async def _build_provider_env_overrides(self) -> dict[str, str]:
-        """构造 options.env 注入字典 — spec §6.2。
+        """构造 options.env 注入字典。
 
         - ANTHROPIC_* 从 DB active credential 取真值
         - 其他 provider env 全部空值覆盖（防御性兜底）
@@ -632,27 +636,8 @@ class SessionManager:
                 ],
             }
 
-        # SandboxSettings 注入 + provider env 覆盖。
-        from claude_agent_sdk.types import SandboxSettings
-
         provider_env = await self._build_provider_env_overrides()
-
-        # sandbox.filesystem.denyRead 是内核级文件读拒绝（macOS Seatbelt /
-        # Linux bwrap profile），对 sandbox 内所有子进程生效，包括 Bash 跑的
-        # cat/jq/python 等。SDK 0.1.80 Python TypedDict 未声明 filesystem
-        # 子结构，但 CLI 接受（运行时 JSON 透传）。
-        # network.allowedDomains 见 _DEFAULT_SANDBOX_ALLOWED_DOMAINS 注释。
-        sandbox_settings: dict[str, Any] = {
-            "enabled": True,
-            "autoAllowBashIfSandboxed": True,
-            # 关掉 dangerouslyDisableSandbox 这个 agent 自救门：默认 agent 可在
-            # sandbox 失败时请求"重试 unsandboxed"，对我们的红线场景不可接受。
-            "allowUnsandboxedCommands": False,
-            "network": {"allowedDomains": self._build_sandbox_allowed_domains()},
-            "enableWeakerNestedSandbox": bool(getattr(self, "_in_docker", False)),
-            "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
-        }
-        sandbox_typed: SandboxSettings = sandbox_settings  # type: ignore[assignment]
+        sandbox_typed = self._build_sandbox_settings()
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
@@ -694,13 +679,15 @@ class SessionManager:
     )
 
     @classmethod
-    def _collect_env_keys_to_scrub(cls) -> list[str]:
+    @functools.cache
+    def _collect_env_keys_to_scrub(cls) -> tuple[str, ...]:
         """汇总要从 Bash 子进程剥离的 env 变量名。
 
-        来源三路：固定清单（ANTHROPIC + OTHER provider）+ 模式匹配（动态扫
+        来源三路：固定清单（ANTHROPIC + OTHER provider）+ 模式匹配（扫
         ``os.environ`` 找名字含 KEY/TOKEN/CREDENTIAL 等模式的变量）+ 去重。
-        hook 在 SDK 子进程上下文里执行，``os.environ`` 反映的是 SDK 子进程 env
-        （含 options.env 注入），匹配到的就是 Bash 子壳实际会继承到的密钥变量。
+        父进程 environ 在启动后不再增减密钥类变量，结果稳定 — cache 避免每条
+        Bash 命令都重扫。测试需要切环境时调
+        ``cls._collect_env_keys_to_scrub.cache_clear()``。
         """
         from lib.config.env_keys import ANTHROPIC_ENV_KEYS, OTHER_PROVIDER_ENV_KEYS
 
@@ -710,7 +697,16 @@ class SessionManager:
             upper = name.upper()
             if any(pat in upper for pat in cls._SECRET_ENV_NAME_PATTERNS):
                 keys.add(name)
-        return sorted(keys)
+        return tuple(sorted(keys))
+
+    @classmethod
+    @functools.cache
+    def _env_scrub_wrap_prefix(cls) -> str:
+        """``env -u VAR1 -u VAR2 ... sh -c `` 前缀。命中清单由
+        ``_collect_env_keys_to_scrub`` 决定，运行期不变 — cache 复用整段字符串。
+        """
+        unset_flags = " ".join(f"-u {key}" for key in cls._collect_env_keys_to_scrub())
+        return f"env {unset_flags} sh -c "
 
     @classmethod
     async def _bash_env_scrub_hook(
@@ -732,9 +728,7 @@ class SessionManager:
         if not isinstance(command, str) or not command.strip():
             return {"continue_": True}
 
-        keys = cls._collect_env_keys_to_scrub()
-        unset_flags = " ".join(f"-u {key}" for key in keys)
-        wrapped = f"env {unset_flags} sh -c {shlex.quote(command)}"
+        wrapped = f"{cls._env_scrub_wrap_prefix()}{shlex.quote(command)}"
         updated_input = {**tool_input, "command": wrapped}
         return {
             "hookSpecificOutput": {
@@ -1811,8 +1805,13 @@ class SessionManager:
     )
 
     @classmethod
-    def _build_sandbox_allowed_domains(cls) -> list[str]:
-        """构造 sandbox.network.allowedDomains，含默认清单 + ENV 扩展。"""
+    @functools.cache
+    def _build_sandbox_allowed_domains(cls) -> tuple[str, ...]:
+        """构造 sandbox.network.allowedDomains，含默认清单 + ENV 扩展。
+
+        ``ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS`` 是启动期 env，运行期视为不变；
+        测试中切换值需调 ``cls._build_sandbox_allowed_domains.cache_clear()``。
+        """
         domains = list(cls._DEFAULT_SANDBOX_ALLOWED_DOMAINS)
         extra = os.environ.get("ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS", "").strip()
         if extra:
@@ -1820,7 +1819,25 @@ class SessionManager:
                 piece = piece.strip()
                 if piece and piece not in domains:
                     domains.append(piece)
-        return domains
+        return tuple(domains)
+
+    def _build_sandbox_settings(self) -> dict[str, Any]:
+        """构造 SandboxSettings dict（SDK 0.1.80 Python TypedDict 未声明
+        filesystem 子结构，但 CLI 运行时透传 JSON 接受）。
+
+        - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
+          bwrap profile），对 sandbox 内所有子进程生效。
+        - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
+          请求"重试 unsandboxed"，对红线场景不可接受。
+        """
+        return {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": True,
+            "allowUnsandboxedCommands": False,
+            "network": {"allowedDomains": list(self._build_sandbox_allowed_domains())},
+            "enableWeakerNestedSandbox": bool(self._in_docker),
+            "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
+        }
 
     def _build_sensitive_abs_paths(self) -> list[str]:
         """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
@@ -1828,13 +1845,17 @@ class SessionManager:
         SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
         所以这里枚举 worktree 下当前真实存在的固定清单 + glob 命中项 +
         prefix 目录（vertex_keys 整目录交给 sandbox profile 递归 deny）。
+        结果在实例生命周期内稳定，首次调用后缓存。
         """
-        root = self.project_root.resolve()
+        if self._sensitive_abs_paths_cache is not None:
+            return self._sensitive_abs_paths_cache
+        root = self._project_root_resolved
         candidates: list[Path] = [root / rel for rel in self._SENSITIVE_RELATIVE_FILES]
         candidates.extend(root / prefix for prefix in self._SENSITIVE_RELATIVE_PREFIXES)
         for pattern in self._SENSITIVE_RELATIVE_GLOBS:
             candidates.extend(root.glob(pattern))
-        return [str(p) for p in candidates if p.exists()]
+        self._sensitive_abs_paths_cache = [str(p) for p in candidates if p.exists()]
+        return self._sensitive_abs_paths_cache
 
     def _is_sensitive_path(self, resolved: Path) -> bool:
         """判断已 resolve 的路径是否命中敏感文件清单。
@@ -1844,7 +1865,7 @@ class SessionManager:
         ``agent_runtime_profile/.claude/settings.json``。
         """
         try:
-            rel = resolved.relative_to(self.project_root.resolve())
+            rel = resolved.relative_to(self._project_root_resolved)
         except ValueError:
             return False
         rel_posix = rel.as_posix()

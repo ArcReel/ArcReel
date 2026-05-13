@@ -79,23 +79,12 @@ class AssistantService:
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self, *, in_docker: bool = False) -> None:
-        """Run async initialization (must be called from event loop).
-
-        Args:
-            in_docker: 从 app.state.in_docker 透传，最终写入
-                SessionManager._in_docker，影响 SandboxSettings
-                的 enableWeakerNestedSandbox 标志（Task 4.3）。
-        """
+        """Run async initialization (must be called from event loop)."""
         if self._startup_done:
             return
         async with self._startup_lock:
             if self._startup_done:
                 return
-            # spec §5.3：必须在 lifespan 的 assert_no_provider_secrets_in_environ()
-            # 之后再 load .env 并 strip provider keys，否则启动断言永远拿不到
-            # 用户残留的 provider env，迁移告警会被静默吞掉。
-            self._load_project_env(self.project_root)
-            # Task 4.3: 透传 in_docker 标志给 SessionManager
             self.session_manager._in_docker = bool(in_docker)
             await self._interrupt_stale_running_sessions()
             self._startup_done = True
@@ -1033,25 +1022,3 @@ class AssistantService:
             "description": description,
             "user_invocable": user_invocable,
         }
-
-    @staticmethod
-    def _load_project_env(project_root: Path) -> None:
-        """Load .env file, then strip known provider env keys.
-
-        spec §5.3：父进程禁止持有 provider secrets。先 load_dotenv 再过滤，
-        防止 .env 中遗留的旧 provider key 污染 os.environ。
-        """
-        env_path = project_root / ".env"
-        if env_path.exists():
-            try:
-                from dotenv import load_dotenv
-
-                load_dotenv(env_path, override=False)
-            except ImportError:
-                pass
-
-        # —— 把 dotenv 引入的 provider keys 立即移除（保守名单）——
-        from lib.config.env_keys import ANTHROPIC_ENV_KEYS, OTHER_PROVIDER_ENV_KEYS
-
-        for key in ANTHROPIC_ENV_KEYS + OTHER_PROVIDER_ENV_KEYS:
-            os.environ.pop(key, None)
