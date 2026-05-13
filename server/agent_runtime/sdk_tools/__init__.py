@@ -35,7 +35,28 @@ from server.agent_runtime.sdk_tools.text_generation import (
     normalize_drama_script_tool,
 )
 
-__all__ = ["build_arcreel_mcp_server", "ToolContext"]
+__all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
+
+# Single source of truth for the ArcReel in-process MCP tool catalogue.
+# Each id is the **short tool name** (without the ``mcp__arcreel__`` prefix the
+# SDK adds at registration). Frontend display names live in
+# ``frontend/src/i18n/{zh,en,vi}/dashboard.ts`` under the ``tool_name_<id>``
+# keys; ``tests/test_frontend_mcp_tool_i18n.py`` cross-checks that every id
+# here has a translation in all locales, so adding a tool without wiring up
+# i18n fails CI.
+ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
+    "list_pending_assets",
+    "generate_assets",
+    "generate_storyboards",
+    "generate_grid",
+    "generate_video_episode",
+    "generate_video_scene",
+    "generate_video_all",
+    "generate_video_selected",
+    "generate_episode_script",
+    "normalize_drama_script",
+    "get_video_capabilities",
+)
 
 
 def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:

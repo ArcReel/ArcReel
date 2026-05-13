@@ -1163,6 +1163,20 @@ export default {
   'tool_call_skill_content_label': 'Nội dung Skill',
   'tool_call_todo_summary': 'Danh sách việc cần làm hoàn thành {{completed}}/{{total}}',
   'tool_call_todo_updated': 'Danh sách việc cần làm đã cập nhật',
+  // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
+  // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
+  // sẽ kiểm tra các ngôn ngữ đồng bộ, thêm tool backend mà thiếu zh/en/vi sẽ fail CI)
+  'tool_name_list_pending_assets': 'Liệt kê tài sản chờ tạo',
+  'tool_name_generate_assets': 'Tạo tài sản',
+  'tool_name_generate_storyboards': 'Tạo storyboard',
+  'tool_name_generate_grid': 'Tạo lưới',
+  'tool_name_generate_video_episode': 'Tạo video (toàn tập)',
+  'tool_name_generate_video_scene': 'Tạo video (cảnh)',
+  'tool_name_generate_video_all': 'Tạo video (tất cả)',
+  'tool_name_generate_video_selected': 'Tạo video (đã chọn)',
+  'tool_name_generate_episode_script': 'Tạo kịch bản',
+  'tool_name_normalize_drama_script': 'Chuẩn hóa kịch bản',
+  'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
   'upload_aborted_project_changed': 'Đã đổi dự án; đã hủy tải lên {{filename}}',
   'workspace_nav_characters': 'Nhân vật',
   'workspace_nav_overview': 'Tổng quan',

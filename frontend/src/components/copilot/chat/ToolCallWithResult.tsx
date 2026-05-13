@@ -77,6 +77,14 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
   const toolName = block.name || "Tool";
   const isSkill = toolName === "Skill";
   const isTodoWrite = toolName === "TodoWrite";
+
+  // ArcReel in-process MCP tool 显示名：从 mcp__arcreel__<id> 中提取 id，
+  // 查 dashboard:tool_name_<id>（单一真相源 = backend ARCREEL_MCP_TOOL_IDS）。
+  // 非 mcp__arcreel__ 工具（Bash / TodoWrite / Skill / ...）保留原名。
+  const mcpMatch = /^mcp__arcreel__([a-z0-9_]+)$/.exec(toolName);
+  const displayName = mcpMatch
+    ? t(`tool_name_${mcpMatch[1]}`, { defaultValue: toolName })
+    : toolName;
   const hasResult = block.result !== undefined;
   const hasSkillContent = !!block.skill_content;
   const isError = block.is_error;
@@ -146,7 +154,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
             className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
             style={{ color: labelColor }}
           >
-            {toolName}
+            {displayName}
           </span>
           <span
             className="num truncate text-[11px]"

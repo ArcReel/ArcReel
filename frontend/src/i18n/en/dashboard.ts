@@ -1061,6 +1061,20 @@ export default {
   'tool_call_error_label': 'Failed',
   'tool_call_todo_summary': 'Todo list {{completed}}/{{total}} complete',
   'tool_call_todo_updated': 'Todo list updated',
+  // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
+  // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
+  // enforces all locales stay in sync — adding a backend tool without wiring zh/en/vi fails CI)
+  'tool_name_list_pending_assets': 'List pending assets',
+  'tool_name_generate_assets': 'Generate assets',
+  'tool_name_generate_storyboards': 'Generate storyboards',
+  'tool_name_generate_grid': 'Generate grid',
+  'tool_name_generate_video_episode': 'Generate video (episode)',
+  'tool_name_generate_video_scene': 'Generate video (scene)',
+  'tool_name_generate_video_all': 'Generate video (all)',
+  'tool_name_generate_video_selected': 'Generate video (selected)',
+  'tool_name_generate_episode_script': 'Generate script',
+  'tool_name_normalize_drama_script': 'Normalize drama script',
+  'tool_name_get_video_capabilities': 'Query video model capabilities',
   // PendingQuestionWizard
   'pending_question_wizard_label': 'Your input needed',
   'pending_question_wizard_step_question': 'Question {{number}}',
