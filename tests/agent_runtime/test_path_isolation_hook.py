@@ -71,9 +71,6 @@ def test_write_cwd_internal_data_ext_allowed(sm: SessionManager) -> None:
         ".env.production",
         "vertex_keys/key.json",
         "vertex_keys/nested/secret.json",
-        "projects/.arcreel.db",
-        "projects/.arcreel.db-shm",
-        "projects/.arcreel.db-wal",
         "projects/.system_config.json",
         "projects/.system_config.json.bak",
         "agent_runtime_profile/.claude/settings.json",
@@ -89,6 +86,16 @@ def test_sensitive_file_denied(sm: SessionManager, tool: str, relative: str) -> 
     allowed, reason = sm._is_path_allowed(str(target), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
     assert reason and "敏感文件" in reason
+
+
+def test_arcreel_db_not_in_sensitive_list(sm: SessionManager) -> None:
+    """skill 脚本通过 generation_queue_client 直连 SQLite 入队，.arcreel.db 必须放行。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    db = sm.project_root / "projects" / ".arcreel.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.write_bytes(b"sqlite-fake")
+    allowed, _ = sm._is_path_allowed(str(db), "Read", cwd)
+    assert allowed
 
 
 def test_sensitive_glob_pattern_does_not_overmatch(sm: SessionManager, tmp_path: Path) -> None:
