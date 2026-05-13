@@ -30,19 +30,17 @@ def init_environment():
         from dotenv import load_dotenv
 
         env_path = project_root / ".env"
+        # 沙箱里 stat 与 open 是两次独立 syscall：exists() 可能放行而
+        # load_dotenv() 仍被 denyRead 拦截。整段统一用 OSError 兜底，
+        # 任何文件访问失败都视为 ".env 不可用"，降级继续 import。
         try:
-            env_exists = env_path.exists()
-        except OSError:
-            # 沙箱里 .env 不可读 == 视为不存在
-            env_exists = False
-        if env_exists:
-            load_dotenv(env_path)
-        else:
-            # load_dotenv() 默认会向上回溯查找 .env；沙箱里同样可能撞权限墙
-            try:
+            if env_path.exists():
+                load_dotenv(env_path)
+            else:
+                # 默认会向上回溯查找 .env
                 load_dotenv()
-            except OSError:
-                pass
+        except OSError:
+            pass
     except ImportError:
         pass
 
