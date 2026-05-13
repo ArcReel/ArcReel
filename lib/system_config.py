@@ -165,15 +165,25 @@ class SystemConfigPaths:
     vertex_credentials_path: Path
 
 
-def resolve_vertex_credentials_path(project_root: Path) -> Path | None:
+def resolve_vertex_credentials_path(project_root: Path | None = None) -> Path | None:
     """
     Resolve the Vertex credentials JSON file to use.
 
-    Prefers `vertex_keys/vertex_credentials.json` and falls back to the first
-    `*.json` file in `vertex_keys/` for backward compatibility.
+    Searches ``<credentials_dir>/vertex_credentials.json`` first, then falls
+    back to the first ``*.json`` file in ``<credentials_dir>/`` for legacy
+    layouts.
+
+    ``credentials_dir`` defaults to ``app_data_dir().parent / "vertex_keys"``,
+    matching where :func:`server.routers.providers.upload_vertex_credential`
+    writes uploads. Pass ``project_root`` to override (legacy migration path:
+    ``project_root / "vertex_keys"``).
     """
-    project_root = Path(project_root)
-    credentials_dir = project_root / "vertex_keys"
+    if project_root is None:
+        from lib.app_data_dir import app_data_dir
+
+        credentials_dir = app_data_dir().parent / "vertex_keys"
+    else:
+        credentials_dir = Path(project_root) / "vertex_keys"
     preferred = credentials_dir / "vertex_credentials.json"
     if preferred.exists():
         return preferred

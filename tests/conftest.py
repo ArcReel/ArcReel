@@ -66,6 +66,14 @@ def _reset_app_data_dir_cache():
     _reset_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _profile_env(monkeypatch, tmp_path):
+    """Pin ``agent_profile_dir()`` to a per-test ``tmp_path/agent_runtime_profile``
+    so tests that build a fake profile under tmp_path are exercised against the
+    env-driven contract instead of the repo-level default."""
+    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "agent_runtime_profile"))
+
+
 @pytest.fixture()
 def fd_count():
     """Return a callable that reports the current process file-descriptor count.
