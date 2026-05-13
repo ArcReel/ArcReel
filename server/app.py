@@ -255,6 +255,12 @@ app.add_middleware(
 def _resolve_listen_addr() -> tuple[str, int]:
     """解析 ``LISTEN_HOST`` / ``LISTEN_PORT``，供 ``__main__`` 块与测试共用。
 
+    **作用范围**：仅当通过 ``python server/app.py`` 直接执行（走下方 ``__main__``）
+    时生效。通过 ``uvicorn server.app:app`` 这种标准 ASGI CLI 启动时，listen 地址
+    由 uvicorn 进程自身的 ``--host`` / ``--port`` 参数决定，本函数不参与 —— 因为
+    ASGI app 模块在 import 时无法回头改 uvicorn 进程的绑定。Docker、systemd 等
+    部署需要把 host/port 作为 uvicorn CLI 参数显式传入。
+
     truthy 默认（``or``）兜底，覆盖 ``.env`` 误写空值（如 ``LISTEN_PORT=``）的场景。
     """
     host = os.environ.get("LISTEN_HOST") or "0.0.0.0"
