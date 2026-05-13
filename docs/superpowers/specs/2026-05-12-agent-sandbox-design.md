@@ -160,8 +160,8 @@ backend 构造方（`lib/text_backends/factory.py` / `server/services/generation
 
 | 文件 | 改动 |
 |---|---|
-| `Dockerfile` | `apt-get install -y bubblewrap` 到运行镜像层 |
-| 部署文档 | 新增「Linux 本地开发必须 `sudo apt install bubblewrap`」段；说明 sandbox 启动失败硬退出 |
+| `Dockerfile` | `apt-get install -y bubblewrap socat` 到运行镜像层（socat 用于 Linux sandbox 网络隔离） |
+| 部署文档 | 新增「Linux 本地开发必须 `sudo apt install bubblewrap socat`」段；说明 sandbox 启动失败硬退出 |
 | `agent_runtime_profile/CLAUDE.md` | 移除「使用相对路径调 skill 脚本」引导，改为说明沙箱化后 Bash 可在 cwd 内自由运行 |
 
 ---

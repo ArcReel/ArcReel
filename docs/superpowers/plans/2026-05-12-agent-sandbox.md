@@ -2431,8 +2431,6 @@ Create `docs/superpowers/specs/2026-05-12-agent-sandbox-design.acceptance.md`：
   - 期望：输出完全为空（含 ANTHROPIC_*；env scrub hook 会 unset 后再执行命令）
 - [ ] agent 不能读 `.env`
   - agent 跑 `Bash("cat /app/.env")` → 输出含 violation
-- [ ] agent 不能读 `.arcreel.db`（已知限制：暂未纳入 denyRead，issue #519 跟踪）
-  - 当前状态：可读，但 db 内 provider 密钥不会进入 Bash env（双层防线之一被关闭，另一层仍生效）
 - [ ] agent 不能读 `vertex_keys/`
   - agent 跑 `Bash("ls /app/vertex_keys")` → violation
 - [ ] agent 不能读 `agent_runtime_profile/.claude/settings.json`
@@ -2442,6 +2440,13 @@ Create `docs/superpowers/specs/2026-05-12-agent-sandbox-design.acceptance.md`：
 - [ ] 父进程 `os.environ` 不含 provider 密钥
   - 启动 server 后 `python -c "import os; print([k for k in os.environ if 'KEY' in k or 'CRED' in k])"`
   - 期望：不含 ANTHROPIC_API_KEY/ARK_API_KEY 等
+
+## 已知豁免（风险接受）
+
+- [ ] `.arcreel.db` 当前可读，未纳入 denyRead
+  - 原因：skill 入队脚本（generation_queue_client）需要 sqlite 直读；JSON 剧本生成脚本也走 db
+  - 缓解：db 内 provider 密钥不会进入 Bash env（env scrub hook 已 unset）；双层防线之一被关闭，另一层仍生效
+  - 解除条件：issue #519 完成 skill 脚本→SDK 原生 tool 重构后，将 `.arcreel.db` 加回 denyRead 并反向断言
 
 ## 功能验收
 
