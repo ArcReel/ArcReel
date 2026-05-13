@@ -634,19 +634,24 @@ class SessionManager:
                 ],
             }
 
-        # —— SandboxSettings 注入（spec §6.1）+ provider env 覆盖（spec §6.2）——
+        # SandboxSettings 注入 + provider env 覆盖。
         from claude_agent_sdk.types import SandboxSettings
 
         provider_env = await self._build_provider_env_overrides()
 
         # 沙箱网络默认放行：缺省时 SDK 走严格白名单，curl 会被拦截
         # (X-Proxy-Error: blocked-by-allowlist)。
-        sandbox_settings: SandboxSettings = {
+        # denyRead 列表是内核级文件读拒绝（macOS Seatbelt / Linux bwrap profile），
+        # 对所有 sandbox 内子进程生效，包括 Bash 跑的 cat/jq/python 等。SDK 0.1.80
+        # Python TypedDict 未声明此字段，但 CLI 接受（运行时 JSON 序列化透传）。
+        sandbox_settings: dict[str, Any] = {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             "network": {"allowedDomains": ["*"]},
             "enableWeakerNestedSandbox": bool(getattr(self, "_in_docker", False)),
+            "denyRead": self._build_sensitive_abs_paths(),
         }
+        sandbox_typed: SandboxSettings = sandbox_settings  # type: ignore[assignment]
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
@@ -664,7 +669,7 @@ class SessionManager:
             hooks=hooks,
             session_store=self._build_session_store(),
             session_store_flush=session_store_flush_mode(),
-            sandbox=sandbox_settings,
+            sandbox=sandbox_typed,
             env=provider_env,
         )
 
@@ -1738,6 +1743,28 @@ class SessionManager:
         replace ``/`` and ``.`` with ``-``.
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
+
+    def _build_sensitive_abs_paths(self) -> list[str]:
+        """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
+
+        SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
+        所以这里枚举 worktree 下当前真实存在的敏感文件 + 动态匹配 ``.env.*`` /
+        ``projects/.arcreel.db-*`` 等 glob 命中项。vertex_keys 整个目录加入，
+        bwrap / sandbox-exec 会对目录树递归 deny。
+        """
+        root = self.project_root.resolve()
+        candidates: list[Path] = [root / rel for rel in self._SENSITIVE_RELATIVE_FILES]
+        candidates.extend(root / prefix for prefix in self._SENSITIVE_RELATIVE_PREFIXES)
+        # glob：.env.local / .arcreel.db-shm / .arcreel.db-wal 等
+        for pattern in self._SENSITIVE_RELATIVE_GLOBS:
+            base = root if "/" not in pattern else root / pattern.split("/")[0]
+            tail = pattern.rsplit("/", 1)[-1]
+            if not base.is_dir():
+                continue
+            for p in base.glob(tail):
+                candidates.append(p)
+
+        return [str(p) for p in candidates if p.exists()]
 
     def _is_sensitive_path(self, resolved: Path) -> bool:
         """判断已 resolve 的路径是否命中敏感文件清单。

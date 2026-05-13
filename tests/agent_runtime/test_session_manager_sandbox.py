@@ -85,6 +85,40 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
     # 网络默认放行：缺省时 curl 会被 SDK 严格白名单拦截
     assert opts.sandbox.get("network", {}).get("allowedDomains") == ["*"]
+    # denyRead 注入：sandbox profile 内核级文件读拒绝
+    deny_read = opts.sandbox.get("denyRead", [])
+    assert isinstance(deny_read, list)
+
+
+def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> None:
+    """枚举 worktree 下实际存在的敏感文件，跳过不存在项。"""
+    from server.agent_runtime.session_manager import SessionManager
+    from server.agent_runtime.session_store import SessionMetaStore
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / ".env").write_text("X=1", encoding="utf-8")
+    (root / ".env.local").write_text("Y=2", encoding="utf-8")
+    (root / "projects").mkdir()
+    (root / "projects" / ".arcreel.db").write_bytes(b"sqlite-fake")
+    (root / "projects" / ".arcreel.db-shm").write_bytes(b"shm")
+    (root / "agent_runtime_profile" / ".claude").mkdir(parents=True)
+    (root / "agent_runtime_profile" / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+    (root / "vertex_keys").mkdir()
+
+    sm = SessionManager(root, tmp_path / "data", SessionMetaStore())
+    paths = sm._build_sensitive_abs_paths()
+
+    # 必须命中真实存在的关键路径
+    assert str(root.resolve() / ".env") in paths
+    assert str(root.resolve() / ".env.local") in paths
+    assert str(root.resolve() / "projects" / ".arcreel.db") in paths
+    assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
+    assert str(root.resolve() / "agent_runtime_profile" / ".claude" / "settings.json") in paths
+    assert str(root.resolve() / "vertex_keys") in paths
+
+    # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
+    assert all(".system_config.json" not in p for p in paths)
 
 
 @pytest.mark.asyncio
