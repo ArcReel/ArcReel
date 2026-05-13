@@ -110,42 +110,21 @@ skill 脚本通过 `lib.generation_queue_client` 直连本地 SQLite (`projects/
 
 ### 5.2 `agent_runtime_profile/.claude/settings.json`
 
-> **实测调整（见 §0.1）**：原方案靠 settings.json 的 `Read(//app/...)` deny rules 给 sandbox profile 翻译路径，但 SDK CLI 跳过不存在路径——`//app/` 在宿主开发态（Mac worktree）不存在，deny 不生效。**实际主防线挪到 §5.1 `_build_sensitive_abs_paths()` 动态构造真实绝对路径**，通过 `sandbox.filesystem.denyRead` 字段注入。settings.json 里的 `//app/...` deny 仅在 Docker 部署里有效，作为兜底保留。
+> **实测调整（见 §0.1）**：原方案靠 settings.json 的 `Read(//app/...)` deny rules 给 sandbox profile 翻译路径，但 SDK CLI 跳过不存在路径——`//app/` 在宿主开发态（Mac worktree）不存在，deny 不生效。**最终方案**：settings.json 的 `permissions.deny` 整段清空，敏感文件防线**全部**由 §5.1 `sandbox.filesystem.denyRead`（代码动态注入真实绝对路径，覆盖宿主 + Docker 双平台）+ `_is_sensitive_path` hook（SDK Read/Write/Edit/Glob/Grep 工具兜底）负责，单一真相源在 `SessionManager._SENSITIVE_RELATIVE_*` 类常量。
 
-下面是 settings.json 中保留的敏感文件 deny（同时也是 SDK Read/Edit 工具的拦截规则）。普适规则「cwd 外写禁」「代码扩展名禁」全部由 §5.1 PreToolUse hook 表达。
+settings.json 改造后内容（仅留空对象，保留文件本身让 `setting_sources=["project"]` 加载不报错）：
 
-完整改造后内容：
-
-```jsonc
-{
-  "permissions": {
-    "deny": [
-      // —— 敏感文件读 deny（sandbox 翻译给 Bash 子进程；SDK Read 工具同样适用）——
-      "Read(//app/.env)", "Read(//app/.env.*)",
-      "Read(//app/vertex_keys/**)",
-      "Read(//app/projects/.arcreel.db)",
-      "Read(//app/projects/.arcreel.db-*)",
-      "Read(//app/projects/.system_config.json)",
-      "Read(//app/projects/.system_config.json.bak)",
-      "Read(//app/agent_runtime_profile/.claude/settings.json)",
-
-      // —— 敏感文件写 deny（防 agent 覆盖 / 损坏 secrets 文件）——
-      "Edit(//app/.env)", "Edit(//app/.env.*)",
-      "Edit(//app/vertex_keys/**)",
-      "Edit(//app/projects/.arcreel.db)",
-      "Edit(//app/projects/.arcreel.db-*)",
-      "Edit(//app/projects/.system_config.json)",
-      "Edit(//app/projects/.system_config.json.bak)"
-    ]
-    // 注意：
-    // - "allow" 整段已删除。Bash / BashOutput / KillBash / Read / Grep / Glob
-    //   由 SessionManager.DEFAULT_ALLOWED_TOOLS 声明。
-    // - 「cwd 外写禁」「cwd 内写代码扩展名禁」由 §5.1 PreToolUse hook 实施，
-    //   不在此 deny 列表中枚举（hook 单一规则胜过 deny rules 枚举）。
-    // - Bash 子进程的 cwd 外写由 sandbox 默认行为兜底（cwd 内可写、cwd 外只读）。
-  }
-}
+```json
+{}
 ```
+
+为什么不放 deny rules：
+- settings.json 里的 deny 路径是静态字符串，无法用 `self.project_root` 动态拼，宿主开发态路径不固定（`/Users/<user>/ArcReel`、worktree 子路径等）—— 静态写无法命中
+- Docker 部署里代码侧 `_build_sensitive_abs_paths()` 通过 `self.project_root.resolve()` 拿到的就是 `/app`，与原 `//app/...` 完全等价覆盖
+- 单一真相源（`SessionManager._SENSITIVE_RELATIVE_FILES` / `_SENSITIVE_RELATIVE_PREFIXES` / `_SENSITIVE_RELATIVE_GLOBS`）避免清单漂移
+- 普适规则「cwd 外写禁」「cwd 内写代码扩展名禁」由 §5.1 PreToolUse hook 实施
+- Bash 子进程 cwd 外写由 sandbox 默认行为兜底（cwd 内可写、cwd 外只读）
+- `allow` 整段也不需要：`Bash` / `BashOutput` / `KillBash` / `Read` / `Grep` / `Glob` 由 `SessionManager.DEFAULT_ALLOWED_TOOLS` 声明
 
 ### 5.3 secrets 下线 — `lib/config/service.py` 与全部调用方
 
