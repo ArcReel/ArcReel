@@ -84,10 +84,11 @@ async def test_build_options_includes_sandbox_settings(
     # 非 Docker 默认 weakerNested=False
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
     # 网络白名单覆盖 ArcReel 内置 provider + dev 常用域
+    # 用 any(==) 显式列表成员比较，避免 CodeQL py/incomplete-url-substring-sanitization 误报
     allowed_domains = opts.sandbox.get("network", {}).get("allowedDomains", [])
-    assert "anthropic.com" in allowed_domains
-    assert "*.googleapis.com" in allowed_domains
-    assert "example.com" in allowed_domains
+    assert any(d == "anthropic.com" for d in allowed_domains)
+    assert any(d == "*.googleapis.com" for d in allowed_domains)
+    assert any(d == "example.com" for d in allowed_domains)
     # filesystem.denyRead 注入：sandbox profile 内核级文件读拒绝
     deny_read = opts.sandbox.get("filesystem", {}).get("denyRead", [])
     assert isinstance(deny_read, list)
@@ -104,10 +105,11 @@ def test_sandbox_allowed_domains_env_extension(monkeypatch: pytest.MonkeyPatch) 
     SessionManager._build_sandbox_allowed_domains.cache_clear()
     try:
         domains = SessionManager._build_sandbox_allowed_domains()
-        assert "custom-provider.com" in domains
-        assert "*.internal.corp" in domains
+        # 用 any(==) 显式列表成员比较，避免 CodeQL py/incomplete-url-substring-sanitization 误报
+        assert any(d == "custom-provider.com" for d in domains)
+        assert any(d == "*.internal.corp" for d in domains)
         # 默认清单仍保留
-        assert "anthropic.com" in domains
+        assert any(d == "anthropic.com" for d in domains)
     finally:
         SessionManager._build_sandbox_allowed_domains.cache_clear()
 
