@@ -29,7 +29,11 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_scene_tool,
     generate_video_selected_tool,
 )
-from server.agent_runtime.sdk_tools.text_generation import get_video_capabilities_tool
+from server.agent_runtime.sdk_tools.text_generation import (
+    generate_episode_script_tool,
+    get_video_capabilities_tool,
+    normalize_drama_script_tool,
+)
 
 __all__ = ["build_arcreel_mcp_server", "ToolContext"]
 
@@ -49,6 +53,8 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             generate_video_scene_tool(ctx),
             generate_video_all_tool(ctx),
             generate_video_selected_tool(ctx),
+            generate_episode_script_tool(ctx),
+            normalize_drama_script_tool(ctx),
             get_video_capabilities_tool(ctx),
         ],
     )

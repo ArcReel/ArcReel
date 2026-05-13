@@ -21,16 +21,23 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 ## 用法
 
-```bash
-# 生成指定剧集的剧本
-python .claude/skills/generate-script/scripts/generate_script.py --episode {N}
+通过 SDK in-process MCP tool 调用（项目名由 session 闭包绑定，文本模型直连主进程，不受 sandbox 网络白名单约束）：
 
-# 自定义输出路径
-python .claude/skills/generate-script/scripts/generate_script.py --episode {N} --output scripts/ep1.json
-
-# 预览 Prompt（不实际调用 API）
-python .claude/skills/generate-script/scripts/generate_script.py --episode {N} --dry-run
 ```
+mcp__arcreel__generate_episode_script({"episode": N})
+mcp__arcreel__generate_episode_script({"episode": N, "output": "scripts/ep1.json"})
+mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅预览 prompt
+```
+
+### 旧 CLI → 新 tool 对照
+
+| 旧脚本（已删除） | 新 tool |
+|---|---|
+| `python ... generate_script.py --episode N` | `mcp__arcreel__generate_episode_script({"episode": N})` |
+| `... --output path` | 加 `"output": "path"` |
+| `... --dry-run` | 加 `"dry_run": true` |
+| `python ... normalize_drama_script.py --episode N` | `mcp__arcreel__normalize_drama_script({"episode": N})` |
+| `... --source path` | 加 `"source": "path"` |
 
 ## 生成流程
 
