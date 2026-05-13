@@ -215,3 +215,98 @@ async def test_bash_env_scrub_hook_passthrough_when_no_command() -> None:
         None,
     )
     assert result == {"continue_": True}
+
+
+# ============================================================
+# Windows 沙箱回退：sandbox_enabled=False 分支
+# ============================================================
+
+
+def _make_session_manager(tmp_path: Path, *, sandbox_enabled: bool) -> SessionManager:
+    project_root = tmp_path / "repo"
+    project_root.mkdir(exist_ok=True)
+    (project_root / "projects").mkdir(exist_ok=True)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    return SessionManager(
+        project_root,
+        data_dir,
+        SessionMetaStore(),
+        sandbox_enabled=sandbox_enabled,
+    )
+
+
+def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Path) -> None:
+    """sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=False)
+    assert sm._build_sandbox_settings() == {"enabled": False}
+
+
+def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
+    """sandbox_enabled=True（默认）依然返回完整 dict（含 network / filesystem）。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=True)
+    settings = sm._build_sandbox_settings()
+    assert settings["enabled"] is True
+    assert settings["autoAllowBashIfSandboxed"] is True
+    assert settings["allowUnsandboxedCommands"] is False
+    assert "allowedDomains" in settings["network"]
+    assert "denyRead" in settings["filesystem"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sandbox_enabled", [True, False])
+async def test_build_options_bash_in_allowed_tools_by_sandbox(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sandbox_enabled: bool
+) -> None:
+    """sandbox 关闭时剥离 Bash/BashOutput/KillBash，启用时保留。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=sandbox_enabled)
+    proj_dir = sm.project_root / "projects" / "test_proj"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "project.json").write_text('{"title":"t"}', encoding="utf-8")
+
+    async def fake_env(_self):
+        return {"ANTHROPIC_API_KEY": "sk"}
+
+    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    opts = await sm._build_options("test_proj")
+
+    for tool in SessionManager._BASH_TOOLS:
+        assert (tool in opts.allowed_tools) is sandbox_enabled
+    assert "Read" in opts.allowed_tools
+    assert "Skill" in opts.allowed_tools
+    if not sandbox_enabled:
+        assert opts.sandbox == {"enabled": False}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("python .claude/skills/generate-video/scripts/generate_video.py --proj=x", "PermissionResultAllow"),
+        ("ffmpeg -i in.mp4 out.mp4", "PermissionResultAllow"),
+        ("ffprobe in.mp4", "PermissionResultAllow"),
+        ("cat /etc/passwd", "PermissionResultDeny"),
+        ("ls -la", "PermissionResultDeny"),
+    ],
+)
+async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, command: str, expected: str) -> None:
+    """sandbox 关闭时白名单 prefix 放行，其余拒；deny 文案派生自 _WINDOWS_BASH_PREFIX_WHITELIST。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=False)
+    callback = await sm._build_can_use_tool_callback("test_sid", [None])
+    result = await callback("Bash", {"command": command}, None)
+    assert type(result).__name__ == expected
+    if expected == "PermissionResultDeny":
+        assert "Bash 白名单" in result.message
+        # deny 文案必须包含所有白名单 prefix（单一真相源）
+        for prefix in SessionManager._WINDOWS_BASH_PREFIX_WHITELIST:
+            assert prefix in result.message
+
+
+@pytest.mark.asyncio
+async def test_windows_bash_management_tools_allowed(tmp_path: Path) -> None:
+    """BashOutput / KillBash 是 Bash 管理工具，回退模式下直接放行。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=False)
+    callback = await sm._build_can_use_tool_callback("test_sid", [None])
+    for tool in ("BashOutput", "KillBash"):
+        result = await callback(tool, {}, None)
+        assert type(result).__name__ == "PermissionResultAllow"

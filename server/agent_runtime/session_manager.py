@@ -309,6 +309,17 @@ class SessionManager:
     DEFAULT_SETTING_SOURCES = ["project"]
     _SDK_ID_TIMEOUT = 60.0
 
+    _BASH_TOOLS: tuple[str, ...] = ("Bash", "BashOutput", "KillBash")
+
+    # Windows 回退（_sandbox_enabled=False）的 Bash 命令白名单：等价于 PR 沙箱化前
+    # main 分支 settings.json permissions.allow 段。也是 _can_use_tool deny hint
+    # 文案的单一真相源（_format_bash_whitelist_deny_message 从此派生）。
+    _WINDOWS_BASH_PREFIX_WHITELIST: tuple[str, ...] = (
+        "python .claude/skills/",
+        "ffmpeg",
+        "ffprobe",
+    )
+
     # Sandbox 启用后 Bash 进入 allowed_tools；具体命令由 SDK Sandbox 自动放行
     # (autoAllowBashIfSandboxed=True)。文件访问控制走 settings.json deny rules
     # + PreToolUse hook 双重防线。
@@ -378,6 +389,7 @@ class SessionManager:
         meta_store: SessionMetaStore,
         projects_root: Path | None = None,
         in_docker: bool = False,
+        sandbox_enabled: bool = True,
     ):
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
@@ -399,6 +411,8 @@ class SessionManager:
         # SandboxSettings.enableWeakerNestedSandbox 标志，由 AssistantService
         # 从 app.state.in_docker 透传。
         self._in_docker = in_docker
+        # False 表示 SDK 不支持当前平台（目前仅 Windows） — Bash 工具走代码白名单回退。
+        self._sandbox_enabled = sandbox_enabled
         # 实例不变量缓存：避免每次 _build_options / hook 都重做 path resolve。
         self._project_root_resolved = self.project_root.resolve()
         self._load_config()
@@ -638,10 +652,17 @@ class SessionManager:
         provider_env = await self._build_provider_env_overrides()
         sandbox_typed = self._build_sandbox_settings()
 
+        # Windows 回退：sandbox 关闭时把 Bash 系列从 allowed_tools 剥离，
+        # 让 _can_use_tool 接管 prefix 白名单匹配（_WINDOWS_BASH_PREFIX_WHITELIST）。
+        allowed_tools = self.DEFAULT_ALLOWED_TOOLS
+        if not self._sandbox_enabled:
+            bash_tools = set(self._BASH_TOOLS)
+            allowed_tools = [t for t in allowed_tools if t not in bash_tools]
+
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self.DEFAULT_SETTING_SOURCES,
-            allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
+            allowed_tools=allowed_tools,
             max_turns=self.max_turns,
             system_prompt=SystemPromptPreset(
                 type="preset",
@@ -1825,11 +1846,15 @@ class SessionManager:
         """构造 SandboxSettings dict（SDK 0.1.80 Python TypedDict 未声明
         filesystem 子结构，但 CLI 运行时透传 JSON 接受）。
 
+        - ``_sandbox_enabled=False``（Windows 回退）：仅返回 ``{"enabled": False}``，
+          Bash 工具改走 ``_WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
         - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
           bwrap profile），对 sandbox 内所有子进程生效。
         - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
         """
+        if not self._sandbox_enabled:
+            return {"enabled": False}
         return {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
@@ -2030,6 +2055,20 @@ class SessionManager:
                     input_data,
                 )
 
+            # Windows 回退：sandbox 关闭时 Bash 系列不在 allowed_tools，
+            # 落到这里走 _WINDOWS_BASH_PREFIX_WHITELIST 代码白名单。
+            if not self._sandbox_enabled and tool_name == "Bash":
+                cmd = str((input_data or {}).get("command") or "").strip()
+                if cmd.startswith(self._WINDOWS_BASH_PREFIX_WHITELIST):
+                    return PermissionResultAllow(updated_input=input_data)
+                if PermissionResultDeny is not None:
+                    return PermissionResultDeny(
+                        message=self._format_bash_whitelist_deny_message(cmd),
+                    )
+            # BashOutput / KillBash 是 Bash 管理类工具，回退模式直接放行。
+            if not self._sandbox_enabled and tool_name in ("BashOutput", "KillBash"):
+                return PermissionResultAllow(updated_input=input_data)
+
             # Whitelist fallback: deny any tool that was not pre-approved
             # by allowed_tools or settings.json allow rules.
             if PermissionResultDeny is not None:
@@ -2046,6 +2085,18 @@ class SessionManager:
             return PermissionResultAllow(updated_input=input_data)
 
         return _can_use_tool
+
+    @classmethod
+    def _format_bash_whitelist_deny_message(cls, command: str) -> str:
+        """Windows 回退 Bash 白名单拒绝文案。从 _WINDOWS_BASH_PREFIX_WHITELIST
+        派生 allowed 列表，避免常量与文案双份漂移。"""
+        allowed_lines = "\n".join(f"  - {prefix}" for prefix in cls._WINDOWS_BASH_PREFIX_WHITELIST)
+        return (
+            f"未授权的 Bash 命令: {command[:200]}\n"
+            "当前 Bash 白名单仅允许以下前缀:\n"
+            f"{allowed_lines}\n"
+            "其他 Bash 命令在 Windows 回退模式下不可用。"
+        )
 
     def _message_to_dict(self, message: Any) -> dict[str, Any]:
         """Convert SDK message to dict for JSON serialization."""

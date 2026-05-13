@@ -57,7 +57,7 @@ from server.app import check_sandbox_available
 def test_sandbox_available_macos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None)
-    check_sandbox_available()  # no raise
+    assert check_sandbox_available() is True
 
 
 def test_sandbox_missing_macos_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,7 +70,7 @@ def test_sandbox_missing_macos_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_sandbox_available_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/bwrap" if name == "bwrap" else None)
-    check_sandbox_available()  # no raise
+    assert check_sandbox_available() is True
 
 
 def test_sandbox_missing_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,10 +80,13 @@ def test_sandbox_missing_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         check_sandbox_available()
 
 
-def test_sandbox_unsupported_platform_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sandbox_windows_warns_not_raises(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """Windows 上 SDK 不支持 sandbox：返回 False + warning，不 raise。"""
     monkeypatch.setattr(platform, "system", lambda: "Windows")
-    with pytest.raises(RuntimeError, match="macOS / Linux only"):
-        check_sandbox_available()
+    with caplog.at_level("WARNING", logger="server.app"):
+        result = check_sandbox_available()
+    assert result is False
+    assert any("SANDBOX_UNSUPPORTED" in record.message for record in caplog.records)
 
 
 from server.app import detect_docker_environment

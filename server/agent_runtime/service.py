@@ -78,14 +78,20 @@ class AssistantService:
         self._snapshot_cache_max = 128
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
-    async def startup(self, *, in_docker: bool = False) -> None:
-        """Run async initialization (must be called from event loop)."""
+    async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
+        """Run async initialization (must be called from event loop).
+
+        ``sandbox_enabled=False`` 时 SessionManager 关闭 SDK SandboxSettings 并
+        把 Bash 工具调用切到代码白名单路径（详见 SessionManager 同名属性）。
+        默认 ``True`` 保持 macOS / Linux 现状不变。
+        """
         if self._startup_done:
             return
         async with self._startup_lock:
             if self._startup_done:
                 return
             self.session_manager._in_docker = bool(in_docker)
+            self.session_manager._sandbox_enabled = bool(sandbox_enabled)
             await self._interrupt_stale_running_sessions()
             self._startup_done = True
 

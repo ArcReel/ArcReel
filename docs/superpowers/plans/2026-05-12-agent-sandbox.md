@@ -2466,6 +2466,12 @@ Create `docs/superpowers/specs/2026-05-12-agent-sandbox-design.acceptance.md`：
 - [ ] macOS 本地：sandbox-exec 启用，PoC 全通
 - [ ] Linux 本地（含 bwrap）：bwrap 启用，PoC 全通
 - [ ] Docker：enableWeakerNestedSandbox 启用，PoC 全通
+- [ ] Windows 回退（SDK 不支持平台）：
+  - `check_sandbox_available()` 在 `platform.system()=="Windows"` 时返回 `False` 不 raise
+  - server 启动成功，启动日志 `Sandbox runtime: enabled=False docker=False`
+  - 新建 agent session `_build_sandbox_settings()` 返回 `{"enabled": False}`，`opts.allowed_tools` 不含 Bash/BashOutput/KillBash
+  - `_can_use_tool` 对白名单 prefix（`python .claude/skills/` / `ffmpeg` / `ffprobe`）放行，其他 Bash 命令返回 `PermissionResultDeny`
+  - env scrub hook + Read/Write/Edit 路径围栏 hook 仍生效
 ```
 
 - [ ] **Step 2: commit**

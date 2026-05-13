@@ -79,8 +79,15 @@ def assert_no_provider_secrets_in_environ() -> None:
         )
 
 
-def check_sandbox_available() -> None:
-    """启动期检测 sandbox 工具可用性，缺失即 fail-fast（不降级）。"""
+def check_sandbox_available() -> bool:
+    """启动期检测 sandbox 工具可用性。
+
+    返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持
+    当前平台（目前仅 Windows — sandboxing.md §"Platform support"），server
+    仍可启动但 sandbox 关闭，Bash 工具回退到
+    ``SessionManager._WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
+    macOS / Linux 工具缺失仍硬失败（受支持平台禁止降级）。
+    """
     system = platform.system()
     if system == "Darwin":
         if shutil.which("sandbox-exec") is None:
@@ -89,7 +96,7 @@ def check_sandbox_available() -> None:
                 "  sandbox-exec: not found in PATH (should be system-installed)\n"
                 "Required for ArcReel agent runtime."
             )
-        return
+        return True
     if system == "Linux":
         if shutil.which("bwrap") is None:
             raise RuntimeError(
@@ -99,8 +106,14 @@ def check_sandbox_available() -> None:
                 "  Ubuntu/Debian: sudo apt install bubblewrap\n"
                 "  Arch:          sudo pacman -S bubblewrap"
             )
-        return
-    raise RuntimeError(f"SANDBOX_UNAVAILABLE on {system}\nAgent sandbox supports macOS / Linux only.")
+        return True
+    logger.warning(
+        "SANDBOX_UNSUPPORTED on %s — server 启动 sandbox=disabled，Bash 工具回退到代码白名单"
+        "（python .claude/skills/.../scripts/*.py / ffmpeg / ffprobe）。"
+        "生产部署推荐 macOS / Linux / Docker；Windows 用户建议使用 WSL2。",
+        system,
+    )
+    return False
 
 
 _DOCKERENV_PATH = Path("/.dockerenv")
@@ -178,11 +191,14 @@ async def lifespan(app: FastAPI):
     # Startup
     # 安全红线检测：先父进程 env 净化，再 sandbox 工具可用性，再 docker 检测
     assert_no_provider_secrets_in_environ()
-    check_sandbox_available()
-    is_docker = detect_docker_environment()
-    logger.info("Sandbox runtime: docker=%s", is_docker)
+    sandbox_enabled = check_sandbox_available()
+    # detect_docker_environment 仅在 sandbox 可用平台有意义（Linux 路径探测）；
+    # Windows 回退时跳过，避免无意义的文件系统调用。
+    is_docker = detect_docker_environment() if sandbox_enabled else False
+    logger.info("Sandbox runtime: enabled=%s docker=%s", sandbox_enabled, is_docker)
 
     app.state.in_docker = is_docker
+    app.state.sandbox_enabled = sandbox_enabled
 
     ensure_auth_password()
 
@@ -250,7 +266,7 @@ async def lifespan(app: FastAPI):
     await startup_http_client()
 
     # Initialize async services
-    await assistant.assistant_service.startup(in_docker=is_docker)
+    await assistant.assistant_service.startup(in_docker=is_docker, sandbox_enabled=sandbox_enabled)
     assistant.assistant_service.session_manager.start_patrol()
 
     logger.info("启动 GenerationWorker...")
