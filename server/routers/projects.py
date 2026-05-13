@@ -162,7 +162,10 @@ async def import_project_archive(
         await asyncio.to_thread(_write_upload)
 
         def _sync():
-            return get_archive_service().import_project_archive(
+            # fork-only: 按当前用户重写归属，避免跨账户 ZIP 导入越权
+            from server.fork_archive import get_user_archive_service
+
+            return get_user_archive_service(get_project_manager(), _user).import_project_archive(
                 Path(upload_path),
                 uploaded_filename=file.filename,
                 conflict_policy=conflict_policy,
