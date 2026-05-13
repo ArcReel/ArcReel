@@ -6,22 +6,20 @@ import platform
 
 import pytest
 
+from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from server.app import (
     assert_no_provider_secrets_in_environ,
     check_sandbox_available,
     detect_docker_environment,
 )
 
+# 复用生产代码（assert_no_provider_secrets_in_environ）所基于的同一份真相源，
+# 避免测试与运行时密钥清单漂移。sorted() 让 parametrize 测试 ID 稳定。
+_SECRET_KEYS_SORTED = sorted(PROVIDER_SECRET_KEYS)
+
 
 def _clear_secret_envs(monkeypatch: pytest.MonkeyPatch) -> None:
-    for k in (
-        "ANTHROPIC_API_KEY",
-        "ARK_API_KEY",
-        "XAI_API_KEY",
-        "GEMINI_API_KEY",
-        "VIDU_API_KEY",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-    ):
+    for k in PROVIDER_SECRET_KEYS:
         monkeypatch.delenv(k, raising=False)
 
 
@@ -30,17 +28,7 @@ def test_clean_environ_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert_no_provider_secrets_in_environ()  # no raise
 
 
-@pytest.mark.parametrize(
-    "leaked_key",
-    [
-        "ANTHROPIC_API_KEY",
-        "ARK_API_KEY",
-        "XAI_API_KEY",
-        "GEMINI_API_KEY",
-        "VIDU_API_KEY",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-    ],
-)
+@pytest.mark.parametrize("leaked_key", _SECRET_KEYS_SORTED)
 def test_any_single_secret_triggers_raise(monkeypatch: pytest.MonkeyPatch, leaked_key: str) -> None:
     _clear_secret_envs(monkeypatch)
     monkeypatch.setenv(leaked_key, "leaked-value")
