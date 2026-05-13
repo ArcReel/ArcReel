@@ -4,9 +4,11 @@ Manages ClaudeSDKClient instances with background execution and reconnection sup
 
 import asyncio
 import contextlib
+import fnmatch
 import json
 import logging
 import os
+import shlex
 import time
 from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field
@@ -328,6 +330,24 @@ class SessionManager:
         ".toml",
     }
 
+    # 敏感文件相对 self.project_root 的路径清单：env/凭据/数据库/agent settings。
+    # settings.json 里的 //app/... deny 规则仅在 Docker 部署内匹配，宿主开发态走
+    # 这里做动态路径比对。
+    _SENSITIVE_RELATIVE_FILES: tuple[str, ...] = (
+        ".env",
+        "projects/.arcreel.db",
+        "projects/.system_config.json",
+        "projects/.system_config.json.bak",
+        "agent_runtime_profile/.claude/settings.json",
+    )
+    # 任意深度子路径都视为敏感（如 vertex_keys 下的全部凭据文件）。
+    _SENSITIVE_RELATIVE_PREFIXES: tuple[str, ...] = ("vertex_keys",)
+    # 单层 fnmatch 模式（命中即拒）。
+    _SENSITIVE_RELATIVE_GLOBS: tuple[str, ...] = (
+        ".env.*",
+        "projects/.arcreel.db-*",
+    )
+
     # Sentinel used in pending_user_echoes for image-only messages (no text).
     # The SDK parser drops image blocks, so the replayed UserMessage arrives
     # with empty content; this sentinel lets _is_duplicate_user_echo match it.
@@ -583,6 +603,10 @@ class SessionManager:
                 "PreToolUse": [
                     HookMatcher(matcher=None, hooks=hook_callbacks),
                     HookMatcher(
+                        matcher="Bash",
+                        hooks=[self._bash_env_scrub_hook],
+                    ),
+                    HookMatcher(
                         matcher="Write|Edit",
                         hooks=[
                             self._build_json_validation_hook(project_cwd, json_backups),
@@ -604,9 +628,12 @@ class SessionManager:
 
         provider_env = await self._build_provider_env_overrides()
 
+        # 沙箱网络默认放行：缺省时 SDK 走严格白名单，curl 会被拦截
+        # (X-Proxy-Error: blocked-by-allowlist)。
         sandbox_settings: SandboxSettings = {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
+            "network": {"allowedDomains": ["*"]},
             "enableWeakerNestedSandbox": bool(getattr(self, "_in_docker", False)),
         }
 
@@ -636,6 +663,36 @@ class SessionManager:
     ) -> dict[str, bool]:
         """Required keep-alive hook for Python can_use_tool callback."""
         return {"continue_": True}
+
+    @staticmethod
+    async def _bash_env_scrub_hook(
+        input_data: dict[str, Any],
+        _tool_use_id: str | None,
+        _context: Any,
+    ) -> dict[str, Any]:
+        """剥离 ANTHROPIC_* env，让 Bash 子进程看不到 Anthropic 认证密钥。
+
+        SDK 子进程持有 ANTHROPIC_API_KEY 用于认证，Bash sandbox 默认从父进程继承
+        全部 env，agent 跑 ``env | grep ANTHROPIC`` 能拿到真值。通过
+        ``env -u VAR ... sh -c '<cmd>'`` 包装把 ANTHROPIC_* 从 Bash subshell 中
+        unset，原 command 经 ``shlex.quote`` 保护后整体作为 sh 子壳的 -c 参数。
+        """
+        from lib.config.env_keys import ANTHROPIC_ENV_KEYS
+
+        tool_input = input_data.get("tool_input") or {}
+        command = tool_input.get("command")
+        if not isinstance(command, str) or not command.strip():
+            return {"continue_": True}
+
+        unset_flags = " ".join(f"-u {key}" for key in ANTHROPIC_ENV_KEYS)
+        wrapped = f"env {unset_flags} sh -c {shlex.quote(command)}"
+        updated_input = {**tool_input, "command": wrapped}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": updated_input,
+            },
+        }
 
     def _build_file_access_hook(
         self,
@@ -1671,6 +1728,26 @@ class SessionManager:
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
+    def _is_sensitive_path(self, resolved: Path) -> bool:
+        """判断已 resolve 的路径是否命中敏感文件清单。
+
+        基于 self.project_root 动态匹配，覆盖 ``.env`` / ``vertex_keys/`` 子树 /
+        ``projects/.arcreel.db*`` / ``projects/.system_config.json*`` /
+        ``agent_runtime_profile/.claude/settings.json`` 等。
+        """
+        try:
+            rel = resolved.relative_to(self.project_root.resolve())
+        except ValueError:
+            return False
+        rel_posix = rel.as_posix()
+
+        if rel_posix in self._SENSITIVE_RELATIVE_FILES:
+            return True
+        for prefix in self._SENSITIVE_RELATIVE_PREFIXES:
+            if rel_posix == prefix or rel_posix.startswith(prefix + "/"):
+                return True
+        return any(fnmatch.fnmatchcase(rel_posix, pat) for pat in self._SENSITIVE_RELATIVE_GLOBS)
+
     def _is_path_allowed(
         self,
         file_path: str,
@@ -1679,7 +1756,8 @@ class SessionManager:
     ) -> tuple[bool, str | None]:
         """检查 file_path 是否允许给定工具访问。
 
-        spec §5.1 / Level B 简化方案 — 三条普适规则：
+        四条普适规则：
+        0. 敏感文件（.env / vertex_keys / .arcreel.db / settings.json 等）一律拒
         1. Read/Glob/Grep：projects/<other>/ 跨项目拒；cwd 外其他路径放行
         2. Write/Edit：cwd 外一律拒
         3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）
@@ -1691,6 +1769,10 @@ class SessionManager:
             resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
         except (ValueError, OSError):
             return False, "访问被拒绝：无效的文件路径"
+
+        # 规则 0: 敏感文件强制拒绝
+        if self._is_sensitive_path(resolved):
+            return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
 
         is_write = tool_name in self._WRITE_TOOLS
         is_inside_cwd = resolved.is_relative_to(project_cwd)

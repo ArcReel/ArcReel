@@ -1,4 +1,4 @@
-"""新版 _is_path_allowed 三规则：跨项目读拒 + cwd 外写拒 + 代码扩展名拒。"""
+"""_is_path_allowed 四规则：敏感文件拒 + 跨项目读拒 + cwd 外写拒 + 代码扩展名拒。"""
 
 from __future__ import annotations
 
@@ -61,3 +61,40 @@ def test_write_cwd_internal_data_ext_allowed(sm: SessionManager) -> None:
     for ext in (".json", ".md", ".txt", ".html", ".csv"):
         allowed, _ = sm._is_path_allowed(str(cwd / f"data{ext}"), "Write", cwd)
         assert allowed, f"扩展名 {ext} 应允许"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        ".env",
+        ".env.local",
+        ".env.production",
+        "vertex_keys/key.json",
+        "vertex_keys/nested/secret.json",
+        "projects/.arcreel.db",
+        "projects/.arcreel.db-shm",
+        "projects/.arcreel.db-wal",
+        "projects/.system_config.json",
+        "projects/.system_config.json.bak",
+        "agent_runtime_profile/.claude/settings.json",
+    ],
+)
+@pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
+def test_sensitive_file_denied(sm: SessionManager, tool: str, relative: str) -> None:
+    """敏感文件无论 Read 还是 Write 一律拒，且报错信息包含"敏感文件"。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    # 文件实际存在与否不影响 deny 判断（resolve() 对不存在路径仍返回绝对路径）
+    target = sm.project_root / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    allowed, reason = sm._is_path_allowed(str(target), tool, cwd)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert reason and "敏感文件" in reason
+
+
+def test_sensitive_glob_pattern_does_not_overmatch(sm: SessionManager, tmp_path: Path) -> None:
+    """`.env.*` 不能误伤 `.environment` 这种命名的合法目录/文件。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    legal = sm.project_root / ".environment"
+    legal.parent.mkdir(parents=True, exist_ok=True)
+    allowed, _ = sm._is_path_allowed(str(legal), "Read", cwd)
+    assert allowed, ".environment 是合法文件，不应被 `.env.*` glob 误伤"
