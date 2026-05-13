@@ -72,7 +72,7 @@ export interface SkillInfo {
   description: string;
   scope: "project" | "user";
   path: string;
-  label?: string;
+  // Backend hint of a Lucide icon id; display name lives in i18n (dashboard:skill_name_<id>).
   icon?: string;
 }
 

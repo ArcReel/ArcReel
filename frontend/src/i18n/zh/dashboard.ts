@@ -1076,6 +1076,14 @@ export default {
   'tool_name_generate_episode_script': '生成剧本',
   'tool_name_normalize_drama_script': '规范化剧本',
   'tool_name_get_video_capabilities': '查询视频模型能力',
+  // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
+  // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
+  'skill_name_manga_workflow': '视频工作流',
+  'skill_name_generate_storyboard': '生成分镜图',
+  'skill_name_generate_grid': '生成宫格图',
+  'skill_name_generate_video': '生成视频',
+  'skill_name_generate_assets': '生成资产图',
+  'skill_name_compose_video': '合成视频',
   // PendingQuestionWizard
   'pending_question_wizard_label': '需要你的选择',
   'pending_question_wizard_step_question': '问题 {{number}}',

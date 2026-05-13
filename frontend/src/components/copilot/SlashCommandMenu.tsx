@@ -1,11 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { LucideIcon } from "lucide-react";
 import {
   Clapperboard,
   Film,
-  LayoutGrid,
+  Grid2x2,
+  Images,
   Scissors,
-  ScrollText,
   Users,
   Zap,
 } from "lucide-react";
@@ -14,22 +15,23 @@ import { useAssistantStore } from "@/stores/assistant-store";
 /** Lucide icon name → component mapping for icons provided by the API. */
 const ICON_MAP: Record<string, LucideIcon> = {
   clapperboard: Clapperboard,
-  "scroll-text": ScrollText,
-  "layout-grid": LayoutGrid,
+  images: Images,
+  "grid-2x2": Grid2x2,
   film: Film,
   users: Users,
   scissors: Scissors,
 };
 
-/** Fallback metadata when API doesn't provide label/icon. */
-const SKILL_META_FALLBACK: Record<string, { label: string; icon: LucideIcon }> = {
-  "manga-workflow":      { label: "视频工作流",   icon: Clapperboard },
-  "generate-script":     { label: "生成剧本",     icon: ScrollText },
-  "generate-storyboard": { label: "生成分镜图",   icon: LayoutGrid },
-  "generate-video":      { label: "生成视频",     icon: Film },
-  "generate-assets":     { label: "生成资产图",   icon: Users },
-  "compose-video":       { label: "合成视频",     icon: Scissors },
-};
+/** Resolve skill display name from i18n; returns undefined on miss so caller can fall back to /skill-name. */
+function useSkillLabel(): (skillName: string) => string | undefined {
+  const { t } = useTranslation("dashboard");
+  return (skillName: string) => {
+    const key = `skill_name_${skillName.replace(/-/g, "_")}`;
+    // i18next defaultValue: undefined → returns undefined if key missing.
+    const value = t(key, { defaultValue: undefined });
+    return typeof value === "string" && value.length > 0 ? value : undefined;
+  };
+}
 
 export interface SlashCommandMenuHandle {
   /** Returns true if the key was consumed (caller should preventDefault). */
@@ -52,6 +54,7 @@ const MENU_ID = "slash-command-menu";
 export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandMenuProps>(
   function SlashCommandMenu({ filter, onSelect }, ref) {
     const { skills } = useAssistantStore();
+    const resolveLabel = useSkillLabel();
     const [activeIndex, setActiveIndex] = useState(0);
 
     const query = filter.toLowerCase();
@@ -60,11 +63,12 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
       (s) =>
         s.name.toLowerCase().includes(query) ||
           s.description.toLowerCase().includes(query) ||
-          (s.label ?? SKILL_META_FALLBACK[s.name]?.label ?? "").includes(query),
+          (resolveLabel(s.name) ?? "").toLowerCase().includes(query),
     );
 
     // Reset active index when filter or list changes
     useEffect(() => {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 输入或匹配列表变化时把选中项重置回首项，是有意的 UI 同步
       setActiveIndex(0);
     }, [filter, filtered.length]);
 
@@ -111,9 +115,8 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
         className="arc-glass-panel absolute bottom-full left-0 right-0 mb-1 max-h-52 overflow-y-auto rounded-lg py-1"
       >
         {filtered.map((skill, i) => {
-          const fallback = SKILL_META_FALLBACK[skill.name];
-          const Icon = (skill.icon && ICON_MAP[skill.icon]) || fallback?.icon || Zap;
-          const label = skill.label || fallback?.label;
+          const Icon = (skill.icon && ICON_MAP[skill.icon]) || Zap;
+          const label = resolveLabel(skill.name);
           const isActive = i === activeIndex;
           return (
             <button

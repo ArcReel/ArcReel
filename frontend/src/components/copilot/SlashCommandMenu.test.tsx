@@ -7,7 +7,7 @@ import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 
 const SKILLS = [
   { name: "manga-workflow", description: "完整工作流", scope: "project" as const, path: "/tmp/a" },
-  { name: "generate-script", description: "用 Gemini 生成 JSON 剧本", scope: "project" as const, path: "/tmp/b" },
+  { name: "generate-storyboard", description: "为剧本场景生成分镜图", scope: "project" as const, path: "/tmp/b" },
   { name: "generate-video", description: "用 Veo 生成视频片段", scope: "project" as const, path: "/tmp/c" },
 ];
 
@@ -22,19 +22,19 @@ describe("SlashCommandMenu", () => {
   it("renders all skills when filter is empty", () => {
     render(<SlashCommandMenu filter="" onSelect={onSelect} />);
     expect(screen.getByText(/manga-workflow/)).toBeInTheDocument();
-    expect(screen.getByText(/generate-script/)).toBeInTheDocument();
+    expect(screen.getByText(/generate-storyboard/)).toBeInTheDocument();
     expect(screen.getByText(/generate-video/)).toBeInTheDocument();
   });
 
   it("filters skills by name", () => {
-    render(<SlashCommandMenu filter="script" onSelect={onSelect} />);
-    expect(screen.getByText(/generate-script/)).toBeInTheDocument();
+    render(<SlashCommandMenu filter="storyboard" onSelect={onSelect} />);
+    expect(screen.getByText(/generate-storyboard/)).toBeInTheDocument();
     expect(screen.queryByText(/manga-workflow/)).not.toBeInTheDocument();
   });
 
   it("filters skills by Chinese label", () => {
-    render(<SlashCommandMenu filter="剧本" onSelect={onSelect} />);
-    expect(screen.getByText(/generate-script/)).toBeInTheDocument();
+    render(<SlashCommandMenu filter="分镜" onSelect={onSelect} />);
+    expect(screen.getByText(/generate-storyboard/)).toBeInTheDocument();
     expect(screen.queryByText(/manga-workflow/)).not.toBeInTheDocument();
   });
 
@@ -51,8 +51,9 @@ describe("SlashCommandMenu", () => {
 
   it("displays Chinese labels for known skills", () => {
     render(<SlashCommandMenu filter="" onSelect={onSelect} />);
+    // 翻译来自 dashboard:skill_name_<id>（i18n setup 已切到 zh，参见 src/test/setup.ts）
     expect(screen.getByText("视频工作流")).toBeInTheDocument();
-    expect(screen.getByText("生成剧本")).toBeInTheDocument();
+    expect(screen.getByText("生成分镜图")).toBeInTheDocument();
     expect(screen.getByText("生成视频")).toBeInTheDocument();
   });
 
@@ -75,13 +76,13 @@ describe("SlashCommandMenu", () => {
 
       // Arrow down → second item
       act(() => { ref.current!.handleKeyDown("ArrowDown"); });
-      const secondOption = screen.getByText(/generate-script/).closest("button")!;
+      const secondOption = screen.getByText(/generate-storyboard/).closest("button")!;
       expect(secondOption).toHaveAttribute("aria-selected", "true");
       expect(firstOption).toHaveAttribute("aria-selected", "false");
 
       // Enter → select second item
       act(() => { ref.current!.handleKeyDown("Enter"); });
-      expect(onSelect).toHaveBeenCalledWith("/generate-script");
+      expect(onSelect).toHaveBeenCalledWith("/generate-storyboard");
     });
 
     it("wraps around when navigating past boundaries", () => {

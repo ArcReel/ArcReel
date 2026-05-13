@@ -1177,6 +1177,14 @@ export default {
   'tool_name_generate_episode_script': 'Tạo kịch bản',
   'tool_name_normalize_drama_script': 'Chuẩn hóa kịch bản',
   'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
+  // Skill display names (single source of truth: user-invocable SKILL.md
+  // dưới agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py kiểm tra đồng bộ)
+  'skill_name_manga_workflow': 'Quy trình video',
+  'skill_name_generate_storyboard': 'Tạo storyboard',
+  'skill_name_generate_grid': 'Tạo lưới',
+  'skill_name_generate_video': 'Tạo video',
+  'skill_name_generate_assets': 'Tạo tài sản',
+  'skill_name_compose_video': 'Ghép video',
   'upload_aborted_project_changed': 'Đã đổi dự án; đã hủy tải lên {{filename}}',
   'workspace_nav_characters': 'Nhân vật',
   'workspace_nav_overview': 'Tổng quan',

@@ -1075,6 +1075,14 @@ export default {
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_normalize_drama_script': 'Normalize drama script',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
+  // Skill display names (single source of truth: user-invocable SKILL.md files
+  // under agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py enforces parity)
+  'skill_name_manga_workflow': 'Video workflow',
+  'skill_name_generate_storyboard': 'Generate storyboard',
+  'skill_name_generate_grid': 'Generate grid',
+  'skill_name_generate_video': 'Generate video',
+  'skill_name_generate_assets': 'Generate assets',
+  'skill_name_compose_video': 'Compose video',
   // PendingQuestionWizard
   'pending_question_wizard_label': 'Your input needed',
   'pending_question_wizard_step_question': 'Question {{number}}',
