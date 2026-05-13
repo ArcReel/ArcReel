@@ -15,7 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 def init_environment():
-    """初始化项目环境：定位项目根 + load .env。"""
+    """初始化项目环境：定位项目根 + load .env。
+
+    在 Agent Bash 沙箱子进程里，``.env`` 会被沙箱拒读（macOS sandbox-exec /
+    Linux bwrap deny list），``env_path.exists()`` 会抛 PermissionError。
+    沙箱子进程不需要 .env —— provider/Anthropic env 已由 SessionManager
+    通过 ``options.env`` 显式注入。这里吞掉 OSError 让 ``import lib`` 链
+    不被沙箱拦截。
+    """
     lib_dir = Path(__file__).parent
     project_root = lib_dir.parent
 
@@ -23,10 +30,19 @@ def init_environment():
         from dotenv import load_dotenv
 
         env_path = project_root / ".env"
-        if env_path.exists():
+        try:
+            env_exists = env_path.exists()
+        except OSError:
+            # 沙箱里 .env 不可读 == 视为不存在
+            env_exists = False
+        if env_exists:
             load_dotenv(env_path)
         else:
-            load_dotenv()
+            # load_dotenv() 默认会向上回溯查找 .env；沙箱里同样可能撞权限墙
+            try:
+                load_dotenv()
+            except OSError:
+                pass
     except ImportError:
         pass
 
