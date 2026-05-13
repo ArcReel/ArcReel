@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any
 
 import portalocker
+import shutil
 from pydantic import BaseModel, Field
 
+from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
 from lib.json_io import atomic_write_json
 from lib.project_change_hints import emit_project_change_hint
@@ -181,17 +183,27 @@ class ProjectManager:
         Returns:
             {"created": int, "repaired": int, "skipped": int, "errors": int}
         """
-        project_root = self.projects_root.parent
-        profile_dir = project_root / "agent_runtime_profile"
+        profile_dir = agent_profile_dir()
 
         SYMLINKS = {
             ".claude": profile_dir / ".claude",
             "CLAUDE.md": profile_dir / "CLAUDE.md",
         }
-        REL_TARGETS = {
-            ".claude": Path("../../agent_runtime_profile/.claude"),
-            "CLAUDE.md": Path("../../agent_runtime_profile/CLAUDE.md"),
-        }
+
+        def _link_or_copy(name: str, target_source: Path, link_path: Path) -> None:
+            """Create symlink to target_source. On Windows, fall back to copy
+            when symlink creation fails (Developer Mode off / non-admin)."""
+            rel_target = os.path.relpath(target_source, link_path.parent)
+            try:
+                os.symlink(rel_target, link_path, target_is_directory=target_source.is_dir())
+            except OSError:
+                if os.name == "nt":
+                    if target_source.is_dir():
+                        shutil.copytree(target_source, link_path)
+                    else:
+                        shutil.copy2(target_source, link_path)
+                else:
+                    raise
 
         stats = {"created": 0, "repaired": 0, "skipped": 0, "errors": 0}
         for name, target_source in SYMLINKS.items():
@@ -202,7 +214,7 @@ class ProjectManager:
                 # 损坏的软连接
                 try:
                     symlink_path.unlink()
-                    symlink_path.symlink_to(REL_TARGETS[name])
+                    _link_or_copy(name, target_source, symlink_path)
                     stats["repaired"] += 1
                 except OSError as e:
                     logger.warning("无法修复项目 %s 的 %s 符号链接: %s", project_dir.name, name, e)
@@ -210,7 +222,7 @@ class ProjectManager:
             elif not symlink_path.exists() and not symlink_path.is_symlink():
                 # 缺失
                 try:
-                    symlink_path.symlink_to(REL_TARGETS[name])
+                    _link_or_copy(name, target_source, symlink_path)
                     stats["created"] += 1
                 except OSError as e:
                     logger.warning("无法为项目 %s 创建 %s 符号链接: %s", project_dir.name, name, e)

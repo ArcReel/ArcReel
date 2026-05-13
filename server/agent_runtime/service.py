@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 from fastapi.sse import ServerSentEvent
 
+from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
 from lib.project_manager import ProjectManager
 from server.agent_runtime.message_utils import extract_plain_user_content
@@ -935,7 +936,7 @@ class AssistantService:
             self.pm.get_project_path(project_name)
 
         source_roots = {
-            "agent": self.project_root / "agent_runtime_profile" / ".claude" / "skills",
+            "agent": agent_profile_dir() / ".claude" / "skills",
         }
 
         skills: list[dict[str, str]] = []

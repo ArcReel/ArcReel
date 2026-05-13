@@ -15,6 +15,14 @@ from server.services.project_archive import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _profile_env(monkeypatch, tmp_path):
+    """Pin agent_profile_dir() to tmp_path/agent_runtime_profile so archive
+    tests' synthetic profile (created at tmp_path level) is the canonical
+    source for repair_claude_symlink()."""
+    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "agent_runtime_profile"))
+
+
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

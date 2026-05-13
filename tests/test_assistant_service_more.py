@@ -12,6 +12,13 @@ from server.agent_runtime.stream_projector import AssistantStreamProjector
 from tests.factories import make_session_meta
 
 
+@pytest.fixture(autouse=True)
+def _profile_env(monkeypatch, tmp_path):
+    """Tests build a fake profile under tmp_path/agent_runtime_profile;
+    pin ARCREEL_PROFILE_DIR so list_available_skills() sees it."""
+    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "agent_runtime_profile"))
+
+
 class _FakePM:
     def __init__(self, valid_project="demo"):
         self.valid_project = valid_project

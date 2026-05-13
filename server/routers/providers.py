@@ -452,7 +452,9 @@ async def upload_vertex_credential(
     repo = CredentialRepository(session)
     cred = await repo.create(provider="gemini-vertex", name=name)
 
-    dest = PROJECT_ROOT / "vertex_keys" / f"vertex_cred_{cred.id}.json"
+    from lib.app_data_dir import app_data_dir
+
+    dest = app_data_dir().parent / "vertex_keys" / f"vertex_cred_{cred.id}.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest.with_suffix(".tmp")
     tmp_path.write_bytes(contents)
