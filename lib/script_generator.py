@@ -180,17 +180,16 @@ class ScriptGenerator:
         logger.info("剧本已保存至 %s", output_path)
         return output_path
 
-    def build_prompt(self, episode: int) -> str:
+    async def build_prompt(self, episode: int) -> str:
         """
         构建 Prompt（用于 dry-run 模式）
 
-        Args:
-            episode: 剧集编号
-
-        Returns:
-            构建好的 Prompt 字符串
+        与 `generate()` 同样先 await `_fetch_video_capabilities()` 解析 caps；
+        这样当 `project.json` 不显式声明 `video_backend`（用户依赖全局/系统默认时）也能
+        正确派生 supported_durations。caps 失败仍 fallback 到 project.json 自身的 sync 链。
         """
         gen_mode = self._effective_generation_mode(episode)
+        caps = await self._fetch_video_capabilities()
         step1_md = self._load_step1(episode)
         characters = self.project_json.get("characters", {})
         scenes = self.project_json.get("scenes", {})
@@ -205,9 +204,9 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 units_md=step1_md,
-                supported_durations=self._resolve_supported_durations(None),
-                max_refs=self._resolve_max_refs(None),
-                max_duration=self._resolve_max_duration(None),
+                supported_durations=self._resolve_supported_durations(caps),
+                max_refs=self._resolve_max_refs(caps),
+                max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
         elif self.content_mode == "narration":
@@ -219,7 +218,7 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 segments_md=step1_md,
-                supported_durations=self._resolve_supported_durations(None),
+                supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
@@ -232,7 +231,7 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 scenes_md=step1_md,
-                supported_durations=self._resolve_supported_durations(None),
+                supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )

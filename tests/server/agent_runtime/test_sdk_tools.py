@@ -405,7 +405,7 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
         def __init__(self, _path):
             pass
 
-        def build_prompt(self, _episode):
+        async def build_prompt(self, _episode):
             return "fake prompt"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)

@@ -39,10 +39,11 @@ def reference_project(tmp_path: Path) -> Path:
     return project_dir
 
 
-def test_script_generator_build_prompt_selects_reference_branch(reference_project: Path):
+@pytest.mark.asyncio
+async def test_script_generator_build_prompt_selects_reference_branch(reference_project: Path):
     """当 generation_mode == reference_video 时，build_prompt 必须走 reference 分支。"""
     gen = ScriptGenerator(reference_project)
-    prompt = gen.build_prompt(episode=1)
+    prompt = await gen.build_prompt(episode=1)
     # reference 分支特征标签
     assert "ReferenceVideoScript" in prompt
     assert "references" in prompt
@@ -51,9 +52,10 @@ def test_script_generator_build_prompt_selects_reference_branch(reference_projec
     assert "characters_in_segment" not in prompt
 
 
-def test_script_generator_reads_step1_reference_units(reference_project: Path):
+@pytest.mark.asyncio
+async def test_script_generator_reads_step1_reference_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
-    prompt = gen.build_prompt(episode=1)
+    prompt = await gen.build_prompt(episode=1)
     # step1_reference_units.md 的内容必须透传
     assert "E1U1" in prompt
 
@@ -137,7 +139,8 @@ def test_resolve_max_refs_by_provider(tmp_path: Path, video_backend, expected):
         ("ark/doubao-seedance-2-0-260128", "15"),
     ],
 )
-def test_build_prompt_injects_max_duration_from_registry(
+@pytest.mark.asyncio
+async def test_build_prompt_injects_max_duration_from_registry(
     tmp_path: Path, video_backend: str, expected_max_duration_sec: str
 ):
     """build_prompt 的 reference 分支应基于 project.json.video_backend 的 model 能力派生 max_duration。"""
@@ -168,16 +171,18 @@ def test_build_prompt_injects_max_duration_from_registry(
     (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
-    prompt = gen.build_prompt(episode=1)
+    prompt = await gen.build_prompt(episode=1)
     assert f"{expected_max_duration_sec} 秒" in prompt
     assert "当前模型上限" in prompt
 
 
-def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
-    """project.json 缺 video_backend 且无 _supported_durations 时，build_prompt 应抛 ValueError。
+@pytest.mark.asyncio
+async def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
+    """project.json 缺 video_backend 且无 _supported_durations 且 caps 不可解析时，build_prompt 应抛 ValueError。
 
-    设计意图（重新设计后）：supported_durations 是单一真相源，必须由 model 配置或显式声明提供；
-    没有就 fail loud，避免向 LLM 注入兜底 [4, 8] 误导生成。
+    设计意图：supported_durations 是单一真相源，必须由 caps（DB 全局默认）或 project.json 显式声明提供；
+    都拿不到才 fail loud，避免向 LLM 注入兜底 [4, 8] 误导生成。
+    用 mock 把 _fetch_video_capabilities 强制返 None，模拟无任何 model 配置的环境。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -205,8 +210,12 @@ def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
     (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
-    with pytest.raises(ValueError, match="supported_durations"):
-        gen.build_prompt(episode=1)
+    with patch(
+        "lib.script_generator.ScriptGenerator._fetch_video_capabilities",
+        new=AsyncMock(return_value=None),
+    ):
+        with pytest.raises(ValueError, match="supported_durations"):
+            await gen.build_prompt(episode=1)
 
 
 @pytest.mark.asyncio
@@ -223,7 +232,8 @@ async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Pa
     assert caps is None
 
 
-def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
     """当 project=storyboard 但 episode=reference_video 时，build_prompt 必须走 reference 分支。
 
     Spec §4.6：`effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`
@@ -257,7 +267,7 @@ def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
     (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
-    prompt = gen.build_prompt(episode=1)
+    prompt = await gen.build_prompt(episode=1)
     # 走 reference 分支：模板包含 ReferenceVideoScript 与 references 字段说明
     assert "ReferenceVideoScript" in prompt
     assert "references" in prompt

@@ -126,7 +126,7 @@ def generate_episode_script_tool(ctx: ToolContext):
 
             if dry_run:
                 generator = ScriptGenerator(project_path)
-                prompt = generator.build_prompt(episode)
+                prompt = await generator.build_prompt(episode)
                 return {
                     "content": [{"type": "text", "text": f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}"}]
                 }

@@ -105,7 +105,7 @@ class TestScriptGenerator:
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
 
         generator = ScriptGenerator(project_path)  # 无 client
-        prompt = generator.build_prompt(1)
+        prompt = await generator.build_prompt(1)
 
         assert "E1S01 | 片段" in prompt
         assert "姜月茴" in prompt
