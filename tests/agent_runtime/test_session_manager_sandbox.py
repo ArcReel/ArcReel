@@ -85,8 +85,8 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
     # 网络默认放行：缺省时 curl 会被 SDK 严格白名单拦截
     assert opts.sandbox.get("network", {}).get("allowedDomains") == ["*"]
-    # denyRead 注入：sandbox profile 内核级文件读拒绝
-    deny_read = opts.sandbox.get("denyRead", [])
+    # filesystem.denyRead 注入：sandbox profile 内核级文件读拒绝
+    deny_read = opts.sandbox.get("filesystem", {}).get("denyRead", [])
     assert isinstance(deny_read, list)
 
 
