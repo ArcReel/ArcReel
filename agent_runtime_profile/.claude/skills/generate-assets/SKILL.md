@@ -71,34 +71,30 @@ description: "统一资产生成 skill：接受 `--type=character|scene|prop`，
 
 ---
 
-## 命令行用法
+## 工具调用
 
-```bash
-# 生成所有类型的待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --all
+入队走 SDK in-process MCP tool（在主进程跑，不受 sandbox 网络/文件约束）：
 
-# 生成指定类型的所有待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --all
-python .claude/skills/generate-assets/scripts/generate_asset.py --type scene --all
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --all
+| 操作 | 工具 |
+|------|------|
+| 列出所有/某类 pending | `mcp__arcreel__list_pending_assets({"type": "character"})`（type 可省略） |
+| 生成所有 pending（三类各一轮） | `mcp__arcreel__generate_assets({})` |
+| 生成某类全部 pending | `mcp__arcreel__generate_assets({"type": "character"})` |
+| 生成指定多个 | `mcp__arcreel__generate_assets({"type": "prop", "names": ["玉佩", "密信"]})` |
+| 生成单个 | `mcp__arcreel__generate_assets({"type": "scene", "names": ["村口老槐树"]})` |
 
-# 生成指定单个资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --name "张三"
-python .claude/skills/generate-assets/scripts/generate_asset.py --type scene --name "村口老槐树"
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --name "玉佩"
+返回 `is_error: true` 时，文本里包含失败明细，按需重试或反馈给开发者。
 
-# 生成指定多个资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --names "张三" "李四"
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --names "玉佩" "密信"
+### 旧 CLI → 新 tool 对照
 
-# 列出所有类型的待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --list
-
-# 列出指定类型的待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --list
-python .claude/skills/generate-assets/scripts/generate_asset.py --type scene --list
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --list
-```
+| 旧脚本（已删除） | 新 tool |
+|---|---|
+| `python ... generate_asset.py --all` | `mcp__arcreel__generate_assets({})` |
+| `python ... generate_asset.py --type T --all` | `mcp__arcreel__generate_assets({"type": "T"})` |
+| `python ... generate_asset.py --type T --name N` | `mcp__arcreel__generate_assets({"type": "T", "names": ["N"]})` |
+| `python ... generate_asset.py --type T --names ...` | `mcp__arcreel__generate_assets({"type": "T", "names": [...]})` |
+| `python ... generate_asset.py --list` | `mcp__arcreel__list_pending_assets({})` |
+| `python ... generate_asset.py --type T --list` | `mcp__arcreel__list_pending_assets({"type": "T"})` |
 
 ## 工作流程
 

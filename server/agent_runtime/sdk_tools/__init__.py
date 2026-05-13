@@ -17,22 +17,38 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server
 
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.enqueue_assets import (
+    generate_assets_tool,
+    list_pending_assets_tool,
+)
+from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
+from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
+from server.agent_runtime.sdk_tools.enqueue_videos import (
+    generate_video_all_tool,
+    generate_video_episode_tool,
+    generate_video_scene_tool,
+    generate_video_selected_tool,
+)
+from server.agent_runtime.sdk_tools.text_generation import get_video_capabilities_tool
 
 __all__ = ["build_arcreel_mcp_server", "ToolContext"]
 
 
 def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
-    """Build the per-session in-process MCP server.
-
-    Tools are added incrementally across commits; commit 1 ships an empty
-    server to exercise the wiring through ``_build_options`` without changing
-    agent behavior.
-    """
+    """Build the per-session in-process MCP server with all ArcReel tools."""
     ctx = ToolContext(project_name=project_name, projects_root=projects_root)
-    # ctx is held by tool closures; silence "unused" lint until commit 2.
-    _ = ctx
     return create_sdk_mcp_server(
         name="arcreel",
         version="1.0.0",
-        tools=[],
+        tools=[
+            list_pending_assets_tool(ctx),
+            generate_assets_tool(ctx),
+            generate_storyboards_tool(ctx),
+            generate_grid_tool(ctx),
+            generate_video_episode_tool(ctx),
+            generate_video_scene_tool(ctx),
+            generate_video_all_tool(ctx),
+            generate_video_selected_tool(ctx),
+            get_video_capabilities_tool(ctx),
+        ],
     )

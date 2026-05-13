@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from functools import cached_property
 from pathlib import Path
 
 from lib.project_manager import ProjectManager
 
 
-@dataclass(slots=True)
 class ToolContext:
     """Bind a tool handler to one agent session's project + projects_root.
 
@@ -17,18 +14,12 @@ class ToolContext:
     to ``project_name`` via ``build_arcreel_mcp_server(project_name=...)``.
     """
 
-    project_name: str
-    projects_root: Path
-    _pm: ProjectManager | None = field(default=None, init=False, repr=False)
-
-    @cached_property
-    def pm(self) -> ProjectManager:
-        """Cached ProjectManager bound to ``projects_root``.
-
-        Avoids ``ProjectManager.from_cwd()`` — the server main process cwd is
-        the repo root, not ``projects/<name>/``.
-        """
-        return ProjectManager(str(self.projects_root))
+    def __init__(self, project_name: str, projects_root: Path, pm: ProjectManager | None = None):
+        self.project_name = project_name
+        self.projects_root = projects_root
+        # Avoid ``ProjectManager.from_cwd()`` — the server main process cwd is
+        # the repo root, not ``projects/<name>/``. Tests may inject a fake pm.
+        self.pm: ProjectManager = pm if pm is not None else ProjectManager(str(projects_root))
 
     @property
     def project_path(self) -> Path:
