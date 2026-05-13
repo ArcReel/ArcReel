@@ -83,3 +83,52 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
     # 非 Docker 默认 weakerNested=False
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
+    # 网络默认放行：缺省时 curl 会被 SDK 严格白名单拦截
+    assert opts.sandbox.get("network", {}).get("allowedDomains") == ["*"]
+
+
+@pytest.mark.asyncio
+async def test_bash_env_scrub_hook_wraps_command_with_env_unset() -> None:
+    """Bash PreToolUse hook 把 command 包装成 ``env -u ANTHROPIC_* sh -c '<orig>'``。"""
+    from lib.config.env_keys import ANTHROPIC_ENV_KEYS
+
+    result = await SessionManager._bash_env_scrub_hook(
+        {"tool_name": "Bash", "tool_input": {"command": "env | grep ANTHROPIC"}},
+        None,
+        None,
+    )
+
+    out = result.get("hookSpecificOutput")
+    assert out is not None
+    assert out["hookEventName"] == "PreToolUse"
+    new_cmd = out["updatedInput"]["command"]
+    # 每个 ANTHROPIC_* key 都被 unset
+    for key in ANTHROPIC_ENV_KEYS:
+        assert f"-u {key}" in new_cmd
+    # 原命令被 shlex.quote 包到 sh -c 内
+    assert "sh -c " in new_cmd
+    assert "'env | grep ANTHROPIC'" in new_cmd
+
+
+@pytest.mark.asyncio
+async def test_bash_env_scrub_hook_handles_single_quotes() -> None:
+    """命令含单引号时不能破坏 shell 引号闭合。"""
+    result = await SessionManager._bash_env_scrub_hook(
+        {"tool_name": "Bash", "tool_input": {"command": "echo 'hello world'"}},
+        None,
+        None,
+    )
+    new_cmd = result["hookSpecificOutput"]["updatedInput"]["command"]
+    # shlex.quote 把 'hello world' 转义为 'echo '"'"'hello world'"'"''
+    assert new_cmd.endswith("'\"'\"'hello world'\"'\"''")
+
+
+@pytest.mark.asyncio
+async def test_bash_env_scrub_hook_passthrough_when_no_command() -> None:
+    """空 command 时直接放行，不做包装。"""
+    result = await SessionManager._bash_env_scrub_hook(
+        {"tool_name": "Bash", "tool_input": {}},
+        None,
+        None,
+    )
+    assert result == {"continue_": True}
