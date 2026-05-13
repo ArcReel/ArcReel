@@ -82,9 +82,9 @@ class TestListenEnvVars:
 
     @staticmethod
     def _resolve() -> tuple[str, int]:
-        from server.app import _resolve_listen_addr
+        import server.app as module
 
-        return _resolve_listen_addr()
+        return module._resolve_listen_addr()
 
     def test_defaults_match_existing_behavior(self):
         env = os.environ.copy()
