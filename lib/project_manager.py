@@ -223,6 +223,17 @@ class ProjectManager:
             if not target_source.exists():
                 continue
             symlink_path = project_dir / name
+
+            # An existing symlink may have been created against a previous
+            # agent_profile_dir() value (e.g. before ARCREEL_PROFILE_DIR was set);
+            # detect and rebuild it so env changes take effect on existing projects.
+            symlink_matches_target = False
+            if symlink_path.is_symlink() and symlink_path.exists():
+                try:
+                    symlink_matches_target = symlink_path.resolve() == target_source.resolve()
+                except OSError:
+                    symlink_matches_target = False
+
             if symlink_path.is_symlink() and not symlink_path.exists():
                 # 损坏的软连接
                 try:
@@ -231,6 +242,15 @@ class ProjectManager:
                     stats["repaired"] += 1
                 except OSError as e:
                     logger.warning("无法修复项目 %s 的 %s 符号链接: %s", project_dir.name, name, e)
+                    stats["errors"] += 1
+            elif symlink_path.is_symlink() and not symlink_matches_target:
+                # 指向旧 profile，需刷新到当前 agent_profile_dir()
+                try:
+                    symlink_path.unlink()
+                    _link_or_copy(name, target_source, symlink_path)
+                    stats["repaired"] += 1
+                except OSError as e:
+                    logger.warning("无法更新项目 %s 的 %s 符号链接: %s", project_dir.name, name, e)
                     stats["errors"] += 1
             elif not symlink_path.exists() and not symlink_path.is_symlink():
                 # 缺失

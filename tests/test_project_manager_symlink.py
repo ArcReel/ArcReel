@@ -125,6 +125,33 @@ class TestRepairClaudeSymlink:
 
         assert not (project_dir / ".claude").exists()
 
+    def test_repair_refreshes_stale_symlink_after_profile_dir_change(self, tmp_path, monkeypatch):
+        """ARCREEL_PROFILE_DIR 变更后，存量项目里指向旧 profile 的 symlink 应被刷到新 profile。"""
+        projects_root = tmp_path / "projects"
+        projects_root.mkdir()
+        project_dir = projects_root / "test-proj"
+        project_dir.mkdir()
+
+        # 旧 profile：autouse fixture 已 pin 在 tmp_path/agent_runtime_profile
+        old_profile = tmp_path / "agent_runtime_profile"
+        (old_profile / ".claude").mkdir(parents=True)
+        (old_profile / "CLAUDE.md").write_text("old")
+
+        pm = ProjectManager(projects_root)
+        pm.repair_claude_symlink(project_dir)
+
+        # 切到新 profile 路径，content 完全不同
+        new_profile = tmp_path / "alt_profile"
+        (new_profile / ".claude").mkdir(parents=True)
+        (new_profile / "CLAUDE.md").write_text("new")
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(new_profile))
+
+        stats = pm.repair_claude_symlink(project_dir)
+
+        assert stats["repaired"] == 2  # .claude + CLAUDE.md 都被刷新
+        assert (project_dir / ".claude").resolve() == (new_profile / ".claude").resolve()
+        assert (project_dir / "CLAUDE.md").resolve() == (new_profile / "CLAUDE.md").resolve()
+
 
 class TestRepairAllSymlinks:
     def test_repair_all_returns_stats(self, tmp_path):
