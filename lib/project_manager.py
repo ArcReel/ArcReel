@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import unicodedata
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -17,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import portalocker
-import shutil
 from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
