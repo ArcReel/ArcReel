@@ -251,6 +251,27 @@ def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> N
     assert settings["allowUnsandboxedCommands"] is False
     assert "allowedDomains" in settings["network"]
     assert "denyRead" in settings["filesystem"]
+    # allowWrite 必含 projects_root：放行 .arcreel.db / .db-shm / .db-wal 三件套
+    # （sandbox cwd = projects/<proj>/，默认禁写父级，会导致 skill 脚本直连
+    # SQLite 写 db 时报 "attempt to write a readonly database"）
+    assert "allowWrite" in settings["filesystem"]
+    assert str(sm.projects_root) in settings["filesystem"]["allowWrite"]
+
+
+def test_build_sandbox_settings_allowwrite_covers_arcreel_db(tmp_path: Path) -> None:
+    """allowWrite 必须覆盖 projects/.arcreel.db 路径。
+
+    skill 脚本（generate-script / generate-grid / ...）通过 UsageTracker /
+    generation_queue_client 写 ApiCall / Task 行，db 位于 projects 根下、
+    sandbox cwd（projects/<proj>/）的父级。OS 级 sandbox 默认只允许写 cwd
+    子树，必须把 projects_root 加进 allowWrite 否则 SQLite 报 readonly。
+    """
+    sm = _make_session_manager(tmp_path, sandbox_enabled=True)
+    allow_write = sm._build_sandbox_settings()["filesystem"]["allowWrite"]
+    db_path = sm.projects_root / ".arcreel.db"
+    assert any(
+        Path(p) in (db_path.parent, db_path.parent.parent) or db_path.is_relative_to(Path(p)) for p in allow_write
+    )
 
 
 @pytest.mark.asyncio

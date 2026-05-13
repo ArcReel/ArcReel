@@ -1850,6 +1850,12 @@ class SessionManager:
           Bash 工具改走 ``_WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
         - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
           bwrap profile），对 sandbox 内所有子进程生效。
+        - ``filesystem.allowWrite``：放行 ``projects/`` 目录的写权限。SDK 沙箱
+          默认只允许写 cwd（``projects/<proj>/``），其子进程 — 包括 skill 脚本通过
+          ``lib.generation_queue_client`` / ``UsageTracker`` 直连 SQLite 写
+          ``projects/.arcreel.db`` — 会落到 cwd 的父级，触发 "attempt to write a
+          readonly database"。projects 根目录下除 ``.arcreel.db*`` 外都是项目子目录
+          （本就在 cwd 子树内），等价于只额外放行 db 三件套，对其他写路径无副作用。
         - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
         """
@@ -1861,7 +1867,10 @@ class SessionManager:
             "allowUnsandboxedCommands": False,
             "network": {"allowedDomains": list(self._build_sandbox_allowed_domains())},
             "enableWeakerNestedSandbox": bool(self._in_docker),
-            "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
+            "filesystem": {
+                "denyRead": self._build_sensitive_abs_paths(),
+                "allowWrite": [str(self.projects_root)],
+            },
         }
 
     def _build_sensitive_abs_paths(self) -> list[str]:
