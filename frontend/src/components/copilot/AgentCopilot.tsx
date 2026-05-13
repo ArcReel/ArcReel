@@ -187,6 +187,7 @@ export function AgentCopilot() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageGenRef = useRef(0);
   const slashMenuRef = useRef<SlashCommandMenuHandle>(null);
@@ -280,7 +281,7 @@ export function AgentCopilot() {
     }
   }, [inputDisabled, localInput, attachedImages, sendMessage]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Delegate to slash menu when open
     if (showSlashMenu && slashMenuRef.current) {
       const consumed = slashMenuRef.current.handleKeyDown(e.key);
@@ -291,6 +292,10 @@ export function AgentCopilot() {
       }
     }
     if (e.key === "Enter" && !e.shiftKey) {
+      const nativeEvent = e.nativeEvent;
+      if (nativeEvent.isComposing || nativeEvent.keyCode === 229 || isComposingRef.current) {
+        return;
+      }
       e.preventDefault();
       handleSend();
     }
@@ -590,6 +595,12 @@ export function AgentCopilot() {
             value={localInput}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+            }}
             onPaste={handlePaste}
             placeholder={inputPlaceholder}
             rows={1}

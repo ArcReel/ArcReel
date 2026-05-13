@@ -122,4 +122,32 @@ describe("AgentCopilot", () => {
     fireEvent.click(screen.getByTitle("切换会话"));
     expect(document.querySelector(`.${UI_LAYERS.assistantLocalPopover}`)).toBeTruthy();
   });
+
+  it("does not send when Enter is used to confirm an IME composition", () => {
+    render(<AgentCopilot />);
+
+    const textarea = screen.getByLabelText("助手输入");
+    fireEvent.change(textarea, { target: { value: "你好" } });
+
+    fireEvent.compositionStart(textarea);
+    fireEvent.keyDown(textarea, {
+      key: "Enter",
+      code: "Enter",
+      keyCode: 229,
+      which: 229,
+      isComposing: true,
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(textarea);
+    fireEvent.keyDown(textarea, {
+      key: "Enter",
+      code: "Enter",
+      keyCode: 13,
+      which: 13,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith("你好", undefined);
+  });
 });
