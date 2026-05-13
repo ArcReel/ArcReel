@@ -2145,6 +2145,8 @@ git commit -m "refactor(agent): can_use_tool deny hint 文案对齐沙箱化"
 
 ### Task 4.6: settings.json 瘦身
 
+> **最终状态注记**：本任务的目标态（13 条 deny 列表）是过渡态。落地后实测发现 sandbox profile 的 `filesystem.denyRead` 已经在内核级阻断同样路径，settings.json deny 成了第二条冗余防线。后续清理 commit `6522521a` 将 settings.json 整段清空为 `{}`，敏感文件防护改由 `SessionManager._build_sensitive_abs_paths()` 动态注入 `sandbox.filesystem.denyRead` + PreToolUse hook 双层兜底。若按 plan 重新执行，请直接跳到清空 `{}` 的最终状态，不要中转 13 条 deny 列表。
+
 **Files:**
 - Modify: `agent_runtime_profile/.claude/settings.json`
 
@@ -2453,7 +2455,9 @@ Create `docs/superpowers/specs/2026-05-12-agent-sandbox-design.acceptance.md`：
 - [ ] agent 在项目目录内自由跑 ls / cat / jq / python -c
 - [ ] 新增 skill 脚本无需改权限配置
   - 临时加一个 echo skill，调用不报权限错
-- [ ] agent 可自由 curl 任意域名
+- [ ] agent 可访问白名单内的域名
+  - 默认白名单：anthropic.com / googleapis.com / volces.com / x.ai 等内置 provider 域
+  - 扩展：`ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS=custom.io,*.internal.corp uv run uvicorn ...` 逗号分隔追加
 - [ ] 切换 Anthropic 配置后新 session 生效
   - 旧 session 仍用旧值；新建 session 用新值
 
