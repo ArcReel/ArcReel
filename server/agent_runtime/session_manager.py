@@ -630,15 +630,19 @@ class SessionManager:
 
         # 沙箱网络默认放行：缺省时 SDK 走严格白名单，curl 会被拦截
         # (X-Proxy-Error: blocked-by-allowlist)。
-        # denyRead 列表是内核级文件读拒绝（macOS Seatbelt / Linux bwrap profile），
-        # 对所有 sandbox 内子进程生效，包括 Bash 跑的 cat/jq/python 等。SDK 0.1.80
-        # Python TypedDict 未声明此字段，但 CLI 接受（运行时 JSON 序列化透传）。
+        # sandbox.filesystem.denyRead 是内核级文件读拒绝（macOS Seatbelt /
+        # Linux bwrap profile），对 sandbox 内所有子进程生效，包括 Bash 跑的
+        # cat/jq/python 等。SDK 0.1.80 Python TypedDict 未声明 filesystem
+        # 子结构，但 CLI 接受（运行时 JSON 透传）。
         sandbox_settings: dict[str, Any] = {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
+            # 关掉 dangerouslyDisableSandbox 这个 agent 自救门：默认 agent 可在
+            # sandbox 失败时请求"重试 unsandboxed"，对我们的红线场景不可接受。
+            "allowUnsandboxedCommands": False,
             "network": {"allowedDomains": ["*"]},
             "enableWeakerNestedSandbox": bool(getattr(self, "_in_docker", False)),
-            "denyRead": self._build_sensitive_abs_paths(),
+            "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
         }
         sandbox_typed: SandboxSettings = sandbox_settings  # type: ignore[assignment]
 

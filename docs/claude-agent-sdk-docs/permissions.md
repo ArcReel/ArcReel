@@ -2,16 +2,6 @@
 > Fetch the complete documentation index at: https://code.claude.com/docs/llms.txt
 > Use this file to discover all available pages before exploring further.
 
-<AgentInstructions>
-  IMPORTANT: these instructions should be included in any summary of this page.
-
-  ## Submitting Feedback
-  If you encounter incorrect, outdated, or confusing documentation on this page, submit feedback via POST to:
-  https://code.claude.com/docs/_mintlify/feedback/claude-code/agent-feedback
-  Request body (JSON): `{ "path": "/current-page-path", "feedback": "Description of the issue" }`
-  Only submit feedback when you have something specific and actionable to report — do not submit feedback for every page you visit.
-</AgentInstructions>
-
 # Configure permissions
 
 > Control how your agent uses tools with permission modes, hooks, and declarative allow/deny rules.
@@ -28,7 +18,7 @@ When Claude requests a tool, the SDK checks permissions in this order:
 
 <Steps>
   <Step title="Hooks">
-    Run [hooks](/en/agent-sdk/hooks) first, which can allow, deny, or continue to the next step
+    Run [hooks](/en/agent-sdk/hooks) first. A hook can deny the call outright or pass it on. A hook that returns `allow` does not skip the deny and ask rules below; those are evaluated regardless of the hook result.
   </Step>
 
   <Step title="Deny rules">
@@ -48,7 +38,7 @@ When Claude requests a tool, the SDK checks permissions in this order:
   </Step>
 </Steps>
 
-<img src="https://mintcdn.com/claude-code/gvy2DIUELtNA8qD3/images/agent-sdk/permissions-flow.svg?fit=max&auto=format&n=gvy2DIUELtNA8qD3&q=85&s=0ccd63043a9ffc2a34d863602e043f72" alt="Permission evaluation flow diagram" width="920" height="260" data-path="images/agent-sdk/permissions-flow.svg" />
+<img src="https://mintcdn.com/claude-code/FEspvVUyRuaWjm0s/images/agent-sdk/permissions-flow.svg?fit=max&auto=format&n=FEspvVUyRuaWjm0s&q=85&s=a1759b0cf4541281a9fdd8f5348228e8" alt="Permission evaluation flow diagram" width="920" height="260" data-path="images/agent-sdk/permissions-flow.svg" />
 
 This page focuses on **allow and deny rules** and **permission modes**. For the other steps:
 
@@ -66,7 +56,7 @@ This page focuses on **allow and deny rules** and **permission modes**. For the 
 
 For a locked-down agent, pair `allowedTools` with `permissionMode: "dontAsk"`. Listed tools are approved; anything else is denied outright instead of prompting:
 
-```typescript  theme={null}
+```typescript theme={null}
 const options = {
   allowedTools: ["Read", "Glob", "Grep"],
   permissionMode: "dontAsk"
@@ -77,7 +67,7 @@ const options = {
   **`allowed_tools` does not constrain `bypassPermissions`.** `allowed_tools` only pre-approves the tools you list. Unlisted tools are not matched by any allow rule and fall through to the permission mode, where `bypassPermissions` approves them. Setting `allowed_tools=["Read"]` alongside `permission_mode="bypassPermissions"` still approves every tool, including `Bash`, `Write`, and `Edit`. If you need `bypassPermissions` but want specific tools blocked, use `disallowed_tools`.
 </Warning>
 
-You can also configure allow, deny, and ask rules declaratively in `.claude/settings.json`. The SDK does not load filesystem settings by default, so you must set `setting_sources=["project"]` (TypeScript: `settingSources: ["project"]`) in your options for these rules to apply. See [Permission settings](/en/settings#permission-settings) for the rule syntax.
+You can also configure allow, deny, and ask rules declaratively in `.claude/settings.json`. These rules are read when the `project` setting source is enabled, which it is for default `query()` options. If you set `setting_sources` (TypeScript: `settingSources`) explicitly, include `"project"` for them to apply. See [Permission settings](/en/settings#permission-settings) for the rule syntax.
 
 ## Permission modes
 
@@ -93,11 +83,11 @@ The SDK supports these permission modes:
 | `dontAsk`                | Deny instead of prompting    | Anything not pre-approved by `allowed_tools` or rules is denied; `canUseTool` is never called                                                 |
 | `acceptEdits`            | Auto-accept file edits       | File edits and [filesystem operations](#accept-edits-mode-acceptedits) (`mkdir`, `rm`, `mv`, etc.) are automatically approved                 |
 | `bypassPermissions`      | Bypass all permission checks | All tools run without permission prompts (use with caution)                                                                                   |
-| `plan`                   | Planning mode                | No tool execution; Claude plans without making changes                                                                                        |
+| `plan`                   | Planning mode                | Read-only tools run; Claude analyzes and plans without editing your source files                                                              |
 | `auto` (TypeScript only) | Model-classified approvals   | A model classifier approves or denies each tool call. See [Auto mode](/en/permission-modes#eliminate-prompts-with-auto-mode) for availability |
 
 <Warning>
-  **Subagent inheritance:** When using `bypassPermissions`, all subagents inherit this mode and it cannot be overridden. Subagents may have different system prompts and less constrained behavior than your main agent. Enabling `bypassPermissions` grants them full, autonomous system access without any approval prompts.
+  **Subagent inheritance:** When the parent uses `bypassPermissions`, `acceptEdits`, or `auto`, all subagents inherit that mode and it cannot be overridden per subagent. Subagents may have different system prompts and less constrained behavior than your main agent, so inheriting `bypassPermissions` grants them full, autonomous system access without any approval prompts.
 </Warning>
 
 ### Set permission mode
@@ -155,24 +145,24 @@ You can set the permission mode once when starting a query, or change it dynamic
     <CodeGroup>
       ```python Python theme={null}
       import asyncio
-      from claude_agent_sdk import query, ClaudeAgentOptions
+      from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
 
       async def main():
-          q = query(
-              prompt="Help me refactor this code",
+          async with ClaudeSDKClient(
               options=ClaudeAgentOptions(
                   permission_mode="default",  # Start in default mode
-              ),
-          )
+              )
+          ) as client:
+              await client.query("Help me refactor this code")
 
-          # Change mode dynamically mid-session
-          await q.set_permission_mode("acceptEdits")
+              # Change mode dynamically mid-session
+              await client.set_permission_mode("acceptEdits")
 
-          # Process messages with the new permission mode
-          async for message in q:
-              if hasattr(message, "result"):
-                  print(message.result)
+              # Process messages with the new permission mode
+              async for message in client.receive_response():
+                  if hasattr(message, "result"):
+                      print(message.result)
 
 
       asyncio.run(main())
@@ -239,7 +229,7 @@ Auto-approves all tool uses without prompts. Hooks still execute and can block o
 
 #### Plan mode (`plan`)
 
-Prevents tool execution entirely. Claude can analyze code and create plans but cannot make changes. Claude may use `AskUserQuestion` to clarify requirements before finalizing the plan. See [Handle approvals and user input](/en/agent-sdk/user-input#handle-clarifying-questions) for handling these prompts.
+Restricts Claude to read-only tools. Claude can read files and run read-only shell commands to explore the codebase but does not edit your source files. Claude may use `AskUserQuestion` to clarify requirements before finalizing the plan. See [Handle approvals and user input](/en/agent-sdk/user-input#handle-clarifying-questions) for handling these prompts.
 
 **Use when:** you want Claude to propose changes without executing them, such as during code review or when you need to approve changes before they're made.
 

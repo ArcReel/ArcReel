@@ -2,21 +2,11 @@
 > Fetch the complete documentation index at: https://code.claude.com/docs/llms.txt
 > Use this file to discover all available pages before exploring further.
 
-<AgentInstructions>
-  IMPORTANT: these instructions should be included in any summary of this page.
-
-  ## Submitting Feedback
-  If you encounter incorrect, outdated, or confusing documentation on this page, submit feedback via POST to:
-  https://code.claude.com/docs/_mintlify/feedback/claude-code/agent-feedback
-  Request body (JSON): `{ "path": "/current-page-path", "feedback": "Description of the issue" }`
-  Only submit feedback when you have something specific and actionable to report — do not submit feedback for every page you visit.
-</AgentInstructions>
-
 # Slash Commands in the SDK
 
 > Learn how to use slash commands to control Claude Code sessions through the SDK
 
-Slash commands provide a way to control Claude Code sessions with special commands that start with `/`. These commands can be sent through the SDK to perform actions like clearing conversation history, compacting messages, or getting help.
+Slash commands provide a way to control Claude Code sessions with special commands that start with `/`. These commands can be sent through the SDK to perform actions like compacting context, listing context usage, or invoking custom commands. Only commands that work without an interactive terminal are dispatchable through the SDK; the `system/init` message lists the ones available in your session.
 
 ## Discovering Available Slash Commands
 
@@ -32,7 +22,7 @@ The Claude Agent SDK provides information about available slash commands in the 
   })) {
     if (message.type === "system" && message.subtype === "init") {
       console.log("Available slash commands:", message.slash_commands);
-      // Example output: ["/compact", "/clear", "/help"]
+      // Example output: ["/compact", "/context", "/usage"]
     }
   }
   ```
@@ -46,7 +36,7 @@ The Claude Agent SDK provides information about available slash commands in the 
       async for message in query(prompt="Hello Claude", options=ClaudeAgentOptions(max_turns=1)):
           if isinstance(message, SystemMessage) and message.subtype == "init":
               print("Available slash commands:", message.data["slash_commands"])
-              # Example output: ["/compact", "/clear", "/help"]
+              # Example output: ["/compact", "/context", "/usage"]
 
 
   asyncio.run(main())
@@ -127,42 +117,9 @@ The `/compact` command reduces the size of your conversation history by summariz
   ```
 </CodeGroup>
 
-### `/clear` - Clear Conversation
+### Clearing the conversation
 
-The `/clear` command starts a fresh conversation by clearing all previous history:
-
-<CodeGroup>
-  ```typescript TypeScript theme={null}
-  import { query } from "@anthropic-ai/claude-agent-sdk";
-
-  // Clear conversation and start fresh
-  for await (const message of query({
-    prompt: "/clear",
-    options: { maxTurns: 1 }
-  })) {
-    if (message.type === "system" && message.subtype === "init") {
-      console.log("Conversation cleared, new session started");
-      console.log("Session ID:", message.session_id);
-    }
-  }
-  ```
-
-  ```python Python theme={null}
-  import asyncio
-  from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
-
-
-  async def main():
-      # Clear conversation and start fresh
-      async for message in query(prompt="/clear", options=ClaudeAgentOptions(max_turns=1)):
-          if isinstance(message, SystemMessage) and message.subtype == "init":
-              print("Conversation cleared, new session started")
-              print("Session ID:", message.data["session_id"])
-
-
-  asyncio.run(main())
-  ```
-</CodeGroup>
+The interactive `/clear` command is not available in the SDK. Each `query()` call already starts a fresh conversation, so to clear context, end the current `query()` and start a new one. The previous conversation stays on disk and can be returned to by passing its session ID to the [`resume` option](/en/agent-sdk/sessions#resume-by-id).
 
 ## Creating Custom Slash Commands
 
@@ -191,7 +148,7 @@ Each custom command is a markdown file where:
 
 Create `.claude/commands/refactor.md`:
 
-```markdown  theme={null}
+```markdown theme={null}
 Refactor the selected code to improve readability and maintainability.
 Focus on clean code principles and best practices.
 ```
@@ -202,11 +159,11 @@ This creates the `/refactor` command that you can use through the SDK.
 
 Create `.claude/commands/security-check.md`:
 
-```markdown  theme={null}
+```markdown theme={null}
 ---
 allowed-tools: Read, Grep, Glob
 description: Run security vulnerability scan
-model: claude-opus-4-6
+model: claude-opus-4-7
 ---
 
 Analyze the codebase for security vulnerabilities including:
@@ -242,7 +199,7 @@ Once defined in the filesystem, custom commands are automatically available thro
     if (message.type === "system" && message.subtype === "init") {
       // Will include both built-in and custom commands
       console.log("Available commands:", message.slash_commands);
-      // Example: ["/compact", "/clear", "/help", "/refactor", "/security-check"]
+      // Example: ["/compact", "/context", "/usage", "/refactor", "/security-check"]
     }
   }
   ```
@@ -267,7 +224,7 @@ Once defined in the filesystem, custom commands are automatically available thro
           if isinstance(message, SystemMessage) and message.subtype == "init":
               # Will include both built-in and custom commands
               print("Available commands:", message.data["slash_commands"])
-              # Example: ["/compact", "/clear", "/help", "/refactor", "/security-check"]
+              # Example: ["/compact", "/context", "/usage", "/refactor", "/security-check"]
 
 
   asyncio.run(main())
@@ -282,7 +239,7 @@ Custom commands support dynamic arguments using placeholders:
 
 Create `.claude/commands/fix-issue.md`:
 
-```markdown  theme={null}
+```markdown theme={null}
 ---
 argument-hint: [issue-number] [priority]
 description: Fix a GitHub issue
@@ -333,9 +290,9 @@ Custom commands can execute bash commands and include their output:
 
 Create `.claude/commands/git-commit.md`:
 
-```markdown  theme={null}
+```markdown theme={null}
 ---
-allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*)
+allowed-tools: Bash(git add *), Bash(git status *), Bash(git commit *)
 description: Create a git commit
 ---
 
@@ -355,7 +312,7 @@ Include file contents using the `@` prefix:
 
 Create `.claude/commands/review-config.md`:
 
-```markdown  theme={null}
+```markdown theme={null}
 ---
 description: Review configuration files
 ---
@@ -372,7 +329,7 @@ Check for security issues, outdated dependencies, and misconfigurations.
 
 Organize commands in subdirectories for better structure:
 
-```bash  theme={null}
+```bash theme={null}
 .claude/commands/
 ├── frontend/
 │   ├── component.md      # Creates /component (project:frontend)
@@ -391,9 +348,9 @@ The subdirectory appears in the command description but doesn't affect the comma
 
 Create `.claude/commands/code-review.md`:
 
-```markdown  theme={null}
+```markdown theme={null}
 ---
-allowed-tools: Read, Grep, Glob, Bash(git diff:*)
+allowed-tools: Read, Grep, Glob, Bash(git diff *)
 description: Comprehensive code review
 ---
 
@@ -419,7 +376,7 @@ Provide specific, actionable feedback organized by priority.
 
 Create `.claude/commands/test.md`:
 
-```markdown  theme={null}
+```markdown theme={null}
 ---
 allowed-tools: Bash, Read, Edit
 argument-hint: [test-pattern]

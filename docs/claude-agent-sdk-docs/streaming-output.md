@@ -2,16 +2,6 @@
 > Fetch the complete documentation index at: https://code.claude.com/docs/llms.txt
 > Use this file to discover all available pages before exploring further.
 
-<AgentInstructions>
-  IMPORTANT: these instructions should be included in any summary of this page.
-
-  ## Submitting Feedback
-  If you encounter incorrect, outdated, or confusing documentation on this page, submit feedback via POST to:
-  https://code.claude.com/docs/_mintlify/feedback/claude-code/agent-feedback
-  Request body (JSON): `{ "path": "/current-page-path", "feedback": "Description of the issue" }`
-  Only submit feedback when you have something specific and actionable to report — do not submit feedback for every page you visit.
-</AgentInstructions>
-
 # Stream responses in real-time
 
 > Get real-time responses from the Agent SDK as text and tool calls stream in
@@ -103,7 +93,7 @@ Both contain raw Claude API events, not accumulated text. You need to extract an
   ```typescript TypeScript theme={null}
   type SDKPartialAssistantMessage = {
     type: "stream_event";
-    event: RawMessageStreamEvent; // From Anthropic SDK
+    event: BetaRawMessageStreamEvent; // From Anthropic SDK
     parent_tool_use_id: string | null;
     uuid: UUID;
     session_id: string;
@@ -126,7 +116,7 @@ The `event` field contains the raw streaming event from the [Claude API](https:/
 
 With partial messages enabled, you receive messages in this order:
 
-```text  theme={null}
+```text theme={null}
 StreamEvent (message_start)
 StreamEvent (content_block_start) - text block
 StreamEvent (content_block_delta) - text chunks...

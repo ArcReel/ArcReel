@@ -2,16 +2,6 @@
 > Fetch the complete documentation index at: https://code.claude.com/docs/llms.txt
 > Use this file to discover all available pages before exploring further.
 
-<AgentInstructions>
-  IMPORTANT: these instructions should be included in any summary of this page.
-
-  ## Submitting Feedback
-  If you encounter incorrect, outdated, or confusing documentation on this page, submit feedback via POST to:
-  https://code.claude.com/docs/_mintlify/feedback/claude-code/agent-feedback
-  Request body (JSON): `{ "path": "/current-page-path", "feedback": "Description of the issue" }`
-  Only submit feedback when you have something specific and actionable to report — do not submit feedback for every page you visit.
-</AgentInstructions>
-
 # Plugins in the SDK
 
 > Load custom plugins to extend Claude Code with commands, agents, skills, and hooks through the Agent SDK
@@ -35,7 +25,7 @@ For complete information on plugin structure and how to create plugins, see [Plu
 
 ## Loading plugins
 
-Load plugins by providing their local file system paths in your options configuration. The SDK supports loading multiple plugins from different locations.
+Load plugins by providing their local file system paths in your options configuration. The `type` field must be `"local"`, the only value the SDK accepts. To use a plugin distributed through a [marketplace](/en/plugin-marketplaces) or remote repository, download it first and provide the local directory path. The SDK supports loading multiple plugins from different locations.
 
 <CodeGroup>
   ```typescript TypeScript theme={null}
@@ -267,7 +257,7 @@ Here's a full example demonstrating plugin loading and usage:
 
 A plugin directory must contain a `.claude-plugin/plugin.json` manifest file. It can optionally include:
 
-```text  theme={null}
+```text theme={null}
 my-plugin/
 ├── .claude-plugin/
 │   └── plugin.json          # Required: plugin manifest
@@ -294,7 +284,7 @@ For detailed information on creating plugins, see:
 
 Load plugins during development without installing them globally:
 
-```typescript  theme={null}
+```typescript theme={null}
 plugins: [{ type: "local", path: "./dev-plugins/my-plugin" }];
 ```
 
@@ -302,7 +292,7 @@ plugins: [{ type: "local", path: "./dev-plugins/my-plugin" }];
 
 Include plugins in your project repository for team-wide consistency:
 
-```typescript  theme={null}
+```typescript theme={null}
 plugins: [{ type: "local", path: "./project-plugins/team-workflows" }];
 ```
 
@@ -310,7 +300,7 @@ plugins: [{ type: "local", path: "./project-plugins/team-workflows" }];
 
 Combine plugins from different locations:
 
-```typescript  theme={null}
+```typescript theme={null}
 plugins: [
   { type: "local", path: "./local-plugin" },
   { type: "local", path: "~/.claude/custom-plugins/shared-plugin" }
