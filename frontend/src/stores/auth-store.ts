@@ -26,19 +26,31 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     // 无 token 时先问后端是否启用了鉴权。`AUTH_ENABLED=false`（桌面壳 / 单
     // 用户场景）下后端全链路 bypass，前端也应该跳过登录页直接进主界面。
-    // 网络异常时退回到原有行为（显示登录页），保守优先。
-    fetch("/api/v1/auth/status")
+    // 超时 / 网络异常 / 响应 shape 异常时 fail-closed 退回到登录页，避免误
+    // 把损坏响应当成"无需鉴权"放行。
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    fetch("/api/v1/auth/status", { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`status ${res.status}`);
-        const data = (await res.json()) as { enabled: boolean };
-        if (!data.enabled) {
-          set({ isAuthenticated: true, isLoading: false });
-        } else {
-          set({ isLoading: false });
+        const payload: unknown = await res.json();
+        if (
+          typeof payload !== "object" ||
+          payload === null ||
+          typeof (payload as { enabled?: unknown }).enabled !== "boolean"
+        ) {
+          throw new Error("invalid /auth/status payload");
+        }
+        const { enabled } = payload as { enabled: boolean };
+        if (!enabled) {
+          set({ isAuthenticated: true });
         }
       })
       .catch((err) => {
         console.warn("[auth] /auth/status fetch failed; defaulting to login", err);
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
         set({ isLoading: false });
       });
   },
