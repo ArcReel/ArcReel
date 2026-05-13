@@ -673,9 +673,11 @@ def generate_video_selected_tool(ctx: ToolContext):
             if not selected:
                 raise ValueError("没有找到任何有效的场景/片段")
 
-            # checkpoint hash 用规范化后的 scene_ids（sorted+dedup）以让"同一组
-            # ID 不同顺序"命中相同 checkpoint 文件，避免 resume 失效。
-            canonical_scene_ids = sorted(set(scene_ids))
+            # checkpoint hash 用 ``selected`` 解析出的规范 ID 集合，让同一批
+            # 场景无论用别名 ``scene_id`` 还是规范 ``id_field`` 调用都落到同一
+            # checkpoint 文件（否则 resume 会因 hash 不同读到空 ``completed_scenes``，
+            # 已生成的视频被 ``_scan_completed_items`` 漏判，重复入队）。
+            canonical_scene_ids = sorted(seen_canonical)
             scenes_hash = hashlib.md5(",".join(canonical_scene_ids).encode("utf-8")).hexdigest()[:8]
             ckpt_path = _selected_checkpoint_path(project_dir, scenes_hash)
             completed: list[str] = []
@@ -704,6 +706,12 @@ def generate_video_selected_tool(ctx: ToolContext):
                 skip_ids=already_done,
                 log=log,
             )
+
+            # ``_build_video_specs`` 可能把所有 selected 都过滤掉（缺分镜图 /
+            # video_prompt 无效），此时如果 ``ordered_paths`` 也没有已生成项就是
+            # "什么也没做"，必须抛错，否则下游会把 "完成：0 个" 当成功推进流程。
+            if not specs and not any(ordered_paths):
+                raise RuntimeError("没有任何可生成的视频任务（全部 selected 都被跳过）")
 
             if specs:
                 failures = await _submit_with_checkpoint(

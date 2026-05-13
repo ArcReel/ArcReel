@@ -97,6 +97,7 @@ def generate_grid_tool(ctx: ToolContext):
             gm = GridManager(project_path)
             pending: list[tuple[GridGeneration, str]] = []
             skipped: list[str] = []
+            enqueue_failures: list[tuple[str, list[str], str]] = []
 
             for group in groups:
                 group_ids = [item[id_field] for item in group]
@@ -126,32 +127,46 @@ def generate_grid_tool(ctx: ToolContext):
                     model="",
                     prompt=prompt,
                 )
+                # 先 save 后 enqueue 给 worker 提供可读的 grid 文件；入队失败时
+                # 用 ``gm.delete`` 回收孤儿记录，并把该组并入 failures——前面已
+                # 入队成功的分组继续跑，调用方不会被一组失败导致全量重试。
                 gm.save(grid)
-
-                enqueue_result = await enqueue_task_only(
-                    project_name=ctx.project_name,
-                    task_type="grid",
-                    media_type="image",
-                    resource_id=grid.id,
-                    payload={
-                        "prompt": prompt,
-                        "script_file": script_filename,
-                        "scene_ids": group_ids,
-                        "grid_size": layout.grid_size,
-                        "rows": layout.rows,
-                        "cols": layout.cols,
-                        "grid_aspect_ratio": layout.grid_aspect_ratio,
-                        "video_aspect_ratio": aspect_ratio,
-                    },
-                    script_file=script_filename,
-                    source="skill",
-                )
+                try:
+                    enqueue_result = await enqueue_task_only(
+                        project_name=ctx.project_name,
+                        task_type="grid",
+                        media_type="image",
+                        resource_id=grid.id,
+                        payload={
+                            "prompt": prompt,
+                            "script_file": script_filename,
+                            "scene_ids": group_ids,
+                            "grid_size": layout.grid_size,
+                            "rows": layout.rows,
+                            "cols": layout.cols,
+                            "grid_aspect_ratio": layout.grid_aspect_ratio,
+                            "video_aspect_ratio": aspect_ratio,
+                        },
+                        script_file=script_filename,
+                        source="skill",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    gm.delete(grid.id)
+                    enqueue_failures.append((grid.id, group_ids, str(exc)))
+                    continue
                 pending.append((grid, enqueue_result["task_id"]))
 
-            if not pending:
-                return {"content": [{"type": "text", "text": "\n".join([*skipped, "没有需要生成的宫格组"])}]}
-
             details: list[str] = list(skipped)
+            for grid_id, group_ids, err in enqueue_failures:
+                details.append(f"  ✗ {grid_id}（{group_ids[0]}..{group_ids[-1]}）入队失败: {err}")
+
+            if not pending:
+                msg = "\n".join([*details, "没有需要生成的宫格组"])
+                return {
+                    "content": [{"type": "text", "text": msg}],
+                    "is_error": bool(enqueue_failures),
+                }
+
             successes: list[str] = []
             failures: list[tuple[str, str]] = []
             # Wait for all queued grids concurrently — image worker channel can run
@@ -173,10 +188,11 @@ def generate_grid_tool(ctx: ToolContext):
                     failures.append((grid.id, err))
                     details.append(f"  ✗ {grid.id}: {err}")
 
-            header = f"generate_grid summary: {len(successes)} succeeded, {len(failures)} failed"
+            total_failed = len(failures) + len(enqueue_failures)
+            header = f"generate_grid summary: {len(successes)} succeeded, {total_failed} failed"
             return {
                 "content": [{"type": "text", "text": "\n".join([header, *details])}],
-                "is_error": bool(failures),
+                "is_error": bool(failures) or bool(enqueue_failures),
             }
         except Exception as exc:  # noqa: BLE001
             return tool_error("generate_grid", exc)
