@@ -1,14 +1,13 @@
 /**
- * 检测当前 SPA 是否运行在 ArcReel 桌面客户端（Electron + preload）里。
+ * 检测当前 SPA 是否运行在原生宿主（通过 preload 注入 `window.arcreel`）里。
  *
- * 桌面壳 `src/preload/index.ts` 在 `window.arcreel` 暴露一个标识对象，Web /
- * Docker 部署不加载该 preload，window.arcreel 始终是 undefined，因此存在性
- * 检查即可区分两种运行环境。
+ * 宿主端 preload 在 `window.arcreel` 暴露一个标识对象（含
+ * `platform === "desktop"` 与 `os`）；浏览器直接访问的部署不加载该 preload，
+ * `window.arcreel` 始终是 undefined，因此存在性检查即可区分两种运行环境。
  *
  * 用法：
- *   if (isDesktop()) { ... }                  // 隐藏 / 显示 / 布局差异化
- *   <button hidden={isDesktop()}>下载</button>  // Web 显示、桌面隐藏
- *   const cmd = isMac() ? "⌘" : "Ctrl";        // 快捷键标签
+ *   if (isDesktop()) { ... }                       // 显隐 / 布局差异化
+ *   const cmd = isMac() ? "⌘" : "Ctrl";             // 快捷键标签
  */
 
 interface ArcreelClientApi {
