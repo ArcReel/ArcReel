@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import platform
+
 import pytest
 
-from server.app import assert_no_provider_secrets_in_environ
+from server.app import (
+    assert_no_provider_secrets_in_environ,
+    check_sandbox_available,
+    detect_docker_environment,
+)
 
 
 def _clear_secret_envs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -49,11 +55,6 @@ def test_empty_string_value_not_treated_as_leak(monkeypatch: pytest.MonkeyPatch)
     assert_no_provider_secrets_in_environ()  # 空值不 raise
 
 
-import platform
-
-from server.app import check_sandbox_available
-
-
 def test_sandbox_available_macos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None)
@@ -87,9 +88,6 @@ def test_sandbox_windows_warns_not_raises(monkeypatch: pytest.MonkeyPatch, caplo
         result = check_sandbox_available()
     assert result is False
     assert any("SANDBOX_UNSUPPORTED" in record.message for record in caplog.records)
-
-
-from server.app import detect_docker_environment
 
 
 def test_detect_docker_via_dockerenv(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
