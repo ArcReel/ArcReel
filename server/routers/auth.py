@@ -12,7 +12,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
 from lib.i18n import Translator
-from server.auth import CurrentUser, create_token, is_auth_enabled
+from server.auth import _ANONYMOUS_USER_SUB, CurrentUser, create_token, is_auth_enabled
 from server.fork_auth import authenticate  # fork-private: 多用户登录
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,9 @@ async def login_for_access_token(
     LoginPage 即便被打开也能正常跳转主界面（桌面/单机形态）。
     """
     if not is_auth_enabled():
-        token = create_token(form_data.username or "local", role="admin")
-        logger.info("auth disabled: 签发匿名 admin token (sub=%s)", form_data.username or "local")
+        sub = form_data.username or _ANONYMOUS_USER_SUB
+        token = create_token(sub, role="admin")
+        logger.info("auth disabled: 签发匿名 admin token (sub=%s)", sub)
         return TokenResponse(access_token=token, token_type="bearer")
 
     user = await authenticate(form_data.username, form_data.password)

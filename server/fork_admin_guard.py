@@ -85,11 +85,17 @@ def install_admin_guard(app: FastAPI) -> None:
         return
     app.state._fork_admin_guard_installed = True
 
-    from server.auth import _verify_and_get_payload_async  # 局部导入避免循环依赖
+    from server.auth import _verify_and_get_payload_async, is_auth_enabled  # 局部导入避免循环依赖
 
     @app.middleware("http")
     async def _admin_guard(request: Request, call_next):  # type: ignore[no-redef]
         if not _is_admin_path(request.url.path):
+            return await call_next(request)
+
+        # 桌面/单机形态（AUTH_ENABLED=false）：无 token 即匿名 admin，与上游
+        # ``get_current_user`` 行为一致 —— 全部 admin 路径放行，否则桌面端整
+        # 片设置页（/providers、/system/config、/api-keys、/users 等）都会 401。
+        if not is_auth_enabled():
             return await call_next(request)
 
         token = _extract_token(request)

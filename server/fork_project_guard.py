@@ -94,7 +94,17 @@ _PROJECTS_PATH = "/api/v1/projects"
 
 
 async def _resolve_user(request: Request) -> tuple[str, str] | None:
-    """从 Authorization header 解析 (sub, role)；失败返回 None。"""
+    """从 Authorization header 解析 (sub, role)；失败返回 None。
+
+    桌面/单机形态（``AUTH_ENABLED=false``）：返回匿名 admin ``("local", "admin")``，
+    与 :func:`server.auth.get_current_user` 的回退一致；否则列表过滤会丢 owner
+    字段、创建项目时不会注入 ``local__`` 前缀，导致历史/新项目归属混乱。
+    """
+    from server.auth import _ANONYMOUS_USER_SUB, is_auth_enabled
+
+    if not is_auth_enabled():
+        return _ANONYMOUS_USER_SUB, "admin"
+
     auth = request.headers.get("authorization", "")
     if not auth.lower().startswith("bearer "):
         return None
@@ -137,10 +147,10 @@ async def _rewrite_create_body(request: Request) -> None:
         base = manual_name
     else:
         # 没有手填名时，预先生成 slug，再加前缀；handler 拿到 name 后会跳过自动生成。
-        from lib import PROJECT_ROOT
+        from lib.app_data_dir import app_data_dir
         from lib.project_manager import ProjectManager
 
-        base = ProjectManager(PROJECT_ROOT / "projects").generate_project_name(title)
+        base = ProjectManager(app_data_dir()).generate_project_name(title)
 
     existing_owner, _ = parse_project_name(base)
     project_name = base if existing_owner == sub else make_project_name(sub, base)

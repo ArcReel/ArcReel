@@ -118,3 +118,14 @@ class TestAdminGuardEnforcement:
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert r.status_code == 403
+
+    def test_auth_disabled_short_circuits_admin_paths(self, monkeypatch):
+        """桌面/单机形态（AUTH_ENABLED=false）：无 token 也应放行 admin 路径，
+        与 :func:`server.auth.get_current_user` 的匿名 admin 回退保持一致。
+        否则 /providers、/system/config、/api-keys、/users 等设置页全部 401。
+        """
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        with TestClient(app, raise_server_exceptions=False) as c:
+            r = c.get("/api/v1/users")
+            assert r.status_code != 401, "AUTH_ENABLED=false 时无 token 不应被 admin guard 401"
+            assert r.status_code != 403
