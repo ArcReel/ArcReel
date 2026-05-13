@@ -81,7 +81,9 @@ def _build_prompt(
 
 
 def _select_items(items: list[dict[str, Any]], id_field: str, segment_ids: list[str] | None) -> list[dict[str, Any]]:
-    if segment_ids:
+    # ``None`` 和 ``[]`` 含义不同：``None`` = "不传过滤，默认扫所有缺图项"；
+    # ``[]`` = "显式空选择，应当返回空列表交由 handler 报错"。
+    if segment_ids is not None:
         wanted = {str(s) for s in segment_ids}
         return [item for item in items if str(item.get(id_field)) in wanted]
     return [item for item in items if not item.get("generated_assets", {}).get("storyboard_image")]
@@ -151,9 +153,9 @@ def generate_storyboards_tool(ctx: ToolContext):
             items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
             selected = _select_items(items, id_field, segment_ids)
             if not selected:
-                # 区分两种零结果：调用方传了 segment_ids 但没命中（无效 ID）
-                # vs 全部已生成（真无事可做），后者才是 success 文案。
-                if segment_ids:
+                # 区分两种零结果：调用方显式传了 segment_ids（None vs []，None 即
+                # "未传"，[] 与不命中等价都按错误处理）vs 全部已生成（真无事可做）。
+                if segment_ids is not None:
                     return {
                         "content": [
                             {

@@ -18,11 +18,16 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, val
 
 
 def _list_groups(project: dict, script: dict, scene_ids: list[str] | None = None) -> list[str]:
-    """List grid groups, optionally filtered to groups containing ``scene_ids``."""
+    """List grid groups, optionally filtered to groups containing ``scene_ids``.
+
+    Empty list (``[]``) and ``None`` carry different intents: ``None`` means
+    "no filter, list all groups"; ``[]`` means "filter to zero groups"
+    (explicit zero selection). Use ``is not None`` to keep them distinct.
+    """
     items, id_field, _, _, _ = get_storyboard_items(script)
     aspect_ratio = project.get("aspect_ratio", "9:16")
     groups = group_scenes_by_segment_break(items, id_field)
-    if scene_ids:
+    if scene_ids is not None:
         wanted = set(scene_ids)
         groups = [g for g in groups if any(item[id_field] in wanted for item in g)]
     lines = [f"共 {len(groups)} 个分组："]
@@ -84,17 +89,20 @@ def generate_grid_tool(ctx: ToolContext):
             style = project.get("style", "")
             groups = group_scenes_by_segment_break(items, id_field)
 
-            if scene_ids:
+            # ``scene_ids is not None`` 区分"不传 = 不过滤"和"传 [] = 过滤到 0
+            # 个"——后者是显式空选择，按 ``not groups`` 分支当错误返回。同样
+            # 处理 list_only 预览（见 ``_list_groups``）保持一致。
+            if scene_ids is not None:
                 wanted = set(scene_ids)
                 groups = [g for g in groups if any(item[id_field] in wanted for item in g)]
 
             if not groups:
-                # 显式传了 ``scene_ids`` 却全部不命中 → 报错；不传 ``scene_ids``
-                # 但脚本本身就没有 segment_break 分组也走这条路（罕见），按
-                # 信息文案不带 is_error。
+                # 显式传了 ``scene_ids`` 但全部不命中（或传了 []）→ 错误；
+                # 不传 ``scene_ids`` 但脚本本身没有 segment_break 分组也走
+                # 这条路（罕见），按信息文案不带 is_error。
                 return {
                     "content": [{"type": "text", "text": "没有匹配的场景组"}],
-                    "is_error": bool(scene_ids),
+                    "is_error": scene_ids is not None,
                 }
 
             gm = GridManager(project_path)
