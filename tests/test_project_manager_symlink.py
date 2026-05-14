@@ -467,6 +467,30 @@ class TestForceResync:
         # symlink 自身没被改（rmtree 在 _full_reset 才发生，这里走主路径）
         assert os.path.islink(escape_link)
 
+    def test_safe_copy_unlinks_symlink_dest_before_write(self, tmp_path: Path):
+        """``_safe_copy`` 必须先 unlink symlink 形态的 dest 再写，否则会跟 symlink
+        把内容写到 target（项目外）。
+
+        覆盖 file-level TOCTOU：guard 校验后到 _safe_copy 之间被外部进程 race
+        替换成 symlink → 不跟 symlink 写。
+        """
+        from lib.profile_manifest import _safe_copy
+
+        outside = tmp_path / "outside.md"
+        outside.write_text("ORIGINAL outside content")
+        src = tmp_path / "src.md"
+        src.write_text("new content")
+        dest = tmp_path / "dest.md"
+        dest.symlink_to(outside)
+
+        _safe_copy(src, dest)
+
+        # outside 内容不应被修改
+        assert outside.read_text() == "ORIGINAL outside content"
+        # dest 应该是真实文件（不再是 symlink），含新内容
+        assert not dest.is_symlink()
+        assert dest.read_text() == "new content"
+
     def test_force_resync_raises_on_empty_profile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """profile 存在但无文件 → ProfileEmptyError，与主入口对称。
         否则 paths=None + 无 manifest 时会走 _full_reset 把项目清空。

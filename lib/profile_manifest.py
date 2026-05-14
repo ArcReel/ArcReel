@@ -257,12 +257,30 @@ def _tombstone_entry() -> dict:
 
 
 def _safe_unlink_if_file(path: Path) -> None:
+    # ``is_file`` 跟符号链接（走 stat），``unlink`` 不跟（lstat）。组合起来的语义：
+    # symlink to file → 识别成 True，unlink 删 symlink 本体而非 target；
+    # 真 file → 识别 True + unlink。这是安全的，target 文件永远不会被误删。
     if path.is_file():
         path.unlink()
 
 
 def _safe_copy(source: Path, dest: Path) -> None:
+    """copy src → dest，先剥掉 symlink 形态的 dest。
+
+    TOCTOU 防御：``_ensure_dest_within`` guard 之后到这里之间 dest 可能被外部进程
+    race 替换成 symlink 指向项目外。若直接 ``shutil.copy2`` 会跟 symlink 写到项目外
+    文件——即便参数本身是 resolve 过的绝对路径，``open()`` 写入时仍会按字符串
+    解析。所以 dest 是 symlink 时先 ``unlink``（lstat 不解引用，删的是 symlink
+    本体）再写，把 file-level race 窗口压到 unlink→open 之间的微秒级。
+
+    残余风险：dest 父目录（``.claude`` 或更上层）被 race 替换成指向项目外的
+    symlink 时仍跟。ArcReel 项目目录由 server 自创、普通用户无 shell + portalocker
+    持锁，此攻击需要外部 root 进程，接受残余风险。彻底防需要 openat +
+    O_NOFOLLOW 沿路径每级验证，工程成本超出攻击模型边界。
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_symlink():
+        dest.unlink()
     shutil.copy2(source, dest)
 
 
