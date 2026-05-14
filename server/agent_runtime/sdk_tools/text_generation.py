@@ -240,7 +240,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                     ]
                 }
 
-            backend = await create_text_backend_for_task(TextTaskType.SCRIPT)
+            backend = await create_text_backend_for_task(TextTaskType.SCRIPT, ctx.project_name)
             result = await backend.generate(TextGenerationRequest(prompt=prompt, max_output_tokens=16000))
             response = result.text
 
