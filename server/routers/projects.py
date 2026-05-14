@@ -772,9 +772,14 @@ class UpdateSceneRequest(BaseModel):
     updates: dict
 
 
-@router.patch("/projects/{name}/scenes/{scene_id}")
+@router.patch("/projects/{name}/script-scenes/{scene_id}")
 async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser, _t: Translator):
-    """更新场景"""
+    """更新 drama 模式剧本中的单个场景镜头（按 scene_id 定位）。
+
+    路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，
+    避免 FastAPI 按注册顺序优先匹配本端点导致 SceneCard 保存请求被截获、Pydantic
+    必填字段校验返回双 "Field required"。
+    """
     try:
 
         def _sync():

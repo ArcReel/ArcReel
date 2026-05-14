@@ -86,3 +86,34 @@ class TestScenesRouter:
 
             missing_del = client.delete("/api/v1/projects/demo/scenes/不存在")
             assert missing_del.status_code == 404
+
+
+class TestScenesRouterDoesNotCollideWithProjects:
+    """Path 模板冲突回归保护。
+
+    projects.router 与 scenes.router 都在同一 ``/api/v1`` 前缀下注册，且历史上
+    都使用过 ``PATCH /projects/{name}/scenes/{*}`` 路径。FastAPI 按注册顺序匹配
+    path 模板，drama 端点（必填字段 ``script_file`` / ``updates``）若优先匹配
+    会让 SceneCard "保存" 请求收到 422 "Field required; Field required"。
+    """
+
+    def test_patch_scene_with_description_only_body_hits_asset_router(self, monkeypatch):
+        from server.routers import projects as projects_router
+
+        fake_pm = _FakePM()
+        monkeypatch.setattr(scenes, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(projects_router, "get_project_manager", lambda: fake_pm)
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        # 与 server/app.py 同序：projects 先 include
+        app.include_router(projects_router.router, prefix="/api/v1")
+        app.include_router(scenes.router, prefix="/api/v1")
+
+        with TestClient(app) as client:
+            resp = client.patch(
+                "/api/v1/projects/demo/scenes/祠堂",
+                json={"description": "傍晚至清晨室外海景"},
+            )
+            assert resp.status_code == 200, resp.json()
+            assert resp.json()["scene"]["description"] == "傍晚至清晨室外海景"

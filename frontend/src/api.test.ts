@@ -230,7 +230,7 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/scripts/episode%201.json",
       );
-      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/scenes/scene-1", {
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-scenes/scene-1", {
         method: "PATCH",
         body: JSON.stringify({ script_file: "episode_1.json", updates: { x: 1 } }),
       });
