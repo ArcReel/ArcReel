@@ -1,1 +1,11 @@
-{}
+{
+  "hooks": {
+    "WorktreeCreate": [
+      { "hooks": [{ "type": "command", "command": "pwd" }] }
+    ],
+    "WorktreeRemove": [
+      { "hooks": [{ "type": "command", "command": "true" }] }
+    ]
+  }
+}
+
