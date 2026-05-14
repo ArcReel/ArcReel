@@ -71,34 +71,19 @@ description: "统一资产生成 skill：接受 `--type=character|scene|prop`，
 
 ---
 
-## 命令行用法
+## 工具调用
 
-```bash
-# 生成所有类型的待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --all
+入队走 MCP 工具：
 
-# 生成指定类型的所有待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --all
-python .claude/skills/generate-assets/scripts/generate_asset.py --type scene --all
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --all
+| 操作 | 工具 |
+|------|------|
+| 列出所有/某类 pending | `mcp__arcreel__list_pending_assets({"type": "character"})`（type 可省略） |
+| 生成所有 pending（三类各一轮） | `mcp__arcreel__generate_assets({})` |
+| 生成某类全部 pending | `mcp__arcreel__generate_assets({"type": "character"})` |
+| 生成指定多个 | `mcp__arcreel__generate_assets({"type": "prop", "names": ["玉佩", "密信"]})` |
+| 生成单个 | `mcp__arcreel__generate_assets({"type": "scene", "names": ["村口老槐树"]})` |
 
-# 生成指定单个资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --name "张三"
-python .claude/skills/generate-assets/scripts/generate_asset.py --type scene --name "村口老槐树"
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --name "玉佩"
-
-# 生成指定多个资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --names "张三" "李四"
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --names "玉佩" "密信"
-
-# 列出所有类型的待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --list
-
-# 列出指定类型的待处理资产
-python .claude/skills/generate-assets/scripts/generate_asset.py --type character --list
-python .claude/skills/generate-assets/scripts/generate_asset.py --type scene --list
-python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --list
-```
+返回 `is_error: true` 时，文本里包含失败明细，按需重试或反馈给开发者。
 
 ## 工作流程
 

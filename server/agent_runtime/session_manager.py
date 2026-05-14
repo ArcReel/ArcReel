@@ -25,6 +25,7 @@ from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
 
@@ -342,21 +343,18 @@ class SessionManager:
         ".toml",
     }
 
-    # 敏感文件相对 self.project_root 的路径清单：env/凭据/agent settings。
-    # 注意：.arcreel.db 暂未列入 — skill 脚本通过 lib.generation_queue_client
-    # 直连 SQLite 入队任务，db 加进 sandbox denyRead 会让任务队列功能整体瘫痪。
-    # 后续若把入队链路改造为 SDK 原生 tool / MCP server（agent 直接调 tool
-    # 而不再 Bash → python 脚本），sandbox 内无需访问 db，届时可加回敏感清单。
-    _SENSITIVE_RELATIVE_FILES: tuple[str, ...] = (
-        ".env",
-        "projects/.system_config.json",
-        "projects/.system_config.json.bak",
-        "agent_runtime_profile/.claude/settings.json",
-    )
-    # 任意深度子路径都视为敏感（如 vertex_keys 下的全部凭据文件）。
-    _SENSITIVE_RELATIVE_PREFIXES: tuple[str, ...] = ("vertex_keys",)
-    # 单层 fnmatch 模式（命中即拒）。
-    _SENSITIVE_RELATIVE_GLOBS: tuple[str, ...] = (".env.*",)
+    # 敏感文件清单按"逻辑类别"声明：实际绝对路径在实例化时通过
+    # ``_compute_sensitive_paths`` 解析 ``self.projects_root`` /
+    # ``self._agent_profile_root`` / ``self._project_root_resolved`` 得到，
+    # 以正确反映 ``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 环境覆盖
+    # 后的真实位置（issue #519 / PR #528 review）。
+    # - ``.env`` / ``.env.*`` 总是相对源仓库根（dotenv 从仓库根加载）
+    # - ``.arcreel.db`` / ``.system_config.json`` / ``.arcreel.db-*`` 在
+    #   ``app_data_dir()``（即 ``self.projects_root``）下
+    # - ``vertex_keys/`` 在 ``app_data_dir().parent`` 下（与
+    #   ``server.routers.providers.upload_vertex_credential`` 写入位置一致）
+    # - ``agent_runtime_profile/.claude/settings.json`` 在
+    #   ``agent_profile_dir()`` 下（受 ``ARCREEL_PROFILE_DIR`` 控制）
 
     # Sentinel used in pending_user_echoes for image-only messages (no text).
     # The SDK parser drops image blocks, so the replayed UserMessage arrives
@@ -415,7 +413,47 @@ class SessionManager:
         self._sandbox_enabled = sandbox_enabled
         # 实例不变量缓存：避免每次 _build_options / hook 都重做 path resolve。
         self._project_root_resolved = self.project_root.resolve()
+        # agent_runtime_profile 实际位置：``ARCREEL_PROFILE_DIR`` env 覆盖 >
+        # ``self.project_root / "agent_runtime_profile"``（test-friendly：
+        # 不读 ``lib.env_init.PROJECT_ROOT`` 全局）。
+        profile_override = os.getenv("ARCREEL_PROFILE_DIR", "").strip()
+        if profile_override:
+            self._agent_profile_root = Path(profile_override).expanduser().resolve(strict=False)
+        else:
+            self._agent_profile_root = (self._project_root_resolved / "agent_runtime_profile").resolve(strict=False)
+        # 敏感路径在 __init__ 锁定一次，后续 sandbox 构建 / hook 检查都用同一份
+        files, prefixes, globs = self._compute_sensitive_paths()
+        self._sensitive_files: tuple[Path, ...] = files
+        self._sensitive_prefixes: tuple[Path, ...] = prefixes
+        self._sensitive_globs: tuple[tuple[Path, str], ...] = globs
         self._load_config()
+
+    def _compute_sensitive_paths(
+        self,
+    ) -> tuple[tuple[Path, ...], tuple[Path, ...], tuple[tuple[Path, str], ...]]:
+        """Resolve sensitive file/prefix/glob locations based on env-aware roots.
+
+        Returns ``(files, prefixes, globs)`` where ``files`` are exact paths,
+        ``prefixes`` are subtree roots, and ``globs`` are ``(parent, pattern)``
+        pairs evaluated against ``parent``.
+        """
+        repo = self._project_root_resolved
+        data = self.projects_root  # = app_data_dir() in production
+        profile = self._agent_profile_root
+        files: tuple[Path, ...] = (
+            repo / ".env",
+            data / ".arcreel.db",
+            data / ".system_config.json",
+            data / ".system_config.json.bak",
+            profile / ".claude" / "settings.json",
+        )
+        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys",)
+        # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
+        globs: tuple[tuple[Path, str], ...] = (
+            (repo, ".env.*"),
+            (data, ".arcreel.db-*"),
+        )
+        return files, prefixes, globs
 
     def _load_config(self) -> None:
         """Load configuration from environment (sync fallback)."""
@@ -654,10 +692,18 @@ class SessionManager:
 
         # Windows 回退：sandbox 关闭时把 Bash 系列从 allowed_tools 剥离，
         # 让 _can_use_tool 接管 prefix 白名单匹配（_WINDOWS_BASH_PREFIX_WHITELIST）。
-        allowed_tools = self.DEFAULT_ALLOWED_TOOLS
+        allowed_tools = list(self.DEFAULT_ALLOWED_TOOLS)
         if not self._sandbox_enabled:
             bash_tools = set(self._BASH_TOOLS)
             allowed_tools = [t for t in allowed_tools if t not in bash_tools]
+        # 内置 ArcReel SDK MCP server — handler 跑在主进程，绕过 sandbox。
+        # 通配符让后续新增 tool 不必同步改 allowed_tools。
+        allowed_tools.append("mcp__arcreel__*")
+
+        arcreel_server = build_arcreel_mcp_server(
+            project_name=project_name,
+            projects_root=self.projects_root,
+        )
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
@@ -673,6 +719,7 @@ class SessionManager:
             resume=resume_id,
             can_use_tool=can_use_tool,
             hooks=hooks,
+            mcp_servers={"arcreel": arcreel_server},
             session_store=self._build_session_store(),
             session_store_flush=session_store_flush_mode(),
             sandbox=sandbox_typed,
@@ -1792,27 +1839,14 @@ class SessionManager:
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
-    # 沙箱网络默认允许的域名。SDK 0.1.80 sandbox.network.allowedDomains 只支持
-    # 形如 "*.example.com" 的 subdomain wildcard，不支持 "*" 全放行；缺省/拼写错
-    # 都会让 sandbox 内 curl 触发 X-Proxy-Error: blocked-by-allowlist。
-    # 这里覆盖 ArcReel 内置 provider + 常见 dev 域名，自定义 provider 需通过
-    # ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS（逗号分隔）补充。
+    # 沙箱网络默认允许的域名。所有 provider HTTP 调用已迁到 in-process MCP tool
+    # （server/agent_runtime/sdk_tools/，主进程跑不经 sandbox，issue #519），所以
+    # sandbox 内只需要保留 Anthropic SDK 自身 + 通用 dev 域名（docs / 包仓库等）。
+    # 自定义 provider 不再需要手动 ALLOWED_DOMAINS 放行。
     _DEFAULT_SANDBOX_ALLOWED_DOMAINS: tuple[str, ...] = (
         # Anthropic
         "anthropic.com",
         "*.anthropic.com",
-        # 火山引擎 ARK
-        "*.volces.com",
-        # xAI / Grok
-        "x.ai",
-        "*.x.ai",
-        # Google / Gemini / Vertex
-        "*.googleapis.com",
-        "*.google.com",
-        # Vidu
-        "vidu.cn",
-        "*.vidu.cn",
-        "*.viduai.cn",
         # dev: docs / 包仓库 / acceptance 用例
         "code.claude.com",
         "github.com",
@@ -1824,23 +1858,6 @@ class SessionManager:
         "registry.yarnpkg.com",
         "example.com",
     )
-
-    @classmethod
-    @functools.cache
-    def _build_sandbox_allowed_domains(cls) -> tuple[str, ...]:
-        """构造 sandbox.network.allowedDomains，含默认清单 + ENV 扩展。
-
-        ``ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS`` 是启动期 env，运行期视为不变；
-        测试中切换值需调 ``cls._build_sandbox_allowed_domains.cache_clear()``。
-        """
-        domains = list(cls._DEFAULT_SANDBOX_ALLOWED_DOMAINS)
-        extra = os.environ.get("ARCREEL_SANDBOX_EXTRA_ALLOWED_DOMAINS", "").strip()
-        if extra:
-            for piece in extra.split(","):
-                piece = piece.strip()
-                if piece and piece not in domains:
-                    domains.append(piece)
-        return tuple(domains)
 
     def _build_sandbox_settings(self) -> dict[str, Any]:
         """构造 SandboxSettings dict（SDK 0.1.80 Python TypedDict 未声明
@@ -1859,7 +1876,7 @@ class SessionManager:
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
             "allowUnsandboxedCommands": False,
-            "network": {"allowedDomains": list(self._build_sandbox_allowed_domains())},
+            "network": {"allowedDomains": list(self._DEFAULT_SANDBOX_ALLOWED_DOMAINS)},
             "enableWeakerNestedSandbox": bool(self._in_docker),
             "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
         }
@@ -1868,39 +1885,51 @@ class SessionManager:
         """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
 
         SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
-        所以这里枚举 worktree 下当前真实存在的固定清单 + glob 命中项 +
-        prefix 目录（vertex_keys 整目录交给 sandbox profile 递归 deny）。
+        所以这里枚举当前真实存在的固定清单 + glob 命中项 + prefix 目录
+        （vertex_keys 整目录交给 sandbox profile 递归 deny）。
 
         每次会话启动重新枚举，避免后建敏感文件（.env / .env.local）绕过
         sandbox profile — sandbox profile 在 ClaudeSDKClient 启动时一次性生效，
         run-time 新增的文件若已落入命名约定就要立刻进入 denyRead。
         """
-        root = self._project_root_resolved
-        candidates: list[Path] = [root / rel for rel in self._SENSITIVE_RELATIVE_FILES]
-        candidates.extend(root / prefix for prefix in self._SENSITIVE_RELATIVE_PREFIXES)
-        for pattern in self._SENSITIVE_RELATIVE_GLOBS:
-            candidates.extend(root.glob(pattern))
+        candidates: list[Path] = list(self._sensitive_files)
+        candidates.extend(self._sensitive_prefixes)
+        for parent, pattern in self._sensitive_globs:
+            if parent.exists():
+                candidates.extend(parent.glob(pattern))
         return [str(p) for p in candidates if p.exists()]
 
     def _is_sensitive_path(self, resolved: Path) -> bool:
         """判断已 resolve 的路径是否命中敏感文件清单。
 
-        基于 self.project_root 动态匹配，覆盖 ``.env`` / ``.env.*`` /
-        ``vertex_keys/`` 子树 / ``projects/.system_config.json*`` /
-        ``agent_runtime_profile/.claude/settings.json``。
+        基于 ``_compute_sensitive_paths`` 解析出的绝对路径匹配，覆盖
+        ``.env`` / ``.env.*`` / ``vertex_keys/`` 子树 / ``.system_config.json*`` /
+        ``.arcreel.db*`` / ``agent_runtime_profile/.claude/settings.json`` —
+        即使 ``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 把这些目录移出
+        ``project_root`` 也仍然受保护。
         """
-        try:
-            rel = resolved.relative_to(self._project_root_resolved)
-        except ValueError:
-            return False
-        rel_posix = rel.as_posix()
-
-        if rel_posix in self._SENSITIVE_RELATIVE_FILES:
-            return True
-        for prefix in self._SENSITIVE_RELATIVE_PREFIXES:
-            if rel_posix == prefix or rel_posix.startswith(prefix + "/"):
+        for sensitive_file in self._sensitive_files:
+            if resolved == sensitive_file:
                 return True
-        return any(fnmatch.fnmatchcase(rel_posix, pat) for pat in self._SENSITIVE_RELATIVE_GLOBS)
+        for prefix in self._sensitive_prefixes:
+            try:
+                if resolved == prefix or resolved.is_relative_to(prefix):
+                    return True
+            except ValueError:
+                continue
+        for parent, pattern in self._sensitive_globs:
+            try:
+                rel = resolved.relative_to(parent)
+            except ValueError:
+                continue
+            rel_posix = rel.as_posix()
+            # 仅匹配 ``parent`` 直系子项，避免 ``.env.local`` 模式吃掉
+            # ``project_root/sub/.env.local``（不是同一文件）。
+            if "/" in rel_posix:
+                continue
+            if fnmatch.fnmatchcase(rel_posix, pattern):
+                return True
+        return False
 
     def _is_path_allowed(
         self,

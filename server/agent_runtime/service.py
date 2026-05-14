@@ -920,14 +920,19 @@ class AssistantService:
 
     # ==================== Skills ====================
 
-    # Display metadata for user-facing skills (label + Lucide icon name)
-    _SKILL_DISPLAY_META: dict[str, dict[str, str]] = {
-        "manga-workflow": {"label": "视频工作流", "icon": "clapperboard"},
-        "generate-script": {"label": "生成剧本", "icon": "scroll-text"},
-        "generate-storyboard": {"label": "生成分镜图", "icon": "layout-grid"},
-        "generate-video": {"label": "生成视频", "icon": "film"},
-        "generate-assets": {"label": "生成资产图", "icon": "users"},
-        "compose-video": {"label": "合成视频", "icon": "scissors"},
+    # Lucide icon hint for each user-invocable skill. The display name is
+    # **not** stored here — the frontend resolves it from i18n
+    # ``dashboard:skill_name_<id>`` (single source of truth for skill labels
+    # lives in ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``).
+    # ``tests/test_frontend_skill_i18n.py`` cross-checks SKILL.md against
+    # those keys so adding a user-invocable skill without translations fails CI.
+    _SKILL_ICONS: dict[str, str] = {
+        "manga-workflow": "clapperboard",
+        "generate-storyboard": "images",
+        "generate-grid": "grid-2x2",
+        "generate-video": "film",
+        "generate-assets": "users",
+        "compose-video": "scissors",
     }
 
     def list_available_skills(self, project_name: str | None = None) -> list[dict[str, str]]:
@@ -975,10 +980,9 @@ class AssistantService:
                     "scope": scope,
                     "path": str(skill_file),
                 }
-                display = self._SKILL_DISPLAY_META.get(metadata["name"])
-                if display:
-                    skill_entry["label"] = display["label"]
-                    skill_entry["icon"] = display["icon"]
+                icon = self._SKILL_ICONS.get(metadata["name"])
+                if icon:
+                    skill_entry["icon"] = icon
                 skills.append(skill_entry)
 
         return skills

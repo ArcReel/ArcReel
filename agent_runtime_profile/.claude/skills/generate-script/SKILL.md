@@ -21,16 +21,15 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 ## 用法
 
-```bash
-# 生成指定剧集的剧本
-python .claude/skills/generate-script/scripts/generate_script.py --episode {N}
+通过 MCP 工具调用（项目名由 session 绑定，不需要传）：
 
-# 自定义输出路径
-python .claude/skills/generate-script/scripts/generate_script.py --episode {N} --output scripts/ep1.json
-
-# 预览 Prompt（不实际调用 API）
-python .claude/skills/generate-script/scripts/generate_script.py --episode {N} --dry-run
+```text
+mcp__arcreel__generate_episode_script({"episode": N})
+mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅预览 prompt
 ```
+
+输出路径由工具内部固定为 `{project}/scripts/episode_{N}.json`，不支持自定义；
+如需重命名或归档，请在 Web 端操作。
 
 ## 生成流程
 

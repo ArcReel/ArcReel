@@ -12,7 +12,7 @@
   - 剧集动画模式默认：16:9 横屏
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
   - 说书+画面 / 剧集动画模式（storyboard / grid）：由项目 `default_duration` 决定（项目创建时按 content_mode 写入 project.json）
-  - 参考生视频模式（reference_video）：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `.claude/skills/manage-project/scripts/get_video_capabilities.py` 自查真值
+  - 参考生视频模式（reference_video）：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：每个片段/场景独立生成，使用分镜图作为起始帧
@@ -23,11 +23,11 @@
 ### 音频规范
 - **BGM 自动禁止**：在视频 prompt 末尾统一追加"禁止出现：BGM、文字字幕、水印"
 
-### 脚本调用
-- **Skill 内部脚本**：各 skill 的可执行脚本位于 `agent_runtime_profile/.claude/skills/{skill-name}/scripts/` 目录下
-- **虚拟环境**：默认已激活，脚本无需手动激活 .venv
-- **Bash 调用**：项目目录内可自由跑 `ls / cat / jq / python / curl` 等命令（沙箱化已启用），skill 脚本路径建议用相对路径以便跨项目通用，但绝对路径同样可用。
-- **敏感文件保护**：`.env` / `vertex_keys/` / `projects/.system_config.json*` / `agent_runtime_profile/.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
+### 工具调用
+
+- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
+- **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `manage-project` / `compose-video` 这两个 skill 内还保留的 Python 脚本。
+- **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
 ---
 
@@ -92,8 +92,8 @@
 
 ### 职责边界
 
-- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理必须通过现有 skill 脚本完成
-- **代码 bug 上报**：如果明确判断 skill 脚本出现的是代码 bug（而非参数或环境问题），向用户报告错误并建议反馈给开发者
+- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` / `compose-video` 的现有脚本
+- **代码 bug 上报**：如果明确判断 MCP 工具或 skill 脚本出现的是代码 bug（而非参数或环境问题），向用户报告错误并建议反馈给开发者
 
 ## 可用 Skills
 
@@ -102,9 +102,11 @@
 | manga-workflow | `/manga-workflow` | 编排 skill：状态检测 + subagent dispatch + 用户确认 |
 | manage-project | — | 项目管理工具集：分集切分（peek+split）、角色/场景/道具批量写入 |
 | generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由 subagent 调用） |
-| generate-assets | `/generate-assets` | 统一资产生成：`--type=character\|scene\|prop` 三类并行 |
-| generate-storyboard | `/generate-storyboard` | 生成分镜图片 |
+| generate-assets | `/generate-assets` | 统一资产生成：可指定 `type=character\|scene\|prop`，省略则三类并行 |
+| generate-storyboard | `/generate-storyboard` | 生成分镜图片（storyboard 模式） |
+| generate-grid | `/generate-grid` | 生成宫格分镜图（grid 模式：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
+| compose-video | `/compose-video` | 视频后期合成（BGM、片头片尾、多集拼接，ffmpeg） |
 
 ## 快速开始
 

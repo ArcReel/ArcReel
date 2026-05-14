@@ -1062,6 +1062,28 @@ export default {
   'tool_call_error_label': '执行失败',
   'tool_call_todo_summary': '任务清单 {{completed}}/{{total}} 完成',
   'tool_call_todo_updated': '任务清单已更新',
+  // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
+  // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
+  // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)
+  'tool_name_list_pending_assets': '查询待生成资产',
+  'tool_name_generate_assets': '生成资产',
+  'tool_name_generate_storyboards': '生成分镜图',
+  'tool_name_generate_grid': '生成宫格图',
+  'tool_name_generate_video_episode': '生成视频（整集）',
+  'tool_name_generate_video_scene': '生成视频（单场景）',
+  'tool_name_generate_video_all': '生成视频（全部）',
+  'tool_name_generate_video_selected': '生成视频（多选）',
+  'tool_name_generate_episode_script': '生成剧本',
+  'tool_name_normalize_drama_script': '规范化剧本',
+  'tool_name_get_video_capabilities': '查询视频模型能力',
+  // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
+  // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
+  'skill_name_manga_workflow': '视频工作流',
+  'skill_name_generate_storyboard': '生成分镜图',
+  'skill_name_generate_grid': '生成宫格图',
+  'skill_name_generate_video': '生成视频',
+  'skill_name_generate_assets': '生成资产图',
+  'skill_name_compose_video': '合成视频',
   // PendingQuestionWizard
   'pending_question_wizard_label': '需要你的选择',
   'pending_question_wizard_step_question': '问题 {{number}}',

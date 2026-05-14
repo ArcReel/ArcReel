@@ -29,23 +29,25 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 ### Step 0: 查视频模型能力与用户偏好
 
-用 Bash 工具执行：
+通过 MCP 工具查询：
 
-```bash
-python .claude/skills/manage-project/scripts/get_video_capabilities.py --project {项目名}
+```text
+mcp__arcreel__get_video_capabilities({})
 ```
 
-解析 stdout JSON，记录：
+解析返回的 JSON，记录：
 - `supported_durations`：单 shot 允许的时长取值集合
 - `max_duration`：unit 总时长上限（reference_video 模式目标贴近此值）
 - `max_reference_images`：单 unit references 上限
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 
-**决策优先级**（后续 Step 2 拆分时遵循）：
-- `default_duration` 非 null → **优先采用**作为 shot 时长默认
-- `default_duration` 为 null，或**特殊情况**（一 unit 多 shot 组合需要贴近 `max_duration`、单 shot 不足以表达当前叙事）→ 从 `supported_durations` 自由选取，使 unit 总时长贴近 `max_duration`
+**校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值）。
 
-若脚本退出非 0，停止并把 stderr 报告给主 agent。
+**决策优先级**（后续 Step 2 拆分时遵循）：
+- `default_duration` 有效（非 null 且在 `supported_durations` 内）→ **优先采用**作为 shot 时长默认
+- `default_duration` 为 null 或被上面 fallback 成 null，或**特殊情况**（一 unit 多 shot 组合需要贴近 `max_duration`、单 shot 不足以表达当前叙事）→ 从 `supported_durations` 自由选取，使 unit 总时长贴近 `max_duration`
+
+工具返回 `is_error: true` 时，停止并把错误文本报告给主 agent。
 
 ### Step 1: 读取项目信息和小说原文
 

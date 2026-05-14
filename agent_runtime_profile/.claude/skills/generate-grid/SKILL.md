@@ -13,18 +13,13 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 - 剧本已生成（scripts/episode_N.json 存在）
 - 角色/场景/道具设计图已生成（用作参考图）
 
-## 命令行用法
+## 工具调用
 
-```bash
-# 整集生成（默认；集号从 script 顶层 episode 或文件名推导）
-python .claude/skills/generate-grid/scripts/generate_grid.py episode_1.json
-
-# 指定场景所在的组
-python .claude/skills/generate-grid/scripts/generate_grid.py episode_1.json --scene-ids E1S01 E1S02 E1S03
-
-# 列出当前分组信息
-python .claude/skills/generate-grid/scripts/generate_grid.py episode_1.json --list
-```
+| 操作 | 工具 |
+|------|------|
+| 整集生成 | `mcp__arcreel__generate_grid({"script": "episode_1.json"})` |
+| 指定场景所在的组 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S02", "E1S03"]})` |
+| 列出当前分组信息 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "list_only": true})` |
 
 ## 输出
 
