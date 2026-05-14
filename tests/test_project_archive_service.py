@@ -516,6 +516,57 @@ class TestProjectArchiveService:
         monkeypatch.setattr(project_archive_module.shutil, "move", original_move)
         assert pm.load_project("demo")["style"] == "Stale"
 
+    def test_import_overwrite_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
+        """sync_agent_profile 失败时必须回滚（删 target_dir + 恢复 backup_dir）。
+        否则 overwrite 分支已删旧备份，用户会丢数据。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        project = pm.load_project("demo")
+        project["style"] = "Stale"
+        pm.save_project("demo", project)
+
+        # 让 sync_agent_profile 在 _install_project_dir 内（shutil.move 之后）抛错
+        def boom(self_pm, target_dir):
+            raise RuntimeError("profile sync failed")
+
+        monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
+
+        with pytest.raises(RuntimeError, match="profile sync failed"):
+            service.import_project_archive(
+                archive_path,
+                uploaded_filename="demo.zip",
+                conflict_policy="overwrite",
+            )
+
+        # 旧项目恢复（backup 被 rename 回 target_dir）
+        monkeypatch.undo()
+        assert pm.load_project("demo")["style"] == "Stale"
+        assert not any(p.name.startswith(".import-backup-") for p in (tmp_path / "projects").iterdir())
+
+    def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
+        """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，
+        否则同名重试撞 FileExistsError。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+
+        def boom(self_pm, target_dir):
+            raise RuntimeError("profile sync failed")
+
+        monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
+
+        with pytest.raises(RuntimeError, match="profile sync failed"):
+            pm.create_project("ghost")
+
+        # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
+        monkeypatch.undo()
+        assert not (tmp_path / "projects" / "ghost").exists()
+        pm.create_project("ghost")  # 不撞 FileExistsError
+        assert (tmp_path / "projects" / "ghost").is_dir()
+
     def test_import_repairs_legacy_narration_payload(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

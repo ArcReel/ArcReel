@@ -211,6 +211,11 @@ def load_manifest(project_dir: Path) -> tuple[Manifest, bytes] | None:
     - profile_id 不匹配（换 profile = 换源 = 等价 reset）
     """
     path = project_dir / MANIFEST_FILENAME
+    # symlink 形态的 manifest 拒绝信任：``read_bytes`` 会跟 symlink 读外部文件
+    # （信息泄露 + 让 sync 基于错误的 manifest 决策）。视同损坏 → 走 reset。
+    if path.is_symlink():
+        logger.warning("manifest %s is a symlink, refusing to follow; will reset", path)
+        return None
     try:
         raw = path.read_bytes()
     except FileNotFoundError:
@@ -331,6 +336,11 @@ def _safe_copy(source: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_symlink():
         dest.unlink()
+    # 拒绝 dest 是真实目录的情况：``shutil.copy2(src, dest_dir)`` 会变成 copy 到
+    # ``dest_dir/src.name`` 这种意外路径而不是失败。决策表里 rel 永远是文件级别，
+    # 出现 dest 是目录 = 用户/归档预置的同名目录，应显式失败让上层计 errors。
+    if dest.exists() and dest.is_dir():
+        raise ValueError(f"dest is a directory, refusing copy: {dest}")
     shutil.copy2(source, dest)
 
 

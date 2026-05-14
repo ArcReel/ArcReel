@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import unicodedata
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -175,7 +176,12 @@ class ProjectManager:
         for subdir in self.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-        self.sync_agent_profile(project_dir)
+        try:
+            self.sync_agent_profile(project_dir)
+        except Exception:
+            # sync 失败时回滚 project_dir，避免残缺目录阻塞重试（同名 create 撞 FileExistsError）
+            shutil.rmtree(project_dir, ignore_errors=True)
+            raise
 
         return project_dir
 
@@ -240,7 +246,10 @@ class ProjectManager:
             "migrated_total",
         )
         for project_dir in sorted(self.projects_root.iterdir()):
-            if not project_dir.is_dir() or project_dir.name.startswith("."):
+            # 与 ``list_projects`` 同规则：跳过点开头（.git 等）和下划线开头
+            # （``_global_assets`` 保留目录 — 跨项目共享 character/scene/prop 库，
+            # 不是项目，不该 sync agent profile）
+            if not project_dir.is_dir() or project_dir.name.startswith((".", "_")):
                 continue
             try:
                 result = self.sync_agent_profile(project_dir)

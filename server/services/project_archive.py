@@ -292,9 +292,6 @@ class ProjectArchiveService:
                         overwrite=(conflict_policy == "overwrite"),
                     )
 
-                    target_dir = self.project_manager.projects_root / target_name
-                    self.project_manager.sync_agent_profile(target_dir)
-
                     imported_project = self.project_manager.load_project(target_name)
                     emit_project_change_hint(
                         target_name,
@@ -1352,6 +1349,10 @@ class ProjectArchiveService:
                 target_dir.rename(backup_dir)
 
             shutil.move(str(staging_dir), str(target_dir))
+            # profile sync 是安装的一部分；纳入同一个事务里，sync 失败也走下面的
+            # rollback：删 target_dir + 恢复 backup_dir。否则失败时旧项目已经被删，
+            # 用户会丢数据（overwrite 分支）或留半安装状态（new 分支）
+            self.project_manager.sync_agent_profile(target_dir)
         except Exception:
             if target_dir.exists():
                 shutil.rmtree(target_dir, ignore_errors=True)

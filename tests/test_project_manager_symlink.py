@@ -519,6 +519,39 @@ class TestForceResync:
         # 真实 manifest 写入 project_dir
         assert (project / MANIFEST_FILENAME).read_bytes() == manifest.normalized_bytes()
 
+    def test_load_manifest_refuses_symlink_manifest(self, tmp_path: Path):
+        """``.arcreel_profile_manifest.json`` 被预置为指向项目外的 symlink → load
+        视同损坏走 reset，不跟 symlink 读外部内容（信息泄露 + 错误 reset 决策）。
+        """
+        from lib.profile_manifest import MANIFEST_FILENAME, load_manifest
+
+        outside = tmp_path / "outside_manifest.json"
+        outside.write_text('{"schema_version": 1, "profile_id": "evil/source", "entries": {}}')
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / MANIFEST_FILENAME).symlink_to(outside)
+
+        assert load_manifest(project) is None
+        # symlink 没被自动删（决策应由后续 _full_reset 通过 mkstemp + os.replace 处理）
+        assert (project / MANIFEST_FILENAME).is_symlink()
+
+    def test_safe_copy_rejects_dir_dest(self, tmp_path: Path):
+        """``_safe_copy`` 拒绝 dest 是真实目录的情况，否则 shutil.copy2 会创建
+        ``dest/source.name`` 这种意外路径而不是失败。
+        """
+        from lib.profile_manifest import _safe_copy
+
+        src = tmp_path / "src.md"
+        src.write_text("payload")
+        dest_dir = tmp_path / "evil_dir"
+        dest_dir.mkdir()
+
+        with pytest.raises(ValueError, match="dest is a directory"):
+            _safe_copy(src, dest_dir)
+        # dest 目录及内部都没被改
+        assert dest_dir.is_dir()
+        assert list(dest_dir.iterdir()) == []
+
     def test_safe_copy_unlinks_symlink_dest_before_write(self, tmp_path: Path):
         """``_safe_copy`` 必须先 unlink symlink 形态的 dest 再写，否则会跟 symlink
         把内容写到 target（项目外）。
@@ -655,6 +688,32 @@ class TestRepairAllSymlinks:
         assert stats["aborted"] is True
         assert not (projects_root / "proj1" / MANIFEST_FILENAME).exists()
         assert not (projects_root / "proj2" / MANIFEST_FILENAME).exists()
+
+    def test_skips_underscore_prefixed_dirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """``_global_assets`` 等下划线开头的保留目录不是项目，不该 sync。
+
+        现有 ``list_projects`` 用 ``not startswith((".", "_"))`` 规则；
+        ``sync_all_agent_profiles`` 必须对齐，否则会在 ``_global_assets/`` 下
+        无意义创建 ``.claude/``、``CLAUDE.md``、manifest。
+        """
+        profile_dir = tmp_path / "profile"
+        (profile_dir / ".claude").mkdir(parents=True)
+        (profile_dir / ".claude" / "x.md").write_text("v1")
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
+
+        projects_root = tmp_path / "projects"
+        projects_root.mkdir()
+        (projects_root / "proj").mkdir()
+        (projects_root / "_global_assets").mkdir()
+        (projects_root / ".git").mkdir()  # 真实的非项目目录
+
+        pm = ProjectManager(projects_root)
+        pm.sync_all_agent_profiles()
+
+        assert (projects_root / "proj" / MANIFEST_FILENAME).exists()
+        assert not (projects_root / "_global_assets" / MANIFEST_FILENAME).exists()
+        assert not (projects_root / "_global_assets" / ".claude").exists()
+        assert not (projects_root / ".git" / MANIFEST_FILENAME).exists()
 
 
 # ---------- 老 symlink 迁移 ----------
