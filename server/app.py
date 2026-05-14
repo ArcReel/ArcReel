@@ -14,6 +14,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -98,13 +99,45 @@ def check_sandbox_available() -> bool:
             )
         return True
     if system == "Linux":
-        if shutil.which("bwrap") is None:
+        # 官方 sandboxing.md 明确 Linux 需要 bubblewrap + socat 一起装
+        # （bwrap 做进程/文件隔离，socat 做网络代理转发）。
+        missing = [name for name in ("bwrap", "socat") if shutil.which(name) is None]
+        if missing:
             raise RuntimeError(
                 "SANDBOX_UNAVAILABLE on linux\n"
-                "  bwrap: not found in PATH\n"
-                "Required for ArcReel agent runtime. Install bubblewrap:\n"
-                "  Ubuntu/Debian: sudo apt install bubblewrap\n"
-                "  Arch:          sudo pacman -S bubblewrap"
+                f"  missing in PATH: {', '.join(missing)}\n"
+                "Required for ArcReel agent runtime. Install:\n"
+                "  Ubuntu/Debian: sudo apt install bubblewrap socat\n"
+                "  Fedora:        sudo dnf install bubblewrap socat\n"
+                "  Arch:          sudo pacman -S bubblewrap socat"
+            )
+        # bwrap 装了不代表跑得起来：容器内非特权 user namespace 经常被
+        # docker seccomp 或 sysctl(kernel.unprivileged_userns_clone=0) 禁掉，
+        # 这时 bwrap 启动会立刻报 "No permissions to create new namespace"。
+        # 启动期做一次最小试跑，让运维在容器冒烟阶段就拿到清晰错误，
+        # 而不是 agent 第一次调 Bash 才神秘失败。
+        try:
+            probe = subprocess.run(
+                ["bwrap", "--ro-bind", "/", "/", "/bin/true"],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                "SANDBOX_BWRAP_BROKEN on Linux\n"
+                f"  bwrap probe failed to execute: {exc}\n"
+                "Required for ArcReel agent runtime."
+            ) from exc
+        if probe.returncode != 0:
+            stderr = probe.stderr.decode("utf-8", errors="replace").strip() or "(no stderr)"
+            raise RuntimeError(
+                "SANDBOX_BWRAP_BROKEN on Linux\n"
+                f"  bwrap installed but cannot run: {stderr}\n"
+                "Typical cause: container blocks unprivileged user namespaces.\n"
+                "Fix one of:\n"
+                "  - docker run --security-opt seccomp=unconfined --security-opt apparmor=unconfined ...\n"
+                "  - or on host: sudo sysctl -w kernel.unprivileged_userns_clone=1"
             )
         return True
     logger.warning(
