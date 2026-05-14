@@ -269,14 +269,14 @@ class TestProjectsRouter:
 
         with client:
             patch_scene = client.patch(
-                "/api/v1/projects/ready/scenes/001",
+                "/api/v1/projects/ready/script-scenes/001",
                 json={"script_file": "episode_1.json", "updates": {"duration_seconds": 6, "segment_break": True}},
             )
             assert patch_scene.status_code == 200
             assert patch_scene.json()["scene"]["duration_seconds"] == 6
 
             patch_scene_missing = client.patch(
-                "/api/v1/projects/ready/scenes/404",
+                "/api/v1/projects/ready/script-scenes/404",
                 json={"script_file": "episode_1.json", "updates": {}},
             )
             assert patch_scene_missing.status_code == 404
@@ -367,7 +367,7 @@ class TestProjectsRouter:
 
         with client:
             patched = client.patch(
-                "/api/v1/projects/ready/scenes/001",
+                "/api/v1/projects/ready/script-scenes/001",
                 json={
                     "script_file": "episode_1.json",
                     "updates": {

@@ -638,7 +638,7 @@ class API {
     updates: Record<string, unknown>
   ): Promise<SuccessResponse> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/scenes/${encodeURIComponent(sceneId)}`,
+      `/projects/${encodeURIComponent(projectName)}/script-scenes/${encodeURIComponent(sceneId)}`,
       {
         method: "PATCH",
         body: JSON.stringify({ script_file: scriptFile, updates }),
