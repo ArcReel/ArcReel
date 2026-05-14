@@ -467,6 +467,58 @@ class TestForceResync:
         # symlink 自身没被改（rmtree 在 _full_reset 才发生，这里走主路径）
         assert os.path.islink(escape_link)
 
+    def test_sync_refuses_symlink_lock_file(self, env):
+        """``.profile_sync.lock`` 被预置为指向项目外的 symlink → sync 拒绝运行，
+        不允许跟 symlink 截断外部文件。
+
+        攻击模型：导入归档含恶意 ``.profile_sync.lock`` symlink → ``/etc/x``，
+        portalocker 旧实现内部 ``open("w")`` 会跟 symlink 并 truncate target；
+        新实现用 ``os.open(O_NOFOLLOW)`` 自己开 fd，遇到 symlink 抛 ELOOP。
+        """
+        pm, _, project_dir = env
+        outside = project_dir.parent.parent / "outside_lock_target.txt"
+        outside.write_text("MUST NOT be truncated")
+        lock_link = project_dir / ".profile_sync.lock"
+        lock_link.symlink_to(outside)
+
+        with pytest.raises(ValueError, match="lock path is a symlink"):
+            pm.repair_claude_symlink(project_dir)
+
+        assert outside.read_text() == "MUST NOT be truncated"
+
+    def test_save_manifest_tmp_uses_unpredictable_name(self, tmp_path: Path):
+        """``save_manifest`` 不能用 ``.arcreel_profile_manifest.json.tmp`` 这种
+        predictable 名字，否则攻击者预置同名 symlink → ``/etc/x`` 时 tmp.write
+        会跟 symlink 截断外部文件。改用 ``tempfile.mkstemp`` 用 O_EXCL +
+        不可预测名字 + same dir。
+        """
+        from lib.profile_manifest import (
+            EXPECTED_PROFILE_ID,
+            MANIFEST_FILENAME,
+            MANIFEST_SCHEMA_VERSION,
+            Manifest,
+            save_manifest,
+        )
+
+        outside = tmp_path / "outside_tmp_target.txt"
+        outside.write_text("MUST NOT be truncated")
+        project = tmp_path / "proj"
+        project.mkdir()
+        evil_tmp = project / (MANIFEST_FILENAME + ".tmp")
+        evil_tmp.symlink_to(outside)
+
+        manifest = Manifest(
+            schema_version=MANIFEST_SCHEMA_VERSION,
+            profile_id=EXPECTED_PROFILE_ID,
+            entries={},
+        )
+        save_manifest(project, manifest, original_bytes=None)
+
+        # outside 内容必须不被截断/覆盖
+        assert outside.read_text() == "MUST NOT be truncated"
+        # 真实 manifest 写入 project_dir
+        assert (project / MANIFEST_FILENAME).read_bytes() == manifest.normalized_bytes()
+
     def test_safe_copy_unlinks_symlink_dest_before_write(self, tmp_path: Path):
         """``_safe_copy`` 必须先 unlink symlink 形态的 dest 再写，否则会跟 symlink
         把内容写到 target（项目外）。
