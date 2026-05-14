@@ -1,8 +1,18 @@
-import { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Check, Search } from "lucide-react";
+import {
+  FloatingPortal,
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  size,
+  useFloating,
+} from "@floating-ui/react";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
 import { DROPDOWN_PANEL_STYLE } from "@/components/ui/darkroom-tokens";
+import { UI_LAYERS } from "@/utils/ui-layers";
 
 interface ProviderModelSelectProps {
   value: string; // "gemini-aistudio/veo-3.1-generate-001"
@@ -75,6 +85,37 @@ export function ProviderModelSelect({
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
+  // 用 FloatingPortal + useFloating 把面板渲染到 document.body，使其脱离任何
+  // overflow: hidden / overflow: auto 祖先（如 ProjectSettingsPage 的 SectionCard
+  // 或 SystemConfigPage 的 main 滚动容器）的视觉裁剪。fixed 策略 + autoUpdate
+  // 保证窗口滚动/缩放时面板跟随触发按钮。
+  const { refs, floatingStyles } = useFloating({
+    open,
+    onOpenChange: setOpen,
+    strategy: "fixed",
+    placement: "bottom-start",
+    whileElementsMounted: autoUpdate,
+    middleware: [
+      offset(4),
+      flip({ padding: 12 }),
+      shift({ padding: 12 }),
+      size({
+        padding: 8,
+        apply({ rects, elements }) {
+          // 同步面板宽度到触发按钮，保持视觉等宽（替代原本依赖父级 `w-full`）。
+          elements.floating.style.width = `${rects.reference.width}px`;
+        },
+      }),
+    ],
+  });
+
+  // 在 layout 阶段绑定 reference，避免首帧把面板钉在视窗左上。open 进入依赖
+  // 是为了 close→open 切换时让 floating-ui 重新计算位置（autoUpdate 仅在
+  // 元素同时存在时才生效）。
+  useLayoutEffect(() => {
+    refs.setReference(triggerRef.current);
+  }, [open, refs]);
+
   const showSearch = searchable && options.length >= searchThreshold;
 
   // Memoize grouped so flatOptions below has a stable reference when options
@@ -124,17 +165,22 @@ export function ProviderModelSelect({
     return list;
   }, [showDefault, filteredGrouped]);
 
-  // Close on outside click
+  // Close on outside click. 面板 portal 到 body 后已不在 containerRef 子树内，
+  // 必须同时检查 floating element，否则点击搜索框 / 选项会被判定为 outside 并立即关闭。
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideTrigger = containerRef.current?.contains(target);
+      const floatingEl = refs.floating.current;
+      const insidePanel = floatingEl?.contains(target);
+      if (!insideTrigger && !insidePanel) {
         setOpen(false);
         setQuery("");
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [refs]);
 
   // Reset active index when opened — point to current value or 0
   useEffect(() => {
@@ -294,13 +340,20 @@ export function ProviderModelSelect({
         />
       </button>
 
-      {/* Dropdown panel */}
+      {/* Dropdown panel — portal 到 body 后由 floating-ui 用 fixed 策略定位，
+          脱离所有 overflow 祖先的视觉裁剪。z-layer 取 `modal` 与上层全屏容器同级，
+          portal 默认 append 到 body 末尾，DOM order 保证下拉盖在 modal/page 之上。 */}
       {open && (
-        <div
-          className="absolute z-50 mt-1 w-full rounded-[8px] border border-hairline shadow-xl"
-          style={DROPDOWN_PANEL_STYLE}
-        >
-          {showSearch && (
+        <FloatingPortal>
+          <div
+            // floating-ui 的 setFloating 是 stable callback ref；hooks/refs
+            // 规则误认为是读取 ref.current，这里安全。
+            // eslint-disable-next-line react-hooks/refs
+            ref={refs.setFloating}
+            className={`isolate overflow-hidden rounded-[8px] border border-hairline shadow-xl ${UI_LAYERS.modal}`}
+            style={{ ...floatingStyles, ...DROPDOWN_PANEL_STYLE }}
+          >
+            {showSearch && (
             <div className="relative border-b border-hairline-soft p-2">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
               <input
@@ -405,7 +458,8 @@ export function ProviderModelSelect({
               </div>
             )}
           </div>
-        </div>
+          </div>
+        </FloatingPortal>
       )}
     </div>
   );
