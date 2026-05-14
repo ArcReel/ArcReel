@@ -21,6 +21,10 @@ def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
 
     def _stub(cmd, *args, **kwargs):  # noqa: ANN001 - 测试替身，宽松签名
         assert cmd[0] == "bwrap"
+        # probe 必须用 unshare-user + unshare-net 才能在启动期捕获两类典型失败：
+        # userns 创建被拒 / loopback 配置被拒（缺 NET_ADMIN）。
+        assert "--unshare-user" in cmd
+        assert "--unshare-net" in cmd
         return SimpleNamespace(returncode=returncode, stderr=stderr, stdout=b"")
 
     return _stub
@@ -100,9 +104,9 @@ def test_sandbox_missing_socat_only_linux_raises(monkeypatch: pytest.MonkeyPatch
         check_sandbox_available()
 
 
-def test_sandbox_bwrap_probe_failure_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """bwrap 装了但跑不起来（容器禁用 unprivileged userns）→ 启动期就硬失败，
-    并把 bwrap 真实 stderr + 修复建议透传给运维。"""
+def test_sandbox_bwrap_probe_userns_failure_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """bwrap 装了但 user namespace 创建被 seccomp/userns_clone 拦下 →
+    启动期硬失败，stderr + 三条修复建议都进异常信息。"""
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
     monkeypatch.setattr(
@@ -116,8 +120,28 @@ def test_sandbox_bwrap_probe_failure_linux_raises(monkeypatch: pytest.MonkeyPatc
         check_sandbox_available()
     msg = str(exc_info.value)
     assert "No permissions to create new namespace" in msg
-    assert "seccomp=unconfined" in msg
+    assert "seccomp:unconfined" in msg
+    assert "NET_ADMIN" in msg
     assert "unprivileged_userns_clone" in msg
+
+
+def test_sandbox_bwrap_probe_loopback_failure_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """容器缺 CAP_NET_ADMIN，bwrap 配 loopback 失败 → 启动期硬失败，
+    把 NET_ADMIN 修复路径透出。这是 PR #534 实测复现的二段错误。"""
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
+    monkeypatch.setattr(
+        "server.app.subprocess.run",
+        _bwrap_probe_stub(
+            returncode=1,
+            stderr=b"bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
+        ),
+    )
+    with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN") as exc_info:
+        check_sandbox_available()
+    msg = str(exc_info.value)
+    assert "RTM_NEWADDR" in msg
+    assert "NET_ADMIN" in msg
 
 
 def test_sandbox_bwrap_probe_oserror_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
