@@ -519,6 +519,46 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     assert "DRY RUN" in out["content"][0]["text"]
 
 
+async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
+    """工具必须把 ctx.project_name 传给 create_text_backend_for_task，
+    否则项目级 text_backend_script 覆盖被跳过，会回退到全局默认后端。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def fake_caps(_p):
+        return 4, [4, 6, 8]
+
+    captured: dict[str, Any] = {}
+
+    class _FakeBackend:
+        async def generate(self, _request):
+            class _R:
+                text = "| 场景 ID | 描述 |\n|---|---|\n| E1S01 | 山中 |"
+
+            return _R()
+
+    async def fake_create(task_type, project_name=None):
+        captured["task_type"] = task_type
+        captured["project_name"] = project_name
+        return _FakeBackend()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod, "create_text_backend_for_task", fake_create)
+
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+
+    assert out.get("is_error") is not True, out
+    assert captured["project_name"] == "demo", (
+        f"normalize_drama_script 必须传入 project_name 以让项目级 text_backend_script 覆盖生效，"
+        f"实际传入: {captured.get('project_name')!r}"
+    )
+
+
 async def test_normalize_drama_script_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
