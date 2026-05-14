@@ -5,10 +5,15 @@ services:
     ports:
       - "1241:1241"
     env_file: .env
-    # Agent Bash 沙箱 (bwrap) 需要非特权 user namespace，放开 docker 默认 profile
+    # Agent Bash 沙箱 (bwrap) 需要：
+    # 1) 非特权 user namespace → 放开 docker 默认 seccomp/apparmor profile
+    # 2) bwrap 嵌套出的 net namespace 内配置 loopback → 容器需要 NET_ADMIN cap
+    #    （否则报 "loopback: Failed RTM_NEWADDR: Operation not permitted"）
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
+    cap_add:
+      - NET_ADMIN
     volumes:
       - ./.env:/app/.env
       - ./projects:/app/projects

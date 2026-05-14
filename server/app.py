@@ -111,18 +111,25 @@ def check_sandbox_available() -> bool:
                 "  Fedora:        sudo dnf install bubblewrap socat\n"
                 "  Arch:          sudo pacman -S bubblewrap socat"
             )
-        # bwrap 装了不代表跑得起来：容器内非特权 user namespace 经常被
-        # docker seccomp 或 sysctl(kernel.unprivileged_userns_clone=0) 禁掉，
-        # 这时 bwrap 启动会立刻报 "No permissions to create new namespace"。
-        # 启动期做一次最小试跑，让运维在容器冒烟阶段就拿到清晰错误，
-        # 而不是 agent 第一次调 Bash 才神秘失败。
+        # bwrap 装了不代表跑得起来。两类常见失败：
+        # 1) 创建 user namespace 被拒：seccomp / apparmor / sysctl 屏蔽
+        #    → "No permissions to create new namespace"
+        # 2) 新 net namespace 内 loopback 配置被拒：容器缺 CAP_NET_ADMIN
+        #    → "loopback: Failed RTM_NEWADDR: Operation not permitted"
+        # 用与 SDK 实际调用接近的 unshare 参数试跑，启动期就拦下来，
+        # 避免 agent 第一次调 Bash 才神秘失败。
+        probe_cmd = [
+            "bwrap",
+            "--unshare-user",
+            "--unshare-net",
+            "--unshare-pid",
+            "--ro-bind",
+            "/",
+            "/",
+            "/bin/true",
+        ]
         try:
-            probe = subprocess.run(
-                ["bwrap", "--ro-bind", "/", "/", "/bin/true"],
-                capture_output=True,
-                timeout=5,
-                check=False,
-            )
+            probe = subprocess.run(probe_cmd, capture_output=True, timeout=5, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise RuntimeError(
                 "SANDBOX_BWRAP_BROKEN on Linux\n"
@@ -134,10 +141,15 @@ def check_sandbox_available() -> bool:
             raise RuntimeError(
                 "SANDBOX_BWRAP_BROKEN on Linux\n"
                 f"  bwrap installed but cannot run: {stderr}\n"
-                "Typical cause: container blocks unprivileged user namespaces.\n"
-                "Fix one of:\n"
-                "  - docker run --security-opt seccomp=unconfined --security-opt apparmor=unconfined ...\n"
-                "  - or on host: sudo sysctl -w kernel.unprivileged_userns_clone=1"
+                "Typical cause: container blocks unprivileged user namespaces or\n"
+                "lacks CAP_NET_ADMIN to configure the sandbox loopback interface.\n"
+                "Fix (docker compose):\n"
+                "  security_opt:\n"
+                "    - seccomp:unconfined\n"
+                "    - apparmor:unconfined\n"
+                "  cap_add:\n"
+                "    - NET_ADMIN\n"
+                "On host: sudo sysctl -w kernel.unprivileged_userns_clone=1"
             )
         return True
     logger.warning(
