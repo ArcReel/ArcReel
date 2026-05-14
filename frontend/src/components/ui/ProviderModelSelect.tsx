@@ -167,7 +167,9 @@ export function ProviderModelSelect({
 
   // Close on outside click. 面板 portal 到 body 后已不在 containerRef 子树内，
   // 必须同时检查 floating element，否则点击搜索框 / 选项会被判定为 outside 并立即关闭。
+  // 仅在 open=true 时挂载全局监听，避免大量关闭态实例长期占用 mousedown listener。
   useEffect(() => {
+    if (!open) return;
     const handler = (e: MouseEvent) => {
       const target = e.target as Node;
       const insideTrigger = containerRef.current?.contains(target);
@@ -180,7 +182,7 @@ export function ProviderModelSelect({
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [refs]);
+  }, [open, refs]);
 
   // Reset active index when opened — point to current value or 0
   useEffect(() => {
