@@ -146,6 +146,11 @@ def _add_agent_runtime_symlinks(project_dir: Path) -> None:
             shutil.rmtree(project_dir / ".claude")
     if (project_dir / "CLAUDE.md").exists() or (project_dir / "CLAUDE.md").is_symlink():
         (project_dir / "CLAUDE.md").unlink()
+    # legacy symlink 部署不会有 manifest，留着会让导入/导出逻辑读到 manifest 把
+    # "旧 symlink + 新 manifest" 当成正常态而非 legacy。
+    manifest_path = project_dir / ".arcreel_profile_manifest.json"
+    if manifest_path.exists() or manifest_path.is_symlink():
+        manifest_path.unlink()
 
     (project_dir / ".claude").symlink_to(Path("../../agent_runtime_profile/.claude"))
     (project_dir / "CLAUDE.md").symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))

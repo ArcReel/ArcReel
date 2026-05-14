@@ -370,6 +370,44 @@ class TestForceResync:
         assert stats["created"] == 0
         assert any("force_resync skip" in r.message for r in caplog.records)
 
+    @pytest.mark.parametrize(
+        "evil",
+        [
+            "../escape.txt",
+            ".claude/../../etc/passwd",
+            "/etc/passwd",
+            ".arcreel_profile_manifest.json",
+            ".profile_sync.lock",
+            "",
+        ],
+    )
+    def test_force_resync_rejects_path_traversal(self, env, evil):
+        """``paths`` 来自外部输入 → 必须拒绝绝对路径 / `..` / manifest 自身，
+        否则会逃逸出 profile / 项目根目录，读写任意文件。
+        """
+        pm, _, project_dir = env
+        pm.repair_claude_symlink(project_dir)
+        with pytest.raises(ValueError, match="profile sync"):
+            pm.force_resync_profile(project_dir, paths=[evil])
+
+    def test_force_resync_raises_on_empty_profile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """profile 存在但无文件 → ProfileEmptyError，与主入口对称。
+        否则 paths=None + 无 manifest 时会走 _full_reset 把项目清空。
+        """
+        empty_profile = tmp_path / "empty_profile"
+        empty_profile.mkdir()
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(empty_profile))
+        projects_root = tmp_path / "projects"
+        projects_root.mkdir()
+        pm = ProjectManager(projects_root)
+        project_dir = projects_root / "p1"
+        project_dir.mkdir()
+
+        from lib.profile_manifest import ProfileEmptyError
+
+        with pytest.raises(ProfileEmptyError):
+            pm.force_resync_profile(project_dir)
+
 
 # ---------- 入口防御 ----------
 

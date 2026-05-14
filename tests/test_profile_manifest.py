@@ -258,3 +258,75 @@ def test_load_manifest_top_level_not_object_returns_none(tmp_path: Path, garbage
     project.mkdir()
     (project / MANIFEST_FILENAME).write_text(garbage)
     assert load_manifest(project) is None
+
+
+@pytest.mark.parametrize(
+    "bad_entry",
+    [
+        "string-not-dict",
+        42,
+        ["list"],
+        None,
+    ],
+)
+def test_load_manifest_entry_not_dict_returns_none(tmp_path: Path, bad_entry) -> None:
+    """entry value 非 dict → 当作损坏走 reset，而不是让 _apply_decision 撞 AttributeError。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "entries": {".claude/x.md": bad_entry},
+    }
+    (project / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    assert load_manifest(project) is None
+
+
+def test_load_manifest_entry_unknown_source_returns_none(tmp_path: Path) -> None:
+    """未知 ``source`` 值 → reset，避免静默忽略漂移到第三类状态。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "entries": {".claude/x.md": {"source": "alien", "sha256": "abc"}},
+    }
+    (project / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    assert load_manifest(project) is None
+
+
+def test_load_manifest_profile_entry_without_sha_returns_none(tmp_path: Path) -> None:
+    """source=profile 但缺 sha256 → 当作损坏走 reset。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "entries": {".claude/x.md": {"source": "profile"}},
+    }
+    (project / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    assert load_manifest(project) is None
+
+
+def test_load_manifest_permission_error_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """PermissionError / 其他 OSError 必须向上抛，不能被吞成 None 触发破坏性 reset。
+
+    场景：磁盘暂时性 I/O 故障 / 文件被其他进程锁 / 权限被改坏。这些都不应升级成
+    "manifest 缺失 → 全量重置 .claude/CLAUDE.md"。
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / MANIFEST_FILENAME).write_text("{}")
+
+    from pathlib import Path as _PathCls
+
+    original_read_bytes = _PathCls.read_bytes
+
+    def _raise(self):
+        if self.name == MANIFEST_FILENAME:
+            raise PermissionError(13, "denied", str(self))
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(_PathCls, "read_bytes", _raise)
+    with pytest.raises(PermissionError):
+        load_manifest(project)

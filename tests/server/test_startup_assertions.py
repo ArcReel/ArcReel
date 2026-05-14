@@ -22,10 +22,12 @@ def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
 
     def _stub(cmd, *args, **kwargs):  # noqa: ANN001 - 测试替身，宽松签名
         assert cmd[0] == "bwrap"
-        # probe 必须用 unshare-user + unshare-net 才能在启动期捕获两类典型失败：
-        # userns 创建被拒 / loopback 配置被拒（缺 NET_ADMIN）。
+        # probe 必须用 unshare-user + unshare-net + unshare-pid 才能在启动期捕获三类典型失败：
+        # userns 创建被拒 / loopback 配置被拒（缺 NET_ADMIN）/ pid namespace 被拒。
+        # 缺一断言，probe 命令未来意外回退到更弱形态时这层测试就会漏检。
         assert "--unshare-user" in cmd
         assert "--unshare-net" in cmd
+        assert "--unshare-pid" in cmd
         return SimpleNamespace(returncode=returncode, stderr=stderr, stdout=b"")
 
     return _stub

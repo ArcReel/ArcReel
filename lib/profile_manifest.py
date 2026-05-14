@@ -21,7 +21,7 @@ import logging
 import shutil
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import portalocker
 
@@ -82,6 +82,25 @@ def enumerate_profile_files(profile_dir: Path) -> set[str]:
     return files
 
 
+def _normalize_profile_rel_path(rel: str) -> str:
+    """force_resync 的 ``paths`` 来自 UI / 外部输入，必须拒掉绝对路径和 ``..``，
+    否则 ``profile_dir / rel`` 和 ``project_dir / rel`` 会逃逸到 profile / 项目
+    根目录之外，读写任意可写文件。
+
+    校验规则：POSIX 相对路径，无空段，无 ``..``，不能是 manifest 自身或锁文件。
+    返回规范化后的 POSIX 字符串。
+    """
+    if not isinstance(rel, str) or rel == "":
+        raise ValueError(f"Invalid profile sync path: {rel!r}")
+    pp = PurePosixPath(rel)
+    if pp.is_absolute() or any(part in ("", "..") for part in pp.parts):
+        raise ValueError(f"Invalid profile sync path: {rel!r}")
+    out = pp.as_posix()
+    if _is_skippable_dest(out):
+        raise ValueError(f"Path not eligible for profile sync: {rel!r}")
+    return out
+
+
 def enumerate_dest_files(project_dir: Path) -> set[str]:
     """项目内 ``.claude/**`` + ``CLAUDE.md`` 集合，跳过 manifest 和锁文件自身。"""
     files: set[str] = set()
@@ -137,8 +156,10 @@ def load_manifest(project_dir: Path) -> tuple[Manifest, bytes] | None:
     path = project_dir / MANIFEST_FILENAME
     try:
         raw = path.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return None
+    # 故意不吞 PermissionError / OSError —— 那些是真实 I/O 故障，
+    # 静默 reset 会把暂时性问题升级成破坏性覆盖项目内 .claude/CLAUDE.md。
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -155,6 +176,23 @@ def load_manifest(project_dir: Path) -> tuple[Manifest, bytes] | None:
     entries = data.get("entries")
     if not isinstance(entries, dict):
         return None
+    # 每条 entry 必须是 dict，且 active/tombstone 两类形状都得规整。
+    # 不规整就视同损坏 manifest，走 reset 而不是让下游 _apply_decision
+    # 撞 AttributeError 整体崩。
+    for key, entry in entries.items():
+        if not isinstance(key, str) or not isinstance(entry, dict):
+            logger.warning("manifest %s has malformed entry %r, will reset", path, key)
+            return None
+        source = entry.get("source")
+        if source == "profile":
+            if not isinstance(entry.get("sha256"), str):
+                logger.warning("manifest %s entry %s missing sha256, will reset", path, key)
+                return None
+        elif source == "tombstone":
+            pass
+        else:
+            logger.warning("manifest %s entry %s unknown source=%r, will reset", path, key, source)
+            return None
     return (
         Manifest(
             schema_version=data["schema_version"],
@@ -455,6 +493,16 @@ def force_resync_profile(
     if not profile_dir.exists():
         raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
     profile_files = enumerate_profile_files(profile_dir)
+    # 镜像主入口的空 profile 防御：profile 存在但无文件 + paths=None + 无 manifest
+    # 时若不抛会调 _full_reset 把项目清空；paths 非空的语义"恢复"同样不能在空源下成立。
+    if not profile_files:
+        raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
+
+    # paths 来自外部 → 必须先校验拒掉路径穿越，再用 set 化
+    if paths is not None:
+        target = {_normalize_profile_rel_path(rel) for rel in paths}
+    else:
+        target = profile_files
 
     project_dir.mkdir(parents=True, exist_ok=True)
     lock_path = project_dir / LOCK_FILENAME
@@ -468,7 +516,6 @@ def force_resync_profile(
         manifest, original_bytes = loaded
 
         stats = _new_stats()
-        target = set(paths) if paths is not None else profile_files
         for rel in sorted(target):
             p = profile_dir / rel
             if not p.is_file():

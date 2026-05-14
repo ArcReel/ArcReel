@@ -67,6 +67,22 @@ def _reset_app_data_dir_cache():
 
 
 @pytest.fixture(autouse=True)
+def _stub_sandbox_check(monkeypatch, request):
+    """Mock ``check_sandbox_available`` 返回 True，避免测试机不满足真实 bwrap probe。
+
+    GitHub Actions Ubuntu 24.04 runner 上 ``apparmor_restrict_unprivileged_userns=1``
+    会让 ``server.app.check_sandbox_available`` 的 bwrap probe 启动失败，连带
+    把任何走 FastAPI lifespan 的测试（TestClient / lifespan / startup hook 集成测试）
+    全部拖崩。测试本不该依赖 host 能跑非特权 user namespace；该函数本身的契约
+    由 ``tests/server/test_startup_assertions.py`` 独立覆盖（用更精细的 subprocess.run
+    stub）— 那个文件需要走真实函数，故按文件名跳过此 autouse stub。
+    """
+    if request.path.name == "test_startup_assertions.py":
+        return
+    monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
+
+
+@pytest.fixture(autouse=True)
 def _profile_env(monkeypatch, tmp_path):
     """Pin ``agent_profile_dir()`` to a per-test ``tmp_path/agent_runtime_profile``
     so tests that build a fake profile under tmp_path are exercised against the
