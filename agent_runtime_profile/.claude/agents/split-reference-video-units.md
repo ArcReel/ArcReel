@@ -29,7 +29,7 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 ### Step 0: 查视频模型能力与用户偏好
 
-通过 SDK in-process MCP tool 查询：
+通过 MCP 工具查询：
 
 ```text
 mcp__arcreel__get_video_capabilities({})
@@ -41,9 +41,11 @@ mcp__arcreel__get_video_capabilities({})
 - `max_reference_images`：单 unit references 上限
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 
+**校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值）。
+
 **决策优先级**（后续 Step 2 拆分时遵循）：
-- `default_duration` 非 null → **优先采用**作为 shot 时长默认
-- `default_duration` 为 null，或**特殊情况**（一 unit 多 shot 组合需要贴近 `max_duration`、单 shot 不足以表达当前叙事）→ 从 `supported_durations` 自由选取，使 unit 总时长贴近 `max_duration`
+- `default_duration` 有效（非 null 且在 `supported_durations` 内）→ **优先采用**作为 shot 时长默认
+- `default_duration` 为 null 或被上面 fallback 成 null，或**特殊情况**（一 unit 多 shot 组合需要贴近 `max_duration`、单 shot 不足以表达当前叙事）→ 从 `supported_durations` 自由选取，使 unit 总时长贴近 `max_duration`
 
 工具返回 `is_error: true` 时，停止并把错误文本报告给主 agent。
 

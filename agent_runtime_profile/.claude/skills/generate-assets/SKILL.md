@@ -73,7 +73,7 @@ description: "统一资产生成 skill：接受 `--type=character|scene|prop`，
 
 ## 工具调用
 
-入队走 SDK in-process MCP tool（在主进程跑，不受 sandbox 网络/文件约束）：
+入队走 MCP 工具：
 
 | 操作 | 工具 |
 |------|------|

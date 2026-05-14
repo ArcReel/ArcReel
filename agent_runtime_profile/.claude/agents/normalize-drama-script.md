@@ -34,7 +34,7 @@ description: "剧集动画模式单集规范化剧本 subagent（drama 模式专
 
 ### Step 0: 查视频模型能力与用户偏好
 
-通过 SDK in-process MCP tool 查询：
+通过 MCP 工具查询：
 
 ```text
 mcp__arcreel__get_video_capabilities({})
@@ -61,7 +61,7 @@ mcp__arcreel__get_video_capabilities({})
 
 **Step 2**: 调用文本模型生成规范化剧本
 
-通过 SDK in-process MCP tool 调用（项目名由 session 闭包绑定，不需要传）：
+通过 MCP 工具调用（项目名由 session 绑定，不需要传）：
 
 ```text
 mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.txt"})
