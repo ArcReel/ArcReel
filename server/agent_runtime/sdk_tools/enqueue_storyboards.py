@@ -32,12 +32,14 @@ class _FailureRecorder:
         self.failures: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
-    def record(self, scene_id: str, error: str, attempts: int = 3) -> None:
+    def record(self, resource_id: str, resource_type: str, error: str, attempts: int = 3) -> None:
+        """Append a failure entry. ``resource_type`` is ``segment`` (narration)
+        or ``scene`` (drama) — driven by the script's ``id_field``."""
         with self._lock:
             self.failures.append(
                 {
-                    "scene_id": scene_id,
-                    "type": "scene",
+                    "resource_id": resource_id,
+                    "type": resource_type,
                     "error": error,
                     "attempts": attempts,
                     "timestamp": datetime.now().isoformat(),
@@ -147,7 +149,10 @@ def generate_storyboards_tool(ctx: ToolContext):
 
             try:
                 project_data = ctx.pm.load_project(ctx.project_name)
-            except Exception:  # noqa: BLE001 — project.json 缺失允许降级
+            except FileNotFoundError:
+                # project.json 缺失时允许降级到空 dict（style 走默认值）；
+                # JSON 损坏 / 权限错误等其他异常应该让外层 tool_error 暴露出来，
+                # 否则会用空 style 静默继续入队，丢掉了配置。
                 project_data = {}
 
             items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
@@ -190,8 +195,11 @@ def generate_storyboards_tool(ctx: ToolContext):
                 project_name=ctx.project_name,
                 specs=specs,
             )
+            # narration → segment_id / drama → scene_id：``id_field`` 是脚本里
+            # 的规范字段名，``"segment"`` / ``"scene"`` 是对应的资源类型。
+            resource_type = "segment" if id_field == "segment_id" else "scene"
             for f in failures:
-                recorder.record(f.resource_id, f.error or "unknown")
+                recorder.record(f.resource_id, resource_type, f.error or "unknown")
             recorder.save()
 
             details: list[str] = []
