@@ -5,6 +5,10 @@ services:
     ports:
       - "1241:1241"
     env_file: .env
+    # Agent Bash 沙箱 (bwrap) 需要非特权 user namespace，放开 docker 默认 profile
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     volumes:
       - ./.env:/app/.env
       - ./projects:/app/projects

@@ -21,6 +21,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://arcreel:${POSTGRES_PASSWORD}@postgres:5432/arcreel
+    # Agent Bash 沙箱 (bwrap) 需要非特权 user namespace，放开 docker 默认 profile
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     volumes:
       - ./.env:/app/.env
       - ./projects:/app/projects

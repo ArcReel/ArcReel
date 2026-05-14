@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import platform
+import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +14,17 @@ from server.app import (
     check_sandbox_available,
     detect_docker_environment,
 )
+
+
+def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
+    """构造 subprocess.run 替身，用于桩 bwrap 试跑结果。"""
+
+    def _stub(cmd, *args, **kwargs):  # noqa: ANN001 - 测试替身，宽松签名
+        assert cmd[0] == "bwrap"
+        return SimpleNamespace(returncode=returncode, stderr=stderr, stdout=b"")
+
+    return _stub
+
 
 # 复用生产代码（assert_no_provider_secrets_in_environ）所基于的同一份真相源，
 # 避免测试与运行时密钥清单漂移。sorted() 让 parametrize 测试 ID 稳定。
@@ -56,16 +69,67 @@ def test_sandbox_missing_macos_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         check_sandbox_available()
 
 
+def _linux_which_stub(present: set[str]):
+    """构造 shutil.which 替身：仅 present 集合内的 binary 视为已安装。"""
+
+    def _stub(name: str):
+        return f"/usr/bin/{name}" if name in present else None
+
+    return _stub
+
+
 def test_sandbox_available_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Linux")
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/bwrap" if name == "bwrap" else None)
+    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
+    monkeypatch.setattr("server.app.subprocess.run", _bwrap_probe_stub(returncode=0))
     assert check_sandbox_available() is True
 
 
 def test_sandbox_missing_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Linux")
-    monkeypatch.setattr("shutil.which", lambda _name: None)
-    with pytest.raises(RuntimeError, match="bubblewrap"):
+    monkeypatch.setattr("shutil.which", _linux_which_stub(set()))
+    with pytest.raises(RuntimeError, match="bwrap, socat"):
+        check_sandbox_available()
+
+
+def test_sandbox_missing_socat_only_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """官方 sandboxing.md 明文要求 socat 同装（网络代理需要）。"""
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap"}))
+    with pytest.raises(RuntimeError, match="missing in PATH: socat"):
+        check_sandbox_available()
+
+
+def test_sandbox_bwrap_probe_failure_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """bwrap 装了但跑不起来（容器禁用 unprivileged userns）→ 启动期就硬失败，
+    并把 bwrap 真实 stderr + 修复建议透传给运维。"""
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
+    monkeypatch.setattr(
+        "server.app.subprocess.run",
+        _bwrap_probe_stub(
+            returncode=1,
+            stderr=b"bwrap: No permissions to create new namespace",
+        ),
+    )
+    with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN") as exc_info:
+        check_sandbox_available()
+    msg = str(exc_info.value)
+    assert "No permissions to create new namespace" in msg
+    assert "seccomp=unconfined" in msg
+    assert "unprivileged_userns_clone" in msg
+
+
+def test_sandbox_bwrap_probe_oserror_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """subprocess.run 抛 OSError / TimeoutExpired 时也要包成 SANDBOX_BWRAP_BROKEN。"""
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
+
+    def _raises(*args, **kwargs):  # noqa: ANN001 - 测试替身
+        raise subprocess.TimeoutExpired(cmd=["bwrap"], timeout=5)
+
+    monkeypatch.setattr("server.app.subprocess.run", _raises)
+    with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN"):
         check_sandbox_available()
 
 
