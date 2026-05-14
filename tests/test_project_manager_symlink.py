@@ -390,6 +390,83 @@ class TestForceResync:
         with pytest.raises(ValueError, match="profile sync"):
             pm.force_resync_profile(project_dir, paths=[evil])
 
+    def test_force_resync_with_paths_does_not_full_reset_when_manifest_missing(self, env):
+        """``paths=["X"]`` + manifest 缺失 → 只回填 X，不能调 _full_reset 把
+        .claude 整个清空覆盖其他内置文件。
+
+        场景：老项目无 manifest，用户在 UI 点 "恢复 demo skill" → 期望只重置
+        demo，不要覆盖其他改过的 skill 或复活已删的 skill。
+        """
+        pm, _, project_dir = env
+        # 先 sync 一次让 dest 有完整 baseline + manifest
+        pm.repair_claude_symlink(project_dir)
+        # 模拟用户改了另一个 skill 文件
+        other_skill = project_dir / ".claude" / "skills" / "other" / "SKILL.md"
+        other_skill.parent.mkdir(parents=True, exist_ok=True)
+        other_skill.write_text("user-customized other skill")
+        # 删 manifest 模拟"老项目无 manifest"
+        (project_dir / ".arcreel_profile_manifest.json").unlink()
+
+        stats = pm.force_resync_profile(project_dir, paths=[".claude/skills/demo/SKILL.md"])
+
+        # demo 被回填
+        assert _skill_path(project_dir).read_text() == "demo v1"
+        # other skill 不被破坏
+        assert other_skill.read_text() == "user-customized other skill"
+        # 新 manifest 只含 demo entry，不是全量
+        from lib.profile_manifest import load_manifest
+
+        loaded = load_manifest(project_dir)
+        assert loaded is not None
+        manifest, _ = loaded
+        assert set(manifest.entries.keys()) == {".claude/skills/demo/SKILL.md"}
+        assert stats["created"] == 1
+
+    def test_sync_skips_dest_symlink_escape(self, env):
+        """``.claude`` 子树含逃逸 symlink 时该项跳过，不读写项目外文件。
+
+        攻击模型：用户/导入归档放了 ``.claude/evil_link`` 指向项目外 sensitive
+        文件；sync 时该 entry 命中 dest enumerate（rglob 解引用 symlink 跟踪到
+        文件），decision 路径里的 _safe_copy / _safe_unlink_if_file 会读写到
+        项目外。escape guard 必须在 I/O 前 resolve 并校验仍在 project_dir 下。
+        """
+        import os
+
+        pm, _, project_dir = env
+        pm.repair_claude_symlink(project_dir)
+        # 在 .claude 内放一个指向项目外的 symlink
+        outside = project_dir.parent.parent / "outside_secret.md"
+        outside.write_text("MUST NOT be touched")
+        escape_link = project_dir / ".claude" / "evil_link.md"
+        escape_link.symlink_to(outside)
+
+        # manifest 删一遍触发首次迁移分支也会跑校验？_full_reset 不走 escape guard
+        # 路径（它走全量 copy 不会撞已存在 dest）。所以这里走主同步路径：
+        # 在 manifest 里手插一条 entry 让该 rel 进 all_keys → 触发 #6 user_modified
+        # 分支 → _apply_decision 里跑 sha256_file(d) 会跟过 symlink 读到 outside。
+        # escape guard 阻断该 rel 的 I/O。
+        import json
+
+        from lib.profile_manifest import MANIFEST_FILENAME
+
+        manifest_path = project_dir / MANIFEST_FILENAME
+        data = json.loads(manifest_path.read_text())
+        data["entries"][".claude/evil_link.md"] = {
+            "sha256": "0" * 64,
+            "size": 100,
+            "source": "profile",
+        }
+        manifest_path.write_text(json.dumps(data))
+
+        stats = pm.repair_claude_symlink(project_dir)
+
+        # outside 文件应原样不动
+        assert outside.read_text() == "MUST NOT be touched"
+        # 该 rel 至少计为 errors（escape guard 拦下来）
+        assert stats["errors"] >= 1
+        # symlink 自身没被改（rmtree 在 _full_reset 才发生，这里走主路径）
+        assert os.path.islink(escape_link)
+
     def test_force_resync_raises_on_empty_profile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """profile 存在但无文件 → ProfileEmptyError，与主入口对称。
         否则 paths=None + 无 manifest 时会走 _full_reset 把项目清空。

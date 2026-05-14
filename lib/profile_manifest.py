@@ -80,6 +80,24 @@ def enumerate_profile_files(profile_dir: Path) -> set[str]:
     return files
 
 
+def _ensure_dest_within(project_dir: Path, rel: str) -> Path:
+    """解析 ``project_dir / rel`` 后必须仍在 ``project_dir`` 内，否则 ``raise``。
+
+    防止恶意 symlink 把同步 I/O 引到项目根之外。攻击模型：导入的归档 / 用户手放
+    的 symlink 让 ``.claude`` 或其祖先目录指向 ``/etc`` 等外部位置，sync 跑
+    ``_safe_copy`` / ``_safe_unlink_if_file`` 时就会读写项目外文件。
+
+    rel 本身已经过 ``_normalize_profile_rel_path``（force_resync）或 enumerate
+    走文件系统真实路径（主入口），形态可信；这层只防 dest 端 symlink 跳板。
+    """
+    base = project_dir.resolve()
+    # rel 路径段可能还未存在 → resolve() 走到第一个不存在段就停，仍正确反映前缀。
+    candidate = (project_dir / rel).resolve()
+    if candidate != base and not candidate.is_relative_to(base):
+        raise ValueError(f"dest path escapes project_dir: {rel!r} → {candidate}")
+    return candidate
+
+
 def _normalize_profile_rel_path(rel: str) -> str:
     """force_resync 的 ``paths`` 来自 UI / 外部输入，必须拒掉绝对路径和 ``..``，
     否则 ``profile_dir / rel`` 和 ``project_dir / rel`` 会逃逸到 profile / 项目
@@ -460,6 +478,10 @@ def sync_profile_to_project(profile_dir: Path, project_dir: Path) -> dict:
             d_exists = rel in dest_files
             m = manifest.entries.get(rel)
             try:
+                # symlink-escape 防御：dest 路径解析后必须仍在项目根内，否则
+                # _apply_decision 内的 _safe_copy / _safe_unlink_if_file 会读写
+                # 项目外文件。校验放在调用方让决策表保持纯粹。
+                _ensure_dest_within(project_dir, rel)
                 _apply_decision(
                     profile_dir,
                     project_dir,
@@ -470,6 +492,9 @@ def sync_profile_to_project(profile_dir: Path, project_dir: Path) -> dict:
                     manifest,
                     stats,
                 )
+            except ValueError as e:
+                logger.warning("profile sync skip %s (escape guard): %s", rel, e)
+                stats["errors"] += 1
             except OSError as e:
                 logger.warning("profile sync skip %s: %s", rel, e)
                 stats["errors"] += 1
@@ -511,9 +536,15 @@ def force_resync_profile(
     with portalocker.Lock(lock_path, "w", timeout=LOCK_TIMEOUT_SECONDS):
         loaded = load_manifest(project_dir)
         if loaded is None:
-            # 等价于首次接入，行为与 reset 一致
-            return _full_reset_from_profile(profile_dir, project_dir, profile_files)
-        manifest, original_bytes = loaded
+            if paths is None:
+                # 真正的全量恢复：等价于首次接入，行为与 reset 一致
+                return _full_reset_from_profile(profile_dir, project_dir, profile_files)
+            # paths 非空 = "恢复指定 skill"，manifest 缺失不该退化成全量
+            # _full_reset（会清空 .claude 复活其他被删的内置文件）；从空 manifest
+            # 开始，下面只回填用户选中的 rel，不动其他文件。
+            manifest, original_bytes = Manifest.empty(), None
+        else:
+            manifest, original_bytes = loaded
 
         stats = _new_stats()
         for rel in sorted(target):
@@ -521,13 +552,18 @@ def force_resync_profile(
             if not p.is_file():
                 logger.warning("force_resync skip missing profile file: %s", rel)
                 continue
-            d = project_dir / rel
             try:
+                # 与主入口相同的 dest 端 escape 防御
+                _ensure_dest_within(project_dir, rel)
+                d = project_dir / rel
                 _safe_copy(p, d)
                 sha = sha256_file(p)
                 manifest.entries[rel] = _profile_active_entry(sha, p.stat().st_size)
                 stats["created"] += 1
                 stats["repaired"] += 1
+            except ValueError as e:
+                logger.warning("force_resync skip %s (escape guard): %s", rel, e)
+                stats["errors"] += 1
             except OSError as e:
                 logger.warning("force_resync skip %s: %s", rel, e)
                 stats["errors"] += 1
