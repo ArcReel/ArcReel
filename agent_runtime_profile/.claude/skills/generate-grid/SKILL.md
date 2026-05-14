@@ -21,14 +21,6 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 | 指定场景所在的组 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S02", "E1S03"]})` |
 | 列出当前分组信息 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "list_only": true})` |
 
-### 旧 CLI → 新 tool 对照
-
-| 旧脚本（已删除） | 新 tool |
-|---|---|
-| `python ... generate_grid.py episode_1.json` | `mcp__arcreel__generate_grid({"script": "episode_1.json"})` |
-| `... --scene-ids ID1 ID2` | 加 `"scene_ids": [...]` |
-| `... --list` | 加 `"list_only": true` |
-
 ## 输出
 
 - 宫格大图保存到 `grids/grid_{id}.png`

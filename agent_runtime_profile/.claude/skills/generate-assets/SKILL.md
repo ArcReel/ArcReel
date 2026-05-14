@@ -85,17 +85,6 @@ description: "统一资产生成 skill：接受 `--type=character|scene|prop`，
 
 返回 `is_error: true` 时，文本里包含失败明细，按需重试或反馈给开发者。
 
-### 旧 CLI → 新 tool 对照
-
-| 旧脚本（已删除） | 新 tool |
-|---|---|
-| `python ... generate_asset.py --all` | `mcp__arcreel__generate_assets({})` |
-| `python ... generate_asset.py --type T --all` | `mcp__arcreel__generate_assets({"type": "T"})` |
-| `python ... generate_asset.py --type T --name N` | `mcp__arcreel__generate_assets({"type": "T", "names": ["N"]})` |
-| `python ... generate_asset.py --type T --names ...` | `mcp__arcreel__generate_assets({"type": "T", "names": [...]})` |
-| `python ... generate_asset.py --list` | `mcp__arcreel__list_pending_assets({})` |
-| `python ... generate_asset.py --type T --list` | `mcp__arcreel__list_pending_assets({"type": "T"})` |
-
 ## 工作流程
 
 1. **加载项目元数据** — 从 project.json 找出缺少对应 `*_sheet` 的资产
