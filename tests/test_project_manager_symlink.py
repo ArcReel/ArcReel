@@ -2,7 +2,22 @@
 
 from pathlib import Path
 
+import pytest
+
 from lib.project_manager import ProjectManager
+
+
+@pytest.fixture(autouse=True)
+def _force_symlink_platform(monkeypatch):
+    """Pin sys.platform=darwin so the upstream symlink-shaped suites always
+    exercise the symlink branch.
+
+    ``ProjectManager.repair_claude_symlink`` materializes the profile into a
+    real directory/file on Linux because the Claude Agent SDK bwrap sandbox
+    refuses to bind a symlink at ``<cwd>/.claude``. ``TestLinuxMaterialize``
+    overrides this fixture to cover the Linux branch.
+    """
+    monkeypatch.setattr("lib.project_manager.sys.platform", "darwin")
 
 
 class TestProjectSymlink:
@@ -185,3 +200,102 @@ class TestRepairAllSymlinks:
         stats = pm.repair_all_symlinks()
 
         assert stats["created"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Linux branch: ``repair_claude_symlink`` materializes ``.claude`` / ``CLAUDE.md``
+# into real directories/files so the Claude Agent SDK bwrap sandbox can bind
+# the path (it lstats ``<cwd>/.claude`` and refuses to bind a symlink that
+# resolves to a directory, raising ``Can't create file ... Is a directory``).
+# ---------------------------------------------------------------------------
+
+
+class TestLinuxMaterialize:
+    @pytest.fixture(autouse=True)
+    def _force_linux(self, monkeypatch):
+        # Overrides the module-level fixture (pinned to darwin) for this class.
+        monkeypatch.setattr("lib.project_manager.sys.platform", "linux")
+
+    def _make_env(self, tmp_path: Path):
+        projects_root = tmp_path / "projects"
+        projects_root.mkdir()
+        profile_dir = tmp_path / "agent_runtime_profile"
+        (profile_dir / ".claude").mkdir(parents=True)
+        (profile_dir / "CLAUDE.md").write_text("prompt")
+        pm = ProjectManager(projects_root)
+        project_dir = projects_root / "test-proj"
+        project_dir.mkdir()
+        return pm, project_dir, profile_dir
+
+    def test_creates_real_directory_and_file(self, tmp_path):
+        pm, project_dir, _ = self._make_env(tmp_path)
+
+        pm.repair_claude_symlink(project_dir)
+
+        claude = project_dir / ".claude"
+        assert claude.is_dir() and not claude.is_symlink()
+        md = project_dir / "CLAUDE.md"
+        assert md.is_file() and not md.is_symlink()
+
+    def test_upgrades_existing_symlink_to_real_dir(self, tmp_path):
+        """A symlink left over from a previous release should be upgraded
+        to a materialized copy on startup."""
+        pm, project_dir, _ = self._make_env(tmp_path)
+        (project_dir / ".claude").symlink_to(Path("../../agent_runtime_profile/.claude"))
+
+        stats = pm.repair_claude_symlink(project_dir)
+
+        claude = project_dir / ".claude"
+        assert claude.is_dir() and not claude.is_symlink()
+        assert stats["repaired"] >= 1
+
+    def test_sync_propagates_profile_updates(self, tmp_path):
+        """A second ``repair`` after profile updates must propagate new files,
+        preserving the upstream symlink-mode semantics where editing the
+        profile is reflected immediately in every project."""
+        pm, project_dir, profile_dir = self._make_env(tmp_path)
+
+        pm.repair_claude_symlink(project_dir)
+        assert (project_dir / ".claude").is_dir()
+
+        (profile_dir / ".claude" / "skills").mkdir()
+        (profile_dir / ".claude" / "skills" / "new.md").write_text("v2")
+        (profile_dir / "CLAUDE.md").write_text("v2 prompt")
+
+        pm.repair_claude_symlink(project_dir)
+
+        assert (project_dir / ".claude" / "skills" / "new.md").read_text() == "v2"
+        assert (project_dir / "CLAUDE.md").read_text() == "v2 prompt"
+
+    def test_sync_removes_deleted_profile_files(self, tmp_path):
+        pm, project_dir, profile_dir = self._make_env(tmp_path)
+        stale_source = profile_dir / ".claude" / "stale.md"
+        stale_source.write_text("remove me")
+
+        pm.repair_claude_symlink(project_dir)
+        assert (project_dir / ".claude" / "stale.md").exists()
+
+        stale_source.unlink()
+        pm.repair_claude_symlink(project_dir)
+
+        assert not (project_dir / ".claude" / "stale.md").exists()
+
+    def test_sync_replaces_mismatched_destination_types(self, tmp_path):
+        pm, project_dir, _ = self._make_env(tmp_path)
+        (project_dir / ".claude").write_text("wrong type")
+        (project_dir / "CLAUDE.md").mkdir()
+
+        pm.repair_claude_symlink(project_dir)
+
+        assert (project_dir / ".claude").is_dir()
+        assert (project_dir / "CLAUDE.md").is_file()
+        assert (project_dir / "CLAUDE.md").read_text() == "prompt"
+
+    def test_repair_idempotent(self, tmp_path):
+        pm, project_dir, _ = self._make_env(tmp_path)
+
+        pm.repair_claude_symlink(project_dir)
+        stats = pm.repair_claude_symlink(project_dir)
+
+        assert stats["errors"] == 0
+        assert (project_dir / ".claude").is_dir()

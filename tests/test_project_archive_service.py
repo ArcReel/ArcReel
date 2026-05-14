@@ -427,8 +427,10 @@ class TestProjectArchiveService:
         assert pm.load_project("demo")["style"] == "Fresh"
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
 
-    def test_import_creates_claude_symlink(self, tmp_path):
+    def test_import_creates_claude_symlink_on_symlink_platform(self, tmp_path, monkeypatch):
         """Imported project should get .claude symlink for agent runtime isolation."""
+        monkeypatch.setattr("lib.project_manager.sys.platform", "darwin")
+
         # Create agent_runtime_profile in project root (parent of projects/)
         profile_claude = tmp_path / "agent_runtime_profile" / ".claude"
         profile_claude.mkdir(parents=True)
@@ -449,6 +451,30 @@ class TestProjectArchiveService:
         symlink = imported_dir / ".claude"
         assert symlink.is_symlink()
         assert symlink.resolve() == profile_claude.resolve()
+
+    def test_import_materializes_claude_dir_on_linux(self, tmp_path, monkeypatch):
+        """Imported project should materialize .claude on Linux for bwrap sandbox compatibility."""
+        monkeypatch.setattr("lib.project_manager.sys.platform", "linux")
+
+        profile_claude = tmp_path / "agent_runtime_profile" / ".claude"
+        profile_claude.mkdir(parents=True)
+        (profile_claude / "settings.json").write_text("{}", encoding="utf-8")
+
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="rename",
+        )
+
+        imported_claude = pm.get_project_path(result.project_name) / ".claude"
+        assert imported_claude.is_dir()
+        assert not imported_claude.is_symlink()
+        assert (imported_claude / "settings.json").read_text(encoding="utf-8") == "{}"
 
     def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")

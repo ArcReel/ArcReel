@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import unicodedata
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -190,9 +191,29 @@ class ProjectManager:
             "CLAUDE.md": profile_dir / "CLAUDE.md",
         }
 
+        # Linux 上 Claude Agent SDK 的 bwrap 沙箱按 lstat 判断 .claude 类型，
+        # symlink 会被当文件 bind，与目录冲突报 "Is a directory"。改为物化拷贝。
+        # 每次同步前移除旧目标，确保删除和文件/目录类型变化也能跟随 profile。
+        materialize = sys.platform.startswith("linux")
+
+        def _remove_materialized_target(path: Path) -> None:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+
         def _link_or_copy(name: str, target_source: Path, link_path: Path) -> None:
-            """Create symlink to target_source. On Windows, fall back to copy
-            when symlink creation fails (Developer Mode off / non-admin)."""
+            """Link target_source into project. macOS/Windows symlink; Linux materialize.
+
+            Windows fall back to copy when symlink creation fails (Developer Mode off / non-admin).
+            """
+            if materialize:
+                _remove_materialized_target(link_path)
+                if target_source.is_dir():
+                    shutil.copytree(target_source, link_path, symlinks=False)
+                else:
+                    shutil.copyfile(target_source, link_path)
+                return
             try:
                 rel_target: str = os.path.relpath(target_source, link_path.parent)
             except ValueError:
@@ -259,6 +280,16 @@ class ProjectManager:
                     stats["created"] += 1
                 except OSError as e:
                     logger.warning("无法为项目 %s 创建 %s 符号链接: %s", project_dir.name, name, e)
+                    stats["errors"] += 1
+            elif materialize:
+                # Linux: 已存在 → 升级旧 symlink / 镜像同步物化拷贝
+                # （projects/ 是 docker volume，镜像更新后旧项目目录必须跟随刷新）
+                try:
+                    was_symlink = symlink_path.is_symlink()
+                    _link_or_copy(name, target_source, symlink_path)
+                    stats["repaired" if was_symlink else "skipped"] += 1
+                except OSError as e:
+                    logger.warning("无法同步项目 %s 的 %s: %s", project_dir.name, name, e)
                     stats["errors"] += 1
             else:
                 stats["skipped"] += 1
