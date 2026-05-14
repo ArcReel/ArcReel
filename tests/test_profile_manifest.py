@@ -1,0 +1,260 @@
+"""Tests for ``lib.profile_manifest`` module utilities.
+
+仅覆盖 manifest 模块本身的 utility（sha256、load/save、enumerate、deterministic
+序列化、schema_version 兼容性）。决策表 15 行的端到端测试在
+``tests/test_project_manager_symlink.py`` 里覆盖。
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from lib.profile_manifest import (
+    EXPECTED_PROFILE_ID,
+    LOCK_FILENAME,
+    MANIFEST_FILENAME,
+    MANIFEST_SCHEMA_VERSION,
+    Manifest,
+    enumerate_dest_files,
+    enumerate_profile_files,
+    load_manifest,
+    save_manifest,
+    sha256_file,
+)
+
+# ---------- sha256 ----------
+
+
+def test_sha256_file_streaming_64kib_chunks(tmp_path: Path) -> None:
+    """流式读避免大文件 OOM；结果应与标准 hashlib 一致。"""
+    import hashlib
+
+    big = tmp_path / "big.bin"
+    payload = b"abc" * (256 * 1024)  # ~750KB，超过单个 64KiB chunk
+    big.write_bytes(payload)
+    assert sha256_file(big) == hashlib.sha256(payload).hexdigest()
+
+
+def test_sha256_file_empty(tmp_path: Path) -> None:
+    empty = tmp_path / "empty.txt"
+    empty.touch()
+    # sha256("") = e3b0c4...
+    assert sha256_file(empty).startswith("e3b0c442")
+
+
+# ---------- enumerate ----------
+
+
+def test_enumerate_profile_files_includes_top_md_and_claude_tree(
+    tmp_path: Path,
+) -> None:
+    profile = tmp_path / "profile"
+    (profile / ".claude" / "skills" / "demo").mkdir(parents=True)
+    (profile / ".claude" / "skills" / "demo" / "SKILL.md").write_text("x")
+    (profile / "CLAUDE.md").write_text("top")
+
+    files = enumerate_profile_files(profile)
+    assert files == {"CLAUDE.md", ".claude/skills/demo/SKILL.md"}
+
+
+def test_enumerate_profile_files_empty_when_missing_roots(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    assert enumerate_profile_files(profile) == set()
+
+
+def test_enumerate_dest_files_skips_manifest_self_and_lock(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    (project / ".claude").mkdir(parents=True)
+    (project / ".claude" / "skill.md").write_text("x")
+    (project / "CLAUDE.md").write_text("top")
+    (project / MANIFEST_FILENAME).write_text("{}")
+    (project / LOCK_FILENAME).write_text("")
+
+    files = enumerate_dest_files(project)
+    assert files == {"CLAUDE.md", ".claude/skill.md"}
+    assert MANIFEST_FILENAME not in files
+    assert LOCK_FILENAME not in files
+
+
+def test_enumerate_files_uses_posix_separator(tmp_path: Path) -> None:
+    """跨平台共享 docker volume 时 manifest key 不能用反斜杠。"""
+    profile = tmp_path / "profile"
+    (profile / ".claude" / "skills" / "a" / "b").mkdir(parents=True)
+    (profile / ".claude" / "skills" / "a" / "b" / "c.md").write_text("x")
+
+    files = enumerate_profile_files(profile)
+    assert ".claude/skills/a/b/c.md" in files
+    # 所有 key 都不能含反斜杠（即便 Windows 上 Path 用 \）
+    for rel in files:
+        assert "\\" not in rel
+
+
+# ---------- Manifest dataclass ----------
+
+
+def test_manifest_normalized_bytes_deterministic_sort_keys(tmp_path: Path) -> None:
+    """同一份 manifest 多次序列化字节相等。"""
+    m1 = Manifest.empty()
+    m1.entries["b.md"] = {"sha256": "bb", "size": 2, "source": "profile"}
+    m1.entries["a.md"] = {"sha256": "aa", "size": 1, "source": "profile"}
+
+    m2 = Manifest.empty()
+    m2.entries["a.md"] = {"sha256": "aa", "size": 1, "source": "profile"}
+    m2.entries["b.md"] = {"sha256": "bb", "size": 2, "source": "profile"}
+
+    assert m1.normalized_bytes() == m2.normalized_bytes()
+    # entry 顺序也应在序列化时按 key 字典序
+    text = m1.normalized_bytes().decode("utf-8")
+    assert text.index('"a.md"') < text.index('"b.md"')
+
+
+def test_manifest_no_top_level_synced_at_field() -> None:
+    """schema 健康度：顶层不能有 synced_at（避免每次启动重写 + git diff 污染）。"""
+    m = Manifest.empty()
+    data = json.loads(m.normalized_bytes())
+    assert "synced_at" not in data
+
+
+def test_manifest_entries_no_per_entry_synced_at_field() -> None:
+    """entry 内也不能有 synced_at（同上）。tombstone 的 deleted_at 是写一次稳定值，不算。"""
+    m = Manifest.empty()
+    m.entries["x"] = {"sha256": "h", "size": 1, "source": "profile"}
+    data = json.loads(m.normalized_bytes())
+    assert "synced_at" not in data["entries"]["x"]
+
+
+def test_manifest_profile_id_present(tmp_path: Path) -> None:
+    m = Manifest.empty()
+    data = json.loads(m.normalized_bytes())
+    assert data["profile_id"] == EXPECTED_PROFILE_ID
+
+
+# ---------- load / save ----------
+
+
+def test_load_manifest_missing_returns_none(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    assert load_manifest(project) is None
+
+
+def test_load_manifest_corrupt_returns_none(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / MANIFEST_FILENAME).write_text("{not json")
+    assert load_manifest(project) is None
+
+
+def test_load_manifest_schema_version_mismatch_returns_none(tmp_path: Path) -> None:
+    """未来 schema 演进时硬升级路径：版本不匹配 → reset。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION + 99,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "entries": {},
+    }
+    (project / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    assert load_manifest(project) is None
+
+
+def test_load_manifest_profile_id_mismatch_returns_none(tmp_path: Path) -> None:
+    """换 profile = 换源 = 等价 reset。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": "other/foo",
+        "entries": {},
+    }
+    (project / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    assert load_manifest(project) is None
+
+
+def test_load_manifest_roundtrip_returns_raw_bytes(tmp_path: Path) -> None:
+    """load 返回 (manifest, raw_bytes) tuple，raw 用于写前比对。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    m = Manifest.empty()
+    m.entries["x"] = {"sha256": "h", "size": 1, "source": "profile"}
+    save_manifest(project, m)
+
+    loaded = load_manifest(project)
+    assert loaded is not None
+    loaded_m, raw = loaded
+    assert loaded_m.entries == m.entries
+    assert raw == m.normalized_bytes()
+
+
+def test_save_manifest_atomic_via_tmp_then_rename(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    m = Manifest.empty()
+    save_manifest(project, m)
+    assert (project / MANIFEST_FILENAME).exists()
+    # 不应留下 .tmp
+    assert not (project / (MANIFEST_FILENAME + ".tmp")).exists()
+
+
+def test_save_manifest_skips_write_when_unchanged(tmp_path: Path) -> None:
+    """写前比对：盘上字节等于新规范化字节 → 跳过原子写。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    m = Manifest.empty()
+    save_manifest(project, m)
+    raw = (project / MANIFEST_FILENAME).read_bytes()
+
+    # 用 original_bytes 调，传入相同 manifest → 应返回 False
+    wrote = save_manifest(project, m, original_bytes=raw)
+    assert wrote is False
+
+
+def test_save_manifest_writes_when_changed(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    m = Manifest.empty()
+    save_manifest(project, m)
+    raw = (project / MANIFEST_FILENAME).read_bytes()
+
+    m.entries["new.md"] = {"sha256": "h", "size": 1, "source": "profile"}
+    wrote = save_manifest(project, m, original_bytes=raw)
+    assert wrote is True
+    new_raw = (project / MANIFEST_FILENAME).read_bytes()
+    assert new_raw != raw
+
+
+def test_save_manifest_first_write_no_original_bytes(tmp_path: Path) -> None:
+    """首次迁移分支：manifest 新建，无 original_bytes → 必须落盘。"""
+    project = tmp_path / "proj"
+    project.mkdir()
+    m = Manifest.empty()
+    wrote = save_manifest(project, m, original_bytes=None)
+    assert wrote is True
+    assert (project / MANIFEST_FILENAME).exists()
+
+
+# ---------- schema validation ----------
+
+
+def test_load_manifest_entries_not_dict_returns_none(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "entries": ["not", "a", "dict"],
+    }
+    (project / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    assert load_manifest(project) is None
+
+
+@pytest.mark.parametrize("garbage", ["null", "[]", '"string"', "42"])
+def test_load_manifest_top_level_not_object_returns_none(tmp_path: Path, garbage: str) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / MANIFEST_FILENAME).write_text(garbage)
+    assert load_manifest(project) is None

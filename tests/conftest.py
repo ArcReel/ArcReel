@@ -70,8 +70,22 @@ def _reset_app_data_dir_cache():
 def _profile_env(monkeypatch, tmp_path):
     """Pin ``agent_profile_dir()`` to a per-test ``tmp_path/agent_runtime_profile``
     so tests that build a fake profile under tmp_path are exercised against the
-    env-driven contract instead of the repo-level default."""
-    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "agent_runtime_profile"))
+    env-driven contract instead of the repo-level default.
+
+    Also seed the profile with a minimal ``.claude/`` + ``CLAUDE.md`` so unrelated
+    tests that go through ``ProjectManager.create_project`` (which triggers
+    profile sync) don't trip the ``ProfileMissingError`` / ``ProfileEmptyError``
+    入口防御 — those guards are deployment-correctness contracts, not test fixtures.
+    Tests that explicitly need profile-missing / empty scenarios still work because
+    they ``setenv`` to a different path under tmp_path.
+    """
+    profile_dir = tmp_path / "agent_runtime_profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    # 仅 touch 顶层 CLAUDE.md（最少 1 个可同步文件以避开 ProfileEmptyError）。
+    # 不预创建 ``.claude/`` —— 让需要自己 mkdir(".claude", parents=True) 的下游测试
+    # 不撞 FileExistsError；那些测试自己会构造完整 profile 内容。
+    (profile_dir / "CLAUDE.md").write_text("")
+    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
 
 
 @pytest.fixture()

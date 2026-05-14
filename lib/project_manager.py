@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import secrets
-import shutil
 import unicodedata
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -23,6 +22,14 @@ from pydantic import BaseModel, Field
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
 from lib.json_io import atomic_write_json
+from lib.profile_manifest import (
+    ProfileEmptyError,
+    ProfileMissingError,
+    sync_profile_to_project,
+)
+from lib.profile_manifest import (
+    force_resync_profile as _force_resync_profile,
+)
 from lib.project_change_hints import emit_project_change_hint
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
@@ -173,116 +180,84 @@ class ProjectManager:
         return project_dir
 
     def repair_claude_symlink(self, project_dir: Path) -> dict:
-        """修复项目目录的 .claude 和 CLAUDE.md 软连接。
+        """同步项目目录的 .claude 和 CLAUDE.md（manifest + sha256 全平台物化）。
 
-        对每条软连接执行：
-        - 损坏（is_symlink but not exists）→ 删除并重建
-        - 缺失（not exists and not is_symlink）→ 创建
-        - 正常（exists）→ 跳过
+        历史名称保留为 ``repair_claude_symlink`` 以保 API 兼容（外部 callers /
+        tests 用此名）。实际行为是 manifest-driven 同步，详见
+        ``lib.profile_manifest.sync_profile_to_project``：
+        - 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动删除（不复活）
+        - profile 上游删除时同步删除项目内未改副本
+        - 命名碰撞 / 状态机回流等 15 行决策表完整覆盖
 
         Returns:
-            {"created": int, "repaired": int, "skipped": int, "errors": int}
+            含向后兼容 ``created/repaired/skipped/errors`` + 细分 stat key 的字典
         """
         profile_dir = agent_profile_dir()
+        return sync_profile_to_project(profile_dir, project_dir)
 
-        SYMLINKS = {
-            ".claude": profile_dir / ".claude",
-            "CLAUDE.md": profile_dir / "CLAUDE.md",
-        }
+    def force_resync_profile(self, project_dir: Path, *, paths: list[str] | None = None) -> dict:
+        """强制按 profile 覆盖项目内对应文件并刷新 manifest。
 
-        def _link_or_copy(name: str, target_source: Path, link_path: Path) -> None:
-            """Create symlink to target_source. On Windows, fall back to copy
-            when symlink creation fails (Developer Mode off / non-admin)."""
-            try:
-                rel_target: str = os.path.relpath(target_source, link_path.parent)
-            except ValueError:
-                # Windows: target and project_dir on different drives — relpath
-                # is undefined, fall through with the absolute path.
-                rel_target = str(target_source)
-            try:
-                os.symlink(rel_target, link_path, target_is_directory=target_source.is_dir())
-            except OSError as exc:
-                if os.name == "nt":
-                    # Copy fallback when Developer Mode off / non-admin. The copy
-                    # is a static snapshot — later profile updates won't propagate.
-                    logger.warning(
-                        "项目 %s 的 %s 软链接创建失败，降级为复制（profile 更新不会自动同步）: %s",
-                        project_dir.name,
-                        name,
-                        exc,
-                    )
-                    if target_source.is_dir():
-                        shutil.copytree(target_source, link_path)
-                    else:
-                        shutil.copy2(target_source, link_path)
-                else:
-                    raise
-
-        stats = {"created": 0, "repaired": 0, "skipped": 0, "errors": 0}
-        for name, target_source in SYMLINKS.items():
-            if not target_source.exists():
-                continue
-            symlink_path = project_dir / name
-
-            # An existing symlink may have been created against a previous
-            # agent_profile_dir() value (e.g. before ARCREEL_PROFILE_DIR was set);
-            # detect and rebuild it so env changes take effect on existing projects.
-            symlink_matches_target = False
-            if symlink_path.is_symlink() and symlink_path.exists():
-                try:
-                    symlink_matches_target = symlink_path.resolve() == target_source.resolve()
-                except OSError:
-                    symlink_matches_target = False
-
-            if symlink_path.is_symlink() and not symlink_path.exists():
-                # 损坏的软连接
-                try:
-                    symlink_path.unlink()
-                    _link_or_copy(name, target_source, symlink_path)
-                    stats["repaired"] += 1
-                except OSError as e:
-                    logger.warning("无法修复项目 %s 的 %s 符号链接: %s", project_dir.name, name, e)
-                    stats["errors"] += 1
-            elif symlink_path.is_symlink() and not symlink_matches_target:
-                # 指向旧 profile，需刷新到当前 agent_profile_dir()
-                try:
-                    symlink_path.unlink()
-                    _link_or_copy(name, target_source, symlink_path)
-                    stats["repaired"] += 1
-                except OSError as e:
-                    logger.warning("无法更新项目 %s 的 %s 符号链接: %s", project_dir.name, name, e)
-                    stats["errors"] += 1
-            elif not symlink_path.exists() and not symlink_path.is_symlink():
-                # 缺失
-                try:
-                    _link_or_copy(name, target_source, symlink_path)
-                    stats["created"] += 1
-                except OSError as e:
-                    logger.warning("无法为项目 %s 创建 %s 符号链接: %s", project_dir.name, name, e)
-                    stats["errors"] += 1
-            else:
-                stats["skipped"] += 1
-        return stats
+        用于 UI"恢复内置 skill"按钮等显式触发的场景。``paths=None`` 表示全量；
+        指定 paths 中若某文件 profile 已删，会 skip + log warn（不算 error）。
+        """
+        profile_dir = agent_profile_dir()
+        return _force_resync_profile(profile_dir, project_dir, paths=paths)
 
     def repair_all_symlinks(self) -> dict:
-        """扫描所有项目目录，修复软连接。
+        """扫描所有项目目录，同步 profile。
+
+        单项目失败隔离：捕获普通异常后继续下一项目（``failed_projects`` 计数）。
+        ``ProfileMissingError`` / ``ProfileEmptyError`` 是部署级错误，全部跳过
+        并设 ``aborted=True``，避免静默把所有项目的 .claude 删空。
 
         Returns:
-            {"created": int, "repaired": int, "skipped": int, "errors": int}
+            含向后兼容 ``created/repaired/skipped/errors`` + 细分 stat + 兜底
+            ``failed_projects`` / ``aborted`` 字段
         """
-        totals = {"created": 0, "repaired": 0, "skipped": 0, "errors": 0}
+        totals = {
+            "created": 0,
+            "repaired": 0,
+            "skipped": 0,
+            "errors": 0,
+            "failed_projects": 0,
+            "aborted": False,
+        }
         if not self.projects_root.exists():
             return totals
+        _STAT_KEYS_TO_AGGREGATE = (
+            "created",
+            "repaired",
+            "skipped",
+            "errors",
+            "upgraded",
+            "user_modified",
+            "user_only",
+            "pruned",
+            "orphaned",
+            "deleted_user",
+            "tombstoned",
+            "unchanged",
+            "collision",
+            "migrated_total",
+        )
         for project_dir in sorted(self.projects_root.iterdir()):
             if not project_dir.is_dir() or project_dir.name.startswith("."):
                 continue
             try:
                 result = self.repair_claude_symlink(project_dir)
-                for key in ("created", "repaired", "skipped", "errors"):
-                    totals[key] += result.get(key, 0)
+                for key in _STAT_KEYS_TO_AGGREGATE:
+                    if key in result:
+                        totals[key] = totals.get(key, 0) + result[key]
+            except (ProfileMissingError, ProfileEmptyError) as e:
+                # 部署级错误（profile 路径错 / volume 挂载失败）→ 全部跳过，
+                # 不要 fallback 到"假装 profile 是空"的破坏行为
+                logger.error("profile sync ABORTED for ALL projects: %s", e)
+                totals["aborted"] = True
+                break
             except Exception as e:
-                logger.warning("修复项目 %s 软连接时出错: %s", project_dir.name, e)
-                totals["errors"] += 1
+                logger.exception("profile sync failed for %s: %s", project_dir.name, e)
+                totals["failed_projects"] += 1
         return totals
 
     def get_project_path(self, name: str) -> Path:
