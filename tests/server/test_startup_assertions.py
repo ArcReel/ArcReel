@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import platform
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -104,30 +105,39 @@ def test_sandbox_missing_socat_only_linux_raises(monkeypatch: pytest.MonkeyPatch
         check_sandbox_available()
 
 
-def test_sandbox_bwrap_probe_userns_failure_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """bwrap 装了但 user namespace 创建被 seccomp/userns_clone 拦下 →
-    启动期硬失败，stderr + 三条修复建议都进异常信息。"""
-    monkeypatch.setattr(platform, "system", lambda: "Linux")
-    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
-    monkeypatch.setattr(
-        "server.app.subprocess.run",
-        _bwrap_probe_stub(
-            returncode=1,
-            stderr=b"bwrap: No permissions to create new namespace",
-        ),
-    )
-    with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN") as exc_info:
-        check_sandbox_available()
-    msg = str(exc_info.value)
-    assert "No permissions to create new namespace" in msg
-    assert "seccomp:unconfined" in msg
-    assert "NET_ADMIN" in msg
-    assert "unprivileged_userns_clone" in msg
+def _patch_sysctls(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    apparmor_userns: str | None = None,
+    userns_clone: str | None = None,
+    max_user_ns: str | None = None,
+) -> None:
+    """桩三条 host sysctl 读取，模拟不同的失败拓扑。
+
+    None 表示该 sysctl 在测试系统上不存在（read_text 抛 OSError），
+    与 mac / 老内核行为一致。
+    """
+
+    def _stub(self: Path, *args, **kwargs):  # noqa: ANN001 - 测试替身
+        mapping = {
+            "/proc/sys/kernel/apparmor_restrict_unprivileged_userns": apparmor_userns,
+            "/proc/sys/kernel/unprivileged_userns_clone": userns_clone,
+            "/proc/sys/user/max_user_namespaces": max_user_ns,
+        }
+        val = mapping.get(str(self))
+        if val is None:
+            raise OSError("simulated missing sysctl")
+        return val
+
+    monkeypatch.setattr("server.app.Path.read_text", _stub)
 
 
-def test_sandbox_bwrap_probe_loopback_failure_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """容器缺 CAP_NET_ADMIN，bwrap 配 loopback 失败 → 启动期硬失败，
-    把 NET_ADMIN 修复路径透出。这是 PR #534 实测复现的二段错误。"""
+def test_sandbox_bwrap_probe_apparmor_userns_diagnoses_ubuntu_2404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ubuntu 24.04 默认 kernel.apparmor_restrict_unprivileged_userns=1 →
+    异常信息必须把"在 host 上关 sysctl"作为根因路径透传，因为这是 PR #534
+    实测线上 Oracle Cloud Ubuntu 24.04 撞到的真根因，docker compose 改不动。"""
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
     monkeypatch.setattr(
@@ -137,11 +147,49 @@ def test_sandbox_bwrap_probe_loopback_failure_linux_raises(monkeypatch: pytest.M
             stderr=b"bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
         ),
     )
+    _patch_sysctls(monkeypatch, apparmor_userns="1", userns_clone="1", max_user_ns="95499")
     with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN") as exc_info:
         check_sandbox_available()
     msg = str(exc_info.value)
-    assert "RTM_NEWADDR" in msg
+    assert "Ubuntu 24.04" in msg
+    assert "apparmor_restrict_unprivileged_userns=0" in msg
+    assert "60-arcreel-bwrap.conf" in msg
+
+
+def test_sandbox_bwrap_probe_userns_clone_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """老内核 / 强化系统：kernel.unprivileged_userns_clone=0 → 给老 sysctl 修复路径。"""
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
+    monkeypatch.setattr(
+        "server.app.subprocess.run",
+        _bwrap_probe_stub(
+            returncode=1,
+            stderr=b"bwrap: Creating new namespace failed",
+        ),
+    )
+    _patch_sysctls(monkeypatch, userns_clone="0")
+    with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN") as exc_info:
+        check_sandbox_available()
+    msg = str(exc_info.value)
+    assert "unprivileged_userns_clone=1" in msg
+
+
+def test_sandbox_bwrap_probe_fallback_container_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """sysctl 都正常但 bwrap 仍跑不起来 → 兜底给出 docker compose 修复建议
+    （seccomp/apparmor unconfined + NET_ADMIN）。"""
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
+    monkeypatch.setattr(
+        "server.app.subprocess.run",
+        _bwrap_probe_stub(returncode=1, stderr=b"bwrap: some other error"),
+    )
+    _patch_sysctls(monkeypatch, apparmor_userns="0", userns_clone="1", max_user_ns="15000")
+    with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN") as exc_info:
+        check_sandbox_available()
+    msg = str(exc_info.value)
+    assert "seccomp:unconfined" in msg
     assert "NET_ADMIN" in msg
+    assert "Ubuntu 24.04" not in msg  # 未命中 apparmor sysctl，不应误导
 
 
 def test_sandbox_bwrap_probe_oserror_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
