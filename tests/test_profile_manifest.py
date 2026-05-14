@@ -18,6 +18,7 @@ from lib.profile_manifest import (
     MANIFEST_FILENAME,
     MANIFEST_SCHEMA_VERSION,
     Manifest,
+    _normalize_profile_rel_path,
     enumerate_dest_files,
     enumerate_profile_files,
     load_manifest,
@@ -330,3 +331,50 @@ def test_load_manifest_permission_error_propagates(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(_PathCls, "read_bytes", _raise)
     with pytest.raises(PermissionError):
         load_manifest(project)
+
+
+# ---------- _normalize_profile_rel_path ----------
+
+
+@pytest.mark.parametrize(
+    "evil",
+    [
+        "../escape",
+        ".claude/../../etc/passwd",
+        "/etc/passwd",
+        MANIFEST_FILENAME,
+        LOCK_FILENAME,
+        "",
+    ],
+)
+def test_normalize_rel_path_rejects_traversal_and_self(evil: str) -> None:
+    """绝对路径 / `..` / manifest 自身 / 空串都必须拒。"""
+    with pytest.raises(ValueError, match="profile sync"):
+        _normalize_profile_rel_path(evil)
+
+
+@pytest.mark.parametrize("bad", [None, 42, [], {}])
+def test_normalize_rel_path_rejects_non_string(bad) -> None:
+    """非 str 输入直接拒，避免下游撞 TypeError。"""
+    with pytest.raises(ValueError, match="profile sync"):
+        _normalize_profile_rel_path(bad)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (".claude/skills/demo/SKILL.md", ".claude/skills/demo/SKILL.md"),
+        # 连续斜杠：PurePosixPath 会折叠，规范化输出无双斜杠且 path 合法
+        ("a//b", "a/b"),
+        # `.` 段：PurePosixPath 会剥掉，结果与无 `.` 等价
+        ("a/./b", "a/b"),
+    ],
+)
+def test_normalize_rel_path_accepts_and_canonicalizes(raw: str, expected: str) -> None:
+    """合法相对路径直接返回 POSIX 形式；pathlib 自带的规范化（折叠 ``//``、剥 ``.``）足够。
+
+    特别覆盖 CodeRabbit 二轮建议的 ``a//b`` 用例：经 PurePosixPath 折叠后 parts 不含
+    空段，所以 ``_normalize_profile_rel_path`` 中的 ``..`` 检查不会被空段触发，
+    该路径被视为合法 → 这一行为证明早前的 ``part == ""`` 检查是 unreachable。
+    """
+    assert _normalize_profile_rel_path(raw) == expected
