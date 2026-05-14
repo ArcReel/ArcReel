@@ -29,13 +29,13 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 ### Step 0: 查视频模型能力与用户偏好
 
-用 Bash 工具执行：
+通过 SDK in-process MCP tool 查询：
 
-```bash
-python .claude/skills/manage-project/scripts/get_video_capabilities.py --project {项目名}
+```text
+mcp__arcreel__get_video_capabilities({})
 ```
 
-解析 stdout JSON，记录：
+解析返回的 JSON，记录：
 - `supported_durations`：单 shot 允许的时长取值集合
 - `max_duration`：unit 总时长上限（reference_video 模式目标贴近此值）
 - `max_reference_images`：单 unit references 上限
@@ -45,7 +45,7 @@ python .claude/skills/manage-project/scripts/get_video_capabilities.py --project
 - `default_duration` 非 null → **优先采用**作为 shot 时长默认
 - `default_duration` 为 null，或**特殊情况**（一 unit 多 shot 组合需要贴近 `max_duration`、单 shot 不足以表达当前叙事）→ 从 `supported_durations` 自由选取，使 unit 总时长贴近 `max_duration`
 
-若脚本退出非 0，停止并把 stderr 报告给主 agent。
+工具返回 `is_error: true` 时，停止并把错误文本报告给主 agent。
 
 ### Step 1: 读取项目信息和小说原文
 
