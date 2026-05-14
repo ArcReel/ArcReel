@@ -80,6 +80,70 @@ def assert_no_provider_secrets_in_environ() -> None:
         )
 
 
+_APPARMOR_USERNS_SYSCTL = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+_UNPRIV_USERNS_SYSCTL = Path("/proc/sys/kernel/unprivileged_userns_clone")
+_MAX_USER_NS_SYSCTL = Path("/proc/sys/user/max_user_namespaces")
+
+
+def _read_sysctl(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+def _diagnose_bwrap_failure() -> str:
+    """根据 host sysctl 状态给出 bwrap 失败的精确修复路径。
+
+    procfs 是宿主机共享的，容器内同样能读到 host sysctl 值，所以这套
+    诊断在 docker 内外都能跑。优先级：Ubuntu 24.04 AppArmor 限制 >
+    传统 unprivileged_userns_clone > max_user_namespaces > 兜底容器配置。
+    """
+    parts: list[str] = []
+
+    apparmor_userns = _read_sysctl(_APPARMOR_USERNS_SYSCTL)
+    if apparmor_userns == "1":
+        parts.append(
+            "Detected Ubuntu 24.04+ AppArmor restriction (root cause):\n"
+            "  /proc/sys/kernel/apparmor_restrict_unprivileged_userns = 1\n"
+            "  Blocks ALL unprivileged user namespaces. `apparmor:unconfined`\n"
+            "  in docker compose does NOT bypass this — it is a global LSM\n"
+            "  switch, not a per-process profile.\n"
+            "  Fix on HOST (not inside the container):\n"
+            "    sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n"
+            '    echo "kernel.apparmor_restrict_unprivileged_userns=0" '
+            "| sudo tee /etc/sysctl.d/60-arcreel-bwrap.conf"
+        )
+
+    userns_clone = _read_sysctl(_UNPRIV_USERNS_SYSCTL)
+    if userns_clone == "0":
+        parts.append(
+            "Unprivileged user namespaces disabled on host:\n"
+            "  /proc/sys/kernel/unprivileged_userns_clone = 0\n"
+            "  Fix on HOST: sudo sysctl -w kernel.unprivileged_userns_clone=1"
+        )
+
+    max_userns = _read_sysctl(_MAX_USER_NS_SYSCTL)
+    if max_userns == "0":
+        parts.append(
+            "User namespace count limit set to 0 on host:\n"
+            "  /proc/sys/user/max_user_namespaces = 0\n"
+            "  Fix on HOST: sudo sysctl -w user.max_user_namespaces=15000"
+        )
+
+    if not parts:
+        parts.append(
+            "Container likely missing security relaxation. docker compose:\n"
+            "  security_opt:\n"
+            "    - seccomp:unconfined\n"
+            "    - apparmor:unconfined\n"
+            "  cap_add:\n"
+            "    - NET_ADMIN"
+        )
+
+    return "\n".join(parts)
+
+
 def check_sandbox_available() -> bool:
     """启动期检测 sandbox 工具可用性。
 
@@ -141,15 +205,7 @@ def check_sandbox_available() -> bool:
             raise RuntimeError(
                 "SANDBOX_BWRAP_BROKEN on Linux\n"
                 f"  bwrap installed but cannot run: {stderr}\n"
-                "Typical cause: container blocks unprivileged user namespaces or\n"
-                "lacks CAP_NET_ADMIN to configure the sandbox loopback interface.\n"
-                "Fix (docker compose):\n"
-                "  security_opt:\n"
-                "    - seccomp:unconfined\n"
-                "    - apparmor:unconfined\n"
-                "  cap_add:\n"
-                "    - NET_ADMIN\n"
-                "On host: sudo sysctl -w kernel.unprivileged_userns_clone=1"
+                f"{_diagnose_bwrap_failure()}"
             )
         return True
     logger.warning(
