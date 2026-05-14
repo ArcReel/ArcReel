@@ -45,6 +45,8 @@ mcp__arcreel__get_video_capabilities({})
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 - `max_duration`：当前视频模型单场景时长上限
 
+**校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值，下游 `mcp__arcreel__normalize_drama_script` / `generate_episode_script` 在调用时也会拒绝这种值）。
+
 情况 A（首次生成）时由 `mcp__arcreel__normalize_drama_script` 自行查询并注入 prompt，subagent 可不直接使用；
 情况 B（修改已有剧本调整时长）需参考这些值决定新值。
 
