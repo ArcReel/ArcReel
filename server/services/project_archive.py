@@ -293,7 +293,7 @@ class ProjectArchiveService:
                     )
 
                     target_dir = self.project_manager.projects_root / target_name
-                    self.project_manager.repair_claude_symlink(target_dir)
+                    self.project_manager.sync_agent_profile(target_dir)
 
                     imported_project = self.project_manager.load_project(target_name)
                     emit_project_change_hint(

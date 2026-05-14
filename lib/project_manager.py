@@ -175,19 +175,17 @@ class ProjectManager:
         for subdir in self.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-        self.repair_claude_symlink(project_dir)
+        self.sync_agent_profile(project_dir)
 
         return project_dir
 
-    def repair_claude_symlink(self, project_dir: Path) -> dict:
-        """同步项目目录的 .claude 和 CLAUDE.md（manifest + sha256 全平台物化）。
+    def sync_agent_profile(self, project_dir: Path) -> dict:
+        """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
 
-        历史名称保留为 ``repair_claude_symlink`` 以保 API 兼容（外部 callers /
-        tests 用此名）。实际行为是 manifest-driven 同步，详见
-        ``lib.profile_manifest.sync_profile_to_project``：
-        - 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动删除（不复活）
-        - profile 上游删除时同步删除项目内未改副本
-        - 命名碰撞 / 状态机回流等 15 行决策表完整覆盖
+        详见 ``lib.profile_manifest.sync_profile_to_project``：manifest-driven
+        sync，sha256 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动
+        删除（不复活）；profile 上游删除时同步删除项目内未改副本；命名碰撞 /
+        状态机回流等 15 行决策表完整覆盖。
 
         Returns:
             含向后兼容 ``created/repaired/skipped/errors`` + 细分 stat key 的字典
@@ -204,8 +202,8 @@ class ProjectManager:
         profile_dir = agent_profile_dir()
         return _force_resync_profile(profile_dir, project_dir, paths=paths)
 
-    def repair_all_symlinks(self) -> dict:
-        """扫描所有项目目录，同步 profile。
+    def sync_all_agent_profiles(self) -> dict:
+        """扫描所有项目目录，同步 agent_runtime_profile（启动 hook 用）。
 
         单项目失败隔离：捕获普通异常后继续下一项目（``failed_projects`` 计数）。
         ``ProfileMissingError`` / ``ProfileEmptyError`` 是部署级错误，全部跳过
@@ -245,7 +243,7 @@ class ProjectManager:
             if not project_dir.is_dir() or project_dir.name.startswith("."):
                 continue
             try:
-                result = self.repair_claude_symlink(project_dir)
+                result = self.sync_agent_profile(project_dir)
                 for key in _STAT_KEYS_TO_AGGREGATE:
                     if key in result:
                         totals[key] = totals.get(key, 0) + result[key]

@@ -355,13 +355,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
-    # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
+    # 把 agent_runtime_profile 同步到存量项目（manifest 物化，同步文件 I/O → worker 线程）
     from lib.project_manager import ProjectManager
 
     _pm = ProjectManager(app_data_dir())
-    _symlink_stats = await asyncio.to_thread(_pm.repair_all_symlinks)
-    if any(v > 0 for v in _symlink_stats.values()):
-        logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)
+    _profile_sync_stats = await asyncio.to_thread(_pm.sync_all_agent_profiles)
+    if any(v for v in _profile_sync_stats.values() if isinstance(v, int) and v > 0):
+        logger.info("agent_runtime profile 同步完成: %s", _profile_sync_stats)
 
     # 启动共享 httpx 客户端（用于版本检查等外部 API 调用）
     await startup_http_client()

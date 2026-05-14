@@ -484,7 +484,7 @@ class TestProjectArchiveService:
         claude_dir = imported_dir / ".claude"
         assert claude_dir.is_dir()
         assert not claude_dir.is_symlink()
-        # 导入触发 repair_claude_symlink → 首次迁移分支 full reset → 写 manifest
+        # 导入触发 sync_agent_profile → 首次迁移分支 full reset → 写 manifest
         assert (imported_dir / MANIFEST_FILENAME).is_file()
         # profile 内容真实落盘
         assert (claude_dir / "skills" / "demo" / "SKILL.md").read_text() == "demo"
