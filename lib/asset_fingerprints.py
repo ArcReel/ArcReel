@@ -3,7 +3,7 @@
 from pathlib import Path
 
 # 扫描的媒体子目录
-_MEDIA_SUBDIRS = ("storyboards", "videos", "thumbnails", "characters", "scenes", "props")
+_MEDIA_SUBDIRS = ("storyboards", "videos", "thumbnails", "characters", "scenes", "props", "grids")
 
 # 根目录下的已知媒体文件（如风格参考图）
 _ROOT_MEDIA_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".webp", ".mp4"))
