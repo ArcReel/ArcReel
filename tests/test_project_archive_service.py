@@ -122,14 +122,35 @@ def _create_project(
 
 
 def _add_agent_runtime_symlinks(project_dir: Path) -> None:
-    """Create agent_runtime_profile and symlinks mimicking production layout."""
-    # projects_root is project_dir.parent; project_root is projects_root.parent
+    """Simulate legacy production layout: create agent_runtime_profile and symlinks.
+
+    PR fix/agent-profile-sync-manifest 起，``create_project`` 会把 ``.claude`` /
+    ``CLAUDE.md`` 物化为真目录/真文件 + 写 manifest，与本 helper 要测的"旧 symlink
+    部署遗留"场景冲突。这里先清理 dest 再 symlink 模拟老版本 docker volume 持久化
+    下来的旧项目目录形态。
+    """
+    import shutil
+
     project_root = project_dir.parent.parent
     profile_claude = project_root / "agent_runtime_profile" / ".claude"
     profile_claude.mkdir(parents=True, exist_ok=True)
     (profile_claude / "settings.json").write_text("{}", encoding="utf-8")
     profile_md = project_root / "agent_runtime_profile" / "CLAUDE.md"
     profile_md.write_text("# Agent Runtime", encoding="utf-8")
+
+    # 清理新版 sync 物化的 .claude/CLAUDE.md/manifest，模拟老部署的 symlink 形态
+    if (project_dir / ".claude").exists() or (project_dir / ".claude").is_symlink():
+        if (project_dir / ".claude").is_symlink() or (project_dir / ".claude").is_file():
+            (project_dir / ".claude").unlink()
+        else:
+            shutil.rmtree(project_dir / ".claude")
+    if (project_dir / "CLAUDE.md").exists() or (project_dir / "CLAUDE.md").is_symlink():
+        (project_dir / "CLAUDE.md").unlink()
+    # legacy symlink 部署不会有 manifest，留着会让导入/导出逻辑读到 manifest 把
+    # "旧 symlink + 新 manifest" 当成正常态而非 legacy。
+    manifest_path = project_dir / ".arcreel_profile_manifest.json"
+    if manifest_path.exists() or manifest_path.is_symlink():
+        manifest_path.unlink()
 
     (project_dir / ".claude").symlink_to(Path("../../agent_runtime_profile/.claude"))
     (project_dir / "CLAUDE.md").symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
@@ -207,11 +228,17 @@ class TestProjectArchiveService:
             assert "demo/project.json" in names
 
     def test_export_excludes_broken_agent_runtime_symlinks(self, tmp_path):
+        import shutil as _shutil
+
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
-        # Create broken symlinks (targets don't exist)
-        (project_dir / ".claude").symlink_to(Path("../../agent_runtime_profile/.claude"))
-        (project_dir / "CLAUDE.md").symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
+        # 清理新版物化产物后创建 broken symlink（模拟老版部署遗留 + profile 目录已删的状态）
+        if (project_dir / ".claude").is_dir() and not (project_dir / ".claude").is_symlink():
+            _shutil.rmtree(project_dir / ".claude")
+        if (project_dir / "CLAUDE.md").exists():
+            (project_dir / "CLAUDE.md").unlink()
+        (project_dir / ".claude").symlink_to(Path("../../nonexistent_profile/.claude"))
+        (project_dir / "CLAUDE.md").symlink_to(Path("../../nonexistent_profile/CLAUDE.md"))
 
         assert (project_dir / ".claude").is_symlink()
         assert not (project_dir / ".claude").exists()
@@ -427,18 +454,26 @@ class TestProjectArchiveService:
         assert pm.load_project("demo")["style"] == "Fresh"
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
 
-    def test_import_creates_claude_symlink(self, tmp_path):
-        """Imported project should get .claude symlink for agent runtime isolation."""
-        # Create agent_runtime_profile in project root (parent of projects/)
-        profile_claude = tmp_path / "agent_runtime_profile" / ".claude"
-        profile_claude.mkdir(parents=True)
+    def test_import_materializes_claude_with_manifest(self, tmp_path, monkeypatch):
+        """导入项目应物化 .claude 为真目录 + 写 manifest（非 symlink）。
+
+        PR fix/agent-profile-sync-manifest 起，profile 同步改为 manifest-driven，
+        不再用 symlink；导入的归档无 manifest 时走首次迁移分支 full reset。
+        """
+        from lib.profile_manifest import MANIFEST_FILENAME
+
+        # 准备 profile：必须至少有一个可同步文件，否则 ProfileEmptyError
+        profile_dir = tmp_path / "agent_runtime_profile"
+        (profile_dir / ".claude" / "skills" / "demo").mkdir(parents=True)
+        (profile_dir / ".claude" / "skills" / "demo" / "SKILL.md").write_text("demo")
+        (profile_dir / "CLAUDE.md").write_text("prompt")
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
 
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
         archive_path, _ = service.export_project("demo")
 
-        # Import as a new project
         result = service.import_project_archive(
             archive_path,
             uploaded_filename="demo.zip",
@@ -446,9 +481,13 @@ class TestProjectArchiveService:
         )
 
         imported_dir = pm.get_project_path(result.project_name)
-        symlink = imported_dir / ".claude"
-        assert symlink.is_symlink()
-        assert symlink.resolve() == profile_claude.resolve()
+        claude_dir = imported_dir / ".claude"
+        assert claude_dir.is_dir()
+        assert not claude_dir.is_symlink()
+        # 导入触发 sync_agent_profile → 首次迁移分支 full reset → 写 manifest
+        assert (imported_dir / MANIFEST_FILENAME).is_file()
+        # profile 内容真实落盘
+        assert (claude_dir / "skills" / "demo" / "SKILL.md").read_text() == "demo"
 
     def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
@@ -476,6 +515,57 @@ class TestProjectArchiveService:
 
         monkeypatch.setattr(project_archive_module.shutil, "move", original_move)
         assert pm.load_project("demo")["style"] == "Stale"
+
+    def test_import_overwrite_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
+        """sync_agent_profile 失败时必须回滚（删 target_dir + 恢复 backup_dir）。
+        否则 overwrite 分支已删旧备份，用户会丢数据。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        project = pm.load_project("demo")
+        project["style"] = "Stale"
+        pm.save_project("demo", project)
+
+        # 让 sync_agent_profile 在 _install_project_dir 内（shutil.move 之后）抛错
+        def boom(self_pm, target_dir):
+            raise RuntimeError("profile sync failed")
+
+        monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
+
+        with pytest.raises(RuntimeError, match="profile sync failed"):
+            service.import_project_archive(
+                archive_path,
+                uploaded_filename="demo.zip",
+                conflict_policy="overwrite",
+            )
+
+        # 旧项目恢复（backup 被 rename 回 target_dir）
+        monkeypatch.undo()
+        assert pm.load_project("demo")["style"] == "Stale"
+        assert not any(p.name.startswith(".import-backup-") for p in (tmp_path / "projects").iterdir())
+
+    def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
+        """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，
+        否则同名重试撞 FileExistsError。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+
+        def boom(self_pm, target_dir):
+            raise RuntimeError("profile sync failed")
+
+        monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
+
+        with pytest.raises(RuntimeError, match="profile sync failed"):
+            pm.create_project("ghost")
+
+        # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
+        monkeypatch.undo()
+        assert not (tmp_path / "projects" / "ghost").exists()
+        pm.create_project("ghost")  # 不撞 FileExistsError
+        assert (tmp_path / "projects" / "ghost").is_dir()
 
     def test_import_repairs_legacy_narration_payload(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

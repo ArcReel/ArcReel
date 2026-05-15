@@ -67,11 +67,41 @@ def _reset_app_data_dir_cache():
 
 
 @pytest.fixture(autouse=True)
+def _stub_sandbox_check(monkeypatch, request):
+    """Mock ``check_sandbox_available`` 返回 True，避免测试机不满足真实 bwrap probe。
+
+    GitHub Actions Ubuntu 24.04 runner 上 ``apparmor_restrict_unprivileged_userns=1``
+    会让 ``server.app.check_sandbox_available`` 的 bwrap probe 启动失败，连带
+    把任何走 FastAPI lifespan 的测试（TestClient / lifespan / startup hook 集成测试）
+    全部拖崩。测试本不该依赖 host 能跑非特权 user namespace；该函数本身的契约
+    由 ``tests/server/test_startup_assertions.py`` 独立覆盖（用更精细的 subprocess.run
+    stub）— 那个文件需要走真实函数，故按文件名跳过此 autouse stub。
+    """
+    if request.path.name == "test_startup_assertions.py":
+        return
+    monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
+
+
+@pytest.fixture(autouse=True)
 def _profile_env(monkeypatch, tmp_path):
     """Pin ``agent_profile_dir()`` to a per-test ``tmp_path/agent_runtime_profile``
     so tests that build a fake profile under tmp_path are exercised against the
-    env-driven contract instead of the repo-level default."""
-    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "agent_runtime_profile"))
+    env-driven contract instead of the repo-level default.
+
+    Also seed the profile with a minimal ``.claude/`` + ``CLAUDE.md`` so unrelated
+    tests that go through ``ProjectManager.create_project`` (which triggers
+    profile sync) don't trip the ``ProfileMissingError`` / ``ProfileEmptyError``
+    入口防御 — those guards are deployment-correctness contracts, not test fixtures.
+    Tests that explicitly need profile-missing / empty scenarios still work because
+    they ``setenv`` to a different path under tmp_path.
+    """
+    profile_dir = tmp_path / "agent_runtime_profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    # 仅 touch 顶层 CLAUDE.md（最少 1 个可同步文件以避开 ProfileEmptyError）。
+    # 不预创建 ``.claude/`` —— 让需要自己 mkdir(".claude", parents=True) 的下游测试
+    # 不撞 FileExistsError；那些测试自己会构造完整 profile 内容。
+    (profile_dir / "CLAUDE.md").write_text("")
+    monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
 
 
 @pytest.fixture()

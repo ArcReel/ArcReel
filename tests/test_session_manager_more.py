@@ -559,7 +559,9 @@ class TestSessionManagerMore:
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         profile_md = tmp_path / "agent_runtime_profile" / "CLAUDE.md"
-        profile_md.parent.mkdir(parents=True)
+        # conftest 的 _profile_env autouse fixture 已预创建 profile dir，
+        # 这里用 exist_ok=True 容忍。CLAUDE.md 内容会被本测试覆写为有意义文本。
+        profile_md.parent.mkdir(parents=True, exist_ok=True)
         profile_md.write_text("# Agent instructions")
 
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
