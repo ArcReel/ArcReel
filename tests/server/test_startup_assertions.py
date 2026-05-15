@@ -29,6 +29,14 @@ def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
         assert "--unshare-user" in cmd
         assert "--unshare-net" in cmd
         assert "--unshare-pid" in cmd
+        # 锁住 probe 调用的关键 kwargs——决定"启动不卡死 + 失败能拿 stderr 诊断"：
+        # 没 timeout 会被 hung bwrap 永久阻塞 startup；没 capture_output 拿不到
+        # bwrap 真实 stderr 给运维诊断；check=False 是为了让 returncode!=0 也走
+        # 我们自己的 SANDBOX_BWRAP_BROKEN 包装，而不是抛 CalledProcessError 让
+        # _diagnose_bwrap_failure 没机会跑。
+        assert kwargs["timeout"] == 5
+        assert kwargs["capture_output"] is True
+        assert kwargs["check"] is False
         return SimpleNamespace(returncode=returncode, stderr=stderr, stdout=b"")
 
     return _stub
@@ -195,13 +203,26 @@ def test_sandbox_bwrap_probe_fallback_container_hint(monkeypatch: pytest.MonkeyP
     assert "Ubuntu 24.04" not in msg  # 未命中 apparmor sysctl，不应误导
 
 
-def test_sandbox_bwrap_probe_oserror_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """subprocess.run 抛 OSError / TimeoutExpired 时也要包成 SANDBOX_BWRAP_BROKEN。"""
+@pytest.mark.parametrize(
+    "exc",
+    [
+        subprocess.TimeoutExpired(cmd=["bwrap"], timeout=5),
+        OSError("simulated bwrap exec failure"),
+    ],
+    ids=["timeout", "oserror"],
+)
+def test_sandbox_bwrap_probe_exec_failure_linux_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    exc: Exception,
+) -> None:
+    """subprocess.run 抛执行类异常（OSError / TimeoutExpired）都要包成
+    SANDBOX_BWRAP_BROKEN。生产 ``except (OSError, subprocess.TimeoutExpired)``，
+    两类必须都跑过——只盖 timeout 半边，未来把 OSError 从元组里删掉 CI 仍会绿。"""
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap", "socat"}))
 
     def _raises(*args, **kwargs):  # noqa: ANN001 - 测试替身
-        raise subprocess.TimeoutExpired(cmd=["bwrap"], timeout=5)
+        raise exc
 
     monkeypatch.setattr("server.app.subprocess.run", _raises)
     with pytest.raises(RuntimeError, match="SANDBOX_BWRAP_BROKEN"):

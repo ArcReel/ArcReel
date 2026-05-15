@@ -6,7 +6,7 @@ PR fix/agent-profile-sync-manifest 起改为 manifest + sha256 同步：
 - 用户主动删除内置 skill 不复活（行 #2/#11）
 - 命名碰撞 / 状态机回流 / 上游删除等 15 行决策表完整覆盖
 
-完整规格见: /Users/pollochen/.claude/plans/temporal-foraging-tulip.md
+完整规格见 PR #535 描述。
 """
 
 from __future__ import annotations
