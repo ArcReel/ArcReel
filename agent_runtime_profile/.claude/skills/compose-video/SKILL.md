@@ -29,7 +29,7 @@ python .claude/skills/compose-video/scripts/compose_video.py --episode {N} --int
 
 ### 4. 后备拼接
 
-正常流程中视频由 Veo 3.1 逐场景独立生成，最终需要拼接成完整剧集。当标准的转场拼接（xfade 滤镜）因编码参数不一致而失败时，后备模式使用 ffmpeg concat demuxer 做无转场的快速拼接，确保至少能输出完整视频：
+正常流程中视频由视频大模型逐场景独立生成，最终需要拼接成完整剧集。当标准的转场拼接（xfade 滤镜）因编码参数不一致而失败时，后备模式会先把每个片段规范化为统一的 H.264/AAC 中间片（无音轨时自动补静音），再使用 ffmpeg concat filter 做最终编码，确保成片从 0 开始并避免边界黑帧：
 
 ```bash
 python .claude/skills/compose-video/scripts/compose_video.py --episode {N} --fallback-mode
@@ -57,4 +57,4 @@ python .claude/skills/compose-video/scripts/compose_video.py --episode {N} --fal
 - [ ] 场景视频存在且可播放
 - [ ] 视频分辨率一致（由 content_mode 决定画面比例）
 - [ ] 背景音乐 / 片头片尾文件存在（如需要）
-- [ ] ffmpeg 已安装并在 PATH 中
+- [ ] ffmpeg / ffprobe 已安装并在 PATH 中
