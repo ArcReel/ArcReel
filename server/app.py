@@ -14,6 +14,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -79,6 +80,70 @@ def assert_no_provider_secrets_in_environ() -> None:
         )
 
 
+_APPARMOR_USERNS_SYSCTL = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+_UNPRIV_USERNS_SYSCTL = Path("/proc/sys/kernel/unprivileged_userns_clone")
+_MAX_USER_NS_SYSCTL = Path("/proc/sys/user/max_user_namespaces")
+
+
+def _read_sysctl(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+def _diagnose_bwrap_failure() -> str:
+    """根据 host sysctl 状态给出 bwrap 失败的精确修复路径。
+
+    procfs 是宿主机共享的，容器内同样能读到 host sysctl 值，所以这套
+    诊断在 docker 内外都能跑。优先级：Ubuntu 24.04 AppArmor 限制 >
+    传统 unprivileged_userns_clone > max_user_namespaces > 兜底容器配置。
+    """
+    parts: list[str] = []
+
+    apparmor_userns = _read_sysctl(_APPARMOR_USERNS_SYSCTL)
+    if apparmor_userns == "1":
+        parts.append(
+            "Detected Ubuntu 24.04+ AppArmor restriction (root cause):\n"
+            "  /proc/sys/kernel/apparmor_restrict_unprivileged_userns = 1\n"
+            "  Blocks ALL unprivileged user namespaces. `apparmor:unconfined`\n"
+            "  in docker compose does NOT bypass this — it is a global LSM\n"
+            "  switch, not a per-process profile.\n"
+            "  Fix on HOST (not inside the container):\n"
+            "    sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n"
+            '    echo "kernel.apparmor_restrict_unprivileged_userns=0" '
+            "| sudo tee /etc/sysctl.d/60-arcreel-bwrap.conf"
+        )
+
+    userns_clone = _read_sysctl(_UNPRIV_USERNS_SYSCTL)
+    if userns_clone == "0":
+        parts.append(
+            "Unprivileged user namespaces disabled on host:\n"
+            "  /proc/sys/kernel/unprivileged_userns_clone = 0\n"
+            "  Fix on HOST: sudo sysctl -w kernel.unprivileged_userns_clone=1"
+        )
+
+    max_userns = _read_sysctl(_MAX_USER_NS_SYSCTL)
+    if max_userns == "0":
+        parts.append(
+            "User namespace count limit set to 0 on host:\n"
+            "  /proc/sys/user/max_user_namespaces = 0\n"
+            "  Fix on HOST: sudo sysctl -w user.max_user_namespaces=15000"
+        )
+
+    if not parts:
+        parts.append(
+            "Container likely missing security relaxation. docker compose:\n"
+            "  security_opt:\n"
+            "    - seccomp:unconfined\n"
+            "    - apparmor:unconfined\n"
+            "  cap_add:\n"
+            "    - NET_ADMIN"
+        )
+
+    return "\n".join(parts)
+
+
 def check_sandbox_available() -> bool:
     """启动期检测 sandbox 工具可用性。
 
@@ -98,13 +163,49 @@ def check_sandbox_available() -> bool:
             )
         return True
     if system == "Linux":
-        if shutil.which("bwrap") is None:
+        # 官方 sandboxing.md 明确 Linux 需要 bubblewrap + socat 一起装
+        # （bwrap 做进程/文件隔离，socat 做网络代理转发）。
+        missing = [name for name in ("bwrap", "socat") if shutil.which(name) is None]
+        if missing:
             raise RuntimeError(
                 "SANDBOX_UNAVAILABLE on linux\n"
-                "  bwrap: not found in PATH\n"
-                "Required for ArcReel agent runtime. Install bubblewrap:\n"
-                "  Ubuntu/Debian: sudo apt install bubblewrap\n"
-                "  Arch:          sudo pacman -S bubblewrap"
+                f"  missing in PATH: {', '.join(missing)}\n"
+                "Required for ArcReel agent runtime. Install:\n"
+                "  Ubuntu/Debian: sudo apt install bubblewrap socat\n"
+                "  Fedora:        sudo dnf install bubblewrap socat\n"
+                "  Arch:          sudo pacman -S bubblewrap socat"
+            )
+        # bwrap 装了不代表跑得起来。两类常见失败：
+        # 1) 创建 user namespace 被拒：seccomp / apparmor / sysctl 屏蔽
+        #    → "No permissions to create new namespace"
+        # 2) 新 net namespace 内 loopback 配置被拒：容器缺 CAP_NET_ADMIN
+        #    → "loopback: Failed RTM_NEWADDR: Operation not permitted"
+        # 用与 SDK 实际调用接近的 unshare 参数试跑，启动期就拦下来，
+        # 避免 agent 第一次调 Bash 才神秘失败。
+        probe_cmd = [
+            "bwrap",
+            "--unshare-user",
+            "--unshare-net",
+            "--unshare-pid",
+            "--ro-bind",
+            "/",
+            "/",
+            "/bin/true",
+        ]
+        try:
+            probe = subprocess.run(probe_cmd, capture_output=True, timeout=5, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                "SANDBOX_BWRAP_BROKEN on Linux\n"
+                f"  bwrap probe failed to execute: {exc}\n"
+                "Required for ArcReel agent runtime."
+            ) from exc
+        if probe.returncode != 0:
+            stderr = probe.stderr.decode("utf-8", errors="replace").strip() or "(no stderr)"
+            raise RuntimeError(
+                "SANDBOX_BWRAP_BROKEN on Linux\n"
+                f"  bwrap installed but cannot run: {stderr}\n"
+                f"{_diagnose_bwrap_failure()}"
             )
         return True
     logger.warning(
@@ -137,6 +238,21 @@ def detect_docker_environment() -> bool:
 # 初始化日志
 setup_logging()
 logger = logging.getLogger(__name__)
+
+
+def _log_profile_sync_outcome(stats: dict, *, log: logging.Logger = logger) -> None:
+    """根据 ``sync_all_agent_profiles`` 返回的 stats 决定打 info 还是 warning。
+
+    ``stats["aborted"]`` 是 bool；而 bool 是 int 的子类——简单的
+    ``isinstance(v, int) and v > 0`` 会把 ``aborted=True`` 当成"同步完成"的正向
+    信号，与实际状态相反。先单独处理 abort 信号，再用 ``type(v) is int``（严格
+    类型相等）仅统计真正的整数计数。
+    """
+    if stats.get("aborted"):
+        log.warning("agent_runtime profile 同步已中止: %s", stats)
+        return
+    if any(type(v) is int and v > 0 for v in stats.values()):
+        log.info("agent_runtime profile 同步完成: %s", stats)
 
 
 async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, dict]:
@@ -254,13 +370,12 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
-    # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
+    # 把 agent_runtime_profile 同步到存量项目（manifest 物化，同步文件 I/O → worker 线程）
     from lib.project_manager import ProjectManager
 
     _pm = ProjectManager(app_data_dir())
-    _symlink_stats = await asyncio.to_thread(_pm.repair_all_symlinks)
-    if any(v > 0 for v in _symlink_stats.values()):
-        logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)
+    _profile_sync_stats = await asyncio.to_thread(_pm.sync_all_agent_profiles)
+    _log_profile_sync_outcome(_profile_sync_stats)
 
     # 启动共享 httpx 客户端（用于版本检查等外部 API 调用）
     await startup_http_client()
