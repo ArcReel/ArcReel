@@ -9,24 +9,19 @@
 #
 # 前置：先把 frontend.env.fork 拷到 frontend/.env，Vite 会自动读取并注入
 # VITE_BRAND_* 到构建产物。
+#
+# 宿主侧前置（Ubuntu 24.04 起）：
+#   sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+#   （并持久化到 /etc/sysctl.d/，否则容器内 bwrap 沙箱即便豁免 apparmor/seccomp
+#   也无法创建非特权 user namespace）
+# 容器内 security_opt / cap_add NET_ADMIN 已由上游 base docker-compose.yml 提供
+# （PR #535），本文件不再重复声明。
 
 services:
   arcreel:
     build:
       context: ../..
       dockerfile: Dockerfile
-    # Ubuntu 24.04 起 kernel.apparmor_restrict_unprivileged_userns=1 默认开启，
-    # 叠加 Docker 默认 apparmor / seccomp profile 会拦截容器内非特权 user namespace
-    # 创建，claude-agent-sdk 的 bwrap 沙箱因此报 "Creating new namespace failed:
-    # Operation not permitted"，所有写 .arcreel.db 的 skill 脚本均会失败。
-    # 同时豁免 apparmor 与 seccomp（仅本服务），让容器内 unshare(CLONE_NEWUSER) 可用。
-    # 宿主层 LSM 限制保留对其它容器有效；容器内进程依旧 non-root，
-    # 攻击面增量为"容器内可创建嵌套 user namespace"，本质安全模型未实质变化。
-    # 还需在宿主执行：sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-    # （并持久化到 /etc/sysctl.d/）
-    security_opt:
-      - apparmor=unconfined
-      - seccomp=unconfined
     # 容器内数据根目录路径必须永远是 /app/projects —— 它会被
     # claude_agent_sdk.project_key_for_directory() 编码成 agent_session_*
     # 表的 project_key（"-app-projects-<proj>"）。一旦该路径改变（例如
