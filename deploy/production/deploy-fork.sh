@@ -5,7 +5,7 @@
 #   bash /home/administrator/arcreel/deploy/production/deploy-fork.sh
 #
 # 设计前提：
-#   - VPS 仓库只作为 storyflow/integration 的 checkout，不应有本地提交或修改
+#   - VPS 仓库只作为 integration 的 checkout，不应有本地提交或修改
 #   - fork-only 分支可能被 force-push，所以用 fetch + checkout -B 而非 pull --ff-only
 #   - .env / pgdata / projects / vertex_keys / claude_data 均在 .gitignore，不会被覆盖
 
@@ -13,7 +13,7 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/home/administrator/arcreel}"
 REMOTE="${REMOTE:-fork}"
-BRANCH="${BRANCH:-storyflow/integration}"
+BRANCH="${BRANCH:-integration}"
 COMPOSE_DIR="${COMPOSE_DIR:-$REPO_DIR/deploy/production}"
 
 echo "==> 仓库: $REPO_DIR"
