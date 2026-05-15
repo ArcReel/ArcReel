@@ -462,10 +462,6 @@ class TestForceResync:
         # 在 manifest 里手插一条 entry 让该 rel 进 all_keys → 触发 #6 user_modified
         # 分支 → _apply_decision 里跑 sha256_file(d) 会跟过 symlink 读到 outside。
         # escape guard 阻断该 rel 的 I/O。
-        import json
-
-        from lib.profile_manifest import MANIFEST_FILENAME
-
         manifest_path = project_dir / MANIFEST_FILENAME
         data = json.loads(manifest_path.read_text())
         data["entries"][".claude/evil_link.md"] = {
