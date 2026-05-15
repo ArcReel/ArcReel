@@ -380,15 +380,19 @@ def _full_reset_from_profile(
     """
     stats = _new_stats()
 
-    # 清空 dest 端两个根
+    # 清空 dest 端两个根——必须覆盖所有文件系统类型，否则后续 mkdir()/_safe_copy()
+    # 会被"错误类型"的占位（普通文件 ``.claude`` / 目录 ``CLAUDE.md``）挡住，导致
+    # reset 留下半完成状态 + 不完整 manifest。
     dest_tree = project_dir / _PROFILE_TREE_ROOT
     dest_top = project_dir / _PROFILE_TOP_FILE
-    if dest_tree.is_symlink():
+    if dest_tree.is_symlink() or dest_tree.is_file():
         dest_tree.unlink()
     elif dest_tree.is_dir():
         shutil.rmtree(dest_tree)
     if dest_top.is_symlink() or dest_top.is_file():
         dest_top.unlink()
+    elif dest_top.is_dir():
+        shutil.rmtree(dest_top)
 
     manifest = Manifest.empty()
     for rel in sorted(profile_files):

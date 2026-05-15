@@ -11,6 +11,7 @@ import pytest
 
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from server.app import (
+    _log_profile_sync_outcome,
     assert_no_provider_secrets_in_environ,
     check_sandbox_available,
     detect_docker_environment,
@@ -236,3 +237,55 @@ def test_detect_no_docker(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr("server.app._DOCKERENV_PATH", tmp_path / "nope")
     monkeypatch.setattr("server.app._CGROUP_PATH", tmp_path / "also_nope")
     assert detect_docker_environment() is False
+
+
+# bool 是 int 子类，``isinstance(True, int) and True > 0`` 为真——这一组三连测试
+# 防止 startup 日志判定回退到天真的 isinstance 写法，把 abort 信号误打成"同步完成"。
+def test_log_profile_sync_outcome_aborted_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stats = {
+        "created": 0,
+        "repaired": 0,
+        "skipped": 0,
+        "errors": 0,
+        "failed_projects": 0,
+        "aborted": True,
+    }
+    with caplog.at_level("WARNING", logger="server.app"):
+        _log_profile_sync_outcome(stats)
+    assert any("同步已中止" in r.message for r in caplog.records)
+    assert not any("同步完成" in r.message for r in caplog.records)
+
+
+def test_log_profile_sync_outcome_success_counts_logs_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stats = {
+        "created": 3,
+        "repaired": 0,
+        "skipped": 0,
+        "errors": 0,
+        "failed_projects": 0,
+        "aborted": False,
+    }
+    with caplog.at_level("INFO", logger="server.app"):
+        _log_profile_sync_outcome(stats)
+    assert any("同步完成" in r.message for r in caplog.records)
+
+
+def test_log_profile_sync_outcome_all_zero_is_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """无 abort、所有计数为 0 → 不打日志（避免每次空启动也刷一行）。"""
+    stats = {
+        "created": 0,
+        "repaired": 0,
+        "skipped": 0,
+        "errors": 0,
+        "failed_projects": 0,
+        "aborted": False,
+    }
+    with caplog.at_level("INFO", logger="server.app"):
+        _log_profile_sync_outcome(stats)
+    assert caplog.records == []

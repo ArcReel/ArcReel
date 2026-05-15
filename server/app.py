@@ -240,6 +240,21 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+def _log_profile_sync_outcome(stats: dict, *, log: logging.Logger = logger) -> None:
+    """根据 ``sync_all_agent_profiles`` 返回的 stats 决定打 info 还是 warning。
+
+    ``stats["aborted"]`` 是 bool；而 bool 是 int 的子类——简单的
+    ``isinstance(v, int) and v > 0`` 会把 ``aborted=True`` 当成"同步完成"的正向
+    信号，与实际状态相反。先单独处理 abort 信号，再用 ``type(v) is int``（严格
+    类型相等）仅统计真正的整数计数。
+    """
+    if stats.get("aborted"):
+        log.warning("agent_runtime profile 同步已中止: %s", stats)
+        return
+    if any(type(v) is int and v > 0 for v in stats.values()):
+        log.info("agent_runtime profile 同步完成: %s", stats)
+
+
 async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, dict]:
     """对每个项目执行幂等编码迁移。失败被捕获并写日志，不阻塞启动。"""
     summary: dict[str, dict] = {}
@@ -360,8 +375,7 @@ async def lifespan(app: FastAPI):
 
     _pm = ProjectManager(app_data_dir())
     _profile_sync_stats = await asyncio.to_thread(_pm.sync_all_agent_profiles)
-    if any(v for v in _profile_sync_stats.values() if isinstance(v, int) and v > 0):
-        logger.info("agent_runtime profile 同步完成: %s", _profile_sync_stats)
+    _log_profile_sync_outcome(_profile_sync_stats)
 
     # 启动共享 httpx 客户端（用于版本检查等外部 API 调用）
     await startup_http_client()

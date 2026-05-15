@@ -91,6 +91,23 @@ class TestFirstSyncMigration:
         assert _skill_path(project_dir).read_text() == "demo v1"
         assert (project_dir / "CLAUDE.md").read_text() == "prompt v1"
 
+    def test_first_sync_replaces_wrong_type_placeholders(self, env):
+        """``.claude`` 是普通文件 / ``CLAUDE.md`` 是目录时，reset 必须先清理掉，
+        否则后续 mkdir()/_safe_copy() 会失败，留下半完成状态 + 不完整 manifest。"""
+        pm, _, project_dir = env
+        # dest_tree 错误类型：普通文件（手抄 README 时的常见错招）
+        (project_dir / ".claude").write_text("wrong type — should be a dir")
+        # dest_top 错误类型：目录（手动 mkdir CLAUDE.md/）
+        (project_dir / "CLAUDE.md").mkdir()
+        (project_dir / "CLAUDE.md" / "stray.txt").write_text("stray")
+
+        pm.sync_agent_profile(project_dir)
+
+        assert (project_dir / ".claude").is_dir()
+        assert _skill_path(project_dir).read_text() == "demo v1"
+        assert (project_dir / "CLAUDE.md").is_file()
+        assert (project_dir / "CLAUDE.md").read_text() == "prompt v1"
+
     def test_create_project_invokes_sync(self, env):
         pm, _, _ = env
         new_dir = pm.create_project("brand-new")
