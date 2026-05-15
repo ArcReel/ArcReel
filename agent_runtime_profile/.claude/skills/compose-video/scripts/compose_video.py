@@ -86,7 +86,11 @@ def probe_media(video_path: Path) -> dict[str, object]:
             f"ffprobe 执行失败。{FFMPEG_TOOLS_HINT}；若环境已满足，再检查输入媒体。原始错误: {result.stderr}"
         )
 
-    payload = json.loads(result.stdout)
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError as exc:
+        raise RuntimeError(f"无法解析 ffprobe 输出: {video_path}") from exc
+
     streams = payload.get("streams", [])
     video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
     audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
@@ -98,7 +102,12 @@ def probe_media(video_path: Path) -> dict[str, object]:
         fps = "30"
 
     duration_raw = payload.get("format", {}).get("duration")
-    duration = float(duration_raw) if duration_raw else get_video_duration(video_path)
+    if not duration_raw:
+        raise RuntimeError(f"无法从 ffprobe 输出中获取时长: {video_path}")
+    try:
+        duration = float(duration_raw)
+    except ValueError as exc:
+        raise RuntimeError(f"无法解析视频时长: {video_path}") from exc
 
     width = int(video_stream.get("width") or 0)
     height = int(video_stream.get("height") or 0)
