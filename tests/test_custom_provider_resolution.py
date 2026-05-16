@@ -140,7 +140,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     # project.json 中 video_backend 指向这个 text-only 模型
     project = {"video_backend": f"{provider_id_str}/gpt-4o"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
 
     from lib.config.service import ConfigService
 

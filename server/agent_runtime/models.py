@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-SessionStatus = Literal["idle", "running", "completed", "error", "interrupted"]
+SessionStatus = Literal["idle", "running", "completed", "error", "interrupted", "closed"]
 
 
 class SessionMeta(BaseModel):

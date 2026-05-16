@@ -78,12 +78,12 @@ class SessionRepository(BaseRepository):
             update(AgentSession).where(AgentSession.sdk_session_id == session_id).values(status=status, updated_at=now)
         )
         await self.session.commit()
-        return result.rowcount > 0
+        return result.rowcount > 0  # pyright: ignore[reportAttributeAccessIssue]
 
     async def delete(self, session_id: str) -> bool:
         result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id))
         await self.session.commit()
-        return result.rowcount > 0
+        return result.rowcount > 0  # pyright: ignore[reportAttributeAccessIssue]
 
     async def interrupt_running(self) -> int:
         now = utc_now()
@@ -91,4 +91,4 @@ class SessionRepository(BaseRepository):
             update(AgentSession).where(AgentSession.status == "running").values(status="interrupted", updated_at=now)
         )
         await self.session.commit()
-        return result.rowcount
+        return result.rowcount  # pyright: ignore[reportAttributeAccessIssue]

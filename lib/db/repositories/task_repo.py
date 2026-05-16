@@ -212,7 +212,7 @@ class TaskRepository(BaseRepository):
                 updated_at=now,
             )
         )
-        if update_result.rowcount == 0:
+        if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
             # Another worker claimed this task between our SELECT and UPDATE
             await self.session.rollback()
             return None
@@ -431,7 +431,7 @@ class TaskRepository(BaseRepository):
             )
         )
         result = await self.session.execute(stmt)
-        if result.rowcount == 0:
+        if result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
             return None
 
         await self.session.flush()
@@ -497,7 +497,7 @@ class TaskRepository(BaseRepository):
             )
         )
         result = await self.session.execute(stmt)
-        cancelled_count = result.rowcount
+        cancelled_count = result.rowcount  # pyright: ignore[reportAttributeAccessIssue]
 
         if queued_tasks:
             await self.session.flush()
@@ -711,7 +711,7 @@ class TaskRepository(BaseRepository):
                 updated_at=updated_at,
             )
         )
-        if update_result.rowcount > 0:
+        if update_result.rowcount > 0:  # pyright: ignore[reportAttributeAccessIssue]
             await self.session.commit()
             return True
 

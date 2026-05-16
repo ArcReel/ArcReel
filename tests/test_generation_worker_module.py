@@ -348,7 +348,7 @@ class TestGenerationWorker:
                     },
                 ]
 
-            async def claim_next_task(self, media_type):
+            async def claim_next_task(self, media_type):  # type: ignore[override]
                 for i, t in enumerate(self._tasks):
                     if t["media_type"] == media_type:
                         return self._tasks.pop(i)

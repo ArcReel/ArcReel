@@ -17,15 +17,16 @@ class PdfOxideExtractor:
         except Exception as exc:  # noqa: BLE001
             raise CorruptFileError(filename=path.name, reason=f"PDF 打开失败: {exc}") from exc
 
+        pages_text: list[str] = []
+        total_chars_via_chars_api = 0
+        chars_api_ok_pages = 0
+        page_count = 0
         with doc_ctx as doc:
             try:
                 page_count = doc.page_count()
             except Exception as exc:  # noqa: BLE001
                 raise CorruptFileError(filename=path.name, reason=f"PDF 解析失败: {exc}") from exc
 
-            pages_text: list[str] = []
-            total_chars_via_chars_api = 0
-            chars_api_ok_pages = 0
             for idx in range(page_count):
                 try:
                     page_text = doc.extract_text(idx) or ""

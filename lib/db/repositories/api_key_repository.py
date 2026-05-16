@@ -94,7 +94,7 @@ class ApiKeyRepository(BaseRepository):
     async def delete(self, key_id: int) -> bool:
         """Delete a key by ID. Returns True if deleted, False if not found."""
         result = await self.session.execute(sa_delete(ApiKey).where(ApiKey.id == key_id))
-        return result.rowcount > 0
+        return result.rowcount > 0  # pyright: ignore[reportAttributeAccessIssue]
 
     async def touch_last_used(self, key_hash: str) -> None:
         """Update last_used_at for the given key hash."""

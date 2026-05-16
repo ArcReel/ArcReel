@@ -46,15 +46,15 @@ RETRYABLE_ERRORS: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS
 # 尝试导入 Google API 错误类型
 try:
     from google import genai  # Import genai to access its errors
-    from google.api_core import exceptions as google_exceptions
+    from google.api_core import exceptions as google_exceptions  # pyright: ignore[reportMissingImports]
 
     RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
         google_exceptions.ResourceExhausted,  # 429 Too Many Requests
         google_exceptions.ServiceUnavailable,  # 503
         google_exceptions.DeadlineExceeded,  # 超时
         google_exceptions.InternalServerError,  # 500
-        genai.errors.ClientError,  # 4xx errors from new SDK
-        genai.errors.ServerError,  # 5xx errors from new SDK
+        genai.errors.ClientError,  # pyright: ignore[reportAttributeAccessIssue]
+        genai.errors.ServerError,  # pyright: ignore[reportAttributeAccessIssue]
     )
 except ImportError:
     pass
@@ -65,7 +65,7 @@ class RateLimiter:
     多模型滑动窗口限流器
     """
 
-    def __init__(self, limits_dict: dict[str, int] = None, *, request_gap: float = 3.1):
+    def __init__(self, limits_dict: dict[str, int] | None = None, *, request_gap: float = 3.1):
         """
         Args:
             limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image-preview": 20}

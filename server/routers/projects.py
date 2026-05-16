@@ -14,7 +14,7 @@ import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 if TYPE_CHECKING:
     from server.services.jianying_draft_service import JianyingDraftService
@@ -787,10 +787,10 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
             script = manager.load_script(name, req.script_file)
 
             # 找到并更新场景
-            scene_found = False
+            matched_scene: dict[str, Any] | None = None
             for scene in script.get("scenes", []):
                 if scene.get("scene_id") == scene_id:
-                    scene_found = True
+                    matched_scene = scene
                     # 更新允许的字段
                     for key, value in req.updates.items():
                         if key in [
@@ -808,12 +808,12 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
                             scene[key] = value
                     break
 
-            if not scene_found:
+            if matched_scene is None:
                 raise HTTPException(status_code=404, detail=_t("scene_not_found", id=scene_id))
 
             with project_change_source("webui"):
                 manager.save_script(name, script, req.script_file)
-            return {"success": True, "scene": scene}
+            return {"success": True, "scene": matched_scene}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
@@ -859,10 +859,10 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                 raise HTTPException(status_code=400, detail=_t("narration_mode_required"))
 
             # 找到并更新片段
-            segment_found = False
+            matched_segment: dict[str, Any] | None = None
             for segment in script.get("segments", []):
                 if segment.get("segment_id") == segment_id:
-                    segment_found = True
+                    matched_segment = segment
                     if req.duration_seconds is not None:
                         segment["duration_seconds"] = req.duration_seconds
                     if req.segment_break is not None:
@@ -880,12 +880,12 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                             segment[field] = getattr(req, field) or []
                     break
 
-            if not segment_found:
+            if matched_segment is None:
                 raise HTTPException(status_code=404, detail=_t("segment_not_found", id=segment_id))
 
             with project_change_source("webui"):
                 manager.save_script(name, script, req.script_file)
-            return {"success": True, "segment": segment}
+            return {"success": True, "segment": matched_segment}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
@@ -930,6 +930,7 @@ async def set_project_source(
 
         # 异步读取上传文件
         raw: bytes | None = None
+        original_name: str = "novel.txt"
         if file:
             original_name = file.filename or "novel.txt"
             suffix = Path(original_name).suffix.lower()
@@ -938,6 +939,7 @@ async def set_project_source(
             if file.size is not None and file.size > MAX_CHARS * 4:
                 raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
             raw = await file.read()
+        text_content: str = content or ""
 
         # 同步文件 I/O 在线程中执行
         def _sync_write():
@@ -958,11 +960,11 @@ async def set_project_source(
                 (source_dir / safe_filename).write_text(text, encoding="utf-8")
                 return safe_filename, len(text)
             else:
-                if len(content) > MAX_CHARS:
+                if len(text_content) > MAX_CHARS:
                     raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                 safe_filename = "novel.txt"
-                (source_dir / safe_filename).write_text(content, encoding="utf-8")
-                return safe_filename, len(content)
+                (source_dir / safe_filename).write_text(text_content, encoding="utf-8")
+                return safe_filename, len(text_content)
 
         safe_filename, chars = await asyncio.to_thread(_sync_write)
 

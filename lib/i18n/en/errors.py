@@ -41,6 +41,7 @@ MESSAGES = {
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",
     "invalid_upload_type": "Invalid upload type: {upload_type}",
+    "missing_filename": "Uploaded file is missing a filename",
     "unsupported_image_type": "Unsupported file type {ext}. Allowed types: {allowed}",
     "invalid_image_file": "Invalid image file, could not be parsed",
     "invalid_asset_type": "asset type must be character / scene / prop",

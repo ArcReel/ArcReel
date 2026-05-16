@@ -130,7 +130,7 @@ class ProjectManager:
             raise FileNotFoundError(f"当前目录不是有效的项目目录: {cwd}")
         return pm, project_name
 
-    def __init__(self, projects_root: str | None = None):
+    def __init__(self, projects_root: str | Path | None = None):
         """
         初始化项目管理器
 
@@ -531,7 +531,7 @@ class ProjectManager:
 
         # 查找或创建 episode 条目
         episodes = project.setdefault("episodes", [])
-        episode_entry = next((ep for ep in episodes if ep["episode"] == episode_num), None)
+        episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
 
         if episode_entry is None:
             episode_entry = {"episode": episode_num}
@@ -792,7 +792,7 @@ class ProjectManager:
         # 处理旧格式：如果有 characters 对象，同步到 project.json
         if "characters" in script and isinstance(script["characters"], dict) and script["characters"]:
             logger.warning("检测到旧格式 characters 对象，自动同步到 project.json")
-            self.sync_characters_from_script(project_name, script_filename)
+            self.sync_characters_from_script(project_name, script_filename)  # type: ignore[attr-defined]
             # sync_characters_from_script 会重新加载和保存 script，所以需要重新加载
             script = self.load_script(project_name, script_filename)
 
@@ -1245,8 +1245,8 @@ class ProjectManager:
         project_name: str,
         title: str | None = None,
         style: str | None = None,
-        content_mode: str = "narration",
-        aspect_ratio: str = "9:16",
+        content_mode: str | None = "narration",
+        aspect_ratio: str | None = "9:16",
         default_duration: int | None = None,
         style_template_id: str | None = None,
         extras: dict | None = None,

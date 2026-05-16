@@ -351,14 +351,17 @@ class ProjectEventService:
             return
 
         project = self.pm.load_project(project_name)
-        current_episodes = {
-            int(ep.get("episode")): {
+        current_episodes: dict[int, dict[str, str]] = {}
+        for ep in project.get("episodes", []):
+            if not isinstance(ep, dict):
+                continue
+            episode_num = ep.get("episode")
+            if not isinstance(episode_num, int):
+                continue
+            current_episodes[episode_num] = {
                 "title": str(ep.get("title") or ""),
                 "script_file": str(ep.get("script_file") or ""),
             }
-            for ep in project.get("episodes", [])
-            if isinstance(ep, dict) and isinstance(ep.get("episode"), int)
-        }
 
         for script_path in sorted(scripts_dir.glob("*.json")):
             try:

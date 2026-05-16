@@ -61,7 +61,9 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
 
         entries: list[tuple[str, str]] = []
         for m in raw_models:
-            model_id = m.name
+            if not m.name:
+                continue
+            model_id: str = m.name
             if model_id.startswith("models/"):
                 model_id = model_id[len("models/") :]
             entries.append((model_id, infer_endpoint(model_id, "google")))

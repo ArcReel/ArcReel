@@ -61,7 +61,7 @@ async def get_calls(
 
     result = await _tracker.get_calls(
         project_name=project_name,
-        call_type=call_type,
+        call_type=call_type,  # type: ignore[arg-type]
         status=status,
         start_date=start,
         end_date=end,

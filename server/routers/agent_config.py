@@ -285,7 +285,7 @@ class SuggestionModel(BaseModel):
 
 class TestConnectionResponseModel(BaseModel):
     overall: Literal["ok", "warn", "fail"]
-    messages_probe: ProbeResultModel
+    messages_probe: ProbeResultModel | None
     discovery_probe: ProbeResultModel | None
     diagnosis: str | None
     suggestion: SuggestionModel | None

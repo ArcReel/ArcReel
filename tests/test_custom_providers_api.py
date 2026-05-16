@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -55,13 +56,13 @@ def app(session_factory) -> FastAPI:
 
 
 @pytest.fixture()
-async def session(session_factory) -> AsyncSession:
+async def session(session_factory) -> AsyncGenerator[AsyncSession, None]:
     async with session_factory() as s:
         yield s
 
 
 @pytest.fixture()
-def client(app) -> TestClient:
+def client(app) -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
         yield c
 

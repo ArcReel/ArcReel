@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -90,7 +91,7 @@ class ArkVideoBackend:
     async def _create_task(self, request: VideoGenerationRequest) -> str:
         """创建 Ark 视频生成任务（带重试保护）。"""
         # 1. Build content list
-        content = [{"type": "text", "text": request.prompt}]
+        content: list[dict[str, Any]] = [{"type": "text", "text": request.prompt}]
 
         # Ark 视频 API 要求每个 image_url 条目在顶层带 `role` 字段
         # （first_frame / last_frame / reference_image），否则 400 InvalidParameter。

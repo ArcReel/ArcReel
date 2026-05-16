@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import logging
 
-try:
-    from google import genai
-    from PIL import Image
-except ImportError:
-    genai = None  # type: ignore
-    Image = None  # type: ignore
+from google import genai
+from PIL import Image
 
 from ..config.url_utils import normalize_base_url
 from ..gemini_shared import VERTEX_SCOPES, with_retry_async
@@ -77,7 +73,7 @@ class GeminiTextBackend:
                 raise ValueError("Gemini API Key 未提供（API Key is required for AI Studio mode）。")
             effective_base_url = normalize_base_url(base_url)
             http_options = {"base_url": effective_base_url} if effective_base_url else None
-            self._client = genai.Client(api_key=api_key, http_options=http_options)
+            self._client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
             if base_url:
                 logger.info("GeminiTextBackend: 使用 AI Studio 后端（Base URL: %s）", base_url)
             else:
@@ -153,7 +149,7 @@ class GeminiTextBackend:
         response = await self._client.aio.models.generate_content(
             model=self._model,
             contents=contents,
-            config=config if config else None,
+            config=config if config else None,  # type: ignore[arg-type]
         )
 
         text = response.text.strip() if response.text else ""

@@ -12,24 +12,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-try:
-    from claude_agent_sdk import list_sessions as sdk_list_sessions
-except ImportError:
-    sdk_list_sessions = None
-
-try:
-    from claude_agent_sdk import delete_session as sdk_delete_session
-except ImportError:
-    sdk_delete_session = None
-
-try:
-    from claude_agent_sdk import (
-        delete_session_via_store,
-        list_sessions_from_store,
-    )
-except ImportError:
-    delete_session_via_store = None  # type: ignore[assignment]
-    list_sessions_from_store = None  # type: ignore[assignment]
+from claude_agent_sdk import (
+    delete_session as sdk_delete_session,
+)
+from claude_agent_sdk import (
+    delete_session_via_store,
+    list_sessions_from_store,
+)
+from claude_agent_sdk import (
+    list_sessions as sdk_list_sessions,
+)
 
 if TYPE_CHECKING:
     from server.routers.assistant import ImageAttachment
@@ -124,7 +116,7 @@ class AssistantService:
 
         if self._session_store is not None and list_sessions_from_store is not None:
             try:
-                sdk_sessions = await list_sessions_from_store(self._session_store, directory=project_cwd)
+                sdk_sessions = await list_sessions_from_store(self._session_store, directory=project_cwd)  # type: ignore[arg-type]
             except Exception:
                 logger.warning(
                     "SDK list_sessions_from_store failed, titles will be empty",
@@ -169,7 +161,7 @@ class AssistantService:
             meta = await self.meta_store.get(session_id)
             project_cwd = str(self.projects_root / meta.project_name) if meta else None
             try:
-                await delete_session_via_store(self._session_store, session_id, directory=project_cwd)
+                await delete_session_via_store(self._session_store, session_id, directory=project_cwd)  # type: ignore[arg-type]
             except Exception:
                 logger.warning(
                     "delete_session_via_store failed for %s",

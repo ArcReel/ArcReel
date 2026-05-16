@@ -165,7 +165,7 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
     except Exception:
         pass  # Non-fatal: custom providers unavailable shouldn't break the options endpoint
 
-    return {**buckets, "provider_names": provider_names}
+    return {**buckets, "provider_names": provider_names}  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

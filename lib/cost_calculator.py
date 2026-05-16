@@ -265,7 +265,7 @@ class CostCalculator:
         amount = usage_tokens / 1_000_000 * price_per_million
         return amount, "CNY"
 
-    def calculate_image_cost(self, resolution: str = "1K", model: str = None) -> float:
+    def calculate_image_cost(self, resolution: str = "1K", model: str | None = None) -> float:
         """
         计算图片生成费用
 
@@ -286,7 +286,7 @@ class CostCalculator:
         duration_seconds: int,
         resolution: str = "1080p",
         generate_audio: bool = True,
-        model: str = None,
+        model: str | None = None,
     ) -> float:
         """
         计算视频生成费用
@@ -423,10 +423,10 @@ class CostCalculator:
         model = model or self.DEFAULT_OPENAI_VIDEO_MODEL
         resolution = resolution or "720p"
         model_costs = self.OPENAI_VIDEO_COST.get(model, self.OPENAI_VIDEO_COST[self.DEFAULT_OPENAI_VIDEO_MODEL])
-        per_second = model_costs.get(resolution, model_costs.get("720p"))
+        per_second = model_costs.get(resolution, model_costs.get("720p", 0.0))
         return duration_seconds * per_second, "USD"
 
-    _TEXT_COST_TABLES: dict[str, tuple[dict, str, str]] = {
+    _TEXT_COST_TABLES: dict[str, tuple[str, str, str]] = {
         # provider -> (cost_table_attr, default_model, currency)
         PROVIDER_ARK: ("ARK_TEXT_COST", "doubao-seed-2-0-lite-260215", "CNY"),
         PROVIDER_GROK: ("GROK_TEXT_COST", "grok-4-1-fast-reasoning", "USD"),

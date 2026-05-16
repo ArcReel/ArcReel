@@ -15,6 +15,14 @@ repos:
         types: [python]
         pass_filenames: true
 
+      - id: basedpyright
+        name: basedpyright (full project type check)
+        entry: uv run basedpyright
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [python]
+
       - id: frontend-eslint
         name: eslint (frontend staged)
         entry: bash -c 'files=(); for f in "$@"; do files+=("${f#frontend/}"); done; cd frontend && ./node_modules/.bin/eslint --fix "${files[@]}"' --
