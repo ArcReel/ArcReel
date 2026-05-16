@@ -292,7 +292,8 @@ async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Pa
 async def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
     """当 project=storyboard 但 episode=reference_video 时，build_prompt 必须走 reference 分支。
 
-    Spec §4.6：`effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`
+    解析规则：``effective_mode(project, episode) = episode.generation_mode or
+    project.generation_mode or "storyboard"``。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()

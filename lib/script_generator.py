@@ -65,7 +65,7 @@ class ScriptGenerator:
         self.content_mode = self.project_json.get("content_mode", "narration")
 
     def _effective_generation_mode(self, episode: int) -> str:
-        """按 Spec §4.6 解析集级 → 项目级 generation_mode，未知值回退 storyboard。"""
+        """按 episode → project → 默认 storyboard 回退解析 generation_mode。"""
         episode_dict = next(
             (ep for ep in (self.project_json.get("episodes") or []) if ep.get("episode") == episode),
             {},

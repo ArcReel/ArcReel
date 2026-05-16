@@ -1,4 +1,4 @@
-"""参考生视频模式 Prompt 构建器（Spec §7.3）。
+"""参考生视频模式 Prompt 构建器。
 
 设计原则与 prompt_builders_script.py 一致：
 - 不重复 schema 已声明的枚举（type 等）；让 response_schema 直接约束。

@@ -46,7 +46,7 @@ _DEFAULT_GENERATION_MODE = "storyboard"
 def effective_mode(*, project: dict, episode: dict) -> str:
     """按 episode → project → 默认 storyboard 回退解析 generation_mode。
 
-    Spec §4.6。未知值一律回退到默认，兼容脏数据。
+    未知值一律回退到默认，兼容脏数据。
     """
     ep_mode = episode.get("generation_mode")
     if ep_mode in _VALID_GENERATION_MODES:

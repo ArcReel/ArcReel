@@ -1,6 +1,5 @@
 """参考生视频 CRUD + 生成路由。
 
-Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §5.1
 Mount prefix: /api/v1/projects/{project_name}/reference-videos
 """
 
