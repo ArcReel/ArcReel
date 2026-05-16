@@ -120,6 +120,41 @@ async def _probe_frame_count(video_path: Path, *, count_frames: bool) -> int | N
         return None
 
 
+async def _extract_frame_at_index(
+    video_path: Path,
+    output_path: Path,
+    frame_index: int,
+) -> bool:
+    temp_path = output_path.with_name(f".{output_path.stem}.tmp{output_path.suffix}")
+    if temp_path.exists():
+        temp_path.unlink()
+
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vf",
+        f"select='eq(n\\,{frame_index})'",
+        "-fps_mode",
+        "vfr",
+        "-frames:v",
+        "1",
+        str(temp_path),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+
+    if proc.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
+        if temp_path.exists():
+            temp_path.unlink()
+        return False
+
+    temp_path.replace(output_path)
+    return True
+
+
 async def extract_video_last_frame(
     video_path: Path,
     output_path: Path,
@@ -151,32 +186,15 @@ async def extract_video_last_frame(
 
     # 1. 先走快路径（容器元数据），失败再回退到全量解码
     total_frames = await _probe_frame_count(video_path, count_frames=False)
-    if total_frames is None or total_frames < 1:
-        total_frames = await _probe_frame_count(video_path, count_frames=True)
-    if total_frames is None or total_frames < 1:
-        return None
-
-    # 2. 用 select 滤镜精确提取最后一帧
-    last_index = total_frames - 1
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(video_path),
-            "-vf",
-            f"select='eq(n\\,{last_index})'",
-            "-fps_mode",
-            "vfr",
-            "-frames:v",
-            "1",
-            str(output_path),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await proc.wait()
+        if total_frames is not None and total_frames > 0:
+            if await _extract_frame_at_index(video_path, output_path, total_frames - 1):
+                return output_path
 
-        if proc.returncode != 0 or not output_path.exists():
+        total_frames = await _probe_frame_count(video_path, count_frames=True)
+        if total_frames is None or total_frames < 1:
+            return None
+        if not await _extract_frame_at_index(video_path, output_path, total_frames - 1):
             return None
 
         return output_path

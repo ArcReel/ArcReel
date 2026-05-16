@@ -145,22 +145,26 @@ async def test_last_frame_falls_back_to_count_frames(tmp_path: Path):
             return self._payload, b""
 
     class _FfmpegProc:
+        def __init__(self, target: Path):
+            self._target = target
+
         returncode = 0
 
         async def wait(self):
             # 模拟 ffmpeg 写出文件
-            out.write_bytes(b"\x89PNG\r\n\x1a\n")
+            self._target.write_bytes(b"\x89PNG\r\n\x1a\n")
             return None
 
     call_log: list[list[str]] = []
     procs = [
         _ProbeProc(b"N/A\n"),  # nb_frames 快路径
         _ProbeProc(b"30\n"),  # -count_frames 回退
-        _FfmpegProc(),  # 提取
     ]
 
     async def _spawn(*args, **_kwargs):
         call_log.append(list(args))
+        if args[0] == "ffmpeg":
+            return _FfmpegProc(Path(args[-1]))
         return procs.pop(0)
 
     def _which(name: str):
@@ -175,6 +179,62 @@ async def test_last_frame_falls_back_to_count_frames(tmp_path: Path):
     assert call_log[0][0] == "ffprobe" and "-count_frames" not in call_log[0]
     assert call_log[1][0] == "ffprobe" and "-count_frames" in call_log[1]
     assert call_log[2][0] == "ffmpeg"
+
+
+@pytest.mark.asyncio
+async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing(
+    tmp_path: Path,
+):
+    """nb_frames 有值但 select 无输出时，用 -count_frames 结果重试并替换旧文件。"""
+    video = tmp_path / "fake.mp4"
+    video.write_bytes(b"\x00")
+    out = tmp_path / "out.png"
+    out.write_bytes(b"stale")
+
+    class _ProbeProc:
+        def __init__(self, payload: bytes):
+            self._payload = payload
+            self.returncode = 0
+
+        async def communicate(self):
+            return self._payload, b""
+
+    class _FfmpegProc:
+        returncode = 0
+
+        def __init__(self, target: Path, *, writes_output: bool):
+            self._target = target
+            self._writes_output = writes_output
+
+        async def wait(self):
+            if self._writes_output:
+                self._target.write_bytes(b"fresh")
+            return None
+
+    probe_procs = [_ProbeProc(b"999\n"), _ProbeProc(b"30\n")]
+    ffmpeg_writes = [False, True]
+    call_log: list[list[str]] = []
+
+    async def _spawn(*args, **_kwargs):
+        call_log.append(list(args))
+        if args[0] == "ffprobe":
+            return probe_procs.pop(0)
+        return _FfmpegProc(Path(args[-1]), writes_output=ffmpeg_writes.pop(0))
+
+    def _which(name: str):
+        return f"/usr/bin/{name}"
+
+    with patch("lib.thumbnail.shutil.which", side_effect=_which):
+        with patch("lib.thumbnail.asyncio.create_subprocess_exec", side_effect=_spawn):
+            result = await thumbnail_module.extract_video_last_frame(video, out)
+
+    assert result == out
+    assert out.read_bytes() == b"fresh"
+    assert len(call_log) == 4
+    assert call_log[0][0] == "ffprobe" and "-count_frames" not in call_log[0]
+    assert call_log[1][0] == "ffmpeg"
+    assert call_log[2][0] == "ffprobe" and "-count_frames" in call_log[2]
+    assert call_log[3][0] == "ffmpeg"
 
 
 def test_ffprobe_available_is_cached():
