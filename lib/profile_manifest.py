@@ -51,10 +51,10 @@ class ProfileEmptyError(RuntimeError):
 
 
 class ProfileMisconfiguredError(RuntimeError):
-    """profile 端变体文件违反 §4.2 校验规则 → 部署错误。sync 拒绝运行。"""
+    """profile 端变体文件不合法（成对缺失或与通用文件并存）→ 部署错误。sync 拒绝运行。"""
 
 
-_VALID_CONTENT_MODES = frozenset({"narration", "drama"})
+VALID_CONTENT_MODES = frozenset({"narration", "drama"})
 
 
 # ---------- 基础工具 ----------
@@ -99,7 +99,7 @@ def _parse_variant_suffix(rel: str) -> tuple[str, str | None]:
     path = PurePosixPath(rel)
     # path.stem 是去掉最后一个扩展名的部分；再 split 一次拿"次外层后缀"
     stem_parts = path.stem.rsplit(".", 1)
-    if len(stem_parts) == 2 and stem_parts[1] in _VALID_CONTENT_MODES:
+    if len(stem_parts) == 2 and stem_parts[1] in VALID_CONTENT_MODES:
         logical_stem = stem_parts[0]
         # 重组为 logical_parent/<logical_stem><ext>
         logical_name = logical_stem + path.suffix
@@ -136,11 +136,11 @@ def resolve_profile_files_for_mode(
     变体文件：仅保留匹配 ``content_mode`` 的一份，logical_rel 去掉 ``.<mode>`` 后缀。
 
     Raises:
-        ValueError: content_mode 不在 ``_VALID_CONTENT_MODES``
+        ValueError: content_mode 不在 ``VALID_CONTENT_MODES``
         ProfileMisconfiguredError: 任一变体配对缺失 / 通用+变体并存
     """
-    if content_mode not in _VALID_CONTENT_MODES:
-        raise ValueError(f"content_mode must be one of {_VALID_CONTENT_MODES}, got {content_mode!r}")
+    if content_mode not in VALID_CONTENT_MODES:
+        raise ValueError(f"content_mode must be one of {VALID_CONTENT_MODES}, got {content_mode!r}")
 
     profile_files = _enumerate_all_profile_files(profile_dir)
 
@@ -164,7 +164,7 @@ def resolve_profile_files_for_mode(
 
     # 校验 2：变体配对完整
     for logical, by_mode in variants.items():
-        missing = _VALID_CONTENT_MODES - set(by_mode)
+        missing = VALID_CONTENT_MODES - set(by_mode)
         if missing:
             raise ProfileMisconfiguredError(
                 f"profile variant {logical!r} missing variant for mode(s): {sorted(missing)}; "
@@ -356,7 +356,7 @@ def load_manifest(project_dir: Path) -> tuple[Manifest, bytes] | None:
     raw_mode = data.get("content_mode")
     if raw_mode is None:
         content_mode: str | None = None
-    elif isinstance(raw_mode, str) and raw_mode in _VALID_CONTENT_MODES:
+    elif isinstance(raw_mode, str) and raw_mode in VALID_CONTENT_MODES:
         content_mode = raw_mode
     else:
         logger.warning("manifest %s invalid content_mode=%r, will reset", path, raw_mode)
@@ -542,8 +542,6 @@ def _apply_decision(
     stats: dict,
 ) -> None:
     """对单个文件应用决策表。OSError 由调用方捕获。
-
-    决策表完整定义见 plan: temporal-foraging-tulip.md §同步算法/决策矩阵
 
     Args:
         rel: dest 端逻辑相对路径（无 .<mode> 后缀），用于写入 manifest.entries 和 dest 路径。
@@ -759,11 +757,8 @@ def force_resync_profile(
         stats = _new_stats()
         for rel in sorted(target):
             source_rel = mapping.get(rel)
-            if source_rel is None:
-                logger.warning("force_resync skip missing profile file: %s", rel)
-                continue
-            p = profile_dir / source_rel
-            if not p.is_file():
+            p = profile_dir / source_rel if source_rel else None
+            if p is None or not p.is_file():
                 logger.warning("force_resync skip missing profile file: %s", rel)
                 continue
             try:

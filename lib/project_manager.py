@@ -22,8 +22,9 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
-from lib.json_io import atomic_write_json
+from lib.json_io import atomic_write_json, load_json_or_none
 from lib.profile_manifest import (
+    VALID_CONTENT_MODES,
     ProfileEmptyError,
     ProfileMisconfiguredError,
     ProfileMissingError,
@@ -178,8 +179,8 @@ class ProjectManager:
         for subdir in self.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-        # 写一份 minimal project.json，至少包含 content_mode，供 sync_agent_profile 读取
-        # server 后续会调 create_project_metadata 覆盖为完整版（也含 content_mode）
+        # 持久化 content_mode 到 project.json，让后续 sync_all_agent_profiles 启动遍历能恢复模式。
+        # server 路径随后会调 create_project_metadata 覆盖为完整版（也含 content_mode）。
         try:
             atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
             self.sync_agent_profile(project_dir, content_mode=content_mode)
@@ -234,21 +235,16 @@ class ProjectManager:
 
     def _resolve_content_mode(self, project_dir: Path) -> str:
         """从 project_dir/project.json 读 content_mode；缺失回退 narration。"""
-        pj_path = project_dir / self.PROJECT_FILE
-        if not pj_path.is_file():
-            logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
-            return "narration"
-        try:
-            data = json.loads(pj_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("project.json unreadable under %s: %s; defaulting narration", project_dir, exc)
-            return "narration"
-        mode = data.get("content_mode")
+        data = load_json_or_none(project_dir / self.PROJECT_FILE)
+        mode = data.get("content_mode") if isinstance(data, dict) else None
         if mode is None:
-            logger.info("project.json missing content_mode under %s, defaulting narration", project_dir)
+            logger.info("project.json missing or has no content_mode under %s, defaulting narration", project_dir)
             return "narration"
-        if not isinstance(mode, str) or mode not in {"narration", "drama"}:
-            raise ValueError(f"project {project_dir.name}: invalid content_mode={mode!r} (must be narration or drama)")
+        if not isinstance(mode, str) or mode not in VALID_CONTENT_MODES:
+            raise ValueError(
+                f"project {project_dir.name}: invalid content_mode={mode!r} "
+                f"(must be one of {sorted(VALID_CONTENT_MODES)})"
+            )
         return mode
 
     def sync_all_agent_profiles(self) -> dict:

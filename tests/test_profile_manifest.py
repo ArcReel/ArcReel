@@ -391,9 +391,9 @@ def test_profile_misconfigured_error_is_runtime_error() -> None:
 
 
 def test_valid_content_modes_constant() -> None:
-    from lib.profile_manifest import _VALID_CONTENT_MODES
+    from lib.profile_manifest import VALID_CONTENT_MODES
 
-    assert _VALID_CONTENT_MODES == frozenset({"narration", "drama"})
+    assert VALID_CONTENT_MODES == frozenset({"narration", "drama"})
 
 
 # ---------- resolve_profile_files_for_mode ----------
