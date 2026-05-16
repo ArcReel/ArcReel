@@ -206,7 +206,7 @@ class ProjectManager:
         指定 paths 中若某文件 profile 已删，会 skip + log warn（不算 error）。
         """
         profile_dir = agent_profile_dir()
-        return _force_resync_profile(profile_dir, project_dir, paths=paths)
+        return _force_resync_profile(profile_dir, project_dir, "narration", paths=paths)
 
     def sync_all_agent_profiles(self) -> dict:
         """扫描所有项目目录，同步 agent_runtime_profile（启动 hook 用）。

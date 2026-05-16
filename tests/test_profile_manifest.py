@@ -636,3 +636,41 @@ def test_sync_invalid_mode_raises(tmp_path: Path) -> None:
     project = _fresh_project(tmp_path / "proj_root")
     with pytest.raises(ValueError, match="content_mode"):
         sync_profile_to_project(profile, project, content_mode="reference_video")
+
+
+# ---------- force_resync_profile ----------
+
+
+def test_force_resync_picks_correct_variant(tmp_path: Path) -> None:
+    """传逻辑路径 'CLAUDE.md'，按 mode 选对应变体源文件。"""
+    from lib.profile_manifest import force_resync_profile, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+
+    # 用户手动改 CLAUDE.md
+    (project / "CLAUDE.md").write_text("user-edited")
+
+    # force_resync 应当用 narration 变体覆盖
+    force_resync_profile(profile, project, content_mode="narration", paths=["CLAUDE.md"])
+    assert (project / "CLAUDE.md").read_text() == "narration top"
+
+
+def test_force_resync_full_uses_mapping(tmp_path: Path) -> None:
+    """paths=None 全量恢复时也走变体投影。"""
+    from lib.profile_manifest import force_resync_profile
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    force_resync_profile(profile, project, content_mode="drama")
+    assert (project / "CLAUDE.md").read_text() == "drama top"
+
+
+def test_force_resync_invalid_mode_raises(tmp_path: Path) -> None:
+    from lib.profile_manifest import force_resync_profile
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    with pytest.raises(ValueError, match="content_mode"):
+        force_resync_profile(profile, project, content_mode="bad")

@@ -725,28 +725,25 @@ def sync_profile_to_project(
 def force_resync_profile(
     profile_dir: Path,
     project_dir: Path,
+    content_mode: str,
     *,
     paths: Iterable[str] | None = None,
 ) -> dict:
     """强制按 P 覆盖 D 并更新 manifest，清除 tombstone。
 
     给 UI"恢复内置 skill"按钮使用。``paths=None`` 表示全量。
-    边界：若指定 paths 中某文件 profile 已删（P 不存在）→ skip + log warn，不算 error。
-    意图是"恢复"不是"删"，强行走 #7 删除会与用户意图反向。
+    ``paths`` 是**逻辑路径**（如 ``CLAUDE.md``），内部按 content_mode 查源路径。
     """
     if not profile_dir.exists():
         raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
-    profile_files = enumerate_profile_files(profile_dir)
-    # 镜像主入口的空 profile 防御：profile 存在但无文件 + paths=None + 无 manifest
-    # 时若不抛会调 _full_reset 把项目清空；paths 非空的语义"恢复"同样不能在空源下成立。
-    if not profile_files:
+    mapping = resolve_profile_files_for_mode(profile_dir, content_mode)
+    if not mapping:
         raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
 
-    # paths 来自外部 → 必须先校验拒掉路径穿越，再用 set 化
     if paths is not None:
         target = {_normalize_profile_rel_path(rel) for rel in paths}
     else:
-        target = profile_files
+        target = set(mapping)
 
     project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -754,25 +751,22 @@ def force_resync_profile(
         loaded = load_manifest(project_dir)
         if loaded is None:
             if paths is None:
-                # 真正的全量恢复：等价于首次接入，行为与 reset 一致
-                # profile_files 是通用文件集（enumerate_profile_files），identity mapping
-                profile_mapping = {rel: rel for rel in profile_files}
-                return _full_reset_from_profile(profile_dir, project_dir, profile_mapping)
-            # paths 非空 = "恢复指定 skill"，manifest 缺失不该退化成全量
-            # _full_reset（会清空 .claude 复活其他被删的内置文件）；从空 manifest
-            # 开始，下面只回填用户选中的 rel，不动其他文件。
+                return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
             manifest, original_bytes = Manifest.empty(), None
         else:
             manifest, original_bytes = loaded
 
         stats = _new_stats()
         for rel in sorted(target):
-            p = profile_dir / rel
+            source_rel = mapping.get(rel)
+            if source_rel is None:
+                logger.warning("force_resync skip missing profile file: %s", rel)
+                continue
+            p = profile_dir / source_rel
             if not p.is_file():
                 logger.warning("force_resync skip missing profile file: %s", rel)
                 continue
             try:
-                # 与主入口相同的 dest 端 escape 防御
                 _ensure_dest_within(project_dir, rel)
                 d = project_dir / rel
                 _safe_copy(p, d)
@@ -787,5 +781,6 @@ def force_resync_profile(
                 logger.warning("force_resync skip %s: %s", rel, e)
                 stats["errors"] += 1
 
+        manifest.content_mode = content_mode
         save_manifest(project_dir, manifest, original_bytes)
         return stats
