@@ -176,13 +176,17 @@ def pytest_collection_modifyitems(config, items):
             continue
         fixturenames = set(getattr(item, "fixturenames", ()) or ())
         for fname in target_fixtures & fixturenames:
-            for fdef in info.name2fixturedefs.get(fname, ()) or ():
-                if getattr(fdef.func, "__module__", "") in canonical_modules:
-                    item.add_marker(uses_db)
-                    break
-            else:
+            # `name2fixturedefs[fname]` is pytest's fixture override chain
+            # (general → specific). The last element is the definition that
+            # actually wins for this test; only it determines whether the
+            # test really hits a dialect-sensitive engine.
+            defs = info.name2fixturedefs.get(fname) or ()
+            if not defs:
                 continue
-            break
+            active = defs[-1]
+            if getattr(active.func, "__module__", "") in canonical_modules:
+                item.add_marker(uses_db)
+                break
 
 
 @pytest.fixture()
