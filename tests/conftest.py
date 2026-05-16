@@ -156,17 +156,33 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 
 
 def pytest_collection_modifyitems(config, items):
-    """Auto-mark DB-touching tests with `uses_db`.
+    """Auto-mark dialect-sensitive tests with `uses_db`.
 
-    Any test that requests one of the canonical DB fixtures (async_session,
-    session_factory, file_session_factory) gets `uses_db`, so the PG CI job
-    can select via `-m uses_db` without per-file `pytestmark` annotations.
+    Mark a test only when it consumes a fixture defined in a canonical
+    dialect-sensitive conftest — the main `tests/conftest.py` (`async_session`,
+    reads DATABASE_URL) or `tests/agent_session_store/conftest.py`
+    (`session_factory` / `file_session_factory`, also reads DATABASE_URL).
+    Tests that locally override the same fixture name with a hard-coded
+    SQLite engine (e.g. `tests/test_custom_providers_api.py`) are excluded so
+    the postgres-compat job stays a true dialect signal rather than running
+    SQLite-only code under a `postgres` coverage flag.
     """
-    db_fixtures = {"async_session", "session_factory", "file_session_factory"}
+    target_fixtures = {"async_session", "session_factory", "file_session_factory"}
+    canonical_modules = {"tests.conftest", "tests.agent_session_store.conftest"}
     uses_db = pytest.mark.uses_db
     for item in items:
-        if db_fixtures.intersection(getattr(item, "fixturenames", ())):
-            item.add_marker(uses_db)
+        info = getattr(item, "_fixtureinfo", None)
+        if info is None:
+            continue
+        fixturenames = set(getattr(item, "fixturenames", ()) or ())
+        for fname in target_fixtures & fixturenames:
+            for fdef in info.name2fixturedefs.get(fname, ()) or ():
+                if getattr(fdef.func, "__module__", "") in canonical_modules:
+                    item.add_marker(uses_db)
+                    break
+            else:
+                continue
+            break
 
 
 @pytest.fixture()
@@ -192,14 +208,16 @@ async def async_session():
         try:
             async with engine.connect() as conn:
                 outer = await conn.begin()
-                factory = async_sessionmaker(
-                    bind=conn,
-                    expire_on_commit=False,
-                    join_transaction_mode="create_savepoint",
-                )
-                async with factory() as session:
-                    yield session
-                await outer.rollback()
+                try:
+                    factory = async_sessionmaker(
+                        bind=conn,
+                        expire_on_commit=False,
+                        join_transaction_mode="create_savepoint",
+                    )
+                    async with factory() as session:
+                        yield session
+                finally:
+                    await outer.rollback()
         finally:
             await engine.dispose()
         return
