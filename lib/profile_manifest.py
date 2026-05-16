@@ -267,6 +267,7 @@ class Manifest:
     schema_version: int
     profile_id: str
     entries: dict[str, dict]
+    content_mode: str | None = None
 
     @classmethod
     def empty(cls) -> Manifest:
@@ -274,14 +275,19 @@ class Manifest:
             schema_version=MANIFEST_SCHEMA_VERSION,
             profile_id=EXPECTED_PROFILE_ID,
             entries={},
+            content_mode=None,
         )
 
     def to_jsonable(self) -> dict:
-        return {
+        data: dict = {
             "schema_version": self.schema_version,
             "profile_id": self.profile_id,
             "entries": dict(sorted(self.entries.items())),
         }
+        # None 时省略字段：兼容老 manifest 紧凑形态 + 减少 diff 噪音
+        if self.content_mode is not None:
+            data["content_mode"] = self.content_mode
+        return data
 
     def normalized_bytes(self) -> bytes:
         """deterministic 序列化：sort_keys + indent + UTF-8，用于 diff 友好 + 写前比对。"""
@@ -347,11 +353,20 @@ def load_manifest(project_dir: Path) -> tuple[Manifest, bytes] | None:
         else:
             logger.warning("manifest %s entry %s unknown source=%r, will reset", path, key, source)
             return None
+    raw_mode = data.get("content_mode")
+    if raw_mode is None:
+        content_mode: str | None = None
+    elif isinstance(raw_mode, str) and raw_mode in _VALID_CONTENT_MODES:
+        content_mode = raw_mode
+    else:
+        logger.warning("manifest %s invalid content_mode=%r, will reset", path, raw_mode)
+        return None
     return (
         Manifest(
             schema_version=data["schema_version"],
             profile_id=data["profile_id"],
             entries=entries,
+            content_mode=content_mode,
         ),
         raw,
     )

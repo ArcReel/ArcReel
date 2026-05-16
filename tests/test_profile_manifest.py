@@ -482,3 +482,69 @@ def test_resolve_double_dot_filename_not_treated_as_variant(tmp_path: Path) -> N
 
     mapping = resolve_profile_files_for_mode(profile, "narration")
     assert mapping == {".claude/weird.narration.bar.md": ".claude/weird.narration.bar.md"}
+
+
+# ---------- Manifest.content_mode 字段 ----------
+
+
+def test_manifest_empty_has_none_content_mode() -> None:
+    m = Manifest.empty()
+    assert m.content_mode is None
+
+
+def test_manifest_serialize_omits_none_content_mode() -> None:
+    """None content_mode 不出现在 JSON 中，保持向后兼容紧凑形态。"""
+    m = Manifest.empty()
+    data = json.loads(m.normalized_bytes().decode("utf-8"))
+    assert "content_mode" not in data
+
+
+def test_manifest_serialize_includes_set_content_mode() -> None:
+    m = Manifest(
+        schema_version=MANIFEST_SCHEMA_VERSION,
+        profile_id=EXPECTED_PROFILE_ID,
+        content_mode="narration",
+        entries={},
+    )
+    data = json.loads(m.normalized_bytes().decode("utf-8"))
+    assert data["content_mode"] == "narration"
+
+
+def test_load_manifest_legacy_no_content_mode_field(tmp_path: Path) -> None:
+    """老 manifest（无 content_mode 字段）→ load 成功，字段为 None。"""
+    legacy = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "entries": {},
+    }
+    (tmp_path / MANIFEST_FILENAME).write_text(json.dumps(legacy))
+    loaded = load_manifest(tmp_path)
+    assert loaded is not None
+    manifest, _raw = loaded
+    assert manifest.content_mode is None
+
+
+def test_load_manifest_new_with_content_mode(tmp_path: Path) -> None:
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "content_mode": "drama",
+        "entries": {},
+    }
+    (tmp_path / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    loaded = load_manifest(tmp_path)
+    assert loaded is not None
+    manifest, _raw = loaded
+    assert manifest.content_mode == "drama"
+
+
+def test_load_manifest_invalid_content_mode_returns_none(tmp_path: Path) -> None:
+    """content_mode 字段存在但值非法 → 视为损坏，触发 reset。"""
+    payload = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "profile_id": EXPECTED_PROFILE_ID,
+        "content_mode": "garbage",
+        "entries": {},
+    }
+    (tmp_path / MANIFEST_FILENAME).write_text(json.dumps(payload))
+    assert load_manifest(tmp_path) is None
