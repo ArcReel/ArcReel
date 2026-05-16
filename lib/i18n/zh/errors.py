@@ -41,6 +41,7 @@ MESSAGES = {
     "file_not_found": "文件不存在: {path}",
     "forbidden_access": "禁止访问项目目录外的文件",
     "invalid_upload_type": "无效的上传类型: {upload_type}",
+    "missing_filename": "上传的文件缺少文件名",
     "unsupported_image_type": "不支持的文件类型 {ext}，允许的类型: {allowed}",
     "invalid_image_file": "无效的图片文件，无法解析",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
@@ -56,7 +57,6 @@ MESSAGES = {
     "source_corrupt_file": "源文件「{filename}」无法解析：{reason}",
     "source_too_large": "源文件「{filename}」过大（{size_mb} MB > {limit_mb} MB）",
     "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
-    "invalid_on_conflict": "on_conflict 参数无效，必须为 fail / replace / rename",
     # Providers
     "unknown_provider": "未知供应商: {provider_id}",
     "credentials_not_found": "凭证不存在",

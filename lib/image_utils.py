@@ -73,7 +73,7 @@ def compress_image_bytes(
                 scale = max_long_edge / long_edge
                 new_w = int(w * scale)
                 new_h = int(h * scale)
-                img = img.resize((new_w, new_h), Image.LANCZOS)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
             out = BytesIO()
             img.save(out, format="JPEG", quality=quality, optimize=True)

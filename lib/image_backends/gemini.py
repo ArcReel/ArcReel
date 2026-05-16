@@ -86,7 +86,7 @@ class GeminiImageBackend:
             api_key = resolve_gemini_api_key(api_key)
             effective_base_url = normalize_base_url(base_url)
             http_options = {"base_url": effective_base_url} if effective_base_url else None
-            self._client = _genai.Client(api_key=api_key, http_options=http_options)
+            self._client = _genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
 
         self._capabilities: set[ImageCapability] = {
             ImageCapability.TEXT_TO_IMAGE,

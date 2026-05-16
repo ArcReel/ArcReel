@@ -101,6 +101,8 @@ def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
 
 def _build_newapi_video(provider, model_id: str) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
+    if not base_url:
+        raise ValueError("NewAPI 视频后端需要 base_url")
     delegate = NewAPIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 

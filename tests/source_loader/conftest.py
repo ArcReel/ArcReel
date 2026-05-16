@@ -83,5 +83,5 @@ def pdf_factory():
     def _make_scanned() -> Path:
         return _PDF_DATA_DIR / "sample_scanned.pdf"
 
-    _make.scanned = _make_scanned
+    _make.scanned = _make_scanned  # type: ignore[attr-defined]
     return _make

@@ -21,17 +21,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-try:
-    from claude_agent_sdk import (
-        get_session_messages,
-        get_session_messages_from_store,
-    )
+from claude_agent_sdk import (
+    get_session_messages,
+    get_session_messages_from_store,
+)
 
-    SDK_AVAILABLE = True
-except ImportError:
-    get_session_messages = None  # type: ignore[assignment]
-    get_session_messages_from_store = None  # type: ignore[assignment]
-    SDK_AVAILABLE = False
+SDK_AVAILABLE = True
 
 
 class SdkTranscriptAdapter:

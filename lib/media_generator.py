@@ -16,7 +16,7 @@ MediaGenerator 中间层
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from PIL import Image
 
@@ -304,10 +304,10 @@ class MediaGenerator:
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
-        duration_seconds: str = "8",
+        duration_seconds: str | int = "8",
         resolution: str | None = None,
         **version_metadata,
-    ) -> tuple[Path, int, any, str | None]:
+    ) -> tuple[Path, int, Any, str | None]:
         """
         生成视频（带自动版本管理，同步包装）
 
@@ -350,10 +350,10 @@ class MediaGenerator:
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
-        duration_seconds: str = "8",
+        duration_seconds: str | int = "8",
         resolution: str | None = None,
         **version_metadata,
-    ) -> tuple[Path, int, any, str | None]:
+    ) -> tuple[Path, int, Any, str | None]:
         """
         异步生成视频（带自动版本管理）
 

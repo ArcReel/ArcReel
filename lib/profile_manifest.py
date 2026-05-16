@@ -437,10 +437,12 @@ def _apply_decision(
 
     p = profile_dir / rel
     d = project_dir / rel
-    p_hash = sha256_file(p) if p_exists else None
-    p_size = p.stat().st_size if p_exists else None
-    d_hash = sha256_file(d) if d_exists else None
-    m_hash = m.get("sha256") if m_kind == "active" else None
+    # p_hash/p_size 只在 p_exists=True 的 match 分支中被读取，所以 not-exists 时给空字符串/0
+    # 占位即可（永远不会出现在写入路径），同时让类型系统看到非 Optional，省掉 4 处 narrow assert。
+    p_hash = sha256_file(p) if p_exists else ""
+    p_size = p.stat().st_size if p_exists else 0
+    d_hash: str | None = sha256_file(d) if d_exists else None
+    m_hash: str | None = m.get("sha256") if (m_kind == "active" and m is not None) else None
 
     match (p_exists, d_exists, m_kind):
         case (True, False, "none"):

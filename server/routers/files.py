@@ -27,6 +27,7 @@ from lib.source_loader import (
     CorruptFileError,
     FileSizeExceededError,
     NormalizeResult,
+    OnConflict,
     SourceDecodeError,
     SourceLoader,
     UnsupportedFormatError,
@@ -41,6 +42,12 @@ pm = ProjectManager(app_data_dir())
 
 def get_project_manager() -> ProjectManager:
     return pm
+
+
+def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail=_t("missing_filename"))
+    return file.filename
 
 
 # 允许的文件类型
@@ -116,8 +123,8 @@ async def upload_file(
     _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
-    name: str = None,
-    on_conflict: str = "fail",
+    name: str | None = None,
+    on_conflict: OnConflict = "fail",
 ):
     """
     上传文件
@@ -132,8 +139,10 @@ async def upload_file(
     if upload_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=_t("invalid_upload_type", upload_type=upload_type))
 
+    original_filename = _require_filename(file, _t)
+
     # 检查文件扩展名
-    ext = Path(file.filename).suffix.lower()
+    ext = Path(original_filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS[upload_type]:
         raise HTTPException(
             status_code=400,
@@ -158,42 +167,42 @@ async def upload_file(
             # 确定目标目录
             if upload_type == "source":
                 target_dir = project_dir / "source"
-                filename = file.filename
+                filename = original_filename
             elif upload_type == "character":
                 target_dir = project_dir / "characters"
                 # 统一保存为 PNG，且使用稳定文件名（避免 jpg/png 不一致导致版本还原/引用异常）
                 if name:
                     filename = f"{name}.png"
                 else:
-                    filename = f"{Path(file.filename).stem}.png"
+                    filename = f"{Path(original_filename).stem}.png"
             elif upload_type == "character_ref":
                 target_dir = project_dir / "characters" / "refs"
                 if name:
                     filename = f"{name}.png"
                 else:
-                    filename = f"{Path(file.filename).stem}.png"
+                    filename = f"{Path(original_filename).stem}.png"
             elif upload_type == "scene":
                 target_dir = project_dir / "scenes"
                 if name:
                     filename = f"{name}.png"
                 else:
-                    filename = f"{Path(file.filename).stem}.png"
+                    filename = f"{Path(original_filename).stem}.png"
             elif upload_type == "prop":
                 target_dir = project_dir / "props"
                 if name:
                     filename = f"{name}.png"
                 else:
-                    filename = f"{Path(file.filename).stem}.png"
+                    filename = f"{Path(original_filename).stem}.png"
             elif upload_type == "storyboard":
                 # 注意：目录为 storyboards（复数），而不是 storyboard
                 target_dir = project_dir / "storyboards"
                 if name:
                     filename = f"scene_{name}.png"
                 else:
-                    filename = f"{Path(file.filename).stem}.png"
+                    filename = f"{Path(original_filename).stem}.png"
             else:
                 target_dir = project_dir / upload_type
-                filename = file.filename
+                filename = original_filename
 
             target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -201,7 +210,7 @@ async def upload_file(
             nonlocal content
             if upload_type in ("character", "character_ref", "scene", "prop", "storyboard"):
                 try:
-                    content, ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
+                    content, ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
                 filename = Path(filename).with_suffix(ext).name
@@ -288,12 +297,11 @@ async def _handle_source_upload(
     *,
     project_name: str,
     file: UploadFile,
-    on_conflict: str,
+    on_conflict: OnConflict,
     _t: Translator,
 ):
     """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节。"""
-    if on_conflict not in {"fail", "replace", "rename"}:
-        raise HTTPException(status_code=400, detail=_t("invalid_on_conflict"))
+    original_filename = _require_filename(file, _t)
 
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -302,8 +310,6 @@ async def _handle_source_upload(
 
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
-
-    original_filename = file.filename
 
     def _sync() -> NormalizeResult:
         # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
@@ -783,8 +789,10 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
     2. 调用 Gemini API 分析风格
     3. 更新 project.json 的 style_image 和 style_description 字段
     """
+    original_filename = _require_filename(file, _t)
+
     # 检查文件类型
-    ext = Path(file.filename).suffix.lower()
+    ext = Path(original_filename).suffix.lower()
     if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
         raise HTTPException(
             status_code=400,
@@ -797,7 +805,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
         def _sync_prepare():
             project_dir = get_project_manager().get_project_path(project_name)
             try:
-                content_norm, new_ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
+                content_norm, new_ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
             except ValueError:
                 raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
             style_filename = f"style_reference{new_ext}"

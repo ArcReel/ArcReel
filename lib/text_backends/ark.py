@@ -82,6 +82,8 @@ class ArkTextBackend:
         if TextCapability.STRUCTURED_OUTPUT in self._capabilities:
             from lib.text_backends.base import resolve_schema
 
+            if request.response_schema is None:
+                raise ValueError("structured 模式要求 response_schema 非空")
             schema = resolve_schema(request.response_schema)
             kwargs: dict = {
                 "model": self._model,

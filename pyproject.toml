@@ -47,6 +47,7 @@ dev = [
     "ruff>=0.15.0",
     "pre-commit>=4.0.0",
     "python-docx>=1.2.0",
+    "basedpyright>=1.39.4",
 ]
 
 [build-system]
@@ -85,3 +86,89 @@ exclude = [".worktrees", ".claude/worktrees"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 ignore = ["E402", "E501"]
+
+[tool.basedpyright]
+include = ["lib", "server", "alembic", "tests", "scripts"]
+exclude = [
+    "**/__pycache__",
+    ".venv",
+    ".worktrees",
+    ".claude/worktrees",
+    "frontend",
+    "projects",
+    "agent_runtime_profile",
+    "vertex_keys",
+    "build",
+    "dist",
+    "alembic/versions",
+]
+venvPath = "."
+venv = ".venv"
+extraPaths = ["."]
+pythonVersion = "3.12"
+pythonPlatform = "All"
+
+typeCheckingMode = "standard"
+
+reportMissingTypeStubs = false
+reportMissingModuleSource = false
+reportUnusedCallResult = false
+reportAny = false
+reportExplicitAny = false
+reportImplicitStringConcatenation = false
+reportImportCycles = false
+reportUnnecessaryIsInstance = "warning"
+reportUnnecessaryComparison = "warning"
+reportUnnecessaryTypeIgnoreComment = "warning"
+
+reportGeneralTypeIssues = "error"
+reportOptionalSubscript = "error"
+reportOptionalMemberAccess = "error"
+reportOptionalCall = "error"
+reportOptionalIterable = "error"
+reportOptionalContextManager = "error"
+reportOptionalOperand = "error"
+reportTypedDictNotRequiredAccess = "error"
+reportPrivateImportUsage = "error"
+reportInvalidTypeForm = "error"
+reportInvalidTypeArguments = "error"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["."]
+reportPrivateUsage = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
+reportArgumentType = "warning"
+reportAttributeAccessIssue = "warning"
+# 测试里 repo/manager 调用通常断言式访问，narrow 噪声大；mock 返回也常被 subscript
+reportOptionalSubscript = "warning"
+reportOptionalMemberAccess = "warning"
+reportOptionalIterable = "warning"
+reportOperatorIssue = "warning"
+reportOptionalCall = "warning"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "alembic"
+reportMissingImports = "warning"
+
+# scripts/ 是一次性辅助脚本（迁移、生成 fixture、烟雾测试），
+# 不值得花大力气做类型，但 tests/scripts/ 会 import 它们，所以必须可解析
+[[tool.basedpyright.executionEnvironments]]
+root = "scripts"
+reportArgumentType = "none"
+reportReturnType = "none"
+reportAssignmentType = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalSubscript = "none"
+reportOptionalCall = "none"
+reportOptionalOperand = "none"
+reportOptionalIterable = "none"
+reportOperatorIssue = "none"
+reportAttributeAccessIssue = "none"
+reportPossiblyUnboundVariable = "none"
+reportGeneralTypeIssues = "none"
+reportCallIssue = "none"
+reportIndexIssue = "none"
+reportMissingImports = "warning"

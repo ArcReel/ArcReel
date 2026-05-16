@@ -172,7 +172,7 @@ class UsageRepository(BaseRepository):
         if status == "success":
             cost_amount, currency = cost_calculator.calculate_cost(
                 provider=effective_provider,
-                call_type=row.call_type,
+                call_type=row.call_type,  # type: ignore[arg-type]
                 model=row.model,
                 resolution=row.resolution,
                 aspect_ratio=row.aspect_ratio,

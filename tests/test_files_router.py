@@ -632,16 +632,15 @@ class TestSourceMultiFormatUpload:
             assert resp.status_code == 200
             assert not raw_path.exists()
 
-    def test_upload_source_invalid_on_conflict_returns_400_i18n(self, tmp_path, monkeypatch):
+    def test_upload_source_invalid_on_conflict_returns_422(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/upload/source?on_conflict=bogus",
                 files={"file": ("x.txt", io.BytesIO(b"hi"), "text/plain")},
             )
-            assert resp.status_code == 400
-            # Should not be the raw English phrase we replaced — check it's the translated form
-            assert resp.json()["detail"] != "on_conflict must be fail/replace/rename"
+            # FastAPI 用 Literal 自动校验 query param，非法值返回 422
+            assert resp.status_code == 422
 
     def test_upload_source_rejects_oversized_upload_by_content_length(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)

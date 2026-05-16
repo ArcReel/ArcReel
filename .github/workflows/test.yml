@@ -28,6 +28,9 @@ jobs:
       - name: Lint & format check
         run: uv run ruff check . && uv run ruff format --check .
 
+      - name: Type check (basedpyright)
+        run: uv run basedpyright
+
       - name: Run tests with coverage
         run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 

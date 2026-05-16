@@ -64,7 +64,10 @@ async def create_text_backend_for_task(
                         raise ValueError(f"供应商「{name}」没有可用的文本模型，请到项目设置中重新选择")
                     model = default_model
                     model_id = default_model.model_id
-                return create_custom_backend(provider=provider, model_id=model_id, endpoint=model.endpoint)
+                assert model_id is not None
+                return create_custom_backend(  # type: ignore[return-value]
+                    provider=provider, model_id=model_id, endpoint=model.endpoint
+                )
 
         provider_config = await r.provider_config(provider_id)
 

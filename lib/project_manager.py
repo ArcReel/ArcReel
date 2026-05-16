@@ -130,7 +130,7 @@ class ProjectManager:
             raise FileNotFoundError(f"当前目录不是有效的项目目录: {cwd}")
         return pm, project_name
 
-    def __init__(self, projects_root: str | None = None):
+    def __init__(self, projects_root: str | Path | None = None):
         """
         初始化项目管理器
 
@@ -531,7 +531,7 @@ class ProjectManager:
 
         # 查找或创建 episode 条目
         episodes = project.setdefault("episodes", [])
-        episode_entry = next((ep for ep in episodes if ep["episode"] == episode_num), None)
+        episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
 
         if episode_entry is None:
             episode_entry = {"episode": episode_num}
@@ -789,12 +789,10 @@ class ProjectManager:
         if isinstance(script.get("novel"), dict):
             script["novel"].pop("source_file", None)
 
-        # 处理旧格式：如果有 characters 对象，同步到 project.json
+        # 旧格式 script 仍可能携带 characters dict；project.json 已是单一真相源，
+        # 此处仅记日志提醒，剧本 dict 保留不再做迁移（迁移实现历史上从未存在过）。
         if "characters" in script and isinstance(script["characters"], dict) and script["characters"]:
-            logger.warning("检测到旧格式 characters 对象，自动同步到 project.json")
-            self.sync_characters_from_script(project_name, script_filename)
-            # sync_characters_from_script 会重新加载和保存 script，所以需要重新加载
-            script = self.load_script(project_name, script_filename)
+            logger.warning("检测到旧格式 characters 对象（仅记录提醒，不做迁移）")
 
         # 注意：characters_in_episode 已改为读时计算
         # 不再在 normalize_script 中创建这些字段
@@ -1245,8 +1243,8 @@ class ProjectManager:
         project_name: str,
         title: str | None = None,
         style: str | None = None,
-        content_mode: str = "narration",
-        aspect_ratio: str = "9:16",
+        content_mode: str | None = "narration",
+        aspect_ratio: str | None = "9:16",
         default_duration: int | None = None,
         style_template_id: str | None = None,
         extras: dict | None = None,
@@ -1266,8 +1264,8 @@ class ProjectManager:
         project = {
             "schema_version": 1,
             "title": project_title or project_name,
-            "content_mode": content_mode,
-            "aspect_ratio": aspect_ratio,
+            "content_mode": content_mode or "narration",
+            "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
             "characters": {},
