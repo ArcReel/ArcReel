@@ -22,6 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_ROOT = REPO_ROOT / "agent_runtime_profile" / ".claude" / "skills"
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
 LOCALES = ("zh", "en", "vi")
+# content_mode 变体后缀；与 lib.profile_manifest._VALID_CONTENT_MODES 同步
+_CONTENT_MODE_SUFFIXES = ("narration", "drama")
 
 _SKILL_KEY_RE = re.compile(r"""['"](skill_name_[a-z0-9_]+)['"]\s*:""")
 _USER_INVOCABLE_RE = re.compile(r"^\s*user-invocable\s*:\s*(\S+)", re.MULTILINE)
@@ -43,6 +45,18 @@ def _is_user_invocable(skill_md: Path) -> bool:
     return raw not in {"false", "no", "0"}
 
 
+def _find_skill_md(skill_dir: Path) -> Path | None:
+    """优先 SKILL.md；否则任一 SKILL.<mode>.md 变体（两份变体应一致）。"""
+    common = skill_dir / "SKILL.md"
+    if common.is_file():
+        return common
+    for mode in _CONTENT_MODE_SUFFIXES:
+        variant = skill_dir / f"SKILL.{mode}.md"
+        if variant.is_file():
+            return variant
+    return None
+
+
 def _user_invocable_skill_ids() -> set[str]:
     if not SKILLS_ROOT.is_dir():
         return set()
@@ -50,8 +64,8 @@ def _user_invocable_skill_ids() -> set[str]:
     for skill_dir in sorted(SKILLS_ROOT.iterdir()):
         if not skill_dir.is_dir():
             continue
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.exists():
+        skill_md = _find_skill_md(skill_dir)
+        if skill_md is None:
             continue
         if _is_user_invocable(skill_md):
             ids.add(skill_dir.name.replace("-", "_"))

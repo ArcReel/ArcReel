@@ -530,7 +530,7 @@ class TestProjectArchiveService:
         pm.save_project("demo", project)
 
         # 让 sync_agent_profile 在 _install_project_dir 内（shutil.move 之后）抛错
-        def boom(self_pm, target_dir):
+        def boom(self_pm, target_dir, **kwargs):
             raise RuntimeError("profile sync failed")
 
         monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
@@ -553,7 +553,7 @@ class TestProjectArchiveService:
         """
         pm = ProjectManager(tmp_path / "projects")
 
-        def boom(self_pm, target_dir):
+        def boom(self_pm, target_dir, **kwargs):
             raise RuntimeError("profile sync failed")
 
         monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
