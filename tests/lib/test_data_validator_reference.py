@@ -125,7 +125,9 @@ def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
 
 
 def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
-    """新规则：content_mode 不再允许 reference_video（issue #542）。"""
+    """issue #542：content_mode 严格只允许 narration / drama；reference_video 属于
+    generation_mode 维度。UI 不可达该值，无需兼容迁移，直接拒绝即可。
+    """
     project = {
         "title": "T",
         "content_mode": "reference_video",

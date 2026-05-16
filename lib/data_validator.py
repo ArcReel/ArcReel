@@ -42,8 +42,7 @@ class DataValidator:
     """数据验证器"""
 
     # content_mode 严格只表达"内容类型"（issue #542）。"视频来源"维度由
-    # project_manager.effective_mode（基于 generation_mode 字段）独立表达；旧数据
-    # 里把 reference_video 错塞到 content_mode 的情况由 ProjectManager 写时迁移。
+    # project_manager.effective_mode（基于 generation_mode 字段）独立表达。
     VALID_CONTENT_MODES = {"narration", "drama"}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
     VALID_SHOT_DURATION_RANGE = (1, 15)

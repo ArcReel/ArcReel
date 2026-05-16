@@ -45,9 +45,6 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
 
 
 def _is_reference_script(script: dict[str, Any]) -> bool:
-    # generation_mode 是唯一真相源（issue #542）。脚本通过 ProjectManager.load_script
-    # 加载，旧数据 content_mode == "reference_video" 已被 _migrate_legacy_content_mode
-    # 在 load 时洗白成 generation_mode。
     return script.get("generation_mode") == "reference_video"
 
 

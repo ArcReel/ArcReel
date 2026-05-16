@@ -42,16 +42,11 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 _VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}
 _DEFAULT_GENERATION_MODE = "storyboard"
 
-_DEFAULT_CONTENT_MODE = "narration"
-
 
 def effective_mode(*, project: dict, episode: dict) -> str:
     """按 episode → project → 默认 storyboard 回退解析 generation_mode。
 
-    Spec §4.6。未知值一律回退到默认，兼容旧项目/脏数据。历史项目里把
-    ``reference_video`` 错塞到 ``content_mode`` 的情况由 ``ProjectManager`` 在
-    ``load_project`` / ``load_script`` 时调用 ``_migrate_legacy_content_mode`` 一次
-    性洗白成 ``generation_mode``，此处不再做二次兜底。
+    Spec §4.6。未知值一律回退到默认，兼容脏数据。
     """
     ep_mode = episode.get("generation_mode")
     if ep_mode in _VALID_GENERATION_MODES:
@@ -573,16 +568,7 @@ class ProjectManager:
             raise FileNotFoundError(f"剧本文件不存在: {real}")
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
-            script = json.load(f)
-
-        # 集级旧字段就地迁移（issue #542）：content_mode == "reference_video"
-        # 拆成 generation_mode + content_mode 并原子写回磁盘，避免 data_validator /
-        # generation_tasks 等直接 json.load 的旁路读取到脏数据。
-        # 不持 _script_lock：会与 save_script → sync_episode_from_script → load_script
-        # 链路重入；迁移幂等 + atomic_write_json 已是原子覆盖，并发写盘结果一致。
-        if self._migrate_legacy_content_mode(script):
-            atomic_write_json(real, script)
-        return script
+            return json.load(f)
 
     def list_scripts(self, project_name: str) -> list[str]:
         """列出项目中的所有剧本"""
@@ -1077,24 +1063,6 @@ class ProjectManager:
         project.setdefault("image_provider_i2i", legacy)
 
     @staticmethod
-    def _migrate_legacy_content_mode(payload: dict) -> bool:
-        """把混维度的 ``content_mode == "reference_video"`` 拆成两条独立轴。
-
-        历史上 ``content_mode`` 同时承担"内容类型"（narration/drama）和"视频来源"
-        （reference_video）两个语义维度（issue #542）。本函数把后者搬到
-        ``generation_mode``，并将 ``content_mode`` 回退到 narration 作占位（参考视频
-        模式实际不区分 narration/drama）。返回是否发生了变更。
-
-        既用于 project.json 顶层，也用于 episode_*.json 顶层。
-        """
-        if payload.get("content_mode") != "reference_video":
-            return False
-        payload["content_mode"] = _DEFAULT_CONTENT_MODE
-        if payload.get("generation_mode") not in _VALID_GENERATION_MODES:
-            payload["generation_mode"] = "reference_video"
-        return True
-
-    @staticmethod
     def _migrate_legacy_style(project: dict) -> bool:
         """检测旧 style 值并就地迁移。返回是否发生了变更。"""
         if "style_template_id" in project:
@@ -1133,9 +1101,7 @@ class ProjectManager:
             # 更新后，迁移写回又把更新覆盖掉（Codex #304 P2）。
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
-            style_changed = self._migrate_legacy_style(project)
-            content_mode_changed = self._migrate_legacy_content_mode(project)
-            if style_changed or content_mode_changed:
+            if self._migrate_legacy_style(project):
                 # 不走 save_project 以避免触发 _touch_metadata 污染 updated_at。
                 atomic_write_json(project_file, project)
                 migrated = True

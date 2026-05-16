@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import effective_mode
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
     build_drama_prompt,
@@ -300,20 +300,13 @@ class ScriptGenerator:
         return PROVIDER_MAX_REFS.get(provider_id, DEFAULT_MAX_REFS)
 
     def _load_project_json(self) -> dict:
-        """加载 project.json。
-
-        直接读取（非 ProjectManager 路径），但应用 ``_migrate_legacy_content_mode``
-        把旧的 ``content_mode == "reference_video"`` 拆成两条独立维度，避免下游
-        ``self.content_mode`` 取到无效值（issue #542）。
-        """
+        """加载 project.json"""
         path = self.project_path / "project.json"
         if not path.exists():
             raise FileNotFoundError(f"未找到 project.json: {path}")
 
         with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        ProjectManager._migrate_legacy_content_mode(data)
-        return data
+            return json.load(f)
 
     def _load_step1(self, episode: int) -> str:
         """加载 Step 1 的 Markdown 文件，支持两种文件命名"""
