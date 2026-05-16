@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, effective_mode
 from lib.reference_video import parse_prompt
 from server.auth import CurrentUser
 
@@ -67,7 +67,7 @@ def _load_episode_script(project_name: str, episode: int) -> tuple[dict, dict, s
         script = get_project_manager().load_script(project_name, script_file)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if script.get("content_mode") != "reference_video":
+    if effective_mode(project=project, episode=meta) != "reference_video":
         raise HTTPException(
             status_code=409,
             detail="episode script is not in reference_video mode",

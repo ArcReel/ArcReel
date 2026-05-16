@@ -25,17 +25,24 @@ class StatusCalculator:
 
     @classmethod
     def _select_content_mode_and_items(cls, script: dict) -> tuple[str, list[dict]]:
+        """返回 ``(分派标签, items)``。
+
+        分派标签 ``"narration" | "drama" | "reference_video"`` 给下游分派使用：
+        ``generation_mode == "reference_video"`` 优先；否则按 content_mode 选 segments
+        或 scenes；都缺失时按主结构鸭子类型兜底（兼容老脚本未写 content_mode 的情况）。
+        参考视频集判定不再回退到 ``content_mode == "reference_video"``，因为新数据
+        已不可能产生该值（issue #542）。
+        """
         content_mode = script.get("content_mode")
-        if content_mode == "reference_video" and isinstance(script.get("video_units"), list):
-            return "reference_video", script.get("video_units", [])
+        generation_mode = script.get("generation_mode")
+        if generation_mode == "reference_video":
+            return "reference_video", script.get("video_units") or []
         if content_mode in {"narration", "drama"}:
             if content_mode == "narration" and isinstance(script.get("segments"), list):
                 return "narration", script.get("segments", [])
             if content_mode == "drama" and isinstance(script.get("scenes"), list):
                 return "drama", script.get("scenes", [])
 
-        if isinstance(script.get("video_units"), list):
-            return "reference_video", script.get("video_units", [])
         if isinstance(script.get("segments"), list):
             return "narration", script.get("segments", [])
         if isinstance(script.get("scenes"), list):

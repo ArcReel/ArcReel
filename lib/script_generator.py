@@ -388,10 +388,11 @@ class ScriptGenerator:
         # CLI 参数 --episode 是集号唯一真相源。schema 已从 AI 输出中移除 episode 字段，
         # 这里负责落盘前补上。
         script_data["episode"] = int(episode)
+        # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
+        # "视频来源"维度，由 generation_mode 表达（issue #542）。
+        script_data.setdefault("content_mode", self.content_mode)
         if gen_mode == "reference_video":
-            script_data["content_mode"] = "reference_video"
-        else:
-            script_data.setdefault("content_mode", self.content_mode)
+            script_data["generation_mode"] = "reference_video"
 
         # 添加小说信息
         if "novel" not in script_data:

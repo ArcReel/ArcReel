@@ -230,10 +230,22 @@ class ReferenceVideoScript(BaseModel):
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。
+
+    重构（issue #542）：``content_mode`` 现在仅承担"内容类型"维度（narration/drama），
+    "视频来源"维度由 ``generation_mode = "reference_video"`` 表达。两字段都对 LLM
+    隐藏，由 ``ScriptGenerator._add_metadata`` 按项目级配置注入；旧数据中混维度的
+    ``content_mode == "reference_video"`` 由 ``ProjectManager._migrate_legacy_content_mode``
+    在 load 时就地迁移。
     """
 
     title: str = Field(description="剧集标题")
-    content_mode: Literal["reference_video"] = Field(default="reference_video", description="内容模式")
+    # 对 LLM 隐藏：参考视频模式下这两个字段都由 _add_metadata 注入。
+    content_mode: SkipJsonSchema[Literal["narration", "drama"]] = Field(
+        default="narration", description="内容类型（narration/drama），参考视频模式实际不区分"
+    )
+    generation_mode: SkipJsonSchema[Literal["reference_video"]] = Field(
+        default="reference_video", description="生成模式，固定 reference_video"
+    )
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     summary: str = Field(description="剧集摘要")

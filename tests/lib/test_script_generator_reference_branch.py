@@ -70,7 +70,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     fake_generator.generate = AsyncMock(
         return_value=MagicMock(
             text=(
-                '{"episode":1,"title":"t","content_mode":"reference_video",'
+                '{"episode":1,"title":"t",'
                 '"summary":"s","novel":{"title":"t","chapter":"1"},'
                 '"video_units":[{"unit_id":"E1U1",'
                 '"shots":[{"duration":4,"text":"@主角 推门"}],'
@@ -87,7 +87,10 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    assert data["content_mode"] == "reference_video"
+    # issue #542：参考视频集 content_mode 继承项目级 narration/drama，
+    # 生成模式由独立字段 generation_mode 表达。
+    assert data["content_mode"] == "narration"
+    assert data["generation_mode"] == "reference_video"
     assert len(data["video_units"]) == 1
 
     # 确认生成时用了 ReferenceVideoScript schema
