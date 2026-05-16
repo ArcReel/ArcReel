@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.14.0](https://github.com/ArcReel/ArcReel/compare/v0.13.0...v0.14.0) (2026-05-16)
+
+
+### ✨ 新功能
+
+* **agent:** Agent 支持配置多供应商 + 预设默认供应商 ([#507](https://github.com/ArcReel/ArcReel/issues/507)) ([5e94cc2](https://github.com/ArcReel/ArcReel/commit/5e94cc2c121e9846765de1a10a1abd11a7f0ac73))
+* **agent:** 启用 Agent Bash 沙箱隔离，安全加固并提高 bash 自由度 + provider secrets 下线 os.environ ([#521](https://github.com/ArcReel/ArcReel/issues/521)) ([3a9ed4f](https://github.com/ArcReel/ArcReel/commit/3a9ed4f47ff9983c52cfea204e8a1adc0ae9553a))
+* **branding:** centralize product name via BRAND config + i18n placeholder ([#494](https://github.com/ArcReel/ArcReel/issues/494)) ([c93b0c9](https://github.com/ArcReel/ArcReel/commit/c93b0c9d33533096273c20c21bc8947949950a75))
+* env-driven runtime configuration and graceful fallbacks ([#515](https://github.com/ArcReel/ArcReel/issues/515)) ([c042541](https://github.com/ArcReel/ArcReel/commit/c0425418c0df1a4d88c703994fea099c55d1f97b))
+
+
+### 🐛 Bug 修复
+
+* **agent:** bwrap sandbox 修复 + agent profile 同步机制（manifest+sha256） ([#535](https://github.com/ArcReel/ArcReel/issues/535)) ([3a17c12](https://github.com/ArcReel/ArcReel/commit/3a17c12fe772a39ff0f8f810d248e8e01dc51334))
+* **agent:** normalize_drama_script 传入 project_name 让项目级文本后端生效 ([#529](https://github.com/ArcReel/ArcReel/issues/529)) ([f1aeddb](https://github.com/ArcReel/ArcReel/commit/f1aeddb37b9dfc12442ef8a68158501e7b4e6acb))
+* **agent:** 配置 no-op WorktreeCreate hook 避免派发 subagent 报错 ([#533](https://github.com/ArcReel/ArcReel/issues/533)) ([0c9bff0](https://github.com/ArcReel/ArcReel/commit/0c9bff067a3b960e765645c2a05df0836aa0d50f))
+* **ark:** 显式注入 Seedream size 参数，修复项目 aspect_ratio 失效 ([#514](https://github.com/ArcReel/ArcReel/issues/514)) ([a397a98](https://github.com/ArcReel/ArcReel/commit/a397a98d61a37c579bf595f030b00067ef28e3b6))
+* **auth:** 前端根据 AUTH_ENABLED 状态判断是否跳过登录 ([#522](https://github.com/ArcReel/ArcReel/issues/522)) ([70c3394](https://github.com/ArcReel/ArcReel/commit/70c33942ad44de6a1d15bd1ff682e08eb0c6a34b))
+* **compose-video:** zero-align concatenated episode output ([#537](https://github.com/ArcReel/ArcReel/issues/537)) ([efc79a3](https://github.com/ArcReel/ArcReel/commit/efc79a3233a85ae56777e3421387e85ade0b4de7))
+* **copilot:** guard IME Enter in agent input ([#516](https://github.com/ArcReel/ArcReel/issues/516)) ([7c94a57](https://github.com/ArcReel/ArcReel/commit/7c94a57924e6d6109278f1f20cd2b0dd9f10f5ba))
+* **deps:** 添加 socksio 以兼容系统 SOCKS 代理 ([#527](https://github.com/ArcReel/ArcReel/issues/527)) ([8183b40](https://github.com/ArcReel/ArcReel/commit/8183b40edef864a8dc3d13ac3cfbda6814830783))
+* **docker:** skip corepack download prompt in non-TTY builds ([#513](https://github.com/ArcReel/ArcReel/issues/513)) ([06d234b](https://github.com/ArcReel/ArcReel/commit/06d234bae93bec9645e76039429c35be09e5bdd0))
+* **env_init:** 沙箱内 .env 不可读时降级，不阻断 import lib ([#526](https://github.com/ArcReel/ArcReel/issues/526)) ([4f59796](https://github.com/ArcReel/ArcReel/commit/4f597969157dab6207a67ccfa55a2fe7bf561dca))
+* **grid:** 修复宫格图重新生成后 UI 仍显示旧图 ([#524](https://github.com/ArcReel/ArcReel/issues/524)) ([7197fe1](https://github.com/ArcReel/ArcReel/commit/7197fe139838e2243302b3d94f50c48fc6f18ff8))
+* **scenes:** drama PATCH 改用 script-scenes 路径，避开与项目场景资产 CRUD 撞车 ([#530](https://github.com/ArcReel/ArcReel/issues/530)) ([5e82fb2](https://github.com/ArcReel/ArcReel/commit/5e82fb2cf1c085fd7c7f7d8877ff85457a879cca))
+* **status:** 按产物倒序判定阶段，overview 降级为软信号 ([#505](https://github.com/ArcReel/ArcReel/issues/505)) ([0bee4f7](https://github.com/ArcReel/ArcReel/commit/0bee4f7deb18f9dca6df4756bfb2975e121580e0))
+* **ui:** 修复模型选择下拉被外部组件裁剪 ([#531](https://github.com/ArcReel/ArcReel/issues/531)) ([f95b4d3](https://github.com/ArcReel/ArcReel/commit/f95b4d3baac3437d696c4b0935d3ad9d5fc9ea8b))
+
+
+### ⚡ 性能优化
+
+* **i18n:** 按需加载 i18n namespace，首屏 bundle -56KB gzip ([#489](https://github.com/ArcReel/ArcReel/issues/489)) ([#502](https://github.com/ArcReel/ArcReel/issues/502)) ([0fdbb5a](https://github.com/ArcReel/ArcReel/commit/0fdbb5a2040ef4fc87535532973df4d882efb789))
+
+
+### ♻️ 重构
+
+* **agent:** 技能脚本迁移到 SDK 进程内 MCP 工具，沙箱与路径收紧 ([#528](https://github.com/ArcReel/ArcReel/issues/528)) ([7629173](https://github.com/ArcReel/ArcReel/commit/7629173eeb1132d779f849432ab103c23340faa9))
+* **content-mode:** 拆分 content_mode 与 generation_mode 两条独立维度 ([#542](https://github.com/ArcReel/ArcReel/issues/542)) ([#543](https://github.com/ArcReel/ArcReel/issues/543)) ([5059767](https://github.com/ArcReel/ArcReel/commit/505976714fe6cd5c72cd54e3a9176aff4e87c494))
+* **env:** make vertex_keys + agent_profile paths env-configurable ([#523](https://github.com/ArcReel/ArcReel/issues/523)) ([046d0c0](https://github.com/ArcReel/ArcReel/commit/046d0c041031704cda3334f14790d4115894e381))
+* **source_loader:** PDF 抽取由 PyMuPDF 迁移到 pdf_oxide ([#506](https://github.com/ArcReel/ArcReel/issues/506)) ([c0f77b7](https://github.com/ArcReel/ArcReel/commit/c0f77b7d989d2b88deecce14348f56bcb75c3c1d))
+* **ui:** 抽 ModalShell + GlassModal/Popover 收拢 13 处弹窗 chrome ([#470](https://github.com/ArcReel/ArcReel/issues/470), [#487](https://github.com/ArcReel/ArcReel/issues/487)) ([#500](https://github.com/ArcReel/ArcReel/issues/500)) ([24f1816](https://github.com/ArcReel/ArcReel/commit/24f18169aa2cce5128bbed5cee159d09487238b1))
+
+
+### 📚 文档
+
+* **skills:** clarify MCP-only execution for migrated skills ([#540](https://github.com/ArcReel/ArcReel/issues/540)) ([fa97ca0](https://github.com/ArcReel/ArcReel/commit/fa97ca06a51b392b0f9fcb58263cbdba4faa34b6))
+
 ## [0.13.0](https://github.com/ArcReel/ArcReel/compare/v0.12.0...v0.13.0) (2026-05-10)
 
 
