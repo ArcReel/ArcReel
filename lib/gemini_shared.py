@@ -55,7 +55,7 @@ try:
         google_exceptions.InternalServerError,  # 500
     )
 except ImportError:
-    pass
+    logger.debug("google.api_core 未安装，跳过对应可重试错误，沿用基础集合")
 
 try:
     from google import genai
@@ -65,7 +65,7 @@ try:
         genai.errors.ServerError,  # pyright: ignore[reportAttributeAccessIssue]
     )
 except ImportError:
-    pass
+    logger.debug("google.genai 未安装，跳过对应可重试错误，沿用基础集合")
 
 
 class RateLimiter:
