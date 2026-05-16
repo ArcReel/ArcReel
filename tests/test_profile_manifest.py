@@ -394,3 +394,91 @@ def test_valid_content_modes_constant() -> None:
     from lib.profile_manifest import _VALID_CONTENT_MODES
 
     assert _VALID_CONTENT_MODES == frozenset({"narration", "drama"})
+
+
+# ---------- resolve_profile_files_for_mode ----------
+
+
+def _make_profile(tmp_path: Path) -> Path:
+    """构造典型 profile：通用文件 + narration/drama 变体配对。"""
+    profile = tmp_path / "profile"
+    (profile / ".claude" / "skills" / "manga-workflow").mkdir(parents=True)
+    (profile / ".claude" / "agents").mkdir(parents=True)
+    # 通用文件
+    (profile / ".claude" / "agents" / "generate-assets.md").write_text("common")
+    # CLAUDE.md 变体配对
+    (profile / "CLAUDE.narration.md").write_text("narration top")
+    (profile / "CLAUDE.drama.md").write_text("drama top")
+    # SKILL.md 变体配对
+    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.narration.md").write_text("nar skill")
+    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.drama.md").write_text("dra skill")
+    return profile
+
+
+def test_resolve_for_narration_picks_narration_variants(tmp_path: Path) -> None:
+    from lib.profile_manifest import resolve_profile_files_for_mode
+
+    profile = _make_profile(tmp_path)
+    mapping = resolve_profile_files_for_mode(profile, "narration")
+
+    assert mapping == {
+        "CLAUDE.md": "CLAUDE.narration.md",
+        ".claude/agents/generate-assets.md": ".claude/agents/generate-assets.md",
+        ".claude/skills/manga-workflow/SKILL.md": ".claude/skills/manga-workflow/SKILL.narration.md",
+    }
+
+
+def test_resolve_for_drama_picks_drama_variants(tmp_path: Path) -> None:
+    from lib.profile_manifest import resolve_profile_files_for_mode
+
+    profile = _make_profile(tmp_path)
+    mapping = resolve_profile_files_for_mode(profile, "drama")
+
+    assert mapping[".claude/skills/manga-workflow/SKILL.md"] == ".claude/skills/manga-workflow/SKILL.drama.md"
+    assert mapping["CLAUDE.md"] == "CLAUDE.drama.md"
+
+
+def test_resolve_unpaired_variant_raises(tmp_path: Path) -> None:
+    """只有 narration 变体没有 drama 变体 → ProfileMisconfiguredError。"""
+    from lib.profile_manifest import ProfileMisconfiguredError, resolve_profile_files_for_mode
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "CLAUDE.narration.md").write_text("only narration")
+
+    with pytest.raises(ProfileMisconfiguredError, match="missing variant"):
+        resolve_profile_files_for_mode(profile, "narration")
+
+
+def test_resolve_common_plus_variant_collision_raises(tmp_path: Path) -> None:
+    """同一 logical_rel 既有通用文件又有变体 → ProfileMisconfiguredError。"""
+    from lib.profile_manifest import ProfileMisconfiguredError, resolve_profile_files_for_mode
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "CLAUDE.md").write_text("common")
+    (profile / "CLAUDE.narration.md").write_text("variant")
+    (profile / "CLAUDE.drama.md").write_text("variant")
+
+    with pytest.raises(ProfileMisconfiguredError, match="common.*variant"):
+        resolve_profile_files_for_mode(profile, "narration")
+
+
+def test_resolve_invalid_mode_raises(tmp_path: Path) -> None:
+    from lib.profile_manifest import resolve_profile_files_for_mode
+
+    profile = _make_profile(tmp_path)
+    with pytest.raises(ValueError, match="content_mode"):
+        resolve_profile_files_for_mode(profile, "reference_video")
+
+
+def test_resolve_double_dot_filename_not_treated_as_variant(tmp_path: Path) -> None:
+    """`foo.narration.bar.md` 不认作变体（只识别最后一段 stem）。"""
+    from lib.profile_manifest import resolve_profile_files_for_mode
+
+    profile = tmp_path / "profile"
+    (profile / ".claude").mkdir(parents=True)
+    (profile / ".claude" / "weird.narration.bar.md").write_text("not a variant")
+
+    mapping = resolve_profile_files_for_mode(profile, "narration")
+    assert mapping == {".claude/weird.narration.bar.md": ".claude/weird.narration.bar.md"}

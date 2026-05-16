@@ -92,6 +92,91 @@ def enumerate_profile_files(profile_dir: Path) -> set[str]:
     return files
 
 
+def _parse_variant_suffix(rel: str) -> tuple[str, str | None]:
+    """把 ``foo.narration.md`` 拆成 (logical_rel="foo.md", mode="narration")。
+    非变体文件返回 (rel, None)。只识别 stem 中最后一段。
+    """
+    path = PurePosixPath(rel)
+    # path.stem 是去掉最后一个扩展名的部分；再 split 一次拿"次外层后缀"
+    stem_parts = path.stem.rsplit(".", 1)
+    if len(stem_parts) == 2 and stem_parts[1] in _VALID_CONTENT_MODES:
+        logical_stem = stem_parts[0]
+        # 重组为 logical_parent/<logical_stem><ext>
+        logical_name = logical_stem + path.suffix
+        if str(path.parent) in (".", ""):
+            return logical_name, stem_parts[1]
+        return (path.parent / logical_name).as_posix(), stem_parts[1]
+    return rel, None
+
+
+def _enumerate_all_profile_files(profile_dir: Path) -> set[str]:
+    """profile 内所有文件（含顶层变体如 CLAUDE.narration.md）的 POSIX 相对路径集合。
+
+    与 ``enumerate_profile_files`` 的区别：后者只收录 ``CLAUDE.md``（精确名），
+    此函数收录顶层所有直接子文件 + ``.claude/**`` 全树，供变体投影使用。
+    """
+    files: set[str] = set()
+    # 顶层直接子文件（CLAUDE.md、CLAUDE.narration.md、CLAUDE.drama.md 等）
+    if profile_dir.is_dir():
+        for p in profile_dir.iterdir():
+            if p.is_file():
+                files.add(p.name)
+    # .claude/ 子树
+    files |= _walk_files(profile_dir / _PROFILE_TREE_ROOT, profile_dir)
+    return files
+
+
+def resolve_profile_files_for_mode(
+    profile_dir: Path,
+    content_mode: str,
+) -> dict[str, str]:
+    """把 profile 端文件树投影成 ``{logical_rel: source_rel}`` 映射。
+
+    通用文件：logical_rel == source_rel。
+    变体文件：仅保留匹配 ``content_mode`` 的一份，logical_rel 去掉 ``.<mode>`` 后缀。
+
+    Raises:
+        ValueError: content_mode 不在 ``_VALID_CONTENT_MODES``
+        ProfileMisconfiguredError: 任一变体配对缺失 / 通用+变体并存
+    """
+    if content_mode not in _VALID_CONTENT_MODES:
+        raise ValueError(f"content_mode must be one of {_VALID_CONTENT_MODES}, got {content_mode!r}")
+
+    profile_files = _enumerate_all_profile_files(profile_dir)
+
+    # variants[logical_rel][mode] = source_rel
+    variants: dict[str, dict[str, str]] = {}
+    commons: dict[str, str] = {}
+    for src in profile_files:
+        logical, mode = _parse_variant_suffix(src)
+        if mode is None:
+            commons[logical] = src
+        else:
+            variants.setdefault(logical, {})[mode] = src
+
+    # 校验 1：通用 + 变体互斥
+    collisions = set(commons) & set(variants)
+    if collisions:
+        sample = sorted(collisions)[0]
+        raise ProfileMisconfiguredError(
+            f"profile has both common and variant for {sample!r}; remove one. all collisions: {sorted(collisions)}"
+        )
+
+    # 校验 2：变体配对完整
+    for logical, by_mode in variants.items():
+        missing = _VALID_CONTENT_MODES - set(by_mode)
+        if missing:
+            raise ProfileMisconfiguredError(
+                f"profile variant {logical!r} missing variant for mode(s): {sorted(missing)}; "
+                f"all variants of a logical file must exist together"
+            )
+
+    mapping: dict[str, str] = dict(commons)
+    for logical, by_mode in variants.items():
+        mapping[logical] = by_mode[content_mode]
+    return mapping
+
+
 @contextlib.contextmanager
 def _project_lock(project_dir: Path):
     """``portalocker.Lock`` 对 path 内部 ``open()`` 会跟符号链接。攻击者预置
