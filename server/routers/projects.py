@@ -468,7 +468,7 @@ async def create_project(
                     validate_backend_value(value, field_name, _t)
 
             try:
-                manager.create_project(project_name)
+                manager.create_project(project_name, content_mode=req.content_mode or "narration")
             except FileExistsError:
                 raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name))
             extras = {
