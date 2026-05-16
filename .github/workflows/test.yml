@@ -31,7 +31,16 @@ jobs:
       - name: Run tests with coverage
         run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
-  session-store-postgres:
+      - name: Upload backend coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+
+  postgres-compat:
+    # SQLite/PostgreSQL 方言兼容性闸门：alembic 三步闭环（upgrade/downgrade/idempotent）
+    # + 所有 DB-touching 测试（marker 驱动）跑在 PG16 上。
     runs-on: ubuntu-latest
     needs: backend-tests
     services:
@@ -48,6 +57,8 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+    env:
+      DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
     steps:
       - uses: actions/checkout@v6
 
@@ -62,19 +73,26 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run alembic migrations
-        env:
-          DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
-        run: uv run alembic upgrade head
+      - name: Validate alembic migrations (upgrade / idempotent / downgrade / re-upgrade)
+        run: |
+          set -e
+          uv run alembic upgrade head           # 1. 正向迁移
+          uv run alembic upgrade head           # 2. 幂等性：第二次应该 no-op
+          uv run alembic downgrade base         # 3. 反向回到空 schema
+          uv run alembic upgrade head           # 4. 再次正向，验证 downgrade 真清掉了
 
       - name: Run dialect-sensitive tests against Postgres
-        env:
-          DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
         run: |
-          uv run python -m pytest \
-            tests/agent_session_store/ \
-            tests/test_agent_credential_repo.py \
-            -v -m "not sqlite_only"
+          uv run python -m pytest -v \
+            -m "uses_db and not sqlite_only" \
+            --cov=lib --cov=server --cov-report=xml:coverage-pg.xml
+
+      - name: Upload PG coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage-pg.xml
+          flags: postgres
+          fail_ci_if_error: false
 
   frontend-tests:
     runs-on: ubuntu-latest

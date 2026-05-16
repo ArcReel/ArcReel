@@ -24,7 +24,7 @@ def _pg_url_from_env() -> str | None:
 # Test fixtures attribute writes to a small set of fixed user_ids; seed them
 # on PG so FK constraints (which SQLite tests bypass via PRAGMA foreign_keys=OFF)
 # don't reject inserts.
-_PG_TEST_USER_IDS = ("default", "u1", "conformance")
+_PG_TEST_USER_IDS = ("default", "u1", "conformance", "e2e", "crash-recover", "long-turn")
 
 
 async def _seed_pg_users(engine) -> None:
