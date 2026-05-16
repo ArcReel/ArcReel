@@ -478,12 +478,18 @@ def _new_stats() -> dict:
 def _full_reset_from_profile(
     profile_dir: Path,
     project_dir: Path,
-    profile_files: set[str],
+    mapping: dict[str, str],
+    *,
+    content_mode: str | None = None,
 ) -> dict:
     """删除 dest，从 profile 全量物化，写 manifest baseline。
 
-    场景：manifest 缺失 / 损坏 / schema_version 不匹配 / profile_id 不匹配。
-    用户决策"忽略已有"——目前无产品级 skill 编辑途径，直接 reset 安全。
+    场景：manifest 缺失 / 损坏 / schema_version 不匹配 / profile_id 不匹配 /
+    content_mode 不匹配（destructive 切换模式）。
+
+    Args:
+        mapping: ``{logical_rel: source_rel}`` 映射，由 resolve_profile_files_for_mode 生成。
+        content_mode: 写入 manifest 的 content_mode 字段；None 时省略（老 force_resync 路径）。
     """
     stats = _new_stats()
 
@@ -502,11 +508,13 @@ def _full_reset_from_profile(
         shutil.rmtree(dest_top)
 
     manifest = Manifest.empty()
-    for rel in sorted(profile_files):
+    for rel in sorted(mapping):
+        source_rel = mapping[rel]
+        source = profile_dir / source_rel
         try:
-            _safe_copy(profile_dir / rel, project_dir / rel)
-            sha = sha256_file(profile_dir / rel)
-            size = (profile_dir / rel).stat().st_size
+            _safe_copy(source, project_dir / rel)
+            sha = sha256_file(source)
+            size = source.stat().st_size
             manifest.entries[rel] = _profile_active_entry(sha, size)
             stats["migrated_total"] += 1
             stats["created"] += 1
@@ -514,6 +522,7 @@ def _full_reset_from_profile(
             logger.warning("profile reset skip %s: %s", rel, e)
             stats["errors"] += 1
 
+    manifest.content_mode = content_mode
     save_manifest(project_dir, manifest, original_bytes=None)
     return stats
 
@@ -525,6 +534,7 @@ def _apply_decision(
     profile_dir: Path,
     project_dir: Path,
     rel: str,
+    source_rel: str,
     p_exists: bool,
     d_exists: bool,
     m: dict | None,
@@ -534,6 +544,10 @@ def _apply_decision(
     """对单个文件应用决策表。OSError 由调用方捕获。
 
     决策表完整定义见 plan: temporal-foraging-tulip.md §同步算法/决策矩阵
+
+    Args:
+        rel: dest 端逻辑相对路径（无 .<mode> 后缀），用于写入 manifest.entries 和 dest 路径。
+        source_rel: profile 端实际文件相对路径（可能带 .<mode> 后缀），用于读取 profile 文件。
     """
     if m is None:
         m_kind = "none"
@@ -542,7 +556,7 @@ def _apply_decision(
     else:
         m_kind = "active"
 
-    p = profile_dir / rel
+    p = profile_dir / source_rel
     d = project_dir / rel
     # p_hash/p_size 只在 p_exists=True 的 match 分支中被读取，所以 not-exists 时给空字符串/0
     # 占位即可（永远不会出现在写入路径），同时让类型系统看到非 Optional，省掉 4 处 narrow assert。
@@ -637,17 +651,23 @@ def _apply_decision(
 # ---------- 公开 API ----------
 
 
-def sync_profile_to_project(profile_dir: Path, project_dir: Path) -> dict:
+def sync_profile_to_project(
+    profile_dir: Path,
+    project_dir: Path,
+    content_mode: str,
+) -> dict:
     """profile → project_dir 同步主入口。
 
     Raises:
         ProfileMissingError: profile 目录不存在
         ProfileEmptyError: profile 目录无可同步文件
+        ProfileMisconfiguredError: 变体文件配置违规
+        ValueError: content_mode 非 narration/drama
     """
     if not profile_dir.exists():
         raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
-    profile_files = enumerate_profile_files(profile_dir)
-    if not profile_files:
+    mapping = resolve_profile_files_for_mode(profile_dir, content_mode)
+    if not mapping:
         raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
 
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -655,26 +675,34 @@ def sync_profile_to_project(profile_dir: Path, project_dir: Path) -> dict:
     with _project_lock(project_dir):
         loaded = load_manifest(project_dir)
         if loaded is None:
-            return _full_reset_from_profile(profile_dir, project_dir, profile_files)
+            return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
         manifest, original_bytes = loaded
+
+        # mode_status 判定：missing(None)=needs_migration，存在但不匹配=mismatch → reset
+        if manifest.content_mode is not None and manifest.content_mode != content_mode:
+            logger.info(
+                "manifest %s content_mode %r != requested %r, resetting",
+                project_dir / MANIFEST_FILENAME,
+                manifest.content_mode,
+                content_mode,
+            )
+            return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
 
         stats = _new_stats()
         dest_files = enumerate_dest_files(project_dir)
-        all_keys = profile_files | dest_files | set(manifest.entries.keys())
+        all_keys = set(mapping) | dest_files | set(manifest.entries.keys())
 
         for rel in sorted(all_keys):
-            p_exists = rel in profile_files
+            p_exists = rel in mapping
             d_exists = rel in dest_files
             m = manifest.entries.get(rel)
             try:
-                # symlink-escape 防御：dest 路径解析后必须仍在项目根内，否则
-                # _apply_decision 内的 _safe_copy / _safe_unlink_if_file 会读写
-                # 项目外文件。校验放在调用方让决策表保持纯粹。
                 _ensure_dest_within(project_dir, rel)
                 _apply_decision(
                     profile_dir,
                     project_dir,
                     rel,
+                    mapping.get(rel, rel),  # source_rel；rel 不在 mapping 时（p 不存在）用 rel 占位
                     p_exists,
                     d_exists,
                     m,
@@ -688,6 +716,8 @@ def sync_profile_to_project(profile_dir: Path, project_dir: Path) -> dict:
                 logger.warning("profile sync skip %s: %s", rel, e)
                 stats["errors"] += 1
 
+        # sync 主体完成后写入 mode（无论 needs_migration 还是 match）
+        manifest.content_mode = content_mode
         save_manifest(project_dir, manifest, original_bytes)
         return stats
 
@@ -725,7 +755,9 @@ def force_resync_profile(
         if loaded is None:
             if paths is None:
                 # 真正的全量恢复：等价于首次接入，行为与 reset 一致
-                return _full_reset_from_profile(profile_dir, project_dir, profile_files)
+                # profile_files 是通用文件集（enumerate_profile_files），identity mapping
+                profile_mapping = {rel: rel for rel in profile_files}
+                return _full_reset_from_profile(profile_dir, project_dir, profile_mapping)
             # paths 非空 = "恢复指定 skill"，manifest 缺失不该退化成全量
             # _full_reset（会清空 .claude 复活其他被删的内置文件）；从空 manifest
             # 开始，下面只回填用户选中的 rel，不动其他文件。

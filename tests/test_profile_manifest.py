@@ -548,3 +548,91 @@ def test_load_manifest_invalid_content_mode_returns_none(tmp_path: Path) -> None
     }
     (tmp_path / MANIFEST_FILENAME).write_text(json.dumps(payload))
     assert load_manifest(tmp_path) is None
+
+
+# ---------- sync_profile_to_project 端到端 ----------
+
+
+def _fresh_project(tmp_path: Path, name: str = "proj") -> Path:
+    d = tmp_path / name
+    d.mkdir(parents=True)
+    return d
+
+
+def test_sync_narration_project_writes_narration_variant(tmp_path: Path) -> None:
+    from lib.profile_manifest import sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+
+    sync_profile_to_project(profile, project, content_mode="narration")
+
+    assert (project / "CLAUDE.md").read_text() == "narration top"
+    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "nar skill"
+    assert not (project / "CLAUDE.narration.md").exists()
+    assert not (project / "CLAUDE.drama.md").exists()
+
+
+def test_sync_drama_project_writes_drama_variant(tmp_path: Path) -> None:
+    from lib.profile_manifest import sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+
+    sync_profile_to_project(profile, project, content_mode="drama")
+    assert (project / "CLAUDE.md").read_text() == "drama top"
+
+
+def test_sync_writes_manifest_content_mode(tmp_path: Path) -> None:
+    from lib.profile_manifest import sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+
+    sync_profile_to_project(profile, project, content_mode="narration")
+    manifest_data = json.loads((project / MANIFEST_FILENAME).read_text())
+    assert manifest_data["content_mode"] == "narration"
+
+
+def test_sync_mode_mismatch_triggers_reset(tmp_path: Path) -> None:
+    """已有 manifest 标记 narration，下次 sync 传 drama → reset 路径覆盖 dest。"""
+    from lib.profile_manifest import sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+
+    sync_profile_to_project(profile, project, content_mode="narration")
+    assert (project / "CLAUDE.md").read_text() == "narration top"
+
+    sync_profile_to_project(profile, project, content_mode="drama")
+    assert (project / "CLAUDE.md").read_text() == "drama top"
+
+
+def test_sync_legacy_manifest_migrates_without_reset(tmp_path: Path) -> None:
+    """老 manifest（无 content_mode）+ 未改的 CLAUDE.md → 决策 #4 升级 + 写入 mode。"""
+    from lib.profile_manifest import sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    # 1) 先按 narration 物化一份（生成 manifest）
+    sync_profile_to_project(profile, project, content_mode="narration")
+    # 2) 手工把 manifest 改成"老 manifest"形态（删 content_mode 字段）
+    manifest_path = project / MANIFEST_FILENAME
+    data = json.loads(manifest_path.read_text())
+    data.pop("content_mode", None)
+    manifest_path.write_text(json.dumps(data, indent=2, sort_keys=True))
+    # 3) 再次 sync，应当被认作 needs_migration，正常走 #3 unchanged，写回 mode
+    sync_profile_to_project(profile, project, content_mode="narration")
+    after = json.loads(manifest_path.read_text())
+    assert after["content_mode"] == "narration"
+    # 内容不变
+    assert (project / "CLAUDE.md").read_text() == "narration top"
+
+
+def test_sync_invalid_mode_raises(tmp_path: Path) -> None:
+    from lib.profile_manifest import sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    with pytest.raises(ValueError, match="content_mode"):
+        sync_profile_to_project(profile, project, content_mode="reference_video")

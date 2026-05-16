@@ -197,7 +197,7 @@ class ProjectManager:
             含向后兼容 ``created/repaired/skipped/errors`` + 细分 stat key 的字典
         """
         profile_dir = agent_profile_dir()
-        return sync_profile_to_project(profile_dir, project_dir)
+        return sync_profile_to_project(profile_dir, project_dir, "narration")
 
     def force_resync_profile(self, project_dir: Path, *, paths: list[str] | None = None) -> dict:
         """强制按 profile 覆盖项目内对应文件并刷新 manifest。
