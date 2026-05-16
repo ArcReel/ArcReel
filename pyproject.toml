@@ -1,7 +1,7 @@
 [project]
 name = "arcreel"
 # managed by release-please — do not bump manually
-version = "0.13.0"
+version = "0.14.0"
 description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
