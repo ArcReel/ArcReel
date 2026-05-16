@@ -42,7 +42,6 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 _VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}
 _DEFAULT_GENERATION_MODE = "storyboard"
 
-_VALID_CONTENT_MODES = {"narration", "drama"}
 _DEFAULT_CONTENT_MODE = "narration"
 
 
@@ -568,17 +567,21 @@ class ProjectManager:
         project_dir = self.get_project_path(project_name)
         if filename.startswith("scripts/"):
             filename = filename[len("scripts/") :]
-        real = self._safe_subpath(project_dir / "scripts", filename)
+        real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
-        if not os.path.exists(real):
+        if not real.exists():
             raise FileNotFoundError(f"剧本文件不存在: {real}")
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
             script = json.load(f)
 
         # 集级旧字段就地迁移（issue #542）：content_mode == "reference_video"
-        # 拆成 generation_mode + content_mode；下一次 save_script 会落盘新形态。
-        self._migrate_legacy_content_mode(script)
+        # 拆成 generation_mode + content_mode 并原子写回磁盘，避免 data_validator /
+        # generation_tasks 等直接 json.load 的旁路读取到脏数据。
+        # 不持 _script_lock：会与 save_script → sync_episode_from_script → load_script
+        # 链路重入；迁移幂等 + atomic_write_json 已是原子覆盖，并发写盘结果一致。
+        if self._migrate_legacy_content_mode(script):
+            atomic_write_json(real, script)
         return script
 
     def list_scripts(self, project_name: str) -> list[str]:

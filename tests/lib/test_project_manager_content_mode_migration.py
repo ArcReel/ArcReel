@@ -94,6 +94,39 @@ def test_load_script_migrates_legacy_reference_video_content_mode(tmp_path: Path
     assert script["content_mode"] == "narration"
     assert script["generation_mode"] == "reference_video"
 
+    # 落盘也已迁移：data_validator 等旁路读取应直接拿到新结构
+    saved = json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+    assert saved["content_mode"] == "narration"
+    assert saved["generation_mode"] == "reference_video"
+
+
+def test_script_generator_load_project_json_applies_migration(tmp_path: Path) -> None:
+    """ScriptGenerator 不走 ProjectManager.load_project，需自行触发迁移以确保
+    self.content_mode 不会被旧值 "reference_video" 污染（PR #543 评审）。
+    """
+    from lib.script_generator import ScriptGenerator
+
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    (project_dir / "project.json").write_text(
+        json.dumps(
+            {
+                "title": "t",
+                "content_mode": "reference_video",  # 旧混维度值
+                "style": "s",
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "episodes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    gen = ScriptGenerator(project_dir)
+    assert gen.content_mode == "narration"
+    assert gen.project_json["generation_mode"] == "reference_video"
+
 
 def test_load_project_no_migration_when_content_mode_is_narration(tmp_path: Path) -> None:
     project_dir = tmp_path / "demo"
