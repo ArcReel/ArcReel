@@ -115,7 +115,7 @@
 
 `/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
 
-1. **项目设置**：创建项目、选择 `content_mode` + `generation_mode`、上传小说、生成项目概述
+1. **项目设置**：创建项目（创建时确定 `content_mode`，之后不可变）、选择 `generation_mode`、上传小说、生成项目概述
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 直接执行 peek+split 切分（manage-project 工具集）
 4. **单集预处理** → 按 `effective_mode` 选：
