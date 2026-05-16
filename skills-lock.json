@@ -15,6 +15,11 @@
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
       "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
+    },
+    "mmx-cli": {
+      "source": "MiniMax-AI/cli",
+      "sourceType": "github",
+      "computedHash": "54adc09c298ca1fd11457a8cb6a9eaf558a4d0758570dfb43e82f3002ec32c16"
     }
   }
 }
