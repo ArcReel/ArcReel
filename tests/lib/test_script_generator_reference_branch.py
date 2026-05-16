@@ -70,7 +70,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     fake_generator.generate = AsyncMock(
         return_value=MagicMock(
             text=(
-                '{"episode":1,"title":"t","content_mode":"reference_video",'
+                '{"episode":1,"title":"t",'
                 '"summary":"s","novel":{"title":"t","chapter":"1"},'
                 '"video_units":[{"unit_id":"E1U1",'
                 '"shots":[{"duration":4,"text":"@主角 推门"}],'
@@ -87,12 +87,68 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    assert data["content_mode"] == "reference_video"
+    # 参考视频集 content_mode 继承项目级 narration/drama；生成模式由独立的
+    # generation_mode 字段表达。
+    assert data["content_mode"] == "narration"
+    assert data["generation_mode"] == "reference_video"
     assert len(data["video_units"]) == 1
 
     # 确认生成时用了 ReferenceVideoScript schema
     call_kwargs = fake_generator.generate.await_args.args[0]
     assert call_kwargs.response_schema is ReferenceVideoScript
+
+
+@pytest.mark.asyncio
+async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp_path: Path):
+    """drama 项目下生成的参考视频集 content_mode 必须为 drama。
+
+    Pydantic 的 ReferenceVideoScript.content_mode 默认 "narration"，model_dump 会
+    把该默认值写入 dict；_add_metadata 必须显式覆盖而非 setdefault，否则 drama 项目
+    的参考视频集会被错误标记成 narration。
+    """
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    (project_dir / "project.json").write_text(
+        """{
+          "title": "t",
+          "content_mode": "drama",
+          "generation_mode": "reference_video",
+          "_supported_durations": [4, 8],
+          "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
+          "style": "国漫", "style_description": "水墨",
+          "characters": {"主角": {"description": "d"}},
+          "scenes": {}, "props": {},
+          "episodes": [{"episode": 1, "title": "t1", "generation_mode": "reference_video"}]
+        }""",
+        encoding="utf-8",
+    )
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_reference_units.md").write_text("u", encoding="utf-8")
+
+    fake_generator = MagicMock()
+    fake_generator.model = "mock"
+    fake_generator.generate = AsyncMock(
+        return_value=MagicMock(
+            text=(
+                '{"episode":1,"title":"t",'
+                '"summary":"s","novel":{"title":"t","chapter":"1"},'
+                '"video_units":[{"unit_id":"E1U1",'
+                '"shots":[{"duration":4,"text":"@主角 推门"}],'
+                '"references":[{"type":"character","name":"主角"}],'
+                '"duration_seconds":4,"duration_override":false,"transition_to_next":"cut"}]}'
+            )
+        )
+    )
+
+    gen = ScriptGenerator(project_dir, generator=fake_generator)
+    out = await gen.generate(episode=1)
+
+    import json as _j
+
+    data = _j.loads(out.read_text(encoding="utf-8"))
+    assert data["content_mode"] == "drama"
+    assert data["generation_mode"] == "reference_video"
 
 
 @pytest.mark.parametrize(
@@ -236,7 +292,8 @@ async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Pa
 async def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
     """当 project=storyboard 但 episode=reference_video 时，build_prompt 必须走 reference 分支。
 
-    Spec §4.6：`effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`
+    解析规则：``effective_mode(project, episode) = episode.generation_mode or
+    project.generation_mode or "storyboard"``。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()

@@ -72,21 +72,36 @@ def test_reference_video_unit_transition_enum():
 def test_reference_video_script_valid():
     script = ReferenceVideoScript(
         title="江湖夜话",
-        content_mode="reference_video",
+        content_mode="narration",
         duration_seconds=8,
         summary="主角闯江湖。",
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )
-    assert script.content_mode == "reference_video"
+    # 参考视频脚本由 content_mode（narration/drama）+ generation_mode 两条维度表达
+    assert script.content_mode == "narration"
+    assert script.generation_mode == "reference_video"
     assert len(script.video_units) == 1
 
 
-def test_reference_video_script_rejects_wrong_content_mode():
+def test_reference_video_script_accepts_drama_content_mode():
+    script = ReferenceVideoScript(
+        title="剧集",
+        content_mode="drama",
+        summary="x",
+        novel=NovelInfo(title="x", chapter="x"),
+        video_units=[_make_unit()],
+    )
+    assert script.content_mode == "drama"
+    assert script.generation_mode == "reference_video"
+
+
+def test_reference_video_script_rejects_legacy_reference_video_content_mode():
+    """content_mode 不再允许 reference_video（它属于 generation_mode 维度）。"""
     with pytest.raises(ValidationError):
         ReferenceVideoScript(
             title="x",
-            content_mode="narration",
+            content_mode="reference_video",
             summary="x",
             novel=NovelInfo(title="x", chapter="x"),
             video_units=[_make_unit()],

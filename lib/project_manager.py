@@ -46,7 +46,7 @@ _DEFAULT_GENERATION_MODE = "storyboard"
 def effective_mode(*, project: dict, episode: dict) -> str:
     """按 episode → project → 默认 storyboard 回退解析 generation_mode。
 
-    Spec §4.6。未知值一律回退到默认，兼容旧项目/脏数据。
+    未知值一律回退到默认，兼容脏数据。
     """
     ep_mode = episode.get("generation_mode")
     if ep_mode in _VALID_GENERATION_MODES:
@@ -562,9 +562,9 @@ class ProjectManager:
         project_dir = self.get_project_path(project_name)
         if filename.startswith("scripts/"):
             filename = filename[len("scripts/") :]
-        real = self._safe_subpath(project_dir / "scripts", filename)
+        real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
-        if not os.path.exists(real):
+        if not real.exists():
             raise FileNotFoundError(f"剧本文件不存在: {real}")
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
