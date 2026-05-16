@@ -789,12 +789,10 @@ class ProjectManager:
         if isinstance(script.get("novel"), dict):
             script["novel"].pop("source_file", None)
 
-        # 处理旧格式：如果有 characters 对象，同步到 project.json
+        # 旧格式 script 仍可能携带 characters dict；project.json 已是单一真相源，
+        # 此处仅记日志提醒，剧本 dict 保留不再做迁移（迁移实现历史上从未存在过）。
         if "characters" in script and isinstance(script["characters"], dict) and script["characters"]:
-            logger.warning("检测到旧格式 characters 对象，自动同步到 project.json")
-            self.sync_characters_from_script(project_name, script_filename)  # type: ignore[attr-defined]
-            # sync_characters_from_script 会重新加载和保存 script，所以需要重新加载
-            script = self.load_script(project_name, script_filename)
+            logger.warning("检测到旧格式 characters 对象（仅记录提醒，不做迁移）")
 
         # 注意：characters_in_episode 已改为读时计算
         # 不再在 normalize_script 中创建这些字段

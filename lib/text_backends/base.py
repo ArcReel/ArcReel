@@ -89,10 +89,15 @@ class TextGenerationResult:
 def resolve_schema(schema: dict | type[BaseModel]) -> dict:
     """将 response_schema 转为无 $ref 的纯 JSON Schema dict。
 
-    - type (Pydantic 类): 调用 model_json_schema() 后内联 $ref
+    - BaseModel 子类: 调用 model_json_schema() 后内联 $ref
     - dict: 直接内联 $ref（如果有）
     """
-    schema_dict: dict = schema.model_json_schema() if isinstance(schema, type) else schema
+    if isinstance(schema, type):
+        if not issubclass(schema, BaseModel):
+            raise TypeError(f"resolve_schema 仅接受 dict 或 Pydantic BaseModel 子类，得到 {schema!r}")
+        schema_dict: dict = schema.model_json_schema()
+    else:
+        schema_dict = schema
 
     defs = schema_dict.get("$defs", {})
     if not defs:

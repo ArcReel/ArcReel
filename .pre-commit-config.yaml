@@ -20,8 +20,8 @@ repos:
         entry: uv run basedpyright
         language: system
         pass_filenames: false
+        always_run: true
         stages: [pre-push]
-        types: [python]
 
       - id: frontend-eslint
         name: eslint (frontend staged)

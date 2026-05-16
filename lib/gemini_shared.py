@@ -43,9 +43,9 @@ VERTEX_SCOPES = [
 # Gemini 专用可重试错误类型（扩展基础集合）
 RETRYABLE_ERRORS: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS
 
-# 尝试导入 Google API 错误类型
+# 尝试导入 Google API 错误类型；google.api_core 与 google.genai 各自独立 try，
+# 避免一边缺包就把另一边的可重试错误一起丢掉
 try:
-    from google import genai  # Import genai to access its errors
     from google.api_core import exceptions as google_exceptions  # pyright: ignore[reportMissingImports]
 
     RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
@@ -53,6 +53,14 @@ try:
         google_exceptions.ServiceUnavailable,  # 503
         google_exceptions.DeadlineExceeded,  # 超时
         google_exceptions.InternalServerError,  # 500
+    )
+except ImportError:
+    pass
+
+try:
+    from google import genai
+
+    RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
         genai.errors.ClientError,  # pyright: ignore[reportAttributeAccessIssue]
         genai.errors.ServerError,  # pyright: ignore[reportAttributeAccessIssue]
     )
