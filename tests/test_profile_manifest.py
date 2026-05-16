@@ -378,3 +378,19 @@ def test_normalize_rel_path_accepts_and_canonicalizes(raw: str, expected: str) -
     该路径被视为合法 → 这一行为证明早前的 ``part == ""`` 检查是 unreachable。
     """
     assert _normalize_profile_rel_path(raw) == expected
+
+
+# ---------- ProfileMisconfiguredError ----------
+
+
+def test_profile_misconfigured_error_is_runtime_error() -> None:
+    """与 ProfileMissingError / ProfileEmptyError 同层级，都是部署级错误。"""
+    from lib.profile_manifest import ProfileMisconfiguredError
+
+    assert issubclass(ProfileMisconfiguredError, RuntimeError)
+
+
+def test_valid_content_modes_constant() -> None:
+    from lib.profile_manifest import _VALID_CONTENT_MODES
+
+    assert _VALID_CONTENT_MODES == frozenset({"narration", "drama"})

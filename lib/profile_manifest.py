@@ -50,6 +50,13 @@ class ProfileEmptyError(RuntimeError):
     """profile 目录无可同步文件 → 部署错误。同上拒绝运行。"""
 
 
+class ProfileMisconfiguredError(RuntimeError):
+    """profile 端变体文件违反 §4.2 校验规则 → 部署错误。sync 拒绝运行。"""
+
+
+_VALID_CONTENT_MODES = frozenset({"narration", "drama"})
+
+
 # ---------- 基础工具 ----------
 
 
