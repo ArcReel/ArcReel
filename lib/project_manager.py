@@ -1266,8 +1266,8 @@ class ProjectManager:
         project = {
             "schema_version": 1,
             "title": project_title or project_name,
-            "content_mode": content_mode,
-            "aspect_ratio": aspect_ratio,
+            "content_mode": content_mode or "narration",
+            "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
             "characters": {},

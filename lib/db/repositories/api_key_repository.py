@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_key import ApiKey
-from lib.db.repositories.base import BaseRepository
+from lib.db.repositories.base import BaseRepository, rowcount
 
 
 def _to_iso(dt: datetime | None) -> str | None:
@@ -94,7 +94,7 @@ class ApiKeyRepository(BaseRepository):
     async def delete(self, key_id: int) -> bool:
         """Delete a key by ID. Returns True if deleted, False if not found."""
         result = await self.session.execute(sa_delete(ApiKey).where(ApiKey.id == key_id))
-        return result.rowcount > 0  # pyright: ignore[reportAttributeAccessIssue]
+        return rowcount(result) > 0
 
     async def touch_last_used(self, key_hash: str) -> None:
         """Update last_used_at for the given key hash."""

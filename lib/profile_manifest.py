@@ -437,11 +437,10 @@ def _apply_decision(
 
     p = profile_dir / rel
     d = project_dir / rel
-    # 当 p_exists / d_exists 为 False 时，p_hash/p_size/d_hash 实际上不会被任何 _profile_active_entry
-    # 调用读到（match 分支按 p_exists 严格守护）；为让类型系统看见这一点，先 narrow 成必有值
-    # 的两个变量再传给写入分支
-    p_hash: str | None = sha256_file(p) if p_exists else None
-    p_size: int | None = p.stat().st_size if p_exists else None
+    # p_hash/p_size 只在 p_exists=True 的 match 分支中被读取，所以 not-exists 时给空字符串/0
+    # 占位即可（永远不会出现在写入路径），同时让类型系统看到非 Optional，省掉 4 处 narrow assert。
+    p_hash = sha256_file(p) if p_exists else ""
+    p_size = p.stat().st_size if p_exists else 0
     d_hash: str | None = sha256_file(d) if d_exists else None
     m_hash: str | None = m.get("sha256") if (m_kind == "active" and m is not None) else None
 
@@ -449,7 +448,6 @@ def _apply_decision(
         case (True, False, "none"):
             # #1 首次下发
             _safe_copy(p, d)
-            assert p_hash is not None and p_size is not None
             manifest.entries[rel] = _profile_active_entry(p_hash, p_size)
             stats["created"] += 1
         case (True, False, "active"):
@@ -465,13 +463,11 @@ def _apply_decision(
             elif d_hash == m_hash and d_hash != p_hash:
                 # #4 用户未改，profile 升级 → 覆盖 + 刷 manifest
                 _safe_copy(p, d)
-                assert p_hash is not None and p_size is not None
                 manifest.entries[rel] = _profile_active_entry(p_hash, p_size)
                 stats["upgraded"] += 1
                 stats["repaired"] += 1
             elif d_hash != m_hash and d_hash == p_hash:
                 # #5 状态机回流：用户改完恰好 = profile 当前版
-                assert p_hash is not None and p_size is not None
                 manifest.entries[rel] = _profile_active_entry(p_hash, p_size)
                 stats["unchanged"] += 1
                 stats["skipped"] += 1
@@ -523,7 +519,6 @@ def _apply_decision(
             # #15 命名碰撞：profile 新增 + 项目恰好已有同名
             if d_hash == p_hash:
                 # 内容一致 → 视为已下发，写 active entry
-                assert p_hash is not None and p_size is not None
                 manifest.entries[rel] = _profile_active_entry(p_hash, p_size)
             # 内容不一致 → 保留 D，不写 entry（下轮归 #9 user_only）
             stats["collision"] += 1

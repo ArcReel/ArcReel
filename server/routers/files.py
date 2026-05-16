@@ -27,6 +27,7 @@ from lib.source_loader import (
     CorruptFileError,
     FileSizeExceededError,
     NormalizeResult,
+    OnConflict,
     SourceDecodeError,
     SourceLoader,
     UnsupportedFormatError,
@@ -41,6 +42,12 @@ pm = ProjectManager(app_data_dir())
 
 def get_project_manager() -> ProjectManager:
     return pm
+
+
+def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail=_t("missing_filename"))
+    return file.filename
 
 
 # 允许的文件类型
@@ -117,7 +124,7 @@ async def upload_file(
     _t: Translator,
     file: UploadFile = File(...),
     name: str | None = None,
-    on_conflict: str = "fail",
+    on_conflict: OnConflict = "fail",
 ):
     """
     上传文件
@@ -132,9 +139,7 @@ async def upload_file(
     if upload_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=_t("invalid_upload_type", upload_type=upload_type))
 
-    if not file.filename:
-        raise HTTPException(status_code=400, detail=_t("missing_filename"))
-    original_filename: str = file.filename
+    original_filename = _require_filename(file, _t)
 
     # 检查文件扩展名
     ext = Path(original_filename).suffix.lower()
@@ -292,16 +297,11 @@ async def _handle_source_upload(
     *,
     project_name: str,
     file: UploadFile,
-    on_conflict: str,
+    on_conflict: OnConflict,
     _t: Translator,
 ):
     """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节。"""
-    if on_conflict not in {"fail", "replace", "rename"}:
-        raise HTTPException(status_code=400, detail=_t("invalid_on_conflict"))
-
-    if not file.filename:
-        raise HTTPException(status_code=400, detail=_t("missing_filename"))
-    original_filename: str = file.filename
+    original_filename = _require_filename(file, _t)
 
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -325,7 +325,7 @@ async def _handle_source_upload(
                 tmp_path,
                 source_dir,
                 original_filename=original_filename,
-                on_conflict=on_conflict,  # type: ignore[arg-type]
+                on_conflict=on_conflict,
             )
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -789,9 +789,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
     2. 调用 Gemini API 分析风格
     3. 更新 project.json 的 style_image 和 style_description 字段
     """
-    if not file.filename:
-        raise HTTPException(status_code=400, detail=_t("missing_filename"))
-    original_filename: str = file.filename
+    original_filename = _require_filename(file, _t)
 
     # 检查文件类型
     ext = Path(original_filename).suffix.lower()

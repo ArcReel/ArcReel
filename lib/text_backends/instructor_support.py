@@ -111,7 +111,7 @@ def instructor_fallback_sync(
     client,
     model: str,
     messages: list[dict],
-    response_schema: dict | type | None,
+    response_schema: dict | type[BaseModel] | None,
     provider: str,
     max_tokens: int | None = None,
 ):
@@ -174,7 +174,7 @@ async def instructor_fallback_async(
     client,
     model: str,
     messages: list[dict],
-    response_schema: dict | type | None,
+    response_schema: dict | type[BaseModel] | None,
     provider: str,
     max_tokens: int | None = None,
 ):
