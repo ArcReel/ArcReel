@@ -674,3 +674,78 @@ def test_force_resync_invalid_mode_raises(tmp_path: Path) -> None:
     project = _fresh_project(tmp_path / "proj_root")
     with pytest.raises(ValueError, match="content_mode"):
         force_resync_profile(profile, project, content_mode="bad")
+
+
+# ---------- ProjectManager 集成 ----------
+
+
+def _setup_pm_with_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple:
+    """构造 ProjectManager + 指向 _make_profile 生成的 profile 目录。"""
+    from lib import project_manager as pm_module
+
+    profile = _make_profile(tmp_path)
+    monkeypatch.setattr(pm_module, "agent_profile_dir", lambda: profile)
+    pm = pm_module.ProjectManager(projects_root=str(tmp_path / "projects"))
+    return pm, profile
+
+
+def test_create_project_with_drama_mode_materializes_drama_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    project_dir = pm.create_project("demo", content_mode="drama")
+    assert (project_dir / "CLAUDE.md").read_text() == "drama top"
+    assert (project_dir / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "dra skill"
+
+
+def test_create_project_default_is_narration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """老 caller 不传 content_mode → 默认 narration（与产品默认一致）。"""
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    project_dir = pm.create_project("demo")
+    assert (project_dir / "CLAUDE.md").read_text() == "narration top"
+
+
+def test_sync_agent_profile_reads_content_mode_from_project_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    project_dir = pm.create_project("demo", content_mode="narration")
+    # 改 project.json 模拟"老项目缺 mode 字段"
+    pj_path = project_dir / "project.json"
+    pj_path.write_text(json.dumps({"title": "demo", "content_mode": "drama"}))
+    # 再次 sync，应当读 project.json 拿到 drama，触发 mode mismatch reset
+    pm.sync_agent_profile(project_dir)
+    assert (project_dir / "CLAUDE.md").read_text() == "drama top"
+
+
+def test_sync_agent_profile_missing_mode_fallback_narration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    project_dir = pm.create_project("demo", content_mode="narration")
+    # 模拟老项目：project.json 没有 content_mode 字段
+    pj_path = project_dir / "project.json"
+    pj_path.write_text(json.dumps({"title": "demo"}))
+    pm.sync_agent_profile(project_dir)
+    # 回退 narration，内容不变
+    assert (project_dir / "CLAUDE.md").read_text() == "narration top"
+
+
+def test_sync_agent_profile_invalid_mode_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    project_dir = pm.create_project("demo", content_mode="narration")
+    pj_path = project_dir / "project.json"
+    pj_path.write_text(json.dumps({"title": "demo", "content_mode": "garbage"}))
+    with pytest.raises(ValueError, match="content_mode"):
+        pm.sync_agent_profile(project_dir)
+
+
+def test_sync_all_agent_profiles_per_project_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    pm.create_project("a", content_mode="narration")
+    pm.create_project("b", content_mode="drama")
+    # 改两个项目的内容（模拟 server 启动前 profile 已升级）
+    stats = pm.sync_all_agent_profiles()
+    assert stats.get("aborted") is not True
+    assert (pm.projects_root / "a" / "CLAUDE.md").read_text() == "narration top"
+    assert (pm.projects_root / "b" / "CLAUDE.md").read_text() == "drama top"
