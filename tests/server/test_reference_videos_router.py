@@ -22,7 +22,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         json.dumps(
             {
                 "title": "T",
-                "content_mode": "reference_video",
+                "content_mode": "narration",
                 "generation_mode": "reference_video",
                 "style": "s",
                 "characters": {"张三": {"description": "x"}},
@@ -39,7 +39,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
             {
                 "episode": 1,
                 "title": "E1",
-                "content_mode": "reference_video",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
                 "summary": "x",
                 "novel": {"title": "t", "chapter": "c"},
                 "duration_seconds": 0,

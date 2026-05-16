@@ -78,7 +78,7 @@ def test_reference_video_script_valid():
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )
-    # issue #542：参考视频脚本由 content_mode（narration/drama）+ generation_mode 两条维度表达
+    # 参考视频脚本由 content_mode（narration/drama）+ generation_mode 两条维度表达
     assert script.content_mode == "narration"
     assert script.generation_mode == "reference_video"
     assert len(script.video_units) == 1
@@ -97,7 +97,7 @@ def test_reference_video_script_accepts_drama_content_mode():
 
 
 def test_reference_video_script_rejects_legacy_reference_video_content_mode():
-    """issue #542：content_mode 不再允许 reference_video。"""
+    """content_mode 不再允许 reference_video（它属于 generation_mode 维度）。"""
     with pytest.raises(ValidationError):
         ReferenceVideoScript(
             title="x",

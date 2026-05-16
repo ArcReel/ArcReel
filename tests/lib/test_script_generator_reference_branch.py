@@ -87,8 +87,8 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    # issue #542：参考视频集 content_mode 继承项目级 narration/drama，
-    # 生成模式由独立字段 generation_mode 表达。
+    # 参考视频集 content_mode 继承项目级 narration/drama；生成模式由独立的
+    # generation_mode 字段表达。
     assert data["content_mode"] == "narration"
     assert data["generation_mode"] == "reference_video"
     assert len(data["video_units"]) == 1
@@ -100,7 +100,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
 
 @pytest.mark.asyncio
 async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp_path: Path):
-    """回归保护（PR #543 评审）：drama 项目下生成的参考视频集 content_mode 必须为 drama。
+    """drama 项目下生成的参考视频集 content_mode 必须为 drama。
 
     Pydantic 的 ReferenceVideoScript.content_mode 默认 "narration"，model_dump 会
     把该默认值写入 dict；_add_metadata 必须显式覆盖而非 setdefault，否则 drama 项目

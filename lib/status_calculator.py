@@ -30,8 +30,8 @@ class StatusCalculator:
         分派标签 ``"narration" | "drama" | "reference_video"`` 给下游分派使用：
         ``generation_mode == "reference_video"`` 优先；否则按 content_mode 选 segments
         或 scenes；都缺失时按主结构鸭子类型兜底（兼容老脚本未写 content_mode 的情况）。
-        参考视频集判定不再回退到 ``content_mode == "reference_video"``，因为新数据
-        已不可能产生该值（issue #542）。
+        参考视频集判定不再回退到 ``content_mode == "reference_video"``——新数据
+        已不可能产生该值。
         """
         content_mode = script.get("content_mode")
         generation_mode = script.get("generation_mode")

@@ -41,8 +41,8 @@ class ValidationResult:
 class DataValidator:
     """数据验证器"""
 
-    # content_mode 严格只表达"内容类型"（issue #542）。"视频来源"维度由
-    # project_manager.effective_mode（基于 generation_mode 字段）独立表达。
+    # content_mode 严格只表达"内容类型"；"视频来源"维度由 generation_mode 字段
+    # 表达，通过 project_manager.effective_mode 解析。
     VALID_CONTENT_MODES = {"narration", "drama"}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
     VALID_SHOT_DURATION_RANGE = (1, 15)
@@ -593,8 +593,8 @@ class DataValidator:
         if novel is not None and not isinstance(novel, dict):
             errors.append("novel 字段必须是对象")
 
-        # "视频来源"维度由 generation_mode 表达；content_mode 只决定 narration vs drama
-        # 之间如何排布数据（segments vs scenes）。issue #542
+        # "视频来源"维度由 generation_mode 表达；content_mode 只决定 narration vs
+        # drama 之间如何排布数据（segments vs scenes）。
         is_reference = effective_mode(project=project, episode=episode) == "reference_video"
         if is_reference:
             self._validate_reference_video_script(

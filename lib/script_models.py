@@ -231,8 +231,8 @@ class ReferenceVideoScript(BaseModel):
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。
 
-    issue #542：``content_mode`` 仅承担"内容类型"维度（narration/drama），"视频来源"
-    维度由 ``generation_mode = "reference_video"`` 表达。两字段都对 LLM 隐藏，由
+    ``content_mode`` 仅承担"内容类型"维度（narration/drama），"视频来源"维度由
+    ``generation_mode = "reference_video"`` 表达。两字段都对 LLM 隐藏，由
     ``ScriptGenerator._add_metadata`` 按项目级配置注入。
     """
 

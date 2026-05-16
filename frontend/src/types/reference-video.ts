@@ -80,11 +80,10 @@ export interface ReferenceVideoScript {
   episode: number;
   title: string;
   /**
-   * content_mode 严格只表达"内容类型"（narration/drama），"视频来源"维度由
-   * generation_mode 表达（issue #542）。参考视频集实际不区分 narration/drama，
-   * 通常继承项目级值；旧数据中可能为 "reference_video"（兼容字段）。
+   * 内容类型——参考视频集继承项目级 narration/drama，决定画面比例等次级配置；
+   * "视频来源"维度由 generation_mode 表达。
    */
-  content_mode?: "narration" | "drama" | "reference_video";
+  content_mode?: "narration" | "drama";
   /** 参考视频集固定 "reference_video"；由后端 ScriptGenerator 注入。 */
   generation_mode?: "reference_video";
   duration_seconds: number;

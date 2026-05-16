@@ -389,7 +389,7 @@ class ScriptGenerator:
         # 这里负责落盘前补上。
         script_data["episode"] = int(episode)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
-        # "视频来源"维度，由 generation_mode 表达（issue #542）。
+        # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
         # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
         # narration/drama，setdefault 仅作 fallback。

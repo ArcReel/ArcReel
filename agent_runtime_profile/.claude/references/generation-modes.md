@@ -1,6 +1,6 @@
 # 生成模式参考
 
-ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度（issue #542）。`content_mode` 严格表达**内容类型**（narration / drama），`generation_mode` 表达**视频来源 / 生成路径**（storyboard / grid / reference_video）。组合上可枚举如下；参考生视频路径下内容类型仅作画面比例 / 默认时长等次级决策。
+ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`content_mode` 严格表达**内容类型**（narration / drama），`generation_mode` 表达**视频来源 / 生成路径**（storyboard / grid / reference_video）。组合上可枚举如下；参考生视频路径下内容类型仅作画面比例 / 默认时长等次级决策。
 
 ## 模式矩阵
 

@@ -25,7 +25,7 @@ def _load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
 def _write_project(tmp_path: Path) -> Path:
     project = {
         "title": "T",
-        "content_mode": "reference_video",
+        "content_mode": "narration",
         "generation_mode": "reference_video",
         "style": "s",
         "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
@@ -36,7 +36,8 @@ def _write_project(tmp_path: Path) -> Path:
     script = {
         "episode": 1,
         "title": "E1",
-        "content_mode": "reference_video",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
         "summary": "x",
         "novel": {"title": "t", "chapter": "c"},
         "duration_seconds": 8,
@@ -680,7 +681,7 @@ async def test_execute_reference_video_task_clamps_via_resolver(
             "max_reference_images": 1,
             "source": "custom",
             "default_duration": None,
-            "content_mode": "reference_video",
+            "content_mode": "narration",
             "generation_mode": "reference_video",
         }
 
@@ -778,7 +779,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
             "max_reference_images": 1,
             "source": "registry",
             "default_duration": None,
-            "content_mode": "reference_video",
+            "content_mode": "narration",
             "generation_mode": "reference_video",
         }
 
@@ -935,7 +936,7 @@ async def test_execute_reference_video_task_skips_clamp_when_backend_model_diver
             "max_reference_images": 1,
             "source": "custom",
             "default_duration": None,
-            "content_mode": "reference_video",
+            "content_mode": "narration",
             "generation_mode": "reference_video",
         }
 
