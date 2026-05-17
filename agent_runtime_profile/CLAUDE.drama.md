@@ -1,4 +1,5 @@
 # AI 视频生成工作空间
+<!-- mode: drama -->
 
 ---
 
@@ -8,11 +9,9 @@
 
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定，无需在 prompt 中指定
-  - 说书+画面模式默认：**9:16 竖屏**
-  - 剧集动画模式默认：16:9 横屏
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
-  - 说书+画面 / 剧集动画模式（storyboard / grid）：由项目 `default_duration` 决定（项目创建时按 content_mode 写入 project.json）
-  - 参考生视频模式（reference_video）：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
+  - storyboard / grid 模式：由项目 `default_duration` 决定
+  - reference_video 模式：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：每个片段/场景独立生成，使用分镜图作为起始帧
@@ -29,13 +28,25 @@
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `manage-project` / `compose-video` 这两个 skill 内还保留的 Python 脚本。
 - **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
+### 路径规范
+
+agent session 的当前工作目录（cwd）已绑定到当前项目根，**所有工具参数中的路径必须遵循以下规则**：
+
+- **Read / Edit / Write / Glob / Grep**：`file_path` 使用**绝对路径**
+- **Bash 调用 skill 脚本**：使用**相对项目根 cwd** 的路径，例如：
+  - ✅ `source/episode_1.txt`、`drafts/episode_1/step1_segments.md`、`scripts/episode_1.json`
+  - ❌ `projects/{项目名}/source/episode_1.txt`（双前缀，占位符替换或拼接出错就会落到 projects 根）
+- **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
+- skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
+- **关于 agent.md / SKILL.md 中的相对形式**：subagent 指引（如「读取 `project.json`」、「读取 `source/episode_{N}.txt`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
+
 ---
 
 ## 内容模式
 
-系统支持两种内容模式（说书+画面 / 剧集动画），通过 `project.json` 的 `content_mode` 字段切换。
+本项目为**剧集动画模式**（drama）。剧本数据结构为 `scenes[]`，每个场景对应一段独立的视觉画面（含对话、动作、情绪）。
 
-> 详细规格（画面比例、时长、数据结构、预处理 Agent 等）见 `.claude/references/generation-modes.md`。
+> 生成模式（storyboard / grid / reference_video）通过 `project.json` 的 `generation_mode` 字段配置，与内容模式独立。详细规格见 `.claude/references/generation-modes.md`。
 
 ---
 
@@ -116,7 +127,7 @@
 
 `/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
 
-1. **项目设置**：创建项目、选择 `content_mode` + `generation_mode`、上传小说、生成项目概述
+1. **项目设置**：创建项目（创建时确定 `content_mode`，之后不可变）、选择 `generation_mode`、上传小说、生成项目概述
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 直接执行 peek+split 切分（manage-project 工具集）
 4. **单集预处理** → 按 `effective_mode` 选：
@@ -140,8 +151,10 @@
 
 ## 项目目录结构
 
-```
-projects/{项目名}/
+> 下面的目录树仅为说明用途，agent session 的 cwd 已在项目根。**Bash 调用 skill 脚本**时使用相对 cwd 的路径（如 `source/`、`scripts/`）；**Read / Edit / Write / Glob / Grep** 的 `file_path` 仍按上文"路径规范"要求使用**绝对路径**。无论哪种工具都不可带 `projects/{项目名}/` 前缀。
+
+```text
+projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的相对路径
 ├── project.json       # 项目元数据（角色、场景、道具、剧集、风格）
 ├── source/            # 原始小说内容
 ├── scripts/           # 分镜剧本 (JSON)

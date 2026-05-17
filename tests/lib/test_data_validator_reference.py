@@ -15,7 +15,8 @@ def _valid_reference_script(episode: int = 1) -> dict:
     return {
         "episode": episode,
         "title": "E1",
-        "content_mode": "reference_video",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
         "summary": "x",
         "novel": {"title": "t", "chapter": "c"},
         "duration_seconds": 8,
@@ -48,17 +49,25 @@ def _valid_reference_script(episode: int = 1) -> dict:
     }
 
 
-def test_validator_accepts_reference_video_content_mode(tmp_path: Path):
+def _reference_project(*, with_assets: bool = True) -> dict:
     project = {
         "title": "T",
-        "content_mode": "reference_video",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
         "style": "s",
         "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
-        "characters": {"张三": {"description": "x"}},
-        "scenes": {"酒馆": {"description": "x"}},
+        "characters": {},
+        "scenes": {},
         "props": {},
     }
-    _write(tmp_path, "project.json", project)
+    if with_assets:
+        project["characters"]["张三"] = {"description": "x"}
+        project["scenes"]["酒馆"] = {"description": "x"}
+    return project
+
+
+def test_validator_accepts_reference_video_generation_mode(tmp_path: Path):
+    _write(tmp_path, "project.json", _reference_project())
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
 
     v = DataValidator()
@@ -67,16 +76,7 @@ def test_validator_accepts_reference_video_content_mode(tmp_path: Path):
 
 
 def test_validator_rejects_unknown_mention(tmp_path: Path):
-    project = {
-        "title": "T",
-        "content_mode": "reference_video",
-        "style": "s",
-        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
-        "characters": {},
-        "scenes": {},
-        "props": {},
-    }
-    _write(tmp_path, "project.json", project)
+    _write(tmp_path, "project.json", _reference_project(with_assets=False))
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
 
     v = DataValidator()
@@ -87,15 +87,8 @@ def test_validator_rejects_unknown_mention(tmp_path: Path):
 
 
 def test_validator_allows_reference_videos_dir(tmp_path: Path):
-    project = {
-        "title": "T",
-        "content_mode": "reference_video",
-        "style": "s",
-        "episodes": [],
-        "characters": {},
-        "scenes": {},
-        "props": {},
-    }
+    project = _reference_project(with_assets=False)
+    project["episodes"] = []
     _write(tmp_path, "project.json", project)
     (tmp_path / "reference_videos").mkdir()
     (tmp_path / "reference_videos" / "E1U1.mp4").write_bytes(b"\x00")
@@ -106,15 +99,7 @@ def test_validator_allows_reference_videos_dir(tmp_path: Path):
 
 
 def test_validator_rejects_non_string_reference_name(tmp_path: Path):
-    project = {
-        "title": "T",
-        "content_mode": "reference_video",
-        "style": "s",
-        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
-        "characters": {},
-        "scenes": {},
-        "props": {},
-    }
+    project = _reference_project(with_assets=False)
     script = _valid_reference_script()
     script["video_units"][0]["references"] = [{"type": "character", "name": {"bad": "dict"}}]
     _write(tmp_path, "project.json", project)
@@ -127,15 +112,7 @@ def test_validator_rejects_non_string_reference_name(tmp_path: Path):
 
 
 def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
-    project = {
-        "title": "T",
-        "content_mode": "reference_video",
-        "style": "s",
-        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
-        "characters": {"张三": {"description": "x"}},
-        "scenes": {"酒馆": {"description": "x"}},
-        "props": {},
-    }
+    project = _reference_project()
     script = _valid_reference_script()
     script["video_units"][0]["shots"][0]["duration"] = 99  # 超出 [1,15]
     _write(tmp_path, "project.json", project)
@@ -145,3 +122,24 @@ def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
     assert any("duration 必须是 1-15" in e for e in result.errors)
+
+
+def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
+    """content_mode 严格只允许 narration / drama；reference_video 属于 generation_mode
+    维度。UI 不可达该值，无需兼容迁移，直接拒绝即可。
+    """
+    project = {
+        "title": "T",
+        "content_mode": "reference_video",
+        "style": "s",
+        "episodes": [],
+        "characters": {},
+        "scenes": {},
+        "props": {},
+    }
+    _write(tmp_path, "project.json", project)
+
+    v = DataValidator()
+    result = v.validate_project_tree(tmp_path)
+    assert not result.valid
+    assert any("content_mode" in e for e in result.errors)

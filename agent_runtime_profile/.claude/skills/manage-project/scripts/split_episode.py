@@ -21,6 +21,42 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _text_utils import find_char_offset
 
 
+def _resolve_source_in_project(arg_source: str) -> tuple[Path, Path]:
+    """强约束：cwd 必须含 project.json，source 必须位于 cwd/source/ 之内。
+
+    返回 (source_path, source_dir)；source_dir 同时是后续 output 的强制根。
+    output 写入位置不再跟随 source 的父目录，避免 cwd 漂移 / agent 传错
+    路径时把分集文件落到项目目录之外。
+
+    防御 source/ 软链接绕过：若 `cwd/source` 本身是符号链接（指向 /tmp/x），
+    resolve 后 source_dir 与 source_path 双双落到 /tmp/x，is_relative_to
+    校验会放行——但产物实际写到了项目目录之外。这里在 resolve 前显式拒绝。
+    """
+    cwd = Path.cwd().resolve()
+    if not (cwd / "project.json").is_file():
+        print(f"❌ 必须在项目目录内运行（当前 cwd={cwd} 不含 project.json）", file=sys.stderr)
+        sys.exit(1)
+    source_dir_unresolved = cwd / "source"
+    if source_dir_unresolved.is_symlink():
+        print(
+            f"❌ source/ 不能是符号链接（避免分集产物落到项目外）: {source_dir_unresolved}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    source_dir = source_dir_unresolved.resolve()
+    if not source_dir.is_dir():
+        print(f"❌ 项目缺 source/ 目录: {source_dir}", file=sys.stderr)
+        sys.exit(1)
+    source_path = (cwd / arg_source).resolve() if not Path(arg_source).is_absolute() else Path(arg_source).resolve()
+    if not source_path.is_relative_to(source_dir):
+        print(f"❌ 源文件必须位于 {source_dir} 内，收到: {source_path}", file=sys.stderr)
+        sys.exit(1)
+    if not source_path.is_file():
+        print(f"❌ 源文件不存在或不是普通文件: {source_path}", file=sys.stderr)
+        sys.exit(1)
+    return source_path, source_dir
+
+
 def find_anchor_near_target(text: str, anchor: str, target_offset: int, window: int = 500) -> list[int]:
     """在目标偏移附近的窗口内查找锚点文本，返回匹配末尾偏移列表（按距离排序）。"""
     search_start = max(0, target_offset - window)
@@ -42,23 +78,25 @@ def find_anchor_near_target(text: str, anchor: str, target_offset: int, window: 
     return positions
 
 
+def _positive_int(value: str) -> int:
+    """argparse type：拒绝负数和 0，避免生成 episode_-1.txt / episode_0.txt。"""
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"必须是正整数，收到: {value}")
+    return ivalue
+
+
 def main():
     parser = argparse.ArgumentParser(description="执行分集切分")
     parser.add_argument("--source", required=True, help="源文件路径")
-    parser.add_argument("--episode", required=True, type=int, help="集数编号")
+    parser.add_argument("--episode", required=True, type=_positive_int, help="集数编号（正整数）")
     parser.add_argument("--target", required=True, type=int, help="目标字数（与 peek 的 --target 一致）")
     parser.add_argument("--anchor", required=True, help="切分点前的文本片段（10-20 字符）")
     parser.add_argument("--context", default=500, type=int, help="搜索窗口大小（默认 500 字符）")
     parser.add_argument("--dry-run", action="store_true", help="仅展示切分预览，不写文件")
     args = parser.parse_args()
 
-    source_path = Path(args.source).resolve()
-    if not source_path.is_relative_to(Path.cwd().resolve()):
-        print(f"错误：源文件路径超出当前项目目录: {source_path}", file=sys.stderr)
-        sys.exit(1)
-    if not source_path.exists():
-        print(f"错误：源文件不存在: {source_path}", file=sys.stderr)
-        sys.exit(1)
+    source_path, source_dir = _resolve_source_in_project(args.source)
 
     text = source_path.read_text(encoding="utf-8")
 
@@ -107,10 +145,9 @@ def main():
         print("\n[Dry Run] 未写入文件。确认无误后去掉 --dry-run 参数执行。")
         return
 
-    # 实际写入文件
-    output_dir = source_path.parent
-    episode_file = output_dir / f"episode_{args.episode}.txt"
-    remaining_file = output_dir / "_remaining.txt"
+    # output 强制落在 cwd/source/，不跟随 source_path.parent
+    episode_file = source_dir / f"episode_{args.episode}.txt"
+    remaining_file = source_dir / "_remaining.txt"
 
     episode_file.write_text(part_before, encoding="utf-8")
     remaining_file.write_text(part_after, encoding="utf-8")

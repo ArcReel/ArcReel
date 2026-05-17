@@ -155,18 +155,80 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 # ---------------------------------------------------------------------------
 
 
+def pytest_collection_modifyitems(config, items):
+    """Auto-mark dialect-sensitive tests with `uses_db`.
+
+    Mark a test only when it consumes a fixture defined in a canonical
+    dialect-sensitive conftest — the main `tests/conftest.py` (`async_session`,
+    reads DATABASE_URL) or `tests/agent_session_store/conftest.py`
+    (`session_factory` / `file_session_factory`, also reads DATABASE_URL).
+    Tests that locally override the same fixture name with a hard-coded
+    SQLite engine (e.g. `tests/test_custom_providers_api.py`) are excluded so
+    the postgres-compat job stays a true dialect signal rather than running
+    SQLite-only code under a `postgres` coverage flag.
+    """
+    target_fixtures = {"async_session", "session_factory", "file_session_factory"}
+    canonical_modules = {"tests.conftest", "tests.agent_session_store.conftest"}
+    uses_db = pytest.mark.uses_db
+    for item in items:
+        info = getattr(item, "_fixtureinfo", None)
+        if info is None:
+            continue
+        fixturenames = set(getattr(item, "fixturenames", ()) or ())
+        for fname in target_fixtures & fixturenames:
+            # `name2fixturedefs[fname]` is pytest's fixture override chain
+            # (general → specific). The last element is the definition that
+            # actually wins for this test; only it determines whether the
+            # test really hits a dialect-sensitive engine.
+            defs = info.name2fixturedefs.get(fname) or ()
+            if not defs:
+                continue
+            active = defs[-1]
+            if getattr(active.func, "__module__", "") in canonical_modules:
+                item.add_marker(uses_db)
+                break
+
+
 @pytest.fixture()
 async def async_session():
     """Generic AsyncSession for repository tests.
 
-    Reads DATABASE_URL env var (used by CI postgres job to exercise dialect
-    compat); otherwise falls back to in-memory SQLite.
+    PG (DATABASE_URL=postgresql+...): trusts that ``alembic upgrade head`` has
+    already created the schema (CI job does this before pytest). Each test
+    opens a fresh NullPool engine, an outer transaction, and uses SAVEPOINT
+    semantics so any `session.commit()` is contained — teardown ROLLBACKs the
+    outer transaction, so data writes never persist.
+
+    SQLite (default): each test gets a fresh in-memory engine + ORM
+    ``create_all`` — engine is throwaway, no isolation primitive needed.
     """
-    url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-    engine = create_async_engine(url)
+    url = os.environ.get("DATABASE_URL", "")
+    if url.startswith("postgresql"):
+        # Per-test engine with NullPool: avoids cross-event-loop reuse of
+        # asyncpg connections (each pytest-asyncio test runs on a fresh loop).
+        from sqlalchemy.pool import NullPool
+
+        engine = create_async_engine(url, poolclass=NullPool)
+        try:
+            async with engine.connect() as conn:
+                outer = await conn.begin()
+                try:
+                    factory = async_sessionmaker(
+                        bind=conn,
+                        expire_on_commit=False,
+                        join_transaction_mode="create_savepoint",
+                    )
+                    async with factory() as session:
+                        yield session
+                finally:
+                    await outer.rollback()
+        finally:
+            await engine.dispose()
+        return
+
+    # SQLite in-memory — engine is throwaway, ORM-driven schema.
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
-        # 同一 DB 跨 fixture 复用时必须先清表（PG 容器跨用例持久）
-        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:

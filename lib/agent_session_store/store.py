@@ -188,7 +188,7 @@ class DbSessionStore:
         # SDK signature is (prev, key, entries) — fold returns mtime=0 placeholder
         # we overwrite with our own clock per SDK docstring guidance.
         key_for_fold = {"project_key": project_key, "session_id": session_id}
-        folded = fold_session_summary(prev, key_for_fold, entries)
+        folded = fold_session_summary(prev, key_for_fold, entries)  # type: ignore[arg-type]
         new_data = folded["data"] if folded else {}
 
         if prev_row is None:

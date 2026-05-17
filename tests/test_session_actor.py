@@ -489,7 +489,7 @@ async def test_drive_query_rejects_second_pending_query():
     finally:
         # 结束 q1，让 q2 进入执行；用 done.wait 替代 sleep 避免 CI flaky
         client.push_message(None)  # block_forever sentinel
-        await asyncio.wait_for(q1.done.wait(), timeout=1.0)
+        await asyncio.wait_for(q1.done.wait(), timeout=1.0)  # pyright: ignore[reportPossiblyUnboundVariable]
         d = SessionCommand(type="disconnect")
         await actor.enqueue(d)
         await d.done.wait()

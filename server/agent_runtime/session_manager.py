@@ -31,35 +31,18 @@ from server.agent_runtime.session_store import SessionMetaStore
 
 logger = logging.getLogger(__name__)
 
-try:
-    from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
-    from claude_agent_sdk.types import HookMatcher, PermissionResultAllow, SystemPromptPreset
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, tag_session
+from claude_agent_sdk.types import (
+    HookMatcher,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    SystemPromptPreset,
+)
 
-    try:
-        from claude_agent_sdk.types import PermissionResultDeny
-    except ImportError:
-        PermissionResultDeny = None
-    try:
-        from claude_agent_sdk import tag_session
-    except ImportError:
-        tag_session = None
+from lib.config.service import ConfigService
+from lib.db import async_session_factory
 
-    SDK_AVAILABLE = True
-except ImportError:
-    ClaudeSDKClient = None
-    ClaudeAgentOptions = None
-    HookMatcher = None
-    PermissionResultAllow = None
-    PermissionResultDeny = None
-    tag_session = None
-    SDK_AVAILABLE = False
-
-try:
-    from lib.config.service import ConfigService
-    from lib.db import async_session_factory
-except ImportError:
-    async_session_factory = None  # type: ignore[assignment]
-    ConfigService = None  # type: ignore[assignment]
+SDK_AVAILABLE = True
 
 
 # inbox 积压告警阈值：~1s 内 100 条 stream_event（典型流式频率上限）；
@@ -668,7 +651,7 @@ class SessionManager:
                     HookMatcher(matcher=None, hooks=hook_callbacks),
                     HookMatcher(
                         matcher="Bash",
-                        hooks=[self._bash_env_scrub_hook],
+                        hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]
                     ),
                     HookMatcher(
                         matcher="Write|Edit",
@@ -707,7 +690,7 @@ class SessionManager:
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
-            setting_sources=self.DEFAULT_SETTING_SOURCES,
+            setting_sources=self.DEFAULT_SETTING_SOURCES,  # type: ignore[arg-type]
             allowed_tools=allowed_tools,
             max_turns=self.max_turns,
             system_prompt=SystemPromptPreset(
@@ -718,11 +701,11 @@ class SessionManager:
             include_partial_messages=True,
             resume=resume_id,
             can_use_tool=can_use_tool,
-            hooks=hooks,
+            hooks=hooks,  # type: ignore[arg-type]
             mcp_servers={"arcreel": arcreel_server},
-            session_store=self._build_session_store(),
+            session_store=self._build_session_store(),  # type: ignore[arg-type]
             session_store_flush=session_store_flush_mode(),
-            sandbox=sandbox_typed,
+            sandbox=sandbox_typed,  # type: ignore[arg-type]
             env=provider_env,
         )
 

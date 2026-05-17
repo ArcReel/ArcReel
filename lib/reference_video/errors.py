@@ -6,7 +6,7 @@ from __future__ import annotations
 class MissingReferenceError(Exception):
     """@ 提及解析到不存在或无 sheet 的资源。"""
 
-    def __init__(self, *, missing: list[tuple[str, str]]):
+    def __init__(self, *, missing: list[tuple[str, str | None]]):
         if not missing:
             raise ValueError("missing must be non-empty")
         self.missing = missing

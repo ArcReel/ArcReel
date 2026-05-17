@@ -8,6 +8,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Query
 
+from lib.providers import CallType
 from lib.usage_tracker import UsageTracker
 from server.auth import CurrentUser
 
@@ -49,7 +50,7 @@ async def get_stats(
 async def get_calls(
     _user: CurrentUser,
     project_name: str | None = Query(None, description="项目名称"),
-    call_type: str | None = Query(None, description="调用类型 (image/video)"),
+    call_type: CallType | None = Query(None, description="调用类型 (image/video/text)"),
     status: str | None = Query(None, description="状态 (success/failed)"),
     start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
     end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),

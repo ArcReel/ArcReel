@@ -278,10 +278,7 @@ class TestProjectManagerMore:
         }
         _write(tmp_path / "projects" / "demo" / "scripts" / "legacy.json", json.dumps(raw_script, ensure_ascii=False))
 
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(pm, "sync_characters_from_script", lambda *args, **kwargs: None, raising=False)
         normalized_script = pm.normalize_script("demo", "legacy.json", save=False)
-        monkeypatch.undo()
 
         assert "metadata" in normalized_script
         assert normalized_script["duration_seconds"] >= 0

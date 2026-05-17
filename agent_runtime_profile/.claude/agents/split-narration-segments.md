@@ -48,9 +48,9 @@ mcp__arcreel__get_video_capabilities({})
 
 ### Step 1: 读取项目信息和小说原文
 
-使用 Read 工具读取 `projects/{项目名}/project.json`，了解项目概述和已有角色/场景/道具。
+使用 Read 工具读取 `project.json`（相对 session cwd），了解项目概述和已有角色/场景/道具。
 
-使用 Read 工具读取本集小说文件 `projects/{项目名}/source/episode_{N}.txt`。
+使用 Read 工具读取本集小说文件 `source/episode_{N}.txt`。
 
 ### Step 2: 拆分片段
 
@@ -75,7 +75,7 @@ mcp__arcreel__get_video_capabilities({})
 
 ### Step 3: 保存中间文件
 
-创建目录 `projects/{项目名}/drafts/episode_{N}/`，
+创建目录 `drafts/episode_{N}/`（相对 session cwd），
 将片段表保存为 `step1_segments.md`，格式如下：
 
 ```markdown

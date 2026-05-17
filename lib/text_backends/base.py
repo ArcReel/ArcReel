@@ -6,7 +6,9 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
+
+from pydantic import BaseModel
 
 _logger = logging.getLogger(__name__)
 
@@ -84,20 +86,24 @@ class TextGenerationResult:
     output_tokens: int | None = None
 
 
-def resolve_schema(schema: dict | type) -> dict:
+def resolve_schema(schema: dict | type[BaseModel]) -> dict:
     """将 response_schema 转为无 $ref 的纯 JSON Schema dict。
 
-    - type (Pydantic 类): 调用 model_json_schema() 后内联 $ref
+    - BaseModel 子类: 调用 model_json_schema() 后内联 $ref
     - dict: 直接内联 $ref（如果有）
     """
     if isinstance(schema, type):
-        schema = schema.model_json_schema()
+        if not issubclass(schema, BaseModel):
+            raise TypeError(f"resolve_schema 仅接受 dict 或 Pydantic BaseModel 子类，得到 {schema!r}")
+        schema_dict: dict = schema.model_json_schema()
+    else:
+        schema_dict = schema
 
-    defs = schema.get("$defs", {})
+    defs = schema_dict.get("$defs", {})
     if not defs:
-        return schema
+        return schema_dict
 
-    def _inline(obj, visited_refs=frozenset()):
+    def _inline(obj: Any, visited_refs: frozenset[str] = frozenset()) -> Any:
         if isinstance(obj, dict):
             if "$ref" in obj:
                 ref_name = obj["$ref"].split("/")[-1]
@@ -111,7 +117,7 @@ def resolve_schema(schema: dict | type) -> dict:
             return [_inline(item, visited_refs) for item in obj]
         return obj
 
-    result = _inline(schema)
+    result: dict = _inline(schema_dict)
     result.pop("$defs", None)
     return result
 

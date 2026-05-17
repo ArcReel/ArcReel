@@ -41,6 +41,7 @@ MESSAGES = {
     "file_not_found": "Tệp không tồn tại: {path}",
     "forbidden_access": "Cấm truy cập tệp ngoài thư mục dự án",
     "invalid_upload_type": "Loại tải lên không hợp lệ: {upload_type}",
+    "missing_filename": "Tệp tải lên thiếu tên tệp",
     "unsupported_image_type": "Định dạng tệp không hỗ trợ {ext}. Các loại cho phép: {allowed}",
     "invalid_image_file": "Tệp ảnh không hợp lệ, không thể phân tích",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
@@ -56,7 +57,6 @@ MESSAGES = {
     "source_corrupt_file": "Tệp nguồn '{filename}' không thể phân tích: {reason}",
     "source_too_large": "Tệp nguồn '{filename}' quá lớn ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Tệp nguồn '{existing}' đã tồn tại; gợi ý đổi tên: '{suggested}'",
-    "invalid_on_conflict": "Giá trị on_conflict không hợp lệ; phải là một trong fail / replace / rename",
     # Providers
     "unknown_provider": "Nhà cung cấp không xác định: {provider_id}",
     "credentials_not_found": "Không tìm thấy thông tin xác thực",

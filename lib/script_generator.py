@@ -65,7 +65,7 @@ class ScriptGenerator:
         self.content_mode = self.project_json.get("content_mode", "narration")
 
     def _effective_generation_mode(self, episode: int) -> str:
-        """按 Spec §4.6 解析集级 → 项目级 generation_mode，未知值回退 storyboard。"""
+        """按 episode → project → 默认 storyboard 回退解析 generation_mode。"""
         episode_dict = next(
             (ep for ep in (self.project_json.get("episodes") or []) if ep.get("episode") == episode),
             {},
@@ -388,8 +388,14 @@ class ScriptGenerator:
         # CLI 参数 --episode 是集号唯一真相源。schema 已从 AI 输出中移除 episode 字段，
         # 这里负责落盘前补上。
         script_data["episode"] = int(episode)
+        # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
+        # "视频来源"维度，由 generation_mode 表达。
+        # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
+        # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
+        # narration/drama，setdefault 仅作 fallback。
         if gen_mode == "reference_video":
-            script_data["content_mode"] = "reference_video"
+            script_data["content_mode"] = self.content_mode
+            script_data["generation_mode"] = "reference_video"
         else:
             script_data.setdefault("content_mode", self.content_mode)
 

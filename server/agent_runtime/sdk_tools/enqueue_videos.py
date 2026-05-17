@@ -45,9 +45,7 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
 
 
 def _is_reference_script(script: dict[str, Any]) -> bool:
-    if script.get("content_mode") == "reference_video":
-        return True
-    return bool(script.get("video_units"))
+    return script.get("generation_mode") == "reference_video"
 
 
 async def _fetch_video_caps(project: dict[str, Any]) -> tuple[int | None, list[int]]:

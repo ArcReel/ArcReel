@@ -39,7 +39,9 @@ export interface SegmentRefsChanges {
 interface SegmentRefsEditModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (changes: SegmentRefsChanges) => void;
+  onSave: (changes: SegmentRefsChanges) => void | Promise<void>;
+  /** 保存中：禁用 Save 按钮防止重复提交；由调用方维护 */
+  saving?: boolean;
   initialCharacters: string[];
   initialScenes: string[];
   initialProps: string[];
@@ -85,6 +87,7 @@ export function SegmentRefsEditModal({
   open,
   onClose,
   onSave,
+  saving = false,
   initialCharacters,
   initialScenes,
   initialProps,
@@ -129,6 +132,15 @@ export function SegmentRefsEditModal({
     };
   }, [charRows, sceneRows, propRows, q]);
 
+  // stale 计数基于未过滤的完整 rows，避免搜索词把 stale 项过滤后徽标消失
+  const countSelectedStale = (rows: RefRow[], set: Set<string>) =>
+    rows.reduce((n, r) => (r.isStale && set.has(r.name) ? n + 1 : n), 0);
+  const staleCounts = {
+    character: countSelectedStale(charRows, tempCharsSet),
+    scene: countSelectedStale(sceneRows, tempScenesSet),
+    prop: countSelectedStale(propRows, tempPropsSet),
+  };
+
   const setterByKind: Record<AssetKind, typeof setTempChars> = {
     character: setTempChars,
     scene: setTempScenes,
@@ -145,12 +157,12 @@ export function SegmentRefsEditModal({
   const propsChanged = !arraysEqualUnordered(tempProps, initialProps);
   const hasChanges = charChanged || scenesChanged || propsChanged;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const changes: SegmentRefsChanges = {};
     if (charChanged) changes.characters = tempChars;
     if (scenesChanged) changes.scenes = tempScenes;
     if (propsChanged) changes.props = tempProps;
-    onSave(changes);
+    await onSave(changes);
   };
 
   return (
@@ -234,6 +246,7 @@ export function SegmentRefsEditModal({
             icon={<User className="h-3.5 w-3.5" aria-hidden="true" />}
             rows={filtered.character}
             selectedSet={tempCharsSet}
+            staleCount={staleCounts.character}
             onToggle={toggle}
             projectName={projectName}
             emptyText={t("segment_refs_empty_characters")}
@@ -249,6 +262,7 @@ export function SegmentRefsEditModal({
             icon={<MapPin className="h-3.5 w-3.5" aria-hidden="true" />}
             rows={filtered.scene}
             selectedSet={tempScenesSet}
+            staleCount={staleCounts.scene}
             onToggle={toggle}
             projectName={projectName}
             emptyText={t("segment_refs_empty_clues")}
@@ -264,6 +278,7 @@ export function SegmentRefsEditModal({
             icon={<Puzzle className="h-3.5 w-3.5" aria-hidden="true" />}
             rows={filtered.prop}
             selectedSet={tempPropsSet}
+            staleCount={staleCounts.prop}
             onToggle={toggle}
             projectName={projectName}
             emptyText={t("segment_refs_empty_clues")}
@@ -294,15 +309,15 @@ export function SegmentRefsEditModal({
               ? t("segment_refs_changes_pending")
               : t("segment_refs_no_changes")}
           </span>
-          <SecondaryButton size="sm" onClick={onClose}>
+          <SecondaryButton size="sm" onClick={onClose} disabled={saving}>
             {t("segment_refs_cancel")}
           </SecondaryButton>
           <PrimaryButton
             size="sm"
-            disabled={!hasChanges}
-            onClick={handleSave}
+            disabled={!hasChanges || saving}
+            onClick={() => void handleSave()}
           >
-            {t("segment_refs_save")}
+            {saving ? t("shot_detail_saving") : t("segment_refs_save")}
           </PrimaryButton>
         </div>
     </GlassModal>
@@ -315,6 +330,8 @@ interface SectionProps {
   icon: ReactNode;
   rows: RefRow[];
   selectedSet: Set<string>;
+  /** 已选且失效的引用数；由 parent 基于未过滤集合计算，避免搜索过滤后徽标消失 */
+  staleCount: number;
   onToggle: (kind: AssetKind, name: string) => void;
   projectName: string;
   emptyText: string;
@@ -331,6 +348,7 @@ function Section({
   icon,
   rows,
   selectedSet,
+  staleCount,
   onToggle,
   projectName,
   emptyText,
@@ -340,6 +358,7 @@ function Section({
   staleHint,
   searchEmptyText,
 }: SectionProps) {
+  const { t } = useTranslation("dashboard");
   const selectedCount = rows.reduce(
     (n, r) => (selectedSet.has(r.name) ? n + 1 : n),
     0,
@@ -363,6 +382,20 @@ function Section({
             style={{ color: "var(--color-text-4)" }}
           >
             {selectedCount}/{rows.length}
+          </span>
+        )}
+        {staleCount > 0 && (
+          <span
+            className="num inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]"
+            style={{
+              background: WARM_TONE.soft,
+              border: `1px solid ${WARM_TONE.ring}`,
+              color: WARM_TONE.color,
+            }}
+            title={staleHint}
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>{t("segment_refs_stale_badge", { count: staleCount })}</span>
           </span>
         )}
       </div>

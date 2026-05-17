@@ -13,6 +13,7 @@ from typing import Any
 
 from lib.asset_types import ASSET_TYPES
 from lib.json_io import load_json_or_none
+from lib.project_manager import effective_mode
 
 
 @dataclass
@@ -40,7 +41,9 @@ class ValidationResult:
 class DataValidator:
     """数据验证器"""
 
-    VALID_CONTENT_MODES = {"narration", "drama", "reference_video"}
+    # content_mode 严格只表达"内容类型"；"视频来源"维度由 generation_mode 字段
+    # 表达，通过 project_manager.effective_mode 解析。
+    VALID_CONTENT_MODES = {"narration", "drama"}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
     VALID_SHOT_DURATION_RANGE = (1, 15)
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
@@ -590,9 +593,12 @@ class DataValidator:
         if novel is not None and not isinstance(novel, dict):
             errors.append("novel 字段必须是对象")
 
-        if content_mode == "narration":
-            self._validate_segments(
-                episode.get("segments", []),
+        # "视频来源"维度由 generation_mode 表达；content_mode 只决定 narration vs
+        # drama 之间如何排布数据（segments vs scenes）。
+        is_reference = effective_mode(project=project, episode=episode) == "reference_video"
+        if is_reference:
+            self._validate_reference_video_script(
+                episode.get("video_units", []),
                 project_characters,
                 project_scenes,
                 project_props,
@@ -600,9 +606,9 @@ class DataValidator:
                 warnings,
                 project_dir=project_dir,
             )
-        elif content_mode == "reference_video":
-            self._validate_reference_video_script(
-                episode.get("video_units", []),
+        elif content_mode == "narration":
+            self._validate_segments(
+                episode.get("segments", []),
                 project_characters,
                 project_scenes,
                 project_props,

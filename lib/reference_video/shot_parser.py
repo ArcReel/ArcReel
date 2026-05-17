@@ -118,7 +118,7 @@ def resolve_references(
         resolved = False
         for rtype, bucket in buckets.items():
             if name in bucket:
-                refs.append(ReferenceResource(type=rtype, name=name))
+                refs.append(ReferenceResource(type=rtype, name=name))  # type: ignore[arg-type]
                 resolved = True
                 break
         if not resolved:

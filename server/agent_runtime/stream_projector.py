@@ -454,7 +454,7 @@ class AssistantStreamProjector:
 
     def apply_message(self, message: dict[str, Any]) -> dict[str, Any]:
         """Apply one message and return projector updates."""
-        update = {
+        update: dict[str, Any] = {
             "patch": None,
             "delta": None,
             "question": None,

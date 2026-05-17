@@ -35,7 +35,7 @@ def generate_structured_via_instructor(
     extra: dict = {"max_tokens": max_tokens} if max_tokens is not None else {}
     result, completion = patched.chat.completions.create_with_completion(
         model=model,
-        messages=messages,
+        messages=messages,  # type: ignore[arg-type]
         response_model=response_model,
         max_retries=max_retries,
         **extra,
@@ -71,9 +71,9 @@ async def generate_structured_via_instructor_async(
             "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
         )
     extra: dict = {"max_tokens": max_tokens} if max_tokens is not None else {}
-    result, completion = await patched.chat.completions.create_with_completion(
+    result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]
         model=model,
-        messages=messages,
+        messages=messages,  # type: ignore[arg-type]
         response_model=response_model,
         max_retries=max_retries,
         **extra,
@@ -111,7 +111,7 @@ def instructor_fallback_sync(
     client,
     model: str,
     messages: list[dict],
-    response_schema: dict | type,
+    response_schema: dict | type[BaseModel] | None,
     provider: str,
     max_tokens: int | None = None,
 ):
@@ -174,7 +174,7 @@ async def instructor_fallback_async(
     client,
     model: str,
     messages: list[dict],
-    response_schema: dict | type,
+    response_schema: dict | type[BaseModel] | None,
     provider: str,
     max_tokens: int | None = None,
 ):

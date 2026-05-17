@@ -99,7 +99,7 @@ def downgrade() -> None:
     # 反向迁移：将活跃凭证写回 provider_config
     conn = op.get_bind()
     rows = conn.execute(
-        sa.text("SELECT provider, api_key, credentials_path, base_url FROM provider_credential WHERE is_active = 1")
+        sa.text("SELECT provider, api_key, credentials_path, base_url FROM provider_credential WHERE is_active")
     ).fetchall()
 
     config_table = sa.table(

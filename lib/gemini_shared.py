@@ -43,21 +43,29 @@ VERTEX_SCOPES = [
 # Gemini 专用可重试错误类型（扩展基础集合）
 RETRYABLE_ERRORS: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS
 
-# 尝试导入 Google API 错误类型
+# 尝试导入 Google API 错误类型；google.api_core 与 google.genai 各自独立 try，
+# 避免一边缺包就把另一边的可重试错误一起丢掉
 try:
-    from google import genai  # Import genai to access its errors
-    from google.api_core import exceptions as google_exceptions
+    from google.api_core import exceptions as google_exceptions  # pyright: ignore[reportMissingImports]
 
     RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
         google_exceptions.ResourceExhausted,  # 429 Too Many Requests
         google_exceptions.ServiceUnavailable,  # 503
         google_exceptions.DeadlineExceeded,  # 超时
         google_exceptions.InternalServerError,  # 500
-        genai.errors.ClientError,  # 4xx errors from new SDK
-        genai.errors.ServerError,  # 5xx errors from new SDK
     )
 except ImportError:
-    pass
+    logger.debug("google.api_core 未安装，跳过对应可重试错误，沿用基础集合")
+
+try:
+    from google import genai
+
+    RETRYABLE_ERRORS = RETRYABLE_ERRORS + (
+        genai.errors.ClientError,  # pyright: ignore[reportAttributeAccessIssue]
+        genai.errors.ServerError,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+except ImportError:
+    logger.debug("google.genai 未安装，跳过对应可重试错误，沿用基础集合")
 
 
 class RateLimiter:
@@ -65,7 +73,7 @@ class RateLimiter:
     多模型滑动窗口限流器
     """
 
-    def __init__(self, limits_dict: dict[str, int] = None, *, request_gap: float = 3.1):
+    def __init__(self, limits_dict: dict[str, int] | None = None, *, request_gap: float = 3.1):
         """
         Args:
             limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image-preview": 20}

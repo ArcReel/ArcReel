@@ -718,7 +718,7 @@ def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> Connect
 
     effective_url = ensure_google_base_url(base_url)
     http_options = {"base_url": effective_url} if effective_url else None
-    client = genai.Client(api_key=api_key, http_options=http_options)
+    client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
     pager = client.models.list()
     count = sum(1 for _ in pager)
     return ConnectionTestResponse(

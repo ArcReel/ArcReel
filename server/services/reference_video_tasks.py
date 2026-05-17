@@ -39,7 +39,7 @@ def _resolve_unit_references(
     Raises:
         MissingReferenceError: 任一 reference 在 project.json 对应 bucket 缺失或 sheet 不存在。
     """
-    missing: list[tuple[str, str]] = []
+    missing: list[tuple[str, str | None]] = []
     resolved: list[Path] = []
     for ref in references:
         rtype = ref.get("type")

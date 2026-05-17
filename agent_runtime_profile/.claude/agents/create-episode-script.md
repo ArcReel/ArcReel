@@ -25,13 +25,13 @@ skills:
 
 ### Step 1: 确认前置条件
 
-使用 Read 工具读取 `projects/{项目名}/project.json`，确认：
+使用 Read 工具读取 `project.json`（相对 session cwd），确认：
 - content_mode 字段（narration 或 drama）
 - characters、scenes、props 已有数据
 
 使用 Glob 工具确认中间文件存在：
-- narration 模式：`projects/{项目名}/drafts/episode_{N}/step1_segments.md`
-- drama 模式：`projects/{项目名}/drafts/episode_{N}/step1_normalized_script.md`
+- narration 模式：`drafts/episode_{N}/step1_segments.md`
+- drama 模式：`drafts/episode_{N}/step1_normalized_script.md`
 
 如果中间文件不存在，报告错误并说明需要先运行哪个预处理 subagent。
 
@@ -45,7 +45,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}})
 
 ### Step 3: 验证生成结果
 
-使用 Read 工具读取生成的 `projects/{项目名}/scripts/episode_{N}.json`，
+使用 Read 工具读取生成的 `scripts/episode_{N}.json`，
 确认：
 - 文件存在且为有效 JSON
 - 包含 episode、content_mode 字段

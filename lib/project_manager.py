@@ -15,16 +15,19 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import portalocker
 from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
-from lib.json_io import atomic_write_json
+from lib.json_io import atomic_write_json, load_json
 from lib.profile_manifest import (
+    VALID_CONTENT_MODES,
+    ContentMode,
     ProfileEmptyError,
+    ProfileMisconfiguredError,
     ProfileMissingError,
     sync_profile_to_project,
 )
@@ -53,7 +56,7 @@ _DEFAULT_GENERATION_MODE = "storyboard"
 def effective_mode(*, project: dict, episode: dict) -> str:
     """按 episode → project → 默认 storyboard 回退解析 generation_mode。
 
-    Spec §4.6。未知值一律回退到默认，兼容旧项目/脏数据。
+    未知值一律回退到默认，兼容脏数据。
     """
     ep_mode = episode.get("generation_mode")
     if ep_mode in _VALID_GENERATION_MODES:
@@ -137,7 +140,7 @@ class ProjectManager:
             raise FileNotFoundError(f"当前目录不是有效的项目目录: {cwd}")
         return pm, project_name
 
-    def __init__(self, projects_root: str | None = None):
+    def __init__(self, projects_root: str | Path | None = None):
         """
         初始化项目管理器
 
@@ -163,12 +166,13 @@ class ProjectManager:
             (root / sub).mkdir(exist_ok=True)
         return root
 
-    def create_project(self, name: str) -> Path:
+    def create_project(self, name: str, content_mode: ContentMode = "narration") -> Path:
         """
         创建新项目
 
         Args:
             name: 项目标识（全局唯一，用于 URL 和文件系统）
+            content_mode: 内容模式（narration / drama），影响 profile 物化时选哪份变体
 
         Returns:
             项目目录路径
@@ -183,8 +187,11 @@ class ProjectManager:
         for subdir in self.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
+        # 持久化 content_mode 到 project.json，让后续 sync_all_agent_profiles 启动遍历能恢复模式。
+        # server 路径随后会调 create_project_metadata 覆盖为完整版（也含 content_mode）。
         try:
-            self.sync_agent_profile(project_dir)
+            atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
+            self.sync_agent_profile(project_dir, content_mode=content_mode)
         except Exception:
             # sync 失败时回滚 project_dir，避免残缺目录阻塞重试（同名 create 撞 FileExistsError）
             shutil.rmtree(project_dir, ignore_errors=True)
@@ -192,8 +199,17 @@ class ProjectManager:
 
         return project_dir
 
-    def sync_agent_profile(self, project_dir: Path) -> dict:
+    def sync_agent_profile(
+        self,
+        project_dir: Path,
+        *,
+        content_mode: ContentMode | None = None,
+    ) -> dict:
         """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
+
+        ``content_mode=None`` 时从 ``project_dir/project.json`` 读取；
+        project.json 缺失或 ``content_mode`` 字段缺失 → 回退到 ``"narration"`` + log info。
+        ``content_mode`` 显式非法值 → 抛 ``ValueError``。
 
         详见 ``lib.profile_manifest.sync_profile_to_project``：manifest-driven
         sync，sha256 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动
@@ -203,17 +219,54 @@ class ProjectManager:
         Returns:
             含向后兼容 ``created/repaired/skipped/errors`` + 细分 stat key 的字典
         """
+        if content_mode is None:
+            content_mode = self._resolve_content_mode(project_dir)
         profile_dir = agent_profile_dir()
-        return sync_profile_to_project(profile_dir, project_dir)
+        return sync_profile_to_project(profile_dir, project_dir, content_mode)
 
-    def force_resync_profile(self, project_dir: Path, *, paths: list[str] | None = None) -> dict:
+    def force_resync_profile(
+        self,
+        project_dir: Path,
+        *,
+        paths: list[str] | None = None,
+        content_mode: ContentMode | None = None,
+    ) -> dict:
         """强制按 profile 覆盖项目内对应文件并刷新 manifest。
 
         用于 UI"恢复内置 skill"按钮等显式触发的场景。``paths=None`` 表示全量；
         指定 paths 中若某文件 profile 已删，会 skip + log warn（不算 error）。
+
+        ``content_mode=None`` 时与 ``sync_agent_profile`` 同语义，自动从 project.json 解析。
         """
+        if content_mode is None:
+            content_mode = self._resolve_content_mode(project_dir)
         profile_dir = agent_profile_dir()
-        return _force_resync_profile(profile_dir, project_dir, paths=paths)
+        return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
+
+    def _resolve_content_mode(self, project_dir: Path) -> ContentMode:
+        """从 project_dir/project.json 读 content_mode；缺失回退 narration。
+
+        ``project.json`` 不存在或缺 ``content_mode`` 字段 → 回退 narration（兼容
+        老项目）。文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles
+        走 failed_projects 分支；若静默回退到 narration，drama 项目会因 manifest
+        记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回说书变体。
+        """
+        pj_path = project_dir / self.PROJECT_FILE
+        try:
+            data = load_json(pj_path)
+        except FileNotFoundError:
+            logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
+            return "narration"
+        mode = data.get("content_mode") if isinstance(data, dict) else None
+        if mode is None:
+            logger.info("project.json has no content_mode under %s, defaulting narration", project_dir)
+            return "narration"
+        if not isinstance(mode, str) or mode not in VALID_CONTENT_MODES:
+            raise ValueError(
+                f"project {project_dir.name}: invalid content_mode={mode!r} "
+                f"(must be one of {sorted(VALID_CONTENT_MODES)})"
+            )
+        return cast(ContentMode, mode)
 
     def sync_all_agent_profiles(self) -> dict:
         """扫描所有项目目录，同步 agent_runtime_profile（启动 hook 用）。
@@ -263,14 +316,18 @@ class ProjectManager:
                 for key in _STAT_KEYS_TO_AGGREGATE:
                     if key in result:
                         totals[key] = totals.get(key, 0) + result[key]
-            except (ProfileMissingError, ProfileEmptyError) as e:
+            except (ProfileMissingError, ProfileEmptyError, ProfileMisconfiguredError) as e:
                 # 部署级错误（profile 路径错 / volume 挂载失败）→ 全部跳过，
                 # 不要 fallback 到"假装 profile 是空"的破坏行为
                 logger.error("profile sync ABORTED for ALL projects: %s", e)
                 totals["aborted"] = True
                 break
-            except Exception as e:
-                logger.exception("profile sync failed for %s: %s", project_dir.name, e)
+            except ValueError as e:
+                # 单个项目 content_mode 非法 → 跳过，不影响其它项目
+                logger.warning("Skip sync for %s: %s", project_dir.name, e)
+                totals["failed_projects"] += 1
+            except Exception:
+                logger.exception("profile sync failed for %s", project_dir.name)
                 totals["failed_projects"] += 1
         return totals
 
@@ -538,7 +595,7 @@ class ProjectManager:
 
         # 查找或创建 episode 条目
         episodes = project.setdefault("episodes", [])
-        episode_entry = next((ep for ep in episodes if ep["episode"] == episode_num), None)
+        episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
 
         if episode_entry is None:
             episode_entry = {"episode": episode_num}
@@ -569,9 +626,9 @@ class ProjectManager:
         project_dir = self.get_project_path(project_name)
         if filename.startswith("scripts/"):
             filename = filename[len("scripts/") :]
-        real = self._safe_subpath(project_dir / "scripts", filename)
+        real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
-        if not os.path.exists(real):
+        if not real.exists():
             raise FileNotFoundError(f"剧本文件不存在: {real}")
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
@@ -796,12 +853,10 @@ class ProjectManager:
         if isinstance(script.get("novel"), dict):
             script["novel"].pop("source_file", None)
 
-        # 处理旧格式：如果有 characters 对象，同步到 project.json
+        # 旧格式 script 仍可能携带 characters dict；project.json 已是单一真相源，
+        # 此处仅记日志提醒，剧本 dict 保留不再做迁移（迁移实现历史上从未存在过）。
         if "characters" in script and isinstance(script["characters"], dict) and script["characters"]:
-            logger.warning("检测到旧格式 characters 对象，自动同步到 project.json")
-            self.sync_characters_from_script(project_name, script_filename)
-            # sync_characters_from_script 会重新加载和保存 script，所以需要重新加载
-            script = self.load_script(project_name, script_filename)
+            logger.warning("检测到旧格式 characters 对象（仅记录提醒，不做迁移）")
 
         # 注意：characters_in_episode 已改为读时计算
         # 不再在 normalize_script 中创建这些字段
@@ -1252,8 +1307,8 @@ class ProjectManager:
         project_name: str,
         title: str | None = None,
         style: str | None = None,
-        content_mode: str = "narration",
-        aspect_ratio: str = "9:16",
+        content_mode: str | None = "narration",
+        aspect_ratio: str | None = "9:16",
         default_duration: int | None = None,
         style_template_id: str | None = None,
         extras: dict | None = None,
@@ -1273,8 +1328,8 @@ class ProjectManager:
         project = {
             "schema_version": 1,
             "title": project_title or project_name,
-            "content_mode": content_mode,
-            "aspect_ratio": aspect_ratio,
+            "content_mode": content_mode or "narration",
+            "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
             "characters": {},

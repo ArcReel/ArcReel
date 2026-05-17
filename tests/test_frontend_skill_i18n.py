@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from lib.profile_manifest import VALID_CONTENT_MODES
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_ROOT = REPO_ROOT / "agent_runtime_profile" / ".claude" / "skills"
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
@@ -43,6 +45,29 @@ def _is_user_invocable(skill_md: Path) -> bool:
     return raw not in {"false", "no", "0"}
 
 
+def _find_skill_md(skill_dir: Path) -> Path | None:
+    """优先 SKILL.md；否则任一 SKILL.<mode>.md 变体。
+
+    双变体同时存在时，要求所有变体的 user-invocable 状态一致——否则若一份
+    user-invocable=true 另一份 false，前端只会显示其中一份的翻译 key，CI 校验
+    会漏掉这种漂移。校验失败直接 raise，让回归用例显式 fail。
+    """
+    common = skill_dir / "SKILL.md"
+    if common.is_file():
+        return common
+    variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)]
+    existing = [v for v in variants if v.is_file()]
+    if not existing:
+        return None
+    states = {v.name: _is_user_invocable(v) for v in existing}
+    if len(set(states.values())) > 1:
+        raise AssertionError(
+            f"skill {skill_dir.name} 各 mode 变体的 user-invocable 不一致: {states}; "
+            "请保证所有 SKILL.<mode>.md frontmatter 的 user-invocable 字段相同"
+        )
+    return existing[0]
+
+
 def _user_invocable_skill_ids() -> set[str]:
     if not SKILLS_ROOT.is_dir():
         return set()
@@ -50,8 +75,8 @@ def _user_invocable_skill_ids() -> set[str]:
     for skill_dir in sorted(SKILLS_ROOT.iterdir()):
         if not skill_dir.is_dir():
             continue
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.exists():
+        skill_md = _find_skill_md(skill_dir)
+        if skill_md is None:
             continue
         if _is_user_invocable(skill_md):
             ids.add(skill_dir.name.replace("-", "_"))

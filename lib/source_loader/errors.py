@@ -8,6 +8,8 @@
 - ConflictError          → 409
 """
 
+from collections.abc import Sequence
+
 
 class SourceLoaderError(Exception):
     pass
@@ -20,7 +22,7 @@ class UnsupportedFormatError(SourceLoaderError):
 
 
 class SourceDecodeError(SourceLoaderError):
-    def __init__(self, filename: str, tried_encodings: list[str | None]):
+    def __init__(self, filename: str, tried_encodings: Sequence[str | None]):
         self.filename = filename
         self.tried_encodings = [e for e in tried_encodings if e]
         super().__init__(f"Failed to decode {filename} (tried: {', '.join(self.tried_encodings) or 'n/a'})")

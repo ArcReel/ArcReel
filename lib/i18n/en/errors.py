@@ -41,6 +41,7 @@ MESSAGES = {
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",
     "invalid_upload_type": "Invalid upload type: {upload_type}",
+    "missing_filename": "Uploaded file is missing a filename",
     "unsupported_image_type": "Unsupported file type {ext}. Allowed types: {allowed}",
     "invalid_image_file": "Invalid image file, could not be parsed",
     "invalid_asset_type": "asset type must be character / scene / prop",
@@ -56,7 +57,6 @@ MESSAGES = {
     "source_corrupt_file": "Source file '{filename}' is not parseable: {reason}",
     "source_too_large": "Source file '{filename}' is too large ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Source file '{existing}' already exists; suggested rename: '{suggested}'",
-    "invalid_on_conflict": "Invalid on_conflict value; must be one of fail / replace / rename",
     # Providers
     "unknown_provider": "Unknown provider: {provider_id}",
     "credentials_not_found": "Credentials not found",

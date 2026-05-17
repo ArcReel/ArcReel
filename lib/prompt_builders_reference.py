@@ -1,4 +1,4 @@
-"""参考生视频模式 Prompt 构建器（Spec §7.3）。
+"""参考生视频模式 Prompt 构建器。
 
 设计原则与 prompt_builders_script.py 一致：
 - 不重复 schema 已声明的枚举（type 等）；让 response_schema 直接约束。
@@ -123,7 +123,7 @@ d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 # 顶层字段
 
 - `episode` / `title` / `summary` / `novel.title` / `novel.chapter` 必填。
-- `content_mode` 固定 "reference_video"。
+- `generation_mode` 固定 "reference_video"（由 caller 注入，不需 LLM 填）。
 - `duration_seconds` 可先写 0，由 caller 重算。
 
 # 复核

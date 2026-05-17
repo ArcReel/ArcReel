@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.task import Task, TaskEvent, WorkerLease
-from lib.db.repositories.base import BaseRepository
+from lib.db.repositories.base import BaseRepository, rowcount
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ class TaskRepository(BaseRepository):
                 updated_at=now,
             )
         )
-        if update_result.rowcount == 0:
+        if rowcount(update_result) == 0:
             # Another worker claimed this task between our SELECT and UPDATE
             await self.session.rollback()
             return None
@@ -431,7 +431,7 @@ class TaskRepository(BaseRepository):
             )
         )
         result = await self.session.execute(stmt)
-        if result.rowcount == 0:
+        if rowcount(result) == 0:
             return None
 
         await self.session.flush()
@@ -497,7 +497,7 @@ class TaskRepository(BaseRepository):
             )
         )
         result = await self.session.execute(stmt)
-        cancelled_count = result.rowcount
+        cancelled_count = rowcount(result)
 
         if queued_tasks:
             await self.session.flush()
@@ -711,7 +711,7 @@ class TaskRepository(BaseRepository):
                 updated_at=updated_at,
             )
         )
-        if update_result.rowcount > 0:
+        if rowcount(update_result) > 0:
             await self.session.commit()
             return True
 

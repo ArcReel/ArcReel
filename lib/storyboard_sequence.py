@@ -25,7 +25,10 @@ PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
 
 
 def get_storyboard_items(script: dict) -> tuple[list[dict], str, str, str, str]:
+    # 参考视频集没有 segments / scenes，由 generation_mode 区分；这里返回空列表交给调用方处理。
     content_mode = script.get("content_mode", "narration")
+    if script.get("generation_mode") == "reference_video":
+        return ([], "unit_id", "characters_in_unit", "scenes", "props")
     if content_mode == "narration" and "segments" in script:
         return (
             list(script.get("segments", [])),

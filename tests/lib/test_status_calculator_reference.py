@@ -42,7 +42,8 @@ def _mk_reference_script(units_total: int, units_done: int) -> dict:
     return {
         "episode": 1,
         "title": "E1",
-        "content_mode": "reference_video",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
         "duration_seconds": 0,
         "summary": "",
         "novel": {"title": "t", "chapter": "c"},
@@ -82,7 +83,8 @@ def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager)
     script = {
         "episode": 1,
         "title": "E1",
-        "content_mode": "reference_video",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
         "duration_seconds": 0,
         "summary": "",
         "novel": {"title": "t", "chapter": "c"},

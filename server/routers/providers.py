@@ -488,7 +488,7 @@ def _test_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> Con
     api_key = config["api_key"]
     base_url = normalize_base_url(config.get("base_url"))
     http_options = {"base_url": base_url} if base_url else None
-    client = genai.Client(api_key=api_key, http_options=http_options)
+    client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
 
     pager = client.models.list()
     available = _extract_gemini_models(pager)

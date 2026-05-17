@@ -58,8 +58,8 @@ mcp__arcreel__get_video_capabilities({})
 
 **Step 1**: 检查文件状态
 
-使用 Glob 工具检查 `projects/{项目名}/drafts/episode_{N}/` 是否存在。
-使用 Read 工具读取 `projects/{项目名}/project.json` 了解角色/场景/道具列表。
+使用 Glob 工具检查 `drafts/episode_{N}/` 是否存在。
+使用 Read 工具读取 `project.json` 了解角色/场景/道具列表。
 
 **Step 2**: 调用文本模型生成规范化剧本
 
@@ -73,7 +73,7 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 **Step 3**: 验证输出
 
-使用 Read 工具读取生成的 `projects/{项目名}/drafts/episode_{N}/step1_normalized_script.md`，
+使用 Read 工具读取生成的 `drafts/episode_{N}/step1_normalized_script.md`，
 确认格式正确（Markdown 表格，含场景 ID、场景描述、时长、场景类型、segment_break 列）。
 
 如果格式有问题，直接用 Edit 工具修复。
@@ -84,7 +84,7 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 **Step 1**: 读取现有剧本
 
-使用 Read 工具读取 `projects/{项目名}/drafts/episode_{N}/step1_normalized_script.md`。
+使用 Read 工具读取 `drafts/episode_{N}/step1_normalized_script.md`。
 
 **Step 2**: 根据主 agent 传入的修改要求
 

@@ -14,13 +14,47 @@ import json
 import sys
 from pathlib import Path
 
-# 允许从仓库任意工作目录直接运行该脚本
-PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .claude/skills/manage-project/scripts -> repo root
+
+def _find_repo_root(start: Path) -> Path:
+    """向上回溯定位含 pyproject.toml 的目录。
+
+    脚本可能以三种形态存在于文件系统：
+    - 源 profile：agent_runtime_profile/.claude/skills/manage-project/scripts/
+    - 物化版：projects/{name}/.claude/skills/manage-project/scripts/
+    - venv editable：.venv/lib/.../site-packages/.../scripts/
+    parents 索引在三种情形下不同；用 pyproject.toml 锚定可一并覆盖。
+    """
+    for candidate in (start, *start.parents):
+        if (candidate / "pyproject.toml").is_file():
+            return candidate
+    raise RuntimeError(
+        f"无法从 {start} 向上找到 pyproject.toml。"
+        "请确认脚本位于 ArcReel 仓库内（源 profile 或物化版 .claude 目录都可）。"
+    )
+
+
+# sys.path 注入必须在 `from lib...` 之前完成，因此 _find_repo_root 只能在 module
+# 顶层执行；不能延后到 main()。
+PROJECT_ROOT = _find_repo_root(Path(__file__).resolve())
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from lib.data_validator import validate_project
 from lib.project_manager import ProjectManager
+
+
+def _require_project_cwd() -> tuple[ProjectManager, str]:
+    """cwd 必须是有效项目目录（含 project.json），否则拒绝执行。
+
+    替代 ProjectManager.from_cwd()：from_cwd() 只看父目录推断 projects_root，
+    cwd 不是项目目录时不会显式报错，可能拼出错误的项目名。
+    """
+    cwd = Path.cwd().resolve()
+    if not (cwd / "project.json").is_file():
+        sys.exit(f"❌ 必须在项目目录内运行（当前 cwd={cwd} 不含 project.json）")
+    pm = ProjectManager(str(cwd.parent))
+    return pm, cwd.name
+
 
 _LEGACY_FIELDS = {"type", "importance"}
 
@@ -95,6 +129,9 @@ def main():
 
     args = parser.parse_args()
 
+    # cwd 校验前移：环境错了立即报错，而不是先解析空数据再退出
+    pm, project_name = _require_project_cwd()
+
     characters = {}
     scenes = {}
     props = {}
@@ -115,8 +152,6 @@ def main():
     if not characters and not scenes and not props:
         print("❌ 未提供角色、场景或道具数据")
         sys.exit(1)
-
-    pm, project_name = ProjectManager.from_cwd()
 
     chars_added = _process_asset(pm, project_name, "characters", "角色", characters, pm.add_characters_batch)
     scenes_added = _process_asset(pm, project_name, "scenes", "场景", scenes, pm.add_scenes_batch)

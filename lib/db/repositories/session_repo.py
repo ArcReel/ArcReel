@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.session import AgentSession
-from lib.db.repositories.base import BaseRepository
+from lib.db.repositories.base import BaseRepository, rowcount
 
 
 def _row_to_dict(row: AgentSession) -> dict[str, Any]:
@@ -78,12 +78,12 @@ class SessionRepository(BaseRepository):
             update(AgentSession).where(AgentSession.sdk_session_id == session_id).values(status=status, updated_at=now)
         )
         await self.session.commit()
-        return result.rowcount > 0
+        return rowcount(result) > 0
 
     async def delete(self, session_id: str) -> bool:
         result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id))
         await self.session.commit()
-        return result.rowcount > 0
+        return rowcount(result) > 0
 
     async def interrupt_running(self) -> int:
         now = utc_now()
@@ -91,4 +91,4 @@ class SessionRepository(BaseRepository):
             update(AgentSession).where(AgentSession.status == "running").values(status="interrupted", updated_at=now)
         )
         await self.session.commit()
-        return result.rowcount
+        return rowcount(result)
