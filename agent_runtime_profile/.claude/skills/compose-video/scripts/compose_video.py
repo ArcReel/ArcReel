@@ -522,7 +522,8 @@ def compose_video(
         raise ValueError(f"输出文件名逃逸到 output/ 之外: {output_filename}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # music 路径围栏前置校验：fail-fast，不让用户等到视频拼完才发现 BGM 路径越界
+    # music 路径围栏 + 存在性 fail-fast 前置校验：不要让用户等到视频拼完才发现
+    # BGM 路径越界或文件缺失（自动化场景下静默 warning 容易把失败当成功处理）
     music_file: Path | None = None
     if music_path:
         # 相对路径基于 project_dir 解析；绝对路径必须本身在 project_dir 内
@@ -530,6 +531,8 @@ def compose_video(
         music_file = (candidate if candidate.is_absolute() else project_dir / music_path).resolve()
         if not music_file.is_relative_to(project_dir):
             raise ValueError(f"BGM 文件必须位于项目目录内，收到: {music_path}")
+        if not music_file.exists():
+            raise FileNotFoundError(f"BGM 文件不存在: {music_file}")
 
     # 合成视频
     print("🎬 正在合成视频...")
@@ -541,16 +544,13 @@ def compose_video(
 
     print(f"✅ 视频合成完成: {output_path}")
 
-    # 添加背景音乐
+    # 添加背景音乐（存在性已在前置校验保证）
     if music_file is not None:
-        if music_file.exists():
-            print("🎵 正在添加背景音乐...")
-            final_output = output_path.with_stem(output_path.stem + "_with_music")
-            add_background_music(output_path, music_file, final_output)
-            output_path = final_output
-            print(f"✅ 背景音乐添加完成: {output_path}")
-        else:
-            print(f"⚠️  背景音乐文件不存在: {music_path}")
+        print("🎵 正在添加背景音乐...")
+        final_output = output_path.with_stem(output_path.stem + "_with_music")
+        add_background_music(output_path, music_file, final_output)
+        output_path = final_output
+        print(f"✅ 背景音乐添加完成: {output_path}")
 
     return output_path
 

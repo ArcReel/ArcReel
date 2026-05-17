@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,11 @@ ADD_ASSETS = SKILLS_ROOT / "manage-project" / "scripts" / "add_assets.py"
 SPLIT_EPISODE = SKILLS_ROOT / "manage-project" / "scripts" / "split_episode.py"
 PEEK_SPLIT = SKILLS_ROOT / "manage-project" / "scripts" / "peek_split_point.py"
 COMPOSE_VIDEO = SKILLS_ROOT / "compose-video" / "scripts" / "compose_video.py"
+
+# compose_video.main() 在进入路径围栏前会先 check_ffmpeg；CI 环境若缺 ffmpeg/ffprobe
+# 会以 ffmpeg 错误直接退出，让围栏断言无法匹配。统一守护这些测试。
+_FFMPEG_AVAILABLE = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+_requires_ffmpeg = pytest.mark.skipif(not _FFMPEG_AVAILABLE, reason="ffmpeg/ffprobe 不可用")
 
 
 def _run(
@@ -178,6 +184,37 @@ def test_split_episode_accepts_source_in_project(fake_project: Path) -> None:
     assert "源文件必须位于" not in result.stderr
 
 
+def test_split_episode_rejects_source_symlink(fake_project: Path, tmp_path: Path) -> None:
+    """cwd/source 是软链接时直接拒绝（防御 codex P1 报告的项目外写漏洞）。
+
+    复现：用 tmp_path/external 模拟项目外目录，把 fake_project/source 替换成
+    指向 external 的 symlink，再传 --source source/novel.txt——若放行，
+    episode_1.txt 会写到 tmp_path/external。
+    """
+    # 替换 source/ 为指向项目外目录的 symlink
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "novel.txt").write_text("外部内容" * 50, encoding="utf-8")
+    shutil.rmtree(fake_project / "source")
+    (fake_project / "source").symlink_to(external)
+
+    result = _run(
+        SPLIT_EPISODE,
+        fake_project,
+        "--source",
+        "source/novel.txt",
+        "--episode",
+        "1",
+        "--target",
+        "10",
+        "--anchor",
+        "外部",
+        "--dry-run",
+    )
+    assert result.returncode != 0
+    assert "不能是符号链接" in result.stderr
+
+
 def test_split_episode_output_lands_in_source_dir(fake_project: Path) -> None:
     """实际写入时 output 必须落在 cwd/source/，不跟随 source.parent。
 
@@ -220,6 +257,26 @@ def test_peek_split_point_rejects_source_outside(fake_project: Path) -> None:
     assert "源文件必须位于" in result.stderr
 
 
+def test_peek_split_point_rejects_source_symlink(fake_project: Path, tmp_path: Path) -> None:
+    """cwd/source 是软链接时拒绝（codex P2：阻止探测项目外文件内容）。"""
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "novel.txt").write_text("外部内容" * 50, encoding="utf-8")
+    shutil.rmtree(fake_project / "source")
+    (fake_project / "source").symlink_to(external)
+
+    result = _run(
+        PEEK_SPLIT,
+        fake_project,
+        "--source",
+        "source/novel.txt",
+        "--target",
+        "10",
+    )
+    assert result.returncode != 0
+    assert "不能是符号链接" in result.stderr
+
+
 def test_peek_split_point_accepts_source_in_project(fake_project: Path) -> None:
     result = _run(PEEK_SPLIT, fake_project, "--source", "source/novel.txt", "--target", "100")
     assert result.returncode == 0, result.stderr
@@ -249,12 +306,14 @@ def _write_drama_script(project_dir: Path, video_clip_exists: bool = True) -> st
     return f"scripts/{script_name}"
 
 
+@_requires_ffmpeg
 def test_compose_video_rejects_non_project_cwd(tmp_path: Path) -> None:
     result = _run(COMPOSE_VIDEO, tmp_path, "scripts/episode_1.json")
     assert result.returncode != 0
     assert "必须在项目目录内运行" in (result.stdout + result.stderr)
 
 
+@_requires_ffmpeg
 def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
     """narration 模式（顶层 segments[] 无 scenes[]）应给友好错误，不是 KeyError。"""
     (fake_project / "scripts").mkdir(exist_ok=True)
@@ -277,6 +336,7 @@ def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
     assert "KeyError" not in out
 
 
+@_requires_ffmpeg
 def test_compose_video_rejects_output_escape(fake_project: Path) -> None:
     """--output 含 ../ 逃逸时应拒绝。"""
     script_arg = _write_drama_script(fake_project, video_clip_exists=True)
@@ -292,6 +352,31 @@ def test_compose_video_rejects_output_escape(fake_project: Path) -> None:
     assert "逃逸" in out or "escape" in out.lower()
 
 
+@_requires_ffmpeg
+def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
+    """--music 文件不存在时应立即抛错，不要静默 warning 走完拼接。
+
+    review #8（coderabbit）：自动化场景下静默 warning 容易把失败当成功。
+    校验顺序：cwd 检查 → drama 模式检查 → output / music 路径围栏 + 存在性，
+    再开始拼接。music 不存在时应 fail-fast。
+    """
+    script_arg = _write_drama_script(fake_project, video_clip_exists=True)
+    # 引用一个项目内但不存在的 BGM 文件
+    result = _run(
+        COMPOSE_VIDEO,
+        fake_project,
+        script_arg,
+        "--music",
+        "missing-bgm.mp3",
+    )
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "BGM 文件不存在" in out
+    # 关键不变量：fail-fast — 不能让脚本进入拼接阶段
+    assert "✅ 视频合成完成" not in out
+
+
+@_requires_ffmpeg
 def test_compose_video_rejects_music_outside_project(fake_project: Path, tmp_path: Path) -> None:
     """--music 指向项目外的绝对路径时应拒绝。"""
     script_arg = _write_drama_script(fake_project, video_clip_exists=True)

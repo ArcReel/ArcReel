@@ -23,12 +23,21 @@ def _resolve_source_in_project(arg_source: str) -> Path:
     """强约束：cwd 必须含 project.json，source 必须位于 cwd/source/ 之内。
 
     peek 是只读探测，不写出文件，但仍按相同围栏校验输入，与 split_episode 一致。
+    防御点同 split_episode：cwd/source 不能是符号链接，否则 resolve 后会双双
+    落到项目外目录、绕过 is_relative_to，把"探测项目内文件"变成"探测项目外"。
     """
     cwd = Path.cwd().resolve()
     if not (cwd / "project.json").is_file():
         print(f"❌ 必须在项目目录内运行（当前 cwd={cwd} 不含 project.json）", file=sys.stderr)
         sys.exit(1)
-    source_dir = (cwd / "source").resolve()
+    source_dir_unresolved = cwd / "source"
+    if source_dir_unresolved.is_symlink():
+        print(
+            f"❌ source/ 不能是符号链接（避免探测项目外文件）: {source_dir_unresolved}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    source_dir = source_dir_unresolved.resolve()
     if not source_dir.is_dir():
         print(f"❌ 项目缺 source/ 目录: {source_dir}", file=sys.stderr)
         sys.exit(1)

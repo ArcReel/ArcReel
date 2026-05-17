@@ -58,7 +58,7 @@ Step 7 视频
 
 > 下面的目录树仅说明项目结构，session cwd 已在 `projects/{name}/`，**调用工具时使用相对 cwd 的路径**（如 `videos/`、`reference_videos/`），不可带 `projects/{name}/` 前缀。
 
-```
+```text
 projects/{name}/          # ← session cwd 已在此
 ├── storyboards/          # storyboard / grid 模式（分镜图）
 ├── grids/                # grid 模式（宫格图）

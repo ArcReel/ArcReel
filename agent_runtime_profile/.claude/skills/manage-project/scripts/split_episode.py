@@ -27,12 +27,23 @@ def _resolve_source_in_project(arg_source: str) -> tuple[Path, Path]:
     返回 (source_path, source_dir)；source_dir 同时是后续 output 的强制根。
     output 写入位置不再跟随 source 的父目录，避免 cwd 漂移 / agent 传错
     路径时把分集文件落到项目目录之外。
+
+    防御 source/ 软链接绕过：若 `cwd/source` 本身是符号链接（指向 /tmp/x），
+    resolve 后 source_dir 与 source_path 双双落到 /tmp/x，is_relative_to
+    校验会放行——但产物实际写到了项目目录之外。这里在 resolve 前显式拒绝。
     """
     cwd = Path.cwd().resolve()
     if not (cwd / "project.json").is_file():
         print(f"❌ 必须在项目目录内运行（当前 cwd={cwd} 不含 project.json）", file=sys.stderr)
         sys.exit(1)
-    source_dir = (cwd / "source").resolve()
+    source_dir_unresolved = cwd / "source"
+    if source_dir_unresolved.is_symlink():
+        print(
+            f"❌ source/ 不能是符号链接（避免分集产物落到项目外）: {source_dir_unresolved}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    source_dir = source_dir_unresolved.resolve()
     if not source_dir.is_dir():
         print(f"❌ 项目缺 source/ 目录: {source_dir}", file=sys.stderr)
         sys.exit(1)
