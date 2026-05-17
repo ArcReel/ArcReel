@@ -405,6 +405,56 @@ def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
 
 
 @_requires_ffmpeg
+def test_compose_video_rejects_video_clip_escape(fake_project: Path, tmp_path: Path) -> None:
+    """剧本里 `generated_assets.video_clip` 走 `..` 逃逸时拒绝（review #12）。
+
+    `project_dir / "../escape.mp4"` 未 resolve 时字面前缀会骗过 is_relative_to。
+    resolve 后才能识别为项目外。
+    """
+    external = tmp_path / "escape.mp4"
+    external.write_bytes(b"\x00" * 16)
+    # 用相对路径形式触发字面前缀场景：从 project_dir 出发 .. 到 tmp_path
+    (fake_project / "scripts").mkdir(exist_ok=True)
+    script = {
+        "novel": {"chapter": "ep1"},
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "generated_assets": {"video_clip": "../escape.mp4"},
+            }
+        ],
+    }
+    (fake_project / "scripts" / "ep_escape.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_escape.json")
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "视频文件必须位于项目目录内" in out
+    assert "✅ 视频合成完成" not in out
+
+
+@_requires_ffmpeg
+def test_compose_video_rejects_video_clip_absolute_outside(fake_project: Path, tmp_path: Path) -> None:
+    """剧本里 `generated_assets.video_clip` 是项目外绝对路径时拒绝（review #12）。"""
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"\x00" * 16)
+    (fake_project / "scripts").mkdir(exist_ok=True)
+    script = {
+        "novel": {"chapter": "ep1"},
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "generated_assets": {"video_clip": str(outside)},
+            }
+        ],
+    }
+    (fake_project / "scripts" / "ep_abs.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_abs.json")
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "视频文件必须位于项目目录内" in out
+
+
+@_requires_ffmpeg
 def test_compose_video_rejects_output_symlink(fake_project: Path, tmp_path: Path) -> None:
     """project_dir/output 是符号链接时拒绝（防御 output/ 软链接绕过）。
 

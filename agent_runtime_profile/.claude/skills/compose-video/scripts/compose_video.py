@@ -499,9 +499,15 @@ def compose_video(
         if not video_clip:
             raise ValueError(f"场景 {scene['scene_id']} 缺少视频片段")
 
-        video_path = project_dir / video_clip
-        if not video_path.exists():
-            raise FileNotFoundError(f"视频文件不存在: {video_path}")
+        # 与 --music / output 同样的围栏：剧本里 video_clip 写成绝对路径或 ../
+        # 形式时，未 resolve 的 `project_dir / video_clip` 会落到项目外（且字面
+        # 前缀能骗过 is_relative_to），ffmpeg 会真的去读项目外文件
+        candidate = Path(video_clip)
+        video_path = (candidate if candidate.is_absolute() else project_dir / candidate).resolve()
+        if not video_path.is_relative_to(project_dir):
+            raise ValueError(f"视频文件必须位于项目目录内，收到: {video_clip}")
+        if not video_path.is_file():
+            raise FileNotFoundError(f"视频文件不存在或不是普通文件: {video_path}")
 
         video_paths.append(video_path)
         transitions.append(scene.get("transition_to_next", "cut"))
