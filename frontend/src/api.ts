@@ -169,6 +169,20 @@ export interface SuccessResponse {
   message?: string;
 }
 
+/** 说书模式片段 PATCH 入参（drama 模式片段走 {@link API.updateScene}）。 */
+export interface SegmentUpdatePayload {
+  script_file: string;
+  duration_seconds?: number;
+  segment_break?: boolean;
+  image_prompt?: unknown;
+  video_prompt?: unknown;
+  transition_to_next?: string;
+  note?: string;
+  characters_in_segment?: string[];
+  scenes?: string[];
+  props?: string[];
+}
+
 /** Payload for {@link API.createProject}. */
 export interface CreateProjectPayload {
   title: string;
@@ -646,8 +660,9 @@ class API {
     );
   }
 
-  // ==================== 片段管理（说书模式） ====================
+  // ==================== 片段管理（说书 + 剧集动画两种模式） ====================
 
+  /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */
   static async updateSegment(
     projectName: string,
     segmentId: string,

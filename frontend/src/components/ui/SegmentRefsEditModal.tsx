@@ -340,8 +340,13 @@ function Section({
   staleHint,
   searchEmptyText,
 }: SectionProps) {
+  const { t } = useTranslation("dashboard");
   const selectedCount = rows.reduce(
     (n, r) => (selectedSet.has(r.name) ? n + 1 : n),
+    0,
+  );
+  const staleCount = rows.reduce(
+    (n, r) => (r.isStale && selectedSet.has(r.name) ? n + 1 : n),
     0,
   );
   return (
@@ -363,6 +368,20 @@ function Section({
             style={{ color: "var(--color-text-4)" }}
           >
             {selectedCount}/{rows.length}
+          </span>
+        )}
+        {staleCount > 0 && (
+          <span
+            className="num inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]"
+            style={{
+              background: WARM_TONE.soft,
+              border: `1px solid ${WARM_TONE.ring}`,
+              color: WARM_TONE.color,
+            }}
+            title={staleHint}
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>{t("segment_refs_stale_badge", { count: staleCount })}</span>
           </span>
         )}
       </div>

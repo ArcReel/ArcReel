@@ -22,6 +22,7 @@ import { DialogueListEditor } from "./DialogueListEditor";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { NotesDrawer } from "./NotesDrawer";
+import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { Popover } from "@/components/ui/Popover";
 import { useCostStore } from "@/stores/cost-store";
@@ -421,8 +422,30 @@ export function ShotDetail({
 
   const dirtyHint = t("shot_detail_save_first");
 
+  const characterNames =
+    contentMode === "drama"
+      ? (segment as DramaScene).characters_in_scene ?? []
+      : (segment as NarrationSegment).characters_in_segment ?? [];
+  const sceneNames = segment.scenes ?? [];
+  const propNames = segment.props ?? [];
+
+  const handleRefsSave = async (patch: Record<string, string[]>) => {
+    if (Object.keys(patch).length === 0) return;
+    await onUpdatePrompt?.(segmentId, patch);
+  };
+
   const leftColumn = (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
+      <ReferencesSection
+        projectName={projectName}
+        contentMode={contentMode}
+        characterNames={characterNames}
+        sceneNames={sceneNames}
+        propNames={propNames}
+        onSave={handleRefsSave}
+        disabled={dirty || saving}
+        disabledHint={dirty ? dirtyHint : undefined}
+      />
       <div>
         <div
           className="mb-2 text-[10.5px] font-bold uppercase"
