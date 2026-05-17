@@ -37,7 +37,7 @@ python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.j
 |---|---|---|
 | `script` | 位置参数（必填） | 剧本文件名（相对项目 cwd） |
 | `--output OUTPUT` | 可选 | 输出文件名；缺省按剧本 `novel.chapter` 字段生成。无论何种取值，最终都落在 `output/` 子目录内 |
-| `--music MUSIC` | 可选 | BGM 文件路径（相对项目 cwd 或绝对路径） |
+| `--music MUSIC` | 可选 | BGM 文件路径（相对项目 cwd 或绝对路径），但**必须解析后位于项目目录内** |
 | `--no-transitions` | flag | 全部用 cut 直接拼接，忽略剧本里的 `transition_to_next` |
 
 ## 工作流程

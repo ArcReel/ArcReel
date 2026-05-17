@@ -25,7 +25,12 @@ PEEK_SPLIT = SKILLS_ROOT / "manage-project" / "scripts" / "peek_split_point.py"
 COMPOSE_VIDEO = SKILLS_ROOT / "compose-video" / "scripts" / "compose_video.py"
 
 
-def _run(script: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    script: Path,
+    cwd: Path,
+    *args: str,
+    stdin: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     """以指定 cwd 跑脚本，返回 CompletedProcess。"""
     return subprocess.run(
         [sys.executable, str(script), *args],
@@ -33,6 +38,7 @@ def _run(script: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess[str
         capture_output=True,
         text=True,
         check=False,
+        input=stdin,
     )
 
 
@@ -76,6 +82,14 @@ def fake_project(tmp_path: Path) -> Path:
 def test_add_assets_rejects_non_project_cwd(tmp_path: Path) -> None:
     """cwd 不含 project.json 时应当拒绝并提示。"""
     result = _run(ADD_ASSETS, tmp_path, "--characters", "{}")
+    assert result.returncode != 0
+    assert "必须在项目目录内运行" in (result.stdout + result.stderr)
+
+
+def test_add_assets_rejects_non_project_cwd_stdin_mode(tmp_path: Path) -> None:
+    """stdin 模式同样必须先过 cwd 校验，不能因为有 stdin 输入就绕过。"""
+    payload = json.dumps({"characters": {"X": {"description": "y"}}})
+    result = _run(ADD_ASSETS, tmp_path, "--stdin", stdin=payload)
     assert result.returncode != 0
     assert "必须在项目目录内运行" in (result.stdout + result.stderr)
 
@@ -276,3 +290,61 @@ def test_compose_video_rejects_output_escape(fake_project: Path) -> None:
     assert result.returncode != 0
     out = result.stdout + result.stderr
     assert "逃逸" in out or "escape" in out.lower()
+
+
+def test_compose_video_rejects_music_outside_project(fake_project: Path, tmp_path: Path) -> None:
+    """--music 指向项目外的绝对路径时应拒绝。"""
+    script_arg = _write_drama_script(fake_project, video_clip_exists=True)
+    outside_music = tmp_path / "outside.mp3"
+    outside_music.write_bytes(b"\x00")
+    result = _run(
+        COMPOSE_VIDEO,
+        fake_project,
+        script_arg,
+        "--music",
+        str(outside_music),
+    )
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "BGM 文件必须位于项目目录内" in out
+
+
+# ---------- split_episode --episode 正整数校验 ----------
+
+
+def test_split_episode_rejects_negative_episode(fake_project: Path) -> None:
+    """--episode -1 应当被 argparse 直接拒绝（不生成 episode_-1.txt）。"""
+    result = _run(
+        SPLIT_EPISODE,
+        fake_project,
+        "--source",
+        "source/novel.txt",
+        "--episode",
+        "-1",
+        "--target",
+        "100",
+        "--anchor",
+        "x",
+        "--dry-run",
+    )
+    assert result.returncode != 0
+    assert "正整数" in (result.stdout + result.stderr)
+
+
+def test_split_episode_rejects_zero_episode(fake_project: Path) -> None:
+    """--episode 0 同样拒绝。"""
+    result = _run(
+        SPLIT_EPISODE,
+        fake_project,
+        "--source",
+        "source/novel.txt",
+        "--episode",
+        "0",
+        "--target",
+        "100",
+        "--anchor",
+        "x",
+        "--dry-run",
+    )
+    assert result.returncode != 0
+    assert "正整数" in (result.stdout + result.stderr)

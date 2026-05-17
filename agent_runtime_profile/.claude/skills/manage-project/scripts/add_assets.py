@@ -27,9 +27,14 @@ def _find_repo_root(start: Path) -> Path:
     for candidate in (start, *start.parents):
         if (candidate / "pyproject.toml").is_file():
             return candidate
-    raise RuntimeError(f"无法从 {start} 向上找到 pyproject.toml")
+    raise RuntimeError(
+        f"无法从 {start} 向上找到 pyproject.toml。"
+        "请确认脚本位于 ArcReel 仓库内（源 profile 或物化版 .claude 目录都可）。"
+    )
 
 
+# sys.path 注入必须在 `from lib...` 之前完成，因此 _find_repo_root 只能在 module
+# 顶层执行；不能延后到 main()。
 PROJECT_ROOT = _find_repo_root(Path(__file__).resolve())
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

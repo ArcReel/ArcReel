@@ -23,9 +23,13 @@ def _find_repo_root(start: Path) -> Path:
     for candidate in (start, *start.parents):
         if (candidate / "pyproject.toml").is_file():
             return candidate
-    raise RuntimeError(f"无法从 {start} 向上找到 pyproject.toml")
+    raise RuntimeError(
+        f"无法从 {start} 向上找到 pyproject.toml。"
+        "请确认脚本位于 ArcReel 仓库内（源 profile 或物化版 .claude 目录都可）。"
+    )
 
 
+# sys.path 注入必须在 `from lib...` 之前完成，因此只能在 module 顶层执行。
 PROJECT_ROOT = _find_repo_root(Path(__file__).resolve())
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -518,6 +522,15 @@ def compose_video(
         raise ValueError(f"输出文件名逃逸到 output/ 之外: {output_filename}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # music 路径围栏前置校验：fail-fast，不让用户等到视频拼完才发现 BGM 路径越界
+    music_file: Path | None = None
+    if music_path:
+        # 相对路径基于 project_dir 解析；绝对路径必须本身在 project_dir 内
+        candidate = Path(music_path)
+        music_file = (candidate if candidate.is_absolute() else project_dir / music_path).resolve()
+        if not music_file.is_relative_to(project_dir):
+            raise ValueError(f"BGM 文件必须位于项目目录内，收到: {music_path}")
+
     # 合成视频
     print("🎬 正在合成视频...")
 
@@ -529,11 +542,7 @@ def compose_video(
     print(f"✅ 视频合成完成: {output_path}")
 
     # 添加背景音乐
-    if music_path:
-        music_file = Path(music_path)
-        if not music_file.exists():
-            music_file = project_dir / music_path
-
+    if music_file is not None:
         if music_file.exists():
             print("🎵 正在添加背景音乐...")
             final_output = output_path.with_stem(output_path.stem + "_with_music")

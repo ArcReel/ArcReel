@@ -67,10 +67,18 @@ def find_anchor_near_target(text: str, anchor: str, target_offset: int, window: 
     return positions
 
 
+def _positive_int(value: str) -> int:
+    """argparse type：拒绝负数和 0，避免生成 episode_-1.txt / episode_0.txt。"""
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"必须是正整数，收到: {value}")
+    return ivalue
+
+
 def main():
     parser = argparse.ArgumentParser(description="执行分集切分")
     parser.add_argument("--source", required=True, help="源文件路径")
-    parser.add_argument("--episode", required=True, type=int, help="集数编号")
+    parser.add_argument("--episode", required=True, type=_positive_int, help="集数编号（正整数）")
     parser.add_argument("--target", required=True, type=int, help="目标字数（与 peek 的 --target 一致）")
     parser.add_argument("--anchor", required=True, help="切分点前的文本片段（10-20 字符）")
     parser.add_argument("--context", default=500, type=int, help="搜索窗口大小（默认 500 字符）")
