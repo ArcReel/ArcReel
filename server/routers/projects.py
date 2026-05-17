@@ -32,6 +32,7 @@ from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
+from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
@@ -72,7 +73,7 @@ class CreateProjectRequest(BaseModel):
     name: str | None = None
     title: str | None = None
     style: str | None = ""  # 保留但不再是用户入口
-    content_mode: str | None = "narration"
+    content_mode: ContentMode | None = "narration"
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
     generation_mode: str | None = None
@@ -105,7 +106,7 @@ class EpisodePatch(BaseModel):
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = None
-    content_mode: str | None = None
+    content_mode: ContentMode | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
     generation_mode: str | None = None

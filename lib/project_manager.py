@@ -15,7 +15,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import portalocker
 from pydantic import BaseModel, Field
@@ -25,6 +25,7 @@ from lib.asset_types import ASSET_SPECS
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
+    ContentMode,
     ProfileEmptyError,
     ProfileMisconfiguredError,
     ProfileMissingError,
@@ -158,7 +159,7 @@ class ProjectManager:
             (root / sub).mkdir(exist_ok=True)
         return root
 
-    def create_project(self, name: str, content_mode: str = "narration") -> Path:
+    def create_project(self, name: str, content_mode: ContentMode = "narration") -> Path:
         """
         创建新项目
 
@@ -195,7 +196,7 @@ class ProjectManager:
         self,
         project_dir: Path,
         *,
-        content_mode: str | None = None,
+        content_mode: ContentMode | None = None,
     ) -> dict:
         """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
 
@@ -221,19 +222,21 @@ class ProjectManager:
         project_dir: Path,
         *,
         paths: list[str] | None = None,
-        content_mode: str | None = None,
+        content_mode: ContentMode | None = None,
     ) -> dict:
         """强制按 profile 覆盖项目内对应文件并刷新 manifest。
 
         用于 UI"恢复内置 skill"按钮等显式触发的场景。``paths=None`` 表示全量；
         指定 paths 中若某文件 profile 已删，会 skip + log warn（不算 error）。
+
+        ``content_mode=None`` 时与 ``sync_agent_profile`` 同语义，自动从 project.json 解析。
         """
         if content_mode is None:
             content_mode = self._resolve_content_mode(project_dir)
         profile_dir = agent_profile_dir()
         return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
 
-    def _resolve_content_mode(self, project_dir: Path) -> str:
+    def _resolve_content_mode(self, project_dir: Path) -> ContentMode:
         """从 project_dir/project.json 读 content_mode；缺失回退 narration。"""
         data = load_json_or_none(project_dir / self.PROJECT_FILE)
         mode = data.get("content_mode") if isinstance(data, dict) else None
@@ -245,7 +248,7 @@ class ProjectManager:
                 f"project {project_dir.name}: invalid content_mode={mode!r} "
                 f"(must be one of {sorted(VALID_CONTENT_MODES)})"
             )
-        return mode
+        return cast(ContentMode, mode)
 
     def sync_all_agent_profiles(self) -> dict:
         """扫描所有项目目录，同步 agent_runtime_profile（启动 hook 用）。

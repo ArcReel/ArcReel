@@ -469,7 +469,7 @@ def test_resolve_invalid_mode_raises(tmp_path: Path) -> None:
 
     profile = _make_profile(tmp_path)
     with pytest.raises(ValueError, match="content_mode"):
-        resolve_profile_files_for_mode(profile, "reference_video")
+        resolve_profile_files_for_mode(profile, "reference_video")  # type: ignore[arg-type]
 
 
 def test_resolve_double_dot_filename_not_treated_as_variant(tmp_path: Path) -> None:
@@ -635,7 +635,7 @@ def test_sync_invalid_mode_raises(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path)
     project = _fresh_project(tmp_path / "proj_root")
     with pytest.raises(ValueError, match="content_mode"):
-        sync_profile_to_project(profile, project, content_mode="reference_video")
+        sync_profile_to_project(profile, project, content_mode="reference_video")  # type: ignore[arg-type]
 
 
 # ---------- force_resync_profile ----------
@@ -673,7 +673,7 @@ def test_force_resync_invalid_mode_raises(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path)
     project = _fresh_project(tmp_path / "proj_root")
     with pytest.raises(ValueError, match="content_mode"):
-        force_resync_profile(profile, project, content_mode="bad")
+        force_resync_profile(profile, project, content_mode="bad")  # type: ignore[arg-type]
 
 
 # ---------- ProjectManager 集成 ----------

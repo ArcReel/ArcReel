@@ -25,6 +25,7 @@ import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from typing import Literal, cast
 
 import portalocker
 
@@ -54,7 +55,8 @@ class ProfileMisconfiguredError(RuntimeError):
     """profile 端变体文件不合法（成对缺失或与通用文件并存）→ 部署错误。sync 拒绝运行。"""
 
 
-VALID_CONTENT_MODES = frozenset({"narration", "drama"})
+ContentMode = Literal["narration", "drama"]
+VALID_CONTENT_MODES: frozenset[str] = frozenset({"narration", "drama"})
 
 
 # ---------- 基础工具 ----------
@@ -83,15 +85,6 @@ def _walk_files(root: Path, rel_to: Path) -> set[str]:
     return out
 
 
-def enumerate_profile_files(profile_dir: Path) -> set[str]:
-    """profile 内所有要同步文件的 POSIX 相对路径集合。"""
-    files: set[str] = set()
-    if (profile_dir / _PROFILE_TOP_FILE).is_file():
-        files.add(_PROFILE_TOP_FILE)
-    files |= _walk_files(profile_dir / _PROFILE_TREE_ROOT, profile_dir)
-    return files
-
-
 def _parse_variant_suffix(rel: str) -> tuple[str, str | None]:
     """把 ``foo.narration.md`` 拆成 (logical_rel="foo.md", mode="narration")。
     非变体文件返回 (rel, None)。只识别 stem 中最后一段。
@@ -109,11 +102,11 @@ def _parse_variant_suffix(rel: str) -> tuple[str, str | None]:
     return rel, None
 
 
-def _enumerate_all_profile_files(profile_dir: Path) -> set[str]:
-    """profile 内所有文件（含顶层变体如 CLAUDE.narration.md）的 POSIX 相对路径集合。
+def enumerate_profile_files(profile_dir: Path) -> set[str]:
+    """profile 内所有源文件的 POSIX 相对路径集合（含顶层变体如 CLAUDE.narration.md）。
 
-    与 ``enumerate_profile_files`` 的区别：后者只收录 ``CLAUDE.md``（精确名），
-    此函数收录顶层所有直接子文件 + ``.claude/**`` 全树，供变体投影使用。
+    收集口径：顶层所有直接子文件 + ``.claude/**`` 全树。变体筛选交给
+    ``resolve_profile_files_for_mode`` 按 ``content_mode`` 投影。
     """
     files: set[str] = set()
     # 顶层直接子文件（CLAUDE.md、CLAUDE.narration.md、CLAUDE.drama.md 等）
@@ -128,7 +121,7 @@ def _enumerate_all_profile_files(profile_dir: Path) -> set[str]:
 
 def resolve_profile_files_for_mode(
     profile_dir: Path,
-    content_mode: str,
+    content_mode: ContentMode,
 ) -> dict[str, str]:
     """把 profile 端文件树投影成 ``{logical_rel: source_rel}`` 映射。
 
@@ -142,7 +135,7 @@ def resolve_profile_files_for_mode(
     if content_mode not in VALID_CONTENT_MODES:
         raise ValueError(f"content_mode must be one of {VALID_CONTENT_MODES}, got {content_mode!r}")
 
-    profile_files = _enumerate_all_profile_files(profile_dir)
+    profile_files = enumerate_profile_files(profile_dir)
 
     # variants[logical_rel][mode] = source_rel
     variants: dict[str, dict[str, str]] = {}
@@ -267,7 +260,10 @@ class Manifest:
     schema_version: int
     profile_id: str
     entries: dict[str, dict]
-    content_mode: str | None = None
+    # None ≡ "未迁移": 来自 content_mode 字段引入前写的老 manifest；首次新 sync
+    # 会通过 needs_migration 路径回填实际 mode，不触发破坏性 reset。
+    # 非空 ≡ 上次 sync 时使用的 content_mode；与本次请求不一致会触发 reset。
+    content_mode: ContentMode | None = None
 
     @classmethod
     def empty(cls) -> Manifest:
@@ -354,10 +350,11 @@ def load_manifest(project_dir: Path) -> tuple[Manifest, bytes] | None:
             logger.warning("manifest %s entry %s unknown source=%r, will reset", path, key, source)
             return None
     raw_mode = data.get("content_mode")
+    content_mode: ContentMode | None
     if raw_mode is None:
-        content_mode: str | None = None
+        content_mode = None
     elif isinstance(raw_mode, str) and raw_mode in VALID_CONTENT_MODES:
-        content_mode = raw_mode
+        content_mode = cast(ContentMode, raw_mode)
     else:
         logger.warning("manifest %s invalid content_mode=%r, will reset", path, raw_mode)
         return None
@@ -480,7 +477,7 @@ def _full_reset_from_profile(
     project_dir: Path,
     mapping: dict[str, str],
     *,
-    content_mode: str | None = None,
+    content_mode: ContentMode | None = None,
 ) -> dict:
     """删除 dest，从 profile 全量物化，写 manifest baseline。
 
@@ -652,7 +649,7 @@ def _apply_decision(
 def sync_profile_to_project(
     profile_dir: Path,
     project_dir: Path,
-    content_mode: str,
+    content_mode: ContentMode,
 ) -> dict:
     """profile → project_dir 同步主入口。
 
@@ -723,7 +720,7 @@ def sync_profile_to_project(
 def force_resync_profile(
     profile_dir: Path,
     project_dir: Path,
-    content_mode: str,
+    content_mode: ContentMode,
     *,
     paths: Iterable[str] | None = None,
 ) -> dict:
