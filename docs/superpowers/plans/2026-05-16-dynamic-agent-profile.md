@@ -1084,16 +1084,21 @@ Expected: FAIL（缺 content_mode 参数 / 行为未实现）。
         return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
 
     def _resolve_content_mode(self, project_dir: Path) -> str:
-        """从 project_dir/project.json 读 content_mode；缺失回退 narration。"""
+        """从 project_dir/project.json 读 content_mode；缺失回退 narration。
+
+        project.json 不存在或缺 content_mode 字段 → 回退 narration（兼容老项目）。
+        文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles 走
+        failed_projects 分支；静默回退会导致 drama 项目 manifest mode 不匹配
+        触发破坏性 reset，把 profile 错切回说书变体。
+        """
         pj_path = project_dir / self.PROJECT_FILE
-        if not pj_path.is_file():
-            logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
-            return "narration"
         try:
             data = json.loads(pj_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("project.json unreadable under %s: %s; defaulting narration", project_dir, exc)
+        except FileNotFoundError:
+            logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
             return "narration"
+        # 注意：OSError / JSONDecodeError 不在这里 catch，自然抛出让 sync_all_agent_profiles
+        # 走 failed_projects 分支，避免静默回退到 narration 后触发 destructive reset。
         mode = data.get("content_mode")
         if mode is None:
             logger.info("project.json missing content_mode under %s, defaulting narration", project_dir)
