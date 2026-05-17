@@ -405,6 +405,30 @@ def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
 
 
 @_requires_ffmpeg
+def test_compose_video_rejects_output_symlink(fake_project: Path, tmp_path: Path) -> None:
+    """project_dir/output 是符号链接时拒绝（防御 output/ 软链接绕过）。
+
+    与 source/ symlink 拒绝对称：若 output -> /tmp/external，resolve 后
+    output_dir 与 output_path 双双落到 /tmp/external，is_relative_to 会
+    放行，但产物实际写到了项目目录之外。
+    """
+    script_arg = _write_drama_script(fake_project, video_clip_exists=True)
+    external = tmp_path / "external-output"
+    external.mkdir()
+    (fake_project / "output").symlink_to(external)
+
+    result = _run(
+        COMPOSE_VIDEO,
+        fake_project,
+        script_arg,
+    )
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "output/ 不能是符号链接" in out
+    assert "✅ 视频合成完成" not in out
+
+
+@_requires_ffmpeg
 def test_compose_video_rejects_music_dir(fake_project: Path) -> None:
     """--music 指向目录时应在校验阶段拒绝（review #9）。"""
     script_arg = _write_drama_script(fake_project, video_clip_exists=True)

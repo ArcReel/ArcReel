@@ -516,7 +516,13 @@ def compose_video(
         chapter = script["novel"].get("chapter", "output").replace(" ", "_")
         output_filename = f"{chapter}_final.mp4"
 
-    output_dir = (project_dir / "output").resolve()
+    # 防御 output/ 软链接绕过：若 `project_dir/output` 本身指向项目外目录，
+    # resolve 后的 output_dir 会落到项目外，is_relative_to 校验同样会放行——
+    # 与 source/ 对称，这里在 resolve 前显式拒绝。
+    output_dir_unresolved = project_dir / "output"
+    if output_dir_unresolved.is_symlink():
+        raise ValueError(f"output/ 不能是符号链接（避免合成产物落到项目外）: {output_dir_unresolved}")
+    output_dir = output_dir_unresolved.resolve()
     output_path = (output_dir / output_filename).resolve()
     if not output_path.is_relative_to(output_dir):
         raise ValueError(f"输出文件名逃逸到 output/ 之外: {output_filename}")
