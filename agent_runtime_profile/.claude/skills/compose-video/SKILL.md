@@ -61,7 +61,7 @@ python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.j
 ## 前置检查
 
 - [ ] 当前 cwd 是项目根（含 `project.json`）
-- [ ] 剧本 generation_mode 为 drama（顶层有 `scenes[]`）
+- [ ] 剧本 content_mode 为 drama（顶层有 `scenes[]`）
 - [ ] 每个场景的 `generated_assets.video_clip` 都已生成
 - [ ] `ffmpeg` / `ffprobe` 都在 PATH（脚本会预检）
 - [ ] BGM 文件存在（如指定 `--music`）
