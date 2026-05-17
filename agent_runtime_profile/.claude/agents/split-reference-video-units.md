@@ -13,7 +13,7 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 - 本集小说文件（如 `source/episode_1.txt`）
 
 **自查数据**：
-- 角色 / 场景 / 道具名称从 `projects/{项目名}/project.json` 的 `characters` / `scenes` / `props` 三张表读。
+- 角色 / 场景 / 道具名称从 `project.json`（相对 session cwd）的 `characters` / `scenes` / `props` 三张表读。
 - 视频模型能力（`supported_durations` / `max_duration` / `max_reference_images`）和用户偏好（`default_duration`）由本 subagent 在 Step 0 查得（见下方工作流）。
 
 **输出**：保存 `drafts/episode_{N}/step1_reference_units.md` 后，返回 unit 统计摘要。
@@ -51,9 +51,9 @@ mcp__arcreel__get_video_capabilities({})
 
 ### Step 1: 读取项目信息和小说原文
 
-使用 Read 工具读取：
-- `projects/{项目名}/project.json` — 获取 characters / scenes / props 三张表
-- `projects/{项目名}/source/episode_{N}.txt` — 单集原文
+使用 Read 工具读取（相对 session cwd）：
+- `project.json` — 获取 characters / scenes / props 三张表
+- `source/episode_{N}.txt` — 单集原文
 
 ### Step 2: 按 video_unit 粒度拆分
 
@@ -82,7 +82,7 @@ mcp__arcreel__get_video_capabilities({})
 
 ### Step 3: 保存中间文件
 
-创建目录 `projects/{项目名}/drafts/episode_{N}/`（如不存在），
+创建目录 `drafts/episode_{N}/`（相对 session cwd，如不存在），
 将 unit 表保存为 `step1_reference_units.md`，文件结构（占位符 `<...>` 在你生成时用 Step 0 查到的真实值替换；模板本身不含具体秒数以免锚点污染）：
 
 ```markdown

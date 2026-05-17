@@ -28,6 +28,17 @@
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `manage-project` / `compose-video` 这两个 skill 内还保留的 Python 脚本。
 - **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
+### 路径规范
+
+agent session 的当前工作目录（cwd）已绑定到当前项目根，**所有工具参数中的路径必须遵循以下规则**：
+
+- **Read / Edit / Write / Glob / Grep**：`file_path` 使用**绝对路径**
+- **Bash 调用 skill 脚本**：使用**相对项目根 cwd** 的路径，例如：
+  - ✅ `source/episode_1.txt`、`drafts/episode_1/step1_segments.md`、`scripts/episode_1.json`
+  - ❌ `projects/{项目名}/source/episode_1.txt`（双前缀，占位符替换或拼接出错就会落到 projects 根）
+- **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
+- skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
+
 ---
 
 ## 内容模式
@@ -139,8 +150,10 @@
 
 ## 项目目录结构
 
+> 下面的目录树仅为说明用途，agent session 的 cwd 已经在项目根，**所有工具参数请使用相对 cwd 的路径**（如 `source/`、`scripts/`），不可带 `projects/{项目名}/` 前缀。
+
 ```
-projects/{项目名}/
+projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的相对路径
 ├── project.json       # 项目元数据（角色、场景、道具、剧集、风格）
 ├── source/            # 原始小说内容
 ├── scripts/           # 分镜剧本 (JSON)

@@ -24,13 +24,13 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，按 
 
 ### Step 1: 读取项目信息
 
-使用 Read 工具读取 `projects/{项目名}/project.json`，记录：
+使用 Read 工具读取 `project.json`（相对 session cwd），记录：
 - 已有的 characters、scenes 和 props 名称（后续跳过这些）
 - overview、style 字段（理解项目背景）
 
 ### Step 2: 读取小说原文
 
-使用 Glob 工具列出 `projects/{项目名}/source/` 目录下的文本文件，
+使用 Glob 工具列出 `source/` 目录下的文本文件，
 然后使用 Read 工具按文件名顺序读取所有 `.txt`、`.md` 或 `.text` 文件。
 
 如果主 agent 指定了分析范围，只读取指定的文件或章节。
