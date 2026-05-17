@@ -531,8 +531,8 @@ def compose_video(
         music_file = (candidate if candidate.is_absolute() else project_dir / music_path).resolve()
         if not music_file.is_relative_to(project_dir):
             raise ValueError(f"BGM 文件必须位于项目目录内，收到: {music_path}")
-        if not music_file.exists():
-            raise FileNotFoundError(f"BGM 文件不存在: {music_file}")
+        if not music_file.is_file():
+            raise FileNotFoundError(f"BGM 文件不存在或不是普通文件: {music_file}")
 
     # 合成视频
     print("🎬 正在合成视频...")

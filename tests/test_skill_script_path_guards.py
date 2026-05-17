@@ -215,6 +215,26 @@ def test_split_episode_rejects_source_symlink(fake_project: Path, tmp_path: Path
     assert "不能是符号链接" in result.stderr
 
 
+def test_split_episode_rejects_source_dir(fake_project: Path) -> None:
+    """--source 指向目录时应在校验阶段拒绝，不进入 read_text() 才崩。"""
+    (fake_project / "source" / "subdir").mkdir()
+    result = _run(
+        SPLIT_EPISODE,
+        fake_project,
+        "--source",
+        "source/subdir",
+        "--episode",
+        "1",
+        "--target",
+        "10",
+        "--anchor",
+        "x",
+        "--dry-run",
+    )
+    assert result.returncode != 0
+    assert "不存在或不是普通文件" in result.stderr
+
+
 def test_split_episode_output_lands_in_source_dir(fake_project: Path) -> None:
     """实际写入时 output 必须落在 cwd/source/，不跟随 source.parent。
 
@@ -275,6 +295,14 @@ def test_peek_split_point_rejects_source_symlink(fake_project: Path, tmp_path: P
     )
     assert result.returncode != 0
     assert "不能是符号链接" in result.stderr
+
+
+def test_peek_split_point_rejects_source_dir(fake_project: Path) -> None:
+    """--source 指向目录时应在校验阶段拒绝，不进入 read_text() 才崩。"""
+    (fake_project / "source" / "subdir").mkdir()
+    result = _run(PEEK_SPLIT, fake_project, "--source", "source/subdir", "--target", "10")
+    assert result.returncode != 0
+    assert "不存在或不是普通文件" in result.stderr
 
 
 def test_peek_split_point_accepts_source_in_project(fake_project: Path) -> None:
@@ -373,6 +401,25 @@ def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
     out = result.stdout + result.stderr
     assert "BGM 文件不存在" in out
     # 关键不变量：fail-fast — 不能让脚本进入拼接阶段
+    assert "✅ 视频合成完成" not in out
+
+
+@_requires_ffmpeg
+def test_compose_video_rejects_music_dir(fake_project: Path) -> None:
+    """--music 指向目录时应在校验阶段拒绝（review #9）。"""
+    script_arg = _write_drama_script(fake_project, video_clip_exists=True)
+    music_dir = fake_project / "bgm-dir"
+    music_dir.mkdir()
+    result = _run(
+        COMPOSE_VIDEO,
+        fake_project,
+        script_arg,
+        "--music",
+        "bgm-dir",
+    )
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "不存在或不是普通文件" in out
     assert "✅ 视频合成完成" not in out
 
 

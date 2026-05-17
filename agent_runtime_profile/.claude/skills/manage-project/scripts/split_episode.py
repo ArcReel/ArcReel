@@ -51,8 +51,8 @@ def _resolve_source_in_project(arg_source: str) -> tuple[Path, Path]:
     if not source_path.is_relative_to(source_dir):
         print(f"❌ 源文件必须位于 {source_dir} 内，收到: {source_path}", file=sys.stderr)
         sys.exit(1)
-    if not source_path.exists():
-        print(f"❌ 源文件不存在: {source_path}", file=sys.stderr)
+    if not source_path.is_file():
+        print(f"❌ 源文件不存在或不是普通文件: {source_path}", file=sys.stderr)
         sys.exit(1)
     return source_path, source_dir
 
