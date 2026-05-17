@@ -3,7 +3,7 @@ import shutil
 
 import pytest
 
-from lib.thumbnail import extract_video_thumbnail
+from lib.thumbnail import extract_video_last_frame, extract_video_thumbnail
 
 
 class TestExtractVideoThumbnail:
@@ -70,4 +70,59 @@ class TestExtractVideoThumbnail:
         bad_video = tmp_path / "bad.mp4"
         bad_video.write_text("not a video")
         result = await extract_video_thumbnail(bad_video, tmp_path / "thumb.jpg")
+        assert result is None
+
+
+class TestExtractVideoLastFrame:
+    @pytest.fixture(autouse=True)
+    def check_ffmpeg(self):
+        if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+            pytest.skip("ffmpeg/ffprobe not available")
+
+    async def _make_video(self, path, color: str = "green", duration: int = 1):
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={color}:s=64x64:d={duration}",
+            "-c:v",
+            "libx264",
+            "-t",
+            str(duration),
+            "-y",
+            str(path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        assert path.exists()
+
+    async def test_extracts_last_frame(self, tmp_path):
+        video_path = tmp_path / "test.mp4"
+        await self._make_video(video_path)
+
+        out = tmp_path / "last.png"
+        result = await extract_video_last_frame(video_path, out)
+        assert result == out
+        assert out.exists()
+        assert out.stat().st_size > 0
+
+    async def test_creates_parent_directory(self, tmp_path):
+        video_path = tmp_path / "test.mp4"
+        await self._make_video(video_path)
+
+        out = tmp_path / "sub" / "dir" / "last.png"
+        result = await extract_video_last_frame(video_path, out)
+        assert result == out
+        assert out.exists()
+
+    async def test_returns_none_for_missing_video(self, tmp_path):
+        result = await extract_video_last_frame(tmp_path / "missing.mp4", tmp_path / "last.png")
+        assert result is None
+
+    async def test_returns_none_for_corrupt_video(self, tmp_path):
+        bad_video = tmp_path / "bad.mp4"
+        bad_video.write_text("not a video")
+        result = await extract_video_last_frame(bad_video, tmp_path / "last.png")
         assert result is None
