@@ -563,7 +563,7 @@ export default {
   'segment_refs_empty_clues': 'Chưa có cảnh hoặc đạo cụ nào',
   'segment_refs_manage_link': 'Quản lý tham chiếu',
   'segment_refs_stale_badge': '{{count}} không còn hợp lệ',
-  'references_empty_full': 'Phân cảnh này chưa tham chiếu nhân vật / cảnh / đạo cụ nào',
+  'references_empty_full': 'Chưa tham chiếu nhân vật / cảnh / đạo cụ nào',
   'references_add_cta': 'Thêm tham chiếu',
   'references_badge_character': 'Nhân vật',
   'references_badge_scene': 'Cảnh',

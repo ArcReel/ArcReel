@@ -39,7 +39,9 @@ export interface SegmentRefsChanges {
 interface SegmentRefsEditModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (changes: SegmentRefsChanges) => void;
+  onSave: (changes: SegmentRefsChanges) => void | Promise<void>;
+  /** 保存中：禁用 Save 按钮防止重复提交；由调用方维护 */
+  saving?: boolean;
   initialCharacters: string[];
   initialScenes: string[];
   initialProps: string[];
@@ -85,6 +87,7 @@ export function SegmentRefsEditModal({
   open,
   onClose,
   onSave,
+  saving = false,
   initialCharacters,
   initialScenes,
   initialProps,
@@ -150,7 +153,7 @@ export function SegmentRefsEditModal({
     if (charChanged) changes.characters = tempChars;
     if (scenesChanged) changes.scenes = tempScenes;
     if (propsChanged) changes.props = tempProps;
-    onSave(changes);
+    void onSave(changes);
   };
 
   return (
@@ -294,15 +297,15 @@ export function SegmentRefsEditModal({
               ? t("segment_refs_changes_pending")
               : t("segment_refs_no_changes")}
           </span>
-          <SecondaryButton size="sm" onClick={onClose}>
+          <SecondaryButton size="sm" onClick={onClose} disabled={saving}>
             {t("segment_refs_cancel")}
           </SecondaryButton>
           <PrimaryButton
             size="sm"
-            disabled={!hasChanges}
+            disabled={!hasChanges || saving}
             onClick={handleSave}
           >
-            {t("segment_refs_save")}
+            {saving ? t("shot_detail_saving") : t("segment_refs_save")}
           </PrimaryButton>
         </div>
     </GlassModal>

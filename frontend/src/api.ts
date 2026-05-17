@@ -660,7 +660,7 @@ class API {
     );
   }
 
-  // ==================== 片段管理（说书 + 剧集动画两种模式） ====================
+  // ==================== 片段管理（说书模式） ====================
 
   /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */
   static async updateSegment(

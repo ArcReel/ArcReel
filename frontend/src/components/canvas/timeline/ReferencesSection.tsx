@@ -27,7 +27,7 @@ const EMPTY_DICT = Object.freeze({});
 
 function countMissing(names: string[], dict: Record<string, unknown>): number {
   let n = 0;
-  for (const name of names) if (!(name in dict)) n += 1;
+  for (const name of names) if (!Object.hasOwn(dict, name)) n += 1;
   return n;
 }
 
@@ -55,13 +55,17 @@ export function ReferencesSection({
   const totalCount = characterNames.length + sceneNames.length + propNames.length;
   const isEmpty = totalCount === 0;
 
-  const totalStale = useMemo(
-    () =>
+  const totalStale = useMemo(() => {
+    // project 未加载完时字典为空，会把所有已引用名都误判为 stale；此时跳过计算
+    if (!project) return 0;
+    return (
       countMissing(characterNames, characters) +
       countMissing(sceneNames, scenes) +
-      countMissing(propNames, props),
-    [characterNames, sceneNames, propNames, characters, scenes, props],
-  );
+      countMissing(propNames, props)
+    );
+  }, [project, characterNames, sceneNames, propNames, characters, scenes, props]);
+
+  const [saving, setSaving] = useState(false);
 
   const handleSave = async (changes: SegmentRefsChanges) => {
     const patch: Record<string, string[]> = {};
@@ -72,8 +76,13 @@ export function ReferencesSection({
       setOpen(false);
       return;
     }
-    await onSave(patch);
-    setOpen(false);
+    setSaving(true);
+    try {
+      await onSave(patch);
+      setOpen(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openModal = () => {
@@ -98,7 +107,8 @@ export function ReferencesSection({
     <SegmentRefsEditModal
       open={open}
       onClose={() => setOpen(false)}
-      onSave={(changes) => void handleSave(changes)}
+      onSave={handleSave}
+      saving={saving}
       initialCharacters={characterNames}
       initialScenes={sceneNames}
       initialProps={propNames}

@@ -428,10 +428,11 @@ export function ShotDetail({
       : (segment as NarrationSegment).characters_in_segment ?? [];
   const sceneNames = segment.scenes ?? [];
   const propNames = segment.props ?? [];
+  const refsReadOnly = !onUpdatePrompt;
 
   const handleRefsSave = async (patch: Record<string, string[]>) => {
-    if (Object.keys(patch).length === 0) return;
-    await onUpdatePrompt?.(segmentId, patch);
+    if (!onUpdatePrompt || Object.keys(patch).length === 0) return;
+    await onUpdatePrompt(segmentId, patch);
   };
 
   const leftColumn = (
@@ -443,7 +444,7 @@ export function ShotDetail({
         sceneNames={sceneNames}
         propNames={propNames}
         onSave={handleRefsSave}
-        disabled={dirty || saving}
+        disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
       <div>
