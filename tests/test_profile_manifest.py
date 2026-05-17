@@ -67,6 +67,30 @@ def test_enumerate_profile_files_empty_when_missing_roots(tmp_path: Path) -> Non
     assert enumerate_profile_files(profile) == set()
 
 
+def test_enumerate_profile_files_includes_claude_variants(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "CLAUDE.narration.md").write_text("n")
+    (profile / "CLAUDE.drama.md").write_text("d")
+
+    files = enumerate_profile_files(profile)
+    assert files == {"CLAUDE.narration.md", "CLAUDE.drama.md"}
+
+
+def test_enumerate_profile_files_ignores_unrelated_top_files(tmp_path: Path) -> None:
+    """与 enumerate_dest_files 对称：源端只收 CLAUDE 家族，避免顶层加新文件
+    时把目标当作 d_exists=False 误判进 tombstone 分支。"""
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "CLAUDE.md").write_text("top")
+    (profile / "README.md").write_text("noise")
+    (profile / "CHANGELOG.md").write_text("noise")
+    (profile / "foo.narration.md").write_text("noise variant")  # 非 CLAUDE 家族变体
+
+    files = enumerate_profile_files(profile)
+    assert files == {"CLAUDE.md"}
+
+
 def test_enumerate_dest_files_skips_manifest_self_and_lock(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     (project / ".claude").mkdir(parents=True)
@@ -738,6 +762,32 @@ def test_sync_agent_profile_invalid_mode_raises(tmp_path: Path, monkeypatch: pyt
     pj_path.write_text(json.dumps({"title": "demo", "content_mode": "garbage"}))
     with pytest.raises(ValueError, match="content_mode"):
         pm.sync_agent_profile(project_dir)
+
+
+def test_sync_agent_profile_corrupt_json_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """project.json 损坏 → raise，避免 drama 项目被静默回退到 narration 触发
+    destructive reset 错切回说书变体。"""
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    project_dir = pm.create_project("demo", content_mode="drama")
+    (project_dir / "project.json").write_text("{not json")
+    with pytest.raises(json.JSONDecodeError):
+        pm.sync_agent_profile(project_dir)
+
+
+def test_sync_all_agent_profiles_isolates_corrupt_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """一个项目的 project.json 损坏 → failed_projects++，其它项目正常 sync，
+    损坏项目的 manifest 不被错误切回 narration（不触发破坏性 reset）。"""
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    pm.create_project("good", content_mode="narration")
+    bad_dir = pm.create_project("bad", content_mode="drama")
+    (bad_dir / "project.json").write_text("{not json")
+
+    stats = pm.sync_all_agent_profiles()
+    assert stats.get("aborted") is not True
+    assert stats["failed_projects"] == 1
+    assert (pm.projects_root / "good" / "CLAUDE.md").read_text() == "narration top"
+    # 损坏项目的 CLAUDE.md 保持上次 sync 的 drama 内容，未被错切回 narration
+    assert (bad_dir / "CLAUDE.md").read_text() == "drama top"
 
 
 def test_sync_all_agent_profiles_per_project_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

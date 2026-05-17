@@ -93,28 +93,29 @@ def _parse_variant_suffix(rel: str) -> tuple[str, str | None]:
     # path.stem 是去掉最后一个扩展名的部分；再 split 一次拿"次外层后缀"
     stem_parts = path.stem.rsplit(".", 1)
     if len(stem_parts) == 2 and stem_parts[1] in VALID_CONTENT_MODES:
-        logical_stem = stem_parts[0]
-        # 重组为 logical_parent/<logical_stem><ext>
-        logical_name = logical_stem + path.suffix
-        if str(path.parent) in (".", ""):
-            return logical_name, stem_parts[1]
+        # 重组为 logical_parent/<logical_stem><ext>；顶层文件时 parent == PurePosixPath('.')，
+        # ``PurePosixPath('.') / 'foo.md'`` 仍然产生 ``PurePosixPath('foo.md')``，无需单独分支
+        logical_name = stem_parts[0] + path.suffix
         return (path.parent / logical_name).as_posix(), stem_parts[1]
     return rel, None
 
 
 def enumerate_profile_files(profile_dir: Path) -> set[str]:
-    """profile 内所有源文件的 POSIX 相对路径集合（含顶层变体如 CLAUDE.narration.md）。
+    """profile 内所有源文件的 POSIX 相对路径集合（含 CLAUDE.<mode>.md 变体）。
 
-    收集口径：顶层所有直接子文件 + ``.claude/**`` 全树。变体筛选交给
-    ``resolve_profile_files_for_mode`` 按 ``content_mode`` 投影。
+    顶层只收 CLAUDE 家族：``CLAUDE.md`` + ``CLAUDE.<mode>.md``。其它顶层文件被
+    刻意忽略，以与 ``enumerate_dest_files`` 口径对称——否则源端会扫到、目标端
+    枚举不到，state machine 会把那些"目标缺失"的文件判进 tombstone 分支。
+    扩展需要新增顶层逻辑文件时，应同时更新这里和 ``enumerate_dest_files``。
     """
     files: set[str] = set()
-    # 顶层直接子文件（CLAUDE.md、CLAUDE.narration.md、CLAUDE.drama.md 等）
     if profile_dir.is_dir():
         for p in profile_dir.iterdir():
-            if p.is_file():
+            if not p.is_file():
+                continue
+            logical, _ = _parse_variant_suffix(p.name)
+            if logical == _PROFILE_TOP_FILE:
                 files.add(p.name)
-    # .claude/ 子树
     files |= _walk_files(profile_dir / _PROFILE_TREE_ROOT, profile_dir)
     return files
 
@@ -685,7 +686,7 @@ def sync_profile_to_project(
 
         stats = _new_stats()
         dest_files = enumerate_dest_files(project_dir)
-        all_keys = set(mapping) | dest_files | set(manifest.entries.keys())
+        all_keys = mapping.keys() | dest_files | manifest.entries.keys()
 
         for rel in sorted(all_keys):
             p_exists = rel in mapping

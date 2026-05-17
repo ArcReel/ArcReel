@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
-from lib.json_io import atomic_write_json, load_json_or_none
+from lib.json_io import atomic_write_json, load_json
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
     ContentMode,
@@ -237,11 +237,22 @@ class ProjectManager:
         return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
 
     def _resolve_content_mode(self, project_dir: Path) -> ContentMode:
-        """从 project_dir/project.json 读 content_mode；缺失回退 narration。"""
-        data = load_json_or_none(project_dir / self.PROJECT_FILE)
+        """从 project_dir/project.json 读 content_mode；缺失回退 narration。
+
+        ``project.json`` 不存在或缺 ``content_mode`` 字段 → 回退 narration（兼容
+        老项目）。文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles
+        走 failed_projects 分支；若静默回退到 narration，drama 项目会因 manifest
+        记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回说书变体。
+        """
+        pj_path = project_dir / self.PROJECT_FILE
+        try:
+            data = load_json(pj_path)
+        except FileNotFoundError:
+            logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
+            return "narration"
         mode = data.get("content_mode") if isinstance(data, dict) else None
         if mode is None:
-            logger.info("project.json missing or has no content_mode under %s, defaulting narration", project_dir)
+            logger.info("project.json has no content_mode under %s, defaulting narration", project_dir)
             return "narration"
         if not isinstance(mode, str) or mode not in VALID_CONTENT_MODES:
             raise ValueError(

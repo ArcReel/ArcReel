@@ -743,13 +743,13 @@ return _force_resync_profile(profile_dir, project_dir, "narration", paths=paths)
 - [ ] **Step 7: 运行测试确认通过**
 
 ```bash
-uv run python -m pytest tests/test_profile_manifest.py -v 2>&1 | tail -10
+uv run python -m pytest tests/test_profile_manifest.py -v
 ```
 
 Expected: 全部 PASS。
 
 ```bash
-uv run python -m pytest tests/test_project_manager_compat.py tests/test_project_manager_symlink.py -v 2>&1 | tail -10
+uv run python -m pytest tests/test_project_manager_compat.py tests/test_project_manager_symlink.py -v
 ```
 
 Expected: 全部 PASS（依赖 ProjectManager 的集成测试因为硬编码 narration 临时兜底而通过）。
@@ -1153,7 +1153,7 @@ Expected: 全部 PASS。
 - [ ] **Step 7: 跑现存依赖测试，修复签名链式破坏**
 
 ```bash
-uv run python -m pytest tests/test_project_manager_compat.py tests/test_project_manager_more.py tests/test_project_manager_symlink.py tests/test_project_manager_concurrent_save.py tests/test_project_manager_migration.py tests/test_project_manager_legacy_migration.py -v 2>&1 | tail -30
+uv run python -m pytest tests/test_project_manager_compat.py tests/test_project_manager_more.py tests/test_project_manager_symlink.py tests/test_project_manager_concurrent_save.py tests/test_project_manager_migration.py tests/test_project_manager_legacy_migration.py -v
 ```
 
 修复逻辑：所有调用 `pm.create_project("x")` 的 case 默认 narration 即可；调用 `pm.sync_agent_profile(project_dir)` 的 case 自动从 project.json 读 mode，若项目已先 `create_project_metadata` 写过 content_mode 则无需修改。
@@ -1169,7 +1169,7 @@ grep -n "sync_profile_to_project" tests/
 - [ ] **Step 8: 再跑全套相关测试**
 
 ```bash
-uv run python -m pytest tests/test_profile_manifest.py tests/test_project_manager_compat.py tests/test_project_manager_more.py tests/test_project_manager_symlink.py tests/test_project_manager_concurrent_save.py tests/test_project_manager_migration.py tests/test_project_manager_legacy_migration.py -v 2>&1 | tail -10
+uv run python -m pytest tests/test_profile_manifest.py tests/test_project_manager_compat.py tests/test_project_manager_more.py tests/test_project_manager_symlink.py tests/test_project_manager_concurrent_save.py tests/test_project_manager_migration.py tests/test_project_manager_legacy_migration.py -v
 ```
 
 Expected: 全部 PASS。
@@ -1238,7 +1238,7 @@ grep -n "content_mode" tests/test_projects_router.py
 - [ ] **Step 3: 跑 router 测试**
 
 ```bash
-uv run python -m pytest tests/test_projects_router.py -v 2>&1 | tail -10
+uv run python -m pytest tests/test_projects_router.py -v
 ```
 
 Expected: PASS。
@@ -1503,7 +1503,7 @@ git commit -m "docs(profile): split manga-workflow SKILL.md into narration/drama
 - [ ] **Step 1: 跑全套测试**
 
 ```bash
-uv run python -m pytest tests/ -v 2>&1 | tail -30
+uv run python -m pytest tests/ -v
 ```
 
 Expected: 全绿。若有失败，定位到对应 task 修复，不要在本 task 内修。
@@ -1511,7 +1511,7 @@ Expected: 全绿。若有失败，定位到对应 task 修复，不要在本 tas
 - [ ] **Step 2: 跑覆盖率（确认 80% 阈值）**
 
 ```bash
-uv run python -m pytest tests/test_profile_manifest.py tests/test_project_manager_compat.py tests/test_project_manager_more.py --cov=lib.profile_manifest --cov=lib.project_manager --cov-report=term-missing 2>&1 | tail -20
+uv run python -m pytest tests/test_profile_manifest.py tests/test_project_manager_compat.py tests/test_project_manager_more.py --cov=lib.profile_manifest --cov=lib.project_manager --cov-report=term-missing
 ```
 
 确认 `lib/profile_manifest.py` 覆盖率 ≥80%（profile_manifest 已是高覆盖模块，应能维持）。
