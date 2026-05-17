@@ -17,9 +17,35 @@ import sys
 import tempfile
 from pathlib import Path
 
+
+def _find_repo_root(start: Path) -> Path:
+    """向上回溯定位含 pyproject.toml 的目录，覆盖源/物化/editable 三种部署形态。"""
+    for candidate in (start, *start.parents):
+        if (candidate / "pyproject.toml").is_file():
+            return candidate
+    raise RuntimeError(f"无法从 {start} 向上找到 pyproject.toml")
+
+
+PROJECT_ROOT = _find_repo_root(Path(__file__).resolve())
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from lib.project_manager import ProjectManager
 
 FFMPEG_TOOLS_HINT = "需要 ffmpeg 和 ffprobe 同时可用，并且都在 PATH 中"
+
+
+def _require_project_cwd() -> tuple[ProjectManager, str, Path]:
+    """cwd 必须含 project.json，否则拒绝执行。
+
+    替代 ProjectManager.from_cwd()：cwd 漂离项目目录时显式报错，
+    而不是悄悄拼出错误的项目名继续执行。
+    """
+    cwd = Path.cwd().resolve()
+    if not (cwd / "project.json").is_file():
+        raise RuntimeError(f"必须在项目目录内运行（当前 cwd={cwd} 不含 project.json）")
+    pm = ProjectManager(str(cwd.parent))
+    return pm, cwd.name, cwd
 
 
 def check_ffmpeg():
@@ -447,11 +473,18 @@ def compose_video(
     Returns:
         输出视频路径
     """
-    pm, project_name = ProjectManager.from_cwd()
-    project_dir = pm.get_project_path(project_name)
+    pm, project_name, project_dir = _require_project_cwd()
 
-    # 加载剧本
+    # 加载剧本（pm.load_script 内部已用 _safe_subpath 过滤 ../ 等逃逸尝试）
     script = pm.load_script(project_name, script_filename)
+
+    # 仅支持 drama 模式（顶层 scenes[]）；narration/reference_video 给友好错误
+    if "scenes" not in script:
+        gen_mode = script.get("generation_mode") or "narration/reference_video"
+        raise RuntimeError(
+            f"compose_video.py 目前仅支持 drama 模式（剧本顶层需有 scenes[]）；"
+            f"当前剧本 generation_mode={gen_mode}，请使用 Web 端剪映草稿导出"
+        )
 
     # 收集视频片段
     video_paths = []
@@ -474,12 +507,15 @@ def compose_video(
 
     print(f"📹 共 {len(video_paths)} 个视频片段")
 
-    # 确定输出路径
+    # 确定输出路径：强制落在 project_dir/output/ 内，拒绝 ../ 逃逸
     if output_filename is None:
         chapter = script["novel"].get("chapter", "output").replace(" ", "_")
         output_filename = f"{chapter}_final.mp4"
 
-    output_path = project_dir / "output" / output_filename
+    output_dir = (project_dir / "output").resolve()
+    output_path = (output_dir / output_filename).resolve()
+    if not output_path.is_relative_to(output_dir):
+        raise ValueError(f"输出文件名逃逸到 output/ 之外: {output_filename}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 合成视频
