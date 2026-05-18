@@ -4,6 +4,7 @@ from typing import Literal
 
 PROVIDER_GEMINI = "gemini"
 PROVIDER_ARK = "ark"
+PROVIDER_ARK_AGENT_PLAN = "ark-agent-plan"
 PROVIDER_GROK = "grok"
 PROVIDER_OPENAI = "openai"
 PROVIDER_VIDU = "vidu"

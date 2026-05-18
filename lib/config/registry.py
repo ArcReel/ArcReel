@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from lib.ark_shared import ARK_BASE_URL
+
 
 @dataclass(frozen=True)
 class ModelInfo:
@@ -231,7 +233,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["480p", "720p", "1080p"],
             ),
         },
-        default_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        default_base_url=ARK_BASE_URL,
     ),
     "ark-agent-plan": ProviderMeta(
         display_name="火山方舟 Agent Plan",

@@ -32,11 +32,12 @@ class ArkTextBackend:
         model: str | None = None,
         base_url: str | None = None,
     ):
-        self._client = create_ark_client(api_key=api_key, base_url=base_url)
         # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
         # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
+        resolved_key = resolve_ark_api_key(api_key)
         effective_base_url = base_url or ARK_BASE_URL
-        self._openai_client = OpenAI(base_url=effective_base_url, api_key=resolve_ark_api_key(api_key))
+        self._client = create_ark_client(api_key=resolved_key, base_url=effective_base_url)
+        self._openai_client = OpenAI(base_url=effective_base_url, api_key=resolved_key)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
@@ -45,11 +46,16 @@ class ArkTextBackend:
         from lib.config.registry import PROVIDER_REGISTRY
 
         base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
-        provider_meta = PROVIDER_REGISTRY.get("ark")
-        if provider_meta:
+        # 同一 backend 类同时服务 ark 与 ark-agent-plan，模型 ID 命名格式不同，
+        # 任一 provider 命中即可解析 STRUCTURED_OUTPUT。
+        for provider_id in ("ark", "ark-agent-plan"):
+            provider_meta = PROVIDER_REGISTRY.get(provider_id)
+            if provider_meta is None:
+                continue
             model_info = provider_meta.models.get(self._model)
             if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
                 base.add(TextCapability.STRUCTURED_OUTPUT)
+                break
         # 未注册模型不加 STRUCTURED_OUTPUT：宁可走 Instructor 降级也不调用会报错的原生 API
         return base
 

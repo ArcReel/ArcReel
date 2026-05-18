@@ -304,5 +304,5 @@ class TestBaseUrl:
         with patch("lib.text_backends.ark.create_ark_client") as mock_ark_create:
             with patch("lib.text_backends.ark.OpenAI") as mock_openai_ctor:
                 ArkTextBackend(api_key="k")
-                mock_ark_create.assert_called_once_with(api_key="k", base_url=None)
+                mock_ark_create.assert_called_once_with(api_key="k", base_url=ARK_BASE_URL)
                 mock_openai_ctor.assert_called_once_with(base_url=ARK_BASE_URL, api_key="k")

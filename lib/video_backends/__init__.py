@@ -1,6 +1,13 @@
 """视频生成服务层公共 API。"""
 
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_NEWAPI, PROVIDER_OPENAI
+from lib.providers import (
+    PROVIDER_ARK,
+    PROVIDER_ARK_AGENT_PLAN,
+    PROVIDER_GEMINI,
+    PROVIDER_GROK,
+    PROVIDER_NEWAPI,
+    PROVIDER_OPENAI,
+)
 from lib.video_backends.base import (
     VideoBackend,
     VideoCapability,
@@ -34,7 +41,7 @@ register_backend(PROVIDER_GEMINI, GeminiVideoBackend)
 from lib.video_backends.ark import ArkVideoBackend
 
 register_backend(PROVIDER_ARK, ArkVideoBackend)
-register_backend("ark-agent-plan", ArkVideoBackend)
+register_backend(PROVIDER_ARK_AGENT_PLAN, ArkVideoBackend)
 
 # Grok: xai-sdk
 from lib.video_backends.grok import GrokVideoBackend

@@ -1218,8 +1218,4 @@ export default {
   'diagnosis_rate_limited': '触发限流，稍后重试',
   'diagnosis_network': '网络无法访问，检查 URL 与防火墙',
   'diagnosis_unknown': '未知错误，请查看原始错误信息',
-  'preset_notes_deepseek': 'DeepSeek 官方 anthropic 兼容端点，需 sk- 开头的 API Key',
-  'preset_notes_xiaomi_mimo': '小米 MiMo 仅支持已知模型名，未公开模型列表',
-  'preset_notes_ark_coding_plan': '火山方舟 Coding Plan 套餐',
-  'preset_notes_ark_agent_plan': '火山方舟 Agent Plan 套餐',
 } satisfies Record<keyof typeof enDashboard, string>;

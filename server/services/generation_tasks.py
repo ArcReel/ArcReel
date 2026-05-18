@@ -261,9 +261,8 @@ async def _fill_simple_provider_kwargs(
     db_config = await resolver.provider_config(backend_name)
     kwargs["api_key"] = db_config.get("api_key")
     kwargs["model"] = effective_model
-    base_url = db_config.get("base_url") or (
-        PROVIDER_REGISTRY[backend_name].default_base_url if backend_name in PROVIDER_REGISTRY else None
-    )
+    meta = PROVIDER_REGISTRY.get(backend_name)
+    base_url = db_config.get("base_url") or (meta.default_base_url if meta else None)
     if base_url:
         kwargs["base_url"] = base_url
 
