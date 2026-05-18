@@ -62,6 +62,7 @@ updates:
         patterns:
           - "pytest*"
           - "ruff"
+          - "basedpyright"
           - "pre-commit"
           - "python-docx"
         update-types:
