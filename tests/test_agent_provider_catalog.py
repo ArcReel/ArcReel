@@ -52,7 +52,7 @@ def test_messages_url_https_only() -> None:
 
 
 def test_curated_preset_set() -> None:
-    """目录与用户提供的表格保持一致;9 条预设."""
+    """目录与用户提供的表格保持一致;11 条预设."""
     expected = {
         "anthropic-official",
         "arcreel",
@@ -63,6 +63,8 @@ def test_curated_preset_set() -> None:
         "minimax-cn",
         "minimax-intl",
         "kimi",
+        "ark-coding-plan",
+        "ark-agent-plan",
     }
     actual = {p.id for p in list_presets()}
     assert actual == expected
@@ -80,6 +82,8 @@ def test_default_models_match_table() -> None:
         "minimax-cn": "MiniMax-M2.7",
         "minimax-intl": "MiniMax-M2.7",
         "kimi": "",
+        "ark-coding-plan": "",
+        "ark-agent-plan": "",
     }
     actual = {p.id: p.default_model for p in list_presets()}
     assert actual == expected

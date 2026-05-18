@@ -157,6 +157,34 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         api_key_pattern=r"^sk-[A-Za-z0-9]+$",
         is_recommended=False,
     ),
+    "ark-coding-plan": PresetProvider(
+        id="ark-coding-plan",
+        display_name="Volcengine Ark Coding Plan",
+        icon_key="Volcengine",
+        messages_url="https://ark.cn-beijing.volces.com/api/coding",
+        discovery_url="https://ark.cn-beijing.volces.com",
+        default_model="",
+        suggested_models=(),
+        docs_url="https://www.volcengine.com/docs/82379/1928262",
+        api_key_url="https://console.volcengine.com/ark",
+        notes_i18n_key="preset_notes_ark_coding_plan",
+        api_key_pattern=None,
+        is_recommended=False,
+    ),
+    "ark-agent-plan": PresetProvider(
+        id="ark-agent-plan",
+        display_name="Volcengine Ark Agent Plan",
+        icon_key="Volcengine",
+        messages_url="https://ark.cn-beijing.volces.com/api/plan",
+        discovery_url="https://ark.cn-beijing.volces.com",
+        default_model="",
+        suggested_models=(),
+        docs_url="https://www.volcengine.com/docs/82379/2375486",
+        api_key_url="https://console.volcengine.com/ark",
+        notes_i18n_key="preset_notes_ark_agent_plan",
+        api_key_pattern=None,
+        is_recommended=False,
+    ),
 }
 
 
@@ -171,6 +199,8 @@ PRESET_ORDER: tuple[str, ...] = (
     "glm-intl",
     "minimax-cn",
     "minimax-intl",
+    "ark-coding-plan",
+    "ark-agent-plan",
 )
 
 
