@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.image_backends.base import ImageCapability
+from lib.image_backends.base import ImageCapability, ImageGenerationResult
 from lib.media_generator import MediaGenerator
 
 
@@ -21,6 +21,12 @@ class _FakeImageBackend:
         # Touch the output file so version tracking works
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         request.output_path.write_bytes(b"fake-image-data")
+        return ImageGenerationResult(
+            image_path=request.output_path,
+            provider=self.name,
+            model=self.model,
+            usage_tokens=8,
+        )
 
 
 class _FakeVideoResult:
@@ -126,6 +132,7 @@ class TestMediaGenerator:
         assert version == 1
         assert gen.usage_tracker.started[0]["call_type"] == "image"
         assert gen.usage_tracker.finished[0]["status"] == "success"
+        assert gen.usage_tracker.finished[0]["usage_tokens"] == 8
 
         async def _raise(request):
             raise RuntimeError("boom")
