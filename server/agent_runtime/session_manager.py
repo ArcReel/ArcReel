@@ -12,6 +12,7 @@ import os
 import shlex
 import tempfile
 import time
+from collections import deque
 from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -50,6 +51,11 @@ SDK_AVAILABLE = True
 # 持续高于此值说明 _process_inbox 被阻塞或下游 I/O 超慢。
 _INBOX_BACKLOG_WARN_THRESHOLD = 100
 _INBOX_BACKLOG_RESET_THRESHOLD = 50  # 降至此水位以下才重置告警状态，避免抖动刷屏
+
+# SDK stderr 缓冲上限（行）：actor.start() 失败时启动期 stderr 一般 <20 行；
+# 上限主要为应对启动成功后 SDK 在会话存活期间持续输出 stderr 的场景，cap
+# 在 200 行 × 平均行长，单会话最坏占用 <100KB，可控。
+_SDK_STDERR_BUFFER_MAX = 200
 
 
 class SessionCapacityError(Exception):
@@ -1240,7 +1246,11 @@ class SessionManager:
         temp_id = uuid4().hex
         managed_ref: list[ManagedSession | None] = [None]
 
-        stderr_lines: list[str] = []
+        # SDK stderr 回调在整个会话存活期间都被 ClaudeAgentOptions 持有，
+        # actor.start() 成功后仍会被调；用 deque(maxlen=) FIFO 自动裁剪老行，
+        # 避免长会话期间因 SDK 持续输出 stderr 造成内存无界增长。
+        # 启动失败场景下 stderr 通常远小于上限，关键提示不会被裁掉。
+        stderr_lines: deque[str] = deque(maxlen=_SDK_STDERR_BUFFER_MAX)
 
         def _collect_stderr(line: str) -> None:
             stderr_lines.append(line)
@@ -1451,7 +1461,8 @@ class SessionManager:
             await self._ensure_capacity()
             managed_ref: list[ManagedSession | None] = [None]
 
-            stderr_lines: list[str] = []
+            # 见 send_new_session 同名注释：deque(maxlen=) 防长会话内存累积。
+            stderr_lines: deque[str] = deque(maxlen=_SDK_STDERR_BUFFER_MAX)
 
             def _collect_stderr(line: str) -> None:
                 stderr_lines.append(line)

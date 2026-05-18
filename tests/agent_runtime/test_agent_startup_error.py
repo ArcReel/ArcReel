@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from server.agent_runtime.session_manager import (
+    _SDK_STDERR_BUFFER_MAX,
     AgentStartupError,
     SessionManager,
 )
@@ -171,3 +172,55 @@ async def test_send_new_session_no_stderr_still_wraps(
     assert "ENOENT" in str(exc_info.value)
     # 原因链保留，便于 logger.exception 看到底层异常
     assert isinstance(exc_info.value.__cause__, OSError)
+
+
+@pytest.mark.asyncio
+async def test_stderr_buffer_caps_to_maxlen(session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK 在长会话中持续吐 stderr 时，缓冲必须裁剪到 maxlen，避免无界增长。
+
+    回归 gemini-code-assist / chatgpt-codex review #573：``_collect_stderr`` 被
+    SDK 在整个会话期间持有，启动成功后没人消费的话 list 会无限增长。改用
+    ``deque(maxlen=_SDK_STDERR_BUFFER_MAX)`` 后旧行被 FIFO 裁掉，最坏占用
+    可控；这里直接打超过上限的行数，断言 sdk_stderr 行数受限。
+    """
+
+    async def fake_env(_self):
+        return {"ANTHROPIC_API_KEY": "sk"}
+
+    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+
+    captured_stderr_cb: list = []
+    overflow_count = _SDK_STDERR_BUFFER_MAX + 50
+
+    class _FakeActor:
+        def __init__(self, *_, on_message=None, client_factory=None):
+            self.task = None
+
+        async def start(self):
+            cb = captured_stderr_cb[0]
+            for i in range(overflow_count):
+                cb(f"line-{i:04d}")
+            raise RuntimeError("Command failed with exit code 1")
+
+        def add_done_callback(self, _cb):
+            pass
+
+    real_build_options = SessionManager._build_options
+
+    async def wrapped_build_options(self, *args, **kwargs):
+        opts = await real_build_options(self, *args, **kwargs)
+        captured_stderr_cb.append(opts.stderr)
+        return opts
+
+    monkeypatch.setattr(SessionManager, "_build_options", wrapped_build_options)
+    monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
+    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
+
+    with pytest.raises(AgentStartupError) as exc_info:
+        await session_manager.send_new_session("demo", "你好")
+
+    lines = exc_info.value.sdk_stderr.split("\n")
+    assert len(lines) == _SDK_STDERR_BUFFER_MAX
+    # FIFO：最早 50 行被裁，剩下的应是 line-0050 .. line-(MAX+49)
+    assert lines[0] == f"line-{overflow_count - _SDK_STDERR_BUFFER_MAX:04d}"
+    assert lines[-1] == f"line-{overflow_count - 1:04d}"
