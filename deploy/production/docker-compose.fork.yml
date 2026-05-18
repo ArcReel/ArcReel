@@ -1,0 +1,57 @@
+# Fork-private compose override — self-hosted build for StoryFlow.
+#
+# 上游 docker-compose.yml 用预构建的 ghcr.io/arcreel/arcreel:latest 镜像；
+# 本 fork 包含上游没有的功能（user-roles、品牌定制等），所以需要本地构建。
+# 通过 override 文件分离改动，避免污染上游高频文件，rebase 不冲突。
+#
+# 使用方法：
+#   docker compose -f docker-compose.yml -f docker-compose.fork.yml up -d --build
+#
+# 前置：先把 frontend.env.fork 拷到 frontend/.env，Vite 会自动读取并注入
+# VITE_BRAND_* 到构建产物。
+#
+# 宿主侧前置（Ubuntu 24.04 起）：
+#   sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+#   （并持久化到 /etc/sysctl.d/，否则容器内 bwrap 沙箱即便豁免 apparmor/seccomp
+#   也无法创建非特权 user namespace）
+# 容器内 security_opt / cap_add NET_ADMIN 已由上游 base docker-compose.yml 提供
+# （PR #535），本文件不再重复声明。
+
+services:
+  arcreel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    # 容器内数据根目录路径必须永远是 /app/projects —— 它会被
+    # claude_agent_sdk.project_key_for_directory() 编码成 agent_session_*
+    # 表的 project_key（"-app-projects-<proj>"）。一旦该路径改变（例如
+    # 把 ARCREEL_DATA_DIR 写进 .env 指向别处），DB 中的历史会话会立即
+    # "消失"（key 错位）。这里显式清空覆盖 env_file，杜绝该误操作。
+    environment:
+      ARCREEL_DATA_DIR: ""
+      AI_ANIME_PROJECTS: ""
+    # 数据外置到 /home/administrator/arcreel-data/，与代码目录解耦。
+    # Compose 对 volumes 是整列表替换，所以这里需要把上游 4 个挂载全部重写。
+    # 注意：mount target（冒号右侧）必须保持与上游一致，否则同样会破坏
+    # 上面解释的 project_key 不变量。
+    volumes:
+      - /home/administrator/arcreel-data/.env:/app/.env
+      - /home/administrator/arcreel-data/projects:/app/projects
+      - /home/administrator/arcreel-data/vertex_keys:/app/vertex_keys
+      - /home/administrator/arcreel-data/claude_data:/root/.claude
+    # 限制 json-file 日志大小，避免长期堆积占盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  postgres:
+    # Postgres 数据也外置到同一根目录下
+    volumes:
+      - /home/administrator/arcreel-data/pgdata:/var/lib/postgresql
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
