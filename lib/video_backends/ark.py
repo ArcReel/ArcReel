@@ -58,8 +58,9 @@ class ArkVideoBackend:
         *,
         api_key: str | None = None,
         model: str | None = None,
+        base_url: str | None = None,
     ):
-        self._client = create_ark_client(api_key=api_key)
+        self._client = create_ark_client(api_key=api_key, base_url=base_url)
         self._model = model or self.DEFAULT_MODEL
         self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAPABILITIES)
 

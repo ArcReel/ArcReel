@@ -282,3 +282,27 @@ class TestCapabilityAwareStructured:
         backend_with_structured._test_client.chat.completions.create.assert_called_once()
         # 降级路径应该被使用
         backend_with_structured._openai_client.chat.completions.create.assert_called_once()
+
+
+class TestBaseUrl:
+    def test_custom_base_url_passes_to_both_clients(self):
+        with patch("lib.text_backends.ark.create_ark_client") as mock_ark_create:
+            with patch("lib.text_backends.ark.OpenAI") as mock_openai_ctor:
+                ArkTextBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
+                mock_ark_create.assert_called_once_with(
+                    api_key="k",
+                    base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+                )
+                mock_openai_ctor.assert_called_once_with(
+                    base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+                    api_key="k",
+                )
+
+    def test_default_base_url_keeps_ark_v3(self):
+        from lib.ark_shared import ARK_BASE_URL
+
+        with patch("lib.text_backends.ark.create_ark_client") as mock_ark_create:
+            with patch("lib.text_backends.ark.OpenAI") as mock_openai_ctor:
+                ArkTextBackend(api_key="k")
+                mock_ark_create.assert_called_once_with(api_key="k", base_url=None)
+                mock_openai_ctor.assert_called_once_with(base_url=ARK_BASE_URL, api_key="k")

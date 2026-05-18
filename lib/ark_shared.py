@@ -20,8 +20,9 @@ def resolve_ark_api_key(api_key: str | None = None) -> str:
     return api_key.strip()
 
 
-def create_ark_client(*, api_key: str | None = None):
-    """创建 Ark 客户端，统一校验 api_key 并构造。"""
+def create_ark_client(*, api_key: str | None = None, base_url: str | None = None):
+    """创建 Ark 客户端；base_url 缺省走 ARK_BASE_URL（即 /api/v3）。"""
     from volcenginesdkarkruntime import Ark
 
-    return Ark(base_url=ARK_BASE_URL, api_key=resolve_ark_api_key(api_key))
+    effective_base_url = base_url or ARK_BASE_URL
+    return Ark(base_url=effective_base_url, api_key=resolve_ark_api_key(api_key))

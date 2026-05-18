@@ -71,7 +71,18 @@ class TestArkImageBackendInit:
             from lib.image_backends.ark import ArkImageBackend
 
             ArkImageBackend(api_key="my-key")
-            mock_create.assert_called_once_with(api_key="my-key")
+            mock_create.assert_called_once_with(api_key="my-key", base_url=None)
+
+    def test_custom_base_url_passed_through(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        with patch("lib.image_backends.ark.create_ark_client") as mock_create:
+            from lib.image_backends.ark import ArkImageBackend
+
+            ArkImageBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
+            mock_create.assert_called_once_with(
+                api_key="k",
+                base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+            )
 
 
 class TestArkImageBackendProperties:

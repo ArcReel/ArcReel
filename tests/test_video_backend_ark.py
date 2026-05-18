@@ -463,3 +463,18 @@ class TestArkServiceTierParam:
 
         create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
         assert create_kwargs.get("service_tier") == "default"
+
+
+class TestArkVideoBackendBaseUrl:
+    def test_custom_base_url_passed_through(self):
+        with patch("lib.video_backends.ark.create_ark_client") as mock_create:
+            ArkVideoBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
+            mock_create.assert_called_once_with(
+                api_key="k",
+                base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+            )
+
+    def test_default_base_url_is_none(self):
+        with patch("lib.video_backends.ark.create_ark_client") as mock_create:
+            ArkVideoBackend(api_key="k")
+            mock_create.assert_called_once_with(api_key="k", base_url=None)
