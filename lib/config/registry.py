@@ -233,6 +233,93 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         },
         default_base_url="https://ark.cn-beijing.volces.com/api/v3",
     ),
+    "ark-agent-plan": ProviderMeta(
+        display_name="火山方舟 Agent Plan",
+        description="火山方舟 Agent Plan 套餐，聚合豆包及多家主流大模型，覆盖文本、图片与视频生成。",
+        required_keys=["api_key"],
+        optional_keys=["video_max_workers", "image_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- text ---
+            "doubao-seed-2.0-mini": ModelInfo(
+                display_name="豆包 Seed 2.0 Mini",
+                media_type="text",
+                capabilities=["text_generation", "vision"],
+            ),
+            "doubao-seed-2.0-lite": ModelInfo(
+                display_name="豆包 Seed 2.0 Lite",
+                media_type="text",
+                capabilities=["text_generation", "vision"],
+                default=True,
+            ),
+            "doubao-seed-2.0-pro": ModelInfo(
+                display_name="豆包 Seed 2.0 Pro",
+                media_type="text",
+                capabilities=["text_generation", "vision"],
+            ),
+            "doubao-seed-2.0-code": ModelInfo(
+                display_name="豆包 Seed 2.0 Code",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            "deepseek-v4-flash": ModelInfo(
+                display_name="DeepSeek V4 Flash",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            "deepseek-v4-pro": ModelInfo(
+                display_name="DeepSeek V4 Pro",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            "glm-5.1": ModelInfo(
+                display_name="GLM 5.1",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            "kimi-k2.6": ModelInfo(
+                display_name="Kimi K2.6",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            "minimax-m2.7": ModelInfo(
+                display_name="MiniMax M2.7",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            # --- image ---
+            "doubao-seedream-5.0-lite": ModelInfo(
+                display_name="Seedream 5.0 Lite",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+            ),
+            # --- video ---
+            "doubao-seedance-1.5-pro": ModelInfo(
+                display_name="Seedance 1.5 Pro",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "flex_tier"],
+                supported_durations=list(range(4, 13)),
+                resolutions=["480p", "720p", "1080p"],
+            ),
+            "doubao-seedance-2.0": ModelInfo(
+                display_name="Seedance 2.0",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
+                supported_durations=list(range(4, 16)),
+                resolutions=["480p", "720p", "1080p"],
+            ),
+            "doubao-seedance-2.0-fast": ModelInfo(
+                display_name="Seedance 2.0 Fast",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
+                default=True,
+                supported_durations=list(range(4, 16)),
+                resolutions=["480p", "720p", "1080p"],
+            ),
+        },
+        default_base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+    ),
     "grok": ProviderMeta(
         display_name="Grok",
         description="xAI Grok 模型，支持视频和图片生成。",
