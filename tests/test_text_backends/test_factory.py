@@ -64,8 +64,48 @@ async def test_creates_ark_backend():
             "ark",
             api_key="ark-key",
             model="doubao-seed-2-0-lite-260215",
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
         )
         assert result is mock_backend
+
+
+async def test_creates_ark_agent_plan_backend_uses_plan_endpoint():
+    """ark-agent-plan 必须把 default_base_url=/api/plan/v3 透传到 backend，
+    否则文本生成会被 ArkTextBackend 默认的 /api/v3 拉到错误的套餐网关。"""
+    mock_resolver = _make_mock_resolver(
+        text_backend_for_task=("ark-agent-plan", "doubao-seed-2.0-lite"),
+        provider_config={"api_key": "ark-plan-key"},
+    )
+
+    with (
+        patch("lib.text_backends.factory.ConfigResolver", return_value=mock_resolver),
+        patch("lib.text_backends.factory.create_backend") as mock_create,
+    ):
+        mock_backend = MagicMock()
+        mock_create.return_value = mock_backend
+
+        await create_text_backend_for_task(TextTaskType.OVERVIEW, "my-project")
+
+        mock_create.assert_called_once_with(
+            "ark-agent-plan",
+            api_key="ark-plan-key",
+            model="doubao-seed-2.0-lite",
+            base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+        )
+
+
+async def test_user_base_url_overrides_default_for_ark_agent_plan():
+    mock_resolver = _make_mock_resolver(
+        text_backend_for_task=("ark-agent-plan", "doubao-seed-2.0-lite"),
+        provider_config={"api_key": "k", "base_url": "https://custom.example.com/v9"},
+    )
+
+    with (
+        patch("lib.text_backends.factory.ConfigResolver", return_value=mock_resolver),
+        patch("lib.text_backends.factory.create_backend") as mock_create,
+    ):
+        await create_text_backend_for_task(TextTaskType.OVERVIEW, "my-project")
+        assert mock_create.call_args.kwargs["base_url"] == "https://custom.example.com/v9"
 
 
 async def test_creates_vertex_backend():
