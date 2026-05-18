@@ -37,6 +37,7 @@
   <img src="https://img.shields.io/badge/Volcengine_Ark-Image_&_Video_&_Text-FF6A00?logo=bytedance&logoColor=white" alt="Volcengine Ark">
   <img src="https://img.shields.io/badge/Grok-Image_&_Video_&_Text-000000?logo=x&logoColor=white" alt="Grok">
   <img src="https://img.shields.io/badge/OpenAI-Image_&_Video_&_Text-74AA9C?logo=openai&logoColor=white" alt="OpenAI">
+  <img src="https://img.shields.io/badge/Vidu-Image_&_Video-1A73E8" alt="Vidu">
 </p>
 
 <p align="center">
@@ -55,11 +56,11 @@ Built on the <strong>Claude Agent SDK</strong>, orchestrating Skills + focused S
 </td>
 <td width="20%" align="center">
 <h3>🎨 Multi-Provider Image Generation</h3>
-<strong>Gemini</strong>, <strong>Volcengine Ark</strong>, <strong>Grok</strong>, <strong>OpenAI</strong>, and custom providers. Character design sheets ensure consistency; clue tracking maintains prop/scene continuity across shots
+<strong>Gemini</strong>, <strong>Volcengine Ark</strong>, <strong>Grok</strong>, <strong>OpenAI</strong>, <strong>Vidu</strong>, and custom providers. Character design sheets ensure consistency; clue tracking maintains prop/scene continuity across shots
 </td>
 <td width="20%" align="center">
 <h3>🎬 Multi-Provider Video Generation</h3>
-<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, and custom providers, switchable at global or project level
+<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, <strong>Vidu Q3</strong>, and custom providers, switchable at global or project level
 </td>
 <td width="20%" align="center">
 <h3>⚡ Async Task Queue</h3>
@@ -90,7 +91,7 @@ graph TD
 
 ## Quick Start
 
-> ⚠️ **OS**: Linux / MacOS / Windows WSL2 (the Claude Agent SDK and several dependencies are POSIX-only; native Windows is not supported — use Docker Desktop or WSL2)
+> ⚠️ **OS**: Linux / macOS / WSL2 / Docker recommended. Native Windows can run project creation and basic flows, but POSIX-only isolation (Bash sandbox, bwrap) auto-degrades. For production, WSL2 or Docker Desktop is still recommended
 
 ### Default Deployment (SQLite)
 
@@ -112,8 +113,8 @@ docker compose up -d
 
 After first launch, log in with the default account (username `admin`, password set via `AUTH_PASSWORD` in `.env`; if not set, it will be auto-generated and written back to `.env` on first startup). Then go to **Settings** (`/settings`) to complete configuration:
 
-1. **ArcReel Agent** — Configure Anthropic API Key (powers the AI assistant), with support for custom Base URL and model
-2. **AI Image/Video Generation** — Configure at least one provider's API Key (Gemini / Volcengine Ark / Grok / OpenAI), or add a custom provider
+1. **ArcReel Agent** — Configure provider credentials that power the AI assistant. Supports Anthropic and compatible providers, with custom Base URL and model
+2. **AI Image/Video/Text Generation** — Configure at least one provider's API Key (Gemini / Volcengine Ark / Grok / OpenAI / Vidu), or add a custom provider
 
 > 📖 For detailed steps, see the [Getting Started Guide](docs/getting-started.md)
 
@@ -121,9 +122,11 @@ After first launch, log in with the default account (username `admin`, password 
 
 - **Complete Production Pipeline** — Novel → Screenplay → Character Design → Storyboard Images → Video Clips → Final Cut, one-click orchestration
 - **Multi-Agent Architecture** — Orchestration Skill detects project state and auto-dispatches focused Subagents; each Subagent completes one task and returns a summary
-- **Multi-Provider Support** — Image/Video/Text generation all support Gemini, Volcengine Ark, Grok, and OpenAI as built-in providers, switchable at global or project level
+- **Sandboxed Agent Runtime** — Agent tool calls run inside a bwrap sandbox by default; filesystem, network, and subprocess capabilities are allow-listed. Auto-enabled on Linux/macOS; gracefully degrades when native Windows lacks sandbox support
+- **Multi-Provider Support** — Image/Video/Text generation all support Gemini, Volcengine Ark, Grok, OpenAI, and Vidu as built-in providers, switchable at global or project level; the AI assistant credentials also support multi-provider configuration
 - **Custom Providers** — Connect any OpenAI-compatible or Google-compatible API (e.g., Ollama, vLLM, third-party proxies); auto-discovers available models and assigns media types, with full feature parity with built-in providers
 - **Two Content Modes** — Narration mode splits by reading rhythm; Drama mode organizes by scene/dialogue structure
+- **Three Video Generation Modes** — Image-to-video (driven by storyboard) / Grid-to-video (compose grid_4/6/9, split cells as first/last frames) / Reference-to-video (generate directly from character/scene/prop asset images, skipping the storyboard step)
 - **Progressive Episode Planning** — Human-AI collaborative splitting of long novels: peek probe → Agent suggests breakpoints → user confirms → physical split, produce on demand
 - **Style Reference Images** — Upload style references; AI auto-analyzes and applies uniformly to all image generation for visual consistency
 - **Character Consistency** — AI generates character design sheets first; all subsequent storyboards and videos reference these designs
@@ -132,9 +135,8 @@ After first launch, log in with the default account (username `admin`, password 
 - **Multi-Provider Cost Tracking** — Image/Video/Text costs all tracked, with per-provider billing strategies and separate currency accounting
 - **Cost Estimation** — Pre-generation cost estimates at project/episode/shot level, with three-level drill-down comparing estimated vs. actual costs
 - **CapCut Draft Export** — Export CapCut-compatible draft ZIP per episode, supporting CapCut 5.x / 6+ ([Guide](docs/jianying-export-guide.md))
-- **Grid Mode** — Compose multiple storyboards into grid images (grid_4/grid_6/grid_9) with auto grid-size selection; split cells serve as first/last frames for video generation
 - **Multi API Key Management** — Configure multiple API Keys per provider with active key switching; supports Google Vertex AI credential upload
-- **Bilingual UI (i18n)** — Full internationalization for frontend and backend, supporting Chinese/English interface switching
+- **Multilingual UI** — Full internationalization for both frontend and backend
 - **Project Import/Export** — Archive entire projects for backup and migration
 
 ## Provider Support
@@ -148,24 +150,26 @@ ArcReel supports multiple built-in and custom providers through unified `ImageBa
 | **Gemini** (Google) | Nano Banana 2, Nano Banana Pro | Text-to-image, Image-to-image (multi-reference) | Per-resolution lookup (USD) |
 | **Volcengine Ark** | Seedream 5.0, Seedream 5.0 Lite, Seedream 4.5, Seedream 4.0 | Text-to-image, Image-to-image | Per-image (CNY) |
 | **Grok** (xAI) | Grok Imagine Image, Grok Imagine Image Pro | Text-to-image, Image-to-image | Per-image (USD) |
-| **OpenAI** | GPT Image 2, GPT Image 1.5, GPT Image 1 Mini | Text-to-image, Image-to-image (multi-reference) | Per-image (USD) |
+| **OpenAI** | GPT Image 2, GPT Image 1.5, GPT Image 1 Mini | Text-to-image, Image-to-image (multi-reference) | Per-token usage (USD) |
+| **Vidu** (Shengshu) | Vidu Q2 Image, Vidu Q1 Image | Text-to-image, Image-to-image | Credits-based (CNY) |
 
 ### Video Providers
 
-| Provider | Available Models | Capabilities | Billing |
-|----------|-----------------|--------------|---------|
-| **Gemini** (Google) | Veo 3.1, Veo 3.1 Fast, Veo 3.1 Lite | Text-to-video, Image-to-video, Video extension, Negative prompts | Per-resolution × duration lookup (USD) |
-| **Volcengine Ark** | Seedance 2.0, Seedance 2.0 Fast, Seedance 1.5 Pro | Text-to-video, Image-to-video, Video extension, Audio generation, Seed control, Offline inference | Per-token usage (CNY) |
-| **Grok** (xAI) | Grok Imagine Video | Text-to-video, Image-to-video | Per-second (USD) |
-| **OpenAI** | Sora 2, Sora 2 Pro | Text-to-video, Image-to-video | Per-second (USD) |
+| Provider | Available Models | Capabilities | Duration (s) | Billing |
+|----------|-----------------|--------------|--------------|---------|
+| **Gemini** (Google) | Veo 3.1, Veo 3.1 Fast, Veo 3.1 Lite | Text-to-video, Image-to-video, Video extension, Negative prompts | 4 / 6 / 8 | Per-resolution × duration lookup (USD) |
+| **Volcengine Ark** | Seedance 2.0, Seedance 2.0 Fast, Seedance 1.5 Pro | Text-to-video, Image-to-video, Video extension, Audio generation, Seed control, Offline inference | 4–15 | Per-token usage (CNY) |
+| **Grok** (xAI) | Grok Imagine Video | Text-to-video, Image-to-video | 1–15 | Per-second (USD) |
+| **OpenAI** | Sora 2, Sora 2 Pro | Text-to-video, Image-to-video | 4 / 8 / 12 | Per-second (USD) |
+| **Vidu** (Shengshu) | Vidu Q3 Turbo, Vidu Q3 Pro, Vidu Q3 (Reference), Vidu 2.0 | Text-to-video, Image-to-video, Reference-to-video, Audio generation, Seed control | 1–16 (2.0: 4 / 8) | Credits-based (CNY) |
 
 ### Text Providers
 
 | Provider | Available Models | Capabilities | Billing |
 |----------|-----------------|--------------|---------|
-| **Gemini** (Google) | Gemini 3.1 Flash, Gemini 3.1 Flash Lite, Gemini 3 Pro | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
-| **Volcengine Ark** | Doubao Seed series | Text generation, Structured output, Visual understanding | Per-token usage (CNY) |
-| **Grok** (xAI) | Grok 4.20, Grok 4.1 Fast series | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
+| **Gemini** (Google) | Gemini 3.1 Pro, Gemini 3 Flash, Gemini 3.1 Flash Lite | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
+| **Volcengine Ark** | Doubao Seed 2.0 Pro / Lite / Mini, Doubao Seed 1.8 | Text generation, Structured output, Visual understanding | Per-token usage (CNY) |
+| **Grok** (xAI) | Grok 4.20 Reasoning / Non-Reasoning, Grok 4.1 Fast Reasoning / Non-Reasoning | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
 | **OpenAI** | GPT-5.5, GPT-5.4, GPT-5.4 Mini, GPT-5.4 Nano | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
 
 ### Custom Providers
@@ -228,7 +232,7 @@ flowchart TB
     end
 
     subgraph Core["Core Library"]
-        C1["VideoBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Custom"] ~~~ C2["ImageBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Custom"]
+        C1["VideoBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · Custom"] ~~~ C2["ImageBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · Custom"]
         C5["TextBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Custom"] ~~~ C3["GenerationQueue<br/>RPM Limiting · Image/Video Channels"]
         C4["ProjectManager<br/>File System + Version Management"]
     end
@@ -248,8 +252,8 @@ flowchart TB
 | **Frontend** | React 19, TypeScript, Tailwind CSS 4, wouter, zustand, Framer Motion, Vite |
 | **Backend** | FastAPI, Python 3.12+, uvicorn, Pydantic 2 |
 | **AI Agents** | Claude Agent SDK (Skill + Subagent multi-agent architecture) |
-| **Image Generation** | Gemini (`google-genai`), Volcengine Ark (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI (`openai`) |
-| **Video Generation** | Gemini Veo 3.1 (`google-genai`), Volcengine Ark Seedance 2.0/1.5 (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI Sora 2 (`openai`) |
+| **Image Generation** | Gemini (`google-genai`), Volcengine Ark (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI (`openai`), Vidu (`httpx`) |
+| **Video Generation** | Gemini Veo 3.1 (`google-genai`), Volcengine Ark Seedance 2.0/1.5 (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI Sora 2 (`openai`), Vidu Q3 (`httpx`) |
 | **Text Generation** | Gemini (`google-genai`), Volcengine Ark (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI (`openai`), Instructor (structured output fallback) |
 | **Media Processing** | FFmpeg, Pillow |
 | **ORM & Database** | SQLAlchemy 2.0 (async), Alembic, aiosqlite, asyncpg — SQLite (default) / PostgreSQL (production) |
