@@ -7,6 +7,7 @@
 - /plan/anthropic         腾讯 LKEAP Token Plan
 - /coding/anthropic       腾讯 LKEAP Coding Plan
 - /api/coding             火山方舟 Coding Plan
+- /api/plan               火山方舟 Agent Plan
 
 而模型发现 /v1/models 总是在「子路径之前的根」下。
 本模块负责一次性派生这两个 root，下游 SDK / 模型发现各取所需。
@@ -32,7 +33,7 @@ _SUFFIX_PATTERNS: list[tuple[re.Pattern[str], int]] = [
     # /api/anthropic — discovery_root 保留 "/api"（4 字符）
     (re.compile(r"/api/anthropic/?$"), 4),
     # 其余已知子路径 — 整体剥掉（保留 0 字符）
-    (re.compile(r"/(?:apps/anthropic|plan/anthropic|coding/anthropic|api/coding|anthropic)/?$"), 0),
+    (re.compile(r"/(?:apps/anthropic|plan/anthropic|coding/anthropic|api/coding|api/plan|anthropic)/?$"), 0),
 ]
 
 

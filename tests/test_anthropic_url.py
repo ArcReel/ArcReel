@@ -59,6 +59,15 @@ from lib.config.anthropic_url import AnthropicEndpoints, derive_anthropic_endpoi
                 True,
             ),
         ),
+        # /api/plan (火山方舟 Agent Plan)
+        (
+            "https://ark.cn-beijing.volces.com/api/plan",
+            AnthropicEndpoints(
+                "https://ark.cn-beijing.volces.com/api/plan",
+                "https://ark.cn-beijing.volces.com",
+                True,
+            ),
+        ),
         # 用户误带 /v1
         (
             "https://api.deepseek.com/anthropic/v1",
