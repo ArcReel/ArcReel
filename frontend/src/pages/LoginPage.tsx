@@ -21,7 +21,7 @@ const POSTER_GRID_STYLE = posterGridStyle({ size: 44, maskShape: "60% 60% at 50%
 const AMBIENT_GLOW_STYLE = ambientGlowStyle();
 
 export function LoginPage() {
-  const { t, i18n } = useTranslation(["common", "auth"]);
+  const { t, i18n } = useTranslation(["common", "auth", "fork"]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -70,8 +70,24 @@ export function LoginPage() {
       <div aria-hidden className="pointer-events-none absolute inset-0" style={AMBIENT_GLOW_STYLE} />
       <div aria-hidden className="pointer-events-none absolute inset-0" style={POSTER_GRID_STYLE} />
 
+      {/* fork-private: 登录页文案 */}
+      <p
+        aria-hidden
+        className="font-editorial pointer-events-none absolute left-1/2 top-[8vh] z-0 -translate-x-1/2 whitespace-nowrap text-center text-text opacity-[0.14]"
+        style={{ fontSize: "clamp(3.2rem, 9vw, 6.8rem)", letterSpacing: "0.04em", lineHeight: 1 }}
+      >
+        {t("fork:login.slogan_primary")}
+      </p>
+      <p
+        aria-hidden
+        className="font-editorial pointer-events-none absolute inset-x-0 bottom-[14vh] z-0 text-center italic text-text opacity-[0.32]"
+        style={{ fontSize: "clamp(1.0rem, 3vw, 2.4rem)", letterSpacing: "0.04em", lineHeight: 1.2 }}
+      >
+        {t("fork:login.slogan_secondary")}
+      </p>
+
       <div
-        className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-hairline p-8 shadow-2xl"
+        className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-hairline p-8 shadow-2xl"
         style={CARD_STYLE}
       >
         <div className="mb-6 text-center">

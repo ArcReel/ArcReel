@@ -16,9 +16,18 @@ from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_TYPES, BUCKET_KEY, SHEET_KEY
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
+from lib.fork_permissions import is_admin
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUser
+
+# fork-private: 资产库 owner 隔离、项目访问拦截等所有 fork-private 逻辑集中在 server.fork_assets_visibility。
+from server.fork_assets_visibility import (
+    can_see_asset,
+    direct_upload_source_project,
+    display_source_project,
+    require_project_access,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +55,7 @@ def _validate_asset_name(name: str, _t: Translator) -> str:
     return cleaned
 
 
+# fork-private: owner 可见性 helper 集中在 server.fork_assets_visibility
 def _serialize(asset) -> dict:
     return {
         "id": asset.id,
@@ -54,7 +64,8 @@ def _serialize(asset) -> dict:
         "description": asset.description,
         "voice_style": asset.voice_style,
         "image_path": asset.image_path,
-        "source_project": asset.source_project,
+        # fork-private: 隐藏 "<owner>__@library" 哨兵后缀，不泄露内部编码
+        "source_project": display_source_project(asset),
         "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
     }
 
@@ -96,16 +107,24 @@ async def list_assets(
     limit: int = 100,
     offset: int = 0,
 ):
+    # fork-private: owner 过滤在应用层做（schema 不动）——DB 层限定较大上限 + Python 层 owner 过滤。
+    # 对库小表场景足够；admin 走原路径。
     async with async_session_factory() as s:
-        items = await AssetRepository(s).list(type=type, q=q, limit=limit, offset=offset)
-        return {"items": [_serialize(a) for a in items]}
+        if is_admin(_user.role):
+            items = await AssetRepository(s).list(type=type, q=q, limit=limit, offset=offset)
+            return {"items": [_serialize(a) for a in items]}
+        # fork-private: 普通用户拉取足够多后 Python 过滤再切片
+        raw = await AssetRepository(s).list(type=type, q=q, limit=max(limit + offset, limit) * 4, offset=0)
+        visible = [a for a in raw if can_see_asset(_user, a)]
+        return {"items": [_serialize(a) for a in visible[offset : offset + limit]]}
 
 
 @router.get("/{asset_id}")
 async def get_asset(asset_id: str, _user: CurrentUser, _t: Translator):
     async with async_session_factory() as s:
         a = await AssetRepository(s).get_by_id(asset_id)
-        if not a:
+        # fork-private: 看不见的资产一律返 404（不泄露存在性）
+        if not a or not can_see_asset(_user, a):
             raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
         return {"asset": _serialize(a)}
 
@@ -140,7 +159,8 @@ async def create_asset(
                     description=description,
                     voice_style=voice_style,
                     image_path=image_path,
-                    source_project=None,
+                    # fork-private: 将 owner 编码进 source_project 哨兵，详见 fork_assets_visibility
+                    source_project=direct_upload_source_project(_user),
                 )
                 await s.commit()
                 await s.refresh(a)
@@ -180,7 +200,8 @@ async def update_asset(
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
-        if not a:
+        # fork-private: 看不见 → 404（与 get_asset 一致）
+        if not a or not can_see_asset(_user, a):
             raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
         if "name" in patch and patch["name"] != a.name:
             if await repo.exists(a.type, patch["name"]):
@@ -200,7 +221,8 @@ async def delete_asset(asset_id: str, _user: CurrentUser, _t: Translator):
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
-        if a:
+        # fork-private: 看不见的资产静默 no-op（返 204），与 get_asset 的 404 隔离策略保持一致
+        if a and can_see_asset(_user, a):
             if a.image_path:
                 _delete_global_asset_file(a.image_path)
             await repo.delete(asset_id)
@@ -215,11 +237,11 @@ async def replace_image(
     _t: Translator,
     image: UploadFile = File(...),
 ):
-    # 1) 先取资产并校验存在
+    # 1) 先取资产并校验可见（fork-private）
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
-        if not a:
+        if not a or not can_see_asset(_user, a):
             raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
         old_path = a.image_path
         asset_type = a.type
@@ -259,6 +281,9 @@ async def from_project(
     _user: CurrentUser,
     _t: Translator,
 ):
+    # fork-private: 拦截“借资产库读他人项目”的越权路径
+    require_project_access(req.project_name, _user, _t)
+
     # 1) 类型合法性
     if req.resource_type not in ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
@@ -311,6 +336,11 @@ async def from_project(
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         existing = await repo.get_by_type_name(req.resource_type, asset_name)
+
+    # fork-private: 名字全局唯一约束下，其他用户已占名但当前用户看不到时返回 409（不泄露内容）；
+    # overwrite 也不允许跨用户覆盖。
+    if existing is not None and not can_see_asset(_user, existing):
+        raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=asset_name))
 
     if existing is not None and not req.overwrite:
         raise HTTPException(
@@ -393,6 +423,9 @@ async def apply_to_project(
     _user: CurrentUser,
     _t: Translator,
 ):
+    # fork-private: 拦截“借资产库写他人项目”的越权路径
+    require_project_access(req.target_project, _user, _t)
+
     # 1) 校验冲突策略（400 先于其它检查）
     if req.conflict_policy not in {"skip", "overwrite", "rename"}:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_conflict_policy"))
@@ -414,7 +447,8 @@ async def apply_to_project(
     # 3) 批量读取所有请求的 asset，缺失的直接归入 failed
     async with async_session_factory() as s:
         assets = await AssetRepository(s).get_by_ids(req.asset_ids)
-    assets_by_id = {a.id: a for a in assets}
+    # fork-private: owner 隔离 — 看不见的资产视同 not_found（不泄露存在性）
+    assets_by_id = {a.id: a for a in assets if can_see_asset(_user, a)}
     for asset_id in req.asset_ids:
         if asset_id not in assets_by_id:
             failed.append({"id": asset_id, "reason": "not_found"})
