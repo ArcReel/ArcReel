@@ -93,3 +93,35 @@ class TestAssistantRoutes:
 
         assert response.status_code == 200
         assert response.json() == interrupt_payload
+
+    def test_send_endpoint_translates_agent_startup_error_to_502(self):
+        """``AgentStartupError`` 必须翻译成 502 + i18n 包装的 detail，
+        透传 SDK 自带的安装指引；500 + 占位符是回归（PR #573）。"""
+        from server.agent_runtime.session_manager import AgentStartupError
+
+        stderr_text = (
+            "Claude Code on Windows requires either Git for Windows (for bash) or PowerShell.\n"
+            "Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location."
+        )
+        startup_err = AgentStartupError(
+            "Command failed with exit code 1",
+            sdk_stderr=stderr_text,
+        )
+
+        with patch.object(
+            assistant.assistant_service,
+            "send_or_create",
+            new=AsyncMock(side_effect=startup_err),
+        ):
+            with _build_client() as client:
+                response = client.post(
+                    f"{PREFIX}/sessions/send",
+                    json={"content": "hi"},
+                )
+
+        assert response.status_code == 502
+        detail = response.json().get("detail", "")
+        # i18n 前缀 + SDK 原文必须都在 detail 里
+        assert "Agent" in detail or "agent" in detail
+        assert "Git for Windows" in detail
+        assert "CLAUDE_CODE_GIT_BASH_PATH" in detail

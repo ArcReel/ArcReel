@@ -175,6 +175,59 @@ async def test_send_new_session_no_stderr_still_wraps(
 
 
 @pytest.mark.asyncio
+async def test_get_or_connect_wraps_actor_failure_with_stderr(
+    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """恢复历史会话路径同样要把 actor.start 失败包装为 AgentStartupError。
+
+    ``get_or_connect`` 与 ``send_new_session`` 是两条独立路径，单独覆盖避免
+    其中一条回归没人发现。
+    """
+    from tests.factories import make_session_meta
+
+    async def fake_env(_self):
+        return {"ANTHROPIC_API_KEY": "sk"}
+
+    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+
+    captured_stderr_cb: list = []
+
+    class _FakeActor:
+        def __init__(self, *_, on_message=None, client_factory=None):
+            self.task = None
+
+        async def start(self):
+            cb = captured_stderr_cb[0]
+            cb("resume-failed: cannot rehydrate transcript")
+            raise RuntimeError("Command failed with exit code 1")
+
+        def add_done_callback(self, _cb):
+            pass
+
+    real_build_options = SessionManager._build_options
+
+    async def wrapped_build_options(self, *args, **kwargs):
+        opts = await real_build_options(self, *args, **kwargs)
+        captured_stderr_cb.append(opts.stderr)
+        return opts
+
+    monkeypatch.setattr(SessionManager, "_build_options", wrapped_build_options)
+    monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
+    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
+
+    meta = make_session_meta(id="resumed-session", project_name="demo", status="idle")
+
+    with pytest.raises(AgentStartupError) as exc_info:
+        await session_manager.get_or_connect("resumed-session", meta=meta)
+
+    err = exc_info.value
+    assert "resume-failed" in err.sdk_stderr
+    assert "Command failed with exit code 1" in str(err)
+    # 失败后会话不应残留在内存里
+    assert "resumed-session" not in session_manager.sessions
+
+
+@pytest.mark.asyncio
 async def test_stderr_buffer_caps_to_maxlen(session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch) -> None:
     """SDK 在长会话中持续吐 stderr 时，缓冲必须裁剪到 maxlen，避免无界增长。
 
