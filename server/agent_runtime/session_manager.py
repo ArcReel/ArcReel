@@ -58,6 +58,31 @@ class SessionCapacityError(Exception):
     pass
 
 
+class AgentStartupError(RuntimeError):
+    """ClaudeSDKClient 启动失败时携带 SDK stderr 的异常。
+
+    SDK 内部用 ``ProcessError`` 抛子进程非 0 退出，但其 ``stderr`` 字段写死为
+    ``"Check stderr output for details"`` —— 真实 stderr 只能通过
+    ``ClaudeAgentOptions.stderr`` 回调拿到。本异常把回调收集的 stderr 行打包
+    透传给 router/前端，让用户能看到 SDK 给出的安装指引（例如 Windows 缺
+    bash.exe / pwsh.exe 时的下载链接）。
+
+    ``__str__`` 直接返回 message + stderr 的完整拼接，让 router 的通用
+    ``except Exception: str(exc)`` 分支也能自动透传，不需要每条路径都加专门
+    捕获。
+    """
+
+    def __init__(self, message: str, sdk_stderr: str = "") -> None:
+        self.message = message
+        self.sdk_stderr = sdk_stderr
+        super().__init__(self._compose())
+
+    def _compose(self) -> str:
+        if self.sdk_stderr:
+            return f"{self.message}\n\n{self.sdk_stderr}"
+        return self.message
+
+
 def _utc_now_iso() -> str:
     """Return current UTC timestamp in ISO-8601 format."""
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -620,8 +645,14 @@ class SessionManager:
         resume_id: str | None = None,
         can_use_tool: Callable[[str, dict[str, Any], Any], Any] | None = None,
         locale: str = "zh",
+        stderr: Callable[[str], None] | None = None,
     ) -> Any:
-        """Build ClaudeAgentOptions for a session."""
+        """Build ClaudeAgentOptions for a session.
+
+        ``stderr`` 在 SDK 子进程退出非 0 时是唯一拿到真实错误的途径
+        （``ProcessError.stderr`` 在 SDK 内部被写死为占位符）；上层应在
+        会话启动失败时把回调累积的行包装到 ``AgentStartupError`` 透传。
+        """
         if not SDK_AVAILABLE or ClaudeAgentOptions is None:
             raise RuntimeError("claude_agent_sdk is not installed")
 
@@ -708,6 +739,7 @@ class SessionManager:
             session_store_flush=session_store_flush_mode(),
             sandbox=sandbox_typed,  # type: ignore[arg-type]
             env=provider_env,
+            stderr=stderr,
         )
 
     @staticmethod
@@ -1208,11 +1240,18 @@ class SessionManager:
         temp_id = uuid4().hex
         managed_ref: list[ManagedSession | None] = [None]
 
+        stderr_lines: list[str] = []
+
+        def _collect_stderr(line: str) -> None:
+            stderr_lines.append(line)
+            logger.warning("claude_agent_sdk stderr: %s", line)
+
         options = await self._build_options(
             project_name,
             resume_id=None,
             can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
             locale=locale,
+            stderr=_collect_stderr,
         )
 
         actor = SessionActor(
@@ -1232,10 +1271,10 @@ class SessionManager:
 
         try:
             await actor.start()
-        except Exception:
+        except Exception as exc:
             logger.exception("新会话 actor 启动失败 temp_id=%s", temp_id)
             self.sessions.pop(temp_id, None)
-            raise
+            raise AgentStartupError(str(exc), sdk_stderr="\n".join(stderr_lines)) from exc
 
         # Register done callback BEFORE spawning processor to avoid a race
         # where the actor task completes before add_done_callback is attached,
@@ -1411,10 +1450,18 @@ class SessionManager:
 
             await self._ensure_capacity()
             managed_ref: list[ManagedSession | None] = [None]
+
+            stderr_lines: list[str] = []
+
+            def _collect_stderr(line: str) -> None:
+                stderr_lines.append(line)
+                logger.warning("claude_agent_sdk stderr: %s", line)
+
             options = await self._build_options(
                 meta.project_name,
                 meta.id,  # SessionMeta.id 就是 sdk_session_id
                 can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
+                stderr=_collect_stderr,
             )
 
             actor = SessionActor(
@@ -1439,10 +1486,10 @@ class SessionManager:
 
             try:
                 await actor.start()
-            except Exception:
+            except Exception as exc:
                 logger.exception("恢复会话 actor 启动失败 session_id=%s", session_id)
                 self.sessions.pop(session_id, None)
-                raise
+                raise AgentStartupError(str(exc), sdk_stderr="\n".join(stderr_lines)) from exc
 
             # done_callback BEFORE processor spawn (avoids race where actor
             # completes before the callback attaches and the None sentinel
