@@ -48,3 +48,20 @@ def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:
     ark_ids = set(PROVIDER_REGISTRY["ark"].models.keys())
     agent_plan_ids = set(PROVIDER_REGISTRY["ark-agent-plan"].models.keys())
     assert not (ark_ids & agent_plan_ids), "ark vs ark-agent-plan 模型 ID 命名不同，不应重叠"
+
+
+def test_ark_agent_plan_backend_registered() -> None:
+    """复用现有 ark backend 类支持 ark-agent-plan provider。"""
+    import lib.image_backends  # noqa: F401  触发自注册
+    import lib.text_backends  # noqa: F401
+    import lib.video_backends  # noqa: F401
+    from lib.image_backends.ark import ArkImageBackend
+    from lib.image_backends.registry import _BACKEND_FACTORIES as image_reg
+    from lib.text_backends.ark import ArkTextBackend
+    from lib.text_backends.registry import _BACKEND_FACTORIES as text_reg
+    from lib.video_backends.ark import ArkVideoBackend
+    from lib.video_backends.registry import _BACKEND_FACTORIES as video_reg
+
+    assert image_reg["ark-agent-plan"] is ArkImageBackend
+    assert video_reg["ark-agent-plan"] is ArkVideoBackend
+    assert text_reg["ark-agent-plan"] is ArkTextBackend

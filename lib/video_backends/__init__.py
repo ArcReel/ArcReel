@@ -34,6 +34,7 @@ register_backend(PROVIDER_GEMINI, GeminiVideoBackend)
 from lib.video_backends.ark import ArkVideoBackend
 
 register_backend(PROVIDER_ARK, ArkVideoBackend)
+register_backend("ark-agent-plan", ArkVideoBackend)
 
 # Grok: xai-sdk
 from lib.video_backends.grok import GrokVideoBackend

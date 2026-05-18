@@ -32,6 +32,7 @@ from lib.providers import PROVIDER_ARK
 from lib.text_backends.ark import ArkTextBackend
 
 register_backend(PROVIDER_ARK, ArkTextBackend)
+register_backend("ark-agent-plan", ArkTextBackend)
 
 from lib.providers import PROVIDER_GROK
 from lib.text_backends.grok import GrokTextBackend
