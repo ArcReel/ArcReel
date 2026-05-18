@@ -61,7 +61,8 @@ def setup_logging(level: str | None = None) -> None:
         root.addHandler(handler)
 
     # 文件 handler：默认开启，按天切，保留 7 份。失败不阻塞 stdout。
-    if not _file_logging_disabled() and not any(getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers):
+    file_handler_exists = any(getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers)
+    if not _file_logging_disabled() and not file_handler_exists:
         try:
             log_dir = _resolve_log_dir()
             log_dir.mkdir(parents=True, exist_ok=True)

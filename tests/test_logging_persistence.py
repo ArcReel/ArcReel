@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 import pytest
+
+from lib import logging_config
 
 
 @pytest.fixture(autouse=True)
@@ -28,15 +29,8 @@ def isolated_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path / "logs"
 
 
-def _reload_module():
-    from lib import logging_config
-
-    return importlib.reload(logging_config)
-
-
 def test_file_handler_registered_by_default(isolated_log_dir: Path) -> None:
-    cfg = _reload_module()
-    cfg.setup_logging()
+    logging_config.setup_logging()
     root = logging.getLogger()
     file_handlers = [h for h in root.handlers if isinstance(h, TimedRotatingFileHandler)]
     assert len(file_handlers) == 1
@@ -45,15 +39,13 @@ def test_file_handler_registered_by_default(isolated_log_dir: Path) -> None:
 
 def test_file_handler_disabled_by_env(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_LOG_FILE_DISABLED", "1")
-    cfg = _reload_module()
-    cfg.setup_logging()
+    logging_config.setup_logging()
     root = logging.getLogger()
     assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
 
 
 def test_logs_written_to_file(isolated_log_dir: Path) -> None:
-    cfg = _reload_module()
-    cfg.setup_logging()
+    logging_config.setup_logging()
     logging.getLogger("test.persistence").info("hello-arcreel")
     for h in logging.getLogger().handlers:
         h.flush()
@@ -76,28 +68,24 @@ def test_mkdir_failure_graceful(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(Path, "mkdir", fake_mkdir)
 
-    cfg = _reload_module()
-    cfg.setup_logging()  # 不抛
+    logging_config.setup_logging()  # 不抛
     root = logging.getLogger()
     assert any(isinstance(h, logging.StreamHandler) for h in root.handlers)
     assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
 
 
 def test_idempotent(isolated_log_dir: Path) -> None:
-    cfg = _reload_module()
-    cfg.setup_logging()
-    cfg.setup_logging()
-    cfg.setup_logging()
+    logging_config.setup_logging()
+    logging_config.setup_logging()
+    logging_config.setup_logging()
     root = logging.getLogger()
     file_handlers = [h for h in root.handlers if isinstance(h, TimedRotatingFileHandler)]
     assert len(file_handlers) == 1
 
 
-def test_disabled_env_accepts_aliases(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    for value in ("1", "true", "TRUE", "yes", "Yes"):
-        monkeypatch.setenv("ARCREEL_LOG_FILE_DISABLED", value)
-        cfg = _reload_module()
-        cfg.setup_logging()
-        root = logging.getLogger()
-        assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers), value
-        root.handlers.clear()
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "Yes"])
+def test_disabled_env_accepts_aliases(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("ARCREEL_LOG_FILE_DISABLED", value)
+    logging_config.setup_logging()
+    root = logging.getLogger()
+    assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
