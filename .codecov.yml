@@ -21,10 +21,25 @@ coverage:
         if_ci_failed: error
         informational: true
     patch:
-      default:
-        target: 70%
+      backend:
+        flags:
+          - backend
+        target: 80%
+        threshold: 1%
+        if_ci_failed: error
+      frontend:
+        flags:
+          - frontend
+        target: 60%
+        threshold: 1%
+        if_ci_failed: error
+      postgres:
+        flags:
+          - postgres
+        target: 40%
         threshold: 5%
         if_ci_failed: error
+        informational: true
 
 flag_management:
   default_rules:
