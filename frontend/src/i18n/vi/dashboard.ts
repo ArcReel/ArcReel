@@ -439,6 +439,7 @@ export default {
   'save_failed': 'Lưu thất bại: {{message}}',
 
   // UsageStatsSection
+  'spend_ledger': 'Sổ chi phí',
   'last_7_days': '7 ngày qua',
   'last_30_days': '30 ngày qua',
   'all': 'Tất cả',
@@ -446,6 +447,7 @@ export default {
   'filter_by_provider': 'Lọc theo nhà cung cấp',
   'all_providers': 'Tất cả nhà cung cấp',
   'no_data': 'Chưa có dữ liệu',
+  'total_calls': 'Tổng lượt gọi',
   'calls': 'Lượt gọi',
   'success_count': 'Thành công',
   'success_rate': 'Tỉ lệ thành công',

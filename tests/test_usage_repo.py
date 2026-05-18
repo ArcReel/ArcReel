@@ -169,6 +169,82 @@ class TestMultiProviderUsage:
         assert stats["cost_by_currency"]["CNY"] == pytest.approx(3.9494, rel=1e-3)
         assert stats["total_cost"] == pytest.approx(3.2)
 
+    async def test_get_stats_cost_by_currency_excludes_failed_and_zero_cost(self, db_session):
+        """get_stats.cost_by_currency 与 grouped 接口口径对齐：仅成功且有扣费的调用计入金额维度。"""
+        repo = UsageRepository(db_session)
+
+        ok = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(ok, status="success", usage_tokens=8)
+
+        failed = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(failed, status="failed", error_message="boom")
+
+        zero_cost = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="gemini-3-flash-preview",
+            provider="gemini",
+        )
+        await repo.finish_call(zero_cost, status="success", input_tokens=0, output_tokens=0)
+
+        stats = await repo.get_stats(project_name="demo")
+        # 失败调用和成功零费用调用仍计入 total_count，但不计入金额维度
+        assert stats["total_count"] == 3
+        assert stats["failed_count"] == 1
+        assert stats["cost_by_currency"] == {"CNY": pytest.approx(0.25)}
+
+    async def test_get_stats_grouped_by_provider_includes_cost_by_currency(self, db_session):
+        repo = UsageRepository(db_session)
+
+        gemini_id = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="gemini-3.1-flash-image-preview",
+            resolution="1K",
+            provider="gemini",
+        )
+        await repo.finish_call(gemini_id, status="success")
+
+        vidu_id = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(vidu_id, status="success", usage_tokens=8)
+
+        failed_vidu_id = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(failed_vidu_id, status="failed", error_message="boom")
+
+        stats = await repo.get_stats_grouped_by_provider(project_name="demo")
+        by_provider = {item["provider"]: item for item in stats["stats"]}
+
+        assert by_provider["gemini"]["total_cost_usd"] == pytest.approx(0.067)
+        assert by_provider["gemini"]["cost_by_currency"] == {"USD": pytest.approx(0.067)}
+        assert by_provider["vidu"]["total_cost_usd"] == 0
+        assert by_provider["vidu"]["cost_by_currency"] == {"CNY": pytest.approx(0.25)}
+        assert by_provider["vidu"]["total_calls"] == 2
+        assert by_provider["vidu"]["success_calls"] == 1
+
     async def test_text_call_gemini_cost(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(

@@ -277,14 +277,20 @@ class UsageRepository(BaseRepository):
         main_stmt = self._scope_query(main_stmt, ApiCall)
         row = (await self.session.execute(main_stmt)).one()
 
-        # Cost by currency
+        # Cost by currency — only count successful calls with non-zero billed cost.
+        # 与 ``get_stats_grouped_by_provider`` 保持同一过滤口径，保证"汇总 cost_by_currency"
+        # 与"各 provider 卡的 cost_by_currency 之和"一致。失败/未扣费调用不计入金额维度。
         currency_stmt = (
             select(
                 ApiCall.currency,
                 func.coalesce(func.sum(ApiCall.cost_amount), 0).label("total"),
             )
             .select_from(ApiCall)
-            .where(*filters)
+            .where(
+                *filters,
+                ApiCall.status == "success",
+                ApiCall.cost_amount > 0,
+            )
             .group_by(ApiCall.currency)
         )
         currency_stmt = self._scope_query(currency_stmt, ApiCall)
@@ -336,6 +342,27 @@ class UsageRepository(BaseRepository):
         stmt = self._scope_query(stmt, ApiCall)
         rows = (await self.session.execute(stmt)).all()
 
+        currency_stmt = (
+            select(
+                ApiCall.provider,
+                ApiCall.call_type,
+                ApiCall.currency,
+                func.coalesce(func.sum(ApiCall.cost_amount), 0).label("total"),
+            )
+            .select_from(ApiCall)
+            .where(
+                *filters,
+                ApiCall.status == "success",
+                ApiCall.cost_amount > 0,
+            )
+            .group_by(ApiCall.provider, ApiCall.call_type, ApiCall.currency)
+        )
+        currency_stmt = self._scope_query(currency_stmt, ApiCall)
+        currency_rows = (await self.session.execute(currency_stmt)).all()
+        cost_by_group: dict[tuple[str | None, str | None], dict[str, float]] = {}
+        for provider_value, call_type_value, currency, total in currency_rows:
+            cost_by_group.setdefault((provider_value, call_type_value), {})[currency] = round(total, 4)
+
         stats = [
             {
                 "provider": row.provider,
@@ -343,6 +370,7 @@ class UsageRepository(BaseRepository):
                 "total_calls": row.total_calls,
                 "success_calls": row.success_calls,
                 "total_cost_usd": round(row.total_cost_usd, 4),
+                "cost_by_currency": cost_by_group.get((row.provider, row.call_type), {}),
                 "total_duration_seconds": round(row.total_duration_ms / 1000, 1) if row.total_duration_ms else 0,
             }
             for row in rows

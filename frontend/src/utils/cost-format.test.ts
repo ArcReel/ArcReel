@@ -1,0 +1,39 @@
+import { describe, expect, it } from "vitest";
+import {
+  costEntries,
+  formatCost,
+  formatCostOrZero,
+  formatCurrencyAmount,
+  totalBreakdown,
+} from "./cost-format";
+
+describe("cost-format", () => {
+  it("formats multi-currency breakdowns in a stable order", () => {
+    expect(costEntries({ USD: 1.2, CNY: 3.4, EUR: 5.6 })).toEqual([
+      ["CNY", 3.4],
+      ["USD", 1.2],
+      ["EUR", 5.6],
+    ]);
+    expect(formatCost({ USD: 1.2, CNY: 3.4 })).toBe("CN¥3.40 + $1.20");
+    expect(formatCurrencyAmount("CNY", 1.234)).toBe("CN¥1.23");
+  });
+
+  it("filters zero costs and falls back to em-dash", () => {
+    expect(formatCost({ USD: 0, CNY: 0 })).toBe("—");
+    expect(formatCostOrZero({ USD: 0 })).toBe("—");
+    expect(formatCostOrZero(undefined)).toBe("—");
+  });
+
+  it("falls back for unknown currency codes", () => {
+    expect(formatCurrencyAmount("POINTS", 12.345)).toBe("POINTS 12.35");
+  });
+
+  it("totals cost breakdowns by type", () => {
+    expect(
+      totalBreakdown({
+        image: { CNY: 1.11115, USD: 2 },
+        video: { CNY: 3 },
+      }),
+    ).toEqual({ CNY: 4.1112, USD: 2 });
+  });
+});

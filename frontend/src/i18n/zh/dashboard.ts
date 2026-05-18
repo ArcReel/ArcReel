@@ -460,6 +460,7 @@ export default {
   'save_failed': '保存失败: {{message}}',
 
   // UsageStatsSection
+  'spend_ledger': '费用账本',
   'last_7_days': '最近 7 天',
   'last_30_days': '最近 30 天',
   'all': '全部',
@@ -467,6 +468,7 @@ export default {
   'filter_by_provider': '按供应商筛选',
   'all_providers': '全部供应商',
   'no_data': '暂无数据',
+  'total_calls': '总调用',
   'calls': '调用',
   'success_count': '成功',
   'success_rate': '成功率',

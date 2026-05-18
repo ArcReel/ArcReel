@@ -4,9 +4,8 @@ import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { formatCostOrZero } from "@/utils/cost-format";
 import type { UsageStat } from "@/types";
-
-const currencyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 const EDITORIAL_KPI_STYLE: CSSProperties = {
   fontSize: 22,
@@ -87,17 +86,25 @@ export function UsageStatsSection() {
     [stats],
   );
 
-  // Aggregate totals — used for the editorial header summary card
+  // Aggregate totals — used for the editorial header summary card.
+  // 这里只是求和：用 Object.entries 直接遍历，避免 costEntries 的排序/过滤开销
+  // （那是 UI 展示语义，不是聚合语义）。累加后统一 4 位小数四舍五入，与
+  // totalBreakdown 的精度处理保持一致，避免浮点累加产生 1.76000000000002。
   const totals = useMemo(() => {
-    let cost = 0;
+    const costByCurrency: Record<string, number> = {};
     let calls = 0;
     let success = 0;
     for (const s of stats) {
-      cost += s.total_cost_usd;
+      for (const [currency, amount] of Object.entries(s.cost_by_currency ?? {})) {
+        costByCurrency[currency] = (costByCurrency[currency] ?? 0) + amount;
+      }
       calls += s.total_calls;
       success += s.success_calls;
     }
-    return { cost, calls, success };
+    for (const currency of Object.keys(costByCurrency)) {
+      costByCurrency[currency] = Math.round(costByCurrency[currency] * 10000) / 10000;
+    }
+    return { costByCurrency, calls, success };
   }, [stats]);
 
   return (
@@ -105,7 +112,7 @@ export function UsageStatsSection() {
       {/* Heading */}
       <div>
         <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-          Spend Ledger
+          {t("spend_ledger")}
         </div>
         <h3 className="font-editorial mt-1" style={EDITORIAL_HEADING_STYLE}>
           {t("usage_stats")}
@@ -121,10 +128,10 @@ export function UsageStatsSection() {
         style={CARD_STYLE}
       >
         {[
-          { label: "Total Cost", value: currencyFmt.format(totals.cost) },
-          { label: "Total Calls", value: totals.calls.toLocaleString() },
+          { label: t("total_cost"), value: formatCostOrZero(totals.costByCurrency) },
+          { label: t("total_calls"), value: totals.calls.toLocaleString() },
           {
-            label: "Success Rate",
+            label: t("success_rate"),
             value:
               totals.calls > 0 ? percentFmt.format(totals.success / totals.calls) : "—",
           },
@@ -218,7 +225,7 @@ export function UsageStatsSection() {
                     className="font-editorial shrink-0 tabular-nums"
                     style={EDITORIAL_STAT_VALUE_STYLE}
                   >
-                    {currencyFmt.format(s.total_cost_usd)}
+                    {formatCostOrZero(s.cost_by_currency)}
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 font-mono text-[11px] tabular-nums text-text-3">

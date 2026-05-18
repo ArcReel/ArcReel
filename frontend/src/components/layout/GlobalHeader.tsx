@@ -18,6 +18,7 @@ import { PhaseStepper } from "./PhaseStepper";
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
+import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
@@ -81,16 +82,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
   // Format cost display – show multi-currency summary
   const costByCurrency = usageStats?.cost_by_currency ?? {};
-  const costEntries = Object.entries(costByCurrency).filter(([, v]) => v > 0);
-  const cnyCost = costEntries.find(([c]) => c === "CNY")?.[1] ?? 0;
-  const usdCost = costEntries.find(([c]) => c === "USD")?.[1] ?? 0;
-  const otherCosts = costEntries.filter(([c]) => c !== "CNY" && c !== "USD");
-  const costTooltip =
-    costEntries.length > 0
-      ? costEntries
-          .map(([currency, amount]) => `${currency === "CNY" ? "¥" : "$"}${amount.toFixed(2)}`)
-          .join(" + ")
-      : "$0.00";
+  const nonZeroCostEntries = costEntries(costByCurrency);
+  const primaryCost = nonZeroCostEntries[0];
+  const secondaryCost = nonZeroCostEntries[1];
+  const extraCostCount = Math.max(0, nonZeroCostEntries.length - 2);
+  const costTooltip = formatCostOrZero(costByCurrency);
 
   const handleNotificationNavigate = (notification: WorkspaceNotification) => {
     if (!notification.target) return;
@@ -279,12 +275,19 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               }}
               title={t("dashboard:cost_tooltip", { cost: costTooltip })}
             >
-              {cnyCost > 0 && (
+              {primaryCost ? (
                 <span className="num" style={{ color: "var(--color-text-4)" }}>
-                  ¥{cnyCost.toFixed(2)}
+                  {formatCurrencyAmount(primaryCost[0], primaryCost[1])}
+                </span>
+              ) : (
+                <span
+                  className="num font-medium"
+                  style={{ color: "var(--color-text-2)" }}
+                >
+                  {formatCostOrZero(undefined)}
                 </span>
               )}
-              {cnyCost > 0 && usdCost > 0 && (
+              {primaryCost && secondaryCost && (
                 <span
                   aria-hidden="true"
                   style={{
@@ -295,17 +298,17 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                   }}
                 />
               )}
-              {(usdCost > 0 || cnyCost === 0) && (
+              {secondaryCost && (
                 <span
                   className="num font-medium"
                   style={{ color: "var(--color-text-2)" }}
                 >
-                  ${usdCost.toFixed(2)}
+                  {formatCurrencyAmount(secondaryCost[0], secondaryCost[1])}
                 </span>
               )}
-              {otherCosts.length > 0 && (
+              {extraCostCount > 0 && (
                 <span className="num" style={{ color: "var(--color-text-4)" }}>
-                  +{otherCosts.length}
+                  +{extraCostCount}
                 </span>
               )}
             </button>
