@@ -30,19 +30,21 @@ class ArkVideoBackend:
 
     DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
 
+    # Seedance 2.0 系列不接受 service_tier 参数；FLEX_TIER 必须从能力集中剔除，
+    # 否则 _create_task 会触发上游 400。ark 与 ark-agent-plan 各用不同的模型 ID
+    # 命名（dash + 日期戳 vs. dot 简洁版），两套都要纳入。
+    _SEEDANCE_2_BASE_CAPABILITIES: set[VideoCapability] = {
+        VideoCapability.TEXT_TO_VIDEO,
+        VideoCapability.IMAGE_TO_VIDEO,
+        VideoCapability.GENERATE_AUDIO,
+        VideoCapability.SEED_CONTROL,
+    }
+
     _MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
-        "doubao-seedance-2-0-260128": {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.GENERATE_AUDIO,
-            VideoCapability.SEED_CONTROL,
-        },
-        "doubao-seedance-2-0-fast-260128": {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.GENERATE_AUDIO,
-            VideoCapability.SEED_CONTROL,
-        },
+        "doubao-seedance-2-0-260128": _SEEDANCE_2_BASE_CAPABILITIES,
+        "doubao-seedance-2-0-fast-260128": _SEEDANCE_2_BASE_CAPABILITIES,
+        "doubao-seedance-2.0": _SEEDANCE_2_BASE_CAPABILITIES,
+        "doubao-seedance-2.0-fast": _SEEDANCE_2_BASE_CAPABILITIES,
     }
 
     _DEFAULT_CAPABILITIES: set[VideoCapability] = {

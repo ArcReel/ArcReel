@@ -565,7 +565,7 @@ def _test_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestR
     """通过 tasks.list 验证 Ark API Key。"""
     from lib.ark_shared import create_ark_client
 
-    client = create_ark_client(api_key=config["api_key"])
+    client = create_ark_client(api_key=config["api_key"], base_url=config.get("base_url"))
     # 轻量级调用验证连通性，不创建任何资源
     client.content_generation.tasks.list(page_size=1)
     return ConnectionTestResponse(
@@ -626,6 +626,7 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse
     "gemini-aistudio": _test_gemini_aistudio,
     "gemini-vertex": _test_gemini_vertex,
     "ark": _test_ark,
+    "ark-agent-plan": _test_ark,
     "grok": _test_grok,
     "openai": _test_openai,
     "vidu": _test_vidu,
@@ -658,6 +659,13 @@ async def test_provider_connection(
     svc = ConfigService(session)
     config = await svc.get_provider_config(provider_id)
     cred.overlay_config(config)
+
+    # 与 generation_tasks._fill_simple_provider_kwargs 对称：用户未显式配 base_url
+    # 时，注入 ProviderMeta.default_base_url，使连接测试命中正确 endpoint。
+    if not config.get("base_url"):
+        meta = PROVIDER_REGISTRY.get(provider_id)
+        if meta and meta.default_base_url:
+            config["base_url"] = meta.default_base_url
 
     test_fn = _TEST_DISPATCH.get(provider_id)
     if test_fn is None:

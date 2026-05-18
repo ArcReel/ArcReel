@@ -543,3 +543,70 @@ class TestTestProviderConnection:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test?credential_id=1")
         assert resp.status_code == 200
         assert resp.json()["success"] is True
+
+
+class TestArkAgentPlanConnectionTest:
+    """ark-agent-plan 必须复用 _test_ark 并自动注入 default_base_url。"""
+
+    def _fake_cred(self):
+        cred = MagicMock()
+        cred.provider = "ark-agent-plan"
+        cred.api_key = "ark-fake"
+        cred.credentials_path = None
+        cred.base_url = None
+        return cred
+
+    def _mock_cred_repo(self):
+        repo = MagicMock(spec=CredentialRepository)
+        repo.get_active = AsyncMock(return_value=self._fake_cred())
+        return repo
+
+    def _mock_svc(self) -> ConfigService:
+        svc = MagicMock(spec=ConfigService)
+        svc.get_provider_config = AsyncMock(return_value={"api_key": "ark-fake"})
+        return svc
+
+    def test_ark_agent_plan_is_dispatched(self):
+        assert "ark-agent-plan" in providers._TEST_DISPATCH
+        assert providers._TEST_DISPATCH["ark-agent-plan"] is providers._test_ark
+
+    def test_default_base_url_injected_when_user_did_not_set(self):
+        captured: dict = {}
+
+        def _capture(config: dict, _t=None) -> providers.ConnectionTestResponse:
+            captured["base_url"] = config.get("base_url")
+            return providers.ConnectionTestResponse(success=True, available_models=[], message="ok")
+
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch.dict(providers._TEST_DISPATCH, {"ark-agent-plan": _capture}),
+        ):
+            with TestClient(app) as client:
+                resp = client.post("/api/v1/providers/ark-agent-plan/test")
+        assert resp.status_code == 200
+        assert captured["base_url"] == "https://ark.cn-beijing.volces.com/api/plan/v3"
+
+    def test_user_base_url_overrides_default(self):
+        captured: dict = {}
+
+        def _capture(config: dict, _t=None) -> providers.ConnectionTestResponse:
+            captured["base_url"] = config.get("base_url")
+            return providers.ConnectionTestResponse(success=True, available_models=[], message="ok")
+
+        svc = MagicMock(spec=ConfigService)
+        svc.get_provider_config = AsyncMock(
+            return_value={"api_key": "ark-fake", "base_url": "https://custom.example.com/v9"}
+        )
+
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo()),
+            patch("server.routers.providers.ConfigService", return_value=svc),
+            patch.dict(providers._TEST_DISPATCH, {"ark-agent-plan": _capture}),
+        ):
+            with TestClient(app) as client:
+                resp = client.post("/api/v1/providers/ark-agent-plan/test")
+        assert resp.status_code == 200
+        assert captured["base_url"] == "https://custom.example.com/v9"
