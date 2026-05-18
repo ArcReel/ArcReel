@@ -161,7 +161,7 @@ ArcReel supports multiple built-in and custom providers through unified `ImageBa
 | **Volcengine Ark** | Seedance 2.0, Seedance 2.0 Fast, Seedance 1.5 Pro | Text-to-video, Image-to-video, Video extension, Audio generation, Seed control, Offline inference | 4–15 | Per-token usage (CNY) |
 | **Grok** (xAI) | Grok Imagine Video | Text-to-video, Image-to-video | 1–15 | Per-second (USD) |
 | **OpenAI** | Sora 2, Sora 2 Pro | Text-to-video, Image-to-video | 4 / 8 / 12 | Per-second (USD) |
-| **Vidu** (Shengshu) | Vidu Q3 Turbo, Vidu Q3 Pro, Vidu Q3 (Reference), Vidu 2.0 | Text-to-video, Image-to-video, Reference-to-video, Audio generation, Seed control | 1–16 (2.0: 4 / 8) | Credits-based (CNY) |
+| **Vidu** (Shengshu) | Vidu Q3 Turbo, Vidu Q3 Pro, Vidu Q3 (Reference), Vidu 2.0 | Text-to-video, Image-to-video, Reference-to-video, Audio generation, Seed control | 1–16 (Reference-to-video 3–16; 2.0: 4 / 8) | Credits-based (CNY) |
 
 ### Text Providers
 

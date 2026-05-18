@@ -111,7 +111,7 @@ ConfigService（`service.py`）→ Repository（持久化 + 密钥脱敏）→ R
 - `SessionActor` (`session_actor.py`) — 每会话一个专属 asyncio task，串行化所有 ClaudeSDKClient 调用（spec: `docs/superpowers/specs/2026-04-13-session-actor-design.md`）
 - `SessionStore` (`session_store.py`) — 会话元数据 + transcript DB 镜像（受 `ARCREEL_SDK_SESSION_STORE` 环境变量控制：`db`/`off`，off 时回退到 SDK 自带的 jsonl 路径）
 - `StreamProjector` — 从流式事件构建实时助手回复
-- `transcript_reader` / `turn_schema` / `sdk_transcript_adapter` — transcript 读取、Turn 规范化与 SDK 流适配（用于历史回放）
+- `sdk_transcript_adapter` / `turn_schema` — transcript 读取与 Turn 规范化（用于历史回放，旧的 `transcript_reader` 已 deprecated）
 - `sdk_tools/` — SDK 进程内 MCP 工具（enqueue_assets/grid/storyboards/videos + text_generation），供 Skill 调用，由 agent profile manifest 注入
 
 ### lib/i18n/ — 国际化
