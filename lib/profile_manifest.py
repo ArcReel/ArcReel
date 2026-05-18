@@ -178,10 +178,18 @@ def _project_lock(project_dir: Path):
     文件。这里改用 ``os.open(O_CREAT|O_WRONLY|O_NOFOLLOW)`` 自己开 fd，确保
     symlink 形态的锁文件直接 ELOOP 拒绝；拿到真实 fd 后用 portalocker 的 lower-level
     ``lock()`` / ``unlink()`` 加锁，timeout 自轮询。
+
+    Windows 上 ``os`` 没有 ``O_NOFOLLOW``（POSIX 专属），改用 lstat 预检 +
+    无 flag 的 ``os.open`` 降级。Windows 创建 symlink 需要 SeCreateSymbolicLinkPrivilege
+    或开发者模式，攻击模型本就低；预检与 open 之间的 TOCTOU 窗口与 ArcReel
+    本地用户、portalocker 持锁的部署模型一致。
     """
     lock_path = project_dir / LOCK_FILENAME
+    if lock_path.is_symlink():
+        raise ValueError(f"lock path is a symlink, refusing: {lock_path}")
+    o_nofollow = getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(lock_path, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        fd = os.open(lock_path, os.O_CREAT | os.O_WRONLY | o_nofollow, 0o600)
     except OSError as e:
         if e.errno == errno.ELOOP:
             raise ValueError(f"lock path is a symlink, refusing: {lock_path}") from e

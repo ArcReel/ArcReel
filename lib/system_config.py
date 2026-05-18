@@ -291,15 +291,18 @@ class SystemConfigManager:
             tmp_path = Path(tmp.name)
 
         os.replace(tmp_path, self.paths.config_path)
-        try:
-            os.chmod(self.paths.config_path, 0o600)
-        except OSError as exc:
-            logger.debug(
-                "Unable to chmod %s to 0600: %s",
-                self.paths.config_path,
-                exc,
-                exc_info=True,
-            )
+        # chmod 0o600 在 Windows 上只会清/设只读位，无法限制其他用户访问；
+        # Windows 凭证文件权限交给文件系统 ACL（用户级 %LOCALAPPDATA%）兜底。
+        if os.name == "posix":
+            try:
+                os.chmod(self.paths.config_path, 0o600)
+            except OSError as exc:
+                logger.debug(
+                    "Unable to chmod %s to 0600: %s",
+                    self.paths.config_path,
+                    exc,
+                    exc_info=True,
+                )
 
     # ------------------------------------------------------------------
     # Public API

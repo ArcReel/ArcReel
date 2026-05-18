@@ -232,7 +232,7 @@ def ensure_auth_password(env_path: str | None = None) -> str:
     env_file = Path(env_path)
     try:
         if env_file.exists():
-            lines = env_file.read_text().splitlines()
+            lines = env_file.read_text(encoding="utf-8").splitlines()
             new_lines = []
             found = False
             for line in lines:
@@ -245,12 +245,12 @@ def ensure_auth_password(env_path: str | None = None) -> str:
                 new_lines.append(f"AUTH_PASSWORD={password}")
             new_content = "\n".join(new_lines) + "\n"
             # 使用原地写入（truncate + write）保留 inode，兼容 Docker bind mount
-            with open(env_file, "r+") as f:
+            with open(env_file, "r+", encoding="utf-8") as f:
                 f.seek(0)
                 f.write(new_content)
                 f.truncate()
         else:
-            env_file.write_text(f"AUTH_PASSWORD={password}\n")
+            env_file.write_text(f"AUTH_PASSWORD={password}\n", encoding="utf-8")
     except OSError:
         logger.warning("无法写入 .env 文件: %s", env_path)
 

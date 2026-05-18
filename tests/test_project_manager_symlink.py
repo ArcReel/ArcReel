@@ -499,6 +499,36 @@ class TestForceResync:
 
         assert outside.read_text() == "MUST NOT be truncated"
 
+    def test_sync_works_without_o_nofollow(self, env, monkeypatch: pytest.MonkeyPatch):
+        """Windows 上 ``os`` 模块没有 ``O_NOFOLLOW`` 常量。锁实现必须能降级到
+        Python 层 ``is_symlink`` 预检，否则进程在 ``_project_lock`` 入口就会因
+        ``AttributeError: module 'os' has no attribute 'O_NOFOLLOW'`` 直接崩，
+        Windows 用户无法创建项目。
+        """
+        pm, _, project_dir = env
+        monkeypatch.delattr(os, "O_NOFOLLOW", raising=False)
+
+        stats = pm.sync_agent_profile(project_dir)
+
+        assert stats["created"] >= 1
+        assert (project_dir / "CLAUDE.md").exists()
+
+    def test_sync_refuses_symlink_lock_without_o_nofollow(self, env, monkeypatch: pytest.MonkeyPatch):
+        """Windows 降级路径下仍须拒绝 symlink 形态的锁文件，不能因没有
+        ``O_NOFOLLOW`` 就放弃 symlink 防护。
+        """
+        pm, _, project_dir = env
+        monkeypatch.delattr(os, "O_NOFOLLOW", raising=False)
+        outside = project_dir.parent.parent / "outside_lock_target_win.txt"
+        outside.write_text("MUST NOT be truncated")
+        lock_link = project_dir / ".profile_sync.lock"
+        lock_link.symlink_to(outside)
+
+        with pytest.raises(ValueError, match="lock path is a symlink"):
+            pm.sync_agent_profile(project_dir)
+
+        assert outside.read_text() == "MUST NOT be truncated"
+
     def test_save_manifest_tmp_uses_unpredictable_name(self, tmp_path: Path):
         """``save_manifest`` 不能用 ``.arcreel_profile_manifest.json.tmp`` 这种
         predictable 名字，否则攻击者预置同名 symlink → ``/etc/x`` 时 tmp.write
