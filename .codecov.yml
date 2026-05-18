@@ -74,19 +74,13 @@ component_management:
         - server/**
       flag_regexes:
         - backend
+        - postgres
     - component_id: frontend
       name: Frontend
       paths:
         - frontend/src/**
       flag_regexes:
         - frontend
-    - component_id: postgres
-      name: Postgres compat
-      paths:
-        - lib/**
-        - server/**
-      flag_regexes:
-        - postgres
 
 comment:
   layout: "header, diff, flags, components, files"
