@@ -32,17 +32,17 @@ flag_management:
   individual_flags:
     - name: backend
       paths:
-        - lib/
-        - server/
+        - lib/**
+        - server/**
       carryforward: true
     - name: frontend
       paths:
-        - frontend/src/
+        - frontend/src/**
       carryforward: true
     - name: postgres
       paths:
-        - lib/
-        - server/
+        - lib/**
+        - server/**
       carryforward: true
 
 component_management:
