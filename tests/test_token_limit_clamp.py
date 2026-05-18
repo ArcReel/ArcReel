@@ -9,7 +9,6 @@ from lib.config.registry import get_model_max_output_tokens
 from lib.text_backends.base import TextGenerationRequest, TextGenerationResult
 from lib.text_generator import TextGenerator
 
-
 # ── Registry lookup ──
 
 

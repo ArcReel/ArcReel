@@ -49,6 +49,7 @@ describe("AgentCopilot", () => {
   // so the .catch(...) chain in voidPromise resolves instead of crashing.
   const sendMessage = vi.fn().mockResolvedValue(undefined);
   const answerQuestion = vi.fn().mockResolvedValue(undefined);
+  const decideApproval = vi.fn().mockResolvedValue(undefined);
   const interrupt = vi.fn().mockResolvedValue(undefined);
   const createNewSession = vi.fn();
   const switchSession = vi.fn().mockResolvedValue(undefined);
@@ -64,6 +65,7 @@ describe("AgentCopilot", () => {
     mockedUseAssistantSession.mockReturnValue({
       sendMessage,
       answerQuestion,
+      decideApproval,
       interrupt,
       createNewSession,
       switchSession,

@@ -1377,6 +1377,23 @@ class API {
     );
   }
 
+  static async decideAssistantToolApproval(
+    projectName: string,
+    sessionId: string,
+    requestId: string,
+    decision: "allow" | "deny",
+    updatedInput?: Record<string, unknown>,
+    message?: string,
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(requestId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ decision, updated_input: updatedInput, message }),
+      },
+    );
+  }
+
   static getAssistantStreamUrl(projectName: string, sessionId: string): string {
     return withAuthQuery(`${API_BASE}${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/stream`);
   }
