@@ -175,6 +175,23 @@ class TestEnsureAuthPassword:
             assert len(password) == 16
             assert password.isalnum()
 
+    def test_env_file_non_utf8_does_not_block_startup(self, tmp_path):
+        """历史 .env 用 cp936 / ANSI 等本地编码时，``read_text(encoding="utf-8")``
+        会抛 ``UnicodeDecodeError``。该函数被 server lifespan 启动期调用，必须捕获
+        并降级（不持久化、保留进程内密码），否则服务无法启动。
+        """
+        env_file = tmp_path / ".env"
+        # cp936 编码的中文注释 + 现有 AUTH_PASSWORD，UTF-8 解码必失败
+        env_file.write_bytes("# 注释\nAUTH_PASSWORD=old\n".encode("cp936"))
+        env = os.environ.copy()
+        env.pop("AUTH_PASSWORD", None)
+        with patch.dict(os.environ, env, clear=True):
+            password = auth_module.ensure_auth_password(env_path=str(env_file))
+            assert len(password) == 16
+            assert password.isalnum()
+            # .env 内容未被破坏（不强制覆写避免丢用户内容）
+            assert env_file.read_bytes() == "# 注释\nAUTH_PASSWORD=old\n".encode("cp936")
+
 
 class TestDownloadToken:
     def setup_method(self):

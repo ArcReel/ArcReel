@@ -68,7 +68,7 @@ class GeminiImageBackend:
             if credentials_file is None:
                 raise ValueError("未找到 Vertex AI 凭证文件")
 
-            with open(credentials_file) as f:
+            with open(credentials_file, encoding="utf-8") as f:
                 creds_data = json_module.load(f)
             project_id = creds_data.get("project_id")
 

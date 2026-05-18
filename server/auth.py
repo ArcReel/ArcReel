@@ -234,7 +234,18 @@ def ensure_auth_password(env_path: str | None = None) -> str:
     env_file = Path(env_path)
     try:
         if env_file.exists():
-            lines = env_file.read_text().splitlines()
+            try:
+                lines = env_file.read_text(encoding="utf-8").splitlines()
+            except UnicodeDecodeError:
+                # 历史 .env 可能用 cp936 / ANSI 等本地编码（早期 Windows 用户写过中文注释/值）；
+                # 不强制覆写以免丢失用户内容，仅 log 并跳过自动回写。
+                # 进程内 password 已 set 到 os.environ，本次启动仍可用，只是不持久化。
+                logger.warning(
+                    "无法以 UTF-8 解码 %s，跳过 AUTH_PASSWORD 自动回写；"
+                    "请将该文件转存为 UTF-8 后重启以持久化生成的密码",
+                    env_path,
+                )
+                return password
             new_lines = []
             found = False
             for line in lines:
@@ -247,12 +258,12 @@ def ensure_auth_password(env_path: str | None = None) -> str:
                 new_lines.append(f"AUTH_PASSWORD={password}")
             new_content = "\n".join(new_lines) + "\n"
             # 使用原地写入（truncate + write）保留 inode，兼容 Docker bind mount
-            with open(env_file, "r+") as f:
+            with open(env_file, "r+", encoding="utf-8") as f:
                 f.seek(0)
                 f.write(new_content)
                 f.truncate()
         else:
-            env_file.write_text(f"AUTH_PASSWORD={password}\n")
+            env_file.write_text(f"AUTH_PASSWORD={password}\n", encoding="utf-8")
     except OSError:
         logger.warning("无法写入 .env 文件: %s", env_path)
 

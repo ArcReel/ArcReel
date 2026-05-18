@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import shlex
+import tempfile
 import time
 from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field
@@ -1954,9 +1955,19 @@ class SessionManager:
             sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
             if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
                 return True, None
-            # SDK 后台任务输出例外
-            _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
-            if str(resolved).startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
+            # SDK 后台任务输出例外。tempfile.gettempdir() 覆盖跨平台 tmp 根
+            # （Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、Windows ``%TEMP%``）。
+            # ``resolved`` 已 ``.resolve()`` 过：macOS 上 ``/var`` 是 ``/private/var``
+            # 的 symlink，``/tmp`` 是 ``/private/tmp``，两侧都要列出原始 + resolve 形态
+            # 避免 startswith 因别名失配。
+            _tempdir = Path(tempfile.gettempdir())
+            _sdk_tmp_prefixes = (
+                str(_tempdir / "claude-"),
+                str(_tempdir.resolve() / "claude-"),
+                "/tmp/claude-",
+                "/private/tmp/claude-",
+            )
+            if str(resolved).startswith(_sdk_tmp_prefixes) and "tasks" in resolved.parts:
                 return True, None
             # projects_root 下：当前项目以外的子目录拒，根直放文件放行
             projects_root = self.projects_root

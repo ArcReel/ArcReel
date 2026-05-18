@@ -174,6 +174,29 @@ ConfigService（`service.py`）→ Repository（持久化 + 密钥脱敏）→ R
 API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）管理。
 外部工具依赖：`ffmpeg`（视频拼接与后期处理）。
 
+## Windows 兼容性
+
+主要开发部署平台是 macOS / Linux，但 server 必须在 Windows 上能完成项目创建与基础流程。
+新写代码涉及文件系统、子进程、tmp 路径或权限时遵循：
+
+- **POSIX-only `os` 常量必须 guard**：`os.O_NOFOLLOW` / `os.O_DIRECT` 等在 Windows 上 `AttributeError`。
+  取值用 `getattr(os, "O_NOFOLLOW", 0)`，symlink/路径校验另在 Python 层做 `is_symlink()` 预检兜底。
+  例：`lib/profile_manifest.py::_project_lock`。
+- **`os.chmod(..., 0o600)` 仅 POSIX**：Windows 上只能控制只读位，无法限制其他用户访问。
+  写敏感文件（凭证 JSON、系统配置）时用 `if os.name == "posix":` guard 跳过，
+  Windows 凭证保护交给文件系统 ACL（用户级 `%LOCALAPPDATA%`）。
+- **文件 I/O 显式 `encoding="utf-8"`**：`open()` / `Path.read_text()` / `Path.write_text()` 必须传 `encoding`。
+  Windows 默认 cp936（zh-CN）/cp1252（en-US）解码会破坏 unicode 文本（含中文注释的 `.env`、UTF-8 配置等）。
+- **tmp 路径用 `tempfile.gettempdir()`**：不要硬编码 `/tmp` 或 `/private/tmp`。
+  Windows `%TEMP%`、macOS 默认 `/var/folders/.../T`、Linux `/tmp`，差异由 `tempfile` 抽象。
+  对 Claude SDK tmp 输出做匹配时同时列 `Path(tempfile.gettempdir()) / "claude-"` + POSIX 别名兜底。
+- **subprocess 用 `create_subprocess_exec`（list 形式）**：避免 `shell=True` + `/bin/sh`。
+  ffmpeg/ffprobe 必须先 `shutil.which()` 探测，缺失时降级（不硬失败）。
+- **Sandbox 在 Windows 上自动关闭**：`server/app.py::check_sandbox_available` 显式 fallback，
+  Bash 工具回退到 `_WINDOWS_BASH_PREFIX_WHITELIST` 代码白名单。生产部署推荐 WSL2。
+- **长路径**：profile sync 会落到 `{project}/.claude/skills/<name>/scripts/<file>.py` 等深层路径，
+  Windows 10 1607+ 需注册表 `LongPathsEnabled=1` 解除 MAX_PATH (260) 限制。
+
 ### 代码质量
 
 - **ruff**：line-length 120，提交前对修改的 Python 文件执行 `uv run ruff check <files> && uv run ruff format <files>`

@@ -456,15 +456,19 @@ async def upload_vertex_credential(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest.with_suffix(".tmp")
     tmp_path.write_bytes(contents)
-    try:
-        os.chmod(tmp_path, 0o600)
-    except OSError:
-        logger.warning("无法设置临时凭证文件权限: %s", tmp_path, exc_info=True)
+    # chmod 0o600 在 Windows 上只控制只读位，无法限制其他用户访问；
+    # Windows 上凭证保护交给文件系统 ACL（用户级 %LOCALAPPDATA%）。
+    if os.name == "posix":
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
+            logger.warning("无法设置临时凭证文件权限: %s", tmp_path, exc_info=True)
     os.replace(tmp_path, dest)
-    try:
-        os.chmod(dest, 0o600)
-    except OSError:
-        logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
+    if os.name == "posix":
+        try:
+            os.chmod(dest, 0o600)
+        except OSError:
+            logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
 
     await repo.update(cred.id, credentials_path=str(dest))
     await session.commit()
@@ -512,7 +516,7 @@ def _test_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> Conne
             message=_t("file_not_found", path=credentials_path),
         )
 
-    with open(credentials_path) as f:
+    with open(credentials_path, encoding="utf-8") as f:
         creds_data = json.load(f)
 
     project_id = creds_data.get("project_id")
