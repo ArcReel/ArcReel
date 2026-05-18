@@ -252,11 +252,19 @@ async def _fill_simple_provider_kwargs(
     kwargs: dict,
     effective_model: str | None,
 ) -> None:
-    """Ark/Grok/OpenAI 等简单供应商的通用配置填充。"""
+    """Ark/Grok/OpenAI 等简单供应商的通用配置填充。
+
+    base_url 优先级：用户在 DB 配置中显式填写 > ProviderMeta.default_base_url > 不传。
+    """
+    from lib.config.registry import PROVIDER_REGISTRY
+
     db_config = await resolver.provider_config(backend_name)
     kwargs["api_key"] = db_config.get("api_key")
     kwargs["model"] = effective_model
-    if base_url := db_config.get("base_url"):
+    base_url = db_config.get("base_url") or (
+        PROVIDER_REGISTRY[backend_name].default_base_url if backend_name in PROVIDER_REGISTRY else None
+    )
+    if base_url:
         kwargs["base_url"] = base_url
 
 

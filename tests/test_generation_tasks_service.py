@@ -505,3 +505,32 @@ class TestGetAspectRatio:
         project = {"aspect_ratio": "9:16"}
         assert generation_tasks.get_aspect_ratio(project, "scenes") == "16:9"
         assert generation_tasks.get_aspect_ratio(project, "props") == "16:9"
+
+
+class TestFillSimpleProviderKwargs:
+    """_fill_simple_provider_kwargs 应优先用户 base_url，缺省回落 ProviderMeta.default_base_url。"""
+
+    class _FakeResolver:
+        def __init__(self, config: dict):
+            self._config = config
+
+        async def provider_config(self, name: str) -> dict:
+            return self._config
+
+    async def test_uses_default_base_url_when_user_unset(self):
+        resolver = self._FakeResolver({"api_key": "sk-test"})
+        kwargs: dict = {}
+        await generation_tasks._fill_simple_provider_kwargs("ark", resolver, kwargs, "doubao-seed-2-0-pro-260215")
+        assert kwargs["base_url"] == "https://ark.cn-beijing.volces.com/api/v3"
+
+    async def test_user_base_url_wins(self):
+        resolver = self._FakeResolver({"api_key": "sk-test", "base_url": "https://custom.example.com/v3"})
+        kwargs: dict = {}
+        await generation_tasks._fill_simple_provider_kwargs("ark", resolver, kwargs, "model-x")
+        assert kwargs["base_url"] == "https://custom.example.com/v3"
+
+    async def test_no_default_no_user_no_kwarg(self):
+        resolver = self._FakeResolver({"api_key": "sk-test"})
+        kwargs: dict = {}
+        await generation_tasks._fill_simple_provider_kwargs("grok", resolver, kwargs, "m")
+        assert "base_url" not in kwargs
