@@ -267,6 +267,7 @@ class MediaGenerator:
                 call_id=call_id,
                 status="success",
                 output_path=str(output_path),
+                usage_tokens=getattr(result, "usage_tokens", None),
                 quality=getattr(result, "quality", None),
                 image_input_tokens=getattr(result, "image_input_tokens", None),
                 image_output_tokens=getattr(result, "image_output_tokens", None),
