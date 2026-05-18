@@ -22,6 +22,7 @@ class ProviderMeta:
     optional_keys: list[str] = field(default_factory=list)
     secret_keys: list[str] = field(default_factory=list)
     models: dict[str, ModelInfo] = field(default_factory=dict)
+    default_base_url: str | None = None
 
     @property
     def media_types(self) -> list[str]:
@@ -230,6 +231,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["480p", "720p", "1080p"],
             ),
         },
+        default_base_url="https://ark.cn-beijing.volces.com/api/v3",
     ),
     "grok": ProviderMeta(
         display_name="Grok",
