@@ -503,46 +503,57 @@ class ScriptGenerator:
         - taboo：禁词词族命中（陷入/回忆/思绪/意识到/画外音/BGM/精致/震撼）
 
         阈值仅捕"明显异常"，正常完整描述远超这些值。
+        外层 try/except 兜底：当 _parse_response 在校验失败时返回 raw dict、
+        其中嵌套字段类型不符合 schema 时（如 image_prompt 是字符串），
+        探针只 warning 不阻断 generate。
         """
-        short_ids: list[str] = []
-        taboo_ids: list[str] = []
+        try:
+            short_ids: list[str] = []
+            taboo_ids: list[str] = []
 
-        gen_mode = self._effective_generation_mode(episode)
-        if gen_mode == "reference_video":
-            for u in script_data.get("video_units") or []:
-                if not isinstance(u, dict):
-                    continue
-                uid = str(u.get("unit_id") or "?")
-                for shot in u.get("shots") or []:
-                    if not isinstance(shot, dict):
+            gen_mode = self._effective_generation_mode(episode)
+            if gen_mode == "reference_video":
+                for u in script_data.get("video_units") or []:
+                    if not isinstance(u, dict):
                         continue
-                    text = str(shot.get("text") or "")
-                    if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
-                        short_ids.append(uid)
-                    if any(word in text for word in _QUALITY_PROBE_TABOO_WORDS):
-                        taboo_ids.append(uid)
-        else:
-            if self.content_mode == "narration":
-                items = script_data.get("segments") or []
-                id_key = "segment_id"
+                    uid = str(u.get("unit_id") or "?")
+                    for shot in u.get("shots") or []:
+                        if not isinstance(shot, dict):
+                            continue
+                        text = str(shot.get("text") or "")
+                        if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
+                            short_ids.append(uid)
+                        if any(word in text for word in _QUALITY_PROBE_TABOO_WORDS):
+                            taboo_ids.append(uid)
             else:
-                items = script_data.get("scenes") or []
-                id_key = "scene_id"
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                iid = str(item.get(id_key) or "?")
-                scene = str((item.get("image_prompt") or {}).get("scene") or "")
-                action = str((item.get("video_prompt") or {}).get("action") or "")
-                if len(scene) < _QUALITY_PROBE_SCENE_MIN_LEN or len(action) < _QUALITY_PROBE_ACTION_MIN_LEN:
-                    short_ids.append(iid)
-                if any(word in scene or word in action for word in _QUALITY_PROBE_TABOO_WORDS):
-                    taboo_ids.append(iid)
+                if self.content_mode == "narration":
+                    items = script_data.get("segments") or []
+                    id_key = "segment_id"
+                else:
+                    items = script_data.get("scenes") or []
+                    id_key = "scene_id"
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    iid = str(item.get(id_key) or "?")
+                    img_p = item.get("image_prompt")
+                    vid_p = item.get("video_prompt")
+                    img_p = img_p if isinstance(img_p, dict) else {}
+                    vid_p = vid_p if isinstance(vid_p, dict) else {}
+                    scene = str(img_p.get("scene") or "")
+                    action = str(vid_p.get("action") or "")
+                    audio = str(vid_p.get("ambiance_audio") or "")
+                    if len(scene) < _QUALITY_PROBE_SCENE_MIN_LEN or len(action) < _QUALITY_PROBE_ACTION_MIN_LEN:
+                        short_ids.append(iid)
+                    if any(word in scene or word in action or word in audio for word in _QUALITY_PROBE_TABOO_WORDS):
+                        taboo_ids.append(iid)
 
-        if short_ids or taboo_ids:
-            logger.warning(
-                "episode %d quality probe: short=%s, taboo=%s",
-                episode,
-                sorted(set(short_ids)),
-                sorted(set(taboo_ids)),
-            )
+            if short_ids or taboo_ids:
+                logger.warning(
+                    "episode %d quality probe: short=%s, taboo=%s",
+                    episode,
+                    sorted(set(short_ids)),
+                    sorted(set(taboo_ids)),
+                )
+        except Exception as exc:
+            logger.warning("episode %d quality probe skipped due to unexpected data shape: %s", episode, exc)
