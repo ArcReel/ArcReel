@@ -88,6 +88,30 @@ async def test_oversized_file_skipped(_client) -> None:
     assert big.name not in z.namelist()
 
 
+async def test_missing_logs_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled: None) -> None:
+    # log_dir 故意不创建
+    log_dir = tmp_path / "logs"
+    assert not log_dir.exists()
+    monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
+    from lib.app_data_dir import _reset_for_tests
+
+    _reset_for_tests()
+
+    import importlib
+
+    from server import app as app_module
+
+    importlib.reload(app_module)
+
+    transport = ASGITransport(app=app_module.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/v1/system/logs/download")
+        assert res.status_code == 200
+        z = zipfile.ZipFile(io.BytesIO(res.content))
+        assert z.namelist() == ["diagnostics.txt"]
+
+
 async def test_download_requires_auth(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AUTH_ENABLED", "true")
     monkeypatch.setenv("AUTH_USERNAME", "admin")

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 import tempfile
 import zipfile
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -16,7 +15,6 @@ from server.auth import CurrentUser
 from server.services.diagnostics import collect_diagnostics
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 _MAX_FILE_BYTES = 100 * 1024 * 1024
 _SPOOL_MAX = 50 * 1024 * 1024
@@ -30,24 +28,29 @@ async def download_logs(_user: CurrentUser) -> StreamingResponse:
     diagnostics_lines: list[str] = []
 
     spooled = tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX)
-    with zipfile.ZipFile(spooled, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        if log_dir.exists():
-            for path in sorted(log_dir.glob(_LOG_GLOB)):
-                if not path.is_file():
-                    continue
-                size = path.stat().st_size
-                if size > _MAX_FILE_BYTES:
-                    diagnostics_lines.append(f"[skipped: too large: {path.name} ({size} bytes)]")
-                    continue
-                zf.write(path, arcname=f"logs/{path.name}")
+    try:
+        with zipfile.ZipFile(spooled, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            if log_dir.exists():
+                for path in sorted(log_dir.glob(_LOG_GLOB)):
+                    if not path.is_file():
+                        continue
+                    size = path.stat().st_size
+                    if size > _MAX_FILE_BYTES:
+                        diagnostics_lines.append(f"[skipped: too large: {path.name} ({size} bytes)]")
+                        continue
+                    zf.write(path, arcname=f"logs/{path.name}")
 
-        diagnostics_text = collect_diagnostics()
-        if diagnostics_lines:
-            diagnostics_text += "\n" + "\n".join(diagnostics_lines) + "\n"
-        zf.writestr("diagnostics.txt", diagnostics_text)
+            diagnostics_text = collect_diagnostics()
+            if diagnostics_lines:
+                diagnostics_text += "\n" + "\n".join(diagnostics_lines) + "\n"
+            zf.writestr("diagnostics.txt", diagnostics_text)
 
-    spooled.seek(0)
-    ts = datetime.now().strftime("%Y-%m-%d-%H%M")
+        spooled.seek(0)
+    except Exception:
+        spooled.close()
+        raise
+
+    ts = datetime.now(UTC).strftime("%Y-%m-%d-%H%MZ")
     filename = f"arcreel-diagnostics-{ts}.zip"
 
     def _iter() -> Iterator[bytes]:
