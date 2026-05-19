@@ -72,9 +72,15 @@ async def test_delete_inactive_works(async_session) -> None:
     repo = AgentCredentialRepository(async_session)
     a = await repo.create(preset_id="x", display_name="A", base_url="u", api_key="k")
     await async_session.flush()
-    await repo.delete(a.id)
+    assert await repo.delete(a.id) is True
     await async_session.flush()
     assert await repo.get(a.id) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_returns_false(async_session) -> None:
+    repo = AgentCredentialRepository(async_session)
+    assert await repo.delete(9999) is False
 
 
 @pytest.mark.asyncio

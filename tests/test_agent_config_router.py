@@ -171,6 +171,12 @@ async def test_delete_active_blocked(authed_client) -> None:
     assert resp.status_code == 409
 
 
+@pytest.mark.asyncio
+async def test_delete_nonexistent_returns_404(authed_client) -> None:
+    resp = await authed_client.delete("/api/v1/agent/credentials/9999")
+    assert resp.status_code == 404
+
+
 # ── Task 11: POST /agent/credentials/{id}/activate ────────────────
 
 
