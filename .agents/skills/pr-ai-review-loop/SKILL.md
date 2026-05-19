@@ -95,8 +95,9 @@ gh api "repos/${OWNER_REPO}/issues/<PR_NUMBER>/comments" \
         | {
             created_at,
             updated_at,
-            is_ok:     (.body | test("No actionable comments were generated in the recent review")),
-            is_paused: (.body | test("(reviews paused|automatic reviews are paused|paused for this PR)"; "i")),
+            is_ok:          (.body | test("No actionable comments were generated in the recent review")),
+            is_paused:      (.body | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
+            is_in_progress: (.body | test("(review in progress by coderabbit|currently processing new changes)"; "i")),
             actionable_count: (if (.body | test("Actionable comments posted:")) then (.body | capture("Actionable comments posted:\\s*(?<n>[0-9]+)") | .n) else null end)
           }'
 ```
@@ -182,7 +183,7 @@ review state == `APPROVED` 一律算无 actionable。
 
 当前 HEAD 下，每个启用的 reviewer 满足以下之一：
 
-- **CodeRabbit**：副查询 A 的 `is_ok == true`（或 `actionable_count == "0"`），**或**副查询 C 里 `coderabbitai[bot]` 在当前 HEAD 上的 inline 全是 `is_ack == true`（CR 只在 acknowledge 之前的 fix），且 `updated_at > last_push_at`
+- **CodeRabbit**：副查询 A 的 `is_ok == true`（或 `actionable_count == "0"`），**或**副查询 C 里 `coderabbitai[bot]` 在本轮（`created_at > last_push_at`）的 inline 全是 `is_ack == true`，且 `updated_at > last_push_at`，且 **`is_in_progress == false`**（in-progress 时表示 CR 还在审，先回 poll 不要急于判定通过）
 - **Gemini**：副查询 C 里 `gemini-code-assist[bot]` 在当前 HEAD 上的 inline items severity 全是 `low/nit/style`/为空，**或剩下的都是 `is_ack == true`**，且 `gemini_reviews` 最近一条 `submittedAt > last_push_at`
 - **Codex**：满足以下任一即可（按 Codex 的三种 ack 模式）：
   - 副查询 B 出现 `+1`（reaction 路径）
@@ -192,9 +193,14 @@ review state == `APPROVED` 一律算无 actionable。
 
 ### CodeRabbit pause 的识别
 
-CodeRabbit 状态全靠**反复编辑 walkthrough**。副查询 A 的 `is_paused` 已封装了关键词匹配（不区分大小写匹配 `reviews paused` / `automatic reviews are paused` / `paused for this PR`）。
+CodeRabbit 状态全靠**反复编辑 walkthrough**。副查询 A 的 `is_paused` 已封装了不区分大小写的关键词匹配：
 
-如果上述关键词没命中但仍怀疑 pause（例如历史上有 `@coderabbitai pause` 被发过且之后再无 walkthrough 编辑 / `updated_at` 没动），看具体 walkthrough body 自己判断，必要时扩展 `is_paused` 的正则。
+- `review paused` / `reviews paused`（单复数都覆盖；实测 CR 实际用 `<!-- ... review paused by coderabbit.ai -->` 这种 HTML 注释，单数形式）
+- `paused by coderabbit`（HTML 注释 marker，最强信号）
+- `automatic reviews are paused`
+- `paused for this PR`
+
+如果上述都没命中但仍怀疑 pause（例如历史上有 `@coderabbitai pause` 被发过且之后再无 walkthrough 编辑 / `updated_at` 没动），看具体 walkthrough body 自己判断，必要时扩展 `is_paused` 的正则。
 
 发 `@coderabbitai resume` 后等 ~30s 让 bot 接管。
 
