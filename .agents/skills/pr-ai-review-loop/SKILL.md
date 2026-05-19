@@ -1,6 +1,6 @@
 ---
 name: pr-ai-review-loop
-description: PR 提交后自动盯 AI reviewer（CodeRabbit、Gemini Code Assist、OpenAI Codex）的循环驱动 skill。三家表达状态的方式各不相同——CodeRabbit 反复编辑首条评论（walkthrough）；Gemini 每次都发新评论，严重度标签在 inline review 上；Codex 有**三种 ack 路径**：① 有建议→发 review comment（body 开头 `### 💡 Codex Review`），② 无建议→给 PR 加 👍 reaction（不留评论），③ 空 body review（`state=COMMENTED, body=""` + 无 inline + 无 reaction）。CodeRabbit 自动跟新 commit；Gemini 不自动跟，需 push 后手动触发 `/gemini review`；Codex **按仓库配置**——某些仓库开了 PR 自动 review，没开的需手动触发 `@codex review`，由 Claude 按必要性自行判断。请在以下场景**主动**调用：用户刚跑完 `/commit-push-pr` 或刚 push 了 PR；用户提到 "盯着 coderabbit / 监控 PR review / 等审查完 / 处理 coderabbit / gemini review / codex review / watch the PR / wait for AI review"；CodeRabbit 被 pause 后需要重新唤醒；任一 AI reviewer 出现 actionable comments 需要处理。skill 会识别 pause 状态并发 `@coderabbitai resume`，并在新 HEAD 上唤起 Gemini。
+description: PR 提交后无人值守驱动 AI reviewer（CodeRabbit、Gemini Code Assist、OpenAI Codex）的 review → 修复 → push → 再 review 循环。在以下场景主动调用：用户刚跑完 `/commit-push-pr` 或刚 push 了 PR；用户提到"盯着 coderabbit / 监控 PR review / 等审查完 / 处理 coderabbit / gemini review / codex review / watch the PR / wait for AI review"；CodeRabbit 被 pause 后需要重新唤醒；任一 AI reviewer 出现 actionable comments 需要处理。
 ---
 
 # AI Review Auto-Loop
