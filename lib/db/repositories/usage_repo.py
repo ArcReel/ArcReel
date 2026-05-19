@@ -277,9 +277,9 @@ class UsageRepository(BaseRepository):
         main_stmt = self._scope_query(main_stmt, ApiCall)
         row = (await self.session.execute(main_stmt)).one()
 
-        # Cost by currency — only count successful calls with non-zero billed cost.
-        # 与 ``get_stats_grouped_by_provider`` 保持同一过滤口径，保证"汇总 cost_by_currency"
-        # 与"各 provider 卡的 cost_by_currency 之和"一致。失败/未扣费调用不计入金额维度。
+        # Cost by currency — count all billed calls, regardless of success/failure.
+        # 这里反映的是实际支出而不是成功率，因此只排除零费用/未扣费调用；
+        # 同时与 ``get_stats_grouped_by_provider`` 保持同一金额口径。
         currency_stmt = (
             select(
                 ApiCall.currency,
@@ -288,7 +288,6 @@ class UsageRepository(BaseRepository):
             .select_from(ApiCall)
             .where(
                 *filters,
-                ApiCall.status == "success",
                 ApiCall.cost_amount > 0,
             )
             .group_by(ApiCall.currency)
@@ -352,7 +351,6 @@ class UsageRepository(BaseRepository):
             .select_from(ApiCall)
             .where(
                 *filters,
-                ApiCall.status == "success",
                 ApiCall.cost_amount > 0,
             )
             .group_by(ApiCall.provider, ApiCall.call_type, ApiCall.currency)

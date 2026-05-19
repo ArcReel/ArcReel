@@ -1,9 +1,11 @@
 """Tests for UsageRepository."""
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
+from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import UsageRepository
 
 
@@ -169,8 +171,8 @@ class TestMultiProviderUsage:
         assert stats["cost_by_currency"]["CNY"] == pytest.approx(3.9494, rel=1e-3)
         assert stats["total_cost"] == pytest.approx(3.2)
 
-    async def test_get_stats_cost_by_currency_excludes_failed_and_zero_cost(self, db_session):
-        """get_stats.cost_by_currency 与 grouped 接口口径对齐：仅成功且有扣费的调用计入金额维度。"""
+    async def test_get_stats_cost_by_currency_includes_failed_billed_calls(self, db_session):
+        """金额维度应统计所有已扣费调用，只排除零费用/未扣费记录。"""
         repo = UsageRepository(db_session)
 
         ok = await repo.start_call(
@@ -184,12 +186,26 @@ class TestMultiProviderUsage:
 
         failed = await repo.start_call(
             project_name="demo",
+            call_type="text",
+            model="claude-sonnet-4",
+            provider="anthropic",
+        )
+        await repo.finish_call(failed, status="failed", error_message="boom")
+        await db_session.execute(
+            update(ApiCall)
+            .where(ApiCall.id == failed)
+            .values(cost_amount=0.0456, currency="USD", input_tokens=100, output_tokens=20)
+        )
+        await db_session.commit()
+
+        failed_unbilled = await repo.start_call(
+            project_name="demo",
             call_type="image",
             model="viduq2",
             resolution="1080p",
             provider="vidu",
         )
-        await repo.finish_call(failed, status="failed", error_message="boom")
+        await repo.finish_call(failed_unbilled, status="failed", error_message="boom")
 
         zero_cost = await repo.start_call(
             project_name="demo",
@@ -200,10 +216,14 @@ class TestMultiProviderUsage:
         await repo.finish_call(zero_cost, status="success", input_tokens=0, output_tokens=0)
 
         stats = await repo.get_stats(project_name="demo")
-        # 失败调用和成功零费用调用仍计入 total_count，但不计入金额维度
-        assert stats["total_count"] == 3
-        assert stats["failed_count"] == 1
-        assert stats["cost_by_currency"] == {"CNY": pytest.approx(0.25)}
+        # failed but billed 的调用应反映到金额维度；零费用/未扣费记录不计入金额。
+        assert stats["total_count"] == 4
+        assert stats["failed_count"] == 2
+        assert stats["total_cost"] == pytest.approx(0.0456)
+        assert stats["cost_by_currency"] == {
+            "CNY": pytest.approx(0.25),
+            "USD": pytest.approx(0.0456),
+        }
 
     async def test_get_stats_grouped_by_provider_includes_cost_by_currency(self, db_session):
         repo = UsageRepository(db_session)
@@ -235,9 +255,27 @@ class TestMultiProviderUsage:
         )
         await repo.finish_call(failed_vidu_id, status="failed", error_message="boom")
 
+        failed_anthropic_id = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="claude-sonnet-4",
+            provider="anthropic",
+        )
+        await repo.finish_call(failed_anthropic_id, status="failed", error_message="boom")
+        await db_session.execute(
+            update(ApiCall)
+            .where(ApiCall.id == failed_anthropic_id)
+            .values(cost_amount=0.0456, currency="USD", input_tokens=100, output_tokens=20)
+        )
+        await db_session.commit()
+
         stats = await repo.get_stats_grouped_by_provider(project_name="demo")
         by_provider = {item["provider"]: item for item in stats["stats"]}
 
+        assert by_provider["anthropic"]["total_cost_usd"] == pytest.approx(0.0456)
+        assert by_provider["anthropic"]["cost_by_currency"] == {"USD": pytest.approx(0.0456)}
+        assert by_provider["anthropic"]["total_calls"] == 1
+        assert by_provider["anthropic"]["success_calls"] == 0
         assert by_provider["gemini"]["total_cost_usd"] == pytest.approx(0.067)
         assert by_provider["gemini"]["cost_by_currency"] == {"USD": pytest.approx(0.067)}
         assert by_provider["vidu"]["total_cost_usd"] == 0
