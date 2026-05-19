@@ -68,7 +68,8 @@ gh pr view <PR_NUMBER> --json number,headRefOid,reviews,comments,commits \
   --jq '{
     pr: .number,
     head: .headRefOid,
-    last_push_at: (.commits | last.committedDate),
+    last_push_at: (.commits | last.committedDate),   # 不要换成 pushedDate——实测 PR 的 head commit 上 pushedDate 为 null，GitHub PR API 这层不暴露 push event 时间。committedDate 是当前可获得的最稳口径
+
     coderabbit_walkthrough: ([.comments[] | select(.author.login == "coderabbitai")] | sort_by(.createdAt) | first),
     coderabbit_other:       ([.comments[] | select(.author.login == "coderabbitai")] | sort_by(.createdAt) | .[1:]),
     coderabbit_reviews:     [.reviews[]  | select(.author.login == "coderabbitai")],
@@ -140,14 +141,14 @@ gh api "repos/${OWNER_REPO}/pulls/<PR_NUMBER>/comments" \
 
 | 当前状态 | 动作 |
 |---|---|
-| 副查询 A 的 `is_paused == true`，且**副查询 A 的 `updated_at` 之后未发过 `@coderabbitai resume`**（从 `own_trigger_comments` 里**仅过滤 body 等于 `@coderabbitai resume` 的条目**，看最新一条的 `createdAt` 是否早于 `updated_at`；为空则按"未发过"处理。**不要**用"最新一条"统计混合所有命令——`/gemini review` 的最新发送不应阻止 `@coderabbitai resume`） | 发 `@coderabbitai resume` |
-| Gemini 启用，最近一次 push 之后 Gemini 没新 review 也没发过 `/gemini review` | 发 `/gemini review` |
+| 副查询 A 的 `is_paused == true`，且**副查询 A 的 `updated_at` 之后未发过 `@coderabbitai resume`**（从 `own_trigger_comments` 里再次用与 Line 79-82 同款 regex `test("^\\s*@coderabbitai resume\\s*$"; "i")` 过滤出 resume 命令——确保归一化口径一致，避免 ` @CodeRabbitAI Resume ` 这种变体被 own_trigger_comments 收进来但二次过滤又漏掉；看最新一条的 `createdAt` 是否早于 `updated_at`，为空则按"未发过"处理。**不要**用严格字符串比较或混合统计所有命令——`/gemini review` 的最新发送不应阻止 `@coderabbitai resume`） | 发 `@coderabbitai resume` |
+| Gemini 启用，最近一次 push 之后 Gemini 没新 review（`gemini_reviews` 中无 `submittedAt > last_push_at` 的条目）也没发过 `/gemini review`（`own_trigger_comments` 中按 `test("^\\s*/gemini review\\s*$"; "i")` 过滤的最大 `createdAt ≤ last_push_at`） | 发 `/gemini review` |
 | Codex 启用且按 §「Codex 触发决策」判断认为该叫 | 发 `@codex review` |
 | 还有 reviewer 在最新 HEAD 上没出结果 | 等下一轮（见 §「polling 节奏」） |
 | 至少一个 reviewer 给出新 actionable 意见 | 进步骤 3 |
 | 所有启用的 reviewer 都对当前 HEAD 给绿灯（见 §「怎么算已通过」） | 退出并简短汇报 |
 
-**去重原则**：同一 HEAD 上 `/gemini review` 和 `@codex review` 各只能发一次——查 `own_trigger_comments` 里这条命令的 `createdAt` 是否在 `last_push_at` 之后。
+**去重原则**：同一 HEAD 上 `/gemini review` 和 `@codex review` 各只能发一次。对每个命令类型，用与 Line 79-82 一致的 regex 归一化过滤出该命令的所有条目，取 `max(createdAt)`——若该值 `> last_push_at` 则视为本轮已触发，跳过；否则可发。**不要**只检查"存在任意一条"——历史 push 留下的条目会让本轮误判已发。
 
 ### 3. 收意见 → 交给 receiving-code-review
 
@@ -202,7 +203,7 @@ CodeRabbit 状态全靠**反复编辑 walkthrough**。副查询 A 的 `is_paused
 
 如果上述都没命中但仍怀疑 pause（例如历史上有 `@coderabbitai pause` 被发过且之后再无 walkthrough 编辑 / `updated_at` 没动），看具体 walkthrough body 自己判断，必要时扩展 `is_paused` 的正则。
 
-发 `@coderabbitai resume` 后等 ~30s 让 bot 接管。
+发 `@coderabbitai resume` 后立即回到常规节奏（见 §「polling 节奏」每 60 秒 poll 一次），bot 接管通常在 ~30s 后体现到下一轮 poll；**不**单独 sleep 30s 中断循环。
 
 ### Codex 触发决策
 
