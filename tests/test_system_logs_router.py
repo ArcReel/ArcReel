@@ -15,6 +15,10 @@ def auth_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_ENABLED", "false")
 
 
+# 三处 importlib.reload(app_module)：FastAPI app 在 import 时立刻 mount router 与读取 env，
+# monkeypatch 设的 env 要在测试中生效必须让 server.app 重新走一次顶层代码。这一点与
+# tests/test_logging_persistence.py 不同——那里 setup_logging() 在每次调用都重新读 env，
+# 不需要 reload。
 @pytest.fixture
 async def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled: None):
     log_dir = tmp_path / "logs"

@@ -10,6 +10,7 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 """
 
 import asyncio
+import functools
 import logging
 import os
 import platform
@@ -145,6 +146,7 @@ def _diagnose_bwrap_failure() -> str:
     return "\n".join(parts)
 
 
+@functools.cache
 def check_sandbox_available() -> bool:
     """启动期检测 sandbox 工具可用性。
 
