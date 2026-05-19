@@ -7,6 +7,17 @@ description: PR 提交后自动盯 AI reviewer（CodeRabbit、Gemini Code Assist
 
 PR 提交后，多家 AI reviewer 的 review → 修复 → push → 再 review 循环交给本 skill 调度：盯状态、必要时手动唤起、把意见汇总后交给 `superpowers:receiving-code-review` 处理。
 
+## 运行模式：无人值守
+
+skill 的设计 intent 是**自动跑完整个循环**，不要每轮停下来征求用户授权。按决策表自决：触发命令、push 修复、inline reply、下一轮 poll 全部自决推进。只在以下情形停下来问用户：
+
+- bot 报错（"Internal error" / "Token limit exceeded" 等）
+- 某个 reviewer 超过 15 分钟无响应
+- gh 401/403 认证失败
+- receiving-code-review 内部判定需要 pushback 但语义不清的 review 意见（这是 receiving-code-review 自己的 ask）
+
+其它一切（cold-start 等待、触发 `/gemini review`、判 acknowledgment vs actionable、是否叫 Codex、新 HEAD 后回 poll、commit / push 节奏）都自决。
+
 ## 前置条件
 
 - 分支已有对应 PR（`gh pr view` 能拿到 PR 号）；没有就停下来建议先跑 `/commit-commands:commit-push-pr`
@@ -21,7 +32,7 @@ PR 提交后，多家 AI reviewer 的 review → 修复 → push → 再 review 
 |---|---|---|---|---|
 | CodeRabbit | `coderabbitai` | **是** | **反复编辑首条评论（walkthrough）**：`updatedAt` 会被推后，body 开头有 `<!-- ... summarize by coderabbit.ai -->` HTML 注释。OK 时 body 首行：`No actionable comments were generated in the recent review. 🎉`。其余 reply 是另算的会话评论 | `@coderabbitai resume` / `review` / `full review` |
 | Gemini Code Assist | `gemini-code-assist` | 否 | **review summary** 每次发新评论（body 以 `## Code Review` 开头，是 PR 总结，不含 severity）；**严重度标签在 inline review comments**：body 开头是 `![high](https://www.gstatic.com/codereviewagent/high-priority.svg)` 这种 markdown image | `/gemini review` |
-| OpenAI Codex | `chatgpt-codex-connector` | 否 | **每次审查二选一**：有建议→发 review comment（body 开头 `### 💡 Codex Review`，含 `**Reviewed commit:** <SHA>` 标明审了哪个版本）；无建议→给 PR 加 👍 reaction（**不**留评论） | `@codex review` |
+| OpenAI Codex | `chatgpt-codex-connector` | **按仓库配置**：默认要手动 `@codex review`；某些仓库（如 ArcReel/ArcReel）开了 PR 自动 review，Codex 会自动跟新 commit。第 0 轮 poll 实测：push 后几分钟看 `codex_reviews` 是否自然出现新条目即知 | **每次审查二选一**：有建议→发 review comment（body 开头 `### 💡 Codex Review`，含 `**Reviewed commit:** <SHA>` 标明审了哪个版本）；无建议→给 PR 加 👍 reaction（**不**留评论） | `@codex review` |
 
 **其它 bot**（如 `github-code-quality[bot]` GitHub 自带静态分析、`codecov[bot]` 覆盖率）默认**不**纳入主循环决策——它们的输出通常是死板的 nit / 数字，没有"等待"或"重审"概念。它们的 inline 意见在调用 `receiving-code-review` 时被一并看到。
 
@@ -103,14 +114,15 @@ gh api "repos/${OWNER_REPO}/issues/<PR_NUMBER>/reactions" \
 
 ```bash
 gh api "repos/${OWNER_REPO}/pulls/<PR_NUMBER>/comments" \
-  --jq '[.[] | select(.user.login | test("(gemini-code-assist|chatgpt-codex-connector)\\[bot\\]$"))]
+  --jq '[.[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector)\\[bot\\]$"))]
         | group_by(.user.login)
         | map({
             user: .[0].user.login,
             items: map({
               path,
               severity_alt: (.body | capture("!\\[(?<s>[^\\]]+)\\]")? | .s // null),
-              body_head: (.body | .[0:200])
+              is_ack:       ((.body | test("<!--\\s*<review_comment_addressed>")) or (.body | test("^### Summary"))),
+              body_head:    (.body | .[0:200])
             })
           })'
 ```
@@ -158,15 +170,17 @@ receiving-code-review 返回后回步骤 1。它自己负责实施修复、向 r
 - **Gemini** → 副查询 C 里 `gemini-code-assist[bot]` 的 inline items，`severity_alt` 含 `high` / `medium` / `critical` 算 actionable；`low` / `nit` / `style` 不算
 - **Codex** → 副查询 C 里 `chatgpt-codex-connector[bot]` 的 inline items（review summary body 只是模板，**具体建议在 inline**）；`severity_alt` 是 `Pn Badge` 形式（如 `P1 Badge`），n 越小越严重——按判断力分级，通常 P0 / P1 算 actionable，P2 / P3 视场景而定。若 Codex 在当前 HEAD 上只有 `+1` reaction 没留 inline comment，**不是** actionable（这是它的"通过"信号）
 
+**Acknowledgment 例外**：副查询 C 里 `is_ack == true` 的 inline 是 reviewer 对前次 fix / inline reply 的**确认回复**（CR 用 `<!-- <review_comment_addressed> -->` HTML 标记自家 ack；Codex 用 body 开头 `### Summary` 表示 cross-check 总结），**不计入** actionable。
+
 review state == `APPROVED` 一律算无 actionable。
 
 ### 怎么算 "已通过"
 
 当前 HEAD 下，每个启用的 reviewer 满足以下之一：
 
-- **CodeRabbit**：副查询 A 的 `is_ok == true`（或 `actionable_count == "0"`），且 `updated_at > last_push_at`
-- **Gemini**：副查询 C 里 `gemini-code-assist[bot]` 在当前 HEAD 上的 inline items severity 全是 `low/nit/style` 或为空，且 `gemini_reviews` 最近一条 `submittedAt > last_push_at`
-- **Codex**：副查询 B 出现 `+1`（无建议路径）；或 `codex_reviews[*].body` 里 `Reviewed commit` 匹配当前 HEAD，且副查询 C 里 `chatgpt-codex-connector[bot]` 在当前 HEAD 上没留 actionable 级别的 inline items
+- **CodeRabbit**：副查询 A 的 `is_ok == true`（或 `actionable_count == "0"`），**或**副查询 C 里 `coderabbitai[bot]` 在当前 HEAD 上的 inline 全是 `is_ack == true`（CR 只在 acknowledge 之前的 fix），且 `updated_at > last_push_at`
+- **Gemini**：副查询 C 里 `gemini-code-assist[bot]` 在当前 HEAD 上的 inline items severity 全是 `low/nit/style`/为空，**或剩下的都是 `is_ack == true`**，且 `gemini_reviews` 最近一条 `submittedAt > last_push_at`
+- **Codex**：副查询 B 出现 `+1`（无建议路径）；或 `codex_reviews[*].body` 里 `Reviewed commit` 匹配当前 HEAD，且副查询 C 里 `chatgpt-codex-connector[bot]` 在当前 HEAD 上没留**非 ack** 级别的 inline items
 - 或该 reviewer 被用户临时禁用
 
 ### CodeRabbit pause 的识别
