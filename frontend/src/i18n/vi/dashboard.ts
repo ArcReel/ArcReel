@@ -728,6 +728,7 @@ export default {
   'no_call_records': 'Chưa có bản ghi cuộc gọi',
   'input_token_label': 'Đầu vào',
   'output_token_label': 'Đầu ra',
+  'tokens_suffix': 'token',
   'records_count': '{{count}} bản ghi',
 
   // WorkspaceNotificationsDrawer

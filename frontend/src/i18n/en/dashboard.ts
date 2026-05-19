@@ -751,6 +751,7 @@ export default {
   'no_call_records': 'No call records yet',
   'input_token_label': 'Input',
   'output_token_label': 'Output',
+  'tokens_suffix': 'tokens',
   'records_count': '{{count}} records',
 
   // WorkspaceNotificationsDrawer

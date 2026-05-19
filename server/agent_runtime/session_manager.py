@@ -43,6 +43,8 @@ from claude_agent_sdk.types import (
 
 from lib.config.service import ConfigService
 from lib.db import async_session_factory
+from lib.providers import PROVIDER_ANTHROPIC
+from lib.usage_tracker import UsageTracker
 
 SDK_AVAILABLE = True
 
@@ -118,6 +120,8 @@ class ManagedSession:
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
+    last_user_prompt: str = ""
+    assistant_model: str = ""
     interrupt_requested: bool = False
     last_activity: float | None = None  # updated on every send/receive
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
@@ -442,6 +446,7 @@ class SessionManager:
         self._sensitive_prefixes: tuple[Path, ...] = prefixes
         self._sensitive_globs: tuple[tuple[Path, str], ...] = globs
         self._load_config()
+        self.usage_tracker = UsageTracker(session_factory=getattr(meta_store, "_session_factory", None))
 
     def _compute_sensitive_paths(
         self,
@@ -1263,6 +1268,7 @@ class SessionManager:
             locale=locale,
             stderr=_collect_stderr,
         )
+        assistant_model = self._resolve_configured_assistant_model(getattr(options, "env", None))
 
         actor = SessionActor(
             client_factory=lambda: ClaudeSDKClient(options=options),
@@ -1274,6 +1280,7 @@ class SessionManager:
             actor=actor,
             status="running",
             project_name=project_name,
+            assistant_model=assistant_model,
         )
         managed_ref[0] = managed
         managed.last_activity = time.monotonic()
@@ -1322,6 +1329,7 @@ class SessionManager:
         dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
             managed.pending_user_echoes.append(dedup_key)
+        managed.last_user_prompt = display_text
         managed.add_message(self._build_user_echo_message(display_text, echo_content))
 
         try:
@@ -1474,6 +1482,7 @@ class SessionManager:
                 can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
                 stderr=_collect_stderr,
             )
+            assistant_model = self._resolve_configured_assistant_model(getattr(options, "env", None))
 
             actor = SessionActor(
                 client_factory=lambda: ClaudeSDKClient(options=options),
@@ -1488,6 +1497,7 @@ class SessionManager:
                 actor=actor,
                 status=resumed_status,
                 project_name=meta.project_name,
+                assistant_model=assistant_model,
                 resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
             )
             managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
@@ -1548,6 +1558,7 @@ class SessionManager:
             managed.pending_user_echoes.append(dedup_key)
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
+        managed.last_user_prompt = display_text
         managed.add_message(self._build_user_echo_message(display_text, echo_content))
 
         # Persist status asynchronously — don't block the echo broadcast
@@ -1623,11 +1634,110 @@ class SessionManager:
         )
         managed.status = final_status
         managed.last_activity = time.monotonic()
+        try:
+            await self._record_assistant_usage(managed, result_msg, final_status)
+        except Exception:
+            logger.exception("记录 assistant usage 失败 session_id=%s", managed.session_id)
         await self.meta_store.update_status(managed.session_id, final_status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
         if final_status != "running":
             self._schedule_cleanup(managed.session_id)
+
+    async def _record_assistant_usage(
+        self,
+        managed: ManagedSession,
+        result_msg: dict[str, Any],
+        final_status: SessionStatus,
+    ) -> None:
+        input_tokens, output_tokens, usage_tokens = self._extract_text_token_usage(result_msg)
+        total_cost_usd = self._extract_float(result_msg.get("total_cost_usd"))
+        if input_tokens is None and output_tokens is None and total_cost_usd is None:
+            return
+
+        call_id = await self.usage_tracker.start_call(
+            project_name=managed.project_name,
+            call_type="text",
+            model=self._resolve_assistant_model(result_msg, managed.assistant_model),
+            prompt=managed.last_user_prompt[:500] if managed.last_user_prompt else None,
+            provider=PROVIDER_ANTHROPIC,
+        )
+        await self.usage_tracker.finish_call(
+            call_id,
+            status="success" if final_status == "completed" else "failed",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            usage_tokens=usage_tokens,
+            cost_amount=total_cost_usd,
+            currency="USD" if total_cost_usd is not None else None,
+        )
+
+    @classmethod
+    def _extract_text_token_usage(cls, result_msg: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
+        usage = result_msg.get("usage")
+        usage_dict = usage if isinstance(usage, dict) else {}
+        input_tokens = cls._first_int(usage_dict, "input_tokens", "prompt_tokens")
+        output_tokens = cls._first_int(usage_dict, "output_tokens", "completion_tokens")
+        cache_creation_tokens = cls._first_int(usage_dict, "cache_creation_input_tokens")
+        cache_read_tokens = cls._first_int(usage_dict, "cache_read_input_tokens")
+        token_parts = (input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
+        usage_tokens = sum(part or 0 for part in token_parts) if any(part is not None for part in token_parts) else None
+        return input_tokens, output_tokens, usage_tokens
+
+    @classmethod
+    def _first_int(cls, source: dict[str, Any], *keys: str) -> int | None:
+        for key in keys:
+            value = cls._extract_int(source.get(key))
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
+    def _extract_int(value: Any) -> int | None:
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value) if value >= 0 else None
+        if isinstance(value, str):
+            value_str = value.strip()
+            if not value_str:
+                return None
+            try:
+                numeric_value = float(value_str)
+            except ValueError:
+                return None
+            return int(numeric_value) if numeric_value >= 0 else None
+        return None
+
+    @staticmethod
+    def _extract_float(value: Any) -> float | None:
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _resolve_assistant_model(result_msg: dict[str, Any], configured_model: str = "") -> str:
+        model = result_msg.get("model") or result_msg.get("model_name")
+        if isinstance(model, str) and model.strip():
+            return model.strip()
+        if configured_model.strip():
+            return configured_model.strip()
+        return os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-4"
+
+    @staticmethod
+    def _resolve_configured_assistant_model(env: Any) -> str:
+        if not isinstance(env, dict):
+            return ""
+        for key in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL"):
+            value = env.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
 
     async def _mark_session_terminal(self, managed: ManagedSession, status: SessionStatus, reason: str) -> None:
         """Set terminal status on abnormal consumer exit."""

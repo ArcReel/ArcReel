@@ -33,6 +33,7 @@ export interface UsageCall {
   error_message: string | null;
   started_at: string;
   created_at: string;
+  usage_tokens: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
 }

@@ -1,6 +1,7 @@
 import pytest
 
 from lib.cost_calculator import CostCalculator, cost_calculator
+from lib.providers import PROVIDER_ANTHROPIC
 
 
 class TestCostCalculator:
@@ -41,6 +42,41 @@ class TestCostCalculator:
 
     def test_singleton_instance(self):
         assert isinstance(cost_calculator, CostCalculator)
+
+
+class TestAnthropicTextCost:
+    def test_calculate_anthropic_text_cost(self):
+        amount, currency = cost_calculator.calculate_text_cost(
+            input_tokens=100_000,
+            output_tokens=50_000,
+            provider=PROVIDER_ANTHROPIC,
+            model="claude-sonnet-4",
+        )
+
+        assert currency == "USD"
+        assert amount == pytest.approx(1.05)
+
+    def test_unknown_anthropic_model_uses_default(self):
+        amount, currency = cost_calculator.calculate_text_cost(
+            input_tokens=100_000,
+            output_tokens=50_000,
+            provider=PROVIDER_ANTHROPIC,
+            model="unknown-claude",
+        )
+
+        assert currency == "USD"
+        assert amount == pytest.approx(1.05)
+
+    def test_calculate_anthropic_haiku_text_cost(self):
+        amount, currency = cost_calculator.calculate_text_cost(
+            input_tokens=100_000,
+            output_tokens=50_000,
+            provider=PROVIDER_ANTHROPIC,
+            model="claude-haiku-4-5",
+        )
+
+        assert currency == "USD"
+        assert amount == pytest.approx(0.35)
 
 
 class TestArkCost:

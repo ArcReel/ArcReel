@@ -752,6 +752,7 @@ export default {
   'no_call_records': '暂无调用记录',
   'input_token_label': '输入',
   'output_token_label': '输出',
+  'tokens_suffix': 'tokens',
   'records_count': '{{count}} 条记录',
 
   // WorkspaceNotificationsDrawer
