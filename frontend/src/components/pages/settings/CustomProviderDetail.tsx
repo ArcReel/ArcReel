@@ -7,6 +7,7 @@ import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { formatDurationsLabel } from "@/utils/duration_format";
+import { formatDate } from "@/utils/date-format";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { CustomProviderForm } from "./CustomProviderForm";
 
@@ -194,7 +195,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
               <div className="flex justify-between gap-4">
                 <span className="text-text-3">{t("created_at")}</span>
                 <span className="text-text">
-                  {new Date(provider.created_at).toLocaleDateString(i18n.language)}
+                  {formatDate(provider.created_at, i18n.language, { year: "numeric", month: "2-digit", day: "2-digit" })}
                 </span>
               </div>
             </div>

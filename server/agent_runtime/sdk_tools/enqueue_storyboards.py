@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,7 @@ class _FailureRecorder:
                     "type": resource_type,
                     "error": error,
                     "attempts": attempts,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
 
@@ -51,7 +51,7 @@ class _FailureRecorder:
             return
         with self._lock:
             data = {
-                "generated_at": datetime.now().isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "total_failures": len(self.failures),
                 "failures": self.failures,
             }

@@ -13,7 +13,7 @@ import shutil
 import unicodedata
 from collections.abc import Callable
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -426,8 +426,8 @@ class ProjectManager:
             "novel": {"title": title, "chapter": chapter},
             "scenes": [],
             "metadata": {
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
                 "total_scenes": 0,
                 "estimated_duration_seconds": 0,
                 "status": "draft",
@@ -463,7 +463,7 @@ class ProjectManager:
         self._require_filename_episode_consistency(script, filename)
 
         # 更新元数据（兼容旧脚本：可能缺少 metadata，或 narration 使用 segments）
-        now = datetime.now().isoformat()
+        now = datetime.now(UTC).isoformat()
         metadata = script.get("metadata")
         if not isinstance(metadata, dict):
             metadata = {}
@@ -859,8 +859,8 @@ class ProjectManager:
 
         if "metadata" not in script:
             script["metadata"] = {
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
                 "total_scenes": 0,
                 "estimated_duration_seconds": 0,
                 "status": "draft",
@@ -1262,7 +1262,7 @@ class ProjectManager:
 
     @staticmethod
     def _touch_metadata(project: dict) -> None:
-        now = datetime.now().isoformat()
+        now = datetime.now(UTC).isoformat()
         if "metadata" not in project:
             project["metadata"] = {"created_at": now, "updated_at": now}
         else:
@@ -1329,8 +1329,8 @@ class ProjectManager:
             "scenes": {},
             "props": {},
             "metadata": {
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             },
         }
         if default_duration is not None:
@@ -1769,7 +1769,7 @@ class ProjectManager:
         # 解析并验证响应
         overview = ProjectOverview.model_validate_json(response_text)
         overview_dict = overview.model_dump()
-        overview_dict["generated_at"] = datetime.now().isoformat()
+        overview_dict["generated_at"] = datetime.now(UTC).isoformat()
 
         # 保存到 project.json
         project = self.load_project(project_name)

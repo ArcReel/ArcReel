@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +80,7 @@ def _save_checkpoint_at(path: Path, completed: list[str], started_at: str, **ext
     payload: dict[str, Any] = {
         "completed_scenes": completed,
         "started_at": started_at,
-        "updated_at": datetime.now().isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         **extra,
     }
     path.write_text(
@@ -279,7 +279,7 @@ async def _generate_reference_episode(
 
     ckpt_path = _episode_checkpoint_path(project_dir, episode)
     completed: list[str] = []
-    started_at = datetime.now().isoformat()
+    started_at = datetime.now(UTC).isoformat()
     if resume:
         ckpt = _load_checkpoint_at(ckpt_path)
         if ckpt:
@@ -401,7 +401,7 @@ def generate_video_episode_tool(ctx: ToolContext):
 
             ckpt_path = _episode_checkpoint_path(project_dir, episode)
             completed: list[str] = []
-            started_at = datetime.now().isoformat()
+            started_at = datetime.now(UTC).isoformat()
             if resume:
                 ckpt = _load_checkpoint_at(ckpt_path)
                 if ckpt:
@@ -679,7 +679,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             scenes_hash = hashlib.md5(",".join(canonical_scene_ids).encode("utf-8")).hexdigest()[:8]
             ckpt_path = _selected_checkpoint_path(project_dir, scenes_hash)
             completed: list[str] = []
-            started_at = datetime.now().isoformat()
+            started_at = datetime.now(UTC).isoformat()
             if resume:
                 ckpt = _load_checkpoint_at(ckpt_path)
                 if ckpt:

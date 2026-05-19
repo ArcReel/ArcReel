@@ -9,7 +9,7 @@ import stat
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -363,7 +363,7 @@ class ProjectArchiveService:
             "project_title": project_payload.get("title", project_name),
             "content_mode": project_payload.get("content_mode", ""),
             "scope": scope,
-            "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "export_diagnostics": diagnostics,
             "pass_through_entries": pass_through_entries,
         }

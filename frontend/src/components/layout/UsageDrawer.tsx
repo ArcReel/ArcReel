@@ -13,6 +13,7 @@ import { useUsageStore, type UsageStats, type UsageCall } from "@/stores/usage-s
 import { API } from "@/api";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import { parseIso } from "@/utils/date-format";
 import type { CallType } from "@/types/provider";
 
 // ---------------------------------------------------------------------------
@@ -451,7 +452,8 @@ function StatusBadge({ status }: { status: string }) {
 
 function formatDateTime(isoStr: string): string {
   try {
-    const d = new Date(isoStr);
+    const d = parseIso(isoStr);
+    if (Number.isNaN(d.getTime())) return isoStr;
     return `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
   } catch {
     return isoStr;

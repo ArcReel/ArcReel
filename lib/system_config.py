@@ -87,7 +87,7 @@ def init_and_apply_system_config(project_root: Path) -> SystemConfigManager:
 
 
 def _iso_now_millis() -> str:
-    return datetime.now(UTC).astimezone().isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def _safe_str(value: Any) -> str | None:
