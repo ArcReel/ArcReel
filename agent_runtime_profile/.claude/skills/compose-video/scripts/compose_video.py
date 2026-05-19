@@ -486,7 +486,11 @@ def concatenate_with_transitions(
             concatenate_final(normalized_paths, output_path)
             return
 
-        durations = [get_video_duration(p) for p in normalized_paths]
+        # xfade offset 必须取 video stream 时长：归一化后的 MP4 因 AAC priming /
+        # 容器取整，format.duration 可能比 stream.duration 长几毫秒，把它直接当
+        # offset 喂给 xfade 会让转场触发时机偏晚，看上去几乎"没淡出"。
+        # 复用 probe_media 的 stream-优先 + N/A 回退逻辑，而不是走 get_video_duration（仅 format.duration）。
+        durations = [float(probe_media(p)["duration"]) for p in normalized_paths]
         filter_complex = _build_xfade_filter_complex(durations, transitions, transition_duration)
 
         if filter_complex is None:
