@@ -69,6 +69,23 @@ def run_ffmpeg(cmd: list[str], error_prefix: str) -> None:
         raise RuntimeError(f"{error_prefix}: {result.stderr}")
 
 
+def _resolve_fps(avg_frame_rate: object, r_frame_rate: object) -> str:
+    """从 ffprobe 字段解析 fps。
+
+    `avg_frame_rate="0/0"` 是常见的伪真值（部分 GIF→MP4 转换 / 屏幕录制软件输出），
+    若用 `or` 链 fallback，下游 ffmpeg 滤镜会被喂入 `"0/0"` 直接失败。
+    这里显式黑名单 `{"0/0","0",""}`，优先 avg，再 r，最后回退 `"30"`。
+    """
+    for value in (avg_frame_rate, r_frame_rate):
+        if value is None:
+            continue
+        candidate = str(value).strip()
+        if candidate in {"0/0", "0", ""}:
+            continue
+        return candidate
+    return "30"
+
+
 def get_video_duration(video_path: Path) -> float:
     """获取视频时长"""
     result = subprocess.run(
@@ -127,11 +144,11 @@ def probe_media(video_path: Path) -> dict[str, object]:
     if not video_stream:
         raise RuntimeError(f"缺少视频流: {video_path}")
 
-    fps = str(video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate") or "30")
-    if fps in {"0/0", "0", ""}:
-        fps = "30"
+    fps = _resolve_fps(video_stream.get("avg_frame_rate"), video_stream.get("r_frame_rate"))
 
-    duration_raw = payload.get("format", {}).get("duration")
+    # duration 优先 video stream（mkv/webm 等容器 format.duration 与 stream.duration
+    # 可能相差几毫秒；atrim 静音音轨长度与 xfade offset 需要精确，必须以 stream 为准）
+    duration_raw = video_stream.get("duration") or payload.get("format", {}).get("duration")
     if not duration_raw:
         raise RuntimeError(f"无法从 ffprobe 输出中获取时长: {video_path}")
     try:
@@ -271,6 +288,25 @@ def concatenate_final(video_paths: list[Path], output_path: Path):
     if not video_paths:
         raise ValueError("没有可用的视频片段")
 
+    if len(video_paths) == 1:
+        # 单段直接 remux：concat filter 要求 n>=2，否则 ffmpeg 报参数错误；
+        # 中间片在 normalize_clip 内已统一编码 + setpts 归零，这里只需补 +faststart
+        run_ffmpeg(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(video_paths[0].resolve()),
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ],
+            "ffmpeg 单段最终输出失败",
+        )
+        return
+
     inputs: list[str] = []
     filter_inputs: list[str] = []
     for index, path in enumerate(video_paths):
@@ -325,13 +361,107 @@ def concatenate_simple(video_paths: list, output_path: Path):
         concatenate_final(normalized_paths, output_path)
 
 
+_XFADE_TYPE_MAP: dict[str, str] = {
+    "fade": "fade",
+    "dissolve": "dissolve",
+    "wipe": "wipeleft",
+}
+
+
+def _build_xfade_filter_complex(
+    durations: list[float],
+    transitions: list[str],
+    transition_duration: float,
+) -> str | None:
+    """按 cut 边界把片段切成 group，组内 xfade + acrossfade，组间 concat 串联。
+
+    - 单段或全 cut 序列：返回 None，由调用方走 concatenate_final 的纯 concat 路径
+    - 短片段（duration <= transition_duration）所触边界自动降级为 cut，避免 xfade
+      offset 为负
+    - video 走 xfade chain、audio 走 acrossfade chain，两者每个边界都消耗
+      transition_duration 秒，组内总时长一致 → 音画同步
+    - 组间用 concat=v=1:a=1 串联，避开"全局 xfade offset 在 cut 边界累加错位"
+    """
+    n = len(durations)
+    if n < 2:
+        return None
+
+    # 计算每个边界的有效转场类型（None 表示走 cut）
+    boundary_xfade: list[str | None] = []
+    for i in range(n - 1):
+        transition = transitions[i] if i < len(transitions) else "fade"
+        if transition == "cut":
+            boundary_xfade.append(None)
+            continue
+        xfade = _XFADE_TYPE_MAP.get(transition, "fade")
+        if durations[i] <= transition_duration or durations[i + 1] <= transition_duration:
+            boundary_xfade.append(None)
+            continue
+        boundary_xfade.append(xfade)
+
+    if all(b is None for b in boundary_xfade):
+        return None
+
+    # 按 cut 边界把片段索引切成 group（每个 group 内部边界都是 xfade）
+    groups: list[list[int]] = []
+    current: list[int] = [0]
+    for i, b in enumerate(boundary_xfade):
+        if b is None:
+            groups.append(current)
+            current = [i + 1]
+        else:
+            current.append(i + 1)
+    groups.append(current)
+
+    filter_parts: list[str] = []
+    group_outputs: list[tuple[str, str]] = []
+
+    for gi, group in enumerate(groups):
+        if len(group) == 1:
+            idx = group[0]
+            group_outputs.append((f"[{idx}:v]", f"[{idx}:a]"))
+            continue
+
+        group_durations = [durations[j] for j in group]
+
+        # video xfade chain：offset 在组内累加，索引从 group 起点起算
+        prev_v = f"[{group[0]}:v]"
+        for k in range(1, len(group)):
+            xfade_type = boundary_xfade[group[k] - 1]
+            assert xfade_type is not None
+            offset = sum(group_durations[:k]) - k * transition_duration
+            out_v = f"[g{gi}v]" if k == len(group) - 1 else f"[g{gi}v{k}]"
+            filter_parts.append(
+                f"{prev_v}[{group[k]}:v]xfade=transition={xfade_type}:"
+                f"duration={transition_duration}:offset={offset:.3f}{out_v}"
+            )
+            prev_v = out_v
+
+        # audio acrossfade chain：与 video xfade 一一对应，每个边界消耗 transition_duration
+        prev_a = f"[{group[0]}:a]"
+        for k in range(1, len(group)):
+            out_a = f"[g{gi}a]" if k == len(group) - 1 else f"[g{gi}a{k}]"
+            filter_parts.append(f"{prev_a}[{group[k]}:a]acrossfade=d={transition_duration}:c1=tri:c2=tri{out_a}")
+            prev_a = out_a
+
+        group_outputs.append((f"[g{gi}v]", f"[g{gi}a]"))
+
+    if len(group_outputs) == 1:
+        v_label, a_label = group_outputs[0]
+        filter_parts.append(f"{v_label}null[vout]")
+        filter_parts.append(f"{a_label}anull[aout]")
+    else:
+        concat_inputs = "".join(f"{v}{a}" for v, a in group_outputs)
+        filter_parts.append(f"{concat_inputs}concat=n={len(group_outputs)}:v=1:a=1[vout][aout]")
+
+    return ";".join(filter_parts)
+
+
 def concatenate_with_transitions(
     video_paths: list, transitions: list, output_path: Path, transition_duration: float = 0.5
 ):
     """
-    使用转场效果拼接视频
-
-    使用 xfade 滤镜实现转场
+    使用 xfade 滤镜实现场景间转场，cut 边界用 concat 串联以避免滤镜链断裂。
     """
     with tempfile.TemporaryDirectory(prefix="compose-video-") as temp_dir:
         normalized_paths = normalize_clips(video_paths, Path(temp_dir))
@@ -339,60 +469,16 @@ def concatenate_with_transitions(
             concatenate_final(normalized_paths, output_path)
             return
 
-        # 构建 filter_complex
-        inputs = []
-        for path in normalized_paths:
-            inputs.extend(["-i", str(path.resolve())])
-
-        # 获取每个视频的时长
         durations = [get_video_duration(p) for p in normalized_paths]
+        filter_complex = _build_xfade_filter_complex(durations, transitions, transition_duration)
 
-        # 构建 xfade 滤镜链
-        filter_parts = []
-
-        for i in range(len(normalized_paths) - 1):
-            transition = transitions[i] if i < len(transitions) else "fade"
-
-            # xfade 类型映射
-            xfade_type = {
-                "cut": None,  # 不使用转场
-                "fade": "fade",
-                "dissolve": "dissolve",
-                "wipe": "wipeleft",
-            }.get(transition, "fade")
-
-            if xfade_type is None:
-                # cut 转场，不需要 xfade
-                continue
-
-            if i == 0:
-                prev_label = "[0:v]"
-            else:
-                prev_label = f"[v{i}]"
-
-            next_label = f"[{i + 1}:v]"
-            out_label = f"[v{i + 1}]" if i < len(normalized_paths) - 2 else "[vout]"
-
-            # 计算偏移量
-            offset = sum(durations[: i + 1]) - transition_duration * (i + 1)
-
-            filter_parts.append(
-                f"{prev_label}{next_label}xfade=transition={xfade_type}:"
-                f"duration={transition_duration}:offset={offset:.3f}{out_label}"
-            )
-
-        if not filter_parts:
+        if filter_complex is None:
             concatenate_final(normalized_paths, output_path)
             return
 
-        # 下一个容易踩的坑：这里的视频转场已经平滑，但音频仍是硬拼接；
-        # 如果后面要做“听感也平滑”的转场，需要把 concat 改成 acrossfade / afade 链。
-        audio_filter = (
-            ";".join([f"[{i}:a]" for i in range(len(normalized_paths))])
-            + f"concat=n={len(normalized_paths)}:v=0:a=1[aout]"
-        )
-
-        filter_complex = ";".join(filter_parts) + ";" + audio_filter
+        inputs: list[str] = []
+        for path in normalized_paths:
+            inputs.extend(["-i", str(path.resolve())])
 
         cmd = [
             "ffmpeg",
