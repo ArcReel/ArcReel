@@ -33,10 +33,11 @@ def test_collect_masks_db_password(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     _reset_for_tests()
 
     text = diag_mod.collect_diagnostics()
-    assert "supersecretpassword" not in text
-    assert "••" in text
-    assert "db.example.com" in text
-    assert "arcreel" in text
+    db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
+    assert "supersecretpassword" not in db_line
+    assert "••" in db_line
+    assert "db.example.com" in db_line
+    assert "/arcreel" in db_line
 
 
 def test_collect_masks_db_query_secrets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -48,10 +49,11 @@ def test_collect_masks_db_query_secrets(monkeypatch: pytest.MonkeyPatch, tmp_pat
     _reset_for_tests()
 
     text = diag_mod.collect_diagnostics()
-    assert "topsecret" not in text
-    assert "abc123" not in text
-    assert "sslmode=require" in text  # 非敏感参数保留
-    assert "host.example.com" in text
+    db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
+    assert "topsecret" not in db_line
+    assert "abc123" not in db_line
+    assert "sslmode=require" in db_line  # 非敏感参数保留
+    assert "host.example.com" in db_line
 
 
 def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

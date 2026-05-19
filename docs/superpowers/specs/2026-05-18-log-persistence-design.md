@@ -94,7 +94,7 @@ def collect_diagnostics() -> str:
 - OS（`platform.platform()`）
 - 应用数据目录（`app_data_dir()`）
 - 日志目录（`_resolve_log_dir()`）
-- DB URL（脱敏 `user:password@`）
+- DB URL（脱敏 `user:password@` 形式 + query 参数中的敏感键如 `password` / `token` / `secret` / `api_key`）
 - `LOG_LEVEL`
 - 启用的 provider 列表（仅 `id` + `type`，不含 key）
 - Sandbox 状态（`check_sandbox_available()` 返回值）
@@ -111,7 +111,8 @@ def collect_diagnostics() -> str:
 实现：
 
 1. 用 `tempfile.SpooledTemporaryFile(max_size=50 * 1024 * 1024)` 作为 zip 缓冲：< 50 MB 时全在内存；超出自动溢出到磁盘临时文件，避免极端情况下 8 × 100 MB ≈ 800 MB 全在堆里
-2. 遍历 `_resolve_log_dir()` 下所有 `arcreel.log*` 文件
+2. 遍历 `resolve_log_dir()` 下所有 `arcreel.log*` 文件
+   - **跳过符号链接**（`path.is_symlink()`）—— 防止有人在 logs/ 下放 symlink 指向目录外敏感文件经诊断包外泄
    - 单文件 > 100 MB 跳过，把 `[skipped: too large: <name> ({size} bytes)]` 追加进诊断文本
 3. 调用 `collect_diagnostics()` 写入 `diagnostics.txt`
 4. zip 写完后 `seek(0)`，包装成 `StreamingResponse(spooled_file, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="arcreel-diagnostics-{ts}.zip"'})`；StreamingResponse 消费完后 SpooledTemporaryFile 自动关闭并删除磁盘 backing file
