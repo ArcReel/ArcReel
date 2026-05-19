@@ -270,18 +270,24 @@ class TestMultiProviderUsage:
         await db_session.commit()
 
         stats = await repo.get_stats_grouped_by_provider(project_name="demo")
-        by_provider = {item["provider"]: item for item in stats["stats"]}
+        by_group = {(item["provider"], item["call_type"]): item for item in stats["stats"]}
 
-        assert by_provider["anthropic"]["total_cost_usd"] == pytest.approx(0.0456)
-        assert by_provider["anthropic"]["cost_by_currency"] == {"USD": pytest.approx(0.0456)}
-        assert by_provider["anthropic"]["total_calls"] == 1
-        assert by_provider["anthropic"]["success_calls"] == 0
-        assert by_provider["gemini"]["total_cost_usd"] == pytest.approx(0.067)
-        assert by_provider["gemini"]["cost_by_currency"] == {"USD": pytest.approx(0.067)}
-        assert by_provider["vidu"]["total_cost_usd"] == 0
-        assert by_provider["vidu"]["cost_by_currency"] == {"CNY": pytest.approx(0.25)}
-        assert by_provider["vidu"]["total_calls"] == 2
-        assert by_provider["vidu"]["success_calls"] == 1
+        assert set(by_group) == {
+            ("anthropic", "text"),
+            ("gemini", "image"),
+            ("vidu", "image"),
+        }
+
+        assert by_group[("anthropic", "text")]["total_cost_usd"] == pytest.approx(0.0456)
+        assert by_group[("anthropic", "text")]["cost_by_currency"] == {"USD": pytest.approx(0.0456)}
+        assert by_group[("anthropic", "text")]["total_calls"] == 1
+        assert by_group[("anthropic", "text")]["success_calls"] == 0
+        assert by_group[("gemini", "image")]["total_cost_usd"] == pytest.approx(0.067)
+        assert by_group[("gemini", "image")]["cost_by_currency"] == {"USD": pytest.approx(0.067)}
+        assert by_group[("vidu", "image")]["total_cost_usd"] == 0
+        assert by_group[("vidu", "image")]["cost_by_currency"] == {"CNY": pytest.approx(0.25)}
+        assert by_group[("vidu", "image")]["total_calls"] == 2
+        assert by_group[("vidu", "image")]["success_calls"] == 1
 
     async def test_text_call_gemini_cost(self, db_session):
         repo = UsageRepository(db_session)
