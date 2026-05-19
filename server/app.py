@@ -57,6 +57,7 @@ from server.routers import (
     providers,
     reference_videos,
     scenes,
+    system,
     system_config,
     tasks,
     usage,
@@ -519,6 +520,7 @@ app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
 app.include_router(project_events.router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(providers.router, prefix="/api/v1", tags=["供应商管理"])
 app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
+app.include_router(system.router, prefix="/api/v1", tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key 管理"])
 app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
 app.include_router(agent_config.router, prefix="/api/v1", tags=["Agent 配置"])
