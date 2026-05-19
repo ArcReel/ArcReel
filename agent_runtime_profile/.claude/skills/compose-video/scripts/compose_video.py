@@ -12,6 +12,7 @@ Example:
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -91,6 +92,10 @@ def _coerce_numeric_duration(raw: object) -> float | None:
 
     部分 webm/流式封装会让 `stream.duration="N/A"`（真值字符串，`or` 无法回退），
     或返回空串 / 非数值；统一在这里过滤，让调用方走数值有效性而不是真值判断。
+
+    同时拒绝 `nan` / `inf` 和非正数：`float("nan") <= 0.5` 是 `False`，
+    会绕过 `_build_xfade_filter_complex` 的短片段降级，把 `nan` 直接传进
+    xfade `offset` 参数，ffmpeg 会因此报错。
     """
     if raw is None:
         return None
@@ -98,9 +103,12 @@ def _coerce_numeric_duration(raw: object) -> float | None:
     if not candidate or candidate.upper() == "N/A":
         return None
     try:
-        return float(candidate)
+        value = float(candidate)
     except ValueError:
         return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return value
 
 
 def get_video_duration(video_path: Path) -> float:

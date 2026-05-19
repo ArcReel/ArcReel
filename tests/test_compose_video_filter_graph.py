@@ -120,6 +120,25 @@ class TestCoerceNumericDuration:
     def test_strips_whitespace(self) -> None:
         assert compose_video._coerce_numeric_duration(" 5.5 ") == 5.5
 
+    def test_nan_returns_none(self) -> None:
+        """nan 会让 `nan <= transition_duration` 是 False，绕过短片段降级，
+        把 nan 喂给 xfade offset。必须在 helper 层拒掉。"""
+        assert compose_video._coerce_numeric_duration("nan") is None
+        assert compose_video._coerce_numeric_duration("NaN") is None
+
+    def test_inf_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration("inf") is None
+        assert compose_video._coerce_numeric_duration("Infinity") is None
+        assert compose_video._coerce_numeric_duration("-inf") is None
+
+    def test_zero_returns_none(self) -> None:
+        """duration=0 没意义，回退到 format.duration 试一次。"""
+        assert compose_video._coerce_numeric_duration("0") is None
+        assert compose_video._coerce_numeric_duration("0.0") is None
+
+    def test_negative_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration("-1.5") is None
+
 
 # ---------------------------------------------------------------------------
 # _build_xfade_filter_complex
