@@ -73,7 +73,7 @@
 - 参数：`when="midnight"`, `backupCount=7`, `encoding="utf-8"`, `utc=False`
 - 复用现有 formatter（与 stdout 完全一致）
 - 标记 `_HANDLER_ATTR = True` 保证幂等
-- 日志目录由新增私有函数 `_resolve_log_dir()` 决定：
+- 日志目录由新增函数 `resolve_log_dir()` 决定：
   1. `ARCREEL_LOG_DIR` env（绝对路径或相对 `PROJECT_ROOT`）
   2. 默认 `app_data_dir() / "logs"`
 - 首次启动 `mkdir(parents=True, exist_ok=True)`
@@ -93,7 +93,7 @@ def collect_diagnostics() -> str:
 - Python 版本（`sys.version` 单行版）
 - OS（`platform.platform()`）
 - 应用数据目录（`app_data_dir()`）
-- 日志目录（`_resolve_log_dir()`）
+- 日志目录（`resolve_log_dir()`）
 - DB URL（脱敏 `user:password@` 形式 + query 参数中的敏感键如 `password` / `token` / `secret` / `api_key`）
 - `LOG_LEVEL`
 - 启用的 provider 列表（仅 `id` + `type`，不含 key）
