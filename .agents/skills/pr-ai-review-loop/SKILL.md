@@ -129,9 +129,9 @@ gh api "repos/${OWNER_REPO}/pulls/<PR_NUMBER>/comments" \
               body_head:    (.body | .[0:200])
             })
           })'
+```
 
 > **关键**：判定"本轮新 inline"必须用 `created_at > last_push_at` 过滤——**不要用 `commit_id == head`**。实测发现 CodeRabbit 在新 HEAD 重审时，GitHub 会把它旧 inline 的 `commit_id` 跟着新 HEAD 推进（推测是 in-place edit 或 thread 关联），用 `commit_id == head` 会把上一轮的 inline 也算进本轮判定。`created_at` 是评论真实创建时间，对每条 inline 独立稳定。
-```
 
 把所有查询结果连同 `head` 和最新时间戳**记在对话上下文里**，不要落盘。
 
