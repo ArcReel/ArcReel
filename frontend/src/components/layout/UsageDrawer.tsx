@@ -252,7 +252,9 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                         fontWeight: call.cost_amount > 0 ? 600 : 400,
                       }}
                     >
-                      {formatCurrencyAmount(call.currency, call.cost_amount)}
+                      {formatCurrencyAmount(call.currency, call.cost_amount, {
+                        maximumFractionDigits: 6,
+                      })}
                     </span>
                   </div>
                   <div

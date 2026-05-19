@@ -5,18 +5,29 @@ const formatterCache = new Map<string, Intl.NumberFormat>();
 // alphabetical order. Adjust this list to match the deployment's primary audience.
 const CURRENCY_ORDER = ["CNY", "USD"];
 const EMPTY_COST_PLACEHOLDER = "\u2014";
+const DEFAULT_FRACTION_DIGITS = 2;
 
-function getFormatter(currency: string): Intl.NumberFormat {
-  let fmt = formatterCache.get(currency);
+interface CurrencyFormatOptions {
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+}
+
+function getFormatter(
+  currency: string,
+  minimumFractionDigits: number,
+  maximumFractionDigits: number,
+): Intl.NumberFormat {
+  const cacheKey = `${currency}:${minimumFractionDigits}:${maximumFractionDigits}`;
+  let fmt = formatterCache.get(cacheKey);
   if (!fmt) {
     fmt = new Intl.NumberFormat("en", {
       style: "currency",
       currency,
       currencyDisplay: "symbol",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits,
+      maximumFractionDigits,
     });
-    formatterCache.set(currency, fmt);
+    formatterCache.set(cacheKey, fmt);
   }
   return fmt;
 }
@@ -35,11 +46,21 @@ export function costEntries(breakdown: CostBreakdown | undefined): [string, numb
     });
 }
 
-export function formatCurrencyAmount(currency: string, amount: number): string {
+export function formatCurrencyAmount(
+  currency: string,
+  amount: number,
+  options: CurrencyFormatOptions = {},
+): string {
+  const minimumFractionDigits = options.minimumFractionDigits ?? DEFAULT_FRACTION_DIGITS;
+  const maximumFractionDigits = options.maximumFractionDigits ?? DEFAULT_FRACTION_DIGITS;
+
   try {
-    return getFormatter(currency).format(amount);
+    return getFormatter(currency, minimumFractionDigits, maximumFractionDigits).format(amount);
   } catch {
-    return `${currency} ${amount.toFixed(2)}`;
+    return `${currency} ${amount.toLocaleString("en", {
+      minimumFractionDigits,
+      maximumFractionDigits,
+    })}`;
   }
 }
 

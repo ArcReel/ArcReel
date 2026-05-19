@@ -28,6 +28,12 @@ describe("cost-format", () => {
     expect(formatCurrencyAmount("POINTS", 12.345)).toBe("POINTS 12.35");
   });
 
+  it("supports higher precision for line-item costs", () => {
+    expect(formatCurrencyAmount("USD", 0.0006)).toBe("$0.00");
+    expect(formatCurrencyAmount("USD", 0.0006, { maximumFractionDigits: 6 })).toBe("$0.0006");
+    expect(formatCurrencyAmount("POINTS", 0.0006, { maximumFractionDigits: 6 })).toBe("POINTS 0.0006");
+  });
+
   it("totals cost breakdowns by type", () => {
     expect(
       totalBreakdown({
