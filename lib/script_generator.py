@@ -46,6 +46,22 @@ SCRIPT_MAX_OUTPUT_TOKENS = 32000
 # 保留后缀（如 `E1S03_2` → `E2S03_2`）。设计契约见 lib/script_models.py。
 _EID_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
 
+# 质量探针阈值：仅捕极端短样本，正常完整描述应远超这些值。
+_QUALITY_PROBE_SCENE_MIN_LEN = 40
+_QUALITY_PROBE_ACTION_MIN_LEN = 25
+_QUALITY_PROBE_SHOT_TEXT_MIN_LEN = 15
+# 禁词词族：抽象内心动词 + 非画内音 + 形容词性套话。与 prompt builder 反例词族对齐。
+_QUALITY_PROBE_TABOO_WORDS = (
+    "陷入",
+    "回忆",
+    "思绪",
+    "意识到",
+    "画外音",
+    "BGM",
+    "精致",
+    "震撼",
+)
+
 
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     """把 ID 中的 `E\\d+` 前缀强制改写为 `E{ep}`；非字符串或无 E 前缀的原样返回。
@@ -197,6 +213,8 @@ class ScriptGenerator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(script_data, f, ensure_ascii=False, indent=2)
+
+        self._quality_probe(script_data, episode)
 
         logger.info("剧本已保存至 %s", output_path)
         return output_path
@@ -476,3 +494,55 @@ class ScriptGenerator:
         script_data.pop("clues_in_episode", None)
 
         return script_data
+
+    def _quality_probe(self, script_data: dict, episode: int) -> None:
+        """落盘后的轻量质量探针：仅日志，不阻断、不重试。
+
+        统计两类信号：
+        - short：极端短样本（scene/action/shot text 字符数低于阈值）
+        - taboo：禁词词族命中（陷入/回忆/思绪/意识到/画外音/BGM/精致/震撼）
+
+        阈值仅捕"明显异常"，正常完整描述远超这些值。
+        """
+        short_ids: list[str] = []
+        taboo_ids: list[str] = []
+
+        gen_mode = self._effective_generation_mode(episode)
+        if gen_mode == "reference_video":
+            for u in script_data.get("video_units") or []:
+                if not isinstance(u, dict):
+                    continue
+                uid = str(u.get("unit_id") or "?")
+                for shot in u.get("shots") or []:
+                    if not isinstance(shot, dict):
+                        continue
+                    text = str(shot.get("text") or "")
+                    if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
+                        short_ids.append(uid)
+                    if any(word in text for word in _QUALITY_PROBE_TABOO_WORDS):
+                        taboo_ids.append(uid)
+        else:
+            if self.content_mode == "narration":
+                items = script_data.get("segments") or []
+                id_key = "segment_id"
+            else:
+                items = script_data.get("scenes") or []
+                id_key = "scene_id"
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                iid = str(item.get(id_key) or "?")
+                scene = str((item.get("image_prompt") or {}).get("scene") or "")
+                action = str((item.get("video_prompt") or {}).get("action") or "")
+                if len(scene) < _QUALITY_PROBE_SCENE_MIN_LEN or len(action) < _QUALITY_PROBE_ACTION_MIN_LEN:
+                    short_ids.append(iid)
+                if any(word in scene or word in action for word in _QUALITY_PROBE_TABOO_WORDS):
+                    taboo_ids.append(iid)
+
+        if short_ids or taboo_ids:
+            logger.warning(
+                "episode %d quality probe: short=%s, taboo=%s",
+                episode,
+                sorted(set(short_ids)),
+                sorted(set(taboo_ids)),
+            )

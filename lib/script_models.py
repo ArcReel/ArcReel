@@ -54,21 +54,21 @@ class Composition(BaseModel):
     """构图信息"""
 
     shot_type: ShotType = Field(description="镜头类型")
-    lighting: str = Field(description="光线描述，包含光源、方向和氛围")
-    ambiance: str = Field(description="整体氛围，与情绪基调匹配")
+    lighting: str = Field(description="光线描述：光源、方向、色温；避免抽象词")
+    ambiance: str = Field(description="整体氛围：可观察的环境效果；避免抽象情绪词")
 
 
 class ImagePrompt(BaseModel):
     """分镜图生成 Prompt"""
 
-    scene: str = Field(description="场景描述：角色位置、表情、动作、环境细节")
+    scene: str = Field(description="画面静态描述：角色姿态、环境元素、光影氛围（动作请写到 video_prompt.action）")
     composition: Composition = Field(description="构图信息")
 
 
 class VideoPrompt(BaseModel):
     """视频生成 Prompt"""
 
-    action: str = Field(description="动作描述：角色在该片段内的具体动作")
+    action: str = Field(description="动作描述：仅描述物理可观察动作，避免内心动词（如 陷入/回忆/意识到）")
     camera_motion: CameraMotion = Field(description="镜头运动")
     ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
     dialogue: list[Dialogue] = Field(default_factory=list, description="对话列表，仅当原文有引号对话时填写")
