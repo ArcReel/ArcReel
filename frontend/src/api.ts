@@ -346,9 +346,7 @@ class API {
       `${API_BASE}/system/logs/download`,
       withAuth({ method: "GET" }),
     );
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-    }
+    await throwIfNotOk(response, `HTTP ${response.status}`);
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const match = disposition.match(/filename="?([^";]+)"?/);
     const filename = match?.[1] ?? "arcreel-diagnostics.zip";

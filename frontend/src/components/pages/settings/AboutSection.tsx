@@ -33,6 +33,7 @@ export function AboutSection() {
   );
 
   const handleDownloadDiagnostics = useCallback(async () => {
+    if (!mountedRef.current) return;
     setDownloading(true);
     setDownloadError(null);
     try {
@@ -46,9 +47,12 @@ export function AboutSection() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
+      if (!mountedRef.current) return;
       setDownloadError(err instanceof Error ? err.message : String(err));
     } finally {
-      setDownloading(false);
+      if (mountedRef.current) {
+        setDownloading(false);
+      }
     }
   }, []);
 
@@ -237,8 +241,10 @@ export function AboutSection() {
         className="rounded-[12px] border border-hairline p-6"
         style={CARD_STYLE}
       >
-        <h3 className="text-base font-semibold">{t("diagnostics_section_title")}</h3>
-        <p className="text-sm text-neutral-400 mt-1">{t("diagnostics_section_desc")}</p>
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          {t("diagnostics_section_title")}
+        </div>
+        <p className="text-[12.5px] text-text-3">{t("diagnostics_section_desc")}</p>
         <button
           type="button"
           onClick={() => void handleDownloadDiagnostics()}
