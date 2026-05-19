@@ -106,10 +106,10 @@ gh api "repos/${OWNER_REPO}/issues/<PR_NUMBER>/comments" \
 
 ```bash
 gh api "repos/${OWNER_REPO}/issues/<PR_NUMBER>/reactions" \
-  --jq '[.[] | select(.user.login == "chatgpt-codex-connector[bot]") | .content]'
+  --jq '[.[] | select(.user.login == "chatgpt-codex-connector[bot]") | {content, created_at}]'
 ```
 
-返回数组里有 `"+1"` 即 Codex 已 👍。
+判定 Codex 已对**当前 HEAD** 👍：数组里存在 `content == "+1"` **且** `created_at > last_push_at`。只看 `content` 会把上一次 push 留下的 👍 当成本次通过信号。
 
 **副查询 C**（inline review comments——Gemini **和 Codex** 的具体建议都在这里，按 user 分组拉，alt 文本里有 severity 标签：Gemini 是 `high` / `medium` / `low` / ...，Codex 是 `P0 Badge` / `P1 Badge` / ...）：
 
@@ -165,7 +165,7 @@ receiving-code-review 返回后回步骤 1。它自己负责实施修复、向 r
 
 - **CodeRabbit**：副查询 A 返回的 walkthrough `updated_at` 晚于 `last_push_at`（首条评论被重新编辑了）
 - **Gemini**：`gemini_reviews` 里有 review 的 `submittedAt` 晚于 `last_push_at`
-- **Codex**：`codex_reviews[*].body` 含 `**Reviewed commit:** <HEAD前缀>`（前 7-10 位匹配即可）；或副查询 B 显示 Codex 有 `+1` reaction
+- **Codex**：`codex_reviews[*].body` 含 `**Reviewed commit:** <HEAD前缀>`（前 7-10 位匹配即可）；或副查询 B 里存在 `content == "+1"` 且 `created_at > last_push_at`
 
 ### 怎么算 "actionable"
 
@@ -186,7 +186,7 @@ review state == `APPROVED` 一律算无 actionable。
 - **CodeRabbit**：副查询 A 的 `is_ok == true`（或 `actionable_count == "0"`），**或**副查询 C 里 `coderabbitai[bot]` 在本轮（`created_at > last_push_at`）的 inline 全是 `is_ack == true`，且 `updated_at > last_push_at`，且 **`is_in_progress == false`**（in-progress 时表示 CR 还在审，先回 poll 不要急于判定通过）
 - **Gemini**：副查询 C 里 `gemini-code-assist[bot]` 在当前 HEAD 上的 inline items severity 全是 `low/nit/style`/为空，**或剩下的都是 `is_ack == true`**，且 `gemini_reviews` 最近一条 `submittedAt > last_push_at`
 - **Codex**：满足以下任一即可（按 Codex 的三种 ack 模式）：
-  - 副查询 B 出现 `+1`（reaction 路径）
+  - 副查询 B 存在 `content == "+1"` 且 `created_at > last_push_at`（reaction 路径——必须是本轮 push 之后留的 👍，旧 reaction 不算）
   - `codex_reviews` 里最新一条 `submittedAt > last_push_at` 且 body 含 `Reviewed commit` 匹配当前 HEAD，副查询 C 里 `chatgpt-codex-connector[bot]` 在本轮（`created_at > last_push_at`）无非 ack inline
   - `codex_reviews` 里最新一条 `submittedAt > last_push_at` 且 `body == ""` 且本轮无新 inline（空 body review 路径）
 - 或该 reviewer 被用户临时禁用
