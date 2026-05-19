@@ -1676,11 +1676,16 @@ class SessionManager:
     def _extract_text_token_usage(cls, result_msg: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
         usage = result_msg.get("usage")
         usage_dict = usage if isinstance(usage, dict) else {}
-        input_tokens = cls._first_int(usage_dict, "input_tokens", "prompt_tokens")
+        raw_input_tokens = cls._first_int(usage_dict, "input_tokens", "prompt_tokens")
         output_tokens = cls._first_int(usage_dict, "output_tokens", "completion_tokens")
         cache_creation_tokens = cls._first_int(usage_dict, "cache_creation_input_tokens")
         cache_read_tokens = cls._first_int(usage_dict, "cache_read_input_tokens")
-        token_parts = (input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
+        # Anthropic prompt caching：把 cache_creation/cache_read 一并合入 input_tokens，
+        # 以便价目按 input_per_million 一档"模糊覆盖"全部 prompt 成本，
+        # 避免 cache 部分被遗漏（真实 cache_read 单价更低，因此该口径偏保守、永不低估）。
+        input_parts = (raw_input_tokens, cache_creation_tokens, cache_read_tokens)
+        input_tokens = sum(part or 0 for part in input_parts) if any(part is not None for part in input_parts) else None
+        token_parts = (raw_input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
         usage_tokens = sum(part or 0 for part in token_parts) if any(part is not None for part in token_parts) else None
         return input_tokens, output_tokens, usage_tokens
 

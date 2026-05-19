@@ -109,7 +109,7 @@ class TestSessionManagerSdkSessionId:
         assert row.call_type == "text"
         assert row.model == "claude-sonnet-4"
         assert row.prompt == "hello assistant"
-        assert row.input_tokens == 1000
+        assert row.input_tokens == 1050
         assert row.output_tokens == 200
         assert row.usage_tokens == 1250
         assert row.cost_amount == pytest.approx(0.1234)
@@ -181,7 +181,8 @@ class TestSessionManagerSdkSessionId:
             }
         )
 
-        assert input_tokens == 1000
+        # input_tokens 现在合并了 cache_read/cache_creation（按输入价"模糊覆盖" prompt cache 成本）
+        assert input_tokens == 1050
         assert output_tokens == 200
         assert usage_tokens == 1250
 
