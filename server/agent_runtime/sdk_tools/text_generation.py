@@ -228,6 +228,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 props=project.get("props", {}),
                 default_duration=default_duration,
                 supported_durations=supported_durations,
+                episode=episode,
             )
 
             if dry_run:

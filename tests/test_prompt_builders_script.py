@@ -23,6 +23,7 @@ class TestPromptBuildersScript:
             supported_durations=[4, 6, 8],
             default_duration=4,
             aspect_ratio="9:16",
+            episode=1,
         )
         assert "4, 6, 8" in prompt
         assert "默认 4 秒" in prompt
@@ -41,6 +42,7 @@ class TestPromptBuildersScript:
             supported_durations=[5, 10],
             default_duration=None,
             aspect_ratio="9:16",
+            episode=1,
         )
         assert "5, 10" in prompt
         assert "按内容节奏自行决定" in prompt
@@ -57,6 +59,7 @@ class TestPromptBuildersScript:
             supported_durations=[4, 8, 12],
             default_duration=8,
             aspect_ratio="9:16",
+            episode=1,
         )
         assert "竖屏构图" in prompt
 
@@ -72,6 +75,7 @@ class TestPromptBuildersScript:
             supported_durations=[4, 6, 8],
             default_duration=8,
             aspect_ratio="16:9",
+            episode=1,
         )
         assert "横屏构图" in prompt
 
@@ -88,6 +92,7 @@ class TestPromptBuildersScript:
             supported_durations=[4, 6, 8],
             default_duration=8,
             aspect_ratio="16:9",
+            episode=1,
         )
         assert "Tracking Shot" not in prompt
         assert "Pan Left, Pan Right" not in prompt

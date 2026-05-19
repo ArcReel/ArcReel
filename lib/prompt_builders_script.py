@@ -85,6 +85,7 @@ def build_narration_prompt(
     props: dict,
     segments_md: str,
     supported_durations: list[int],
+    episode: int,
     default_duration: int | None = None,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
@@ -135,7 +136,12 @@ def build_narration_prompt(
 {segments_md}
 </segments>
 
-segments 表每行是一个待生成的片段，包含：片段 ID（E{{集}}S{{序号}}）、小说原文、{_format_duration_constraint(supported_durations, default_duration)}、是否含对话、是否为 segment_break。
+segments 表每行是一个待生成的片段，包含：片段 ID（E{episode}S{{序号}}，当前为第 {episode} 集）、小说原文、{_format_duration_constraint(supported_durations, default_duration)}、是否含对话、是否为 segment_break。
+
+<episode_constraints>
+当前正在生成第 {episode} 集。本集所有 segment_id 必须严格使用 `E{episode}S{{两位序号}}` 格式（如 E{episode}S01、E{episode}S02），不得使用其他集号前缀。
+若 segments 表里出现非 `E{episode}` 前缀（如 E1S..），视为脏数据，请按当前集号 `E{episode}` 重写。
+</episode_constraints>
 
 # 字段写作指引
 
@@ -180,6 +186,7 @@ def build_drama_prompt(
     props: dict,
     scenes_md: str,
     supported_durations: list[int],
+    episode: int,
     default_duration: int | None = None,
     aspect_ratio: str = "16:9",
     target_language: str = "中文",
@@ -230,7 +237,12 @@ def build_drama_prompt(
 {scenes_md}
 </shots>
 
-shots 表每行是一个分镜，包含：分镜 ID（E{{集}}S{{序号}}）、分镜描述、{_format_duration_constraint(supported_durations, default_duration)}、场景类型、是否为 segment_break。
+shots 表每行是一个分镜，包含：分镜 ID（E{episode}S{{序号}}，当前为第 {episode} 集）、分镜描述、{_format_duration_constraint(supported_durations, default_duration)}、场景类型、是否为 segment_break。
+
+<episode_constraints>
+当前正在生成第 {episode} 集。本集所有 scene_id 必须严格使用 `E{episode}S{{两位序号}}` 格式（如 E{episode}S01、E{episode}S02），不得使用其他集号前缀。
+若 shots 表里出现非 `E{episode}` 前缀（如 E1S..），视为脏数据，请按当前集号 `E{episode}` 重写。
+</episode_constraints>
 
 # 字段写作指引
 
@@ -273,6 +285,7 @@ def build_normalize_prompt(
     props: dict,
     default_duration: int | None,
     supported_durations: list[int],
+    episode: int,
 ) -> str:
     """Step-1 normalization prompt: novel text → markdown scene table.
 
@@ -346,11 +359,11 @@ def build_normalize_prompt(
 
 | 场景 ID | 场景描述 | 时长 | 场景类型 | segment_break |
 |---------|---------|------|---------|---------------|
-| E{{N}}S01 | 详细的场景描述... | <duration> | 剧情 | 是 |
-| E{{N}}S02 | 详细的场景描述... | <duration> | 对话 | 否 |
+| E{episode}S01 | 详细的场景描述... | <duration> | 剧情 | 是 |
+| E{episode}S02 | 详细的场景描述... | <duration> | 对话 | 否 |
 
 规则：
-- 场景 ID 格式：E{{集数}}S{{两位序号}}（如 E1S01, E1S02）
+- 当前正在生成第 {episode} 集；所有场景 ID 必须使用 `E{episode}S{{两位序号}}` 格式，不得使用其他集号前缀
 - 场景描述：改编后的剧本化描述，包含角色动作、对话、环境，适合视觉化呈现
 {duration_rules}
 - 场景类型：剧情、动作、对话、过渡、空镜

@@ -28,6 +28,7 @@ def _kwargs() -> dict:
         props={"玉佩": {"description": "Z"}},
         supported_durations=[4, 5, 6, 7, 8],
         default_duration=4,
+        episode=2,
     )
 
 
@@ -70,3 +71,19 @@ def test_drama_no_hard_char_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
     assert "200 字以内" not in text
     assert "150 字以内" not in text
+
+
+def test_drama_injects_episode_constraints() -> None:
+    """drama prompt 必须明确告知 LLM 当前 episode，避免 ID 跨集污染（#574）。"""
+    text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+    assert "第 2 集" in text
+    assert "E2S" in text
+    assert "<episode_constraints>" in text
+
+
+def test_narration_injects_episode_constraints() -> None:
+    """narration prompt 同样需告知 episode；step1 用 G01 编号，episode 必须靠 prompt 传递（#574）。"""
+    text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
+    assert "第 2 集" in text
+    assert "E2S" in text
+    assert "<episode_constraints>" in text

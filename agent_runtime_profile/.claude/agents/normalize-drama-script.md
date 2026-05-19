@@ -123,15 +123,16 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 ```markdown
 | 场景 ID | 场景描述 | 时长 | 场景类型 | segment_break |
 |---------|---------|------|---------|---------------|
-| E1S01 | 竹林深处，晨雾弥漫。青年剑客李明手持长剑，缓缓踏入林间，目光坚定。 | <duration> | 剧情 | 是 |
-| E1S02 | 李明凝视着竹林深处，若有所思。"师父，我回来了。" | <duration> | 对话 | 否 |
+| E<集号>S01 | 竹林深处，晨雾弥漫。青年剑客李明手持长剑，缓缓踏入林间，目光坚定。 | <duration> | 剧情 | 是 |
+| E<集号>S02 | 李明凝视着竹林深处，若有所思。"师父，我回来了。" | <duration> | 对话 | 否 |
 ```
 
 > 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations`。
+> `<集号>` 由 `mcp__arcreel__normalize_drama_script` 工具在调用时按当前 episode 注入到 prompt；本示例使用占位符是为了避免误把 `E1` 当作硬编码值。
 
 ## 注意事项
 
-- 场景 ID 格式：E{集数}S{两位序号}（如 E1S01）
+- 场景 ID 格式：E{集数}S{两位序号}（集数 = 当前 episode，由调用工具时的 `episode` 参数决定）
 - 每个场景宜为一个独立的视觉画面，可在指定时长内完成
 - 时长取自 Step 0 查得的 `supported_durations`；优先贴近 `default_duration`，复杂画面（打斗 / 大场面 / 情绪铺陈）可取更长值，不超过 `max_duration`
 - segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）

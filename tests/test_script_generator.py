@@ -271,6 +271,86 @@ class TestScriptGenerator:
             await generator.generate(1)
 
 
+class TestAddMetadataRewritesEpisodePrefix:
+    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀（#574）。"""
+
+    @staticmethod
+    def _make_generator(tmp_path: Path, content_mode: str = "narration") -> ScriptGenerator:
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": content_mode,
+                "_supported_durations": [4, 6, 8],
+            },
+        )
+        return ScriptGenerator(project_path)
+
+    def test_drama_rewrites_scene_ids(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {
+            "scenes": [
+                {"scene_id": "E1S01", "other": "keep"},
+                {"scene_id": "E1S04_2"},
+            ],
+        }
+        out = sg._add_metadata(data, episode=2)
+        assert out["scenes"][0]["scene_id"] == "E2S01"
+        assert out["scenes"][1]["scene_id"] == "E2S04_2"
+        assert out["scenes"][0]["other"] == "keep"
+
+    def test_narration_rewrites_segment_ids(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {
+            "segments": [
+                {"segment_id": "E1S01"},
+                {"segment_id": "E1S02_1"},
+            ],
+        }
+        out = sg._add_metadata(data, episode=3)
+        assert out["segments"][0]["segment_id"] == "E3S01"
+        assert out["segments"][1]["segment_id"] == "E3S02_1"
+
+    def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "_supported_durations": [8],
+            },
+        )
+        sg = ScriptGenerator(project_path)
+        data = {
+            "video_units": [
+                {"unit_id": "E1U01"},
+                {"unit_id": "E1U02_1"},
+            ],
+        }
+        out = sg._add_metadata(data, episode=2)
+        assert out["video_units"][0]["unit_id"] == "E2U01"
+        assert out["video_units"][1]["unit_id"] == "E2U02_1"
+
+    def test_idempotent_when_prefix_already_correct(self, tmp_path: Path) -> None:
+        """ID 前缀已经匹配 episode 时，rewrite 不应改动（不破坏正确数据）。"""
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {"segments": [{"segment_id": "E2S01"}, {"segment_id": "E2S02_3"}]}
+        out = sg._add_metadata(data, episode=2)
+        assert out["segments"][0]["segment_id"] == "E2S01"
+        assert out["segments"][1]["segment_id"] == "E2S02_3"
+
+    def test_unknown_id_format_unchanged(self, tmp_path: Path) -> None:
+        """ID 不带 `E\\d+[SU]` 前缀时不应被改写（避免误伤）。"""
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {"segments": [{"segment_id": "G01"}, {"segment_id": "scene_1"}]}
+        out = sg._add_metadata(data, episode=2)
+        assert out["segments"][0]["segment_id"] == "G01"
+        assert out["segments"][1]["segment_id"] == "scene_1"
+
+
 def test_resolve_supported_durations_raises_when_unset(tmp_path):
     """caps、project.json、registry 三处都查不到时应抛 ValueError，不再 silent fallback。"""
     project_dir = tmp_path / "p"

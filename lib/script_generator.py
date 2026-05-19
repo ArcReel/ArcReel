@@ -6,6 +6,7 @@ script_generator.py - 剧本生成器
 
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -40,6 +41,23 @@ logger = logging.getLogger(__name__)
 # 大型 JSON 剧本输出上限：22+ 场景典型约 14K token，留 2× 安全边际。
 # 注意：受各模型硬上限约束（如 doubao-seed-1-8 ~8192），需选择支持 ≥16K 输出的模型。
 SCRIPT_MAX_OUTPUT_TOKENS = 32000
+
+# 集号前缀正则：仅匹配 `E{数字}` + 紧随 S/U（segment/scene 用 S，video_unit 用 U），
+# 保留后缀（如 `E1S03_2` → `E2S03_2`）。设计契约见 lib/script_models.py。
+_EID_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
+
+
+def _rewrite_episode_prefix(rid: object, ep: int) -> object:
+    """把 ID 中的 `E\\d+` 前缀强制改写为 `E{ep}`；非字符串或无 E 前缀的原样返回。
+
+    兜底 LLM 在 prompt 已注入集号的情况下仍写错前缀的场景。
+    """
+    if not isinstance(rid, str):
+        return rid
+    new_rid, n = _EID_PREFIX_RE.subn(f"E{ep}", rid)
+    if n and new_rid != rid:
+        logger.warning("episode prefix rewritten: %s → %s", rid, new_rid)
+    return new_rid
 
 
 class ScriptGenerator:
@@ -119,6 +137,7 @@ class ScriptGenerator:
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
             schema = ReferenceVideoScript
         elif self.content_mode == "narration":
@@ -133,6 +152,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
             schema = NarrationEpisodeScript
         else:
@@ -147,6 +167,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
             schema = DramaEpisodeScript
 
@@ -208,6 +229,7 @@ class ScriptGenerator:
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
         elif self.content_mode == "narration":
             return build_narration_prompt(
@@ -221,6 +243,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
         else:
             return build_drama_prompt(
@@ -234,6 +257,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
 
     async def _fetch_video_capabilities(self) -> dict | None:
@@ -388,6 +412,22 @@ class ScriptGenerator:
         # CLI 参数 --episode 是集号唯一真相源。schema 已从 AI 输出中移除 episode 字段，
         # 这里负责落盘前补上。
         script_data["episode"] = int(episode)
+
+        # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
+        # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
+        ep = int(episode)
+        if gen_mode == "reference_video":
+            for u in script_data.get("video_units") or []:
+                if isinstance(u, dict) and "unit_id" in u:
+                    u["unit_id"] = _rewrite_episode_prefix(u.get("unit_id"), ep)
+        elif self.content_mode == "narration":
+            for s in script_data.get("segments") or []:
+                if isinstance(s, dict) and "segment_id" in s:
+                    s["segment_id"] = _rewrite_episode_prefix(s.get("segment_id"), ep)
+        else:
+            for s in script_data.get("scenes") or []:
+                if isinstance(s, dict) and "scene_id" in s:
+                    s["scene_id"] = _rewrite_episode_prefix(s.get("scene_id"), ep)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
         # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
