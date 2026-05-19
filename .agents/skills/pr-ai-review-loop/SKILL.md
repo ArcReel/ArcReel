@@ -65,7 +65,10 @@ gh pr view <PR_NUMBER> --json number,headRefOid,reviews,comments,commits \
     gemini_comments:        [.comments[] | select(.author.login == "gemini-code-assist")],
     codex_reviews:          [.reviews[]  | select(.author.login == "chatgpt-codex-connector")],
     codex_comments:         [.comments[] | select(.author.login == "chatgpt-codex-connector")],
-    own_trigger_comments:   [.comments[] | select(.body | test("(/gemini review|@codex review|@coderabbitai resume)"))]
+    own_trigger_comments:   [.comments[] | select(
+                              (.author.login != "coderabbitai" and .author.login != "gemini-code-assist" and .author.login != "chatgpt-codex-connector")
+                              and (.body | test("^(/gemini review|@codex review|@coderabbitai resume)\\s*$"))
+                            )]
   }'
 ```
 
@@ -76,7 +79,15 @@ gh pr view <PR_NUMBER> --json number,headRefOid,reviews,comments,commits \
 ```bash
 OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 gh api "repos/${OWNER_REPO}/issues/<PR_NUMBER>/comments" \
-  --jq '[.[] | select(.user.login == "coderabbitai[bot]")] | sort_by(.created_at) | first | {created_at, updated_at, body_first_line: (.body | split("\n")[1])}'
+  --jq '[.[] | select(.user.login == "coderabbitai[bot]")]
+        | sort_by(.created_at) | first
+        | {
+            created_at,
+            updated_at,
+            is_ok:     (.body | test("No actionable comments were generated in the recent review")),
+            is_paused: (.body | test("(reviews paused|automatic reviews are paused|paused for this PR)"; "i")),
+            actionable_count: (if (.body | test("Actionable comments posted:")) then (.body | capture("Actionable comments posted:\\s*(?<n>[0-9]+)") | .n) else null end)
+          }'
 ```
 
 **副查询 B**（PR reactions——Codex 无建议时只 👍 不留评论的路径）：
@@ -112,7 +123,7 @@ gh api "repos/${OWNER_REPO}/pulls/<PR_NUMBER>/comments" \
 
 | 当前状态 | 动作 |
 |---|---|
-| `coderabbit_walkthrough.body` 当前含 pause 类关键词（见 §「pause 识别」），且 `own_trigger_comments` 里最近一条 `@coderabbitai resume` 的 `createdAt` 早于副查询 A 返回的 walkthrough `updated_at` | 发 `@coderabbitai resume` |
+| 副查询 A 的 `is_paused == true`，且**副查询 A 的 `updated_at` 之后未发过 `@coderabbitai resume`**（即 `own_trigger_comments` 里无此命令，或最新一条的 `createdAt` 早于 `updated_at`） | 发 `@coderabbitai resume` |
 | Gemini 启用，最近一次 push 之后 Gemini 没新 review 也没发过 `/gemini review` | 发 `/gemini review` |
 | Codex 启用且按 §「Codex 触发决策」判断认为该叫 | 发 `@codex review` |
 | 还有 reviewer 在最新 HEAD 上没出结果 | 等下一轮（见 §「polling 节奏」） |
@@ -143,7 +154,7 @@ receiving-code-review 返回后回步骤 1。它自己负责实施修复、向 r
 
 优先看 bot 自己给的 explicit signal：
 
-- **CodeRabbit** → `coderabbit_walkthrough.body` 首行 / 段首是否为 `No actionable comments were generated in the recent review. 🎉`——是则**无** actionable；否则把 body 里列出的具体建议视为 actionable
+- **CodeRabbit** → 副查询 A 的 `is_ok == true`（CodeRabbit 显式 OK 文案）或 `actionable_count == "0"`——**无** actionable；否则**具体建议在 inline review comments**（不在 walkthrough body），需另拉 REST `/pulls/<PR>/comments` 里 `coderabbitai[bot]` 的条目，body 开头常带 `_⚠️ Potential issue_` / `_🟠 Major_` / `_🛠️ Refactor suggestion_` / `_💡 Verification agent_` 等标签——非 nit 级别都算 actionable
 - **Gemini** → 副查询 C 里 `gemini-code-assist[bot]` 的 inline items，`severity_alt` 含 `high` / `medium` / `critical` 算 actionable；`low` / `nit` / `style` 不算
 - **Codex** → 副查询 C 里 `chatgpt-codex-connector[bot]` 的 inline items（review summary body 只是模板，**具体建议在 inline**）；`severity_alt` 是 `Pn Badge` 形式（如 `P1 Badge`），n 越小越严重——按判断力分级，通常 P0 / P1 算 actionable，P2 / P3 视场景而定。若 Codex 在当前 HEAD 上只有 `+1` reaction 没留 inline comment，**不是** actionable（这是它的"通过"信号）
 
@@ -153,17 +164,16 @@ review state == `APPROVED` 一律算无 actionable。
 
 当前 HEAD 下，每个启用的 reviewer 满足以下之一：
 
-- **CodeRabbit**：walkthrough body 首行 / 段首是 `No actionable comments were generated in the recent review. 🎉`，且 walkthrough `updated_at > last_push_at`
+- **CodeRabbit**：副查询 A 的 `is_ok == true`（或 `actionable_count == "0"`），且 `updated_at > last_push_at`
 - **Gemini**：副查询 C 里 `gemini-code-assist[bot]` 在当前 HEAD 上的 inline items severity 全是 `low/nit/style` 或为空，且 `gemini_reviews` 最近一条 `submittedAt > last_push_at`
 - **Codex**：副查询 B 出现 `+1`（无建议路径）；或 `codex_reviews[*].body` 里 `Reviewed commit` 匹配当前 HEAD，且副查询 C 里 `chatgpt-codex-connector[bot]` 在当前 HEAD 上没留 actionable 级别的 inline items
 - 或该 reviewer 被用户临时禁用
 
 ### CodeRabbit pause 的识别
 
-CodeRabbit 状态全靠**反复编辑 walkthrough**。`coderabbit_walkthrough.body` 含以下任意关键词（不区分大小写）说明它停了：
+CodeRabbit 状态全靠**反复编辑 walkthrough**。副查询 A 的 `is_paused` 已封装了关键词匹配（不区分大小写匹配 `reviews paused` / `automatic reviews are paused` / `paused for this PR`）。
 
-- `reviews paused` / `automatic reviews are paused` / `paused for this PR`
-- 或历史上有 `@coderabbitai pause` 被发过且之后再无 walkthrough 编辑（`updated_at` 没动）
+如果上述关键词没命中但仍怀疑 pause（例如历史上有 `@coderabbitai pause` 被发过且之后再无 walkthrough 编辑 / `updated_at` 没动），看具体 walkthrough body 自己判断，必要时扩展 `is_paused` 的正则。
 
 发 `@coderabbitai resume` 后等 ~30s 让 bot 接管。
 
