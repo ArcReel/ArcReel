@@ -78,7 +78,7 @@ gh pr view <PR_NUMBER> --json number,headRefOid,reviews,comments,commits \
     codex_comments:         [.comments[] | select(.author.login == "chatgpt-codex-connector")],
     own_trigger_comments:   [.comments[] | select(
                               (.author.login != "coderabbitai" and .author.login != "gemini-code-assist" and .author.login != "chatgpt-codex-connector")
-                              and (.body | test("^(/gemini review|@codex review|@coderabbitai resume)\\s*$"))
+                              and (.body | test("^\\s*(/gemini review|@codex review|@coderabbitai resume)\\s*$"; "i"))
                             )]
   }'
 ```
@@ -120,11 +120,15 @@ gh api "repos/${OWNER_REPO}/pulls/<PR_NUMBER>/comments" \
             user: .[0].user.login,
             items: map({
               path,
+              commit_id,
+              created_at,
               severity_alt: (.body | capture("!\\[(?<s>[^\\]]+)\\]")? | .s // null),
               is_ack:       ((.body | test("<!--\\s*<review_comment_addressed>")) or (.body | test("^### Summary"))),
               body_head:    (.body | .[0:200])
             })
           })'
+
+> **关键**：inline items 的 `commit_id` 是这条 inline 评论对应的 commit SHA（GitHub 给每条 inline review 都带这个字段）；`created_at` 是评论时间。判定"在当前 HEAD 上的 inline" 时**必须**用 `commit_id == head` 过滤（或 `created_at > last_push_at` 作为兜底）——否则会把历史 HEAD 的旧 inline 混进当前 HEAD 的判定。
 ```
 
 把所有查询结果连同 `head` 和最新时间戳**记在对话上下文里**，不要落盘。
@@ -135,7 +139,7 @@ gh api "repos/${OWNER_REPO}/pulls/<PR_NUMBER>/comments" \
 
 | 当前状态 | 动作 |
 |---|---|
-| 副查询 A 的 `is_paused == true`，且**副查询 A 的 `updated_at` 之后未发过 `@coderabbitai resume`**（即 `own_trigger_comments` 里无此命令，或最新一条的 `createdAt` 早于 `updated_at`） | 发 `@coderabbitai resume` |
+| 副查询 A 的 `is_paused == true`，且**副查询 A 的 `updated_at` 之后未发过 `@coderabbitai resume`**（从 `own_trigger_comments` 里**仅过滤 body 等于 `@coderabbitai resume` 的条目**，看最新一条的 `createdAt` 是否早于 `updated_at`；为空则按"未发过"处理。**不要**用"最新一条"统计混合所有命令——`/gemini review` 的最新发送不应阻止 `@coderabbitai resume`） | 发 `@coderabbitai resume` |
 | Gemini 启用，最近一次 push 之后 Gemini 没新 review 也没发过 `/gemini review` | 发 `/gemini review` |
 | Codex 启用且按 §「Codex 触发决策」判断认为该叫 | 发 `@codex review` |
 | 还有 reviewer 在最新 HEAD 上没出结果 | 等下一轮（见 §「polling 节奏」） |
@@ -214,7 +218,7 @@ AI reviewer 都有 cold-start 延迟，刚 push 就猛 poll 是浪费：
 
 ## 故障处理
 
-- **某个 reviewer 一直不回**：bot 可能挂了 / 配额满。10 分钟没动静就停下来问用户怎么处理。
+- **某个 reviewer 一直不回**：bot 可能挂了 / 配额满。**15 分钟**没动静就停下来问用户怎么处理（与 §「polling 节奏」中的上限一致）。
 - **bot 报错（"Internal error" / "Token limit exceeded"）**：把错误内容贴给用户，问要不要发 `@coderabbitai full review` / `/gemini review` 强制重跑。
 - **gh 401/403**：让用户跑 `gh auth refresh -s repo`。
 - **CI 失败**：CodeRabbit 会等 GitHub Checks 跑完再继续；CI 红时 review 可能不来——先帮用户修 CI，AI reviewers 自然会接上。
