@@ -86,6 +86,23 @@ def _resolve_fps(avg_frame_rate: object, r_frame_rate: object) -> str:
     return "30"
 
 
+def _coerce_numeric_duration(raw: object) -> float | None:
+    """把 ffprobe 的 duration 字段安全转成 float，无效值返回 None。
+
+    部分 webm/流式封装会让 `stream.duration="N/A"`（真值字符串，`or` 无法回退），
+    或返回空串 / 非数值；统一在这里过滤，让调用方走数值有效性而不是真值判断。
+    """
+    if raw is None:
+        return None
+    candidate = str(raw).strip()
+    if not candidate or candidate.upper() == "N/A":
+        return None
+    try:
+        return float(candidate)
+    except ValueError:
+        return None
+
+
 def get_video_duration(video_path: Path) -> float:
     """获取视频时长"""
     result = subprocess.run(
@@ -147,14 +164,14 @@ def probe_media(video_path: Path) -> dict[str, object]:
     fps = _resolve_fps(video_stream.get("avg_frame_rate"), video_stream.get("r_frame_rate"))
 
     # duration 优先 video stream（mkv/webm 等容器 format.duration 与 stream.duration
-    # 可能相差几毫秒；atrim 静音音轨长度与 xfade offset 需要精确，必须以 stream 为准）
-    duration_raw = video_stream.get("duration") or payload.get("format", {}).get("duration")
-    if not duration_raw:
+    # 可能相差几毫秒；atrim 静音音轨长度与 xfade offset 需要精确，必须以 stream 为准）。
+    # 但 ffprobe 对部分 webm/流式封装会让 stream.duration="N/A"（真值字符串，
+    # `or` 链不会回退），所以这里用数值有效性而不是真值判断逐级回退。
+    duration = _coerce_numeric_duration(video_stream.get("duration"))
+    if duration is None:
+        duration = _coerce_numeric_duration(payload.get("format", {}).get("duration"))
+    if duration is None:
         raise RuntimeError(f"无法从 ffprobe 输出中获取时长: {video_path}")
-    try:
-        duration = float(duration_raw)
-    except ValueError as exc:
-        raise RuntimeError(f"无法解析视频时长: {video_path}") from exc
 
     width = int(video_stream.get("width") or 0)
     height = int(video_stream.get("height") or 0)
@@ -502,6 +519,8 @@ def concatenate_with_transitions(
             "aac",
             "-b:a",
             "192k",
+            "-movflags",
+            "+faststart",
             str(output_path),
         ]
 

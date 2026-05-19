@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -80,6 +81,44 @@ class TestResolveFps:
 
     def test_strips_whitespace(self) -> None:
         assert compose_video._resolve_fps(" 24/1 ", None) == "24/1"
+
+
+# ---------------------------------------------------------------------------
+# _coerce_numeric_duration
+# ---------------------------------------------------------------------------
+
+
+class TestCoerceNumericDuration:
+    """ffprobe duration 字段的容错解析。
+
+    ffprobe 对部分 webm / 流式封装会返回 `stream.duration="N/A"`，
+    这是真值字符串但不是数值；旧实现 `stream.duration or format.duration` 会
+    选中 "N/A" 然后 float() 抛错，导致正常视频被拒。这里覆盖该回归。
+    """
+
+    def test_numeric_string_parses(self) -> None:
+        assert compose_video._coerce_numeric_duration("12.34") == 12.34
+
+    def test_na_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration("N/A") is None
+
+    def test_na_lowercase_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration("n/a") is None
+
+    def test_empty_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration("") is None
+
+    def test_whitespace_only_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration("   ") is None
+
+    def test_none_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration(None) is None
+
+    def test_non_numeric_garbage_returns_none(self) -> None:
+        assert compose_video._coerce_numeric_duration("not-a-number") is None
+
+    def test_strips_whitespace(self) -> None:
+        assert compose_video._coerce_numeric_duration(" 5.5 ") == 5.5
 
 
 # ---------------------------------------------------------------------------
@@ -251,4 +290,4 @@ class TestConcatenateFinalSingleSegment:
 
     def test_empty_list_raises(self) -> None:
         with pytest.raises(ValueError, match="没有可用的视频片段"):
-            compose_video.concatenate_final([], Path("/tmp/unused.mp4"))
+            compose_video.concatenate_final([], Path(tempfile.gettempdir()) / "unused.mp4")
