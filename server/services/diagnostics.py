@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import sys
 from collections.abc import Callable
@@ -9,7 +10,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse, urlunparse
 
 from lib.app_data_dir import app_data_dir
-from lib.logging_config import _resolve_log_dir
+from lib.logging_config import resolve_log_dir
 from lib.logging_utils import _mask_secret
 
 _UNAVAILABLE = "<unavailable: {exc}>"
@@ -23,14 +24,11 @@ def _safe(fn: Callable[[], object], label: str) -> str:
 
 
 def _app_version() -> str:
-    try:
-        from importlib.metadata import PackageNotFoundError, version
+    from importlib.metadata import PackageNotFoundError, version
 
-        try:
-            return version("arcreel")
-        except PackageNotFoundError:
-            pass
-    except Exception:
+    try:
+        return version("arcreel")
+    except PackageNotFoundError:
         pass
 
     try:
@@ -58,12 +56,10 @@ def _data_dir() -> str:
 
 
 def _log_dir() -> str:
-    return str(_resolve_log_dir())
+    return str(resolve_log_dir())
 
 
 def _db_url() -> str:
-    import os
-
     raw = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./projects/.arcreel.db")
     try:
         parsed = urlparse(raw)
@@ -79,28 +75,20 @@ def _db_url() -> str:
 
 
 def _log_level() -> str:
-    import os
-
     return os.environ.get("LOG_LEVEL", "INFO")
 
 
 def _sandbox_status() -> str:
-    try:
-        from server.app import check_sandbox_available
+    from server.app import check_sandbox_available
 
-        return "enabled" if check_sandbox_available() else "disabled"
-    except Exception as exc:
-        return _UNAVAILABLE.format(exc=f"sandbox: {exc}")
+    return "enabled" if check_sandbox_available() else "disabled"
 
 
 def _providers() -> str:
-    try:
-        from lib.config.registry import PROVIDER_REGISTRY
+    from lib.config.registry import PROVIDER_REGISTRY
 
-        ids = sorted(PROVIDER_REGISTRY.keys())
-        return ", ".join(ids) if ids else "<none>"
-    except Exception as exc:
-        return _UNAVAILABLE.format(exc=f"providers: {exc}")
+    ids = sorted(PROVIDER_REGISTRY.keys())
+    return ", ".join(ids) if ids else "<none>"
 
 
 def collect_diagnostics() -> str:

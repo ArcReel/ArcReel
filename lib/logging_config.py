@@ -19,7 +19,7 @@ def _file_logging_disabled() -> bool:
     return os.environ.get("ARCREEL_LOG_FILE_DISABLED", "").strip().lower() in _DISABLED_TRUTHY
 
 
-def _resolve_log_dir() -> Path:
+def resolve_log_dir() -> Path:
     """日志目录解析：ARCREEL_LOG_DIR > app_data_dir()/logs。
 
     相对路径基于 PROJECT_ROOT，与 app_data_dir 的策略保持一致。
@@ -64,7 +64,7 @@ def setup_logging(level: str | None = None) -> None:
     file_handler_exists = any(getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers)
     if not _file_logging_disabled() and not file_handler_exists:
         try:
-            log_dir = _resolve_log_dir()
+            log_dir = resolve_log_dir()
             log_dir.mkdir(parents=True, exist_ok=True)
             file_handler = TimedRotatingFileHandler(
                 filename=str(log_dir / "arcreel.log"),

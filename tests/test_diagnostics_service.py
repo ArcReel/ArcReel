@@ -17,7 +17,7 @@ def test_collect_returns_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
 
     text = collect_diagnostics()
     assert isinstance(text, str)
-    assert "ArcReel diagnostics" in text or "ArcReel Diagnostics" in text
+    assert "ArcReel diagnostics" in text
     assert "App version" in text
     assert "Python" in text
     assert "OS" in text
