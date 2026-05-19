@@ -6,16 +6,15 @@ from pathlib import Path
 
 import pytest
 
+import server.services.diagnostics as diag_mod
+from lib.app_data_dir import _reset_for_tests
+
 
 def test_collect_returns_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    from lib.app_data_dir import _reset_for_tests
-
     _reset_for_tests()
 
-    from server.services.diagnostics import collect_diagnostics
-
-    text = collect_diagnostics()
+    text = diag_mod.collect_diagnostics()
     assert isinstance(text, str)
     assert "ArcReel diagnostics" in text
     assert "App version" in text
@@ -31,26 +30,33 @@ def test_collect_masks_db_password(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "DATABASE_URL",
         "postgresql+asyncpg://arcuser:supersecretpassword@db.example.com:5432/arcreel",
     )
-    from lib.app_data_dir import _reset_for_tests
-
     _reset_for_tests()
 
-    from server.services.diagnostics import collect_diagnostics
-
-    text = collect_diagnostics()
+    text = diag_mod.collect_diagnostics()
     assert "supersecretpassword" not in text
     assert "••" in text
     assert "db.example.com" in text
     assert "arcreel" in text
 
 
-def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_collect_masks_db_query_secrets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    from lib.app_data_dir import _reset_for_tests
-
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://host.example.com/arcreel?sslmode=require&password=topsecret&token=abc123",
+    )
     _reset_for_tests()
 
-    import server.services.diagnostics as diag_mod
+    text = diag_mod.collect_diagnostics()
+    assert "topsecret" not in text
+    assert "abc123" not in text
+    assert "sslmode=require" in text  # 非敏感参数保留
+    assert "host.example.com" in text
+
+
+def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
+    _reset_for_tests()
 
     def boom() -> str:
         raise RuntimeError("simulated failure")
@@ -65,11 +71,7 @@ def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path
 def test_collect_returns_log_dir_matching_logging_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     log_dir = tmp_path / "custom-logs"
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
-    from lib.app_data_dir import _reset_for_tests
-
     _reset_for_tests()
 
-    from server.services.diagnostics import collect_diagnostics
-
-    text = collect_diagnostics()
+    text = diag_mod.collect_diagnostics()
     assert str(log_dir) in text

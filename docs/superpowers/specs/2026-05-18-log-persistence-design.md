@@ -57,8 +57,8 @@
 | `server/services/diagnostics.py` | 新 | `collect_diagnostics()` 收集脱敏的系统信息 |
 | `server/routers/system.py` | 新 | `GET /api/v1/system/logs/download` 端点（与现有 `system_config.py` 用途不同，独立新文件） |
 | `server/app.py` | 改 | 注册 `system` router |
-| `frontend/src/pages/Settings/*` | 改 | 新增「下载诊断日志」按钮 |
-| `frontend/src/i18n/{zh,en,vi}/common.json` | 改 | 三语 i18n key |
+| `frontend/src/components/pages/settings/AboutSection.tsx` | 改 | 新增「下载诊断日志」按钮 |
+| `frontend/src/i18n/{zh,en,vi}/dashboard.ts` | 改 | 三语 i18n key |
 | `.env.example` | 改 | 注释化新 env 变量 |
 | `tests/test_logging_persistence.py` | 新 | 文件 handler 行为测试 |
 | `tests/test_system_logs_router.py` | 新 | 端点行为测试 |
@@ -122,7 +122,7 @@ def collect_diagnostics() -> str:
 
 ### 4. 前端 Settings 按钮
 
-位置：`frontend/src/pages/Settings/` 下选择一个合适的 tab（看现有结构，倾向于「关于」或「系统」tab）。
+位置：`frontend/src/components/pages/settings/AboutSection.tsx`（实施时由 plan 确认）。
 
 UI：一行带说明文字的按钮，i18n 文案：
 

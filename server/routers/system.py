@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
+from lib.i18n import Translator
 from lib.logging_config import resolve_log_dir
 from server.auth import CurrentUser
 from server.services.diagnostics import collect_diagnostics
@@ -22,7 +23,7 @@ _LOG_GLOB = "arcreel.log*"
 
 
 @router.get("/system/logs/download")
-async def download_logs(_user: CurrentUser) -> StreamingResponse:
+async def download_logs(_user: CurrentUser, _t: Translator) -> StreamingResponse:
     """打包返回 logs/ 目录所有文件 + diagnostics.txt。"""
     log_dir = resolve_log_dir()
     diagnostics_lines: list[str] = []
@@ -32,7 +33,9 @@ async def download_logs(_user: CurrentUser) -> StreamingResponse:
         with zipfile.ZipFile(spooled, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             if log_dir.exists():
                 for path in sorted(log_dir.glob(_LOG_GLOB)):
-                    if not path.is_file():
+                    # 跳过 symlink：防止有人在 logs/ 下放符号链接指向目录外的敏感文件，
+                    # 通过诊断包外泄。
+                    if path.is_symlink() or not path.is_file():
                         continue
                     size = path.stat().st_size
                     if size > _MAX_FILE_BYTES:

@@ -7,7 +7,7 @@ import platform
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from lib.app_data_dir import app_data_dir
 from lib.logging_config import resolve_log_dir
@@ -59,19 +59,32 @@ def _log_dir() -> str:
     return str(resolve_log_dir())
 
 
+_SENSITIVE_QUERY_KEYS = frozenset({"password", "passwd", "pwd", "token", "secret", "api_key", "apikey"})
+
+
 def _db_url() -> str:
     raw = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./projects/.arcreel.db")
     try:
         parsed = urlparse(raw)
+        netloc = parsed.netloc
         if parsed.username or parsed.password:
             user = _mask_secret(parsed.username) if parsed.username else ""
             host = parsed.hostname or ""
             port = f":{parsed.port}" if parsed.port else ""
             netloc = f"{user}:••@{host}{port}" if parsed.password else f"{user}@{host}{port}"
-            return urlunparse(parsed._replace(netloc=netloc))
+
+        query = parsed.query
+        if query:
+            masked = [
+                (k, "••" if k.lower() in _SENSITIVE_QUERY_KEYS else v)
+                for k, v in parse_qsl(query, keep_blank_values=True)
+            ]
+            query = urlencode(masked)
+
+        return urlunparse(parsed._replace(netloc=netloc, query=query))
     except Exception:
-        pass
-    return raw
+        # 脱敏失败时回退到原始字符串，避免诊断包完全失败；调用方 _safe 会再兜一层。
+        return raw
 
 
 def _log_level() -> str:
