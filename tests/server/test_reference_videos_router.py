@@ -229,3 +229,91 @@ def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Pa
         json={"prompt": "Shot 1 (2s): @张三 出现", "references": [{"type": "character", "name": "张三"}]},
     )
     assert resp.status_code == 404, resp.text
+
+
+def test_add_unit_unknown_project_returns_404(client: TestClient):
+    resp = client.post(
+        "/api/v1/projects/missing/reference-videos/episodes/1/units",
+        json={"prompt": "Shot 1 (2s): @张三 出现", "references": []},
+    )
+    assert resp.status_code == 404
+
+
+def test_add_unit_unknown_episode_returns_404(client: TestClient):
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/99/units",
+        json={"prompt": "Shot 1 (2s): 空镜", "references": []},
+    )
+    assert resp.status_code == 404
+
+
+def test_write_endpoint_rejects_non_reference_video_mode(client: TestClient, tmp_path: Path):
+    """episode 非 reference_video 模式时，写端点应返回 409。"""
+    script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["generation_mode"] = "image"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    proj_path = tmp_path / "projects" / "demo" / "project.json"
+    proj = json.loads(proj_path.read_text(encoding="utf-8"))
+    proj["generation_mode"] = "image"
+    proj_path.write_text(json.dumps(proj, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "Shot 1 (2s): 空镜", "references": []},
+    )
+    assert resp.status_code == 409
+
+
+def test_patch_unit_duration_override_without_header(client: TestClient):
+    """无 header 的 prompt → override=True，duration_seconds 直接生效。"""
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "@张三 推门", "references": [{"type": "character", "name": "张三"}], "duration_seconds": 5},
+    )
+    assert resp.status_code == 201, resp.text
+    uid = resp.json()["unit"]["unit_id"]
+    assert resp.json()["unit"]["duration_seconds"] == 5
+
+    # 仅改 duration_seconds（无 prompt）：走 elif 分支按已有 override 直接覆盖时长
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"duration_seconds": 8, "transition_to_next": "fade", "note": "hi"},
+    )
+    assert resp.status_code == 200, resp.text
+    unit = resp.json()["unit"]
+    assert unit["duration_seconds"] == 8
+    assert unit["transition_to_next"] == "fade"
+    assert unit["note"] == "hi"
+
+    # 带无 header 的新 prompt + duration_seconds：走 prompt 分支并对单镜头 override 时长
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"prompt": "@张三 转身离开", "duration_seconds": 7},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["unit"]["duration_seconds"] == 7
+
+
+def test_reorder_units_rejects_true_duplicate(client: TestClient):
+    """长度匹配但含重复 ID → 命中 duplicate 校验分支。"""
+    uid1 = _seed_unit(client)
+    _uid2 = _seed_unit(client)
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
+        json={"unit_ids": [uid1, uid1]},
+    )
+    assert resp.status_code == 400
+    assert "duplicate" in resp.json()["detail"]
+
+
+def test_reorder_units_rejects_unknown_id_set_mismatch(client: TestClient):
+    """长度匹配、无重复，但 ID 集合与现有不一致 → set mismatch 分支。"""
+    uid1 = _seed_unit(client)
+    _uid2 = _seed_unit(client)
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
+        json={"unit_ids": [uid1, "E1U999"]},
+    )
+    assert resp.status_code == 400
+    assert "do not match" in resp.json()["detail"]

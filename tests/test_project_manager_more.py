@@ -161,6 +161,107 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_scene_asset("demo", "episode_1.json", "NOT_FOUND", "video_clip", "x.mp4")
 
+    def test_locked_script_helpers_drama_paths(self, tmp_path):
+        """覆盖经 locked_script 迁移的 helper 在 drama/scenes 分支与默认资产填充。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+
+        drama_script = {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "drama",
+            "scenes": [],
+        }
+        pm.save_script("demo", drama_script, "episode_1.json")
+
+        # add_scene 未带 generated_assets：触发默认资产填充分支
+        pm.add_scene("demo", "episode_1.json", {"duration_seconds": 6})
+        pm.add_scene("demo", "episode_1.json", {"duration_seconds": 4})
+        loaded = pm.load_script("demo", "episode_1.json")
+        assert [s["scene_id"] for s in loaded["scenes"]] == ["001", "002"]
+        assert loaded["scenes"][0]["generated_assets"]["status"] == "pending"
+
+        # update_scene_asset 走 drama/scenes 分支（else: scene_id）
+        pm.update_scene_asset("demo", "episode_1.json", "001", "storyboard_image", "sb/001.png")
+        loaded = pm.load_script("demo", "episode_1.json")
+        assert loaded["scenes"][0]["generated_assets"]["storyboard_image"] == "sb/001.png"
+
+    def test_batch_update_scene_assets_persists_all(self, tmp_path):
+        """batch_update_scene_assets 单次锁内写多个场景，缺失 scene_id 静默跳过。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "drama",
+                "scenes": [
+                    {"scene_id": "001", "duration_seconds": 4, "generated_assets": {}},
+                    {"scene_id": "002", "duration_seconds": 4},
+                ],
+            },
+            "episode_1.json",
+        )
+
+        # 空 updates 提前返回
+        assert pm.batch_update_scene_assets("demo", "episode_1.json", []) == {}
+
+        pm.batch_update_scene_assets(
+            "demo",
+            "episode_1.json",
+            [
+                ("001", "storyboard_image", "sb/001.png"),
+                ("002", "video_clip", "v/002.mp4"),
+                ("999", "video_clip", "ignored.mp4"),  # 不存在 → 静默跳过
+            ],
+        )
+        loaded = pm.load_script("demo", "episode_1.json")
+        by_id = {s["scene_id"]: s for s in loaded["scenes"]}
+        assert by_id["001"]["generated_assets"]["storyboard_image"] == "sb/001.png"
+        assert by_id["002"]["generated_assets"]["video_clip"] == "v/002.mp4"
+
+        # narration/segments 分支：同 helper 走 segment_id 索引
+        pm.save_script(
+            "demo",
+            {
+                "episode": 2,
+                "title": "第二集",
+                "content_mode": "narration",
+                "segments": [{"segment_id": "E2S01", "duration_seconds": 4}],
+            },
+            "episode_2.json",
+        )
+        pm.batch_update_scene_assets("demo", "episode_2.json", [("E2S01", "storyboard_image", "sb/E2S01.png")])
+        seg = pm.load_script("demo", "episode_2.json")["segments"][0]
+        assert seg["generated_assets"]["storyboard_image"] == "sb/E2S01.png"
+
+    def test_update_character_sheet_success_and_missing(self, tmp_path):
+        """update_character_sheet 写入 sheet 路径；角色缺失时锁内 raise 且跳过写回。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "drama",
+                "characters": {"张三": {"description": "x"}},
+                "scenes": [],
+            },
+            "episode_1.json",
+        )
+
+        pm.update_character_sheet("demo", "episode_1.json", "张三", "sheets/zhangsan.png")
+        loaded = pm.load_script("demo", "episode_1.json")
+        assert loaded["characters"]["张三"]["character_sheet"] == "sheets/zhangsan.png"
+
+        with pytest.raises(KeyError):
+            pm.update_character_sheet("demo", "episode_1.json", "李四", "sheets/lisi.png")
+
     def test_save_script_rejects_mismatch_before_write(self, tmp_path):
         """save_script 在 filename/内部 episode 不一致时必须写盘前 fail-fast。
 
