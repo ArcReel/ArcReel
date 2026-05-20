@@ -14,13 +14,15 @@ import type { ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types
  * null，让通知仍然推送、仅不可点击（优雅降级）。
  */
 
-const ASSET_ROUTES: Record<string, string> = {
+const ASSET_ROUTES: Record<"character" | "scene" | "prop", string> = {
   character: "/characters",
   scene: "/scenes",
   prop: "/props",
 };
 
-const FAILURE_TEXT_KEYS: Record<string, { key: string; idParam: "id" | "unitId" }> = {
+const FAILURE_TEXT_KEYS: Partial<
+  Record<TaskItem["task_type"], { key: string; idParam: "id" | "unitId" }>
+> = {
   storyboard: { key: "storyboard_task_failed", idParam: "id" },
   video: { key: "video_task_failed", idParam: "id" },
   character: { key: "character_task_failed", idParam: "id" },
