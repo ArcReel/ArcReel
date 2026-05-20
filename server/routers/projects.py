@@ -859,8 +859,9 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
             matched_segment: dict[str, Any] | None = None
             with project_change_source("webui"):
                 with manager.locked_script(name, req.script_file) as script:
-                    # 检查是否为说书模式
-                    if script.get("content_mode") != "narration" and "segments" not in script:
+                    # 检查是否为说书模式：仅 narration 且含 segments 键才放行；
+                    # drama 脚本即使残留 segments 键也拒绝，避免被当 narration 改写
+                    if script.get("content_mode") != "narration" or "segments" not in script:
                         raise HTTPException(status_code=400, detail=_t("narration_mode_required"))
 
                     for segment in script.get("segments", []):

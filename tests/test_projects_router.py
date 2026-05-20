@@ -368,6 +368,24 @@ class TestProjectsRouter:
             assert seg2["scenes"] == ["Castle"]
             assert seg2["props"] == []
 
+    def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
+        # drama 脚本残留 segments 键不应被当 narration 改写：须返回 400 而非放行
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "drama.json")] = {
+            "content_mode": "drama",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
+            "scenes": [{"scene_id": "E1S01"}],
+        }
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "drama.json", "duration_seconds": 7},
+            )
+            assert resp.status_code == 400
+
     def test_update_scene_supports_character_and_clue_refs(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
