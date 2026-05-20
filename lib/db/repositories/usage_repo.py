@@ -123,6 +123,8 @@ class UsageRepository(BaseRepository):
         image_output_tokens: int | None = None,
         text_input_tokens: int | None = None,
         text_output_tokens: int | None = None,
+        cost_amount: float | None = None,
+        currency: str | None = None,
     ) -> None:
         finished_at = utc_now()
 
@@ -141,9 +143,9 @@ class UsageRepository(BaseRepository):
         except (ValueError, TypeError):
             duration_ms = 0
 
-        # Calculate cost (failed = 0)
-        cost_amount = 0.0
-        currency = row.currency or "USD"
+        # Calculate cost. Explicit cost input is treated as provider-reported billing data.
+        final_cost_amount = 0.0
+        final_currency = row.currency or "USD"
         effective_provider = row.provider or PROVIDER_GEMINI
 
         # Pre-query custom provider pricing (avoids sync-over-async in CostCalculator)
@@ -169,8 +171,11 @@ class UsageRepository(BaseRepository):
             input_tokens = (image_input_tokens or 0) + (text_input_tokens or 0)
             output_tokens = (image_output_tokens or 0) + (text_output_tokens or 0)
 
-        if status == "success":
-            cost_amount, currency = cost_calculator.calculate_cost(
+        if cost_amount is not None:
+            final_cost_amount = cost_amount
+            final_currency = currency or row.currency or "USD"
+        elif status == "success":
+            final_cost_amount, final_currency = cost_calculator.calculate_cost(
                 provider=effective_provider,
                 call_type=row.call_type,  # type: ignore[arg-type]
                 model=row.model,
@@ -202,8 +207,8 @@ class UsageRepository(BaseRepository):
                 finished_at=finished_at,
                 duration_ms=duration_ms,
                 retry_count=retry_count,
-                cost_amount=cost_amount,
-                currency=currency,
+                cost_amount=final_cost_amount,
+                currency=final_currency,
                 usage_tokens=usage_tokens,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

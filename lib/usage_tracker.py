@@ -69,6 +69,8 @@ class UsageTracker:
         image_output_tokens: int | None = None,
         text_input_tokens: int | None = None,
         text_output_tokens: int | None = None,
+        cost_amount: float | None = None,
+        currency: str | None = None,
     ) -> None:
 
         async with self._session_factory() as session:
@@ -89,6 +91,8 @@ class UsageTracker:
                 image_output_tokens=image_output_tokens,
                 text_input_tokens=text_input_tokens,
                 text_output_tokens=text_output_tokens,
+                cost_amount=cost_amount,
+                currency=currency,
             )
 
     async def get_stats(

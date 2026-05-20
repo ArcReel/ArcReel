@@ -20,7 +20,7 @@ from lib.project_manager import effective_mode
 from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
-from lib.text_backends.factory import create_text_backend_for_task
+from lib.text_generator import TextGenerator
 from server.agent_runtime.sdk_tools._context import ToolContext, fetch_video_caps, tool_error
 
 logger = logging.getLogger(__name__)
@@ -241,8 +241,11 @@ def normalize_drama_script_tool(ctx: ToolContext):
                     ]
                 }
 
-            backend = await create_text_backend_for_task(TextTaskType.SCRIPT, project_name=ctx.project_name)
-            result = await backend.generate(TextGenerationRequest(prompt=prompt, max_output_tokens=16000))
+            generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
+            result = await generator.generate(
+                TextGenerationRequest(prompt=prompt, max_output_tokens=16000),
+                project_name=ctx.project_name,
+            )
             response = result.text
 
             drafts_dir = project_path / "drafts" / f"episode_{episode}"

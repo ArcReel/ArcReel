@@ -265,17 +265,23 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                     <span className="num truncate">{call.model}</span>
                     {call.call_type === "text" ? (
                       <>
-                        {call.input_tokens != null && (
+                        {call.usage_tokens != null ? (
                           <span className="num">
-                            {t("input_token_label")}{" "}
-                            {call.input_tokens.toLocaleString()}
+                            {call.usage_tokens.toLocaleString()} {t("tokens_suffix")}
                           </span>
-                        )}
-                        {call.output_tokens != null && (
-                          <span className="num">
-                            {t("output_token_label")}{" "}
-                            {call.output_tokens.toLocaleString()} tokens
-                          </span>
+                        ) : (
+                          <>
+                            {call.input_tokens != null && (
+                              <span className="num">
+                                {t("input_token_label")} {call.input_tokens.toLocaleString()} {t("tokens_suffix")}
+                              </span>
+                            )}
+                            {call.output_tokens != null && (
+                              <span className="num">
+                                {t("output_token_label")} {call.output_tokens.toLocaleString()} {t("tokens_suffix")}
+                              </span>
+                            )}
+                          </>
                         )}
                       </>
                     ) : (
