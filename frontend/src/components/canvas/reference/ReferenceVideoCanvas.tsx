@@ -331,16 +331,27 @@ export function ReferenceVideoCanvas({
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   useEffect(() => {
     if (scrollTarget?.type !== "reference_unit") return;
+    const requestId = scrollTarget.request_id;
     if (units.some((u) => u.unit_id === scrollTarget.id)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅通知 store，触发后切 tab + 选中
       setTab("units");
       select(scrollTarget.id);
-      clearScrollTarget(scrollTarget.request_id);
-    } else if (!loading && Date.now() >= scrollTarget.expires_at) {
-      // 仅在 units 加载完成后才按过期放弃回跳——否则慢网/冷启动下 loadUnits
-      // 尚未返回就到期，target 会被提前清除，units 到达也无法再选中目标 unit。
-      clearScrollTarget(scrollTarget.request_id);
+      clearScrollTarget(requestId);
+      return;
     }
+    // units 加载中：等待，不安排过期清理——否则慢网/冷启动下 loadUnits 尚未返回就
+    // 到期，target 会被提前清除，units 到达也无法再选中目标 unit。
+    if (loading) return;
+    // 加载完成仍未命中：挂一个到 expires_at 的一次性兜底清理，避免此后 units/loading
+    // 都不再变化时 effect 不再重跑、过期 target 永久残留 store。units 若晚到会触发
+    // 依赖变化、重跑本 effect 并清掉该定时器。
+    const remaining = scrollTarget.expires_at - Date.now();
+    if (remaining <= 0) {
+      clearScrollTarget(requestId);
+      return;
+    }
+    const timer = setTimeout(() => clearScrollTarget(requestId), remaining);
+    return () => clearTimeout(timer);
   }, [scrollTarget, units, loading, select, clearScrollTarget]);
 
   const preprocStatus: "loading" | "error" | "empty" | "ready" = loading

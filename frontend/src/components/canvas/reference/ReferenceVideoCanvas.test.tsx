@@ -233,4 +233,23 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
+
+  // 兜底回归：units 加载完成但目标 unit 不存在时，即便此后没有任何依赖变化，
+  // 过期 target 也应被一次性定时器清除，不会永久残留 store。
+  it("clears an unresolvable reference_unit target after expiry without further updates", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1"));
+    // 目标 unit 不在列表中，给一个很短的过期窗口
+    act(() => {
+      useAppStore.getState().triggerScrollTo({
+        type: "reference_unit",
+        id: "E9U9",
+        route: "/episodes/1",
+        expires_at: Date.now() + 50,
+      });
+    });
+    // 不再产生任何依赖变化，仅靠一次性定时器到期清理
+    await waitFor(() => expect(useAppStore.getState().scrollTarget).toBeNull());
+  });
 });
