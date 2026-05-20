@@ -120,12 +120,14 @@ class _FakePM:
         self.scripts[(name, script_file)] = payload
 
     def update_project(self, name, mutate_fn):
-        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务。
+        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务，
+        # 并返回迁移后的 project dict（调用方据此回前端，无需二次 load_project）。
         # deepcopy 后再 mutate，使异常时（save 未执行）backing store 不被原地突变污染，
         # 忠实于真实 PM「读裸 JSON、出错不写回」的语义。
         project = deepcopy(self.load_project(name))
         mutate_fn(project)
         self.save_project(name, project)
+        return project
 
     @contextmanager
     def locked_script(self, name, script_file):

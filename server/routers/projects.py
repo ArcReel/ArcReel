@@ -720,11 +720,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     project["episodes"] = new_episodes
 
             with project_change_source("webui"):
-                manager.update_project(name, _mutate)
-            # 返回经 load_project 的 fresh 副本，恢复改用 update_project 前由 load_project
-            # 读取时执行的 _migrate_legacy_style（持久化）+ _lazy_upgrade_image_provider 语义，
-            # 确保回前端的 project 含升级后的字段（与其它已迁移 helper 一致：均 return load_project）
-            return {"success": True, "project": manager.load_project(name)}
+                # update_project 已在持锁窗口内统一应用迁移，返回升级后字段，无需二次 load_project
+                return {"success": True, "project": manager.update_project(name, _mutate)}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:

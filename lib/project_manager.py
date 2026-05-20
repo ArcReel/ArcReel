@@ -621,10 +621,10 @@ class ProjectManager:
             episode_entry["script_file"] = script_file
             episodes.sort(key=lambda x: x["episode"])
 
-        self.update_project(project_name, _mutate)
+        result = self.update_project(project_name, _mutate)
 
         logger.info("已同步剧集信息: Episode %d - %s", episode_num, episode_title)
-        return self.load_project(project_name)
+        return result
 
     def load_script(self, project_name: str, filename: str) -> dict:
         """
@@ -1247,14 +1247,20 @@ class ProjectManager:
         self,
         project_name: str,
         mutate_fn: Callable[[dict], None],
-    ) -> Path:
+    ) -> dict:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
         避免并发任务（如同时生成多张角色图片）之间的 lost-update 竞态。
+        在同一持锁窗口内统一应用读时迁移（_migrate_legacy_style），并在锁外应用
+        内存映射升级（_lazy_upgrade_image_provider），返回迁移后的项目元数据 dict，
+        调用方无需再 load_project 一次。
 
         Args:
             project_name: 项目名称
             mutate_fn: 接收 project dict 并就地修改的回调函数
+
+        Returns:
+            迁移后的项目元数据字典（与 load_project 返回结构一致）
         """
         project_file = self._get_project_file_path(project_name)
 
@@ -1263,6 +1269,7 @@ class ProjectManager:
                 project = json.load(f)
             mutate_fn(project)
             self._migrate_legacy_resolution_on_save(project)
+            self._migrate_legacy_style(project)
             self._touch_metadata(project)
             atomic_write_json(project_file, project)
 
@@ -1271,7 +1278,8 @@ class ProjectManager:
             changed_paths=[self.PROJECT_FILE],
         )
 
-        return project_file
+        self._lazy_upgrade_image_provider(project)
+        return project
 
     @staticmethod
     def _touch_metadata(project: dict) -> None:
@@ -1381,8 +1389,7 @@ class ProjectManager:
             project["episodes"].append({"episode": episode, "title": title, "script_file": script_file})
             project["episodes"].sort(key=lambda x: x["episode"])
 
-        self.update_project(project_name, _mutate)
-        return self.load_project(project_name)
+        return self.update_project(project_name, _mutate)
 
     def sync_project_status(self, project_name: str) -> dict:
         """
@@ -1477,8 +1484,7 @@ class ProjectManager:
                 raise KeyError(f"{spec.label_zh} '{name}' 不存在")
             bucket[name][spec.sheet_field] = sheet_path
 
-        self.update_project(project_name, _mutate)
-        return self.load_project(project_name)
+        return self.update_project(project_name, _mutate)
 
     def _get_asset(self, asset_type: str, project_name: str, name: str) -> dict:
         """获取资产定义。不存在抛 KeyError。"""
@@ -1537,8 +1543,7 @@ class ProjectManager:
                 "character_sheet": character_sheet or "",
             }
 
-        self.update_project(project_name, _mutate)
-        return self.load_project(project_name)
+        return self.update_project(project_name, _mutate)
 
     def update_project_character_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
         """更新项目级角色设计图路径"""
@@ -1562,8 +1567,7 @@ class ProjectManager:
                 raise KeyError(f"角色 '{char_name}' 不存在")
             project["characters"][char_name]["reference_image"] = ref_path
 
-        self.update_project(project_name, _mutate)
-        return self.load_project(project_name)
+        return self.update_project(project_name, _mutate)
 
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""
