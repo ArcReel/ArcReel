@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.15.0](https://github.com/ArcReel/ArcReel/compare/v0.14.0...v0.15.0) (2026-05-20)
+
+
+### ✨ 新功能
+
+* **ark:** 火山方舟支持 Agent Plan 和 Coding Plan 端点 ([#566](https://github.com/ArcReel/ArcReel/issues/566)) ([db4617f](https://github.com/ArcReel/ArcReel/commit/db4617fe5399c0e0f9def3cf0756e324c537e29c))
+* **logs:** 日志持久化（7d） + 日志下载 ([#576](https://github.com/ArcReel/ArcReel/issues/576)) ([bc9424f](https://github.com/ArcReel/ArcReel/commit/bc9424f8984a8b8813b959a9747d641411d92f1f))
+* **notification:** 后台任务失败统一可点击回跳通知 ([#399](https://github.com/ArcReel/ArcReel/issues/399)) ([#587](https://github.com/ArcReel/ArcReel/issues/587)) ([b8b9b1d](https://github.com/ArcReel/ArcReel/commit/b8b9b1d67a0976548334d0211e321b6e62fdb385))
+* **script:** 提升剧本 image_prompt / video_prompt 输出质量 ([#581](https://github.com/ArcReel/ArcReel/issues/581)) ([74d1356](https://github.com/ArcReel/ArcReel/commit/74d1356c904021b2960d020ee804e7891335202a))
+* **usage:** track assistant usage costs ([#593](https://github.com/ArcReel/ArcReel/issues/593)) ([8828121](https://github.com/ArcReel/ArcReel/commit/8828121a1f9fe21896f6e5b2d6cda5e668dabe4d))
+
+
+### 🐛 Bug 修复
+
+* agent_credential_repo delete 不存在 ID 时返回 404 ([#577](https://github.com/ArcReel/ArcReel/issues/577)) ([688da37](https://github.com/ArcReel/ArcReel/commit/688da37e1b39f2b14f31b40be8f221b4232a2352))
+* **archive:** reference_video 导入对齐 narration 的引用资产自愈 ([#586](https://github.com/ArcReel/ArcReel/issues/586)) ([2d795bd](https://github.com/ArcReel/ArcReel/commit/2d795bd1a3723781283bdefcbd774ad66b2b3255))
+* **archive:** 归档导入遍历 reference_video 的 video_units ([#333](https://github.com/ArcReel/ArcReel/issues/333)) ([#584](https://github.com/ArcReel/ArcReel/issues/584)) ([924f26e](https://github.com/ArcReel/ArcReel/commit/924f26e6cfb251606ae2285c576170f5baf08448))
+* **ci:** lowercase GHCR image name + Codecov ([#567](https://github.com/ArcReel/ArcReel/issues/567)) ([82e8d3a](https://github.com/ArcReel/ArcReel/commit/82e8d3ad7e443bc5afbb1d09b398134fb62edc20))
+* **compose-video:** 修复 ffmpeg 滤镜图与 fps fallback 多处问题 ([#578](https://github.com/ArcReel/ArcReel/issues/578)) ([c4294a7](https://github.com/ArcReel/ArcReel/commit/c4294a723ac00d0bb7ee071ba6dba041fbf50f9c))
+* **concurrency:** 统一 ProjectManager 读-改-写锁语义（跨 script / project） ([#585](https://github.com/ArcReel/ArcReel/issues/585)) ([973adf6](https://github.com/ArcReel/ArcReel/commit/973adf6d63bcf0c6775f1745859ced62a7bf127a))
+* issue [#589](https://github.com/ArcReel/ArcReel/issues/589) follow-up（reference_videos i18n + 两处既有行为修正） ([#590](https://github.com/ArcReel/ArcReel/issues/590)) ([be9c136](https://github.com/ArcReel/ArcReel/commit/be9c1362710b2e275b027058f591f29fae2eed9d))
+* propagate image usage tokens ([#570](https://github.com/ArcReel/ArcReel/issues/570)) ([7e2eb8f](https://github.com/ArcReel/ArcReel/commit/7e2eb8f209bde44ad241c82f3a1e116227ddc301))
+* **reference-videos:** 消除 episode↔script_file 绑定的跨锁竞态 ([#589](https://github.com/ArcReel/ArcReel/issues/589)) ([#591](https://github.com/ArcReel/ArcReel/issues/591)) ([825bb06](https://github.com/ArcReel/ArcReel/commit/825bb060868ddf18db33eaeb1607cee486451142))
+* **script:** 注入 episode 到 prompt 并兜底重写 ID 前缀，避免跨集分镜覆盖 ([#574](https://github.com/ArcReel/ArcReel/issues/574)) ([#579](https://github.com/ArcReel/ArcReel/issues/579)) ([4929636](https://github.com/ArcReel/ArcReel/commit/49296360f2726d0cb47012c9dc3932853474d899))
+* **timezone:** 容器/后端/前端时间统一为 TZ-aware ([#582](https://github.com/ArcReel/ArcReel/issues/582)) ([e3080a8](https://github.com/ArcReel/ArcReel/commit/e3080a8cee285fed0eae66dfbb59cdcb9bf25327))
+* **usage:** support multi-currency cost totals ([#588](https://github.com/ArcReel/ArcReel/issues/588)) ([24cbd41](https://github.com/ArcReel/ArcReel/commit/24cbd41410abcbb780fb7076f55922cac16ed59f))
+* 透传 Claude SDK stderr，让 Windows agent 启动失败可诊断 ([#573](https://github.com/ArcReel/ArcReel/issues/573)) ([8d24788](https://github.com/ArcReel/ArcReel/commit/8d24788e41ee66a9fd683589f903b31f441aac4a))
+
+
+### ♻️ 重构
+
+* **agent-runtime:** 拆分 _is_path_allowed 为 dispatch + 读/写 sub-check ([#583](https://github.com/ArcReel/ArcReel/issues/583)) ([18326bf](https://github.com/ArcReel/ArcReel/commit/18326bfbf17b2dc9bf547a3438c56aec115c5222))
+* **project_manager:** update_project 返回迁移后 project，消除写后二次读 ([#589](https://github.com/ArcReel/ArcReel/issues/589)) ([#592](https://github.com/ArcReel/ArcReel/issues/592)) ([19771fa](https://github.com/ArcReel/ArcReel/commit/19771fac3234d45414807c01cc828e283aac746d))
+
+
+### 📚 文档
+
+* **changelog:** 0.14.0 加上沙箱升级须知 ([22f364c](https://github.com/ArcReel/ArcReel/commit/22f364cb0eb57bb540b0b1d92ab805d31972bd2f))
+* 同步 README/getting-started/CLAUDE/AGENTS 反映 Vidu 与沙箱现状 ([#565](https://github.com/ArcReel/ArcReel/issues/565)) ([5a0067b](https://github.com/ArcReel/ArcReel/commit/5a0067b0bda180bcfc27a0fe6e2458dcd8abab20))
+
 ## [0.14.0](https://github.com/ArcReel/ArcReel/compare/v0.13.0...v0.14.0) (2026-05-18)
 
 
