@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -213,18 +213,23 @@ describe("ReferenceVideoCanvas", () => {
       }),
     );
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    // 加载中（fetch 挂起，loading=true）下发一个已过期的 target
-    useAppStore.getState().triggerScrollTo({
-      type: "reference_unit",
-      id: "E1U2",
-      route: "/episodes/1",
-      expires_at: Date.now() - 1,
+    // 加载中（fetch 挂起，loading=true）下发一个已过期的 target；act 确定性 flush
+    // 回跳 effect（避免固定延时——这是否定性断言，waitFor 首检即真无法证明 target
+    // 持续存在，setTimeout 又可能在 effect 跑完前就断言导致漏判 bug）。
+    await act(async () => {
+      useAppStore.getState().triggerScrollTo({
+        type: "reference_unit",
+        id: "E1U2",
+        route: "/episodes/1",
+        expires_at: Date.now() - 1,
+      });
     });
-    // 关键断言：加载未完成时不按过期清除，target 仍在
-    await new Promise((r) => setTimeout(r, 20));
+    // 关键断言：effect 已运行，但加载未完成时不按过期清除，target 仍在
     expect(useAppStore.getState().scrollTarget?.id).toBe("E1U2");
     // units 到达后应命中并选中目标 unit，随后清除 target
-    resolveList({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    await act(async () => {
+      resolveList({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    });
     await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
