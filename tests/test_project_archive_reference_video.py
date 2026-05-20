@@ -10,8 +10,10 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from lib.project_manager import ProjectManager
-from server.services.project_archive import ProjectArchiveService
+from server.services.project_archive import ProjectArchiveService, ProjectArchiveValidationError
 
 REMOTE_VIDEO_URI = "https://cdn.example.com/v/E1U1.mp4"
 
@@ -40,7 +42,12 @@ def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
                 archive.write(item, arcname=relative.as_posix())
 
 
-def _build_unit(*, video_clip: str | None, generated_assets: dict | None | object = _DEFAULT_ASSETS) -> dict:
+def _build_unit(
+    *,
+    video_clip: str | None,
+    generated_assets: dict | None | object = _DEFAULT_ASSETS,
+    references: list[dict] | None = None,
+) -> dict:
     if generated_assets is _DEFAULT_ASSETS:
         generated_assets = {
             "storyboard_image": None,
@@ -55,7 +62,7 @@ def _build_unit(*, video_clip: str | None, generated_assets: dict | None | objec
     unit: dict = {
         "unit_id": "E1U1",
         "shots": [{"duration": 4, "text": "镜头一"}],
-        "references": [],
+        "references": references if references is not None else [],
         "duration_seconds": 4,
         "transition_to_next": "cut",
     }
@@ -207,3 +214,58 @@ class TestProjectArchiveReferenceVideo:
         assert isinstance(assets, dict)
         assert "video_thumbnail" in assets
         assert assets["status"] == "pending"
+
+    def test_import_adds_placeholder_for_missing_character_reference(self, tmp_path):
+        # 与 narration/drama 对齐：references 引用了 project.json 缺失的角色 → 自动补占位定义
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(
+            video_clip="reference_videos/E1U1.mp4",
+            references=[{"type": "character", "name": "幽灵"}],
+        )
+        project_dir = _create_reference_video_project(pm, unit=unit)
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "missing-char.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="missing-char.zip")
+
+        imported_project = pm.load_project(result.project_name)
+        assert "幽灵" in imported_project["characters"]
+        assert result.diagnostics["auto_fixed"]
+
+    def test_import_blocks_missing_scene_reference(self, tmp_path):
+        # 与 narration/drama 对齐：references 引用了缺失的场景 → 阻断导入
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(
+            video_clip="reference_videos/E1U1.mp4",
+            references=[{"type": "scene", "name": "缺失场景"}],
+        )
+        project_dir = _create_reference_video_project(pm, unit=unit)
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "missing-scene.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
+
+        assert exc_info.value.extra["diagnostics"]["blocking"]
+
+    def test_import_blocks_missing_prop_reference(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(
+            video_clip="reference_videos/E1U1.mp4",
+            references=[{"type": "prop", "name": "缺失道具"}],
+        )
+        project_dir = _create_reference_video_project(pm, unit=unit)
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "missing-prop.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
+
+        assert exc_info.value.extra["diagnostics"]["blocking"]

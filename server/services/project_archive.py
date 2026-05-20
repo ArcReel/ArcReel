@@ -697,15 +697,19 @@ class ProjectArchiveService:
         # reference_video 模式的剧本用 video_units 组织，结构与 narration/drama 的
         # segments/scenes 不同，单独走专用修复分支。
         if effective_mode(project=project_payload, episode=script_payload) == "reference_video":
-            units_changed = self._repair_video_units_payload(
+            units_changed, units_project_changed = self._repair_video_units_payload(
                 project_dir,
                 script_path_rel=script_path_rel,
                 script_payload=script_payload,
+                project_payload=project_payload,
+                project_characters=project_characters,
+                project_scenes=project_scenes,
+                project_props=project_props,
                 content_mode=content_mode,
                 versions_payload=versions_payload,
                 diagnostics=diagnostics,
             )
-            return script_changed or units_changed, project_changed
+            return script_changed or units_changed, project_changed or units_project_changed
 
         items_key = "segments" if content_mode == "narration" else "scenes"
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
@@ -760,22 +764,13 @@ class ProjectArchiveService:
                 for character_name in characters:
                     if not isinstance(character_name, str):
                         continue
-                    if character_name in project_characters:
-                        continue
-                    project_payload.setdefault("characters", {})
-                    if not isinstance(project_payload.get("characters"), dict):
-                        continue
-                    project_payload["characters"][character_name] = {
-                        "description": self._PLACEHOLDER_CHARACTER_DESCRIPTION,
-                    }
-                    project_characters.add(character_name)
-                    project_changed = True
-                    diagnostics.add(
-                        "auto_fixed",
-                        "placeholder_character_added",
-                        f"自动补充缺失角色定义: {character_name}",
-                        location=f"characters[{character_name}]",
-                    )
+                    if self._add_placeholder_character(
+                        project_payload,
+                        project_characters,
+                        character_name,
+                        diagnostics,
+                    ):
+                        project_changed = True
 
             for asset_field, pool, label in (
                 ("scenes", project_scenes, "场景"),
@@ -860,27 +855,59 @@ class ProjectArchiveService:
                     )
         return assets, changed
 
+    def _add_placeholder_character(
+        self,
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        character_name: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """为缺失的角色引用补占位定义，返回是否改动 project_payload。"""
+        if character_name in project_characters:
+            return False
+        project_payload.setdefault("characters", {})
+        if not isinstance(project_payload.get("characters"), dict):
+            return False
+        project_payload["characters"][character_name] = {
+            "description": self._PLACEHOLDER_CHARACTER_DESCRIPTION,
+        }
+        project_characters.add(character_name)
+        diagnostics.add(
+            "auto_fixed",
+            "placeholder_character_added",
+            f"自动补充缺失角色定义: {character_name}",
+            location=f"characters[{character_name}]",
+        )
+        return True
+
     def _repair_video_units_payload(
         self,
         project_dir: Path,
         *,
         script_path_rel: str,
         script_payload: dict[str, Any],
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
         content_mode: str,
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
-    ) -> bool:
-        """修复 reference_video 模式剧本 video_units[*].generated_assets 的本地资源路径。
+    ) -> tuple[bool, bool]:
+        """修复 reference_video 模式剧本的 video_units，返回 (script_changed, project_changed)。
 
-        video_units 没有 narration/drama 的 characters/scenes/props 字段，因此只做
-        generated_assets 补全 + video_clip / video_thumbnail 路径规范化与版本回溯。
+        video_units 没有 narration/drama 的 characters/scenes/props 字段，引用资产改放在
+        references（list[{type, name}]）里。本方法做三件事，与 narration/drama 分支对齐：
+        generated_assets 补全；references 自愈（缺失角色补占位、缺失场景/道具报阻断）；
+        video_clip / video_thumbnail 路径规范化与版本回溯。
         video_uri 是远端 URL，不当作本地路径处理（否则会被同名 canonical 本地文件覆盖）。
         """
         raw_units = script_payload.get("video_units")
         if not isinstance(raw_units, list):
-            return False
+            return False, False
 
         changed = False
+        project_changed = False
         for index, unit in enumerate(raw_units):
             if not isinstance(unit, dict):
                 continue
@@ -898,6 +925,18 @@ class ProjectArchiveService:
             )
             if assets_changed:
                 changed = True
+
+            if self._repair_unit_references(
+                unit,
+                project_payload=project_payload,
+                project_characters=project_characters,
+                project_scenes=project_scenes,
+                project_props=project_props,
+                index=index,
+                location_prefix=location_prefix,
+                diagnostics=diagnostics,
+            ):
+                project_changed = True
 
             if not (isinstance(assets, dict) and resource_id):
                 continue
@@ -927,7 +966,61 @@ class ProjectArchiveService:
             ):
                 changed = True
 
-        return changed
+        return changed, project_changed
+
+    def _repair_unit_references(
+        self,
+        unit: dict[str, Any],
+        *,
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
+        index: int,
+        location_prefix: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """自愈 video_unit.references：缺失角色补占位，缺失场景/道具报阻断。
+
+        与 narration/drama 的 characters/scenes/props 处理对齐——只是引用结构是
+        list[{type, name}]。返回是否补过占位角色（即 project_payload 是否改动）。
+        """
+        references = unit.get("references")
+        if not isinstance(references, list):
+            return False
+
+        project_changed = False
+        missing_scenes: set[str] = set()
+        missing_props: set[str] = set()
+        for ref in references:
+            if not isinstance(ref, dict):
+                continue
+            ref_name = ref.get("name")
+            if not isinstance(ref_name, str) or not ref_name:
+                continue
+            ref_type = ref.get("type")
+            if ref_type == "character":
+                if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
+                    project_changed = True
+            elif ref_type == "scene" and ref_name not in project_scenes:
+                missing_scenes.add(ref_name)
+            elif ref_type == "prop" and ref_name not in project_props:
+                missing_props.add(ref_name)
+
+        for missing, asset_type, label in (
+            (missing_scenes, "scene", "场景"),
+            (missing_props, "prop", "道具"),
+        ):
+            if missing:
+                diagnostics.add(
+                    "blocking",
+                    f"missing_{asset_type}_definition",
+                    (
+                        f"video_units[{index}]: references 引用了不存在于 project.json 的{label}: {', '.join(sorted(missing))}"
+                    ),
+                    location=f"{location_prefix}.references",
+                )
+        return project_changed
 
     def _repair_path_to_canonical(
         self,
