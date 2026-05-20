@@ -41,6 +41,22 @@ vi.mock("./timeline/TimelineCanvas", () => ({
   ),
 }));
 
+vi.mock("./grid/GridImageToVideoCanvas", () => ({
+  GridImageToVideoCanvas: ({
+    onGenerateGrid,
+  }: {
+    onGenerateGrid?: (
+      episode: number,
+      scriptFile: string,
+      sceneIds?: string[],
+    ) => void | Promise<void>;
+  }) => (
+    <div data-testid="grid-canvas">
+      <button onClick={() => void onGenerateGrid?.(1, "episode_1.json")}>generate-grid</button>
+    </div>
+  ),
+}));
+
 vi.mock("./lorebook/CharacterCard", () => ({
   CharacterCard: ({
     name,
@@ -397,6 +413,52 @@ describe("StudioCanvasRouter", () => {
         4,
       );
       expect(useAppStore.getState().toast?.text).toContain("生成视频失败");
+    });
+  });
+
+  it("reports character generation failure with an error toast", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateCharacter").mockRejectedValue(new Error("character generate failed"));
+
+    renderAt("/characters");
+
+    fireEvent.click(screen.getByText("generate-character"));
+    await waitFor(() => {
+      expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero", "hero description");
+      expect(useAppStore.getState().toast?.text).toContain("提交失败");
+      expect(useAppStore.getState().toast?.tone).toBe("error");
+    });
+  });
+
+  it("reports grid generation failure with an error toast", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ generation_mode: "grid" }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ generation_mode: "grid" }),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateGrid").mockRejectedValue(new Error("grid generate failed"));
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(await screen.findByText("generate-grid"));
+    await waitFor(() => {
+      expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
+      expect(useAppStore.getState().toast?.text).toContain("宫格生成失败");
+      expect(useAppStore.getState().toast?.tone).toBe("error");
     });
   });
 });
