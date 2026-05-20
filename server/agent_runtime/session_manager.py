@@ -2021,6 +2021,26 @@ class SessionManager:
             "/private/tmp/claude-",
         )
 
+    @functools.cached_property
+    def _claude_projects_dir_resolved(self) -> Path | None:
+        """已 resolve 的 ``~/.claude/projects`` 基准目录（进程内算一次缓存）。
+
+        ``~/.claude`` 可能被用户软链到 dotfiles / 云同步目录，而被比较的
+        ``resolved`` 已 ``.resolve()`` 过，两侧不一致会让 is_relative_to 失配、
+        误拒合法的 SDK tool-results 读取——故基准也 resolve（与 tmp / project_root
+        比较保持同一口径）。只有这段稳定前缀需要 resolve；每会话变化的 ``encoded``
+        子目录是 SDK 创建的真实目录、纯字符串拼接即可，无需 per-call resolve
+        （``_check_read_access`` 是 per-tool-use 钩子，避免重复 lstat/readlink）。
+
+        resolve 在符号链接环（RuntimeError）/ 无权限父目录（OSError）下会抛——
+        权限钩子必须 fail-closed，解析失败返回 None，调用方据此跳过 tool-results
+        例外、落到更严格的拒绝分支，不让异常冒泡中断工具调用。
+        """
+        try:
+            return self._CLAUDE_PROJECTS_DIR.resolve(strict=False)
+        except (OSError, RuntimeError):
+            return None
+
     def _check_read_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
         """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
 
@@ -2030,23 +2050,12 @@ class SessionManager:
         """
         if resolved.is_relative_to(project_cwd):
             return True, None
-        # SDK tool-results 例外。基准目录也 resolve()：``resolved`` 已解析过，
-        # 而 ``~/.claude`` 可能被用户软链到 dotfiles / 云同步目录，两侧不一致
-        # 会让 is_relative_to 失配，误拒合法的 SDK 读取（与下方 tmp / project_root
-        # 比较保持同一"两侧都 resolve"口径）。resolve 在符号链接环（RuntimeError）
-        # 或无权限父目录（OSError）下会抛——权限钩子必须 fail-closed，解析失败就跳过
-        # 本例外，落到后续更严格的拒绝分支，不让异常冒泡中断工具调用。
-        encoded = self._encode_sdk_project_path(project_cwd)
-        try:
-            sdk_project_dir = (self._CLAUDE_PROJECTS_DIR / encoded).resolve(strict=False)
-        except (OSError, RuntimeError):
-            sdk_project_dir = None
-        if (
-            sdk_project_dir is not None
-            and resolved.is_relative_to(sdk_project_dir)
-            and "tool-results" in resolved.parts
-        ):
-            return True, None
+        # SDK tool-results 例外（已 resolve 的基准见 _claude_projects_dir_resolved）。
+        claude_projects_dir = self._claude_projects_dir_resolved
+        if claude_projects_dir is not None:
+            sdk_project_dir = claude_projects_dir / self._encode_sdk_project_path(project_cwd)
+            if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
+                return True, None
         # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，进程内缓存一次）。
         if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
             return True, None
