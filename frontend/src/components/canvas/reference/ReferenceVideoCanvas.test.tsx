@@ -6,7 +6,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
-import { makeTask } from "@/test/factories";
 import type { ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
 
@@ -156,7 +155,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
   });
 
-  // #370 optimistic：任务队列 3s 轮询间隙内按钮也要立刻反馈 busy，否则用户
+  // optimistic：任务队列 3s 轮询间隙内按钮也要立刻反馈 busy，否则用户
   // 会误以为"点了没反应"继续点击造成重复入队。
   it("flips the generate button to busy optimistically before the task poll picks it up", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
@@ -182,82 +181,25 @@ describe("ReferenceVideoCanvas", () => {
     });
   });
 
-  // #370 failed-toast：只有当我们观测到 task 从 non-failed 转变到 failed 时才
-  // 冒泡——模拟"这一次 poll 它还是 queued，下一次 poll 就成了 failed"。
-  it("surfaces an error toast when a reference_video task transitions from queued to failed", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
-    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    // 第一轮 poll：任务处于 queued
-    useTasksStore.setState({
-      tasks: [makeTask({ status: "queued", resource_id: "E1U1", task_id: "t-fail-1" })],
-    });
-    // 等一个 tick 让 transition effect 把 queued 记入 prevStatus
-    await new Promise((r) => setTimeout(r, 20));
-    expect(useAppStore.getState().toast).toBeNull();
-    // 第二轮 poll：worker 把任务标记为 failed
-    useTasksStore.setState({
-      tasks: [
-        makeTask({
-          status: "failed",
-          error_message: "boom",
-          resource_id: "E1U1",
-          task_id: "t-fail-1",
-        }),
-      ],
-    });
-    await waitFor(() => {
-      const toast = useAppStore.getState().toast;
-      expect(toast?.tone).toBe("error");
-      expect(toast?.text).toMatch(/E1U1/);
-      expect(toast?.text).toMatch(/boom/);
-    });
-  });
+  // 后台任务失败通知已统一迁移到全局 useTaskFailureNotifications hook（转变驱动 /
+  // 历史失败不重报 / 同一失败只报一次回归均在那里覆盖），见
+  // hooks/useTaskFailureNotifications.test.tsx。此处只验证回跳消费。
 
-  // #370 回归保护：进页面时队列里残留的历史失败任务（我们没观测到转变）不应该
-  // 再次冒泡 toast——这是状态驱动 → 转变驱动 重构的关键合同。
-  it("does not toast historical failures present on first observation", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
-    // 预先塞一条已经是 failed 的历史任务，模拟"打开页面后 useTasksSSE 首次轮询
-    // 就把 DB 里的历史失败全 dump 回来"
-    useTasksStore.setState({
-      tasks: [
-        makeTask({
-          status: "failed",
-          error_message: "不支持的资源类型: reference_videos",
-          resource_id: "E1U1",
-          task_id: "t-historical",
-          finished_at: "2026-04-20T10:00:00Z",
-        }),
-      ],
+  // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit。
+  it("selects the unit on a reference_unit scroll target", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1"), mkUnit("E1U2")],
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    await new Promise((r) => setTimeout(r, 20));
-    // 关键断言：首次观测就已 failed 的任务不产生 toast
-    expect(useAppStore.getState().toast).toBeNull();
-  });
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1"));
 
-  // #370 同一个失败任务在后续 poll 里反复出现（worker 不会清理），只应 toast 一次。
-  it("does not re-toast the same failed task across multiple poll cycles", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
-    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    // queued → failed 触发一次 toast
-    useTasksStore.setState({
-      tasks: [makeTask({ status: "queued", resource_id: "E1U1", task_id: "t-once" })],
-    });
-    await new Promise((r) => setTimeout(r, 20));
-    useTasksStore.setState({
-      tasks: [makeTask({ status: "failed", error_message: "x", resource_id: "E1U1", task_id: "t-once" })],
-    });
-    await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
-    // 清掉第一条 toast，模拟用户关掉后下一轮 poll 又带回同一失败记录
-    useAppStore.setState({ toast: null });
-    useTasksStore.setState({
-      tasks: [makeTask({ status: "failed", error_message: "x", resource_id: "E1U1", task_id: "t-once" })],
-    });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(useAppStore.getState().toast).toBeNull();
+    useAppStore.getState().triggerScrollTo({ type: "reference_unit", id: "E1U2", route: "/episodes/1" });
+
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+    expect(screen.getByRole("tab", { name: /Video units|视频单元/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });

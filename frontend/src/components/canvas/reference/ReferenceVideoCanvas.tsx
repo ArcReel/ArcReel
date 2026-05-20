@@ -30,7 +30,6 @@ import { mergeReferences } from "@/utils/reference-mentions";
 import type {
   ReferenceResource,
   ReferenceVideoUnit,
-  TaskStatus,
   UnitStatus,
 } from "@/types";
 
@@ -113,27 +112,6 @@ export function ReferenceVideoCanvas({
 
   // Optimistic UI: POST 前置位 → 队列接力 → 队列窗口换出后失效。
   const [optimisticUnitIds, setOptimisticUnitIds] = useState<Set<string>>(() => new Set());
-
-  // Toast on transition into failed (prev !== failed && next === failed).
-  const prevTaskStatusRef = useRef<Map<string, TaskStatus>>(new Map());
-  useEffect(() => {
-    const prev = prevTaskStatusRef.current;
-    const next = new Map<string, TaskStatus>();
-    for (const tk of relevantTasks) {
-      const before = prev.get(tk.task_id);
-      if (tk.status === "failed" && before !== undefined && before !== "failed") {
-        useAppStore.getState().pushNotification(
-          t("reference_generation_task_failed", {
-            unitId: tk.resource_id,
-            reason: tk.error_message ?? t("reference_status_failed"),
-          }),
-          "error",
-        );
-      }
-      next.set(tk.task_id, tk.status);
-    }
-    prevTaskStatusRef.current = next;
-  }, [relevantTasks, t]);
 
   const tasksByUnit = useMemo(() => {
     const map = new Map<string, (typeof relevantTasks)[number]>();
@@ -346,6 +324,22 @@ export function ReferenceVideoCanvas({
     setLastProject(projectName);
     setTab("units");
   }
+
+  // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
+  // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
+  const scrollTarget = useAppStore((s) => s.scrollTarget);
+  const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
+  useEffect(() => {
+    if (scrollTarget?.type !== "reference_unit") return;
+    if (units.some((u) => u.unit_id === scrollTarget.id)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅通知 store，触发后切 tab + 选中
+      setTab("units");
+      select(scrollTarget.id);
+      clearScrollTarget(scrollTarget.request_id);
+    } else if (Date.now() >= scrollTarget.expires_at) {
+      clearScrollTarget(scrollTarget.request_id);
+    }
+  }, [scrollTarget, units, select, clearScrollTarget]);
 
   const preprocStatus: "loading" | "error" | "empty" | "ready" = loading
     ? "loading"

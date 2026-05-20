@@ -43,7 +43,7 @@ export interface ProjectEventSnapshotPayload {
 
 export interface WorkspaceFocusTarget {
   request_id: string;
-  type: "character" | "scene" | "prop" | "segment";
+  type: "character" | "scene" | "prop" | "segment" | "grid" | "reference_unit";
   id: string;
   route: string;
   highlight: true;

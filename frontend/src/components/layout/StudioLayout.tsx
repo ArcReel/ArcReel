@@ -8,6 +8,7 @@ import { AssistantResizeHandle } from "./AssistantResizeHandle";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
+import { useTaskFailureNotifications } from "@/hooks/useTaskFailureNotifications";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   ASSISTANT_PANEL_DEFAULT_WIDTH,
@@ -56,6 +57,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   useTasksSSE(currentProjectName);
   useProjectEventsSSE(currentProjectName);
+  useTaskFailureNotifications(currentProjectName);
 
   const restoreBodyStyle = useCallback(() => {
     const saved = restoreBodyStyleRef.current;

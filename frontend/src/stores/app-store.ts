@@ -100,12 +100,13 @@ interface AppState {
 }
 
 /**
- * 通知系统分工规则（issue #351）：
+ * 通知系统分工规则：
  *
  * - pushToast(text, tone)
  *     用于：用户主动操作的即时反馈。
  *     典型：表单保存/校验、导入/删除/切换/上传成功、scroll target 未找到、
- *          后台任务提交成功回执（task_submitted）、轻量错误提示。
+ *          后台任务提交成功回执（task_submitted）、入队请求同步失败
+ *          （用户在场可立即重试，不进 drawer）、轻量错误提示。
  *
  * - pushWorkspaceNotification({ text, tone, target })
  *     用于：后台异步产生的事件，用户可能不在当前页。
@@ -113,9 +114,10 @@ interface AppState {
  *
  * - pushNotification(text, tone, options?)
  *     用于：用户需要后续回看的重要结果。
- *     典型：后台任务失败（剪映/ZIP 导出失败、项目 regenerate 失败、
- *          参考生视频失败、storyboard/video/character/scene/prop 生成失败）、
- *          SSE grouped_notification。
+ *     典型：后台任务（worker）失败——storyboard/video/character/scene/prop/grid/
+ *          参考生视频转入 failed，由 useTaskFailureNotifications 统一监听并附
+ *          可点击回跳 target；剪映/ZIP 导出失败、项目 regenerate 失败；
+ *          SSE grouped_notification。注意：入队请求同步失败属即时反馈，用 toast。
  *
  * 判断口诀：
  *   1. 用户现在不在场 → 需要持久
