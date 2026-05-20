@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -306,6 +307,80 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     assert result["resource_type"] == "reference_videos"
     assert result["resource_id"] == "E1U1"
     assert result["file_path"].endswith("E1U1.mp4")
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """重跑时新结果不含 video_uri 且缩略图提取失败 → 旧 video_uri / video_thumbnail 必须被清空，
+    不能保留指向过期 URI / 已删除文件的旧值。"""
+    proj_dir = _write_project(tmp_path)
+
+    # 预置上一次成功生成留下的旧产物
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script_data = json.loads(script_path.read_text(encoding="utf-8"))
+    ga = script_data["video_units"][0]["generated_assets"]
+    ga["video_uri"] = "https://old/expired.mp4"
+    ga["video_thumbnail"] = "reference_videos/thumbnails/E1U1.jpg"
+    script_path.write_text(json.dumps(script_data, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    # locked_script 用真实 contextmanager 回写到 live_script，供断言读取
+    live_script = json.loads(script_path.read_text(encoding="utf-8"))
+
+    @contextmanager
+    def _locked_script(_name, _file):
+        yield live_script
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    fake_pm.locked_script.side_effect = _locked_script
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    # 新后端不返回 video_uri（第 4 个元素为 None）
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "ark"
+    fake_video_backend.model = "doubao-seedance-2-0-260128"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    # 缩略图提取失败 → thumb_rel=None
+    async def _fake_extract(*_a, **_k):
+        return False
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    ga_after = live_script["video_units"][0]["generated_assets"]
+    assert "video_uri" not in ga_after
+    assert "video_thumbnail" not in ga_after
+    # 正常产物仍正确写入
+    assert ga_after["video_clip"] == "reference_videos/E1U1.mp4"
+    assert ga_after["status"] == "completed"
 
 
 @pytest.mark.asyncio
