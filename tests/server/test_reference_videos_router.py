@@ -317,3 +317,25 @@ def test_reorder_units_rejects_unknown_id_set_mismatch(client: TestClient):
     )
     assert resp.status_code == 400
     assert "do not match" in resp.json()["detail"]
+
+
+def test_add_unit_concurrent_rebind_returns_409(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """加锁前后 episode→script_file 被并发改绑 → 写端点返回 409（前端可重试）。"""
+    from server.routers import reference_videos as router_mod
+
+    pm = router_mod.get_project_manager()
+
+    # 模拟并发 PATCH 改绑：持锁复核读到 episode 1 已指向另一个脚本
+    def _rebound(_project_name: str) -> dict:
+        return {
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_2.json"}],
+        }
+
+    monkeypatch.setattr(pm, "_read_project_raw_unlocked", _rebound)
+
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "Shot 1 (2s): 空镜", "references": []},
+    )
+    assert resp.status_code == 409, resp.text

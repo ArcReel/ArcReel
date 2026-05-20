@@ -60,6 +60,10 @@ def effective_mode(*, project: dict, episode: dict) -> str:
     return _DEFAULT_GENERATION_MODE
 
 
+class EpisodeScriptReboundError(RuntimeError):
+    """加锁前后 episode→script_file 绑定发生变化（并发 PATCH 改绑），调用方应重试。"""
+
+
 # ==================== 数据模型 ====================
 
 
@@ -458,13 +462,17 @@ class ProjectManager:
         with self._script_lock(project_name, filename):
             return self._write_script_unlocked(project_name, script, filename)
 
-    def _write_script_unlocked(self, project_name: str, script: dict, filename: str) -> Path:
+    def _write_script_unlocked(self, project_name: str, script: dict, filename: str, sync_project: bool = True) -> Path:
         """剧本写盘主体：校验 + 更新元数据 + 原子写 + 同步 project.json。
 
         **不获取 `_script_lock`**——调用方必须已持有该锁（见 `save_script` / `locked_script`），
         否则会丧失并发保护。独立抽出是为了避免 `locked_script` 复用 `save_script` 时二次获取
         同一把 flock 造成同进程自死锁（与 `update_project` 内联 `atomic_write_json` 而不复用
         `save_project` 同理）。filename 须已去除 `scripts/` 前缀且非 None。
+
+        `sync_project=False` 时跳过 `sync_episode_from_script`：该同步会经 `update_project`
+        再次获取 `_project_lock`，故已持有项目锁的调用方（见 `locked_episode_script`）须传 False
+        以免同进程自死锁。仅写脚本内容、不改 episode 元数据的场景跳过同步无副作用。
         """
         scripts_dir = self.get_project_path(project_name) / "scripts"
 
@@ -515,7 +523,7 @@ class ProjectManager:
 
         # 同步到 project.json，保证 script 写入与元数据同步是单一事务
         # （sync 走的是 `_project_lock`，与外层 `_script_lock` 不同锁，不会冲突）。
-        if self.project_exists(project_name) and isinstance(script.get("episode"), int):
+        if sync_project and self.project_exists(project_name) and isinstance(script.get("episode"), int):
             self.sync_episode_from_script(project_name, filename)
 
         emit_project_change_hint(
@@ -538,6 +546,38 @@ class ProjectManager:
             script = self.load_script(project_name, norm)
             yield script
             self._write_script_unlocked(project_name, script, norm)
+
+    def _read_project_raw_unlocked(self, project_name: str) -> dict:
+        """裸读 project.json（不取锁、不迁移）。仅供已持 `_project_lock` 的复核调用。"""
+        project_file = self._get_project_file_path(project_name)
+        with open(project_file, encoding="utf-8") as f:  # noqa: PTH123
+            return json.load(f)
+
+    @contextmanager
+    def locked_episode_script(self, project_name: str, resolve_script_file: Callable[[dict], str]):
+        """统一「脚本锁 → 项目锁」顺序下，解析 episode→script_file 并对剧本做读-改-写。
+
+        `resolve_script_file(project) -> script_file`：调用方提供的解析器，从 project.json
+        找到目标 episode、做校验、返回其绑定的脚本文件名（可自行抛异常，如 404/409）。
+
+        解析候选 → 加锁 → 复核绑定 → 写入全程在持 `_project_lock` 的临界区内完成，消除
+        「锁外读 script_file 后被并发 PATCH 改绑、写入落到旧脚本」的 TOCTOU。锁获取顺序与
+        worker 回写（`locked_script` → sync）保持一致的 脚本锁 → 项目锁，避免 ABBA 死锁；
+        写回经 `sync_project=False` 跳过会二次取项目锁的 sync，避免同进程自死锁。
+
+        若加锁前后绑定指向了不同脚本（并发改绑），抛 `EpisodeScriptReboundError` 让调用方重试。
+        """
+        candidate = resolve_script_file(self.load_project(project_name))
+        norm = candidate[len("scripts/") :] if candidate.startswith("scripts/") else candidate
+        with self._script_lock(project_name, norm):
+            with self._project_lock(project_name):
+                current = resolve_script_file(self._read_project_raw_unlocked(project_name))
+                cur_norm = current[len("scripts/") :] if current.startswith("scripts/") else current
+                if cur_norm != norm:
+                    raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
+                script = self.load_script(project_name, norm)
+                yield script
+                self._write_script_unlocked(project_name, script, norm, sync_project=False)
 
     @staticmethod
     def _require_filename_episode_consistency(script: dict, script_filename: str) -> None:
