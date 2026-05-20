@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
+from lib.i18n import Translator
 from lib.project_manager import ProjectManager, effective_mode
 from lib.reference_video import parse_prompt
 from server.auth import CurrentUser
@@ -53,30 +54,27 @@ class AddUnitRequest(BaseModel):
 # ============ 辅助 ============
 
 
-def _load_episode_script(project_name: str, episode: int) -> tuple[dict, dict, str]:
+def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tuple[dict, dict, str]:
     """加载 project.json + 指定集的剧本。返回 (project, script, script_file)。"""
     try:
         project = get_project_manager().load_project(project_name)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name)) from exc
     episodes = project.get("episodes") or []
     meta = next((e for e in episodes if e.get("episode") == episode), None)
     if meta is None or not meta.get("script_file"):
-        raise HTTPException(status_code=404, detail=f"episode {episode} not found")
+        raise HTTPException(status_code=404, detail=_t("ref_episode_not_found", episode=episode))
     script_file = meta["script_file"]
     try:
         script = get_project_manager().load_script(project_name, script_file)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file)) from exc
     if effective_mode(project=project, episode=meta) != "reference_video":
-        raise HTTPException(
-            status_code=409,
-            detail="episode script is not in reference_video mode",
-        )
+        raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, script, script_file
 
 
-def _resolve_episode(project_name: str, episode: int) -> tuple[dict, str]:
+def _resolve_episode(project_name: str, episode: int, _t: Translator) -> tuple[dict, str]:
     """加载 project.json，解析并校验指定集的 script_file（不预读 script）。
 
     返回 (project, script_file)。写端点据此进入 `locked_script` 在锁内 fresh-load 剧本，
@@ -85,21 +83,18 @@ def _resolve_episode(project_name: str, episode: int) -> tuple[dict, str]:
     try:
         project = get_project_manager().load_project(project_name)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name)) from exc
     episodes = project.get("episodes") or []
     meta = next((e for e in episodes if e.get("episode") == episode), None)
     if meta is None or not meta.get("script_file"):
-        raise HTTPException(status_code=404, detail=f"episode {episode} not found")
+        raise HTTPException(status_code=404, detail=_t("ref_episode_not_found", episode=episode))
     if effective_mode(project=project, episode=meta) != "reference_video":
-        raise HTTPException(
-            status_code=409,
-            detail="episode script is not in reference_video mode",
-        )
+        raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, meta["script_file"]
 
 
 @contextmanager
-def _locked_episode_script(project_name: str, script_file: str) -> Iterator[dict]:
+def _locked_episode_script(project_name: str, script_file: str, _t: Translator) -> Iterator[dict]:
     """进入 locked_script，并把缺失脚本文件的 FileNotFoundError 归一为 404。
 
     project.json 可能残留指向已删除/移动文件的 script_file；此时 locked_script 内的
@@ -110,10 +105,10 @@ def _locked_episode_script(project_name: str, script_file: str) -> Iterator[dict
         with get_project_manager().locked_script(project_name, script_file) as script:
             yield script
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file)) from exc
 
 
-def _validate_references_exist(project: dict, refs: list[dict]) -> None:
+def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) -> None:
     """确保 references 都在 project.json 对应 bucket 中。"""
     missing: list[str] = []
     for r in refs:
@@ -121,10 +116,7 @@ def _validate_references_exist(project: dict, refs: list[dict]) -> None:
         if r["name"] not in bucket:
             missing.append(f"{r['type']}:{r['name']}")
     if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"references not registered: {', '.join(missing)}",
-        )
+        raise HTTPException(status_code=400, detail=_t("ref_not_registered", missing=", ".join(missing)))
 
 
 def _next_unit_id(script: dict, episode: int) -> str:
@@ -172,8 +164,8 @@ def _build_unit_dict(
 
 
 @router.get("/episodes/{episode}/units")
-async def list_units(project_name: str, episode: int, _user: CurrentUser) -> dict[str, Any]:
-    _project, script, _sf = _load_episode_script(project_name, episode)
+async def list_units(project_name: str, episode: int, _user: CurrentUser, _t: Translator) -> dict[str, Any]:
+    _project, script, _sf = _load_episode_script(project_name, episode, _t)
     return {"units": script.get("video_units") or []}
 
 
@@ -183,13 +175,14 @@ async def add_unit(
     episode: int,
     req: AddUnitRequest,
     _user: CurrentUser,
+    _t: Translator,
 ) -> dict[str, Any]:
-    project, script_file = _resolve_episode(project_name, episode)
+    project, script_file = _resolve_episode(project_name, episode, _t)
 
     refs = [r.model_dump() for r in req.references]
-    _validate_references_exist(project, refs)
+    _validate_references_exist(project, refs, _t)
 
-    with _locked_episode_script(project_name, script_file) as script:
+    with _locked_episode_script(project_name, script_file, _t) as script:
         # unit_id 在锁内基于 fresh script 计算，避免并发新增撞 ID
         unit = _build_unit_dict(
             unit_id=_next_unit_id(script, episode),
@@ -214,11 +207,11 @@ class PatchUnitRequest(BaseModel):
     note: str | None = None
 
 
-def _find_unit(script: dict, unit_id: str) -> dict:
+def _find_unit(script: dict, unit_id: str, _t: Translator) -> dict:
     for u in script.get("video_units") or []:
         if u.get("unit_id") == unit_id:
             return u
-    raise HTTPException(status_code=404, detail=f"unit {unit_id} not found")
+    raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id))
 
 
 @router.patch("/episodes/{episode}/units/{unit_id}")
@@ -228,17 +221,18 @@ async def patch_unit(
     unit_id: str,
     req: PatchUnitRequest,
     _user: CurrentUser,
+    _t: Translator,
 ) -> dict[str, Any]:
-    project, script_file = _resolve_episode(project_name, episode)
+    project, script_file = _resolve_episode(project_name, episode, _t)
 
     # references 存在性校验对 project（只读）先做，失败 raise 400（在进锁前）
     refs: list[dict] | None = None
     if req.references is not None:
         refs = [r.model_dump() for r in req.references]
-        _validate_references_exist(project, refs)
+        _validate_references_exist(project, refs, _t)
 
-    with _locked_episode_script(project_name, script_file) as script:
-        unit = _find_unit(script, unit_id)  # 未找到 raise 404 → 跳过写回
+    with _locked_episode_script(project_name, script_file, _t) as script:
+        unit = _find_unit(script, unit_id, _t)  # 未找到 raise 404 → 跳过写回
 
         if refs is not None:
             unit["references"] = refs
@@ -269,14 +263,15 @@ async def delete_unit(
     episode: int,
     unit_id: str,
     _user: CurrentUser,
+    _t: Translator,
 ) -> Response:
-    _project, script_file = _resolve_episode(project_name, episode)
-    with _locked_episode_script(project_name, script_file) as script:
+    _project, script_file = _resolve_episode(project_name, episode, _t)
+    with _locked_episode_script(project_name, script_file, _t) as script:
         units = script.get("video_units") or []
         new_units = [u for u in units if u.get("unit_id") != unit_id]
         if len(new_units) == len(units):
             # 未找到 → 在锁内 raise，跳过写回
-            raise HTTPException(status_code=404, detail=f"unit {unit_id} not found")
+            raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id))
         script["video_units"] = new_units
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -291,19 +286,20 @@ async def reorder_units(
     episode: int,
     req: ReorderRequest,
     _user: CurrentUser,
+    _t: Translator,
 ) -> dict[str, Any]:
-    _project, script_file = _resolve_episode(project_name, episode)
-    with _locked_episode_script(project_name, script_file) as script:
+    _project, script_file = _resolve_episode(project_name, episode, _t)
+    with _locked_episode_script(project_name, script_file, _t) as script:
         units = script.get("video_units") or []
         existing_ids = [u.get("unit_id") for u in units]
 
         # 校验失败 → 在锁内 raise 400，跳过写回
         if len(req.unit_ids) != len(existing_ids):
-            raise HTTPException(status_code=400, detail="unit_ids length mismatch")
+            raise HTTPException(status_code=400, detail=_t("ref_unit_ids_length_mismatch"))
         if len(set(req.unit_ids)) != len(req.unit_ids):
-            raise HTTPException(status_code=400, detail="duplicate unit_ids")
+            raise HTTPException(status_code=400, detail=_t("ref_duplicate_unit_ids"))
         if set(req.unit_ids) != set(existing_ids):
-            raise HTTPException(status_code=400, detail="unit_ids do not match existing units")
+            raise HTTPException(status_code=400, detail=_t("ref_unit_ids_mismatch"))
 
         by_id = {u["unit_id"]: u for u in units}
         reordered = [by_id[uid] for uid in req.unit_ids]
@@ -320,9 +316,10 @@ async def generate_unit(
     episode: int,
     unit_id: str,
     _user: CurrentUser,
+    _t: Translator,
 ) -> dict[str, Any]:
-    _project, script, script_file = _load_episode_script(project_name, episode)
-    _find_unit(script, unit_id)  # raises 404 if missing
+    _project, script, script_file = _load_episode_script(project_name, episode, _t)
+    _find_unit(script, unit_id, _t)  # raises 404 if missing
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

@@ -304,7 +304,7 @@ def test_reorder_units_rejects_true_duplicate(client: TestClient):
         json={"unit_ids": [uid1, uid1]},
     )
     assert resp.status_code == 400
-    assert "duplicate" in resp.json()["detail"]
+    assert "重复" in resp.json()["detail"]
 
 
 def test_reorder_units_rejects_unknown_id_set_mismatch(client: TestClient):
@@ -316,4 +316,4 @@ def test_reorder_units_rejects_unknown_id_set_mismatch(client: TestClient):
         json={"unit_ids": [uid1, "E1U999"]},
     )
     assert resp.status_code == 400
-    assert "do not match" in resp.json()["detail"]
+    assert "不匹配" in resp.json()["detail"]
