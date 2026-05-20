@@ -1,9 +1,11 @@
 """Tests for UsageRepository."""
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
+from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import UsageRepository
 
 
@@ -168,6 +170,123 @@ class TestMultiProviderUsage:
         assert stats["cost_by_currency"]["USD"] == pytest.approx(3.2)
         assert stats["cost_by_currency"]["CNY"] == pytest.approx(3.9494, rel=1e-3)
         assert stats["total_cost"] == pytest.approx(3.2)
+
+    async def test_get_stats_cost_by_currency_excludes_failed_billed_calls(self, db_session):
+        """金额维度与项目成本口径一致：只统计 success 且已扣费调用。"""
+        repo = UsageRepository(db_session)
+
+        ok = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(ok, status="success", usage_tokens=8)
+
+        failed = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="claude-sonnet-4",
+            provider="anthropic",
+        )
+        await repo.finish_call(failed, status="failed", error_message="boom")
+        await db_session.execute(
+            update(ApiCall)
+            .where(ApiCall.id == failed)
+            .values(cost_amount=0.0456, currency="USD", input_tokens=100, output_tokens=20)
+        )
+        await db_session.commit()
+
+        failed_unbilled = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(failed_unbilled, status="failed", error_message="boom")
+
+        zero_cost = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="gemini-3-flash-preview",
+            provider="gemini",
+        )
+        await repo.finish_call(zero_cost, status="success", input_tokens=0, output_tokens=0)
+
+        stats = await repo.get_stats(project_name="demo")
+        # failed 即使有实付记录也不计入金额；零费用/未扣费记录也不计入金额。
+        assert stats["total_count"] == 4
+        assert stats["failed_count"] == 2
+        assert stats["total_cost"] == pytest.approx(0)
+        assert stats["cost_by_currency"] == {
+            "CNY": pytest.approx(0.25),
+        }
+
+    async def test_get_stats_grouped_by_provider_includes_cost_by_currency(self, db_session):
+        repo = UsageRepository(db_session)
+
+        gemini_id = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="gemini-3.1-flash-image-preview",
+            resolution="1K",
+            provider="gemini",
+        )
+        await repo.finish_call(gemini_id, status="success")
+
+        vidu_id = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(vidu_id, status="success", usage_tokens=8)
+
+        failed_vidu_id = await repo.start_call(
+            project_name="demo",
+            call_type="image",
+            model="viduq2",
+            resolution="1080p",
+            provider="vidu",
+        )
+        await repo.finish_call(failed_vidu_id, status="failed", error_message="boom")
+
+        failed_anthropic_id = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="claude-sonnet-4",
+            provider="anthropic",
+        )
+        await repo.finish_call(failed_anthropic_id, status="failed", error_message="boom")
+        await db_session.execute(
+            update(ApiCall)
+            .where(ApiCall.id == failed_anthropic_id)
+            .values(cost_amount=0.0456, currency="USD", input_tokens=100, output_tokens=20)
+        )
+        await db_session.commit()
+
+        stats = await repo.get_stats_grouped_by_provider(project_name="demo")
+        by_group = {(item["provider"], item["call_type"]): item for item in stats["stats"]}
+
+        assert set(by_group) == {
+            ("anthropic", "text"),
+            ("gemini", "image"),
+            ("vidu", "image"),
+        }
+
+        assert by_group[("anthropic", "text")]["total_cost_usd"] == pytest.approx(0)
+        assert by_group[("anthropic", "text")]["cost_by_currency"] == {}
+        assert by_group[("anthropic", "text")]["total_calls"] == 1
+        assert by_group[("anthropic", "text")]["success_calls"] == 0
+        assert by_group[("gemini", "image")]["total_cost_usd"] == pytest.approx(0.067)
+        assert by_group[("gemini", "image")]["cost_by_currency"] == {"USD": pytest.approx(0.067)}
+        assert by_group[("vidu", "image")]["total_cost_usd"] == 0
+        assert by_group[("vidu", "image")]["cost_by_currency"] == {"CNY": pytest.approx(0.25)}
+        assert by_group[("vidu", "image")]["total_calls"] == 2
+        assert by_group[("vidu", "image")]["success_calls"] == 1
 
     async def test_text_call_gemini_cost(self, db_session):
         repo = UsageRepository(db_session)

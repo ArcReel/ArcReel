@@ -66,6 +66,7 @@ export interface UsageStat {
   total_calls: number;
   success_calls: number;
   total_cost_usd: number;
+  cost_by_currency: Record<string, number>;
   total_duration_seconds?: number;
 }
 

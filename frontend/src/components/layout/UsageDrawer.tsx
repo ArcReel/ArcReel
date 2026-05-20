@@ -14,6 +14,7 @@ import { API } from "@/api";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import { formatShortDateTime } from "@/utils/date-format";
+import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import type { CallType } from "@/types/provider";
 
 // ---------------------------------------------------------------------------
@@ -86,14 +87,10 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
   }, [open, loadCalls]);
 
   const totalPages = Math.ceil(total / pageSize);
-  const costByCurrency = stats?.cost_by_currency ?? {};
-  const costParts = Object.entries(costByCurrency)
-    .filter(([, v]) => v > 0)
-    .map(
-      ([currency, amount]) =>
-        `${currency === "CNY" ? "¥" : "$"}${amount.toFixed(2)}`,
-    );
-  const costSummary = costParts.length > 0 ? costParts : ["$0.00"];
+  const costParts = costEntries(stats?.cost_by_currency).map(([currency, amount]) =>
+    formatCurrencyAmount(currency, amount),
+  );
+  const costSummary = costParts.length > 0 ? costParts : [formatCostOrZero(undefined)];
 
   return (
     <GlassPopover
@@ -256,8 +253,9 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                         fontWeight: call.cost_amount > 0 ? 600 : 400,
                       }}
                     >
-                      {call.currency === "CNY" ? "¥" : "$"}
-                      {call.cost_amount.toFixed(4)}
+                      {formatCurrencyAmount(call.currency, call.cost_amount, {
+                        maximumFractionDigits: 6,
+                      })}
                     </span>
                   </div>
                   <div

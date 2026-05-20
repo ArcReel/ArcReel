@@ -464,6 +464,7 @@ export default {
   'save_failed': 'Failed to save: {{message}}',
 
   // UsageStatsSection
+  'spend_ledger': 'Spend Ledger',
   'last_7_days': 'Last 7 days',
   'last_30_days': 'Last 30 days',
   'all': 'All',
@@ -471,6 +472,7 @@ export default {
   'filter_by_provider': 'Filter by provider',
   'all_providers': 'All providers',
   'no_data': 'No data yet',
+  'total_calls': 'Total Calls',
   'calls': 'Calls',
   'success_count': 'Success',
   'success_rate': 'Success Rate',
