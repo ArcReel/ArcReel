@@ -2000,6 +2000,27 @@ class SessionManager:
             return self._check_write_access(resolved, project_cwd)
         return self._check_read_access(resolved, project_cwd)
 
+    @functools.cached_property
+    def _sdk_tmp_prefixes(self) -> tuple[str, ...]:
+        """SDK 后台任务输出（``<tmp>/claude-*/tasks``）的 tmp 根前缀。
+
+        ``tempfile.gettempdir()`` 与 ``.resolve()`` 的结果在进程生命周期内稳定，
+        但 ``_check_read_access`` 是 per-tool-use 钩子，每次重算会做无谓的
+        ``.resolve()`` 系统调用（lstat/readlink）。这里计算一次并缓存到实例。
+
+        覆盖跨平台 tmp 根（Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、
+        Windows ``%TEMP%``）。``resolved`` 已 ``.resolve()`` 过：macOS 上 ``/var``
+        是 ``/private/var`` 的 symlink、``/tmp`` 是 ``/private/tmp``，原始 + resolve
+        两种形态都列出，避免 startswith 因别名失配。
+        """
+        _tempdir = Path(tempfile.gettempdir())
+        return (
+            str(_tempdir / "claude-"),
+            str(_tempdir.resolve() / "claude-"),
+            "/tmp/claude-",
+            "/private/tmp/claude-",
+        )
+
     def _check_read_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
         """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
 
@@ -2026,19 +2047,8 @@ class SessionManager:
             and "tool-results" in resolved.parts
         ):
             return True, None
-        # SDK 后台任务输出例外。tempfile.gettempdir() 覆盖跨平台 tmp 根
-        # （Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、Windows ``%TEMP%``）。
-        # ``resolved`` 已 ``.resolve()`` 过：macOS 上 ``/var`` 是 ``/private/var``
-        # 的 symlink，``/tmp`` 是 ``/private/tmp``，两侧都要列出原始 + resolve 形态
-        # 避免 startswith 因别名失配。
-        _tempdir = Path(tempfile.gettempdir())
-        _sdk_tmp_prefixes = (
-            str(_tempdir / "claude-"),
-            str(_tempdir.resolve() / "claude-"),
-            "/tmp/claude-",
-            "/private/tmp/claude-",
-        )
-        if str(resolved).startswith(_sdk_tmp_prefixes) and "tasks" in resolved.parts:
+        # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，进程内缓存一次）。
+        if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
             return True, None
         # projects_root 下：当前项目以外的子目录拒，根直放文件放行
         projects_root = self.projects_root
