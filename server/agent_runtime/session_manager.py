@@ -2012,10 +2012,19 @@ class SessionManager:
         # SDK tool-results 例外。基准目录也 resolve()：``resolved`` 已解析过，
         # 而 ``~/.claude`` 可能被用户软链到 dotfiles / 云同步目录，两侧不一致
         # 会让 is_relative_to 失配，误拒合法的 SDK 读取（与下方 tmp / project_root
-        # 比较保持同一"两侧都 resolve"口径）。
+        # 比较保持同一"两侧都 resolve"口径）。resolve 在符号链接环（RuntimeError）
+        # 或无权限父目录（OSError）下会抛——权限钩子必须 fail-closed，解析失败就跳过
+        # 本例外，落到后续更严格的拒绝分支，不让异常冒泡中断工具调用。
         encoded = self._encode_sdk_project_path(project_cwd)
-        sdk_project_dir = (self._CLAUDE_PROJECTS_DIR / encoded).resolve(strict=False)
-        if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
+        try:
+            sdk_project_dir = (self._CLAUDE_PROJECTS_DIR / encoded).resolve(strict=False)
+        except (OSError, RuntimeError):
+            sdk_project_dir = None
+        if (
+            sdk_project_dir is not None
+            and resolved.is_relative_to(sdk_project_dir)
+            and "tool-results" in resolved.parts
+        ):
             return True, None
         # SDK 后台任务输出例外。tempfile.gettempdir() 覆盖跨平台 tmp 根
         # （Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、Windows ``%TEMP%``）。
