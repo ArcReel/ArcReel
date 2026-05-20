@@ -2009,9 +2009,12 @@ class SessionManager:
         """
         if resolved.is_relative_to(project_cwd):
             return True, None
-        # SDK tool-results 例外
+        # SDK tool-results 例外。基准目录也 resolve()：``resolved`` 已解析过，
+        # 而 ``~/.claude`` 可能被用户软链到 dotfiles / 云同步目录，两侧不一致
+        # 会让 is_relative_to 失配，误拒合法的 SDK 读取（与下方 tmp / project_root
+        # 比较保持同一"两侧都 resolve"口径）。
         encoded = self._encode_sdk_project_path(project_cwd)
-        sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
+        sdk_project_dir = (self._CLAUDE_PROJECTS_DIR / encoded).resolve(strict=False)
         if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
             return True, None
         # SDK 后台任务输出例外。tempfile.gettempdir() 覆盖跨平台 tmp 根
