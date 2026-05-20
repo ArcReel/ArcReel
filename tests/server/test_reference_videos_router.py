@@ -219,3 +219,13 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
 def test_generate_unit_missing_returns_404(client: TestClient):
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9/generate")
     assert resp.status_code == 404
+
+
+def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Path):
+    """project.json 残留指向已删除文件的 script_file 时，写端点应返回 404 而非 500。"""
+    (tmp_path / "projects" / "demo" / "scripts" / "episode_1.json").unlink()
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "Shot 1 (2s): @张三 出现", "references": [{"type": "character", "name": "张三"}]},
+    )
+    assert resp.status_code == 404, resp.text

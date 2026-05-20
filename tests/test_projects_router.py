@@ -1,5 +1,6 @@
 import re
 from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -119,15 +120,18 @@ class _FakePM:
         self.scripts[(name, script_file)] = payload
 
     def update_project(self, name, mutate_fn):
-        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务
-        project = self.load_project(name)
+        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务。
+        # deepcopy 后再 mutate，使异常时（save 未执行）backing store 不被原地突变污染，
+        # 忠实于真实 PM「读裸 JSON、出错不写回」的语义。
+        project = deepcopy(self.load_project(name))
         mutate_fn(project)
         self.save_project(name, project)
 
     @contextmanager
     def locked_script(self, name, script_file):
-        # 复刻真实 ProjectManager.locked_script：load → yield → save，异常时跳过写回
-        script = self.load_script(name, script_file)
+        # 复刻真实 ProjectManager.locked_script：load → yield → save，异常时跳过写回。
+        # deepcopy 同上，确保 with 体内抛异常时原始存储对象保持不变。
+        script = deepcopy(self.load_script(name, script_file))
         yield script
         self.save_script(name, script, script_file)
 

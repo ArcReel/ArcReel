@@ -6,6 +6,8 @@ Mount prefix: /api/v1/projects/{project_name}/reference-videos
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response, status
@@ -96,6 +98,21 @@ def _resolve_episode(project_name: str, episode: int) -> tuple[dict, str]:
     return project, meta["script_file"]
 
 
+@contextmanager
+def _locked_episode_script(project_name: str, script_file: str) -> Iterator[dict]:
+    """进入 locked_script，并把缺失脚本文件的 FileNotFoundError 归一为 404。
+
+    project.json 可能残留指向已删除/移动文件的 script_file；此时 locked_script 内的
+    load_script 会抛 FileNotFoundError，需转成 404 而非 500（对齐旧 _load_episode_script
+    的行为，后者会先 load_script 把缺失文件转成 404）。
+    """
+    try:
+        with get_project_manager().locked_script(project_name, script_file) as script:
+            yield script
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 def _validate_references_exist(project: dict, refs: list[dict]) -> None:
     """确保 references 都在 project.json 对应 bucket 中。"""
     missing: list[str] = []
@@ -172,7 +189,7 @@ async def add_unit(
     refs = [r.model_dump() for r in req.references]
     _validate_references_exist(project, refs)
 
-    with get_project_manager().locked_script(project_name, script_file) as script:
+    with _locked_episode_script(project_name, script_file) as script:
         # unit_id 在锁内基于 fresh script 计算，避免并发新增撞 ID
         unit = _build_unit_dict(
             unit_id=_next_unit_id(script, episode),
@@ -220,7 +237,7 @@ async def patch_unit(
         refs = [r.model_dump() for r in req.references]
         _validate_references_exist(project, refs)
 
-    with get_project_manager().locked_script(project_name, script_file) as script:
+    with _locked_episode_script(project_name, script_file) as script:
         unit = _find_unit(script, unit_id)  # 未找到 raise 404 → 跳过写回
 
         if refs is not None:
@@ -254,7 +271,7 @@ async def delete_unit(
     _user: CurrentUser,
 ) -> Response:
     _project, script_file = _resolve_episode(project_name, episode)
-    with get_project_manager().locked_script(project_name, script_file) as script:
+    with _locked_episode_script(project_name, script_file) as script:
         units = script.get("video_units") or []
         new_units = [u for u in units if u.get("unit_id") != unit_id]
         if len(new_units) == len(units):
@@ -276,7 +293,7 @@ async def reorder_units(
     _user: CurrentUser,
 ) -> dict[str, Any]:
     _project, script_file = _resolve_episode(project_name, episode)
-    with get_project_manager().locked_script(project_name, script_file) as script:
+    with _locked_episode_script(project_name, script_file) as script:
         units = script.get("video_units") or []
         existing_ids = [u.get("unit_id") for u in units]
 

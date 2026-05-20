@@ -607,8 +607,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     detail=_t("project_id_not_editable"),
                 )
 
-            captured: dict[str, Any] = {}
-
             def _mutate(project: dict) -> None:
                 # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
                 if req.title is not None:
@@ -721,11 +719,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 
                     project["episodes"] = new_episodes
 
-                captured["project"] = project
-
             with project_change_source("webui"):
                 manager.update_project(name, _mutate)
-            return {"success": True, "project": captured["project"]}
+            # 返回经 load_project 的 fresh 副本，恢复改用 update_project 前由 load_project
+            # 读取时执行的 _migrate_legacy_style（持久化）+ _lazy_upgrade_image_provider 语义，
+            # 确保回前端的 project 含升级后的字段（与其它已迁移 helper 一致：均 return load_project）
+            return {"success": True, "project": manager.load_project(name)}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:

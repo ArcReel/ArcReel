@@ -60,7 +60,8 @@ class TestReferenceVideoConcurrentRMW:
             """模拟 add_unit：locked_script 内 fresh-load → append → save。"""
             barrier.wait()
             with pm.locked_script(name, "episode_1.json") as script:
-                script.setdefault("video_units", []).append(
+                # 直接按 schema 访问，缺字段即报错（fail-loud），不用 setdefault 掩盖损坏
+                script["video_units"].append(
                     {
                         "unit_id": f"E1U{idx}",
                         "shots": [],
@@ -74,7 +75,7 @@ class TestReferenceVideoConcurrentRMW:
             """模拟 executor 的 _update_unit_assets：定位 unit 写 generated_assets。"""
             barrier.wait()
             with pm.locked_script(name, "episode_1.json") as script:
-                for u in script.get("video_units") or []:
+                for u in script["video_units"]:
                     if u.get("unit_id") == unit_id:
                         ga = u.setdefault("generated_assets", {})
                         ga["video_clip"] = f"reference_videos/{unit_id}.mp4"
