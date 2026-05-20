@@ -202,4 +202,30 @@ describe("ReferenceVideoCanvas", () => {
       "true",
     );
   });
+
+  // 慢网/冷启动回归：units 仍在加载（loadUnits 未返回）时，即便 target 已过期也不该
+  // 提前清除——否则 units 到达后无法再选中目标 unit，"点击通知回跳"失效。
+  it("keeps a reference_unit target while units are still loading, even past expiry", async () => {
+    let resolveList: (v: { units: ReferenceVideoUnit[] }) => void = () => {};
+    vi.spyOn(API, "listReferenceVideoUnits").mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    // 加载中（fetch 挂起，loading=true）下发一个已过期的 target
+    useAppStore.getState().triggerScrollTo({
+      type: "reference_unit",
+      id: "E1U2",
+      route: "/episodes/1",
+      expires_at: Date.now() - 1,
+    });
+    // 关键断言：加载未完成时不按过期清除，target 仍在
+    await new Promise((r) => setTimeout(r, 20));
+    expect(useAppStore.getState().scrollTarget?.id).toBe("E1U2");
+    // units 到达后应命中并选中目标 unit，随后清除 target
+    resolveList({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
 });

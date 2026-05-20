@@ -336,10 +336,12 @@ export function ReferenceVideoCanvas({
       setTab("units");
       select(scrollTarget.id);
       clearScrollTarget(scrollTarget.request_id);
-    } else if (Date.now() >= scrollTarget.expires_at) {
+    } else if (!loading && Date.now() >= scrollTarget.expires_at) {
+      // 仅在 units 加载完成后才按过期放弃回跳——否则慢网/冷启动下 loadUnits
+      // 尚未返回就到期，target 会被提前清除，units 到达也无法再选中目标 unit。
       clearScrollTarget(scrollTarget.request_id);
     }
-  }, [scrollTarget, units, select, clearScrollTarget]);
+  }, [scrollTarget, units, loading, select, clearScrollTarget]);
 
   const preprocStatus: "loading" | "error" | "empty" | "ready" = loading
     ? "loading"

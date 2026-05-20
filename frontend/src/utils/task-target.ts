@@ -20,13 +20,14 @@ const ASSET_ROUTES: Record<string, string> = {
   prop: "/props",
 };
 
-const FAILURE_TEXT_KEYS: Record<string, string> = {
-  storyboard: "storyboard_task_failed",
-  video: "video_task_failed",
-  character: "character_task_failed",
-  scene: "scene_task_failed",
-  prop: "prop_task_failed",
-  grid: "grid_task_failed",
+const FAILURE_TEXT_KEYS: Record<string, { key: string; idParam: "id" | "unitId" }> = {
+  storyboard: { key: "storyboard_task_failed", idParam: "id" },
+  video: { key: "video_task_failed", idParam: "id" },
+  character: { key: "character_task_failed", idParam: "id" },
+  scene: { key: "scene_task_failed", idParam: "id" },
+  prop: { key: "prop_task_failed", idParam: "id" },
+  grid: { key: "grid_task_failed", idParam: "id" },
+  reference_video: { key: "reference_generation_task_failed", idParam: "unitId" },
 };
 
 function stripScriptsPrefix(path: string): string {
@@ -84,10 +85,7 @@ export function buildTaskFailureTarget(
  */
 export function describeTaskFailure(t: TFunction, task: TaskItem): string | null {
   const reason = task.error_message ?? t("reference_status_failed");
-  if (task.task_type === "reference_video") {
-    return t("reference_generation_task_failed", { unitId: task.resource_id, reason });
-  }
-  const key = FAILURE_TEXT_KEYS[task.task_type];
-  if (!key) return null;
-  return t(key, { id: task.resource_id, reason });
+  const config = FAILURE_TEXT_KEYS[task.task_type];
+  if (!config) return null;
+  return t(config.key, { [config.idParam]: task.resource_id, reason });
 }
