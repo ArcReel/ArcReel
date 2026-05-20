@@ -41,9 +41,10 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     const prev = prevStatusRef.current;
     const next = new Map<string, TaskStatus>();
     for (const tk of tasks) {
+      // 只跟踪当前项目的任务：其余项目的任务既不通知也不进 prevStatus。
+      if (tk.project_name !== projectName) continue;
       const before = prev.get(tk.task_id);
       if (
-        tk.project_name === projectName &&
         tk.status === "failed" &&
         before !== undefined &&
         before !== "failed"

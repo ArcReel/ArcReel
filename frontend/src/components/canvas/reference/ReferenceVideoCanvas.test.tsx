@@ -240,16 +240,18 @@ describe("ReferenceVideoCanvas", () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1"));
-    // 目标 unit 不在列表中，给一个很短的过期窗口
+    // 目标 unit 不在列表中，给一个略长的过期窗口降低脆弱性
     act(() => {
       useAppStore.getState().triggerScrollTo({
         type: "reference_unit",
         id: "E9U9",
         route: "/episodes/1",
-        expires_at: Date.now() + 50,
+        expires_at: Date.now() + 200,
       });
     });
-    // 不再产生任何依赖变化，仅靠一次性定时器到期清理
+    // 先断言 target 已写入且未被即时清除——证明走的是定时器路径而非 immediate clear
+    expect(useAppStore.getState().scrollTarget?.id).toBe("E9U9");
+    // 此后不再产生任何依赖变化，仅靠一次性定时器到期清理
     await waitFor(() => expect(useAppStore.getState().scrollTarget).toBeNull());
   });
 });
