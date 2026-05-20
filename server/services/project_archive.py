@@ -16,7 +16,7 @@ from typing import Any
 from lib.data_validator import DataValidator, ValidationResult
 from lib.json_io import load_json
 from lib.project_change_hints import emit_project_change_hint
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, effective_mode
 
 logger = logging.getLogger(__name__)
 
@@ -693,6 +693,20 @@ class ProjectArchiveService:
                 )
 
         content_mode = str(script_payload.get("content_mode") or project_payload.get("content_mode") or "narration")
+
+        # reference_video 模式的剧本用 video_units 组织，结构与 narration/drama 的
+        # segments/scenes 不同，单独走专用修复分支。
+        if effective_mode(project=project_payload, episode=script_payload) == "reference_video":
+            units_changed = self._repair_video_units_payload(
+                project_dir,
+                script_path_rel=script_path_rel,
+                script_payload=script_payload,
+                content_mode=content_mode,
+                versions_payload=versions_payload,
+                diagnostics=diagnostics,
+            )
+            return script_changed or units_changed, project_changed
+
         items_key = "segments" if content_mode == "narration" else "scenes"
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
         chars_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
@@ -730,33 +744,16 @@ class ProjectArchiveService:
                         location=f"{location_prefix}.{asset_field}",
                     )
 
-            assets = item.get("generated_assets")
-            if assets is None:
-                item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
+            assets, assets_changed = self._backfill_generated_assets(
+                item,
+                content_mode=content_mode,
+                label=items_key,
+                index=index,
+                location_prefix=location_prefix,
+                diagnostics=diagnostics,
+            )
+            if assets_changed:
                 script_changed = True
-                diagnostics.add(
-                    "auto_fixed",
-                    "missing_generated_assets",
-                    f"{items_key}[{index}]: 补全缺失字段 generated_assets",
-                    location=f"{location_prefix}.generated_assets",
-                )
-                assets = item["generated_assets"]
-            elif isinstance(assets, dict):
-                template = self.project_manager.create_generated_assets(content_mode)
-                missing_keys = [key for key in template if key not in assets]
-                if missing_keys:
-                    for key in missing_keys:
-                        assets[key] = template[key]
-                    script_changed = True
-                    # 补全值非 None 的才报诊断，避免 no-op 补全产生噪音
-                    non_null_keys = sorted(k for k in missing_keys if template[k] is not None)
-                    if non_null_keys:
-                        diagnostics.add(
-                            "auto_fixed",
-                            "generated_assets_defaults",
-                            (f"{items_key}[{index}].generated_assets: 补全默认字段 {', '.join(non_null_keys)}"),
-                            location=f"{location_prefix}.generated_assets",
-                        )
 
             characters = item.get(chars_field)
             if isinstance(characters, list):
@@ -821,6 +818,116 @@ class ProjectArchiveService:
                         script_changed = True
 
         return script_changed, project_changed
+
+    def _backfill_generated_assets(
+        self,
+        item: dict[str, Any],
+        *,
+        content_mode: str,
+        label: str,
+        index: int,
+        location_prefix: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> tuple[Any, bool]:
+        """补全 item.generated_assets 的缺失字段，返回 (assets, changed)。"""
+        assets = item.get("generated_assets")
+        changed = False
+        if assets is None:
+            item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
+            changed = True
+            diagnostics.add(
+                "auto_fixed",
+                "missing_generated_assets",
+                f"{label}[{index}]: 补全缺失字段 generated_assets",
+                location=f"{location_prefix}.generated_assets",
+            )
+            assets = item["generated_assets"]
+        elif isinstance(assets, dict):
+            template = self.project_manager.create_generated_assets(content_mode)
+            missing_keys = [key for key in template if key not in assets]
+            if missing_keys:
+                for key in missing_keys:
+                    assets[key] = template[key]
+                changed = True
+                # 补全值非 None 的才报诊断，避免 no-op 补全产生噪音
+                non_null_keys = sorted(k for k in missing_keys if template[k] is not None)
+                if non_null_keys:
+                    diagnostics.add(
+                        "auto_fixed",
+                        "generated_assets_defaults",
+                        (f"{label}[{index}].generated_assets: 补全默认字段 {', '.join(non_null_keys)}"),
+                        location=f"{location_prefix}.generated_assets",
+                    )
+        return assets, changed
+
+    def _repair_video_units_payload(
+        self,
+        project_dir: Path,
+        *,
+        script_path_rel: str,
+        script_payload: dict[str, Any],
+        content_mode: str,
+        versions_payload: dict[str, Any],
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """修复 reference_video 模式剧本 video_units[*].generated_assets 的本地资源路径。
+
+        video_units 没有 narration/drama 的 characters/scenes/props 字段，因此只做
+        generated_assets 补全 + video_clip / video_thumbnail 路径规范化与版本回溯。
+        video_uri 是远端 URL，不当作本地路径处理（否则会被同名 canonical 本地文件覆盖）。
+        """
+        raw_units = script_payload.get("video_units")
+        if not isinstance(raw_units, list):
+            return False
+
+        changed = False
+        for index, unit in enumerate(raw_units):
+            if not isinstance(unit, dict):
+                continue
+
+            location_prefix = f"{script_path_rel}:video_units[{index}]"
+            resource_id = str(unit.get("unit_id") or "").strip()
+
+            assets, assets_changed = self._backfill_generated_assets(
+                unit,
+                content_mode=content_mode,
+                label="video_units",
+                index=index,
+                location_prefix=location_prefix,
+                diagnostics=diagnostics,
+            )
+            if assets_changed:
+                changed = True
+
+            if not (isinstance(assets, dict) and resource_id):
+                continue
+
+            # video_clip 有版本历史，可从 versions/ 回溯物化当前文件
+            if self._repair_path_to_canonical(
+                project_dir,
+                assets,
+                field_name="video_clip",
+                canonical_rel=self._canonical_resource_path("reference_videos", resource_id),
+                location=f"{location_prefix}.generated_assets.video_clip",
+                diagnostics=diagnostics,
+                resource_type="reference_videos",
+                resource_id=resource_id,
+                versions_payload=versions_payload,
+            ):
+                changed = True
+
+            # 缩略图无版本历史，仅在 canonical 文件存在时规范化路径
+            if self._repair_path_to_canonical(
+                project_dir,
+                assets,
+                field_name="video_thumbnail",
+                canonical_rel=f"reference_videos/thumbnails/{resource_id}.jpg",
+                location=f"{location_prefix}.generated_assets.video_thumbnail",
+                diagnostics=diagnostics,
+            ):
+                changed = True
+
+        return changed
 
     def _repair_path_to_canonical(
         self,
