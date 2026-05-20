@@ -1981,15 +1981,10 @@ class SessionManager:
     ) -> tuple[bool, str | None]:
         """检查 file_path 是否允许给定工具访问。
 
-        规则：
-        0. 敏感文件（.env / vertex_keys / settings.json 等）一律拒
-        1. Read/Glob/Grep：
-           - cwd 内放行；SDK tool-results / /tmp/claude-*/tasks 例外放行
-           - projects_root 下其他项目子目录拒；projects_root 根直放文件放行
-           - 仓库根（project_root）内其他参考资料（lib/docs 等）放行
-           - 其余（host 文件系统：~/.ssh、/etc 等）默认拒
-        2. Write/Edit：cwd 外一律拒
-        3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）
+        三步 dispatch：
+        - 规则 0：敏感文件（.env / vertex_keys / settings.json 等）一律拒
+        - 写工具（Write/Edit）→ ``_check_write_access``
+        - 读工具（Read/Glob/Grep）→ ``_check_read_access``
         """
         try:
             p = Path(file_path)
@@ -2001,52 +1996,58 @@ class SessionManager:
         if self._is_sensitive_path(resolved):
             return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
 
-        is_write = tool_name in self._WRITE_TOOLS
-        is_inside_cwd = resolved.is_relative_to(project_cwd)
+        if tool_name in self._WRITE_TOOLS:
+            return self._check_write_access(resolved, project_cwd)
+        return self._check_read_access(resolved, project_cwd)
 
-        # 规则 1: Read 类工具的跨项目隔离 + host 文件系统封锁
-        if not is_write:
-            if is_inside_cwd:
-                return True, None
-            # SDK tool-results 例外
-            encoded = self._encode_sdk_project_path(project_cwd)
-            sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
-            if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
-                return True, None
-            # SDK 后台任务输出例外。tempfile.gettempdir() 覆盖跨平台 tmp 根
-            # （Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、Windows ``%TEMP%``）。
-            # ``resolved`` 已 ``.resolve()`` 过：macOS 上 ``/var`` 是 ``/private/var``
-            # 的 symlink，``/tmp`` 是 ``/private/tmp``，两侧都要列出原始 + resolve 形态
-            # 避免 startswith 因别名失配。
-            _tempdir = Path(tempfile.gettempdir())
-            _sdk_tmp_prefixes = (
-                str(_tempdir / "claude-"),
-                str(_tempdir.resolve() / "claude-"),
-                "/tmp/claude-",
-                "/private/tmp/claude-",
-            )
-            if str(resolved).startswith(_sdk_tmp_prefixes) and "tasks" in resolved.parts:
-                return True, None
-            # projects_root 下：当前项目以外的子目录拒，根直放文件放行
-            projects_root = self.projects_root
-            if resolved.is_relative_to(projects_root):
-                rel_to_projects = resolved.relative_to(projects_root)
-                if rel_to_projects.parts:
-                    first_entry = projects_root / rel_to_projects.parts[0]
-                    if first_entry.is_dir() and first_entry.name != project_cwd.name:
-                        return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
-                return True, None
-            # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
-            if resolved.is_relative_to(self._project_root_resolved):
-                return True, None
-            # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
-            return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
+    def _check_read_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
+        """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
 
-        # 规则 2: 写工具 cwd 外拒
-        if not is_inside_cwd:
+        cwd 内放行；SDK tool-results / /tmp/claude-*/tasks 例外放行；
+        projects_root 下其他项目子目录拒、根直放文件放行；仓库根内参考资料
+        （lib/docs 等）放行；其余（host 文件系统：~/.ssh、/etc 等）默认拒。
+        """
+        if resolved.is_relative_to(project_cwd):
+            return True, None
+        # SDK tool-results 例外
+        encoded = self._encode_sdk_project_path(project_cwd)
+        sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
+        if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
+            return True, None
+        # SDK 后台任务输出例外。tempfile.gettempdir() 覆盖跨平台 tmp 根
+        # （Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、Windows ``%TEMP%``）。
+        # ``resolved`` 已 ``.resolve()`` 过：macOS 上 ``/var`` 是 ``/private/var``
+        # 的 symlink，``/tmp`` 是 ``/private/tmp``，两侧都要列出原始 + resolve 形态
+        # 避免 startswith 因别名失配。
+        _tempdir = Path(tempfile.gettempdir())
+        _sdk_tmp_prefixes = (
+            str(_tempdir / "claude-"),
+            str(_tempdir.resolve() / "claude-"),
+            "/tmp/claude-",
+            "/private/tmp/claude-",
+        )
+        if str(resolved).startswith(_sdk_tmp_prefixes) and "tasks" in resolved.parts:
+            return True, None
+        # projects_root 下：当前项目以外的子目录拒，根直放文件放行
+        projects_root = self.projects_root
+        if resolved.is_relative_to(projects_root):
+            rel_to_projects = resolved.relative_to(projects_root)
+            if rel_to_projects.parts:
+                first_entry = projects_root / rel_to_projects.parts[0]
+                if first_entry.is_dir() and first_entry.name != project_cwd.name:
+                    return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+            return True, None
+        # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
+        if resolved.is_relative_to(self._project_root_resolved):
+            return True, None
+        # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
+        return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
+
+    def _check_write_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
+        """Write/Edit 的写入约束：cwd 外一律拒，cwd 内代码扩展名拒（agent 不写代码）。"""
+        if not resolved.is_relative_to(project_cwd):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
 
-        # 规则 3: cwd 内写代码扩展名拒
         ext = resolved.suffix.lower()
         if ext in self._CODE_EXTENSIONS_FORBIDDEN:
             return False, (
