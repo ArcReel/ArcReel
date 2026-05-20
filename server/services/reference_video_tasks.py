@@ -326,10 +326,15 @@ async def execute_reference_video_task(
                 if u.get("unit_id") == resource_id:
                     ga = u.setdefault("generated_assets", {})
                     ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+                    # 重跑时若新结果不含 video_uri / 缩略图，清空旧值，避免指向过期 URI / 已删除文件
                     if video_uri:
                         ga["video_uri"] = video_uri
+                    else:
+                        ga.pop("video_uri", None)
                     if thumb_rel:
                         ga["video_thumbnail"] = thumb_rel
+                    else:
+                        ga.pop("video_thumbnail", None)
                     ga["status"] = "completed"
                     break
 

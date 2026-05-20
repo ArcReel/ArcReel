@@ -720,11 +720,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     project["episodes"] = new_episodes
 
             with project_change_source("webui"):
-                manager.update_project(name, _mutate)
-            # 返回经 load_project 的 fresh 副本，恢复改用 update_project 前由 load_project
-            # 读取时执行的 _migrate_legacy_style（持久化）+ _lazy_upgrade_image_provider 语义，
-            # 确保回前端的 project 含升级后的字段（与其它已迁移 helper 一致：均 return load_project）
-            return {"success": True, "project": manager.load_project(name)}
+                # update_project 已在持锁窗口内统一应用迁移，返回升级后字段，无需二次 load_project
+                return {"success": True, "project": manager.update_project(name, _mutate)}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
@@ -859,8 +856,9 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
             matched_segment: dict[str, Any] | None = None
             with project_change_source("webui"):
                 with manager.locked_script(name, req.script_file) as script:
-                    # 检查是否为说书模式
-                    if script.get("content_mode") != "narration" and "segments" not in script:
+                    # 检查是否为说书模式：仅 narration 且含 segments 键才放行；
+                    # drama 脚本即使残留 segments 键也拒绝，避免被当 narration 改写
+                    if script.get("content_mode") != "narration" or "segments" not in script:
                         raise HTTPException(status_code=400, detail=_t("narration_mode_required"))
 
                     for segment in script.get("segments", []):

@@ -120,12 +120,14 @@ class _FakePM:
         self.scripts[(name, script_file)] = payload
 
     def update_project(self, name, mutate_fn):
-        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务。
+        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务，
+        # 并返回迁移后的 project dict（调用方据此回前端，无需二次 load_project）。
         # deepcopy 后再 mutate，使异常时（save 未执行）backing store 不被原地突变污染，
         # 忠实于真实 PM「读裸 JSON、出错不写回」的语义。
         project = deepcopy(self.load_project(name))
         mutate_fn(project)
         self.save_project(name, project)
+        return project
 
     @contextmanager
     def locked_script(self, name, script_file):
@@ -367,6 +369,24 @@ class TestProjectsRouter:
             assert seg2["characters_in_segment"] == ["Bob", "Carol"]
             assert seg2["scenes"] == ["Castle"]
             assert seg2["props"] == []
+
+    def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
+        # drama 脚本残留 segments 键不应被当 narration 改写：须返回 400 而非放行
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "drama.json")] = {
+            "content_mode": "drama",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
+            "scenes": [{"scene_id": "E1S01"}],
+        }
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "drama.json", "duration_seconds": 7},
+            )
+            assert resp.status_code == 400
 
     def test_update_scene_supports_character_and_clue_refs(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
