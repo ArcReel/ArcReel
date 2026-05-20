@@ -40,7 +40,8 @@ const PROJECT = {
 describe("useTaskFailureNotifications", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    useTasksStore.setState({ tasks: [], connected: false });
+    // connected=true：模拟首个成功 poll 已完成、基线可建立。
+    useTasksStore.setState({ tasks: [], connected: true });
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT });
   });
 
@@ -69,6 +70,26 @@ describe("useTaskFailureNotifications", () => {
     useTasksStore.setState({ tasks: [task({ status: "failed" })] });
     render(<Harness project="demo" />);
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+  });
+
+  // 3 秒轮询下，任务可能在两次 poll 之间直接失败，首次被前端观测到时已是 failed。
+  // 基线建立后才首次出现的这类新任务应通知，否则后台快速失败会被漏报。
+  it("notifies for a brand-new task that appears already-failed after the baseline", async () => {
+    // 基线：首个成功 poll 已有一条历史 failed（被基线吸收，不通知）
+    useTasksStore.setState({ tasks: [task({ task_id: "old", status: "failed" })] });
+    render(<Harness project="demo" />);
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+    // 下一轮 poll：一个新 task_id 直接以 failed 出现（两次 poll 间快速失败）
+    act(() => {
+      useTasksStore.setState({
+        tasks: [
+          task({ task_id: "old", status: "failed" }),
+          task({ task_id: "fast", status: "failed", resource_id: "E1S02" }),
+        ],
+      });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(useAppStore.getState().workspaceNotifications[0].target).toMatchObject({ id: "E1S02" });
   });
 
   it("ignores tasks from other projects", () => {
