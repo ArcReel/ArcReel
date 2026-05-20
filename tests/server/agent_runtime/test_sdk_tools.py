@@ -542,8 +542,8 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
 
 
 async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
-    """工具必须把 ctx.project_name 传给 create_text_backend_for_task，
-    否则项目级 text_backend_script 覆盖被跳过，会回退到全局默认后端。"""
+    """工具必须把 ctx.project_name 传给 TextGenerator.create/generate，
+    否则项目级 text_backend_script 覆盖被跳过，且 usage tracking 会丢 project_name。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     project_path = fake_ctx.project_path
@@ -556,8 +556,10 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 
     captured: dict[str, Any] = {}
 
-    class _FakeBackend:
-        async def generate(self, _request):
+    class _FakeGenerator:
+        async def generate(self, _request, project_name=None):
+            captured["generate_project_name"] = project_name
+
             class _R:
                 text = "| 场景 ID | 描述 |\n|---|---|\n| E1S01 | 山中 |"
 
@@ -565,19 +567,24 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 
     async def fake_create(task_type, project_name=None):
         captured["task_type"] = task_type
-        captured["project_name"] = project_name
-        return _FakeBackend()
+        captured["create_project_name"] = project_name
+        return _FakeGenerator()
 
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
-    monkeypatch.setattr(mod, "create_text_backend_for_task", fake_create)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
 
     assert out.get("is_error") is not True, out
-    assert captured["project_name"] == "demo", (
-        f"normalize_drama_script 必须传入 project_name 以让项目级 text_backend_script 覆盖生效，"
-        f"实际传入: {captured.get('project_name')!r}"
+    assert captured["task_type"] is mod.TextTaskType.SCRIPT
+    assert captured["create_project_name"] == "demo", (
+        f"normalize_drama_script 必须向 TextGenerator.create 传入 project_name，"
+        f"实际传入: {captured.get('create_project_name')!r}"
+    )
+    assert captured["generate_project_name"] == "demo", (
+        f"normalize_drama_script 必须向 TextGenerator.generate 传入 project_name，"
+        f"实际传入: {captured.get('generate_project_name')!r}"
     )
 
 

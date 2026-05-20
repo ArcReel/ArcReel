@@ -292,6 +292,7 @@ describe("stores", () => {
           error_message: null,
           started_at: "2026-02-01T00:00:00Z",
           created_at: "2026-02-01T00:00:00Z",
+          usage_tokens: null,
           input_tokens: null,
           output_tokens: null,
         },

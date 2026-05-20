@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from lib.custom_provider import is_custom_provider
 from lib.openai_shared import OPENAI_IMAGE_SIZE_MAP
-from lib.providers import PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, CallType
+from lib.providers import PROVIDER_ANTHROPIC, PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, CallType
 
 # fork: Vidu provider — 单独 import 块以避免与上游聚合 import 冲突
 # isort: off
@@ -168,6 +168,22 @@ class CostCalculator:
         "gpt-5.4": {"input": 2.50, "output": 15.00},
         "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
         "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
+    }
+
+    # Claude Agent SDK / Anthropic 文本 token 费率（美元/百万 token）。
+    # 助手主链路优先使用 SDK result.total_cost_usd；这里作为只拿到 token 时的兜底。
+    ANTHROPIC_TEXT_COST = {
+        "claude-sonnet-4": {"input": 3.00, "output": 15.00},
+        "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
+        "claude-sonnet-4.5": {"input": 3.00, "output": 15.00},
+        "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
+        "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+        "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
+        "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
+        "claude-haiku-4-20250514": {"input": 1.00, "output": 5.00},
+        "claude-opus-4": {"input": 15.00, "output": 75.00},
+        "claude-opus-4-6": {"input": 15.00, "output": 75.00},
+        "claude-opus-4-7": {"input": 15.00, "output": 75.00},
     }
     # OpenAI 图片 token 费率（美元/百万 token）— GPT Image 实际计费形式
     # 来源：https://platform.openai.com/docs/pricing — GPT Image (April 2026)
@@ -431,6 +447,7 @@ class CostCalculator:
         PROVIDER_ARK: ("ARK_TEXT_COST", "doubao-seed-2-0-lite-260215", "CNY"),
         PROVIDER_GROK: ("GROK_TEXT_COST", "grok-4-1-fast-reasoning", "USD"),
         PROVIDER_OPENAI: ("OPENAI_TEXT_COST", "gpt-5.4-mini", "USD"),
+        PROVIDER_ANTHROPIC: ("ANTHROPIC_TEXT_COST", "claude-sonnet-4", "USD"),
     }
     _TEXT_COST_DEFAULT = ("GEMINI_TEXT_COST", "gemini-3-flash-preview", "USD")
 
