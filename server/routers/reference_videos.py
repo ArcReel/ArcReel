@@ -115,7 +115,9 @@ def _locked_episode_script(project_name: str, resolver: Callable[[dict], str]) -
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EpisodeScriptReboundError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # 不外泄内部 script_file 绑定细节（原始消息仅用于服务端日志），返回通用可重试提示
+        logger.info("episode script rebound during write: %s", exc)
+        raise HTTPException(status_code=409, detail="episode script binding changed, please retry") from exc
 
 
 def _validate_references_exist(project: dict, refs: list[dict]) -> None:

@@ -1,7 +1,8 @@
 """`ProjectManager.locked_episode_script` 的跨锁竞态（TOCTOU）防护测试。
 
 覆盖：
-  1. 写回跳过 `sync_episode_from_script`（`sync_project=False`），避免已持项目锁时自死锁；
+  1. 写脚本不经会二次取项目锁的 `sync_episode_from_script`（避免自死锁），但仍在持锁内联
+     刷新 project.json 的 `updated_at`；
   2. 解析→写入全程持 `_project_lock`，并发 `update_project` 被挡到临界区之外；
   3. 加锁前后绑定改变（并发 PATCH 改绑）抛 `EpisodeScriptReboundError`，不误写任何脚本；
   4. 整段不挂起（sync 自死锁回归）。
@@ -43,23 +44,31 @@ def _seed(pm: ProjectManager, name: str) -> None:
     )
 
 
-def test_locked_episode_script_skips_project_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """locked_episode_script 写回时不触发 sync（sync_project=False）；对照 locked_script 会触发。"""
+def test_locked_episode_script_no_relock_but_refreshes_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """locked_episode_script 不走会二次取项目锁的 sync_episode_from_script，但仍刷新 project.json。"""
     pm = ProjectManager(tmp_path)
     name = "p-sync"
     _seed(pm, name)
+
+    # 把 project.json 的 updated_at 置为哨兵旧值（绕过会自动 touch 的写入路径）
+    from lib.json_io import atomic_write_json
+
+    project_file = pm._get_project_file_path(name)
+    project = pm.load_project(name)
+    project["metadata"]["updated_at"] = "2020-01-01T00:00:00+00:00"
+    atomic_write_json(project_file, project)
 
     calls: list[tuple] = []
     monkeypatch.setattr(pm, "sync_episode_from_script", lambda *a, **k: calls.append(a))
 
     with pm.locked_episode_script(name, lambda _proj: "episode_1.json") as script:
         script["video_units"] = [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}]
-    assert calls == [], "locked_episode_script 不应调用 sync_episode_from_script（会二次取项目锁）"
 
-    # 对照：现有 locked_script 仍会同步到 project.json
-    with pm.locked_script(name, "episode_1.json") as script:
-        script.setdefault("video_units", [])
-    assert len(calls) == 1, "locked_script 应保持触发 sync（默认 sync_project=True）"
+    # 不调用会二次取项目锁的 sync_episode_from_script（否则自死锁）
+    assert calls == [], "locked_episode_script 不应调用 sync_episode_from_script"
+    # 但 project.json 的 updated_at 仍被内联刷新（对齐旧路径行为）
+    refreshed = pm.load_project(name)
+    assert refreshed["metadata"]["updated_at"] != "2020-01-01T00:00:00+00:00", "project.json updated_at 未刷新"
 
 
 def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Path) -> None:

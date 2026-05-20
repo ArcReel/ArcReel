@@ -562,8 +562,11 @@ class ProjectManager:
 
         解析候选 → 加锁 → 复核绑定 → 写入全程在持 `_project_lock` 的临界区内完成，消除
         「锁外读 script_file 后被并发 PATCH 改绑、写入落到旧脚本」的 TOCTOU。锁获取顺序与
-        worker 回写（`locked_script` → sync）保持一致的 脚本锁 → 项目锁，避免 ABBA 死锁；
-        写回经 `sync_project=False` 跳过会二次取项目锁的 sync，避免同进程自死锁。
+        worker 回写（`locked_script` → sync）保持一致的 脚本锁 → 项目锁，避免 ABBA 死锁。
+
+        写脚本经 `sync_project=False` 跳过 `_write_script_unlocked` 内会二次取项目锁的 sync
+        （避免同进程自死锁）；改在已持有的项目锁内联完成集元数据同步与 project.json 写回，
+        与旧 `locked_script` → sync 路径行为一致（刷新 episodes 元数据与 `updated_at`）。
 
         若加锁前后绑定指向了不同脚本（并发改绑），抛 `EpisodeScriptReboundError` 让调用方重试。
         """
@@ -571,13 +574,21 @@ class ProjectManager:
         norm = candidate[len("scripts/") :] if candidate.startswith("scripts/") else candidate
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):
-                current = resolve_script_file(self._read_project_raw_unlocked(project_name))
+                project = self._read_project_raw_unlocked(project_name)
+                current = resolve_script_file(project)
                 cur_norm = current[len("scripts/") :] if current.startswith("scripts/") else current
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
                 script = self.load_script(project_name, norm)
                 yield script
                 self._write_script_unlocked(project_name, script, norm, sync_project=False)
+                # 在已持项目锁内联同步 project.json（等价旧 sync 路径，但不二次取锁）
+                if isinstance(script.get("episode"), int):
+                    self._apply_episode_sync(project, script, norm)
+                self._migrate_legacy_resolution_on_save(project)
+                self._touch_metadata(project)
+                atomic_write_json(self._get_project_file_path(project_name), project)
+                emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
 
     @staticmethod
     def _require_filename_episode_consistency(script: dict, script_filename: str) -> None:
@@ -635,7 +646,15 @@ class ProjectManager:
                 错写为 episode=1，会覆盖第 1 集）。
         """
         script = self.load_script(project_name, script_filename)
+        self.update_project(project_name, lambda project: self._apply_episode_sync(project, script, script_filename))
+        return self.load_project(project_name)
 
+    def _apply_episode_sync(self, project: dict, script: dict, script_filename: str) -> None:
+        """把剧本的集号/标题/script_file 同步进 `project`（就地修改，不取锁、不写盘）。
+
+        供 `sync_episode_from_script`（在 `update_project` 锁内）与 `locked_episode_script`
+        （在已持 `_project_lock` 的临界区内）共用，避免重复实现集元数据同步逻辑。
+        """
         base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
         # 防御纵深：SSE 扫描路径直接调用此函数（不经 save_script），同样需要校验
         self._require_filename_episode_consistency(script, base_name)
@@ -649,22 +668,18 @@ class ProjectManager:
         episode_title = script.get("title", "")
         script_file = f"scripts/{base_name}"
 
-        def _mutate(project: dict) -> None:
-            # 查找或创建 episode 条目（整段 RMW 在单一 _project_lock 内完成，避免并发同步丢失）
-            episodes = project.setdefault("episodes", [])
-            episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
-            if episode_entry is None:
-                episode_entry = {"episode": episode_num}
-                episodes.append(episode_entry)
-            # 同步核心元数据（不包含统计字段，统计字段由 StatusCalculator 读时计算）
-            episode_entry["title"] = episode_title
-            episode_entry["script_file"] = script_file
-            episodes.sort(key=lambda x: x["episode"])
-
-        self.update_project(project_name, _mutate)
+        # 查找或创建 episode 条目（整段 RMW 在单一 _project_lock 内完成，避免并发同步丢失）
+        episodes = project.setdefault("episodes", [])
+        episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
+        if episode_entry is None:
+            episode_entry = {"episode": episode_num}
+            episodes.append(episode_entry)
+        # 同步核心元数据（不包含统计字段，统计字段由 StatusCalculator 读时计算）
+        episode_entry["title"] = episode_title
+        episode_entry["script_file"] = script_file
+        episodes.sort(key=lambda x: x["episode"])
 
         logger.info("已同步剧集信息: Episode %d - %s", episode_num, episode_title)
-        return self.load_project(project_name)
 
     def load_script(self, project_name: str, filename: str) -> dict:
         """
