@@ -317,22 +317,21 @@ async def execute_reference_video_task(
         thumb_path.unlink(missing_ok=True)
         thumb_rel = None
 
-    # 9. 更新 unit.generated_assets（简单读改写 episode script）
+    # 9. 更新 unit.generated_assets（在 locked_script 内完成 read-modify-write，
+    #    避免与并发的 PATCH / 其他 unit 回写互相覆盖）
     def _update_unit_assets():
         pm = get_project_manager()
-        script = pm.load_script(project_name, script_file)
-        for u in script.get("video_units") or []:
-            if u.get("unit_id") == resource_id:
-                ga = u.setdefault("generated_assets", {})
-                ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
-                if video_uri:
-                    ga["video_uri"] = video_uri
-                if thumb_rel:
-                    ga["video_thumbnail"] = thumb_rel
-                ga["status"] = "completed"
-                break
-        pm.save_script(project_name, script, script_file)
-        return script
+        with pm.locked_script(project_name, script_file) as script:
+            for u in script.get("video_units") or []:
+                if u.get("unit_id") == resource_id:
+                    ga = u.setdefault("generated_assets", {})
+                    ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+                    if video_uri:
+                        ga["video_uri"] = video_uri
+                    if thumb_rel:
+                        ga["video_thumbnail"] = thumb_rel
+                    ga["status"] = "completed"
+                    break
 
     await asyncio.to_thread(_update_unit_assets)
 

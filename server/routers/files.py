@@ -831,17 +831,18 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
         style_description = result.text
 
         def _sync_save():
-            # 更新 project.json
-            project_data = get_project_manager().load_project(project_name)
-            project_data["style_image"] = style_filename
-            project_data["style_description"] = style_description
-            # 强互斥：自定义参考图与模版二选一。除了清 template_id，
-            # 还需清掉之前由模板展开写入的 `style` prompt，否则生成链路会把
-            # 模板 prompt 与 style_description 同时喂给 LLM，破坏二选一语义。
-            project_data.pop("style_template_id", None)
-            project_data["style"] = ""
+            # 更新 project.json：整段 RMW 在单一 _project_lock 内完成，避免覆盖并发写入的其它字段
+            def _mutate(project_data: dict) -> None:
+                project_data["style_image"] = style_filename
+                project_data["style_description"] = style_description
+                # 强互斥：自定义参考图与模版二选一。除了清 template_id，
+                # 还需清掉之前由模板展开写入的 `style` prompt，否则生成链路会把
+                # 模板 prompt 与 style_description 同时喂给 LLM，破坏二选一语义。
+                project_data.pop("style_template_id", None)
+                project_data["style"] = ""
+
             with project_change_source("webui"):
-                get_project_manager().save_project(project_name, project_data)
+                get_project_manager().update_project(project_name, _mutate)
 
         await asyncio.to_thread(_sync_save)
 

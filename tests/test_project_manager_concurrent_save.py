@@ -208,6 +208,69 @@ class TestSyncAfterConcurrentWrite:
         assert loaded["title"] == episodes[0]["title"]
 
 
+class TestConcurrentReadModifyWrite:
+    """并发 read-modify-write 不应丢更新（issue #334）。"""
+
+    def test_concurrent_update_scene_asset_preserves_all(self, tmp_path: Path) -> None:
+        """并发对不同 segment 调用 update_scene_asset，所有写入都必须持久化。
+
+        修复前 load_script 在锁外、save_script 仅锁住写入，多个线程读到同一份快照后
+        互相覆盖，只有最后一个写者的更新存活。locked_script 把整段 RMW 收进单锁后应全部保留。
+        """
+        pm = ProjectManager(tmp_path)
+        name = "proj-rmw"
+        _seed_project(pm, name)
+
+        n = 24
+        pm.save_script(name, _make_script(1, payload_size=n), "episode_1.json")
+
+        # 用 barrier 让所有线程尽量同时进入，最大化竞争窗口
+        barrier = threading.Barrier(n)
+
+        def _writer(i: int) -> None:
+            barrier.wait()
+            pm.update_scene_asset(
+                project_name=name,
+                script_filename="episode_1.json",
+                scene_id=f"E1S{i}",
+                asset_type="video_clip",
+                asset_path=f"videos/scene_{i}.mp4",
+            )
+
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            futures = [pool.submit(_writer, i) for i in range(n)]
+            for fut in as_completed(futures):
+                fut.result()
+
+        loaded = pm.load_script(name, "episode_1.json")
+        by_id = {s["segment_id"]: s for s in loaded["segments"]}
+        for i in range(n):
+            ga = by_id[f"E1S{i}"].get("generated_assets") or {}
+            assert ga.get("video_clip") == f"videos/scene_{i}.mp4", f"E1S{i} 的更新丢失：{ga}"
+
+    def test_update_scene_asset_missing_scene_does_not_write(self, tmp_path: Path) -> None:
+        """目标 scene 不存在时抛 KeyError 且不改动文件（locked_script 跳过写回）。"""
+        pm = ProjectManager(tmp_path)
+        name = "proj-rmw-missing"
+        _seed_project(pm, name)
+        pm.save_script(name, _make_script(1, payload_size=4), "episode_1.json")
+
+        before = (pm.get_project_path(name) / "scripts" / "episode_1.json").read_bytes()
+        try:
+            pm.update_scene_asset(
+                project_name=name,
+                script_filename="episode_1.json",
+                scene_id="NOPE",
+                asset_type="video_clip",
+                asset_path="videos/nope.mp4",
+            )
+            raise AssertionError("应抛 KeyError")
+        except KeyError:
+            pass
+        after = (pm.get_project_path(name) / "scripts" / "episode_1.json").read_bytes()
+        assert before == after, "未命中时不应改写脚本文件"
+
+
 def test_loaded_json_not_extra_data_after_save_script(tmp_path: Path) -> None:
     """回归：save_script 后磁盘内容必须是单个 JSON 对象，不能有 Extra data。"""
     pm = ProjectManager(tmp_path)

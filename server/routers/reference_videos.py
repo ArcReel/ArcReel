@@ -74,6 +74,28 @@ def _load_episode_script(project_name: str, episode: int) -> tuple[dict, dict, s
     return project, script, script_file
 
 
+def _resolve_episode(project_name: str, episode: int) -> tuple[dict, str]:
+    """加载 project.json，解析并校验指定集的 script_file（不预读 script）。
+
+    返回 (project, script_file)。写端点据此进入 `locked_script` 在锁内 fresh-load 剧本，
+    避免在锁外读取的快照与并发写者互相覆盖。
+    """
+    try:
+        project = get_project_manager().load_project(project_name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    episodes = project.get("episodes") or []
+    meta = next((e for e in episodes if e.get("episode") == episode), None)
+    if meta is None or not meta.get("script_file"):
+        raise HTTPException(status_code=404, detail=f"episode {episode} not found")
+    if effective_mode(project=project, episode=meta) != "reference_video":
+        raise HTTPException(
+            status_code=409,
+            detail="episode script is not in reference_video mode",
+        )
+    return project, meta["script_file"]
+
+
 def _validate_references_exist(project: dict, refs: list[dict]) -> None:
     """确保 references 都在 project.json 对应 bucket 中。"""
     missing: list[str] = []
@@ -145,21 +167,22 @@ async def add_unit(
     req: AddUnitRequest,
     _user: CurrentUser,
 ) -> dict[str, Any]:
-    project, script, script_file = _load_episode_script(project_name, episode)
+    project, script_file = _resolve_episode(project_name, episode)
 
     refs = [r.model_dump() for r in req.references]
     _validate_references_exist(project, refs)
 
-    unit = _build_unit_dict(
-        unit_id=_next_unit_id(script, episode),
-        prompt=req.prompt,
-        references=refs,
-        duration_override=req.duration_seconds,
-        transition=req.transition_to_next,
-        note=req.note,
-    )
-    script.setdefault("video_units", []).append(unit)
-    get_project_manager().save_script(project_name, script, script_file)
+    with get_project_manager().locked_script(project_name, script_file) as script:
+        # unit_id 在锁内基于 fresh script 计算，避免并发新增撞 ID
+        unit = _build_unit_dict(
+            unit_id=_next_unit_id(script, episode),
+            prompt=req.prompt,
+            references=refs,
+            duration_override=req.duration_seconds,
+            transition=req.transition_to_next,
+            note=req.note,
+        )
+        script.setdefault("video_units", []).append(unit)
     return {"unit": unit}
 
 
@@ -189,32 +212,37 @@ async def patch_unit(
     req: PatchUnitRequest,
     _user: CurrentUser,
 ) -> dict[str, Any]:
-    project, script, script_file = _load_episode_script(project_name, episode)
-    unit = _find_unit(script, unit_id)
+    project, script_file = _resolve_episode(project_name, episode)
 
+    # references 存在性校验对 project（只读）先做，失败 raise 400（在进锁前）
+    refs: list[dict] | None = None
     if req.references is not None:
         refs = [r.model_dump() for r in req.references]
         _validate_references_exist(project, refs)
-        unit["references"] = refs
 
-    if req.prompt is not None:
-        shots, _mentions, override = parse_prompt(req.prompt)
-        if override and req.duration_seconds is not None:
-            shots[0].duration = max(1, int(req.duration_seconds))
-        unit["shots"] = [s.model_dump() for s in shots]
-        unit["duration_seconds"] = sum(s.duration for s in shots)
-        unit["duration_override"] = override
-    elif req.duration_seconds is not None and unit.get("duration_override"):
-        unit["duration_seconds"] = max(1, int(req.duration_seconds))
-        if unit.get("shots"):
-            unit["shots"][0]["duration"] = unit["duration_seconds"]
+    with get_project_manager().locked_script(project_name, script_file) as script:
+        unit = _find_unit(script, unit_id)  # 未找到 raise 404 → 跳过写回
 
-    if req.transition_to_next is not None:
-        unit["transition_to_next"] = req.transition_to_next
-    if req.note is not None:
-        unit["note"] = req.note
+        if refs is not None:
+            unit["references"] = refs
 
-    get_project_manager().save_script(project_name, script, script_file)
+        if req.prompt is not None:
+            shots, _mentions, override = parse_prompt(req.prompt)
+            if override and req.duration_seconds is not None:
+                shots[0].duration = max(1, int(req.duration_seconds))
+            unit["shots"] = [s.model_dump() for s in shots]
+            unit["duration_seconds"] = sum(s.duration for s in shots)
+            unit["duration_override"] = override
+        elif req.duration_seconds is not None and unit.get("duration_override"):
+            unit["duration_seconds"] = max(1, int(req.duration_seconds))
+            if unit.get("shots"):
+                unit["shots"][0]["duration"] = unit["duration_seconds"]
+
+        if req.transition_to_next is not None:
+            unit["transition_to_next"] = req.transition_to_next
+        if req.note is not None:
+            unit["note"] = req.note
+
     return {"unit": unit}
 
 
@@ -225,13 +253,14 @@ async def delete_unit(
     unit_id: str,
     _user: CurrentUser,
 ) -> Response:
-    _project, script, script_file = _load_episode_script(project_name, episode)
-    units = script.get("video_units") or []
-    new_units = [u for u in units if u.get("unit_id") != unit_id]
-    if len(new_units) == len(units):
-        raise HTTPException(status_code=404, detail=f"unit {unit_id} not found")
-    script["video_units"] = new_units
-    get_project_manager().save_script(project_name, script, script_file)
+    _project, script_file = _resolve_episode(project_name, episode)
+    with get_project_manager().locked_script(project_name, script_file) as script:
+        units = script.get("video_units") or []
+        new_units = [u for u in units if u.get("unit_id") != unit_id]
+        if len(new_units) == len(units):
+            # 未找到 → 在锁内 raise，跳过写回
+            raise HTTPException(status_code=404, detail=f"unit {unit_id} not found")
+        script["video_units"] = new_units
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -246,21 +275,23 @@ async def reorder_units(
     req: ReorderRequest,
     _user: CurrentUser,
 ) -> dict[str, Any]:
-    _project, script, script_file = _load_episode_script(project_name, episode)
-    units = script.get("video_units") or []
-    existing_ids = [u.get("unit_id") for u in units]
+    _project, script_file = _resolve_episode(project_name, episode)
+    with get_project_manager().locked_script(project_name, script_file) as script:
+        units = script.get("video_units") or []
+        existing_ids = [u.get("unit_id") for u in units]
 
-    if len(req.unit_ids) != len(existing_ids):
-        raise HTTPException(status_code=400, detail="unit_ids length mismatch")
-    if len(set(req.unit_ids)) != len(req.unit_ids):
-        raise HTTPException(status_code=400, detail="duplicate unit_ids")
-    if set(req.unit_ids) != set(existing_ids):
-        raise HTTPException(status_code=400, detail="unit_ids do not match existing units")
+        # 校验失败 → 在锁内 raise 400，跳过写回
+        if len(req.unit_ids) != len(existing_ids):
+            raise HTTPException(status_code=400, detail="unit_ids length mismatch")
+        if len(set(req.unit_ids)) != len(req.unit_ids):
+            raise HTTPException(status_code=400, detail="duplicate unit_ids")
+        if set(req.unit_ids) != set(existing_ids):
+            raise HTTPException(status_code=400, detail="unit_ids do not match existing units")
 
-    by_id = {u["unit_id"]: u for u in units}
-    script["video_units"] = [by_id[uid] for uid in req.unit_ids]
-    get_project_manager().save_script(project_name, script, script_file)
-    return {"units": script["video_units"]}
+        by_id = {u["unit_id"]: u for u in units}
+        reordered = [by_id[uid] for uid in req.unit_ids]
+        script["video_units"] = reordered
+    return {"units": reordered}
 
 
 @router.post(

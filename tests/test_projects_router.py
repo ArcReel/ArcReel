@@ -1,4 +1,5 @@
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -113,7 +114,22 @@ class _FakePM:
         return self.scripts[key]
 
     def save_script(self, name, payload, script_file):
+        if script_file.startswith("scripts/"):
+            script_file = script_file[len("scripts/") :]
         self.scripts[(name, script_file)] = payload
+
+    def update_project(self, name, mutate_fn):
+        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务
+        project = self.load_project(name)
+        mutate_fn(project)
+        self.save_project(name, project)
+
+    @contextmanager
+    def locked_script(self, name, script_file):
+        # 复刻真实 ProjectManager.locked_script：load → yield → save，异常时跳过写回
+        script = self.load_script(name, script_file)
+        yield script
+        self.save_script(name, script, script_file)
 
     async def generate_overview(self, name):
         if name == "ready":
