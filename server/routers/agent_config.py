@@ -237,11 +237,11 @@ async def delete_credential(
 ) -> None:
     repo = AgentCredentialRepository(session)
     try:
-        await repo.delete(cred_id)
+        deleted = await repo.delete(cred_id)
     except ValueError as exc:
-        if "active" in str(exc):
-            raise HTTPException(status_code=409, detail=_t("agent_cannot_delete_active")) from exc
-        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found")) from exc
+        raise HTTPException(status_code=409, detail=_t("agent_cannot_delete_active")) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     await session.commit()
 
 

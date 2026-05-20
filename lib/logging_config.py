@@ -1,9 +1,36 @@
 """统一日志配置。"""
 
+from __future__ import annotations
+
 import logging
 import os
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
+
+from lib.app_data_dir import app_data_dir
+from lib.env_init import PROJECT_ROOT
 
 _HANDLER_ATTR = "_arcreel_logging"
+_FILE_HANDLER_ATTR = "_arcreel_file_logging"
+_DISABLED_TRUTHY = frozenset({"1", "true", "yes"})
+
+
+def _file_logging_disabled() -> bool:
+    return os.environ.get("ARCREEL_LOG_FILE_DISABLED", "").strip().lower() in _DISABLED_TRUTHY
+
+
+def resolve_log_dir() -> Path:
+    """日志目录解析：ARCREEL_LOG_DIR > app_data_dir()/logs。
+
+    相对路径基于 PROJECT_ROOT，与 app_data_dir 的策略保持一致。
+    """
+    raw = os.environ.get("ARCREEL_LOG_DIR", "").strip()
+    if raw:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path
+    return app_data_dir() / "logs"
 
 
 def setup_logging(level: str | None = None) -> None:
@@ -21,18 +48,36 @@ def setup_logging(level: str | None = None) -> None:
     root = logging.getLogger()
     root.setLevel(numeric_level)
 
-    # 幂等：避免重复添加 handler
-    if any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers):
-        return
-
     formatter = logging.Formatter(
         fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-    setattr(handler, _HANDLER_ATTR, True)
-    root.addHandler(handler)
+
+    # 幂等：避免重复添加 stream handler
+    if not any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        setattr(handler, _HANDLER_ATTR, True)
+        root.addHandler(handler)
+
+    # 文件 handler：默认开启，按天切，保留 7 份。失败不阻塞 stdout。
+    file_handler_exists = any(getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers)
+    if not _file_logging_disabled() and not file_handler_exists:
+        try:
+            log_dir = resolve_log_dir()
+            log_dir.mkdir(parents=True, exist_ok=True)
+            file_handler = TimedRotatingFileHandler(
+                filename=str(log_dir / "arcreel.log"),
+                when="midnight",
+                backupCount=7,
+                encoding="utf-8",
+                utc=False,
+            )
+            file_handler.setFormatter(formatter)
+            setattr(file_handler, _FILE_HANDLER_ATTR, True)
+            root.addHandler(file_handler)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("file logging disabled: %s", exc)
 
     # 统一 uvicorn 的日志格式，避免两种格式并存
     for name in ("uvicorn", "uvicorn.error"):

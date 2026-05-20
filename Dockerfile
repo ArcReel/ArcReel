@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     bubblewrap \
     socat \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv
@@ -39,6 +40,9 @@ WORKDIR /app
 
 # 禁用 Python 输出缓冲，确保日志实时输出到 Docker logs
 ENV PYTHONUNBUFFERED=1
+
+# 默认时区，可由 docker-compose / 运行时 -e TZ=... 覆盖
+ENV TZ=Asia/Shanghai
 
 # 先复制依赖和包元数据文件，利用缓存
 COPY pyproject.toml uv.lock README.md ./

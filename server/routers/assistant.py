@@ -16,7 +16,7 @@ from lib import PROJECT_ROOT
 from lib.i18n import Translator, get_locale
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
-from server.agent_runtime.session_manager import SessionCapacityError
+from server.agent_runtime.session_manager import AgentStartupError, SessionCapacityError
 from server.auth import CurrentUser, CurrentUserFlexible
 
 router = APIRouter()
@@ -91,6 +91,11 @@ async def send_message(
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except AgentStartupError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_t("agent_startup_failed", details=str(exc)),
+        )
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))

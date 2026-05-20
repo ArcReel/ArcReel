@@ -14,6 +14,7 @@ import { API } from "@/api";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
+import { formatShortDateTime } from "@/utils/date-format";
 import type { CallType } from "@/types/provider";
 
 // ---------------------------------------------------------------------------
@@ -286,7 +287,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                       </>
                     )}
                     <span className="num ml-auto shrink-0">
-                      {formatDateTime(call.started_at || call.created_at)}
+                      {formatShortDateTime(call.started_at || call.created_at) ?? (call.started_at || call.created_at)}
                     </span>
                   </div>
                   {call.status === "failed" && call.error_message && (
@@ -445,15 +446,6 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
-}
-
-function formatDateTime(isoStr: string): string {
-  try {
-    const d = new Date(isoStr);
-    return `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-  } catch {
-    return isoStr;
-  }
 }
 
 function extractFilename(outputPath: string | null | undefined): string {

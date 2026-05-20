@@ -626,6 +626,63 @@ describe("API", () => {
       expect(clearTokenMock).toHaveBeenCalledTimes(1);
       expect(location.href).toBe("/login");
     });
+
+    describe("downloadDiagnostics", () => {
+      it("parses filename from Content-Disposition and returns blob", async () => {
+        const blob = new Blob(["zip-bytes"], { type: "application/zip" });
+        const fetchMock = vi.fn().mockResolvedValue(
+          mockResponse({
+            blobData: blob,
+            headers: {
+              "Content-Disposition": 'attachment; filename="arcreel-diagnostics-2026-05-19-0700Z.zip"',
+            },
+          }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+
+        const result = await API.downloadDiagnostics();
+
+        expect(result.filename).toBe("arcreel-diagnostics-2026-05-19-0700Z.zip");
+        expect(result.blob).toBe(blob);
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/api/v1/system/logs/download",
+          expect.objectContaining({ method: "GET" }),
+        );
+      });
+
+      it("falls back to default filename when Content-Disposition is missing", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(
+          mockResponse({ blobData: new Blob() }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+
+        const result = await API.downloadDiagnostics();
+        expect(result.filename).toBe("arcreel-diagnostics.zip");
+      });
+
+      it("triggers unauthorized handling on 401", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(
+          mockResponse({ ok: false, status: 401, statusText: "Unauthorized" }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        const clearTokenMock = vi.spyOn(await import("@/utils/auth"), "clearToken");
+        const location = { href: "/app/settings" };
+        vi.stubGlobal("location", location);
+
+        await expect(API.downloadDiagnostics()).rejects.toThrow("认证已过期，请重新登录");
+        expect(clearTokenMock).toHaveBeenCalledTimes(1);
+        expect(location.href).toBe("/login");
+      });
+
+      it("throws on other HTTP errors", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(
+          mockResponse({ ok: false, status: 500, statusText: "Internal Server Error", textData: "boom" }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(API.downloadDiagnostics()).rejects.toThrow();
+      });
+    });
   });
 
   describe("openTaskStream", () => {

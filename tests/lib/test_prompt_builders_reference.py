@@ -29,6 +29,7 @@ def test_build_reference_video_prompt_contains_required_sections():
         supported_durations=[5, 8, 10],
         max_refs=9,
         aspect_ratio="9:16",
+        episode=1,
     )
 
     # 必备上下文
@@ -63,6 +64,7 @@ def test_build_reference_video_prompt_emphasizes_no_appearance_description():
         units_md="stub",
         supported_durations=[8],
         max_refs=9,
+        episode=1,
     )
     assert "外貌" in prompt  # 有反向说明
 
@@ -79,6 +81,7 @@ def test_build_reference_video_prompt_lists_shot_max_count():
         units_md="stub",
         supported_durations=[8],
         max_refs=9,
+        episode=1,
     )
     assert "4" in prompt  # shot 数量上限
 
@@ -96,6 +99,7 @@ def test_build_reference_video_prompt_injects_max_duration():
         supported_durations=list(range(1, 16)),
         max_refs=7,
         max_duration=15,
+        episode=1,
     )
     assert "15 秒" in prompt
     assert "当前模型上限" in prompt
@@ -113,5 +117,25 @@ def test_build_reference_video_prompt_max_duration_none_skips_segment():
         units_md="stub",
         supported_durations=[4, 8],
         max_refs=9,
+        episode=1,
     )
     assert "当前模型上限" not in prompt
+
+
+def test_build_reference_video_prompt_injects_episode_constraints():
+    """reference_video prompt 必须告知 LLM 当前 episode，避免 unit_id 跨集污染（#574）。"""
+    prompt = build_reference_video_prompt(
+        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        style="s",
+        style_description="d",
+        characters={},
+        scenes={},
+        props={},
+        units_md="stub",
+        supported_durations=[8],
+        max_refs=9,
+        episode=3,
+    )
+    assert "第 3 集" in prompt
+    assert "E3U" in prompt
+    assert "<episode_constraints>" in prompt

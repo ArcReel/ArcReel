@@ -21,6 +21,8 @@ export function AboutSection() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(
@@ -29,6 +31,30 @@ export function AboutSection() {
     },
     [],
   );
+
+  const handleDownloadDiagnostics = useCallback(async () => {
+    if (!mountedRef.current) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const { blob, filename } = await API.downloadDiagnostics();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (mountedRef.current) {
+        setDownloading(false);
+      }
+    }
+  }, []);
 
   const fetchVersion = useCallback(async () => {
     setError(null);
@@ -207,6 +233,30 @@ export function AboutSection() {
           </div>
         ) : (
           <p className="text-[12.5px] text-text-3">{t("about_release_notes_empty")}</p>
+        )}
+      </div>
+
+      {/* Diagnostic logs */}
+      <div
+        className="rounded-[12px] border border-hairline p-6"
+        style={CARD_STYLE}
+      >
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          {t("diagnostics_section_title")}
+        </div>
+        <p className="text-[12.5px] text-text-3">{t("diagnostics_section_desc")}</p>
+        <button
+          type="button"
+          onClick={() => void handleDownloadDiagnostics()}
+          disabled={downloading}
+          className={`${GHOST_BTN_LG_CLS} mt-3`}
+        >
+          {downloading ? t("diagnostics_downloading") : t("diagnostics_download")}
+        </button>
+        {downloadError && (
+          <p className="text-sm text-red-400 mt-2">
+            {t("diagnostics_download_failed", { error: downloadError })}
+          </p>
         )}
       </div>
     </section>

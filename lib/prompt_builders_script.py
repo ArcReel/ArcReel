@@ -55,16 +55,25 @@ def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
 # ---------------------------------------------------------------------------
 
 # image_prompt.scene 写作指导：原则 + 正反例。LLM 对示例的泛化优于对清单的执行。
-_SCENE_WRITING_GUIDE = """用一段连贯的描述说明当前画面中真实可见的元素：角色姿态、面部可观察的状态、环境细节、可见的氛围信号（光线、雾、雨等）。聚焦"此刻这一帧"，不要混入过去/未来事件、抽象情绪词或镜头之外的元素。
-   好例：「林清坐在窗边木桌前，左手撑着下巴，目光落在桌上一封拆开的信纸上。窗外细雨打在木格窗棂，半边脸笼在蓝灰色的阴影里。」
-   反例：「林清陷入了多年前那个绝望的雨夜，画面基调：忧郁。光影设定：冷调。」"""
+# 好例用方括号小标注隐性传达"主体 / 环境 / 光线 / 氛围"四层覆盖。
+_SCENE_WRITING_GUIDE = """用一段连贯的描述说明当前画面中真实可见的元素：角色姿态、面部可观察的状态、环境细节、可见的氛围信号（光线、雾、雨等）。聚焦"此刻这一帧"，不要混入过去/未来事件、抽象情绪词或镜头之外的元素。画面元素（材质、装束、道具质感、环境年代特征）须贴合上方 `<style>` 块定义的风格基调，避免与风格相冲的元素混入（例如赛博朋克风下不出现榻榻米，国风水墨下不出现霓虹屏）。
+   好例：「[主体] 林清坐在窗边木桌前，左手撑着下巴，目光落在桌上一封拆开的信纸上。[环境] 桌面摊着信封与一只褪色的怀表。[光线] 半边脸笼在右侧落地窗逆光的蓝灰色阴影里。[氛围] 雨丝拍在木格窗棂，玻璃凝着细小水珠。」
+   反例（跑偏）：「林清陷入了多年前那个绝望的雨夜，画面基调：忧郁。光影设定：冷调。」
+   反例（过短）：「林清坐在窗边发呆。」——缺少环境元素、光线方向、氛围细节，至少应覆盖主体 / 环境 / 光线 / 氛围中三层。
+   反例里这类词族也要避免：陷入 / 回忆 / 思绪 / 意识到 / 画外音 / BGM / 精致 / 震撼。"""
 
 # video_prompt.action 写作指导：动态优先 + 正反例。
-_ACTION_WRITING_GUIDE = """用一段描述说明该时长内主体的连贯动作（肢体动作、手势、表情过渡），可包含必要的环境互动（衣摆、尘埃、推门带起的气流等）。让画面"活"起来，但不要堆叠不可能在单镜头内完成的动作或蒙太奇切换。
-   好例：「林清缓缓抬起头，手指无意识地摩挲信纸边缘，眼角微微收紧；窗外雨势渐大，桌面投下的雨痕影子在缓慢移动。」
-   反例：「林清像蝴蝶般飞舞，思绪在过去与现在之间快速切换。」"""
+# 好例用方括号小标注隐性传达"主体动作 / 物件互动 / 环境动态"三层。
+_ACTION_WRITING_GUIDE = """用一段描述说明该时长内主体的连贯动作（肢体动作、手势、表情过渡），可包含必要的环境互动（衣摆、尘埃、推门带起的气流等）。让画面"活"起来，但不要堆叠不可能在单镜头内完成的动作或蒙太奇切换。动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免内心动词。动作幅度应与该 segment 的 duration 匹配：5 秒级镜头通常完成一个连贯动作 + 一个细节互动；8 秒级可承载一次动作过渡（如「抬头—对视—开口」），不要把三组以上独立动作塞进同一 action。
+   好例：「[主体动作] 林清缓缓抬起头，眼角微微收紧。[物件互动] 手指无意识地摩挲信纸边缘。[环境动态] 窗外雨势渐大，桌面投下的雨痕影子在缓慢移动。」
+   反例：「林清像蝴蝶般飞舞，思绪在过去与现在之间快速切换。」
+   反例里这类词族也要避免：思绪飞舞 / 回忆翻涌 / 突然意识到 / 决心 / 仿佛 / 像蝴蝶般。"""
 
-_LIGHTING_WRITING_GUIDE = "描述具体的光源、方向、色温（如「左侧窗户透入的暖黄色晨光」「头顶单点冷白色的吊灯」），避免「光影神秘」「氛围唯美」这类抽象词。"
+_LIGHTING_WRITING_GUIDE = (
+    "描述具体的光源、方向、色温（如「左侧窗户透入的暖黄色晨光（约 3500K）」「头顶单点冷白色的吊灯」）。"
+    "可附加摄影质感术语（如「浅景深」「逆光剪影」「丁达尔光柱」「轮廓光勾边」「35mm 胶片颗粒感」），"
+    "让画面具备可观察的镜头语言而非抽象修辞；避免「光影神秘」「氛围唯美」这类抽象词。"
+)
 _AMBIANCE_WRITING_GUIDE = "描述可观察的环境效果（如「薄雾弥漫」「尘埃在光柱里翻飞」），避免抽象情绪词。"
 _AMBIANCE_AUDIO_WRITING_GUIDE = (
     "只描写画内音（diegetic sound）：环境声、脚步、物体声响。不要写 BGM、配乐、画外音、旁白。"
@@ -85,6 +94,7 @@ def build_narration_prompt(
     props: dict,
     segments_md: str,
     supported_durations: list[int],
+    episode: int,
     default_duration: int | None = None,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
@@ -135,35 +145,40 @@ def build_narration_prompt(
 {segments_md}
 </segments>
 
-segments 表每行是一个待生成的片段，包含：片段 ID（E{{集}}S{{序号}}）、小说原文、{_format_duration_constraint(supported_durations, default_duration)}、是否含对话、是否为 segment_break。
+segments 表每行是一个待生成的片段，包含：片段 ID（E{episode}S{{序号}}，当前为第 {episode} 集）、小说原文、{_format_duration_constraint(supported_durations, default_duration)}、是否含对话、是否为 segment_break。
+
+<episode_constraints>
+当前正在生成第 {episode} 集。本集所有 segment_id 必须严格使用 `E{episode}S{{两位序号}}` 格式（如 E{episode}S01、E{episode}S02），不得使用其他集号前缀。
+若 segments 表里出现非 `E{episode}` 前缀（如 E1S..），视为脏数据，请按当前集号 `E{episode}` 重写。
+</episode_constraints>
 
 # 字段写作指引
 
-对每个片段，按下列要求填写字段：
+对每个片段，按下列章节填写字段。
 
-a. **novel_text**：原样复制小说原文，不修改、不删改标点。
+## 基础字段
 
-b. **characters_in_segment** / **scenes** / **props**：仅列出此片段画面或对话中实际出现的资产。
-   - 候选 characters：[{", ".join(character_names) or "（无）"}]
-   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
-   - 候选 props：[{", ".join(prop_names) or "（无）"}]
-   - 不要发明候选之外的名称。
+- **novel_text**：原样复制小说原文，不修改、不删改标点。
+- **characters_in_segment** / **scenes** / **props**：仅列出此片段画面或对话中实际出现的资产。
+  - 候选 characters：[{", ".join(character_names) or "（无）"}]
+  - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
+  - 候选 props：[{", ".join(prop_names) or "（无）"}]
+  - 不要发明候选之外的名称。
+- **segment_break** / **duration_seconds**：与 segments 表保持一致。
 
-c. **image_prompt.scene**：{_SCENE_WRITING_GUIDE}
+## 图片提示词（image_prompt）——切换到「摄影师」视角
 
-d. **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
-   **lighting**：{_LIGHTING_WRITING_GUIDE}
-   **ambiance**：{_AMBIANCE_WRITING_GUIDE}
+- **image_prompt.scene**：{_SCENE_WRITING_GUIDE}
+- **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
+- **image_prompt.composition.lighting**：{_LIGHTING_WRITING_GUIDE}
+- **image_prompt.composition.ambiance**：{_AMBIANCE_WRITING_GUIDE}
 
-e. **video_prompt.action**：{_ACTION_WRITING_GUIDE}
+## 视频提示词（video_prompt）——切换到「动作设计师」视角
 
-f. **video_prompt.camera_motion**：每个片段只选一种，按画面内容自行选择。
-
-g. **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
-
-h. **video_prompt.dialogue**：仅当小说原文带引号对话时填写；speaker 必须出现在 characters_in_segment。
-
-i. **segment_break** / **duration_seconds**：与 segments 表保持一致。
+- **video_prompt.action**：{_ACTION_WRITING_GUIDE}
+- **video_prompt.camera_motion**：每个片段只选一种，按画面内容自行选择。
+- **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
+- **video_prompt.dialogue**：仅当小说原文带引号对话时填写；speaker 必须出现在 characters_in_segment。
 
 # 创作目标
 
@@ -180,6 +195,7 @@ def build_drama_prompt(
     props: dict,
     scenes_md: str,
     supported_durations: list[int],
+    episode: int,
     default_duration: int | None = None,
     aspect_ratio: str = "16:9",
     target_language: str = "中文",
@@ -230,33 +246,39 @@ def build_drama_prompt(
 {scenes_md}
 </shots>
 
-shots 表每行是一个分镜，包含：分镜 ID（E{{集}}S{{序号}}）、分镜描述、{_format_duration_constraint(supported_durations, default_duration)}、场景类型、是否为 segment_break。
+shots 表每行是一个分镜，包含：分镜 ID（E{episode}S{{序号}}，当前为第 {episode} 集）、分镜描述、{_format_duration_constraint(supported_durations, default_duration)}、场景类型、是否为 segment_break。
+
+<episode_constraints>
+当前正在生成第 {episode} 集。本集所有 scene_id 必须严格使用 `E{episode}S{{两位序号}}` 格式（如 E{episode}S01、E{episode}S02），不得使用其他集号前缀。
+若 shots 表里出现非 `E{episode}` 前缀（如 E1S..），视为脏数据，请按当前集号 `E{episode}` 重写。
+</episode_constraints>
 
 # 字段写作指引
 
-对每个分镜，按下列要求填写字段：
+对每个分镜，按下列章节填写字段。
 
-a. **characters_in_scene** / **scenes** / **props**：仅列出此分镜画面或对话中实际出现的资产。
-   - 候选 characters：[{", ".join(character_names) or "（无）"}]
-   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
-   - 候选 props：[{", ".join(prop_names) or "（无）"}]
-   - 不要发明候选之外的名称。
+## 基础字段
 
-b. **image_prompt.scene**：{_SCENE_WRITING_GUIDE}
+- **characters_in_scene** / **scenes** / **props**：仅列出此分镜画面或对话中实际出现的资产。
+  - 候选 characters：[{", ".join(character_names) or "（无）"}]
+  - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
+  - 候选 props：[{", ".join(prop_names) or "（无）"}]
+  - 不要发明候选之外的名称。
+- **segment_break** / **duration_seconds** / **scene_type**：与 shots 表保持一致；scene_type 缺省 "剧情"。
 
-c. **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
-   **lighting**：{_LIGHTING_WRITING_GUIDE}
-   **ambiance**：{_AMBIANCE_WRITING_GUIDE}
+## 图片提示词（image_prompt）——切换到「摄影师」视角
 
-d. **video_prompt.action**：{_ACTION_WRITING_GUIDE}
+- **image_prompt.scene**：{_SCENE_WRITING_GUIDE}
+- **image_prompt.composition.shot_type**：从枚举中按画面内容选择，不强加倾向。
+- **image_prompt.composition.lighting**：{_LIGHTING_WRITING_GUIDE}
+- **image_prompt.composition.ambiance**：{_AMBIANCE_WRITING_GUIDE}
 
-e. **video_prompt.camera_motion**：每个分镜只选一种，按画面内容自行选择。
+## 视频提示词（video_prompt）——切换到「动作设计师」视角
 
-f. **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
-
-g. **video_prompt.dialogue**：包含分镜中角色对话；speaker 必须出现在 characters_in_scene。
-
-h. **segment_break** / **duration_seconds** / **scene_type**：与 shots 表保持一致；scene_type 缺省 "剧情"。
+- **video_prompt.action**：{_ACTION_WRITING_GUIDE}
+- **video_prompt.camera_motion**：每个分镜只选一种，按画面内容自行选择。
+- **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
+- **video_prompt.dialogue**：包含分镜中角色对话；speaker 必须出现在 characters_in_scene。
 
 # 创作目标
 
@@ -273,6 +295,7 @@ def build_normalize_prompt(
     props: dict,
     default_duration: int | None,
     supported_durations: list[int],
+    episode: int,
 ) -> str:
     """Step-1 normalization prompt: novel text → markdown scene table.
 
@@ -346,11 +369,11 @@ def build_normalize_prompt(
 
 | 场景 ID | 场景描述 | 时长 | 场景类型 | segment_break |
 |---------|---------|------|---------|---------------|
-| E{{N}}S01 | 详细的场景描述... | <duration> | 剧情 | 是 |
-| E{{N}}S02 | 详细的场景描述... | <duration> | 对话 | 否 |
+| E{episode}S01 | 详细的场景描述... | <duration> | 剧情 | 是 |
+| E{episode}S02 | 详细的场景描述... | <duration> | 对话 | 否 |
 
 规则：
-- 场景 ID 格式：E{{集数}}S{{两位序号}}（如 E1S01, E1S02）
+- 当前正在生成第 {episode} 集；所有场景 ID 必须使用 `E{episode}S{{两位序号}}` 格式，不得使用其他集号前缀
 - 场景描述：改编后的剧本化描述，包含角色动作、对话、环境，适合视觉化呈现
 {duration_rules}
 - 场景类型：剧情、动作、对话、过渡、空镜

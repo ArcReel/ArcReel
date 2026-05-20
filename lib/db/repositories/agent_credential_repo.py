@@ -99,12 +99,20 @@ class AgentCredentialRepository(BaseRepository):
         cred.is_active = True
         await self.session.flush()
 
-    async def delete(self, cred_id: int) -> None:
-        """删除非 active 凭证。删 active 抛 ValueError。"""
+    async def delete(self, cred_id: int) -> bool:
+        """删除非 active 凭证。
+
+        Returns:
+            True: 删除成功；False: 凭证不存在。
+
+        Raises:
+            ValueError: 试图删除当前 active 凭证。
+        """
         cred = await self.get(cred_id)
         if cred is None:
-            return
+            return False
         if cred.is_active:
             raise ValueError("cannot delete active credential; activate another first")
         await self.session.execute(delete(AgentAnthropicCredential).where(AgentAnthropicCredential.id == cred_id))
         await self.session.flush()
+        return True

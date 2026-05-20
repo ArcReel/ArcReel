@@ -519,6 +519,28 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     assert "DRY RUN" in out["content"][0]["text"]
 
 
+async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
+    """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀（#574）。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
+
+    async def fake_caps(_p):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "E2S01" in prompt_text
+    assert "第 2 集" in prompt_text or "E2S{两位序号}" in prompt_text
+    assert "E1S01" not in prompt_text
+
+
 async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
     """工具必须把 ctx.project_name 传给 create_text_backend_for_task，
     否则项目级 text_backend_script 覆盖被跳过，会回退到全局默认后端。"""

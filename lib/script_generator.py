@@ -6,7 +6,8 @@ script_generator.py - 剧本生成器
 
 import json
 import logging
-from datetime import datetime
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -40,6 +41,28 @@ logger = logging.getLogger(__name__)
 # 大型 JSON 剧本输出上限：22+ 场景典型约 14K token，留 2× 安全边际。
 # 注意：受各模型硬上限约束（如 doubao-seed-1-8 ~8192），需选择支持 ≥16K 输出的模型。
 SCRIPT_MAX_OUTPUT_TOKENS = 32000
+
+# 集号前缀正则：仅匹配 `E{数字}` + 紧随 S/U（segment/scene 用 S，video_unit 用 U），
+# 保留后缀（如 `E1S03_2` → `E2S03_2`）。设计契约见 lib/script_models.py。
+_EID_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
+
+# 质量探针阈值：仅捕极端短样本，正常完整描述应远超这些值。
+_QUALITY_PROBE_SCENE_MIN_LEN = 40
+_QUALITY_PROBE_ACTION_MIN_LEN = 25
+_QUALITY_PROBE_SHOT_TEXT_MIN_LEN = 15
+
+
+def _rewrite_episode_prefix(rid: object, ep: int) -> object:
+    """把 ID 中的 `E\\d+` 前缀强制改写为 `E{ep}`；非字符串或无 E 前缀的原样返回。
+
+    兜底 LLM 在 prompt 已注入集号的情况下仍写错前缀的场景。
+    """
+    if not isinstance(rid, str):
+        return rid
+    new_rid, n = _EID_PREFIX_RE.subn(f"E{ep}", rid)
+    if n and new_rid != rid:
+        logger.warning("episode prefix rewritten: %s → %s", rid, new_rid)
+    return new_rid
 
 
 class ScriptGenerator:
@@ -119,6 +142,7 @@ class ScriptGenerator:
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
             schema = ReferenceVideoScript
         elif self.content_mode == "narration":
@@ -133,6 +157,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
             schema = NarrationEpisodeScript
         else:
@@ -147,6 +172,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
             schema = DramaEpisodeScript
 
@@ -176,6 +202,8 @@ class ScriptGenerator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(script_data, f, ensure_ascii=False, indent=2)
+
+        self._quality_probe(script_data, episode)
 
         logger.info("剧本已保存至 %s", output_path)
         return output_path
@@ -208,6 +236,7 @@ class ScriptGenerator:
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
         elif self.content_mode == "narration":
             return build_narration_prompt(
@@ -221,6 +250,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
         else:
             return build_drama_prompt(
@@ -234,6 +264,7 @@ class ScriptGenerator:
                 supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
+                episode=episode,
             )
 
     async def _fetch_video_capabilities(self) -> dict | None:
@@ -388,6 +419,22 @@ class ScriptGenerator:
         # CLI 参数 --episode 是集号唯一真相源。schema 已从 AI 输出中移除 episode 字段，
         # 这里负责落盘前补上。
         script_data["episode"] = int(episode)
+
+        # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
+        # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
+        ep = int(episode)
+        if gen_mode == "reference_video":
+            for u in script_data.get("video_units") or []:
+                if isinstance(u, dict) and "unit_id" in u:
+                    u["unit_id"] = _rewrite_episode_prefix(u.get("unit_id"), ep)
+        elif self.content_mode == "narration":
+            for s in script_data.get("segments") or []:
+                if isinstance(s, dict) and "segment_id" in s:
+                    s["segment_id"] = _rewrite_episode_prefix(s.get("segment_id"), ep)
+        else:
+            for s in script_data.get("scenes") or []:
+                if isinstance(s, dict) and "scene_id" in s:
+                    s["scene_id"] = _rewrite_episode_prefix(s.get("scene_id"), ep)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
         # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
@@ -411,7 +458,7 @@ class ScriptGenerator:
             novel.pop("source_file", None)
 
         # 添加时间戳
-        now = datetime.now().isoformat()
+        now = datetime.now(UTC).isoformat()
         script_data.setdefault("metadata", {})
         script_data["metadata"]["created_at"] = now
         script_data["metadata"]["updated_at"] = now
@@ -436,3 +483,56 @@ class ScriptGenerator:
         script_data.pop("clues_in_episode", None)
 
         return script_data
+
+    def _quality_probe(self, script_data: dict, episode: int) -> None:
+        """落盘后的轻量质量探针：仅日志，不阻断、不重试。
+
+        统计极端短样本（scene/action/shot text 字符数低于阈值），定位"内容
+        过短"风险。阈值仅捕"明显异常"，正常完整描述应远超这些值。
+        外层 try/except 兜底：当 _parse_response 在校验失败时返回 raw dict、
+        其中嵌套字段类型不符合 schema 时（如 image_prompt 是字符串），
+        探针只 warning 不阻断 generate。
+        """
+        try:
+            short_ids: list[str] = []
+
+            gen_mode = self._effective_generation_mode(episode)
+            if gen_mode == "reference_video":
+                for u in script_data.get("video_units") or []:
+                    if not isinstance(u, dict):
+                        continue
+                    uid = str(u.get("unit_id") or "?")
+                    for shot in u.get("shots") or []:
+                        if not isinstance(shot, dict):
+                            continue
+                        text = str(shot.get("text") or "")
+                        if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
+                            short_ids.append(uid)
+            else:
+                if self.content_mode == "narration":
+                    items = script_data.get("segments") or []
+                    id_key = "segment_id"
+                else:
+                    items = script_data.get("scenes") or []
+                    id_key = "scene_id"
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    iid = str(item.get(id_key) or "?")
+                    img_p = item.get("image_prompt")
+                    vid_p = item.get("video_prompt")
+                    img_p = img_p if isinstance(img_p, dict) else {}
+                    vid_p = vid_p if isinstance(vid_p, dict) else {}
+                    scene = str(img_p.get("scene") or "")
+                    action = str(vid_p.get("action") or "")
+                    if len(scene) < _QUALITY_PROBE_SCENE_MIN_LEN or len(action) < _QUALITY_PROBE_ACTION_MIN_LEN:
+                        short_ids.append(iid)
+
+            if short_ids:
+                logger.warning(
+                    "episode %d quality probe: short=%s",
+                    episode,
+                    sorted(set(short_ids)),
+                )
+        except Exception as exc:
+            logger.warning("episode %d quality probe skipped due to unexpected data shape: %s", episode, exc)

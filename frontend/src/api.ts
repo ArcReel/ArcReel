@@ -341,6 +341,19 @@ class API {
     return this.request("/system/version");
   }
 
+  static async downloadDiagnostics(): Promise<{ blob: Blob; filename: string }> {
+    const response = await fetch(
+      `${API_BASE}/system/logs/download`,
+      withAuth({ method: "GET" }),
+    );
+    await throwIfNotOk(response, `HTTP ${response.status}`);
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const match = disposition.match(/filename="?([^";]+)"?/);
+    const filename = match?.[1] ?? "arcreel-diagnostics.zip";
+    const blob = await response.blob();
+    return { blob, filename };
+  }
+
   static async updateSystemConfig(
     patch: SystemConfigPatch,
   ): Promise<GetSystemConfigResponse> {

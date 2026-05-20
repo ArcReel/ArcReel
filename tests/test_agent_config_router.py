@@ -171,6 +171,30 @@ async def test_delete_active_blocked(authed_client) -> None:
     assert resp.status_code == 409
 
 
+@pytest.mark.asyncio
+async def test_delete_nonexistent_returns_404(authed_client) -> None:
+    resp = await authed_client.delete("/api/v1/agent/credentials/9999")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_inactive_returns_204(authed_client) -> None:
+    # 第一条自动 active
+    await authed_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "deepseek", "api_key": "sk-A"},
+    )
+    # 第二条显式 activate=False，可删
+    second = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "kimi", "api_key": "sk-B", "activate": False},
+        )
+    ).json()
+    resp = await authed_client.delete(f"/api/v1/agent/credentials/{second['id']}")
+    assert resp.status_code == 204
+
+
 # ── Task 11: POST /agent/credentials/{id}/activate ────────────────
 
 

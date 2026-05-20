@@ -10,7 +10,7 @@
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 # 添加 lib 目录到 Python 路径
@@ -126,8 +126,8 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         "characters": all_characters,
         "clues": {},
         "metadata": {
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
             "migrated_from": "script_based_characters",
         },
     }

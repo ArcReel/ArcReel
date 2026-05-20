@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 
@@ -211,6 +211,6 @@ class GridGeneration:
             provider=provider,
             model=model,
             grid_size=grid_size,
-            created_at=datetime.now().isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             error_message=None,
         )
