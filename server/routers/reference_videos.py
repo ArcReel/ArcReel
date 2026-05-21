@@ -19,7 +19,6 @@ from lib.generation_queue import get_generation_queue
 from lib.i18n import Translator
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager, effective_mode
 from lib.reference_video import parse_prompt
-from lib.script_structure_validator import ScriptStructureValidationError
 from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -116,8 +115,11 @@ def _locked_episode_script(project_name: str, resolver: Callable[[dict], str], _
     except EpisodeScriptReboundError as exc:
         logger.info("episode script rebound during write: %s", exc)
         raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc
-    except ScriptStructureValidationError as exc:
-        # 本次编辑把单元改成结构非法（如 shots↔duration 不一致）：当场转 422，而非生成时才炸
+    except ValueError as exc:
+        # 结构非法（如 shots↔duration 不一致）、集号错配、非法文件名都抛 ValueError
+        # （ScriptStructureValidationError 即其子类）：当场转 422，而非生成时才炸。
+        # EpisodeScriptReboundError(RuntimeError) 与 FileNotFoundError 不是 ValueError，
+        # 已被上面的 409 / 404 分支先行接住，不会落到这里。
         raise HTTPException(
             status_code=422,
             detail=_t("script_validation_failed", details=str(exc)),

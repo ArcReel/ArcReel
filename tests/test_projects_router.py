@@ -388,6 +388,32 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 400
 
+    def test_update_segment_write_value_error_returns_422(self, tmp_path, monkeypatch):
+        # 写盘咽喉对客户端错误（结构非法 / 集号错配 / 非法文件名）抛 ValueError，
+        # router 须统一转 422 而非落到 500 兜底。
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
+        }
+
+        @contextmanager
+        def _raising_locked_script(name, script_file):
+            script = fake_pm.load_script(name, script_file)
+            yield script
+            raise ValueError("脚本内 episode=1 与文件名 episode_10 不一致")
+
+        monkeypatch.setattr(fake_pm, "locked_script", _raising_locked_script)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "duration_seconds": 7},
+            )
+            assert resp.status_code == 422
+            assert "不一致" in resp.json()["detail"]
+
     def test_update_scene_supports_character_and_clue_refs(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
