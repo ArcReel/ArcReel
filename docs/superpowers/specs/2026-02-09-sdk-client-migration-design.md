@@ -191,39 +191,42 @@ class TranscriptReader:
 
 ### REST API
 
+所有端点挂在项目作用域 `/api/v1/projects/{project_name}/assistant` 下，下表省略该前缀。
+
 | 端点 | 方法 | 功能 |
 |------|------|------|
-| `/api/v1/sessions` | POST | 创建会话 |
-| `/api/v1/sessions` | GET | 列出会话（支持 project_name 过滤） |
-| `/api/v1/sessions/{id}` | GET | 获取会话详情（含 status） |
-| `/api/v1/sessions/{id}` | PATCH | 更新会话（title） |
-| `/api/v1/sessions/{id}` | DELETE | 删除会话 |
-| `/api/v1/sessions/{id}/messages` | GET | 获取历史消息（从 transcript 读取） |
-| `/api/v1/sessions/{id}/messages` | POST | 发送消息 |
-| `/api/v1/sessions/{id}/stream` | GET | SSE 流（订阅实时消息 + 断线重连） |
+| `/sessions/send` | POST | 发送消息（省略 `session_id` 时创建新会话） |
+| `/sessions` | GET | 列出会话（支持 status 过滤、分页） |
+| `/sessions/{id}` | GET | 获取会话详情（含 status） |
+| `/sessions/{id}` | DELETE | 删除会话 |
+| `/sessions/{id}/snapshot` | GET | 获取会话快照（回放历史 Turn） |
+| `/sessions/{id}/stream` | GET | SSE 流（订阅实时消息 + 断线重连） |
+| `/sessions/{id}/interrupt` | POST | 中断运行中的会话 |
+| `/sessions/{id}/questions/{question_id}/answer` | POST | 回答 agent 提出的问题 |
 
 ### 关键接口详情
 
 ```python
-# POST /api/v1/sessions
-Request:  {"project_name": "my_project", "title": ""}
-Response: {"id": "uuid", "status": "running", "created_at": "..."}
+# POST /sessions/send
+# 省略 session_id 创建新会话；传入则向既有会话追加
+Request:  {"content": "用户输入", "images": [], "session_id": null}
+Response: {"status": "accepted", "session_id": "uuid"}  # 立即返回，消息通过 SSE 推送
 
-# GET /api/v1/sessions/{id}/stream
+# GET /sessions/{id}/stream
 # SSE 事件流，行为：
 # 1. 如果 status=running：先回放 buffer，再实时推送
-# 2. 如果 status=completed：返回空流（历史从 /messages 获取）
+# 2. 如果 status=completed：返回空流（历史从 /snapshot 获取）
 # 3. 事件格式：直接推送 SDK Message JSON
 
-# POST /api/v1/sessions/{id}/messages
-Request:  {"content": "用户输入"}
-Response: {"status": "accepted"}  # 立即返回，消息通过 SSE 推送
+# GET /sessions/{id}/snapshot
+# 返回会话历史快照（规范化 Turn），替代逐条 /messages 读取
 ```
 
 ### 与现有 API 的变化
 
 - 移除 `/sessions/{id}/streams/{request_id}` —— 简化为单一 `/stream` 端点
-- `/messages` GET 从 transcript 读取而非 SQLite
+- 发送统一走 `POST /sessions/send`，不再用 `POST /sessions/{id}/messages`
+- 历史回放从 `GET /sessions/{id}/snapshot` 读取（规范化 Turn）；`GET /sessions/{id}/messages` 已下线返回 410
 
 ---
 
@@ -251,7 +254,7 @@ const [sessionStatus, setSessionStatus] = useState("idle");  // idle | running |
       │
 2. GET /sessions/{id} 获取状态
       │
-      ├─ status=completed ──▶ GET /messages 加载历史
+      ├─ status=completed ──▶ GET /snapshot 加载历史
       │
       └─ status=running ──▶ 连接 SSE /stream
                                   │
@@ -343,7 +346,7 @@ class SessionManager:
 // 进入会话时
 if (session.status === "interrupted") {
   // 显示提示："会话已中断，是否继续？"
-  // 用户确认后 POST /messages 触发 resume
+  // 用户确认后 POST /sessions/send 触发 resume
 }
 ```
 

@@ -92,7 +92,7 @@ self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAP
 在现有测试文件中扩展，不新增文件：
 
 - **`test_config_registry.py`**: 更新 ark 视频模型数量预期（如有断言）
-- **`test_video_backend_ark.py`**: 参数化测试验证 2.0 模型获得正确 capabilities（有 `video_extend`，无 `flex_tier`）
+- **`test_video_backend_ark.py`**: 参数化测试验证 2.0 模型获得正确 capabilities（无 `video_extend`、无 `flex_tier`）
 - **`test_cost_calculator.py`**（如存在）: 添加 2.0 模型费用计算断言
 
 ## 不在本次范围

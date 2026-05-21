@@ -213,27 +213,27 @@ projects/{项目名}/
 
 ```python
 async def generate_storyboard(name, segment_id, prompt, script_file):
-    current_file = f"storyboards/scene_{segment_id}.png"
-
-    if current_file exists:
-        # 有现有文件 → 备份到版本目录
-        backup_to_versions(current_file, prompt)
-
-    # 调用媒体生成后端生成新图片
-    new_image = await media_generator.generate_image_async(
-        prompt=prompt,
-        reference_images=get_character_refs(segment_id),
-        aspect_ratio=get_aspect_ratio(project),
-        output_path=current_file
+    # 聚合本镜头引用的三类资产设计图（character_sheet / scene_sheet / prop_sheet）
+    reference_images = collect_reference_images(
+        project, project_path, target_item,
+        char_field=char_field, scene_field=scene_field, prop_field=prop_field,
     )
 
-    # 更新 versions.json（新增版本记录）
-    add_version_record(segment_id, prompt)
+    # 调用媒体生成后端；输出路径与版本管理由 MediaGenerator 按
+    # resource_type/resource_id 内部解析，不再由调用方传 output_path。
+    # 若已存在旧文件会自动归档为历史版本。
+    output_path, version = await media_generator.generate_image_async(
+        prompt=prompt,
+        resource_type="storyboards",
+        resource_id=segment_id,
+        reference_images=reference_images,
+        aspect_ratio=get_aspect_ratio(project),
+    )
 
     # 更新 script 中的 generated_assets
-    update_script_assets(script_file, segment_id, current_file)
+    update_script_assets(script_file, segment_id, output_path)
 
-    return {"success": True, "version": new_version, ...}
+    return {"success": True, "version": version, ...}
 ```
 
 ---

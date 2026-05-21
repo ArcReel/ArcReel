@@ -64,7 +64,7 @@ class ModelInfo:
 ```python
 supported_durations: Mapped[str | None] = mapped_column(Text, nullable=True)
 # JSON 序列化的 list[int]，如 "[4, 8, 12]"
-# null 表示使用保守预设（后续 redesign 改为按 model_id 启发式预填）
+# null 表示使用保守预设（已在 2026-05-04 的 redesign 中改为按 model_id 启发式预填）
 ```
 
 需一个 Alembic 迁移。
@@ -73,7 +73,7 @@ supported_durations: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 仅在自定义供应商且模型未声明 `supported_durations` 时回退到 `[4, 8]`。
 
-> 后续 video-duration-redesign（2026-05-04）把此回退收敛进 `lib/custom_provider/duration_presets.py` 的 `DEFAULT_FALLBACK = [4, 8]`，并新增按 `model_id` 启发式预设的 `infer_supported_durations()`；resolver 读到空 supported_durations 不再 silent fallback，改为抛 ConfigError。
+> 2026-05-04 的 video-duration-redesign 已把此回退收敛进 `lib/custom_provider/duration_presets.py` 的 `DEFAULT_FALLBACK = [4, 8]`，并新增按 `model_id` 启发式预设的 `infer_supported_durations()`；resolver 读到空 supported_durations 不再 silent fallback，改为抛 ConfigError。
 
 ---
 
@@ -237,7 +237,7 @@ def build_drama_prompt(
 `server/services/generation_tasks.py`：
 
 - `execute_video_task()` 中 `duration_seconds` 回退逻辑：`payload > project.default_duration > supported_durations[0]`
-- `get_aspect_ratio()` 简化为直接读 `project["aspect_ratio"]`
+- `get_aspect_ratio()` 优先读顶层 `aspect_ratio` 字段，缺失时按 `content_mode` 回退（详见 §2.3，资产类型 characters/scenes/props 仍走固定 16:9 分支）
 
 `server/routers/generate.py`：
 
@@ -278,7 +278,7 @@ def build_drama_prompt(
 | 已有项目无 `aspect_ratio` | 读取时按 `content_mode` 推导（narration→9:16, drama→16:9） |
 | 已有项目无 `default_duration` | 视为 `null`（自动模式） |
 | 已有剧本中 4/6/8 值 | 仍合法，无需迁移 |
-| CustomProviderModel 新列 | Alembic 迁移，nullable，null 回退到保守预设（后续 redesign 改为按 model_id 启发式预填） |
+| CustomProviderModel 新列 | Alembic 迁移，nullable，null 回退到保守预设（已在 2026-05-04 的 redesign 中改为按 model_id 启发式预填） |
 | API 响应 | 只新增字段，不删/改已有字段 |
 
 ---

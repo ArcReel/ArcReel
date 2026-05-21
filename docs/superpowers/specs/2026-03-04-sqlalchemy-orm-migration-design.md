@@ -64,7 +64,7 @@ scripts/
 ### Engine 配置 (`lib/db/engine.py`)
 
 - **DATABASE_URL 解析**：从环境变量 `DATABASE_URL` 读取
-  - 默认值：`sqlite+aiosqlite:///./projects/.arcreel.db`
+  - 默认值：`sqlite+aiosqlite:///{app_data_dir()/.arcreel.db}`（`app_data_dir()` 默认 `PROJECT_ROOT/projects`，可经 `ARCREEL_DATA_DIR` 覆盖；开发态即 `projects/.arcreel.db`）
   - PostgreSQL：`postgresql+asyncpg://user:pass@host:5432/arcreel`
 - **SQLite 专用配置**：通过 `event.listens_for("connect")` 设置 WAL + busy_timeout
 - **AsyncSession 工厂**：`async_sessionmaker(engine, expire_on_commit=False)`

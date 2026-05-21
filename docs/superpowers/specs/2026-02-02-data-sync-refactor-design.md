@@ -243,7 +243,12 @@ class StatusCalculator:
         """根据进度推断当前阶段"""
         vid = progress.get('videos', {})
         sb = progress.get('storyboards', {})
-        chars = progress.get('characters', {})
+        # 角色/场景/道具三类资产合并计入资产完成度
+        assets_completed = (
+            progress.get('characters', {}).get('completed', 0)
+            + progress.get('scenes', {}).get('completed', 0)
+            + progress.get('props', {}).get('completed', 0)
+        )
 
         if vid.get('completed', 0) == vid.get('total', 0) and vid.get('total', 0) > 0:
             return 'compose'
@@ -251,7 +256,7 @@ class StatusCalculator:
             return 'video'
         elif sb.get('completed', 0) > 0:
             return 'storyboard'
-        elif chars.get('completed', 0) > 0:
+        elif assets_completed > 0:
             return 'storyboard'
         return 'characters'
 

@@ -211,7 +211,7 @@ return {
     **result,
     "file_path": file_path,
     "asset_fingerprints": {
-        file_path: int(current_file.stat().st_mtime)
+        file_path: current_file.stat().st_mtime_ns
     }
 }
 ```

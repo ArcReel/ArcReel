@@ -21,7 +21,7 @@
 
 - 新增 Alembic migration
 - 入队时由 `generation_tasks.py` 传入 segment_id，贯穿 `UsageTracker.start_call()` → `UsageRepository`
-- 角色/场景/道具资产生成的 ApiCall 不设 segment_id（`null`），通过 `call_type` 区分
+- 角色/场景/道具资产生成的 ApiCall 不设 segment_id（`null`），三类共用 `call_type=image`，靠 `segment_id IS NULL` + `output_path` 前缀分桶到具体资产类型
 - 不做历史数据回溯
 
 ## 后端 API 设计

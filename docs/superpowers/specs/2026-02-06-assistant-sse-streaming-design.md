@@ -49,7 +49,7 @@
 ## 4. 总体架构
 
 ```text
-POST /messages                     GET /streams/{request_id}
+POST /sessions/send                GET /sessions/{session_id}/stream
 前端 -----------> 后端落 user 消息 -----------> 前端 EventSource 订阅
                           |                            |
                           |---- Claude SDK async ---->|
@@ -73,33 +73,31 @@ POST /messages                     GET /streams/{request_id}
 > per-request `request_id` / `stream_url` 形态，改为按 `session_id` 订阅会话事件流。下文请求/响应
 > 体仅示意字段语义。
 
-## 5.1 创建流请求（保持 POST 语义）
+## 5.1 发送消息（保持 POST 语义）
 
-`POST /api/v1/assistant/sessions/send`
+`POST /api/v1/projects/{project_name}/assistant/sessions/send`
 
 请求体：
 ```json
 {
   "content": "帮我生成第一集角色设定",
-  "stream": true,
-  "client_message_id": "uuid-optional"
+  "images": [],
+  "session_id": "xxx-optional"
 }
 ```
 
 响应：
 ```json
 {
-  "success": true,
-  "session_id": "xxx",
-  "request_id": "req_xxx",
-  "stream_url": "/api/v1/assistant/sessions/xxx/streams/req_xxx",
-  "user_message_id": 101
+  "status": "accepted",
+  "session_id": "xxx"
 }
 ```
 
 说明：
-- `stream=true` 时返回 `stream_url`，不直接返回 assistant 全量文本
-- `client_message_id` 用于客户端重试幂等（可选）
+- `session_id` 省略时创建新会话并返回新建的 `session_id`；传入时向既有会话追加消息
+- 发送只负责入队（`status: accepted`），不直接返回 assistant 文本；流式内容统一由下文 stream 端点订阅
+- `images` 为可选附件（最多 5 张）
 
 ## 5.2 订阅流
 
@@ -115,7 +113,7 @@ POST /messages                     GET /streams/{request_id}
 ```text
 id: 1
 event: ack
-data: {"request_id":"req_xxx","session_id":"xxx"}
+data: {"session_id":"xxx"}
 
 id: 2
 event: delta
@@ -214,8 +212,8 @@ data: {"ts":"2026-02-06T16:00:00Z"}
 
 ## 8.1 发送流程
 
-1. 先 `POST /messages`（`stream=true`）获取 `stream_url`
-2. 用 `new EventSource(stream_url)` 订阅
+1. 先 `POST /sessions/send` 入队消息，拿到 `session_id`
+2. 用 `new EventSource("/sessions/{session_id}/stream")` 订阅会话事件流
 3. 处理事件并实时渲染
 4. 收到 `done/error` 后关闭连接，刷新一次消息历史
 
@@ -244,7 +242,7 @@ Streamdown 集成建议：
 1. 鉴权  
 - 若后续需要 Header 鉴权，原生 `EventSource` 不支持自定义 Header  
 - 可选方案：
-  - 短期：`stream_url` 使用一次性短时 token
+  - 短期：stream 端点 URL 携带一次性短时 token
   - 中期：改为 `fetch + event-stream parser`（仍是 SSE 协议）
 
 2. 反向代理  
@@ -266,7 +264,7 @@ Streamdown 集成建议：
 - `assistant_stream_disconnect_total`
 
 日志关键字段：
-- `session_id`, `request_id`, `project_name`
+- `session_id`, `project_name`
 - `event_count`, `delta_chars`, `tool_calls`
 - `error_code`, `error_message`
 
@@ -275,8 +273,8 @@ Streamdown 集成建议：
 ## 11. 分阶段实施计划
 
 ## Phase 1：协议与后端最小闭环
-- [ ] `POST /messages` 支持 `stream=true` 返回 `stream_url`
-- [ ] 新增 `GET /streams/{request_id}` 输出 `ack/delta/done/error`
+- [ ] `POST /sessions/send` 入队消息并返回 `session_id`
+- [ ] 新增 `GET /sessions/{session_id}/stream` 输出 `ack/delta/done/error`
 - [ ] assistant 文本在 `done` 时落库
 
 验收：
@@ -293,7 +291,7 @@ Streamdown 集成建议：
 
 ## Phase 3：稳定性与恢复
 - [ ] 断连清理任务
-- [ ] 幂等（`client_message_id`）
+- [ ] 发送幂等（重试去重）
 - [ ] 指标与日志完善
 
 验收：

@@ -146,10 +146,12 @@ def _build_system_prompt(self, project_name: str) -> str:
 ### 项目创建时同步配置
 
 `ProjectManager` 创建新项目时，调用 `sync_profile_to_project()` 将 `agent_runtime_profile`
-的 `.claude` 与 `CLAUDE.md` 按 manifest 物化（复制）到项目目录：
+的 `.claude` 与按 `content_mode` 选中的 `CLAUDE.{narration,drama}.md` 变体按 manifest
+物化（复制）到项目目录：变体在物化时去掉 `.<mode>` 后缀，落盘为单一 `projects/{name}/CLAUDE.md`。
 
 ```python
-# projects/{name}/.claude、projects/{name}/CLAUDE.md 由 manifest 驱动写入
+# projects/{name}/.claude 由 manifest 驱动写入；
+# CLAUDE.{content_mode}.md 物化为 projects/{name}/CLAUDE.md
 sync_profile_to_project(profile_dir, project_dir, content_mode)
 ```
 

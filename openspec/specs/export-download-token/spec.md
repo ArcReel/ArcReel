@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 签发下载 token
-系统 SHALL 提供 `POST /api/v1/projects/{project_name}/export/token` 端点，为已认证用户签发短时效下载 token。
+系统 SHALL 提供 `POST /api/v1/projects/{name}/export/token` 端点，为已认证用户签发短时效下载 token。
 
 该 token 为 JWT（HS256），payload SHALL 包含：
 - `sub`：当前用户名

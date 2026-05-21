@@ -158,12 +158,12 @@ reference_image: Optional[str] = None
 
 ### 后端
 
-- [ ] `files.py`: 添加 `character_ref` 上传类型
-- [ ] `characters.py`: `UpdateCharacterRequest` 添加 `reference_image` 字段
-- [ ] `generate.py`: `generate_character` 读取并使用参考图
-- [ ] `generate-assets` 脚本：自动从 project.json 读取 `reference_image`
+- [x] `files.py`: 添加 `character_ref` 上传类型
+- [x] 角色管理：`reference_image` 字段（现由 `lib/asset_types.ASSET_SPECS` 的 `extra_string_fields` 统一驱动资产路由 PATCH 白名单）
+- [x] 生成路径：`execute_character_task` 自动读取角色的 `reference_image` 并作为参考图传入
+- [x] `generate-assets`：自动从 project.json 读取 `reference_image`
 
 ### 前端
 
-- [ ] 角色编辑弹窗：添加参考图上传区域
-- [ ] 角色编辑弹窗：保存时处理参考图上传
+- [x] 角色编辑弹窗：添加参考图上传区域
+- [x] 角色编辑弹窗：保存时处理参考图上传

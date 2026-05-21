@@ -22,24 +22,24 @@
 
 ---
 
-### Requirement: Tab 级独立保存
+### Requirement: 分区级独立保存
 
 每个配置分区（agent / media）SHALL 提供独立的保存操作，一次保存该分区内所有已修改字段，不影响其他分区。
 
-#### Scenario: 用户在 Tab 内修改字段后保存
-- **WHEN** 用户修改某配置 Tab 内的任意字段并点击该 Tab 的保存按钮
-- **THEN** 系统 SHALL PATCH 该 Tab 内所有已修改字段，保存成功后 Tab 恢复为未修改状态
+#### Scenario: 用户在分区内修改字段后保存
+- **WHEN** 用户修改某配置分区内的任意字段并点击该分区的保存按钮
+- **THEN** 系统 SHALL PATCH 该分区内所有已修改字段，保存成功后分区恢复为未修改状态
 
-#### Scenario: Tab 保存中状态
-- **WHEN** Tab 保存请求正在进行
-- **THEN** Tab 内所有输入框 SHALL 禁用，保存按钮显示加载态，防止重复提交
+#### Scenario: 分区保存中状态
+- **WHEN** 分区保存请求正在进行
+- **THEN** 分区内所有输入框 SHALL 禁用，保存按钮显示加载态，防止重复提交
 
-#### Scenario: Tab 保存失败
+#### Scenario: 分区保存失败
 - **WHEN** 保存请求返回错误
 - **THEN** 系统 SHALL 在保存按钮旁显示错误提示，字段值保持用户编辑的内容
 
-#### Scenario: Tab 无未保存变更时
-- **WHEN** Tab 内所有字段值与当前已保存值相同
+#### Scenario: 分区无未保存变更时
+- **WHEN** 分区内所有字段值与当前已保存值相同
 - **THEN** 保存按钮 SHALL 处于禁用状态
 
 ---

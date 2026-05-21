@@ -234,81 +234,51 @@ class UsageTracker:
 
 > 初版把追踪埋在 `GeminiClient` 内。现实现把 `start_call/finish_call`（async）下沉到
 > `MediaGenerator.generate_image_async/generate_video_async`，在调用各 image/video backend
-> 前后埋点；下文以 GeminiClient 为例说明埋点位置。
+> 前后埋点；下文以 `MediaGenerator` 为唯一埋点层说明。
 
-**修改 `GeminiClient.__init__`**：
-
-```python
-def __init__(self, ..., usage_tracker: UsageTracker = None, project_name: str = None):
-    ...
-    self.usage_tracker = usage_tracker
-    self.project_name = project_name
-```
-
-**修改 `generate_image` / `generate_video` 方法**：
-
-```python
-def generate_video(self, ...):
-    call_id = None
-    retry_count = 0
-
-    # 记录调用开始
-    if self.usage_tracker and self.project_name:
-        call_id = self.usage_tracker.start_call(
-            project_name=self.project_name,
-            call_type="video",
-            model=self.VIDEO_MODEL,
-            prompt=prompt[:500],  # 截断存储
-            resolution=resolution,
-            duration_seconds=int(duration_seconds),
-            aspect_ratio=aspect_ratio,
-            generate_audio=not ("music" in negative_prompt.lower()),  # 根据实际参数判断
-        )
-
-    try:
-        # 执行 API 调用（with_retry 装饰器内部追踪 retry_count）
-        result = self._do_generate_video(...)
-
-        # 记录成功
-        if self.usage_tracker and call_id:
-            self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path) if output_path else None,
-                retry_count=retry_count,
-            )
-        return result
-
-    except Exception as e:
-        # 记录失败
-        if self.usage_tracker and call_id:
-            self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="failed",
-                error_message=str(e)[:500],
-                retry_count=retry_count,
-            )
-        raise
-```
-
-**修改 `MediaGenerator`**：
+**`MediaGenerator.__init__` 初始化 UsageTracker**：
 
 ```python
 class MediaGenerator:
-    def __init__(self, project_path: Path, rate_limiter: RateLimiter = None):
-        self.project_path = Path(project_path)
-        self.project_name = self.project_path.name
+    def __init__(self, ...):
+        self.project_name = ...
+        # 初始化 UsageTracker（使用全局 async session factory）
+        self.usage_tracker = UsageTracker()
+```
 
-        # 初始化 UsageTracker（全局数据库）
-        db_path = self.project_path.parent / ".api_usage.db"
-        self.usage_tracker = UsageTracker(db_path)
+**在 `generate_image_async` / `generate_video_async` 中前后埋点**：
 
-        # 传递给 GeminiClient
-        self.gemini = GeminiClient(
-            rate_limiter=rate_limiter,
-            usage_tracker=self.usage_tracker,
-            project_name=self.project_name,
+```python
+async def generate_video_async(self, ...):
+    # 记录调用开始
+    call_id = await self.usage_tracker.start_call(
+        project_name=self.project_name,
+        call_type="video",
+        model=self._video_backend.model,
+        prompt=prompt,
+        resolution=resolution,
+        duration_seconds=int(duration_seconds),
+        aspect_ratio=aspect_ratio,
+        provider=self._video_backend.name,
+        segment_id=resource_id if resource_type in ("storyboards", "videos", "grids") else None,
+    )
+
+    try:
+        result = await self._video_backend.generate(request)
+        # 记录成功
+        await self.usage_tracker.finish_call(
+            call_id=call_id,
+            status="success",
+            output_path=str(output_path),
         )
+    except Exception as e:
+        # 记录失败
+        await self.usage_tracker.finish_call(
+            call_id=call_id,
+            status="failed",
+            error_message=str(e),
+        )
+        raise
 ```
 
 ### 2.5 重试次数追踪
@@ -511,19 +481,19 @@ app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 
 ### Phase 2 - 生成路径集成
 
-3. 在媒体生成路径中集成调用追踪
-4. 修改 `lib/media_generator.py` - 初始化 UsageTracker，传递 project_name
+1. 在媒体生成路径中集成调用追踪
+2. 修改 `lib/media_generator.py` - 初始化 UsageTracker，传递 project_name
 
 ### Phase 3 - 后端 API
 
-5. `server/routers/usage.py` - 统计与查询 API
-6. 修改 `server/app.py` - 注册路由
+1. `server/routers/usage.py` - 统计与查询 API
+2. 修改 `server/app.py` - 注册路由
 
 ### Phase 4 - 前端页面
 
-7. 全局费用统计页面
-8. 项目内费用统计组件
-9. 首页导航链接
+1. 全局费用统计页面
+2. 项目内费用统计组件
+3. 首页导航链接
 
 ---
 
