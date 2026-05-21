@@ -336,4 +336,3 @@ class TestGenerateRouter:
                 json={"prompt": "x"},
             )
             assert missing_prop.status_code == 404
-
