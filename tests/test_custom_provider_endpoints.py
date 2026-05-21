@@ -106,6 +106,17 @@ class TestInferEndpoint:
             ("jimeng-video-3.0", "openai", "openai-video"),
             ("jimengvideo-3.0", "openai", "openai-video"),
             ("SORA-2", "openai", "openai-video"),
+            ("viduq1", "openai", "openai-images"),
+            ("viduq1-classic", "openai", "openai-images"),
+            ("viduq2", "openai", "openai-images"),
+            ("viduq2-pro", "openai", "openai-images"),
+            ("viduq2-turbo", "openai", "openai-images"),
+            ("vidu2.0", "openai", "openai-video"),
+            ("viduq3", "openai", "openai-video"),
+            ("viduq3-mix", "openai", "openai-video"),
+            ("viduq3-pro", "openai", "openai-video"),
+            ("viduq3-turbo", "openai", "openai-video"),
+            ("vidu-tts", "openai", "openai-chat"),
         ],
     )
     def test_infer(self, model_id, discovery_format, expected):
