@@ -191,7 +191,7 @@ export function ReferenceVideoCard({
         // 与 MENTION_RE `(?<!\w)` 对齐：@ 左侧不能是 ASCII 词字符，否则视为 email/id 残片。
         if (i === 0 || !/\w/.test(prev ?? "")) {
           const rawQuery = nextValue.slice(i + 1, cursor);
-          const isWrapped = rawQuery.startsWith("[") || rawQuery.startsWith("{");
+          const isWrapped = rawQuery.startsWith("[");
           if (!isWrapped && !/^[\w一-鿿]*$/.test(rawQuery)) break;
           setAtStart(i);
           setPickerQuery(isWrapped ? rawQuery.slice(1) : rawQuery);
@@ -200,7 +200,7 @@ export function ReferenceVideoCard({
         }
         break;
       }
-      if (ch === "]" || ch === "}" || /\s/.test(ch)) break;
+      if (ch === "]" || /\s/.test(ch)) break;
       i--;
     }
     setAtStart(null);

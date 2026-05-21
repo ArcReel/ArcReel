@@ -36,12 +36,16 @@ describe("extractMentions", () => {
   });
 
   it("matches wrapped names adjacent to verbs", () => {
-    expect(extractMentions("@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，使用@{道具甲}完成动作")).toEqual([
+    expect(extractMentions("@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作")).toEqual([
       "角色甲（成年）",
       "角色乙",
       "载具甲",
       "道具甲",
     ]);
+  });
+
+  it("rejects non-ascii legacy mentions to stay aligned with backend", () => {
+    expect(extractMentions("@éclair @한글 @张三 @abc_123")).toEqual(["张三", "abc_123"]);
   });
 });
 

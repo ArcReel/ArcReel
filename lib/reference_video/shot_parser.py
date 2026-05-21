@@ -22,7 +22,7 @@ def _is_ascii_word_char(ch: str) -> bool:
 
 
 def _is_legacy_mention_char(ch: str) -> bool:
-    return ch == "_" or ch.isalnum()
+    return ch == "_" or (ch.isascii() and ch.isalnum()) or ("\u4e00" <= ch <= "\u9fff")
 
 
 def _next_positions(text: str, targets: set[str]) -> list[int]:
@@ -33,14 +33,13 @@ def _next_positions(text: str, targets: set[str]) -> list[int]:
 
 
 def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
-    """Yield (start, end, name) for @名称 / @[名称] / @{名称} mentions.
+    """Yield (start, end, name) for @名称 / @[名称] mentions.
 
     The left side of `@` must not be an ASCII word character, otherwise the text
     is treated as an email/id fragment. Wrapped mentions may contain punctuation
     but cannot cross line breaks.
     """
     next_square = _next_positions(text, {"]"})
-    next_curly = _next_positions(text, {"}"})
     next_line_break = _next_positions(text, {"\r", "\n"})
     i = 0
     while i < len(text):
@@ -57,9 +56,9 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
             continue
 
         opener = text[i + 1]
-        if opener in {"[", "{"}:
+        if opener == "[":
             start = i + 2
-            close = next_square[start] if opener == "[" else next_curly[start]
+            close = next_square[start]
             if start < close < next_line_break[start]:
                 yield i, close + 1, text[start:close]
                 i = close + 1

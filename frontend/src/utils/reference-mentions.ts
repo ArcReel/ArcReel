@@ -12,13 +12,13 @@ import type { AssetKind, ReferenceResource } from "@/types/reference-video";
  *
  * CJK 字符（`\u4e00-\u9fff`）在两边都不在词字符集内，所以中文前缀合法。
  *
- * Supports legacy `@名称` plus wrapped `@[名称]` / `@{名称}` for asset names
+ * Supports legacy `@名称` plus wrapped `@[名称]` for asset names
  * containing punctuation, spaces, or parentheses.
  */
-export const MENTION_RE = /(?<!\w)@(?:\[([^\]\r\n]+)\]|\{([^}\r\n]+)\}|([\w\u4e00-\u9fff]+))/g;
+export const MENTION_RE = /(?<!\w)@(?:\[([^\]\r\n]+)\]|([\w\u4e00-\u9fff]+))/g;
 
 export function mentionNameFromMatch(match: RegExpMatchArray): string {
-  return match[1] ?? match[2] ?? match[3] ?? "";
+  return match[1] ?? match[2] ?? "";
 }
 
 export function extractMentions(text: string): string[] {

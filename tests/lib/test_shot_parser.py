@@ -49,7 +49,7 @@ def test_extract_mentions_ordered_unique():
 
 
 def test_extract_mentions_supports_wrapped_names():
-    text = "Shot 1 (8s): @[角色甲（成年）] 引导@[角色乙]靠近@[载具甲]区域，使用@{道具甲}完成动作"
+    text = "Shot 1 (8s): @[角色甲（成年）] 引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作"
     _shots, refs, _ = parse_prompt(text)
     assert refs == ["角色甲（成年）", "角色乙", "载具甲", "道具甲"]
 
@@ -77,7 +77,7 @@ def test_render_prompt_replaces_mentions():
 
 
 def test_render_prompt_replaces_wrapped_mentions_without_spacing():
-    text = "@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，使用@{道具甲}完成动作。"
+    text = "@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作。"
     refs = [
         ReferenceResource(type="character", name="角色甲（成年）"),
         ReferenceResource(type="character", name="角色乙"),
@@ -86,6 +86,12 @@ def test_render_prompt_replaces_wrapped_mentions_without_spacing():
     ]
     rendered = render_prompt_for_backend(text, refs)
     assert rendered == "[图1]引导[图2]靠近[图3]区域，使用[图4]完成动作。"
+
+
+def test_extract_mentions_rejects_non_ascii_legacy_letters():
+    from lib.reference_video.shot_parser import _extract_mentions
+
+    assert _extract_mentions("@éclair @한글 @张三 @abc_123") == ["张三", "abc_123"]
 
 
 def test_render_prompt_unknown_mention_kept():
