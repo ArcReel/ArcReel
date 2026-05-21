@@ -70,6 +70,7 @@ frontend/.vite/
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
 
 # Superpowers (Claude Code plugin cache)
 .superpowers/

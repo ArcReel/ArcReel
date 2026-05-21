@@ -47,7 +47,6 @@
       "Bash(gh repo clone:*)",
       "Bash(openspec:*)",
       "Bash(command -v openspec)",
-      "Bash(bash scripts/new-worktree.sh:*)",
       "Skill(commit-commands:commit)",
       "Skill(commit-commands:commit-push-pr)",
       "Skill(claude-api)",
