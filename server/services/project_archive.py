@@ -17,6 +17,7 @@ from lib.data_validator import DataValidator, ValidationResult
 from lib.json_io import load_json
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager, effective_mode
+from lib.project_migrations.runner import migrate_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +292,11 @@ class ProjectArchiveService:
                         target_name,
                         overwrite=(conflict_policy == "overwrite"),
                     )
+
+                    # 启动期 run_project_migrations 只覆盖启动时已存在的项目；启动后导入的旧归档
+                    # 需在此补跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend），
+                    # 否则解析链不再读 legacy 字段会让该项目静默回退到全局默认供应商。
+                    migrate_project_dir(self.project_manager.get_project_path(target_name))
 
                     imported_project = self.project_manager.load_project(target_name)
                     emit_project_change_hint(

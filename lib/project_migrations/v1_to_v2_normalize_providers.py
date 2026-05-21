@@ -48,7 +48,9 @@ def _normalize_field(value: str) -> str:
     if "/" in value:
         provider, model = value.split("/", 1)
         provider, model = provider.strip(), model.strip()
-        return f"{_LEGACY_PROVIDER_ALIASES.get(provider, provider)}/{model}"
+        canonical = _LEGACY_PROVIDER_ALIASES.get(provider, provider)
+        # model 缺失（如 "gemini /"）只返回规范 provider，避免留下带尾斜杠的非规范字符串
+        return f"{canonical}/{model}" if model else canonical
     stripped = value.strip()
     return _LEGACY_PROVIDER_ALIASES.get(stripped, stripped)
 

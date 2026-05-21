@@ -9,6 +9,7 @@ import pytest
 from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
     cleanup_stale_backups,
+    migrate_project_dir,
     run_project_migrations,
 )
 
@@ -78,6 +79,18 @@ def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
     assert data["video_backend"] == "ark/x"
     assert data["image_provider_t2i"] == "gemini-vertex/y"
     assert "image_backend" not in data
+
+
+def test_migrate_project_dir_single_project(tmp_projects: Path):
+    """单项目入口（供导入路径复用）：v1 项目走完整链升到 v2 并归一化 legacy 名。"""
+    d = _write_project(tmp_projects, "imported", {"schema_version": 1, "image_backend": "vertex/y"})
+    assert migrate_project_dir(d) is True
+    data = json.loads((d / "project.json").read_text())
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert data["image_provider_t2i"] == "gemini-vertex/y"
+    assert "image_backend" not in data
+    # 幂等：已是最新版本再调返回 False、不改动
+    assert migrate_project_dir(d) is False
 
 
 def test_skip_underscore_dirs(tmp_projects: Path):

@@ -53,6 +53,12 @@ class TestMigrateProjectDictPureFunction:
         assert after["video_backend"] == "ark/seedance-1-0-pro"
         assert after["text_backend_script"] == "gemini-aistudio"
 
+    def test_slash_without_model_yields_provider_only(self):
+        """带斜杠但缺 model（如 "gemini /"）归一化为纯 provider，不留尾斜杠非规范串。"""
+        after = migrate_project_dict({"video_backend": "seedance /", "text_backend_script": "gemini/"})
+        assert after["video_backend"] == "ark"
+        assert after["text_backend_script"] == "gemini-aistudio"
+
     def test_deletes_legacy_image_backend_key(self):
         after = migrate_project_dict({"image_backend": "openai/gpt-image-1"})
         assert "image_backend" not in after

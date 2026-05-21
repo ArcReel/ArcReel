@@ -70,13 +70,17 @@ def _parse_bool(raw: str) -> bool:
 
 
 def _split_pair(raw: object) -> tuple[str, str] | None:
-    """解析 ``"<provider>/<model>"`` → (provider, model)；不合法返回 None。"""
+    """解析 ``"<provider>/<model>"`` → (provider, model)；不合法返回 None。
+
+    provider 或 model 为空/纯空白（如 ``"openai/"`` / ``"/m"``）均视为不合法返回 None，
+    交由调用方走裸 provider 补默认 model 或回退——避免把空 model 带到执行层。"""
     if not isinstance(raw, str) or "/" not in raw:
         return None
     provider, model = raw.split("/", 1)
-    if not provider.strip():
+    provider, model = provider.strip(), model.strip()
+    if not provider or not model:
         return None
-    return provider.strip(), model.strip()
+    return provider, model
 
 
 def _default_model_for_provider(provider_id: str, media_type: str) -> str | None:
@@ -102,11 +106,13 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
     pair = _split_pair(raw)
     if pair is not None:
         return pair
-    if isinstance(raw, str) and raw.strip():
-        provider = raw.strip()
-        model = _default_model_for_provider(provider, media_type)
-        if model is not None:
-            return provider, model
+    if isinstance(raw, str):
+        # 裸 provider，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该 provider 默认 model
+        provider = raw.strip().rstrip("/").strip()
+        if provider:
+            model = _default_model_for_provider(provider, media_type)
+            if model is not None:
+                return provider, model
     return None
 
 

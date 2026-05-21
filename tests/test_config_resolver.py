@@ -685,6 +685,14 @@ class TestResolveImageBackend:
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
         assert resolved.provider_id == "grok"
 
+    async def test_project_provider_with_trailing_slash_uses_provider_default(self):
+        """脏值 "openai/"（缺 model，写校验器会放行）→ 取 openai 默认 model，不带空 model 下游。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_provider_t2i": "openai/"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
+
     async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
         """in-flight 历史任务 payload 携带 legacy 名（写边界拦不到）→ 不予信任，回退已迁移的 project。"""
         resolver = ConfigResolver.__new__(ConfigResolver)

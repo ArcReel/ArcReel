@@ -87,6 +87,27 @@ def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
         logger.warning("clues 备份失败（非阻塞）：%s: %s", project_dir, exc)
 
 
+def migrate_project_dir(project_dir: Path) -> bool:
+    """将单个项目目录逐级升级到 CURRENT_SCHEMA_VERSION，返回是否实际迁移。
+
+    供启动期 ``run_project_migrations`` 与项目导入路径共用：启动期 runner 只覆盖启动时已存在的
+    项目，启动后导入的旧归档需在导入入口补跑此函数走完整迁移链，否则解析链（不再读 legacy
+    字段）会让该项目静默回退到全局默认。非项目目录 / 已是最新版本返回 False。"""
+    version = _load_schema_version(project_dir)
+    if version < 0 or version >= CURRENT_SCHEMA_VERSION:
+        return False
+    while version < CURRENT_SCHEMA_VERSION:
+        _backup_project_json(project_dir, version)
+        if version == 0:
+            _hardlink_backup_clues(project_dir, version)
+        migrator = MIGRATORS.get(version)
+        if not migrator:
+            raise RuntimeError(f"no migrator from v{version}")
+        migrator(project_dir)
+        version += 1
+    return True
+
+
 def run_project_migrations(projects_root: Path) -> MigrationSummary:
     """扫 projects_root 下每个项目目录，升级到 CURRENT_SCHEMA_VERSION。"""
     summary = MigrationSummary()
@@ -110,16 +131,7 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
             continue
 
         try:
-            # 逐级迁移
-            while version < CURRENT_SCHEMA_VERSION:
-                _backup_project_json(child, version)
-                if version == 0:
-                    _hardlink_backup_clues(child, version)
-                migrator = MIGRATORS.get(version)
-                if not migrator:
-                    raise RuntimeError(f"no migrator from v{version}")
-                migrator(child)
-                version += 1
+            migrate_project_dir(child)
             summary.migrated.append(child.name)
         except Exception as e:
             summary.failed.append(child.name)
