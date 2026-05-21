@@ -668,6 +668,23 @@ class TestResolveImageBackend:
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
         assert resolved.provider_id == "grok"
 
+    async def test_project_bare_provider_pins_provider_with_default_model(self):
+        """裸 provider 项目覆盖（写边界放行）→ pin 该 provider 并补全其默认 model，不静默回退全局默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_provider_t2i": "openai"}  # 裸 provider，无 model
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert resolved.provider_id == "openai"
+        assert resolved.model_id == "gpt-image-2"  # registry 中 openai 的默认 image model
+
+    async def test_project_unknown_bare_provider_falls_through(self):
+        """裸 provider 不在 registry（无默认 model 可补）→ 退回全局默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_provider_t2i": "does-not-exist"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert resolved.provider_id == "grok"
+
 
 class TestResolveVideoBackend:
     """resolve_video_backend：payload > project > 全局默认。"""
@@ -692,3 +709,12 @@ class TestResolveVideoBackend:
         fake_svc = _FakeConfigService(settings={"default_video_backend": "ark/doubao-seedance-1-5-pro"})
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None)
         assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-1-5-pro")
+
+    async def test_project_bare_provider_pins_provider_with_default_model(self):
+        """裸 video_backend(如 "ark") → pin ark 并补全其默认 video model，不回退全局默认的另一供应商。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "grok/grok-imagine-video"})
+        project = {"video_backend": "ark"}  # 裸 provider
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
+        assert resolved.provider_id == "ark"
+        assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # registry 中 ark 的默认 video model

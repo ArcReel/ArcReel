@@ -74,9 +74,40 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
     if not isinstance(raw, str) or "/" not in raw:
         return None
     provider, model = raw.split("/", 1)
-    if not provider:
+    if not provider.strip():
         return None
-    return provider, model
+    return provider.strip(), model.strip()
+
+
+def _default_model_for_provider(provider_id: str, media_type: str) -> str | None:
+    """返回该 provider 在 ``PROVIDER_REGISTRY`` 中指定 media_type 的默认 model_id；无则 None。"""
+    meta = PROVIDER_REGISTRY.get(provider_id)
+    if meta is None:
+        return None
+    for model_id, model_info in meta.models.items():
+        if model_info.media_type == media_type and model_info.default:
+            return model_id
+    return None
+
+
+def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
+    """解析 project.json 的 provider 字段，兼容裸 provider 覆盖。
+
+    - ``"provider/model"`` → (provider, model)
+    - 裸 ``"provider"``（registry 中存在且有该 media_type 默认 model）→ (provider, 默认 model)
+    - 其余 → None（交由全局默认解析）
+
+    裸 provider 经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
+    pin 住该 provider 并补全其默认 model，避免静默回退到全局默认的**另一**供应商。"""
+    pair = _split_pair(raw)
+    if pair is not None:
+        return pair
+    if isinstance(raw, str) and raw.strip():
+        provider = raw.strip()
+        model = _default_model_for_provider(provider, media_type)
+        if model is not None:
+            return provider, model
+    return None
 
 
 _TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
@@ -284,9 +315,9 @@ class ConfigResolver:
         project: dict | None,
     ) -> tuple[str, str]:
         if project is not None:
-            project_val = project.get("video_backend")
-            if project_val and isinstance(project_val, str) and "/" in project_val:
-                return ConfigService._parse_backend(project_val, _DEFAULT_VIDEO_BACKEND)
+            parsed = _parse_project_provider(project.get("video_backend"), "video")
+            if parsed is not None:
+                return parsed
         return await self._resolve_default_video_backend(svc, session)
 
     async def _resolve_image_provider_model(
@@ -312,9 +343,9 @@ class ConfigResolver:
             if provider:
                 return ProviderModel(provider, payload.get("image_model") or "")
         if project:
-            pair = _split_pair(project.get(cap_key))
-            if pair is not None:
-                return ProviderModel(*pair)
+            parsed = _parse_project_provider(project.get(cap_key), "image")
+            if parsed is not None:
+                return ProviderModel(*parsed)
         provider_id, model_id = await self._resolve_default_image_backend(svc, session, capability)
         return ProviderModel(provider_id, model_id)
 

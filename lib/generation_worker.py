@@ -88,7 +88,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     if project_name:
         from lib.config.resolver import get_project_manager
 
-        project = get_project_manager().load_project(project_name)
+        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
 
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
