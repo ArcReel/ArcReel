@@ -7,27 +7,32 @@
 
 ## 需求概述
 
-为图片和视频生成引入自动版本管理机制，调用方无感。通过创建 `MediaGenerator` 中间层，封装 `GeminiClient` + `VersionManager`。
+为图片和视频生成引入自动版本管理机制，调用方无感。通过创建 `MediaGenerator` 中间层，封装媒体生成后端 + `VersionManager`。
+
+> 演进说明：初版直接封装 `GeminiClient`。现实现封装可插拔的 image/video backend（Registry + Factory，
+> 多供应商），并组合 `VersionManager` + `UsageTracker`；下文以 GeminiClient 为例描述中间层职责。
+> 资源类型 `clues` 已拆分为 `scenes` / `props`（另增 `grids` / `reference_videos`）。
 
 ---
 
 ## 核心定位
 
-`MediaGenerator` 是一个中间层，封装 `GeminiClient` + `VersionManager`，提供"调用方无感"的版本管理。
+`MediaGenerator` 是一个中间层，封装媒体生成后端 + `VersionManager`，提供"调用方无感"的版本管理。
 
 **核心原则：**
 - 调用方只需传入 `project_path` 和 `resource_id`
 - 版本管理自动完成（备份、记录、跟踪）
-- 不改变现有 `GeminiClient` 的职责
+- 不改变底层媒体后端的职责
 
-**覆盖的 4 种资源类型：**
+**覆盖的资源类型：**
 
 | 资源类型 | 当前调用位置 | resource_id 格式 |
 |---------|-------------|-----------------|
-| `storyboards` | generate_storyboard.py, webui | `E1S01` (segment/scene ID) |
-| `videos` | generate_video.py, webui | `E1S01` (segment/scene ID) |
-| `characters` | generate_character.py, webui | `姜月茴` (角色名) |
-| `clues` | generate_clue.py, webui | `玉佩` (线索名) |
+| `storyboards` | 分镜生成, 前端 | `E1S01` (segment/scene ID) |
+| `videos` | 视频生成, 前端 | `E1S01` (segment/scene ID) |
+| `characters` | 资产生成, 前端 | `姜月茴` (角色名) |
+| `scenes` | 资产生成, 前端 | `庙宇` (场景名) |
+| `props` | 资产生成, 前端 | `玉佩` (道具名) |
 
 ---
 
@@ -74,7 +79,7 @@ class MediaGenerator:
 def generate_image(
     self,
     prompt: str,
-    resource_type: str,  # 'storyboards' | 'characters' | 'clues'
+    resource_type: str,  # 'storyboards' | 'characters' | 'scenes' | 'props'
     resource_id: str,    # E1S01 | 姜月茴 | 玉佩
     # 以下参数透传给 GeminiClient
     reference_images: Optional[List] = None,
@@ -94,7 +99,8 @@ def generate_image(
 | `storyboards` | `{project}/storyboards/scene_{resource_id}.png` |
 | `videos` | `{project}/videos/scene_{resource_id}.mp4` |
 | `characters` | `{project}/characters/{resource_id}.png` |
-| `clues` | `{project}/clues/{resource_id}.png` |
+| `scenes` | `{project}/scenes/{resource_id}.png` |
+| `props` | `{project}/props/{resource_id}.png` |
 
 ### 返回值变化
 
@@ -159,24 +165,23 @@ lib/media_generator.py    # MediaGenerator 类
 
 | 文件 | 改动内容 |
 |-----|---------|
-| `.claude/skills/generate-storyboard/scripts/generate_storyboard.py` | 替换 GeminiClient → MediaGenerator |
-| `.claude/skills/generate-video/scripts/generate_video.py` | 替换 GeminiClient → MediaGenerator |
-| `.claude/skills/generate-characters/scripts/generate_character.py` | 替换 GeminiClient → MediaGenerator |
-| `.claude/skills/generate-clues/scripts/generate_clue.py` | 替换 GeminiClient → MediaGenerator |
-| `webui/server/routers/generate.py` | 简化，移除手动版本管理代码 |
+| `generate-storyboard` skill 脚本 | 改用 MediaGenerator |
+| `generate-video` skill 脚本 | 改用 MediaGenerator |
+| `generate-assets` skill 脚本（角色/场景/道具） | 改用 MediaGenerator |
+| `server/routers/generate.py` | 简化，移除手动版本管理代码 |
 
 ### 不修改的文件
 
-- `lib/gemini_client.py` - 保持不变
+- 底层媒体后端 - 保持各自职责
 - `lib/version_manager.py` - 保持不变
 
 ### 实现优先级
 
 | 阶段 | 内容 |
 |-----|------|
-| Phase 1 | 创建 `lib/media_generator.py`，实现 4 个核心方法 |
-| Phase 2 | 迁移 4 个 skill 脚本 |
-| Phase 3 | 简化 webui router |
+| Phase 1 | 创建 `lib/media_generator.py`，实现核心方法 |
+| Phase 2 | 迁移 skill 脚本 |
+| Phase 3 | 简化生成 router |
 
 ---
 
@@ -184,5 +189,5 @@ lib/media_generator.py    # MediaGenerator 类
 
 1. **线程安全**：`VersionManager` 已实现线程安全锁，`MediaGenerator` 可直接复用
 2. **异步支持**：需要同时提供同步和异步版本的方法
-3. **向后兼容**：`GeminiClient` 保持不变，现有直接调用不受影响
+3. **向后兼容**：底层媒体后端的直接调用职责不受 MediaGenerator 引入影响
 4. **元数据传递**：通过 `**version_metadata` 支持传递额外信息（如 `aspect_ratio`、`duration_seconds`）

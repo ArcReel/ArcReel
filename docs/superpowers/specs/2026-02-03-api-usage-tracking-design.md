@@ -9,15 +9,21 @@
 - 调用参数信息、调用时间、调用耗时、重试次数
 - 基于分辨率/时长实时计算费用
 - 失败记录（费用为 0）
-- WebUI 费用统计查看与调用记录筛选
+- 前端费用统计查看与调用记录筛选
+
+> 演进说明：本设计初版基于独立 SQLite 文件 + 同步 API。实现已并入统一的
+> SQLAlchemy Async ORM 层：表 `api_calls` 由 `lib/db/models/api_call.py::ApiCall`
+> 定义，读写经 `lib/db/repositories/usage_repo.py::UsageRepository`，`UsageTracker`
+> 的 `start_call/finish_call/get_stats/get_calls` 等均为 async 方法。下文 SQL 与
+> 同步签名仅描述字段语义。
 
 ---
 
 ## 一、数据模型与存储
 
-### 1.1 SQLite 数据库
+### 1.1 数据表
 
-**位置**：`projects/.api_usage.db`（全局唯一，存放在 projects 目录下）
+表 `api_calls`（ORM 模型 `ApiCall`，开发库 SQLite / 生产 PostgreSQL，与其余业务表共库）。
 
 **表结构：`api_calls`**
 
@@ -64,7 +70,10 @@ CREATE INDEX idx_created_at ON api_calls(created_at);
 
 ### 1.2 费用计算规则
 
-基于 `docs/视频&图片生成费用表.md`：
+> 以下为初版仅支持 Gemini 图片 + Veo 视频时的单一供应商费率。现 `lib/cost_calculator.py`
+> 已扩展为多供应商费率表（gemini / ark / grok / openai 的 image / video / text），结构同理。
+
+基于费用表：
 
 **图片（gemini-3-pro-image-preview）**
 
@@ -98,9 +107,9 @@ CREATE INDEX idx_created_at ON api_calls(created_at);
 
 ```
 lib/
-├── gemini_client.py      # 现有：API 调用
+├── image_backends/ / video_backends/  # 现有：多供应商媒体后端
 ├── media_generator.py    # 现有：媒体生成中间层
-├── usage_tracker.py      # 新增：调用记录与费用追踪
+├── usage_tracker.py      # 新增：调用记录与费用追踪（wrapping UsageRepository）
 └── cost_calculator.py    # 新增：费用计算器
 ```
 
@@ -223,6 +232,10 @@ class UsageTracker:
 
 ### 2.4 集成方式
 
+> 初版把追踪埋在 `GeminiClient` 内。现实现把 `start_call/finish_call`（async）下沉到
+> `MediaGenerator.generate_image_async/generate_video_async`，在调用各 image/video backend
+> 前后埋点；下文以 GeminiClient 为例说明埋点位置。
+
 **修改 `GeminiClient.__init__`**：
 
 ```python
@@ -326,11 +339,11 @@ def with_retry(...):
 
 ---
 
-## 三、WebUI 后端 API
+## 三、后端 API
 
 ### 3.1 新增路由文件
 
-**文件**：`webui/server/routers/usage.py`
+**文件**：`server/routers/usage.py`
 
 ```python
 router = APIRouter()
@@ -375,21 +388,22 @@ async def get_projects_list():
 
 ### 3.2 注册路由
 
-**修改**：`webui/server/app.py`
+**修改**：`server/app.py`
 
 ```python
-from webui.server.routers import projects, characters, clues, files, generate, versions, usage
+from server.routers import usage
 
 app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 ```
 
 ---
 
-## 四、WebUI 前端界面
+## 四、前端界面
+
+> 下文以初版静态页布局示意；现前端为 React SPA（`frontend/src/`），文件路径以实际组件为准，
+> 此处仅描述信息结构与交互。
 
 ### 4.1 全局费用统计页面
-
-**文件**：`webui/usage.html`
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -420,7 +434,7 @@ app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 - 最近 30 天
 - 自定义（日期选择器）
 
-**文件**：`webui/js/usage.js`
+页面前端逻辑：
 
 - 加载统计数据
 - 加载调用记录列表
@@ -429,9 +443,7 @@ app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 
 ### 4.2 项目详情页内统计
 
-**修改**：`webui/project.html`
-
-在页面顶部添加费用统计卡片区：
+在项目页顶部添加费用统计卡片区（卡片：总费用 / 图片调用 / 视频调用 / 失败次数 + 查看详细记录入口）：
 
 ```html
 <!-- 费用统计卡片 -->
@@ -460,25 +472,11 @@ app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 </div>
 ```
 
-**新增**：`webui/js/project/usage.js`
-
-- 加载项目统计数据
-- 更新统计卡片
+组件职责：加载项目统计数据、更新统计卡片。
 
 ### 4.3 首页导航更新
 
-**修改**：`webui/index.html`
-
-顶部导航添加"费用统计"链接：
-
-```html
-<div class="flex items-center space-x-4">
-    <a href="/usage.html" class="text-gray-400 hover:text-white transition-colors">
-        费用统计
-    </a>
-    <!-- 现有的刷新和新建按钮 -->
-</div>
-```
+顶部导航添加"费用统计"入口链接。
 
 ---
 
@@ -488,23 +486,19 @@ app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 
 | 文件 | 说明 |
 |------|------|
-| `lib/usage_tracker.py` | SQLite 数据库管理 + 调用记录 CRUD |
+| `lib/usage_tracker.py` | 调用记录追踪（wrapping `UsageRepository`） |
 | `lib/cost_calculator.py` | 费用计算器（封装费用表逻辑） |
-| `webui/server/routers/usage.py` | 费用统计 API 路由 |
-| `webui/usage.html` | 全局费用统计页面 |
-| `webui/js/usage.js` | 费用页面前端逻辑 |
-| `webui/js/project/usage.js` | 项目页内费用统计组件 |
+| `server/routers/usage.py` | 费用统计 API 路由 |
+| 前端费用统计页面 | 全局费用统计页面 |
+| 前端项目内费用统计组件 | 项目页内费用统计组件 |
 
 ### 修改文件
 
 | 文件 | 修改内容 |
 |------|----------|
-| `lib/gemini_client.py` | 集成 UsageTracker，在 generate_image/generate_video 前后记录调用 |
-| `lib/media_generator.py` | 初始化 UsageTracker，传递 project_name 给 GeminiClient |
-| `webui/server/app.py` | 注册 usage 路由 |
-| `webui/index.html` | 顶部导航添加"费用统计"链接 |
-| `webui/project.html` | 添加费用统计卡片区 |
-| `webui/js/project.js` | 引入 usage.js，加载项目时获取费用统计 |
+| `lib/media_generator.py` | 在图片/视频生成路径前后记录调用 |
+| `server/app.py` | 注册 usage 路由 |
+| 前端首页导航 / 项目页 | 添加费用统计入口与卡片区 |
 
 ---
 
@@ -515,21 +509,21 @@ app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 1. `lib/cost_calculator.py` - 费用计算器
 2. `lib/usage_tracker.py` - 数据库 + 记录管理
 
-### Phase 2 - API 集成
+### Phase 2 - 生成路径集成
 
-3. 修改 `lib/gemini_client.py` - 集成调用追踪
+3. 在媒体生成路径中集成调用追踪
 4. 修改 `lib/media_generator.py` - 初始化 UsageTracker，传递 project_name
 
 ### Phase 3 - 后端 API
 
-5. `webui/server/routers/usage.py` - 统计与查询 API
-6. 修改 `webui/server/app.py` - 注册路由
+5. `server/routers/usage.py` - 统计与查询 API
+6. 修改 `server/app.py` - 注册路由
 
 ### Phase 4 - 前端页面
 
-7. `webui/usage.html` + `webui/js/usage.js` - 全局费用页面
-8. 修改 `webui/project.html` + 新增 `webui/js/project/usage.js` - 项目内统计
-9. 修改 `webui/index.html` - 导航链接
+7. 全局费用统计页面
+8. 项目内费用统计组件
+9. 首页导航链接
 
 ---
 

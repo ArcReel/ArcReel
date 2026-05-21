@@ -46,7 +46,7 @@
 
 > **注意**：
 > - **Style（风格）** 由项目级 `project.json` 的 `style` 字段统一决定，不在每个 segment 中重复
-> - **角色和线索** 通过现有的 `characters_in_segment` / `clues_in_segment` 字段引用，不在 imagePrompt 中重复
+> - **角色 / 场景 / 道具** 通过 segment/scene 上的引用字段（如 `characters_in_scene`）引用，不在 imagePrompt 中重复
 
 ### 1.2 videoPrompt 结构
 
@@ -226,16 +226,10 @@ negative_prompt = "music, BGM, background music, subtitles, low quality"
 
 ### 更新位置
 
-`lib/gemini_client.py` 中的 `generate_video()` 方法：
+在视频生成路径中统一拼接禁止元素（当前实现见 `lib/prompt_builders.py::append_video_negative_tail`）：
 
 ```python
-def generate_video(
-    self,
-    prompt: str,
-    # ... 其他参数
-    negative_prompt: str = "music, BGM, background music, subtitles, low quality",
-    # ...
-) -> tuple:
+negative_prompt = "music, BGM, background music, subtitles, low quality"
 ```
 
 ---
@@ -252,7 +246,6 @@ def generate_video(
   "image_prompt": "中景镜头，实验室内...",
   "video_prompt": "镜头缓慢推进...",
   "characters_in_segment": ["Dr. Chen"],
-  "clues_in_segment": ["Blueprint"],
   "duration_seconds": 4
 }
 ```
@@ -277,7 +270,6 @@ def generate_video(
     "dialogue": []
   },
   "characters_in_segment": ["Dr. Chen"],
-  "clues_in_segment": ["Blueprint"],
   "duration_seconds": 4
 }
 ```
@@ -298,7 +290,9 @@ def generate_video(
 }
 ```
 
-仅允许预设选项：`Photographic` | `Anime` | `3D Animation`
+起步阶段仅允许预设选项：`Photographic` | `Anime` | `3D Animation`。
+
+> 后续演进：风格系统扩展为 `lib/style_templates.py` 的模板库（`STYLE_TEMPLATES`），上述三个名称作为向后兼容别名映射到具体模板 ID（如 `Photographic → live_premium_drama`）。
 
 ---
 
@@ -322,7 +316,7 @@ For each segment, generate an image_prompt object with the following structure:
 
 Note:
 - Style is defined at project level (project.json), not per segment
-- Characters and clues are referenced via characters_in_segment and clues_in_segment fields
+- Characters / scenes / props are referenced via the segment/scene reference fields, not inside image_prompt
 ```
 
 ### 6.2 videoPrompt 生成指令
@@ -350,10 +344,10 @@ For each segment, generate a video_prompt object with the following structure:
 | 阶段 | 内容 | 涉及文件 |
 |------|------|---------|
 | Phase 1 | 新增 YAML 转换工具函数 | `lib/prompt_utils.py` (新增) |
-| Phase 2 | 更新 negative_prompt 默认值 | `lib/gemini_client.py` |
-| Phase 3 | 更新 Agent System Prompt | `.claude/commands/novel-to-narration-script.md`, `.claude/commands/novel-to-storyboard-script.md` |
-| Phase 4 | 更新分镜生成脚本以使用 YAML | `generate_storyboard.py`, `generate_video.py` |
-| Phase 5 | 更新 WebUI 风格选择器 | `webui/` 相关文件 |
+| Phase 2 | 统一视频 negative_prompt | 视频生成 prompt 构建处 |
+| Phase 3 | 更新剧本生成 Agent System Prompt | 剧本生成 Skill / Agent prompt |
+| Phase 4 | 更新分镜/视频生成脚本以使用 YAML | 分镜与视频生成脚本 |
+| Phase 5 | 更新前端风格选择器 | 前端相关文件 |
 
 ---
 

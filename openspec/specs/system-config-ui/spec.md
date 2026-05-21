@@ -1,28 +1,30 @@
 ## ADDED Requirements
 
-### Requirement: 顶栏四 Tab 结构
+### Requirement: 侧栏分区结构
 
-配置页 SHALL 将顶栏 Tab 从原有的 `[config, api-keys]` 扩展为四个 Tab：**ArcReel 智能体配置**（agent）、**AI 生图/生视频配置**（media）、**高级配置**（advanced）、**API Keys**（api-keys）。
+系统配置页（`SystemConfigPage`，路由 `/app/settings`，分区由 `?section=` query 控制）SHALL 以左侧栏导航在以下分区间切换：**供应商**（providers）、**ArcReel 智能体配置**（agent）、**AI 生图/生视频配置**（media）、**用量统计**（usage）、**API Keys**（api-keys）、**关于**（about）。
 
-各 Tab 承载内容：
-- **ArcReel 智能体配置**：Anthropic API Key、Base URL、各模型选择字段
+各分区承载内容：
+- **供应商**：预置 / 自定义供应商配置管理
+- **ArcReel 智能体配置**：Anthropic API Key、Base URL、各模型选择字段，以及速率限制 / 并发 Worker 等高级运行调优（advanced settings 折叠在本分区内，无独立分区）
 - **AI 生图/生视频配置**：Gemini API Key、Base URL、后端选择、模型选择、Vertex 凭证等
-- **高级配置**：速率限制（RPM）、请求间隔、最大并发 Worker 数
-- **API Keys**：现有 API Key 管理功能（不变）
+- **用量统计**：API 用量与费用汇总
+- **API Keys**：API Key 管理功能
+- **关于**：版本与项目信息
 
 #### Scenario: 用户打开系统配置页
-- **WHEN** 用户导航至 `/app/settings`
-- **THEN** 页面 SHALL 显示四个顶栏 Tab，默认激活第一个 Tab（ArcReel 智能体配置）
+- **WHEN** 用户导航至 `/app/settings`（未指定 section）
+- **THEN** 页面 SHALL 显示侧栏分区导航，默认激活 **供应商**（providers）分区
 
-#### Scenario: Tab 顺序
-- **WHEN** 页面渲染时
-- **THEN** Tab 顺序 SHALL 固定为：ArcReel 智能体配置 → AI 生图/生视频配置 → 高级配置 → API Keys
+#### Scenario: 通过 query 指定分区
+- **WHEN** 用户访问 `/app/settings?section=api-keys`
+- **THEN** 页面 SHALL 直接激活 **API Keys** 分区
 
 ---
 
 ### Requirement: Tab 级独立保存
 
-每个配置 Tab（agent / media / advanced）SHALL 提供独立的保存操作，一次保存该 Tab 内所有已修改字段，不影响其他 Tab。
+每个配置分区（agent / media）SHALL 提供独立的保存操作，一次保存该分区内所有已修改字段，不影响其他分区。
 
 #### Scenario: 用户在 Tab 内修改字段后保存
 - **WHEN** 用户修改某配置 Tab 内的任意字段并点击该 Tab 的保存按钮

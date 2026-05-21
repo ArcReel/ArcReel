@@ -39,8 +39,9 @@
 }
 ```
 
-实现：扫描项目目录下 `storyboards/`、`videos/`、`thumbnails/`、`characters/`、`clues/`，
-用 `int(file.stat().st_mtime)` 生成指纹 map。~50 个文件耗时 <1ms。
+实现：扫描项目目录下 `storyboards/`、`videos/`、`thumbnails/`、`characters/`、`scenes/`、
+`props/`、`grids/`，用 `file.stat().st_mtime_ns`（纳秒）生成指纹 map。~50 个文件耗时 <1ms。
+封装在 `lib/asset_fingerprints.py::compute_asset_fingerprints()`。
 
 **2) SSE 事件携带 `asset_fingerprints`**
 
@@ -126,17 +127,15 @@ const url = API.getFileUrl(projectName, assetPath, fp);
 
 #### 生成时机
 
-在视频生成完成后（`execute_video_task` 中），由同一 worker 用 ffmpeg 提取首帧：
+在视频生成完成后（视频任务编排中），由同一 worker 调用 `lib/thumbnail.py::extract_video_thumbnail`
+用 ffmpeg 提取首帧：
 
 ```python
-thumbnail_path = project_path / "thumbnails" / f"scene_{resource_id}.jpg"
-thumbnail_path.parent.mkdir(exist_ok=True)
+from lib.thumbnail import extract_video_thumbnail
 
-await asyncio.create_subprocess_exec(
-    "ffmpeg", "-i", str(video_path),
-    "-vframes", "1", "-q:v", "2",
-    "-y", str(thumbnail_path)
-)
+thumbnail_path = project_path / "thumbnails" / f"scene_{resource_id}.jpg"
+await extract_video_thumbnail(video_path, thumbnail_path)
+# ffmpeg 不在 PATH 时返回 None，调用方降级为不写 video_thumbnail（非硬失败）
 ```
 
 #### 存储结构
@@ -230,7 +229,7 @@ return {
 | `server/routers/versions.py` | restore API 返回 `asset_fingerprints` |
 | `server/services/generation_tasks.py` | SSE 事件携带 `asset_fingerprints` |
 | `server/services/project_events.py` | ProjectChange 类型扩展（可选） |
-| `lib/media_generator.py` | 视频生成后提取首帧缩略图 |
+| `lib/thumbnail.py` | `extract_video_thumbnail()` 提取视频首帧（ffmpeg 缺失时降级返回 None） |
 | `lib/version_manager.py` | 版本保存时为视频提取缩略图 |
 | `lib/project_manager.py` | `create_generated_assets` 新增 `video_thumbnail` 字段 |
 
@@ -243,7 +242,7 @@ return {
 | `frontend/src/components/canvas/timeline/SegmentCard.tsx` | URL 用 fingerprint；视频用 poster + preload=none |
 | `frontend/src/components/canvas/timeline/VersionTimeMachine.tsx` | 视频用 poster + preload=none；还原用 fingerprint |
 | `frontend/src/components/canvas/lorebook/CharacterCard.tsx` | URL 用 fingerprint |
-| `frontend/src/components/canvas/lorebook/ClueCard.tsx` | URL 用 fingerprint |
+| `frontend/src/components/canvas/lorebook/SceneCard.tsx` / `PropCard.tsx` | URL 用 fingerprint |
 | `frontend/src/components/canvas/OverviewCanvas.tsx` | URL 用 fingerprint |
 | `frontend/src/components/ui/AvatarStack.tsx` | URL 用 fingerprint |
 | `frontend/src/api.ts` | VersionInfo 类型扩展 |

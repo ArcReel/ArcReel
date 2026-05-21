@@ -312,7 +312,7 @@ export interface ContentBlock {
 | 文件 | 操作 | 说明 |
 |------|------|------|
 | `pyproject.toml` | 修改 | ✅ 已完成：`>=0.1.44` → `>=0.1.46` |
-| `server/agent_runtime/transcript_reader.py` | 删除 | 替换为 sdk_transcript_adapter.py |
+| `server/agent_runtime/transcript_reader.py` | 弃用 | 不再被引用，由 sdk_transcript_adapter.py 取代（文件暂留） |
 | `server/agent_runtime/sdk_transcript_adapter.py` | 新建 | SDK get_session_messages() 封装 |
 | `server/agent_runtime/turn_grouper.py` | 重构 | 多 Pass 管线 + 消除 result turn + task_progress 处理 |
 | `server/agent_runtime/session_manager.py` | 修改 | _MESSAGE_TYPE_MAP 新增 + _message_to_dict 增强 |

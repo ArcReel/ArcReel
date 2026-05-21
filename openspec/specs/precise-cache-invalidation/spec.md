@@ -1,10 +1,10 @@
 # precise-cache-invalidation Specification
 
 ## Purpose
-TBD - created by archiving change timeline-perf-and-notifications. Update Purpose after archive.
+为每个实体维护独立的媒体版本号（key 格式 `entity_type:entity_id`），替代全局计数器，使分镜图/视频/资产设计图生成完成时仅刷新对应实体的媒体 URL，而非全量重渲染。版本号存于 app-store（`getEntityRevision`），由 `useProjectEventsSSE` 依据 SSE 变更事件递增（`buildEntityRevisionKey`），消费侧（`StudioCanvasRouter`、`PreprocessingView` 等）按实体 key 订阅。
 ## Requirements
 ### Requirement: 按实体粒度的版本跟踪
-系统 MUST 为每个实体维护独立的版本号（key 格式 `entity_type:entity_id`），替代全局 mediaRevision 计数器。所有媒体资产消费者（SegmentCard、CharacterCard、ClueCard、OverviewCanvas、AssetSidebar、AvatarStack、VersionTimeMachine）都必须迁移到新机制。
+系统 MUST 为每个实体维护独立的版本号（key 格式 `entity_type:entity_id`），替代全局媒体计数器。媒体资产消费者（分镜图 / 视频卡片、CharacterCard、场景/道具缩略图、OverviewCanvas、AssetSidebar、AvatarStack、VersionTimeMachine）都必须迁移到新机制。
 
 #### Scenario: 单个分镜图生成完成
 - **WHEN** SSE 事件报告 segment "seg_001" 的 storyboard_ready
@@ -18,9 +18,9 @@ TBD - created by archiving change timeline-perf-and-notifications. Update Purpos
 - **WHEN** SSE 事件报告 character "张三" 的 updated
 - **THEN** 仅 `character:张三` 的版本号递增，其他实体的版本号不变
 
-#### Scenario: 线索设计图生成完成
-- **WHEN** SSE 事件报告 clue "凶器" 的 updated
-- **THEN** 仅 `clue:凶器` 的版本号递增，其他实体的版本号不变
+#### Scenario: 道具设计图生成完成
+- **WHEN** SSE 事件报告 prop "凶器" 的 updated
+- **THEN** 仅 `prop:凶器` 的版本号递增，其他实体的版本号不变
 
 #### Scenario: 项目元数据更新
 - **WHEN** SSE 事件报告 project 的 updated
@@ -37,9 +37,9 @@ TBD - created by archiving change timeline-perf-and-notifications. Update Purpos
 - **WHEN** 收到 `entity_type: "character"`, `entity_id: "张三"`, `action: "updated"` 的变更事件
 - **THEN** 递增 key 为 `character:张三` 的版本号
 
-#### Scenario: clue updated 事件
-- **WHEN** 收到 `entity_type: "clue"`, `entity_id: "凶器"`, `action: "updated"` 的变更事件
-- **THEN** 递增 key 为 `clue:凶器` 的版本号
+#### Scenario: prop updated 事件
+- **WHEN** 收到 `entity_type: "prop"`, `entity_id: "凶器"`, `action: "updated"` 的变更事件
+- **THEN** 递增 key 为 `prop:凶器` 的版本号
 
 ### Requirement: 各组件精确订阅
 每个媒体消费组件 MUST 仅订阅与其相关实体的版本号。
@@ -52,9 +52,9 @@ TBD - created by archiving change timeline-perf-and-notifications. Update Purpos
 - **WHEN** character "张三" 的设计图生成完成
 - **THEN** 仅 "张三" 的 CharacterCard、对应的 AvatarStack 头像和 AssetSidebar 条目触发重渲染，其他角色不受影响
 
-#### Scenario: ClueCard 精确订阅
-- **WHEN** clue "凶器" 的设计图生成完成
-- **THEN** 仅 "凶器" 的 ClueCard 和 AssetSidebar 条目触发重渲染
+#### Scenario: 道具缩略图精确订阅
+- **WHEN** prop "凶器" 的设计图生成完成
+- **THEN** 仅 "凶器" 的场景/道具缩略图和 AssetSidebar 条目触发重渲染
 
 #### Scenario: OverviewCanvas 精确订阅
 - **WHEN** 项目风格图更新

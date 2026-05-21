@@ -1,20 +1,23 @@
-# 设计文档：使用 Gemini 生成 JSON 剧本
+# 设计文档：用文本模型生成 JSON 剧本
 
 ## 概述
 
-创建一个脚本，使用 `gemini-3-flash-preview` 生成 JSON 剧本，替代现有 Agent 流程的最后一步（Step 3）。
+创建一个脚本，调用项目配置的文本模型生成 JSON 剧本，替代现有 Agent 流程的最后一步（Step 3）。
+
+> 演进说明：初版直接绑定 `gemini-3-flash-preview` 并经 `GeminiClient.generate_text`。现实现
+> 改为 `lib/text_generator.py::TextGenerator`（多供应商 text_backends），具体模型由项目供应商
+> 配置决定，`ScriptGenerator.create()` 异步工厂自动从 DB 加载配置创建 TextGenerator。
 
 ### 背景
 
-现有的 `novel-to-narration-script` 和 `novel-to-storyboard-script` Agent 使用三步流程：
+剧本生成 Subagent 使用三步流程：
 1. **Step 1**: 拆分片段/场景（输出 `step1_segments.md`）
-2. **Step 2**: 角色表/线索表（输出 `step2_character_clue_tables.md`）
+2. **Step 2**: 资产表（角色/场景/道具）
 3. **Step 3**: 生成 JSON 剧本 ← **本脚本替代此步骤**
 
 ### 目标
 
-- 使用 Gemini-3-Flash-Preview 生成 JSON 剧本
-- 借鉴 Storycraft 的 Prompt 工程技巧
+- 调用项目配置的文本模型生成 JSON 剧本
 - 使用 Pydantic 确保输出格式符合规范
 - 支持说书模式（narration）和剧集动画模式（drama）
 
@@ -26,8 +29,9 @@
 
 ```
 lib/
-├── script_generator.py      # 核心逻辑：Prompt 构建 + Gemini 调用 + Pydantic 模型
-├── gemini_client.py         # 现有：已有 generate_text() 方法
+├── script_generator.py      # 核心逻辑：Prompt 构建 + 文本模型调用 + Pydantic 验证
+├── prompt_builders_script.py # 剧本 prompt 构建（narration / drama）
+├── text_generator.py        # 多供应商文本生成
 └── ...
 
 .claude/skills/
@@ -40,13 +44,13 @@ lib/
 ### 数据流
 
 ```
-step1_segments.md + step2_character_clue_tables.md + project.json
+step1（片段/场景拆分）+ step2（资产表）+ project.json
                             ↓
                     ScriptGenerator
                             ↓
                     构建 Prompt
                             ↓
-              Gemini API (gemini-3-flash-preview)
+              文本模型（TextGenerator / text_backends）
                             ↓
                     Pydantic 验证
                             ↓
@@ -105,7 +109,8 @@ class NarrationSegment(BaseModel):
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")
     characters_in_segment: List[str] = Field(description="出场角色名称列表")
-    clues_in_segment: List[str] = Field(default_factory=list, description="出场线索名称列表")
+    scenes: List[str] = Field(default_factory=list, description="出场场景名称列表")
+    props: List[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
     transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
@@ -119,8 +124,6 @@ class NarrationEpisodeScript(BaseModel):
     duration_seconds: int = Field(default=0, description="总时长（秒）")
     summary: str = Field(description="剧集摘要")
     novel: dict = Field(description="小说来源信息")
-    characters_in_episode: List[str] = Field(description="本集出场角色列表")
-    clues_in_episode: List[str] = Field(description="本集出场线索列表")
     segments: List[NarrationSegment] = Field(description="片段列表")
 ```
 
@@ -134,7 +137,8 @@ class DramaScene(BaseModel):
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     scene_type: str = Field(default="剧情", description="场景类型")
     characters_in_scene: List[str] = Field(description="出场角色名称列表")
-    clues_in_scene: List[str] = Field(default_factory=list, description="出场线索名称列表")
+    scenes: List[str] = Field(default_factory=list, description="出场场景名称列表")
+    props: List[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词（16:9 横屏）")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
     transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
@@ -147,8 +151,6 @@ class DramaEpisodeScript(BaseModel):
     content_mode: Literal["drama"] = Field(default="drama", description="内容模式")
     summary: str = Field(description="剧集摘要")
     novel: dict = Field(description="小说来源信息")
-    characters_in_episode: List[str] = Field(description="本集出场角色列表")
-    clues_in_episode: List[str] = Field(description="本集出场线索列表")
     scenes: List[DramaScene] = Field(description="场景列表")
 ```
 
@@ -169,16 +171,18 @@ def build_narration_prompt(
     style: str,
     style_description: str,
     characters: dict,
-    clues: dict,
+    scenes: dict,
+    props: dict,
     segments_md: str,
 ) -> str:
     character_names = list(characters.keys())
-    clue_names = list(clues.keys())
+    scene_names = list(scenes.keys())
+    prop_names = list(props.keys())
     
     prompt = f"""
 你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
 
-1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的小说片段。
+1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的小说片段。
 
 2. 为每个片段生成：
    - image_prompt：第一帧的图像生成提示词
@@ -198,12 +202,16 @@ def build_narration_prompt(
 </style>
 
 <characters>
-{_format_character_names(characters)}
+{_format_names(characters)}
 </characters>
 
-<clues>
-{_format_clue_names(clues)}
-</clues>
+<scenes>
+{_format_names(scenes)}
+</scenes>
+
+<props>
+{_format_names(props)}
+</props>
 
 <segments>
 {segments_md}
@@ -224,9 +232,10 @@ b. **characters_in_segment**：列出本片段中出场的角色名称。
    - 可选值：[{', '.join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
-c. **clues_in_segment**：列出本片段中涉及的线索名称。
-   - 可选值：[{', '.join(clue_names)}]
-   - 仅包含明确提及或明显暗示的线索
+c. **scenes** / **props**：列出本片段画面中实际出现的场景 / 道具名称。
+   - 候选 scenes：[{', '.join(scene_names)}]
+   - 候选 props：[{', '.join(prop_names)}]
+   - 仅包含明确提及或明显暗示的资产
 
 d. **image_prompt**：生成包含以下字段的对象：
    - scene：描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。
@@ -262,16 +271,18 @@ def build_drama_prompt(
     style: str,
     style_description: str,
     characters: dict,
-    clues: dict,
+    scenes: dict,
+    props: dict,
     scenes_md: str,
 ) -> str:
     character_names = list(characters.keys())
-    clue_names = list(clues.keys())
+    scene_names = list(scenes.keys())
+    prop_names = list(props.keys())
     
     prompt = f"""
 你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
 
-1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的场景列表。
+1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的场景列表。
 
 2. 为每个场景生成：
    - image_prompt：第一帧的图像生成提示词
@@ -291,12 +302,16 @@ def build_drama_prompt(
 </style>
 
 <characters>
-{_format_character_names(characters)}
+{_format_names(characters)}
 </characters>
 
-<clues>
-{_format_clue_names(clues)}
-</clues>
+<scene_assets>
+{_format_names(scenes)}
+</scene_assets>
+
+<props>
+{_format_names(props)}
+</props>
 
 <scenes>
 {scenes_md}
@@ -315,9 +330,10 @@ a. **characters_in_scene**：列出本场景中出场的角色名称。
    - 可选值：[{', '.join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
-b. **clues_in_scene**：列出本场景中涉及的线索名称。
-   - 可选值：[{', '.join(clue_names)}]
-   - 仅包含明确提及或明显暗示的线索
+b. **scenes** / **props**：列出本场景画面中实际出现的场景 / 道具名称。
+   - 候选 scenes：[{', '.join(scene_names)}]
+   - 候选 props：[{', '.join(prop_names)}]
+   - 仅包含明确提及或明显暗示的资产
 
 c. **image_prompt**：生成包含以下字段的对象：
    - scene：描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。16:9 横屏构图。
@@ -356,20 +372,20 @@ class ScriptGenerator:
     """
     剧本生成器
     
-    读取 Step 1/2 的 Markdown 中间文件，调用 Gemini 生成最终 JSON 剧本
+    读取 Step 1/2 的中间文件，调用项目配置的文本模型生成最终 JSON 剧本
     """
     
-    MODEL = "gemini-3-flash-preview"
-    
-    def __init__(self, project_path: Union[str, Path]):
+    def __init__(self, project_path: Union[str, Path], generator: Optional["TextGenerator"] = None):
         """
         初始化生成器
         
         Args:
-            project_path: 项目目录路径，如 projects/test0205
+            project_path: 项目目录路径
+            generator: TextGenerator 实例（可选）。建议用 ScriptGenerator.create() 异步工厂，
+                       自动从 DB 加载供应商配置创建 TextGenerator
         """
         self.project_path = Path(project_path)
-        self.client = GeminiClient()
+        self.generator = generator
         self.project_json = self._load_project_json()
         self.content_mode = self.project_json.get('content_mode', 'narration')
     
@@ -388,9 +404,10 @@ class ScriptGenerator:
         step1_md = self._load_step1(episode)
         step2_md = self._load_step2(episode)
         
-        # 2. 提取角色和线索
+        # 2. 提取角色 / 场景 / 道具
         characters = self.project_json.get('characters', {})
-        clues = self.project_json.get('clues', {})
+        scenes = self.project_json.get('scenes', {})
+        props = self.project_json.get('props', {})
         
         # 3. 构建 Prompt
         if self.content_mode == 'narration':
@@ -400,10 +417,9 @@ class ScriptGenerator:
             prompt = build_drama_prompt(...)
             schema = DramaEpisodeScript.model_json_schema()
         
-        # 4. 调用 Gemini API
-        response_text = self.client.generate_text(
+        # 4. 调用文本模型（TextGenerator / text_backends，模型由项目配置决定）
+        response_text = self.generator.generate(
             prompt=prompt,
-            model=self.MODEL,
             response_schema=schema,
         )
         

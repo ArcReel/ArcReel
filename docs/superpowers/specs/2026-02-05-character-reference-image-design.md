@@ -45,7 +45,7 @@ projects/{项目名}/
 
 ## 后端 API 变更
 
-### 1. 文件上传路由 (`webui/server/routers/files.py`)
+### 1. 文件上传路由 (`server/routers/files.py`)
 
 新增上传类型 `character_ref`：
 
@@ -60,7 +60,7 @@ projects/{项目名}/
 
 在 `upload_file` 函数中添加处理逻辑。
 
-### 2. 角色管理路由 (`webui/server/routers/characters.py`)
+### 2. 角色管理路由 (`server/routers/characters.py`)
 
 `UpdateCharacterRequest` 新增可选字段：
 ```python
@@ -69,16 +69,16 @@ reference_image: Optional[str] = None
 
 更新逻辑中处理该字段。
 
-### 3. 生成路由 (`webui/server/routers/generate.py`)
+### 3. 生成路由 (`server/routers/generate.py`)
 
 `generate_character` 端点增加逻辑：
 1. 检查角色是否有 `reference_image` 字段
 2. 若有，读取图片文件
 3. 传入 `MediaGenerator.generate_image_async()` 的 `reference_images` 参数
 
-### 4. CLI 脚本 (`.claude/skills/generate-characters/scripts/generate_character.py`)
+### 4. 资产生成脚本（`generate-assets` skill）
 
-- **移除** `--ref` 命令行参数
+- 不使用 `--ref` 命令行参数
 - 自动从 `project.json` 读取角色的 `reference_image` 字段
 - 若存在则加载图片作为参考
 
@@ -127,8 +127,7 @@ reference_image: Optional[str] = None
 
 ### 涉及文件
 
-- `webui/js/project/characters.js` - 编辑弹窗逻辑
-- `webui/index.html` - 弹窗 HTML 结构（若需要）
+- 角色编辑弹窗组件（前端）- 编辑弹窗逻辑与参考图上传区
 
 ## 用户操作流程
 
@@ -162,10 +161,9 @@ reference_image: Optional[str] = None
 - [ ] `files.py`: 添加 `character_ref` 上传类型
 - [ ] `characters.py`: `UpdateCharacterRequest` 添加 `reference_image` 字段
 - [ ] `generate.py`: `generate_character` 读取并使用参考图
-- [ ] `generate_character.py` (CLI): 移除 `--ref` 参数，自动从 project.json 读取
+- [ ] `generate-assets` 脚本：自动从 project.json 读取 `reference_image`
 
 ### 前端
 
-- [ ] `characters.js`: 弹窗添加参考图上传区域
-- [ ] `characters.js`: 保存时处理参考图上传
-- [ ] `index.html`: 更新弹窗 HTML 结构（若需要）
+- [ ] 角色编辑弹窗：添加参考图上传区域
+- [ ] 角色编辑弹窗：保存时处理参考图上传

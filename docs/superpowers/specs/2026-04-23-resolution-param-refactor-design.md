@@ -102,33 +102,17 @@ project.model_settings["<provider>/<model>"].resolution
 新建 `server/services/resolution_resolver.py`（作为独立模块，便于单元测试）：
 
 ```python
-def resolve_resolution(
-    project: dict,
-    provider_id: str,
-    model_id: str,
-    custom_default: str | None = None,
-) -> str | None:
-    """按 project > custom_default > None 顺序解析分辨率。
+async def resolve_resolution(project: dict, provider_id: str, model_id: str) -> str | None:
+    """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
 
     返回 None 表示未配置，调用时不传该参数。
+    自定义供应商默认由内部 get_custom_resolution_default(provider_id, model_id) 解析，
+    无需调用方注入 custom_default。
     """
-    key = f"{provider_id}/{model_id}"
-    project_override = (
-        project.get("model_settings", {}).get(key, {}).get("resolution")
-    )
-    if project_override:
-        return project_override
-
-    legacy = (
-        project.get("video_model_settings", {}).get(model_id, {}).get("resolution")
-    )
-    if legacy:
-        return legacy
-
-    if custom_default:
-        return custom_default
-
-    return None
+    from_project = _from_project(project, provider_id, model_id)  # 复合 key + legacy 两级
+    if from_project:
+        return from_project
+    return await get_custom_resolution_default(provider_id, model_id)
 ```
 
 ### 2.3 调用点改造
@@ -137,7 +121,7 @@ def resolve_resolution(
 - `generate_storyboard_task` / `generate_character_task` / `generate_scene_or_prop_task`（及 grid 相关）里 `image_size="1K"` / `"2K"` 的硬编码替换为 `resolve_resolution(...)` 返回值
 - `generate_video_task` 现有的 `model_settings.get("resolution") or DEFAULT_VIDEO_RESOLUTION.get(...)` 替换为 `resolve_resolution(...)`
 - `server/services/reference_video_tasks.py:239-243`（已引用 `project.video_model_settings`）同步改为 `resolve_resolution()`
-- 自定义供应商的 `custom_default` 通过 `CustomProviderRepository.get_model(...)` 查到的 `resolution` 字段注入
+- 自定义供应商默认由 `resolve_resolution` 内部 `get_custom_resolution_default(...)` 解析（查 `CustomProviderModel.resolution`），调用方无需注入
 
 ### 2.4 Request 归一化
 
@@ -182,7 +166,7 @@ class VideoGenerationRequest:
 | Grok video | `resolution` 非 None 才加入 kwargs；验证 #387 回归 | |
 | OpenAI image | `_SIZE_MAP` 的 key 改为标准 token × aspect 复合键（标准 token 如 `"1K"` + `"9:16"` → `"1024x1792"`）决定 `size`；`quality` 仍由 `image_size` 推导；`image_size=None` 时 `size` 和 `quality` 都不传 | 移除旧的按 aspect 单键查表 |
 | OpenAI video | `_SIZE_MAP` 已是 `(resolution, aspect_ratio)` 复合 key；None 时不传 `size` | 走 SDK 默认 |
-| 自定义 provider | `lib/custom_provider/factory.py` 的 OpenAI-compat / Google-compat wrapper：`image_size` / `resolution` 字符串直接透传，不查翻译表 | |
+| 自定义 provider | `lib/custom_provider/` 的 OpenAI-compat / Google-compat backend wrapper（由 `endpoints.py` 的 EndpointSpec 构造）：`image_size` / `resolution` 字符串直接透传，不查翻译表 | |
 
 ### 3.3 翻译表兜底（仅预置供应商）
 

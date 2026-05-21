@@ -36,22 +36,23 @@ Agent Edit episode_2.json
 
 两层防御，互相独立：
 
-### Layer 1：Agent 侧 — `PostToolUse` JSON 验证 Hook
+### Layer 1：Agent 侧 — `PreToolUse` JSON 验证 Hook
 
 **位置**：`server/agent_runtime/session_manager.py`，`_build_options()` 方法
 
-**原理**：SDK `PostToolUse` hook 在每次 `Edit` 或 `Write` 完成后触发。hook 检查目标文件是否为 `.json`；若是，尝试读取并 `json.loads()`；若解析失败，通过 `systemMessage` 向 Agent 注入警告，告知具体错误位置和修复方法，让 Agent **自我发现并立即修复**。
+**原理**：SDK `PreToolUse` hook 在每次 `Edit` 或 `Write` 执行**之前**触发。hook 检查目标文件是否为 `.json`；若是，**模拟**本次写入的结果（Write 直接取 `content`；Edit 读取当前文件并模拟 `old_string→new_string` 替换），然后 `json.loads()` 校验。若结果会成为无效 JSON，返回 `permissionDecision: "deny"` 拦截操作，让 Agent **在操作落盘前修正输入并重试**。
 
 **实现要点**：
 - matcher 为 `Write|Edit`（命中两种写文件工具）
 - 检查 `file_path` 是否以 `.json` 结尾
-- 使用 `pathlib.Path(file_path).read_text()` 读取，然后 `json.loads()`
-- 解析失败时返回 `{"systemMessage": "⚠️ 警告：{file_path} 包含无效 JSON，错误：{e}，请立即 Read 该文件，定位问题（如多余逗号 ,,）并 Edit 修复。"}`
-- `FileNotFoundError` / `PermissionError` 静默跳过（不干扰正常流程）
+- Write：校验 `content` 参数；Edit：读取当前文件并模拟替换（尊重 `replace_all`），`old_string` 未匹配则跳过（Edit 会自行失败）
+- 额外拦截 `new_string` 中的弯引号（U+201C/U+201D 等），避免 Claude Code 内部归一化后弯引号漏入文件破坏 JSON
+- 校验失败时返回 `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "..."}}`
+- 读取失败（`OSError`）等情形静默跳过（不干扰正常流程）
+- 同时把改前内容备份到 `json_backups`，供配套的 PostToolUse hook 在结果仍损坏时还原文件
 - 封装为独立方法 `_build_json_validation_hook()` 返回 async callable
-- 追加到现有 `hook_callbacks` 列表末尾（链式 hook，不影响已有文件访问控制 hook）
 
-**效果**：Agent 完成写操作后，若产生了无效 JSON，模型立即收到上下文警告，可在下一轮自动修复，不需要人工介入。
+**效果**：Agent 写 JSON 前若会产生无效结果，操作被直接拦截并附带修复提示，Agent 在下一轮修正输入重试，损坏内容根本不会落盘。
 
 ### Layer 2：服务读取侧 — `_load_episode_script` 防御性修复
 
@@ -80,13 +81,13 @@ except (json.JSONDecodeError, ValueError) as e:
 
 | 文件 | 修改内容 | 行数估计 |
 |------|---------|--------|
-| `server/agent_runtime/session_manager.py` | 新增 `_build_json_validation_hook()` 方法；在 `_build_options()` 的 `hook_callbacks` 中追加 | ~25 行 |
+| `server/agent_runtime/session_manager.py` | 新增 `_build_json_validation_hook()`（PreToolUse 拦截 + 备份）方法；在 `_build_options()` 的 `hook_callbacks` 中注册 PreToolUse/PostToolUse | — |
 | `lib/status_calculator.py` | `_load_episode_script()` 补充捕获 `json.JSONDecodeError` | ~5 行 |
 
 ---
 
 ## 不在此方案中的内容
 
-- **专用 JSON 编辑脚本（方案 A）**：`settings.json` 已预留 `edit-script-items` 权限，可作为未来增强，不在本次范围内
+- **专用 JSON 编辑脚本（方案 A）**：通过 `edit-script-items` skill 脚本做结构化编辑，可作为未来增强，不在本次范围内
 - **日志格式改进**：Layer 2 修复后，`projects.py` 中的"加载项目元数据失败"理论上不再被 JSON 错误触发，不需要额外改动
 - **前端错误处理**：本次聚焦后端，前端已通过 `error` 字段知晓项目加载失败

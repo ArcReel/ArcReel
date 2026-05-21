@@ -3,9 +3,12 @@
 ## 1. 背景
 
 当前助手会话链路已经具备：
-- 会话与消息落库（`projects/.agent_sessions.db`）
+- 会话与消息落库（Claude Agent SDK transcript 入库镜像，受 `ARCREEL_SDK_SESSION_STORE` 控制）
 - Claude Agent SDK 接入
-- 前端会话工作台（`assistant.html`）
+- 前端会话工作台（React）
+
+> 演进说明：本设计为 SSE 流式的初版方案。落地后的接口形态有调整——见下文「实现差异」标注。
+> 核心结论（采用 SSE、发送与订阅两步解耦、delta/tool/done/error 事件模型、partial messages 逐字输出）保持有效。
 
 但消息返回仍是“收全后一次性返回”，导致：
 - 首字延迟高，用户等待时间长
@@ -65,9 +68,14 @@ POST /messages                     GET /streams/{request_id}
 
 ## 5. API 设计
 
+> 实现差异：落地接口为 `POST /api/v1/.../assistant/sessions/send`（发送消息）+
+> `GET /api/v1/.../assistant/sessions/{session_id}/stream`（按会话订阅 SSE）。未采用下文的
+> per-request `request_id` / `stream_url` 形态，改为按 `session_id` 订阅会话事件流。下文请求/响应
+> 体仅示意字段语义。
+
 ## 5.1 创建流请求（保持 POST 语义）
 
-`POST /api/v1/assistant/sessions/{session_id}/messages`
+`POST /api/v1/assistant/sessions/send`
 
 请求体：
 ```json
@@ -95,7 +103,7 @@ POST /messages                     GET /streams/{request_id}
 
 ## 5.2 订阅流
 
-`GET /api/v1/assistant/sessions/{session_id}/streams/{request_id}`
+`GET /api/v1/assistant/sessions/{session_id}/stream`（按会话订阅）
 
 响应头：
 - `Content-Type: text/event-stream`
@@ -163,18 +171,19 @@ data: {"ts":"2026-02-06T16:00:00Z"}
 
 ## 7.1 文件改动（最小化）
 
-新增：
-- `webui/server/agent_runtime/streaming.py`
-  - 流请求注册、队列管理、事件序列化
+> 实现差异：agent_runtime 位于 `server/agent_runtime/`；SSE 事件构建落在
+> `stream_projector.py`（StreamProjector）+ `session_manager.py`（订阅者模式）+
+> `session_actor.py`（每会话串行化 SDK 调用），未单独建 `streaming.py`。
 
-修改：
-- `webui/server/agent_runtime/service.py`
-  - 增加 `start_stream_request(...)`
-  - 增加 `stream_events(...)`（async generator）
+新增/修改（概念位置）：
+- `server/agent_runtime/stream_projector.py`
+  - 从流式事件构建实时助手回复，事件序列化
+- `server/agent_runtime/service.py`
+  - 提供 `stream_events(...)`（async generator）
   - 将 Claude SDK 异步消息映射为 SSE 事件
-- `webui/server/routers/assistant.py`
-  - `POST /messages` 增加 `stream=true` 分支
-  - 新增 `GET /streams/{request_id}`
+- `server/routers/assistant.py`
+  - `POST /sessions/send` 发送消息
+  - `GET /sessions/{session_id}/stream` 订阅 SSE
 
 ## 7.2 关键实现点
 
@@ -201,7 +210,7 @@ data: {"ts":"2026-02-06T16:00:00Z"}
 
 ---
 
-## 8. 前端实现方案（当前原生 JS + Streamdown）
+## 8. 前端实现方案（React + Streamdown）
 
 ## 8.1 发送流程
 
@@ -320,9 +329,9 @@ Streamdown 集成建议：
 
 ## 14. 建议首批改动清单（文件级）
 
-- `webui/server/agent_runtime/service.py`：新增流式接口与事件映射
-- `webui/server/agent_runtime/streaming.py`：SSE 事件封装、request 管理
-- `webui/server/routers/assistant.py`：新增 stream 路由与 `stream=true` 分支
-- `webui/js/api.js`：新增 stream 相关 API
-- `webui/js/assistant.js`：接入 EventSource 增量渲染 + Streamdown
+- `server/agent_runtime/service.py`：新增流式接口与事件映射
+- `server/agent_runtime/stream_projector.py`：SSE 事件构建与序列化
+- `server/routers/assistant.py`：发送与 stream 路由
+- 前端助手 API 客户端：新增 stream 相关 API
+- 前端助手会话组件：接入 EventSource 增量渲染 + Streamdown
 - `tests/`：新增流式接口与事件序列单测

@@ -12,10 +12,10 @@
 | 问题 | 现状 | 目标 |
 |------|------|------|
 | 剧本创作阶段缺失 | 源文件上传、概述生成、分集规划、JSON 剧本生成均未追踪 | 纳入进度 |
-| 阶段关系不准确 | 角色/线索视为两个顺序阶段 | 独立的 worldbuilding 阶段（并行） |
+| 阶段关系不准确 | 角色/场景/道具视为顺序阶段 | 独立的 worldbuilding 阶段（并行） |
 | 分镜/视频粒度错误 | 按项目汇总（所有集的总和） | 按集独立计算 |
 | 阶段推断逻辑错误 | 仅由数量比例推断当前阶段 | 基于实际工作流状态机 |
-| 角色/线索隐藏 | production 阶段后不显示 | 始终展示（后续剧集可能追加） |
+| 角色/场景/道具隐藏 | production 阶段后不显示 | 始终展示（后续剧集可能追加） |
 
 ---
 
@@ -34,7 +34,8 @@ class ProjectStatus:
     current_phase: Literal["setup", "worldbuilding", "scripting", "production", "completed"]
     phase_progress: float   # 0.0–1.0，当前阶段完成率
     characters: CategoryProgress   # { total: int, completed: int }
-    clues: CategoryProgress        # { total: int, completed: int }
+    scenes: CategoryProgress       # { total: int, completed: int }
+    props: CategoryProgress        # { total: int, completed: int }
     episodes_summary: EpisodesSummary
     # {
     #     total: int,
@@ -65,12 +66,12 @@ class EpisodeMeta:
 | 阶段 | 英文值 | 判断条件 | `phase_progress` 含义 |
 |------|--------|---------|----------------------|
 | 准备中 | `setup` | 无 overview | 有源文件 → 0.5，无 → 0.0 |
-| 世界观 | `worldbuilding` | 有 overview，无任何集的剧本 JSON | `(角色完成 + 线索完成) / (角色总数 + 线索总数)` |
+| 世界观 | `worldbuilding` | 有 overview，无任何集的剧本 JSON | `(角色+场景+道具完成) / (角色+场景+道具总数)` |
 | 剧本创作 | `scripting` | 有至少一集剧本，但未全部完成 | `已生成剧本的集数 / 总集数` |
 | 制作中 | `production` | 所有集剧本完成，制作中 | `已完成视频数 / 总视频数（跨所有集）` |
 | 已完成 | `completed` | 所有视频均已完成 | `1.0` |
 
-**注意**：角色和线索在所有阶段始终显示，因为后续剧集制作时可能追加新角色/线索。
+**注意**：角色/场景/道具在所有阶段始终显示，因为后续剧集制作时可能追加新资产。
 
 ---
 
@@ -149,14 +150,16 @@ def enrich_project(project_name, project):
     # 2. 计算项目汇总
     phase = self.calculate_current_phase(project, episodes_stats)
     phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
-    chars = self._calculate_characters_progress(project_name, project)
-    clues = self._calculate_clues_progress(project_name, project)
+    chars = {"total": chars_total, "completed": chars_done}
+    scenes = {"total": scenes_total, "completed": scenes_done}
+    props = {"total": props_total, "completed": props_done}
 
     project["status"] = {
         "current_phase": phase,
         "phase_progress": phase_progress,
         "characters": chars,
-        "clues": clues,
+        "scenes": scenes,
+        "props": props,
         "episodes_summary": {
             "total": len(episodes_stats),
             "scripted": sum(1 for s in episodes_stats if s["script_status"] == "generated"),
@@ -178,7 +181,8 @@ interface ProjectStatus {
   current_phase: "setup" | "worldbuilding" | "scripting" | "production" | "completed";
   phase_progress: number;       // 0.0–1.0
   characters: ProgressCategory;
-  clues: ProgressCategory;
+  scenes: ProgressCategory;
+  props: ProgressCategory;
   episodes_summary: {
     total: number;
     scripted: number;
@@ -213,7 +217,7 @@ interface ProgressCategory {
 │ ████████████░░░  62%                 │  ← phase_progress
 │ 制作中                                │  ← current_phase 友好名称
 │                                      │
-│ 角色 3/5  ·  线索 2/4                │  ← 始终显示
+│ 角色 3/5 · 场景 2/4 · 道具 1/2       │  ← 始终显示
 │ 3集  ·  2集剧本完成  ·  1集制作中    │  ← episodes_summary
 └─────────────────────────────────────┘
 ```

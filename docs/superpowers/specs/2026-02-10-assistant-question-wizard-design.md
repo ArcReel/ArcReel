@@ -12,7 +12,7 @@
 
 ## 现状与约束
 - 现有后端接口 `POST /assistant/sessions/{session_id}/questions/{question_id}/answer` 接收整批 `answers`，不支持逐题提交。
-- 前端当前实现位于 `frontend/src/react/pages/assistant-page.js`，已具备：
+- 前端助手会话组件已具备：
   - 单选/多选答案状态管理。
   - “其他”选项补充输入。
   - 统一答案组装并提交。
@@ -76,7 +76,7 @@
   - 复用现有行为清除 pending question，问答区收起。
 
 ## 测试策略
-新增前端测试文件：`frontend/tests/assistant-question-wizard.test.mjs`，覆盖：
+新增前端测试（向导组件 + store），覆盖：
 1. 仅展示当前题，步骤条正确高亮。
 2. 未作答时“下一题”禁用，作答后启用。
 3. 点击“下一题”不触发 API 提交。
@@ -87,9 +87,9 @@
 8. 小屏下步骤条可横向滚动。
 
 ## 实施范围
-- 主要修改：`frontend/src/react/pages/assistant-page.js`
-- 可能微调：`frontend/src/css/app.css`（若步骤条样式需补充）
-- 状态 hook：`frontend/src/react/hooks/use-assistant-state.js` 保持现有批量提交协议，不做接口变更
+- 主要修改：助手会话组件中的待答问题向导（独立的分步向导组件）
+- 可能微调：步骤条样式
+- 助手会话状态管理保持现有批量提交协议，不做接口变更
 
 ## 验收标准
 - 用户能清楚识别当前题号、总题数和最终提交时机。

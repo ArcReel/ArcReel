@@ -7,8 +7,8 @@
 
 ## 需求概述
 
-1. 在 WebUI 编辑模态框中添加生成/重新生成按钮，调用 GeminiClient 异步方法生成图片/视频
-2. 对分镜图、视频、角色图、线索图引入版本号机制，保留历史版本并可还原
+1. 在前端编辑界面中添加生成/重新生成按钮，调用媒体生成后端异步生成图片/视频
+2. 对分镜图、视频、角色图、场景图、道具图引入版本号机制，保留历史版本并可还原
 3. 历史版本的图片/视频与对应的 prompt 绑定
 
 ---
@@ -17,7 +17,7 @@
 
 | 决策项 | 选择 |
 |--------|------|
-| 覆盖场景 | 片段/场景分镜图、视频、角色设计图、线索设计图（共 4 类） |
+| 覆盖场景 | 片段/场景分镜图、视频、角色设计图、场景设计图、道具设计图 |
 | 生成交互 | 模态框内 loading 状态，不阻断其他编辑 |
 | 版本存储 | `versions/` 集中目录，当前版本保持原路径 |
 | 版本元数据 | `versions/versions.json` 统一管理 |
@@ -45,7 +45,10 @@ projects/{项目名}/
 │   ├── characters/              # 角色图历史版本
 │   │   ├── 姜月茴_v1_20260129T090000.png
 │   │   └── ...
-│   └── clues/                   # 线索图历史版本
+│   ├── scenes/                  # 场景图历史版本
+│   │   ├── 庙宇_v1_20260129T091500.png
+│   │   └── ...
+│   └── props/                   # 道具图历史版本
 │       ├── 玉佩_v1_20260129T091500.png
 │       └── ...
 ├── storyboards/                 # 当前版本（保持原路径）
@@ -54,7 +57,8 @@ projects/{项目名}/
 │   └── ...
 ├── videos/
 ├── characters/
-└── clues/
+├── scenes/
+└── props/
 ```
 
 ### 2. versions.json 结构
@@ -109,13 +113,13 @@ projects/{项目名}/
       ]
     }
   },
-  "clues": {
+  "props": {
     "玉佩": {
       "current_version": 1,
       "versions": [
         {
           "version": 1,
-          "file": "clues/玉佩_v1_20260129T091500.png",
+          "file": "props/玉佩_v1_20260129T091500.png",
           "prompt": "翠绿色祖传玉佩，雕刻着莲花纹样...",
           "created_at": "2026-01-29T09:15:00Z"
         }
@@ -127,7 +131,7 @@ projects/{项目名}/
 
 **说明**：
 - `storyboards` 和 `videos` 的 key 使用 segment/scene ID（如 `E1S01`）
-- `characters` 和 `clues` 的 key 使用名称
+- `characters` / `scenes` / `props` 的 key 使用名称
 - `grid_*.png` 宫格图不纳入版本管理
 
 ---
@@ -141,7 +145,8 @@ projects/{项目名}/
 | `POST` | `/api/v1/projects/{name}/generate/storyboard/{segment_id}` | 生成分镜图（首次或新版本） |
 | `POST` | `/api/v1/projects/{name}/generate/video/{segment_id}` | 生成视频（首次或新版本） |
 | `POST` | `/api/v1/projects/{name}/generate/character/{char_name}` | 生成角色设计图 |
-| `POST` | `/api/v1/projects/{name}/generate/clue/{clue_name}` | 生成线索设计图 |
+| `POST` | `/api/v1/projects/{name}/generate/scene/{scene_name}` | 生成场景设计图 |
+| `POST` | `/api/v1/projects/{name}/generate/prop/{prop_name}` | 生成道具设计图 |
 | `GET` | `/api/v1/projects/{name}/versions/{resource_type}/{resource_id}` | 获取资源版本列表 |
 | `POST` | `/api/v1/projects/{name}/versions/{resource_type}/{resource_id}/restore/{version}` | 还原到指定版本 |
 
@@ -214,8 +219,8 @@ async def generate_storyboard(name, segment_id, prompt, script_file):
         # 有现有文件 → 备份到版本目录
         backup_to_versions(current_file, prompt)
 
-    # 调用 GeminiClient 生成新图片
-    new_image = await gemini_client.generate_image_async(
+    # 调用媒体生成后端生成新图片
+    new_image = await media_generator.generate_image_async(
         prompt=prompt,
         reference_images=get_character_refs(segment_id),
         aspect_ratio=get_aspect_ratio(project),
@@ -237,7 +242,7 @@ async def generate_storyboard(name, segment_id, prompt, script_file):
 
 ### 1. 编辑模态框改造
 
-在片段/场景、角色、线索的编辑模态框中，预览区域增加：
+在片段/场景、角色、场景、道具的编辑模态框中，预览区域增加：
 - **版本下拉选择器**：显示在预览图上方
 - **生成按钮**：无图时显示「生成」，有图时显示「重新生成」
 
@@ -305,13 +310,11 @@ async def generate_storyboard(name, segment_id, prompt, script_file):
 | 文件 | 类型 | 说明 |
 |------|------|------|
 | `lib/version_manager.py` | 新增 | 版本管理核心逻辑（备份、还原、记录） |
-| `webui/server/routers/generate.py` | 新增 | 生成 API 路由 |
-| `webui/server/routers/versions.py` | 新增 | 版本管理 API 路由 |
-| `webui/server/app.py` | 修改 | 注册新路由 |
-| `webui/js/api.js` | 修改 | 添加生成和版本相关 API 调用 |
-| `webui/js/project.js` | 修改 | 添加版本选择器、生成按钮交互逻辑 |
-| `webui/project.html` | 修改 | 更新模态框 UI（版本选择器、生成按钮） |
-| `webui/css/styles.css` | 修改 | 添加版本选择器和 loading 状态样式 |
+| `server/routers/generate.py` | 新增 | 生成 API 路由 |
+| `server/routers/versions.py` | 新增 | 版本管理 API 路由 |
+| `server/app.py` | 修改 | 注册新路由 |
+| 前端 API 客户端 | 修改 | 添加生成和版本相关 API 调用 |
+| 前端编辑界面 | 修改 | 添加版本选择器、生成按钮交互逻辑 + 模态框 UI |
 
 ### 2. lib/version_manager.py 核心类
 
@@ -362,7 +365,7 @@ class VersionManager:
 ## 注意事项
 
 1. **宫格图排除**：`grid_*.png` 不纳入版本管理，仅处理 `scene_*.png`
-2. **参考图传递**：生成分镜图/视频时，自动获取 segment/scene 中的 `characters_in_segment` 和 `clues_in_segment`，传递对应的设计图作为参考
+2. **参考图传递**：生成分镜图/视频时，自动获取 segment/scene 中引用的角色/场景/道具，传递对应的设计图作为参考
 3. **画面比例**：根据 `content_mode` 自动选择（narration: 9:16, drama: 16:9）
 4. **并发安全**：`versions.json` 读写需要加锁，防止并发冲突
 5. **错误处理**：API 调用失败时保留原文件，不影响现有版本

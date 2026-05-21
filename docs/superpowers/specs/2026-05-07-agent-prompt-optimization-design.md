@@ -47,11 +47,10 @@ ArcReel 现有 prompt 体系（`lib/prompt_builders_script.py` 的 `build_drama_
 ```
 lib/prompt_rules/
 ├── __init__.py            # is_v2_enabled() 灰度开关
-├── episode_pacing.py      # 分集节奏铁则（首镜 4 秒 / 15 秒冲突 / 末镜定格卡点）
-├── visual_dynamic.py      # 动态视觉规则（微表情 / 物理飘动 / 环境互动 / 内容融合）
-├── asset_anti_break.py    # 资产防崩（正向短语 + 负向关键词）
-└── asset_layout.py        # 资产布局（角色三视图 / 场景主+细节 / 道具多视角）
+└── episode_pacing.py      # 分集节奏建议（首镜 ~4 秒钩子 / ~15 秒转折 / 末镜定格卡点）
 ```
+
+> 落地说明：本 spec 原计划另建 `visual_dynamic.py` / `asset_anti_break.py` / `asset_layout.py` 三个模块（下文 §4.2–§4.5 及 §5 Stage C），并改造资产生图脚本拼接防崩 / 布局 / negative_prompt。后续重构判定这部分价值不足且与资产 description 已有内容重复，**已删除/ 未保留**——当前 `lib/prompt_rules/` 仅存 `episode_pacing.py`，资产生图脚本不再做 prompt 包装。下文相关章节保留为设计意图，不代表当前代码。节奏文案也由"铁则/强制"调整为"建议"。
 
 ### 3.2 接入点
 
@@ -62,6 +61,8 @@ lib/prompt_rules/
 | visual_dynamic | `build_drama_prompt` / `build_narration_prompt` 的 `image_prompt.scene` / `video_prompt.action` 字段说明末尾 | append `IMAGE_DYNAMIC_PATCH` / `VIDEO_DYNAMIC_PATCH` |
 | asset_anti_break | `agent_runtime_profile/.claude/skills/generate-assets/scripts/generate_asset.py` 的 `_build_specs` / `generate_single` | description 末尾 append 正向防崩；payload 增加 `negative_prompt` |
 | asset_layout | 同上 | description 末尾按 type 套布局描述 |
+
+> 现状：上表仅 `episode_pacing` 两行（builder + subagent .md 注入）落地并保留；`visual_dynamic` 的 `IMAGE_DYNAMIC_PATCH` / `VIDEO_DYNAMIC_PATCH` 注入与 `asset_anti_break` / `asset_layout` 的资产脚本包装均已删除。
 
 ### 3.3 灰度开关
 

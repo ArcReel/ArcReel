@@ -55,20 +55,26 @@ ArcReel 现有 `lib/custom_provider/` 支持两种 `api_format`：`openai` 和 `
 
 ### 1. 数据模型
 
+> 实现已演进：provider 层不再有 `api_format`，改为 `discovery_format`（仅 `"openai"` / `"google"`，用于模型发现）；媒体协议下沉到**每个模型**的 `endpoint` 字段（ENDPOINT_REGISTRY key）。NewAPI 视频通过给模型挂 `endpoint="newapi-video"` 表达，无需 provider 级开关（详见 custom-provider-model-endpoint 设计）。
+
 `lib/db/models/custom_provider.py`：
 ```python
-api_format: Mapped[str]  # "openai" | "google" | "newapi"
+class CustomProvider:
+    discovery_format: Mapped[str]  # "openai" | "google"
+class CustomProviderModel:
+    endpoint: Mapped[str]  # ENDPOINT_REGISTRY key，如 "newapi-video"
 ```
 
-数据库侧无 CHECK 约束（字段为 `String(32)`，迁移 `5105eceaf7cb` 已确认），**无需新建 Alembic 迁移**，仅更新注释。校验在应用层完成（factory / router）。
+校验在应用层完成（endpoint 必须在 `ENDPOINT_REGISTRY` 中）。
 
-### 2. Factory 分支
+### 2. Endpoint 注册（EndpointSpec）
 
-`lib/custom_provider/factory.py`：
-- `_VALID_API_FORMATS` 增加 `"newapi"`
-- 新增 `_create_newapi_backend`：
-  - `text` / `image` → 走 OpenAI delegate（base_url 经 `ensure_openai_base_url` 规范化）
-  - `video` → 返回 `CustomVideoBackend(delegate=NewAPIVideoBackend(...))`
+> 实现已演进为按 endpoint 派发：`factory.create_custom_backend(provider, model_id, endpoint)` 查 `lib/custom_provider/endpoints.py` 的 `ENDPOINT_REGISTRY` 拿到 `EndpointSpec`，调用其 `build_backend(provider, model_id)` 闭包构造 backend。不再有 `_VALID_api_format` 分支或 `_create_newapi_backend`（详见 custom-provider-model-endpoint 设计）。
+
+`lib/custom_provider/endpoints.py`：
+- 新增 `"newapi-video"` 条目（`family="newapi"`、`media_type="video"`、`request_path_template="/v1/video/generations"`、`build_backend=_build_newapi_video`）
+- `_build_newapi_video(provider, model_id)` 返回 `CustomVideoBackend(delegate=NewAPIVideoBackend(...))`
+- 文本/图片复用既有 OpenAI 兼容 endpoint（`openai-chat` / `openai-images*`），NewAPI provider 直接挂这些 endpoint，无需新增
 
 ### 3. NewAPIVideoBackend（新建）
 
@@ -79,7 +85,7 @@ class NewAPIVideoBackend:
     name = "newapi"
     video_capabilities = VideoCapabilities(
         reference_images=False,  # schema 只支持单个 image 字段
-        max_reference_images=1,
+        max_reference_images=0,
     )
     capabilities = {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
 
@@ -110,26 +116,17 @@ class NewAPIVideoBackend:
 ### 4. 模型发现
 
 `lib/custom_provider/discovery.py`：
-- `discover_models(api_format="newapi", ...)` → 复用 `_discover_openai`（NewAPI 的 `/v1/models` 是 OpenAI 兼容）
+- NewAPI provider 用 `discovery_format="openai"` → 走 `_discover_openai`（NewAPI 的 `/v1/models` 是 OpenAI 兼容）；发现结果为每个模型推荐 `endpoint`
 - `_VIDEO_PATTERN` 已包含 `kling` / `wan` / `veo`，可追加 `minimax` / `hailuo` / `seedream` 等 NewAPI 常见 ID
 
 ### 5. 前端
 
-`frontend/src/components/pages/settings/CustomProviderForm.tsx`：
-```typescript
-type ApiFormat = "openai" | "google" | "newapi";
-API_FORMAT_OPTIONS = [
-  { value: "openai", label: "OpenAI" },
-  { value: "google", label: "Google" },
-  { value: "newapi", label: "NewAPI" },
-];
-```
-同步更新 `frontend/src/types/custom-provider.ts` 的类型联合。
+> 实现已演进：前端不再维护 `ApiFormat` 联合或固定的协议下拉。`frontend/src/types/custom-provider.ts` 仅保留 `discovery_format: "openai" | "google"`，每个模型带 `endpoint: EndpointKey`；endpoint catalog 由 `GET /api/v1/custom-providers/endpoints` 运行时拉取，新增 `newapi-video` endpoint 后前端自动出现，无需改前端类型。模型编辑表单从该 catalog 渲染 endpoint 选项。
 
 ### 6. i18n
 
-- 后端：**实现时发现仓库实际使用 `unsupported_format` 参数化文案**（`不支持的 api_format: {api_format}`），`{api_format}` 会在运行时自动填入，新增 `newapi` 无需改动 `errors.py`；factory 抛出的 `ValueError(f"不支持的 api_format: {api_format!r}")` 是开发层错误，不走 i18n。原 spec 提到的 `invalid_api_format` key 在代码中不存在，此条作废
-- 前端：`frontend/src/i18n/{zh,en}/dashboard.ts` — 若有 NewAPI 说明文案新增
+- 后端：endpoint 不在 `ENDPOINT_REGISTRY` 时 `get_endpoint_spec` 抛 `ValueError`，属开发层错误，不走 i18n；原 spec 提到的 `invalid_api_format` key 在代码中不存在，此条作废
+- 前端：`frontend/src/i18n/{zh,en,vi}/dashboard.ts` 新增 endpoint 展示名 key `endpoint_newapi_video_display`（三语，对应 `EndpointSpec.display_name_key`）
 
 ## 错误处理
 
@@ -159,16 +156,11 @@ API_FORMAT_OPTIONS = [
 
 | 文件 | 变更类型 |
 |---|---|
-| `lib/db/models/custom_provider.py` | 更新字段注释为 `openai/google/newapi` |
-| `lib/custom_provider/factory.py` | 增加 `newapi` 分支 + `_create_newapi_backend` |
-| `lib/custom_provider/discovery.py` | `discover_models("newapi", ...)` 复用 openai 路径；补充视频关键词 |
+| `lib/custom_provider/endpoints.py` | 注册 `newapi-video` EndpointSpec + `_build_newapi_video` 闭包 |
+| `lib/custom_provider/discovery.py` | NewAPI 走 `discovery_format="openai"` 路径；补充视频关键词 |
 | `lib/video_backends/newapi.py` | **新建** NewAPIVideoBackend |
-| `lib/video_backends/registry.py` | 注册（如有显式注册表） |
-| ~~`lib/i18n/{zh,en}/errors.py`~~ | ~~更新 `invalid_api_format` 文案~~ （作废：key 不存在，实际使用参数化 `unsupported_format`） |
-| `server/routers/custom_providers.py` | 校验允许 `newapi` |
-| `frontend/src/types/custom-provider.ts` | 类型联合加 `newapi` |
-| `frontend/src/components/pages/settings/CustomProviderForm.tsx` | 下拉选项加 NewAPI |
-| `frontend/src/i18n/{zh,en}/dashboard.ts` | 相关文案 |
+| ~~`lib/i18n/{zh,en}/errors.py`~~ | ~~更新 `invalid_api_format` 文案~~ （作废：key 不存在，endpoint 校验是开发层 ValueError） |
+| `frontend/src/i18n/{zh,en,vi}/dashboard.ts` | 新增 `endpoint_newapi_video_display` 三语展示名 |
 | `tests/test_newapi_video_backend.py` | **新建**，mock httpx |
 | `tests/test_custom_provider_factory.py` | 扩展 newapi 用例 |
 | `tests/test_model_discovery.py` | 扩展 newapi 用例 |

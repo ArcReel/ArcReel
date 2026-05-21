@@ -32,27 +32,32 @@
 
 - `setting_sources=["project"]`：保留 Skill 工具的原生发现能力
 - Docker 无 git：天然隔离，cwd 只发现自身的 `.claude/`
-- 符号链接：项目目录 `.claude/` → `agent_runtime_profile/.claude/`
+- 配置物化：将 `agent_runtime_profile/.claude` 和 `CLAUDE.md` 按 manifest + sha256 复制到项目目录（`lib/profile_manifest.sync_profile_to_project`），仅同步声明过且校验通过的文件
 - 系统 Prompt：从 `agent_runtime_profile/CLAUDE.md` 编程式加载
 
 ### 目录结构
 
 ```
 agent_runtime_profile/                 # 智能体专用运行环境（新建）
-├── CLAUDE.md                          # 智能体系统 Prompt
+├── CLAUDE.narration.md                # 说书模式系统 Prompt（按 content_mode 注入）
+├── CLAUDE.drama.md                    # 剧集模式系统 Prompt（按 content_mode 注入）
 └── .claude/
     ├── skills/                        # 业务 Skills（从 .claude/skills/ 迁入）
-    │   ├── generate-characters/
-    │   ├── generate-clues/
+    │   ├── generate-assets/
     │   ├── generate-storyboard/
+    │   ├── generate-grid/
     │   ├── generate-video/
     │   ├── generate-script/
     │   ├── compose-video/
-    │   ├── manga-workflow/
-    │   └── edit-script-items/
+    │   ├── manage-project/
+    │   └── manga-workflow/
     └── agents/                        # 业务 Agents（从 .claude/agents/ 迁入）
-        ├── novel-to-narration-script.md
-        └── novel-to-storyboard-script.md
+        ├── create-episode-script.md
+        ├── generate-assets.md
+        ├── analyze-assets.md
+        ├── normalize-drama-script.md
+        ├── split-narration-segments.md
+        └── split-reference-video-units.md
 
 .claude/                               # 回归纯开发态
 ├── commands/
@@ -113,28 +118,20 @@ _PATH_TOOLS: dict[str, str] = {
 }
 ```
 
-#### `_READONLY_DIRS` / `_READONLY_FILES` 更新
+#### 敏感路径保护
 
-```python
-_READONLY_DIRS = [
-    "docs", "lib", "agent_runtime_profile",
-    "scripts",
-]
-# 移除 ".claude/skills", ".claude/agents", ".claude/plans"
-# 新增 "agent_runtime_profile"
-
-_READONLY_FILES = []
-# 移除 "CLAUDE.md"（agent 不需要读取 git root 的开发文档）
-```
+文件访问控制由 `_compute_sensitive_paths()` 解析敏感文件/前缀/glob，传给 SDK Sandbox
+profile 的 denyRead 字段统一处理。
 
 #### `_build_system_prompt()` 改造
 
-从 `agent_runtime_profile/CLAUDE.md` 读取基础 prompt（替代环境变量），再拼接项目上下文：
+按项目 `content_mode` 从 `agent_runtime_profile/CLAUDE.{narration,drama}.md` 读取基础
+prompt（替代环境变量），再拼接项目上下文：
 
 ```python
 def _build_system_prompt(self, project_name: str) -> str:
-    # 1. 从 agent_runtime_profile/CLAUDE.md 加载基础 prompt
-    profile_prompt_path = self.project_root / "agent_runtime_profile" / "CLAUDE.md"
+    # 1. 按 content_mode 从 agent_runtime_profile/CLAUDE.<mode>.md 加载基础 prompt
+    profile_prompt_path = self.project_root / "agent_runtime_profile" / f"CLAUDE.{content_mode}.md"
     base_prompt = profile_prompt_path.read_text(encoding="utf-8")
 
     # 2. 拼接项目上下文（现有逻辑）
@@ -146,18 +143,18 @@ def _build_system_prompt(self, project_name: str) -> str:
 扫描 `agent_runtime_profile/.claude/agents/*.md`，解析为 `dict[str, AgentDefinition]`。
 作为双保险——即使 `setting_sources=["project"]` 未能自动发现 agents，编程式注入确保 agents 可用。
 
-### 项目创建时符号链接
+### 项目创建时同步配置
 
-`ProjectManager` 创建新项目时，自动创建相对符号链接：
+`ProjectManager` 创建新项目时，调用 `sync_profile_to_project()` 将 `agent_runtime_profile`
+的 `.claude` 与 `CLAUDE.md` 按 manifest 物化（复制）到项目目录：
 
 ```python
-# projects/{name}/.claude → ../../agent_runtime_profile/.claude
-symlink_path = project_dir / ".claude"
-target = Path("../../agent_runtime_profile/.claude")
-symlink_path.symlink_to(target)
+# projects/{name}/.claude、projects/{name}/CLAUDE.md 由 manifest 驱动写入
+sync_profile_to_project(profile_dir, project_dir, content_mode)
 ```
 
-已有项目：提供迁移脚本，为缺少符号链接的项目补建。
+manifest + sha256 保证仅复制声明过且校验通过的文件，避免本地脏改污染项目。
+已有项目：服务器启动时 `sync_all_agent_profiles()` 遍历所有项目补齐/更新配置。
 
 ### Dockerfile 更新
 
@@ -201,7 +198,7 @@ COPY agent_runtime_profile/ agent_runtime_profile/
 - Skill 脚本的 `lib/` import 路径不变（Python path 不受文件位置影响）
 - 前端 API 调用无需修改
 - `generation_queue_client.py` 路径不变
-- 现有项目需运行一次迁移脚本补建符号链接
+- 现有项目由服务器启动时的 `sync_all_agent_profiles()` 自动补齐/更新物化配置
 
 ## 隔离效果总结
 
@@ -210,8 +207,8 @@ COPY agent_runtime_profile/ agent_runtime_profile/
 | 资源 | 智能体是否可见 | 原因 |
 |------|--------------|------|
 | `agent_runtime_profile/CLAUDE.md` | 是（system_prompt 注入） | 编程式加载 |
-| `agent_runtime_profile/.claude/skills/` | 是 | 符号链接 + setting_sources |
-| `agent_runtime_profile/.claude/agents/` | 是 | 编程式 + 符号链接 |
+| `agent_runtime_profile/.claude/skills/` | 是 | manifest 物化到项目 + setting_sources |
+| `agent_runtime_profile/.claude/agents/` | 是 | 编程式 + manifest 物化到项目 |
 | `CLAUDE.md`（git root） | 否 | 未打包进镜像 |
 | `CLAUDE.local.md` | 否 | 未打包进镜像 |
 | `.claude/skills/`（开发态） | 否 | 未打包进镜像 |

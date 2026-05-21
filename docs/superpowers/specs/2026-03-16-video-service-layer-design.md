@@ -11,7 +11,7 @@
 **本次做**：
 - 视频生成服务层抽象（`VideoBackend` 接口）
 - 从 `GeminiClient` 提取视频逻辑为 `GeminiVideoBackend`
-- Seedance 1.5 pro 接入（`SeedanceVideoBackend`）
+- Seedance 1.5 pro 接入（`ArkVideoBackend`）
 - `MediaGenerator` 适配多 Backend
 - `CostCalculator` / `UsageTracker` 多供应商支持
 - 项目级 + 全局默认的供应商配置
@@ -36,7 +36,7 @@
 之后:
   execute_video_task → MediaGenerator → VideoBackend.generate()
                                            ├─ GeminiVideoBackend (genai SDK + 共享基础设施)
-                                           └─ SeedanceVideoBackend (Ark SDK)
+                                           └─ ArkVideoBackend (Ark SDK，运行 Seedance 模型)
 ```
 
 ### 文件结构
@@ -47,9 +47,12 @@ lib/
     __init__.py              # 导出公共 API
     base.py                  # Protocol + 数据类 + VideoCapability 枚举
     gemini.py                # GeminiVideoBackend — 从 GeminiClient 提取的视频逻辑
-    seedance.py              # SeedanceVideoBackend — 火山方舟 Ark SDK
+    ark.py                   # ArkVideoBackend — 火山方舟 Ark SDK（运行 Seedance 模型）
     registry.py              # 供应商注册 + 工厂函数
 ```
+
+> 供应商标识为 `ark`（火山方舟平台），Seedance 是其上运行的视频模型；
+> 后端类名 `ArkVideoBackend`，常量 `PROVIDER_ARK`（定义在 `lib/providers.py`）。
 
 ## 核心接口
 
@@ -95,12 +98,12 @@ class VideoGenerationRequest:
 @dataclass
 class VideoGenerationResult:
     video_path: Path
-    provider: str                          # "gemini" | "seedance"
+    provider: str                          # "gemini" | "ark"
     model: str                             # 具体模型 ID
     duration_seconds: int
 
     # 可选
-    video_uri: str | None = None           # 远程 URI（Veo GCS / Seedance CDN）
+    video_uri: str | None = None           # 远程 URI（Veo GCS / Ark CDN）
     seed: int | None = None                # 实际使用的种子
     usage_tokens: int | None = None        # Seedance token 用量
     task_id: str | None = None             # 供应商任务 ID
@@ -140,7 +143,7 @@ class VideoBackend(Protocol):
 - `rate_limiter: RateLimiter` — 共享限流器
 - `video_model: str` — 模型 ID（默认 `veo-3.1-generate-001`）
 
-### SeedanceVideoBackend
+### ArkVideoBackend
 
 - 使用 `volcengine-python-sdk[ark]`（`volcenginesdkarkruntime.Ark`）
 - 异步轮询模式：`tasks.create()` → 轮询 `tasks.get()` → 下载 MP4
@@ -161,7 +164,7 @@ class VideoBackend(Protocol):
 - `service_tier="flex"`（离线）：轮询间隔 60s，超时 172800s（48h）
 - 任务状态 `failed` / `expired` 映射为异常，由 `GenerationWorker` 统一处理为 task failed
 
-**本地图片上传**：Seedance API 要求图片通过 URL 传入。`SeedanceVideoBackend` 通过 `file_service_base_url` 构造上传请求，将本地分镜图上传到项目文件服务获取公网 URL。上传逻辑封装在 Backend 内部，对调用方透明。
+**本地图片上传**：Seedance API 要求图片通过 URL 传入。`ArkVideoBackend` 通过 `file_service_base_url` 构造上传请求，将本地分镜图上传到项目文件服务获取公网 URL。上传逻辑封装在 Backend 内部，对调用方透明。
 
 **Seedance 固定参数**：`watermark=False`（生产环境不加水印）、`ratio` 从 `aspect_ratio` 直接映射（两者格式一致，如 `"16:9"`）。
 
@@ -186,7 +189,7 @@ def get_available_backends() -> list[str]:
     ...
 ```
 
-启动时自动注册 `gemini` 和 `seedance`。缺少 API key 不会导致启动失败，仅在实际选用该供应商时报错。
+启动时自动注册 `gemini` 和 `ark`。缺少 API key 不会导致启动失败，仅在实际选用该供应商时报错。
 
 ## 配置设计
 
@@ -196,7 +199,7 @@ def get_available_backends() -> list[str]:
 
 | 配置项 | 说明 | 对应环境变量 |
 |--------|------|-------------|
-| `video_provider` | 全局默认视频供应商（`gemini` \| `seedance`） | `DEFAULT_VIDEO_PROVIDER` |
+| `video_provider` | 全局默认视频供应商（`gemini` \| `ark`） | `DEFAULT_VIDEO_PROVIDER` |
 | `ark_api_key` | 火山方舟 API key | `ARK_API_KEY` |
 | `file_service_base_url` | 项目文件服务公网地址（Seedance 图片上传用） | `FILE_SERVICE_BASE_URL` |
 
@@ -208,14 +211,14 @@ def get_available_backends() -> list[str]:
 
 ```json
 {
-  "video_provider": "seedance",
+  "video_provider": "ark",
   "video_settings": {
     "resolution": "1080p",
     "aspect_ratio": "9:16",
     "generate_audio": true
   },
   "video_provider_settings": {
-    "seedance": {
+    "ark": {
       "service_tier": "default"
     },
     "gemini": {
@@ -242,7 +245,7 @@ def get_available_backends() -> list[str]:
 | `resolution` | 项目 video_settings | 全项目一致 |
 | `aspect_ratio` | 项目 video_settings | 全项目一致 |
 | `generate_audio` | 项目 video_settings | 全项目一致 |
-| `service_tier` | 项目 video_provider_settings.seedance | Seedance 项目级 |
+| `service_tier` | 项目 video_provider_settings.ark | Ark 项目级 |
 | `negative_prompt` | 项目 video_provider_settings.gemini | Gemini 项目级 |
 
 ## 参数流通链路
@@ -295,9 +298,9 @@ class MediaGenerator:
 按供应商分策略计费，返回 `(amount: float, currency: str)` 元组：
 
 - **Gemini**：按 resolution × duration × audio 查表（USD）— 现有逻辑不变
-- **Seedance**：从 API 响应的 `usage.completion_tokens` 获取实际 token 用量，按单价计算
+- **Ark（Seedance 模型）**：从 API 响应的 `usage.completion_tokens` 获取实际 token 用量，按单价计算
 
-### Seedance 费用计算逻辑
+### Ark（Seedance）费用计算逻辑
 
 **计算公式**：
 
@@ -321,7 +324,7 @@ class MediaGenerator:
 - API 返回 `usage.completion_tokens = 246840`（≈ `1920 × 1080 × 24 × 5 / 1024`）
 - 费用 = `246840 / 1_000_000 × 16.00` = **3.95 元**
 
-**实现要点**：`CostCalculator` 新增 `_seedance_video_cost(model, usage_tokens, service_tier, generate_audio)` 方法，根据 `service_tier` 和 `generate_audio` 查表取单价，乘以 token 用量。
+**实现要点**：`CostCalculator` 新增 `calculate_ark_video_cost(model, usage_tokens, service_tier, generate_audio)` 方法，根据 `service_tier` 和 `generate_audio` 查表取单价，乘以 token 用量。
 
 不同币种分别统计，不做汇率转换。
 

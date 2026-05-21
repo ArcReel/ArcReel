@@ -49,7 +49,7 @@ lib/source_loader/
 ├── txt.py               # charset-normalizer + 四层解码
 ├── docx.py              # docx2txt → mammoth 兜底
 ├── epub.py              # ebooklib + BeautifulSoup4 + 章节标记注入
-├── pdf.py               # PyMuPDFExtractor（AGPL 主线；商业 fork 可换 pypdfium2）
+├── pdf.py               # PdfOxideExtractor（pdf-oxide，纯 Rust，Apache/MIT）
 ├── loader.py            # SourceLoader.load(path, dst_dir) 编排 + 分发
 └── errors.py            # SourceLoaderError 体系
 ```
@@ -63,7 +63,7 @@ lib/source_loader/
 
 ### 3.2 为什么这样切
 
-- extractor 协议化让"商业 fork 用 pypdfium2 替代 PyMuPDF"就是新增一个实现 + 配置切换，业务零改
+- extractor 协议化让"替换 PDF 后端"就是新增一个实现 + 配置切换，业务零改
 - `errors.py` 单独成文件，路由层 `isinstance` 分派 HTTP 状态更清晰
 - 不把"写入 `source/`"塞进 extractor，是为了让 extractor 可独立单测（给 `.docx` 路径，断言返回结构化文本），不需要文件系统上下文
 
@@ -77,15 +77,15 @@ lib/source_loader/
 
 ### 决策 2：分格式专用库 vs 通用方案
 
-**选择**：专用库组合（charset-normalizer / docx2txt / mammoth / ebooklib / PyMuPDF）。
+**选择**：专用库组合（charset-normalizer / docx2txt / mammoth / ebooklib / pdf-oxide）。
 
 **原因**：markitdown 输出带 Markdown 标记污染字符计数，且不支持 mobi；docling 镜像 1-9 GB 不适配 2vCPU/4GB droplet。专用库组合总 ~50–60 MB，零系统依赖，中文质量最佳。
 
-### 决策 3：PDF 走抽象接口，主线用 PyMuPDF
+### 决策 3：PDF 用 pdf-oxide，extractor 协议化
 
-**选择**：抽象 `PDFExtractor` 协议，主线 `PyMuPDFExtractor`，预留 `PyPDFium2Extractor` 供商业 fork。
+**选择**：`FormatExtractor` 协议下实现 `PdfOxideExtractor`，基于 pdf-oxide（纯 Rust，预编译 wheel）。
 
-**原因**：PyMuPDF 中文质量和速度双冠（200 页 1–2s vs pypdf 10–30s），且与 ArcReel 主线 AGPL-3.0 完全兼容；商业 fork 通过 adapter 切换 pypdfium2（Apache-2.0），无需重构业务代码。
+**原因**：pdf-oxide 无许可证传染问题（Apache/MIT），纯 Rust 预编译 wheel 零系统依赖；走 `FormatExtractor` 协议后若需替换 PDF 后端只是新增一个实现，业务零改。
 
 ### 决策 4：解码失败显式抛错，不再静默跳过
 
@@ -116,7 +116,7 @@ lib/source_loader/
 
 ### 决策 8：存量项目编码迁移——启动时自动执行
 
-**选择**：`server/main.py` lifespan startup hook 内执行幂等迁移，单项目失败隔离不阻塞 server 启动。
+**选择**：`server/app.py` lifespan startup hook 内执行幂等迁移，单项目失败隔离不阻塞 server 启动。
 
 **原因**：用户零感知；幂等标记保证不重复执行；失败隔离保证 server 总能拉起；标记按项目粒度，支持从备份恢复旧项目后自动重跑。
 
@@ -225,10 +225,10 @@ def decode_txt(raw: bytes) -> tuple[str, str]:
 - 在每章内容前插入 `\n\n# {标题}\n\n`
 - `chapter_count` 写入 `NormalizeResult` 给前端 Toast 展示
 
-### 6.4 PDF（PyMuPDFExtractor）
+### 6.4 PDF（PdfOxideExtractor）
 
-- `fitz.open(path)` → 遍历 `page.get_text("text")` → 页间双换行 `\n\n`
-- **扫描件检测**：若全文 `len(text.strip()) / pages < 50 字符/页` → `CorruptFileError("疑似扫描版 PDF，需 OCR，本次不支持")`
+- `PdfDocument(str(path))` → 遍历 `doc.extract_text(idx)` → 页间双换行 `\n\n`
+- **扫描件检测**：双重信号——`extract_chars` API 至少一页成功且全文 0 字符（无文字层强信号），或全文 `len(text.strip()) / pages < 50 字符/页`，命中即 `CorruptFileError("疑似扫描版 PDF，需 OCR，本次不支持")`
 - 不尝试章节切分（PDF 无可靠章节信号），由用户自行用 `split_episode.py`
 
 ## 7. 错误处理与 i18n
@@ -249,8 +249,8 @@ def decode_txt(raw: bytes) -> tuple[str, str]:
 ## 8. 启动时迁移
 
 ```python
-# server/main.py · lifespan startup
-async def migrate_source_encoding_on_startup():
+# server/app.py · lifespan startup
+async def _migrate_source_encoding_on_startup():
     projects_root = PROJECT_ROOT / "projects"
     if not projects_root.exists():
         return
@@ -339,7 +339,7 @@ frontend/src/components/canvas/
 通过 `uv add` 一次性引入，自动写入 `pyproject.toml` 与 `uv.lock`，版本号取当时 PyPI 最新稳定版（不预先 pin minimum，避免人为下限与 lockfile 漂移）：
 
 ```bash
-uv add charset-normalizer docx2txt mammoth ebooklib beautifulsoup4 lxml pymupdf
+uv add charset-normalizer docx2txt mammoth ebooklib beautifulsoup4 lxml pdf-oxide
 ```
 
 预期总体积 ~50–60 MB，全部纯 Python / 预编译 wheel，**零系统依赖**。引入后通过 `uv lock --check` 与本地 `uv run python -m pytest tests/source_loader/` 验证安装链路与导入。
@@ -348,7 +348,7 @@ uv add charset-normalizer docx2txt mammoth ebooklib beautifulsoup4 lxml pymupdf
 
 | 风险 | 缓解 |
 |---|---|
-| PyMuPDF AGPL 传染商业 fork | `FormatExtractor` 协议化，商业 fork 切 `pypdfium2` 成本 <50 行 |
+| PDF 后端许可证 / 替换成本 | pdf-oxide 为 Apache/MIT 无传染；`FormatExtractor` 协议化，替换 PDF 后端成本 <50 行 |
 | charset-normalizer 对短文本误判 | `chaos < 0.5` 门槛 + `gb18030 + replace` 兜底 + `>5% 乱码判定失败` 三道防线 |
 | 50MB PDF 解析阻塞 event loop | `asyncio.to_thread` + 上传侧强制 50MB 硬限 + `> 20MB` 时前端进度提示 |
 | 启动迁移误改用户文件 | 非 UTF-8 检测失败即放弃、原文件备份到 `raw/`、失败明细写 log 便于回滚 |
@@ -359,7 +359,7 @@ uv add charset-normalizer docx2txt mammoth ebooklib beautifulsoup4 lxml pymupdf
 
 ## 13. 影响清单
 
-- **新增依赖**：`charset-normalizer` / `docx2txt` / `mammoth` / `ebooklib` / `beautifulsoup4` / `lxml` / `pymupdf`（合计 ~50–60 MB，零系统依赖）
+- **新增依赖**：`charset-normalizer` / `docx2txt` / `mammoth` / `ebooklib` / `beautifulsoup4` / `lxml` / `pdf-oxide`（合计 ~50–60 MB，零系统依赖）
 - **新增文件**：
   - `lib/source_loader/` 整个包（`base.py` / `txt.py` / `docx.py` / `epub.py` / `pdf.py` / `loader.py` / `errors.py`）
   - `tests/source_loader/` 含 fixtures 与全部单测
@@ -367,7 +367,7 @@ uv add charset-normalizer docx2txt mammoth ebooklib beautifulsoup4 lxml pymupdf
 - **修改文件**：
   - `server/routers/files.py`：上传路由集成 SourceLoader、冲突 409；`DELETE` 路由扩展级联删除 `source/raw/<同 stem>.*`。原文件下载**复用现有** `GET /files/{project}/{path:path}`（`source/raw/<filename>` 子路径已被既有路径校验覆盖，无需新增路由）
   - `lib/project_manager.py:_read_source_files`：移除 `try/except Exception` 静默跳过
-  - `server/main.py`：lifespan startup 增加 `migrate_source_encoding_on_startup()`
+  - `server/app.py`：lifespan startup 增加 `_migrate_source_encoding_on_startup()`
   - `pyproject.toml`：新依赖
   - `frontend/src/components/canvas/WelcomeCanvas.tsx`：扩展 accept、首次上传自动分析、Toast 展示规范化结果
   - `frontend/src/components/layout/AssetSidebar.tsx`：原始格式下载按钮

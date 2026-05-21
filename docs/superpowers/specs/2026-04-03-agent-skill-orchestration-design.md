@@ -31,7 +31,7 @@
 
 ```yaml
 name: generate-assets
-description: "统一资产生成 subagent。接收任务清单（包含资产类型、脚本命令、验证方式），按序执行生成脚本，返回结构化摘要。用于角色设计、线索设计、分镜图、视频生成。"
+description: "统一资产生成 subagent。接收任务清单（包含资产类型、脚本命令、验证方式），按序执行生成脚本，返回结构化摘要。用于角色/场景/道具设计、分镜图、视频生成。"
 ```
 
 **工作流程**：
@@ -64,7 +64,9 @@ description: "统一资产生成 subagent。接收任务清单（包含资产类
 **核心约束**：
 - 不做主 agent 未要求的额外操作
 - 不等待用户确认，完成即返回
-- 任务类型仅限：`characters` / `clues` / `storyboard` / `video`
+- 任务类型仅限：`character` / `scene` / `prop` / `storyboard` / `video`
+
+> 注：本 spec 撰写时资产模型为 character + clue（线索）两类；后续「全局资产库」重构把资产统一为 character / scene / prop 三类（见 `lib/asset_types.ASSET_SPECS`），`generate-assets` 的任务类型与下方各阶段随之改为该三类资产。`analyze-characters-clues` agent 亦更名为 `analyze-assets`。
 
 ### 2. 重写 manga-workflow 阶段 5-8
 
@@ -159,8 +161,10 @@ dispatch `generate-assets` subagent：
 **删除**第 40-51 行的内容模式对比表（含错误 agent 名称），替换为一行引用：
 
 ```markdown
-> 内容模式详细规格见 `.claude/references/content-modes.md`。
+> 内容模式详细规格见 `.claude/references/generation-modes.md`。
 ```
+
+> 注：当时该 reference 文件名为 `content-modes.md`，后续重构改名为 `generation-modes.md`；同时 `CLAUDE.md` 按 content_mode 拆为 `CLAUDE.narration.md` / `CLAUDE.drama.md` 两份变体（见 `2026-05-16-dynamic-agent-profile-design.md`），下文对单一 `CLAUDE.md` 的引用均落到对应变体。
 
 **修正**架构图（约第 77-87 行）：
 - 删除 `general-purpose subagent` 行
@@ -245,7 +249,7 @@ python .claude/skills/{skill}/scripts/{script}.py {args}
 
 #### 修正 reference 路径
 
-各 SKILL.md 中引用 `references/content-modes.md` 改为完整的相对路径 `.claude/references/content-modes.md`。
+各 SKILL.md 中引用 `references/content-modes.md` 改为完整的相对路径 `.claude/references/content-modes.md`（该文件后续更名为 `generation-modes.md`）。
 
 涉及文件：
 - `manga-workflow/SKILL.md:17`

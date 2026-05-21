@@ -1,7 +1,7 @@
 # batch-notification-aggregation Specification
 
 ## Purpose
-TBD - created by archiving change timeline-perf-and-notifications. Update Purpose after archive.
+当一个 SSE 变更批次包含多条同类变更时，将它们聚合为单条通知（toast / workspace 持久通知），避免逐条刷屏。聚合逻辑实现于 `frontend/src/utils/project-changes.ts`（`groupChangesByType` 按 `entity_type:action` 分组、`formatGroupedNotificationText` 生成文案）。
 ## Requirements
 ### Requirement: 同类变更聚合通知
 当一个 SSE 变更批次包含多条同类变更时，系统 MUST 将它们聚合为一条通知，而非仅展示其中一条。
@@ -10,9 +10,9 @@ TBD - created by archiving change timeline-perf-and-notifications. Update Purpos
 - **WHEN** Agent 批量新增 3 个角色（张三、李四、王五），SSE 变更批次包含 3 条 `character:created` 变更
 - **THEN** 系统展示一条聚合 toast 通知："新增了 3 个角色：张三、李四、王五"
 
-#### Scenario: 批量新增线索
-- **WHEN** Agent 批量新增 2 个线索（凶器、日记），SSE 变更批次包含 2 条 `clue:created` 变更
-- **THEN** 系统展示一条聚合 toast 通知："新增了 2 个线索：凶器、日记"
+#### Scenario: 批量新增道具
+- **WHEN** Agent 批量新增 2 个道具（凶器、日记），SSE 变更批次包含 2 条 `prop:created` 变更
+- **THEN** 系统展示一条聚合 toast 通知："新增了 2 个道具：凶器、日记"
 
 #### Scenario: 单条变更保持原有格式
 - **WHEN** SSE 变更批次仅包含 1 条 `character:created` 变更

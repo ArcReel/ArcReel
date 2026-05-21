@@ -12,9 +12,9 @@
 | 方面 | 决策 |
 |------|------|
 | 存储方式 | 本地文件 `style_reference.png` |
-| 使用范围 | 所有图片生成（characters、clues、storyboard） |
+| 使用范围 | 所有图片生成（characters、scenes、props、storyboard） |
 | 分析机制 | AI 分析 → 保存描述 → 后续仅用描述 |
-| 触发方式 | WebUI（新建项目 + 项目概览） |
+| 触发方式 | 前端（新建项目 + 项目概览） |
 | 字段设计 | `style`（手动）+ `style_description`（AI）+ `style_image`（路径） |
 | UI 交互 | 缩略图 + 可编辑描述 |
 
@@ -73,7 +73,7 @@ projects/{项目名}/
 
 1. 接收上传的图片文件
 2. 保存到 `projects/{项目名}/style_reference.png`
-3. 调用 Gemini API 分析图片风格
+3. 调用文本模型（经 TextGenerator / text_backends）分析图片风格
 4. 保存 `style_description` 和 `style_image` 到 project.json
 5. 返回 `{ style_image, style_description }`
 
@@ -107,28 +107,25 @@ Analyze the visual style of this image. Describe the lighting, color palette, me
 
 | 文件 | 修改内容 |
 |------|----------|
-| `webui/server/routers/files.py` | 新增 `POST/DELETE /projects/{name}/style-image` 端点 |
-| `lib/gemini_client.py` | 新增 `analyze_style_image()` 方法 |
-| `lib/prompt_builders.py` | 新增 `build_style_prompt()` 函数 |
+| `server/routers/files.py` | 新增 `POST/DELETE /projects/{name}/style-image` 端点 |
+| 文本模型分析路径 | 风格分析（经 TextGenerator / text_backends） |
+| `lib/prompt_builders.py` | 风格描述拼接（`_style_prefix()`） |
 | `lib/project_manager.py` | 支持 `style_image` 和 `style_description` 字段读写 |
 
 ### 前端修改
 
-| 文件 | 修改内容 |
+| 位置 | 修改内容 |
 |------|----------|
-| `webui/index.html` | 新建项目模态框添加风格图上传区 |
-| `webui/js/projects.js` | 处理风格图暂存、创建时上传 |
-| `webui/js/api.js` | 新增 `uploadStyleImage()` 和 `deleteStyleImage()` 方法 |
-| `webui/project.html` | 概览 Tab 添加风格图管理区 |
-| `webui/js/project/overview.js` | 风格图上传/删除/编辑描述逻辑 |
+| 新建项目模态框 | 添加风格图上传区 |
+| 项目 API 客户端 | 新增上传/删除风格图方法 |
+| 项目概览 Tab | 添加风格图管理区（上传/删除/编辑描述） |
 
 ### Skill 脚本修改
 
 | 文件 | 修改内容 |
 |------|----------|
-| `generate-characters/scripts/generate_character.py` | 使用 `build_style_prompt()` |
-| `generate-clues/scripts/generate_clue.py` | 使用 `build_style_prompt()` |
-| `generate-storyboard/scripts/generate_storyboard.py` | 使用 `build_style_prompt()` |
+| `generate-assets`（角色/场景/道具生成） | 在 prompt 中拼接风格描述 |
+| `generate-storyboard` | 在 prompt 中拼接风格描述 |
 
 ### 文档更新
 

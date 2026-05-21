@@ -30,7 +30,7 @@
 
 #### 1.2 新增 `draft` 事件类型
 
-在 `ProjectEventService` 中新增两种事件：
+drafts PUT 端点保存成功后通过 `emit_project_change_batch` 发射两种事件（`entity_type="draft"`）：
 
 | entity_type | action | 触发时机 |
 |-------------|--------|---------|
@@ -43,7 +43,6 @@
 focus = {
     "pane": "episode",
     "episode": episode_num,
-    "tab": "preprocessing"  # 新增字段，指定激活的 Tab
 }
 ```
 
@@ -56,18 +55,17 @@ focus = {
 移除 `server/routers/files.py` 中 step2/step3 的文件映射，只保留 step1：
 
 ```python
-# narration 模式
-STEP_FILES = {1: "step1_segments.md"}
-
-# drama 模式
-STEP_FILES = {1: "step1_normalized_script.md"}
+# _get_step_files(content_mode, generation_mode) 三分支：
+# generation_mode == "reference_video"  → {1: "step1_reference_units.md"}
+# content_mode == "narration"           → {1: "step1_segments.md"}
+# 其他（drama）                          → {1: "step1_normalized_script.md"}
 ```
 
-API 端点 `GET/PUT/DELETE /drafts/{episode}/step1` 内部根据 `project.json` 的 `content_mode` 决定实际读写哪个文件。前端统一调用 step1，无需感知文件名差异。
+API 端点 `GET/PUT/DELETE /drafts/{episode}/step{step_num}` 内部根据 `project.json` 的 `content_mode` / `generation_mode` 决定实际读写哪个文件。前端统一调用 step1，无需感知文件名差异。
 
 #### 1.4 事件触发集成
 
-drafts PUT 端点在保存成功后，调用 `ProjectEventService` 发射 `draft:created` 或 `draft:updated` 事件。subagent 通过现有 drafts API 保存文件时自然触发事件链。
+drafts PUT 端点在保存成功后，通过 `emit_project_change_batch` 发射 `draft:created` 或 `draft:updated` 事件。subagent 通过现有 drafts API 保存文件时自然触发事件链。
 
 ### 二、前端变更
 

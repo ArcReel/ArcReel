@@ -17,7 +17,7 @@
 
 - Agent 直接使用 Write 工具写 JSON，绕过了 `ProjectManager`
 - 统计字段存储在 JSON 中而非实时计算
-- 存在冗余的中间层字段（`characters_in_episode`、`clues_in_episode`）
+- 存在冗余的中间层字段（`characters_in_episode` 等剧集级聚合字段）
 
 ## 架构设计
 
@@ -71,7 +71,7 @@
 | 字段 | 位置 | 删除理由 |
 |------|------|---------|
 | `characters_in_episode` | episode.json | 冗余，可从 scenes 聚合 |
-| `clues_in_episode` | episode.json | 冗余，可从 scenes 聚合 |
+| 其他剧集级资产聚合字段 | episode.json | 冗余，可从 scenes 聚合 |
 | `duration_seconds`（顶层） | episode.json | 与 metadata 重复 |
 | `status` 对象 | project.json | 改为读时计算 |
 
@@ -199,12 +199,20 @@ class StatusCalculator:
             if c.get('character_sheet') and (project_dir / c['character_sheet']).exists()
         )
 
-        # 线索统计
-        clues = project.get('clues', {})
-        clues_total = len([c for c in clues.values() if c.get('importance') == 'major'])
-        clues_done = sum(
-            1 for c in clues.values()
-            if c.get('clue_sheet') and (project_dir / c['clue_sheet']).exists()
+        # 场景统计
+        scenes = project.get('scenes', {})
+        scenes_total = len(scenes)
+        scenes_done = sum(
+            1 for s in scenes.values()
+            if s.get('scene_sheet') and (project_dir / s['scene_sheet']).exists()
+        )
+
+        # 道具统计
+        props = project.get('props', {})
+        props_total = len(props)
+        props_done = sum(
+            1 for p in props.values()
+            if p.get('prop_sheet') and (project_dir / p['prop_sheet']).exists()
         )
 
         # 分镜/视频统计（遍历所有剧本）
@@ -225,7 +233,8 @@ class StatusCalculator:
 
         return {
             'characters': {'total': chars_total, 'completed': chars_done},
-            'clues': {'total': clues_total, 'completed': clues_done},
+            'scenes': {'total': scenes_total, 'completed': scenes_done},
+            'props': {'total': props_total, 'completed': props_done},
             'storyboards': {'total': sb_total, 'completed': sb_done},
             'videos': {'total': vid_total, 'completed': vid_done}
         }
@@ -234,7 +243,6 @@ class StatusCalculator:
         """根据进度推断当前阶段"""
         vid = progress.get('videos', {})
         sb = progress.get('storyboards', {})
-        clues = progress.get('clues', {})
         chars = progress.get('characters', {})
 
         if vid.get('completed', 0) == vid.get('total', 0) and vid.get('total', 0) > 0:
@@ -243,10 +251,8 @@ class StatusCalculator:
             return 'video'
         elif sb.get('completed', 0) > 0:
             return 'storyboard'
-        elif clues.get('completed', 0) > 0 or clues.get('total', 0) == 0:
-            return 'storyboard'
         elif chars.get('completed', 0) > 0:
-            return 'clues'
+            return 'storyboard'
         return 'characters'
 
     def enrich_project(self, project_name: str, project: Dict) -> Dict:
@@ -309,19 +315,15 @@ class StatusCalculator:
         script['metadata']['total_scenes'] = len(items)
         script['metadata']['estimated_duration_seconds'] = total_duration
 
-        # 聚合 characters_in_episode 和 clues_in_episode（仅用于 API 响应，不存储）
+        # 聚合 characters_in_episode（仅用于 API 响应，不存储）
         chars_set = set()
-        clues_set = set()
 
         char_field = 'characters_in_segment' if content_mode == 'narration' else 'characters_in_scene'
-        clue_field = 'clues_in_segment' if content_mode == 'narration' else 'clues_in_scene'
 
         for item in items:
             chars_set.update(item.get(char_field, []))
-            clues_set.update(item.get(clue_field, []))
 
         script['characters_in_episode'] = sorted(chars_set)
-        script['clues_in_episode'] = sorted(clues_set)
 
         return script
 ```
@@ -329,7 +331,7 @@ class StatusCalculator:
 ### 4. 修改 API Router
 
 ```python
-# webui/server/routers/projects.py
+# server/routers/projects.py
 
 from lib.status_calculator import StatusCalculator
 
@@ -379,18 +381,20 @@ async def get_project(name: str):
 def validate_episode(self, project_name: str, episode_file: str) -> ValidationResult:
     # ... 现有代码 ...
 
-    # 删除 characters_in_episode 和 clues_in_episode 验证
+    # 删除剧集级聚合字段（characters_in_episode 等）验证
     # 改为直接验证 scene/segment 级别引用
 
     project_characters = set(project.get('characters', {}).keys())
-    project_clues = set(project.get('clues', {}).keys())
+    project_scenes = set(project.get('scenes', {}).keys())
+    project_props = set(project.get('props', {}).keys())
 
     # 验证 segments 或 scenes
     if content_mode == 'narration':
         self._validate_segments(
             episode.get('segments', []),
             project_characters,  # 直接使用 project 级别
-            project_clues,
+            project_scenes,
+            project_props,
             errors,
             warnings
         )
@@ -398,7 +402,8 @@ def validate_episode(self, project_name: str, episode_file: str) -> ValidationRe
         self._validate_scenes(
             episode.get('scenes', []),
             project_characters,
-            project_clues,
+            project_scenes,
+            project_props,
             errors,
             warnings
         )
@@ -406,11 +411,10 @@ def validate_episode(self, project_name: str, episode_file: str) -> ValidationRe
 
 ### 6. Agent 指令修改
 
-在 `.claude/agents/novel-to-narration-script.md` 和 `.claude/agents/novel-to-storyboard-script.md` 中：
+在剧本生成 Subagent（如 `create-episode-script`）中：
 
 **移除**：
-- 生成 `characters_in_episode` 字段的指令
-- 生成 `clues_in_episode` 字段的指令
+- 生成 `characters_in_episode` 等剧集级聚合字段的指令
 - 生成 `duration_seconds`（顶层）字段的指令
 
 **新增**：
@@ -453,12 +457,16 @@ pm.sync_episode_from_script('{project_name}', 'episode_{n}.json')
       "character_sheet": "characters/滑膛.png"
     }
   },
-  "clues": {
+  "scenes": {
+    "外星飞船舱内": {
+      "description": "外星飞船内部，表面光滑如钝银...",
+      "scene_sheet": "scenes/外星飞船舱内.png"
+    }
+  },
+  "props": {
     "哥哥飞船": {
-      "type": "prop",
       "description": "外星飞船，表面光滑如钝银...",
-      "importance": "major",
-      "clue_sheet": "clues/哥哥飞船.png"
+      "prop_sheet": "props/哥哥飞船.png"
     }
   },
   "metadata": {
@@ -498,9 +506,8 @@ pm.sync_episode_from_script('{project_name}', 'episode_{n}.json')
 | `lib/status_calculator.py` | 新增 | 实时计算统计字段 |
 | `lib/project_manager.py` | 修改 | 新增 `sync_episode_from_script()`，`save_script()` 调用同步 |
 | `lib/data_validator.py` | 修改 | 移除 episode 级别引用验证，改为直接验证 scene 级别 |
-| `webui/server/routers/projects.py` | 修改 | 使用 `StatusCalculator` 注入计算字段 |
-| `.claude/agents/novel-to-narration-script.md` | 修改 | 移除冗余字段，添加同步步骤 |
-| `.claude/agents/novel-to-storyboard-script.md` | 修改 | 移除冗余字段，添加同步步骤 |
+| `server/routers/projects.py` | 修改 | 使用 `StatusCalculator` 注入计算字段 |
+| 剧本生成 Subagent prompt | 修改 | 移除冗余字段，添加同步步骤 |
 | `CLAUDE.md` | 修改 | 更新数据结构说明 |
 
 ## 迁移脚本（可选）
@@ -540,7 +547,6 @@ def migrate_project(project_dir: Path):
 
             # 移除冗余字段
             script.pop('characters_in_episode', None)
-            script.pop('clues_in_episode', None)
             script.pop('duration_seconds', None)
 
             if 'metadata' in script:
@@ -563,7 +569,7 @@ if __name__ == "__main__":
 
 1. **新增 `lib/status_calculator.py`** - 无破坏性变更
 2. **修改 `lib/project_manager.py`** - 添加同步方法
-3. **修改 `webui/server/routers/projects.py`** - 使用计算器
+3. **修改 `server/routers/projects.py`** - 使用计算器
 4. **修改 Agent 指令** - 添加同步步骤
 5. **运行迁移脚本** - 清理现有数据
 6. **修改 `lib/data_validator.py`** - 简化验证逻辑

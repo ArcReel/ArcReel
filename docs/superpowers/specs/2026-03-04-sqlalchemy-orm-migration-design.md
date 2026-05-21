@@ -73,11 +73,10 @@ scripts/
 ```python
 # engine.py 核心逻辑
 def get_database_url() -> str:
-    url = os.environ.get("DATABASE_URL")
+    url = os.environ.get("DATABASE_URL", "").strip()
     if url:
         return url
-    project_root = Path(__file__).parent.parent.parent
-    db_path = project_root / "projects" / ".arcreel.db"
+    db_path = app_data_dir() / ".arcreel.db"
     return f"sqlite+aiosqlite:///{db_path}"
 
 async_engine = create_async_engine(get_database_url(), echo=False, pool_pre_ping=True)
@@ -289,7 +288,7 @@ class SessionRepository:
 | `UsageTracker` | 内部改用 `UsageRepository`，方法 async 化。路由通过 Depends 注入 |
 | `SessionMetaStore` | 内部改用 `SessionRepository`，方法 async 化 |
 | `GenerationWorker` | await queue 的 async 方法，不再阻塞 event loop |
-| `generation_queue_client.py` | Skill 脚本改为通过 HTTP API 交互，不再直接操作数据库 |
+| `generation_queue_client.py` | 改为对 async `GenerationQueue` 的异步封装（in-process），不再用同步 `sqlite3` |
 
 ### Alembic 配置
 

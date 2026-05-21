@@ -4,6 +4,11 @@
 
 将项目从 `query()` 迁移到 `ClaudeSDKClient`，实现原生多轮对话支持、后台持续执行、断线重连等特性。
 
+> 演进说明：本设计为迁移初版方案，核心结论（迁移到 ClaudeSDKClient 原生会话、SessionManager
+> 管理实例、transcript 作历史源、SSE 实时推送 + 断线重连、优雅关闭与 resume）保持有效。
+> 落地后的存储、文件布局与 API 形态有调整——见下文「实现差异」标注。后续 SDK 会话生命周期由
+> `server/agent_runtime/session_actor.py`（每会话一个专属 asyncio task 串行化 SDK 调用）强化。
+
 ## 设计决策
 
 | 决策点 | 选择 |
@@ -54,12 +59,17 @@
 
 ### Transcript 统一存储路径
 
+> 实现差异：落地未采用 `projects/.agent_data/` 下的独立 SQLite + transcript JSON 文件方案。
+> 改为 SDK transcript 入库镜像：会话元数据 + transcript 写入统一的 SQLAlchemy ORM
+> （模型 `AgentSession`），由 `ARCREEL_SDK_SESSION_STORE` 控制（`db`/`off`，off 时回退到 SDK
+> 自带的 jsonl 路径）。下文目录树仅示意初版构想。
+
 ```
 projects/.agent_data/
 ├── transcripts/                    # 所有会话的 transcript
 │   ├── {session_id}.json          # SDK 生成的完整对话记录
 │   └── ...
-├── sessions.db                     # SQLite 元数据
+├── sessions.db                     # 元数据
 └── checkpoints/                    # 可选：用于 resume 的检查点数据
 ```
 
@@ -173,6 +183,11 @@ class TranscriptReader:
 ---
 
 ## API 接口设计
+
+> 实现差异：路由挂在项目作用域下（`/api/v1/.../assistant/...`）；发送消息为
+> `POST /sessions/send`（而非 `POST /sessions/{id}/messages`），SSE 订阅为
+> `GET /sessions/{session_id}/stream`，另有 `interrupt` / `questions/{id}/answer` /
+> `snapshot` 等端点。下表为初版接口构想。
 
 ### REST API
 
@@ -340,20 +355,20 @@ if (session.status === "interrupted") {
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `webui/server/agent_runtime/session_manager.py` | 新建 | SessionManager + ManagedSession |
-| `webui/server/agent_runtime/session_store.py` | 重写 | 简化为 SessionMetaStore |
-| `webui/server/agent_runtime/transcript_reader.py` | 新建 | 读取 SDK transcript |
-| `webui/server/agent_runtime/service.py` | 重写 | 使用 SessionManager |
-| `webui/server/agent_runtime/models.py` | 简化 | 移除 AgentMessage，只保留 Session 元数据 |
-| `webui/server/routers/assistant.py` | 重写 | 新 API 结构 |
+| `server/agent_runtime/session_manager.py` | 新建 | SessionManager + 订阅者模式 |
+| `server/agent_runtime/session_store.py` | 重写 | 会话元数据 + transcript DB 镜像 |
+| `server/agent_runtime/sdk_transcript_adapter.py` | 新建 | 读取/规范化 SDK transcript |
+| `server/agent_runtime/service.py` | 重写 | 使用 SessionManager |
+| `server/agent_runtime/models.py` | 简化 | 只保留 Session 元数据 |
+| `server/routers/assistant.py` | 重写 | 新 API 结构 |
 
 ### 前端（React）
 
-| 文件 | 操作 | 说明 |
+| 位置 | 操作 | 说明 |
 |------|------|------|
-| `frontend/src/api.js` | 更新 | 新 API 端点 |
-| `frontend/src/react/hooks/use-assistant-state.js` | 重写 | 新状态管理逻辑 |
-| `frontend/src/react/components/chat/ChatMessage.js` | 更新 | 适配 SDK 消息格式 |
+| 助手 API 客户端 | 更新 | 新 API 端点 |
+| 助手会话状态管理 | 重写 | 新状态管理逻辑 |
+| 聊天消息渲染组件 | 更新 | 适配 SDK 消息格式 |
 
 ---
 

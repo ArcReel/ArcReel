@@ -52,11 +52,13 @@ GET /api/v1/projects/{name}/export/jianying-draft
     ?episode={N}
     &draft_path={用户本地剪映草稿根目录}
     &download_token={token}
+    &jianying_version={6|5}
 ```
 
 - `episode`（必填）：集数编号
 - `draft_path`（必填）：用户本地剪映草稿根目录的绝对路径
 - `download_token`（必填）：下载 token
+- `jianying_version`（可选，默认 `"6"`）：剪映版本（`6` / `5`）；`!= "5"` 时服务层走 `use_draft_info_name=True` 草稿命名
 - 响应：`application/zip` 流式下载
 
 错误码：
@@ -157,7 +159,7 @@ if content_mode == "narration":
 
 1. 扩展 `ExportScope` 类型：新增 `"jianying-draft"` 值
 2. 选择"导出为剪映草稿"后，弹窗从"选择模式"切换到"表单模式"，展开集数下拉 + 草稿目录输入框
-3. 剪映导出走独立回调 `onJianyingExport(episode, draftPath)`，不复用 `onSelect`
+3. 剪映导出走独立回调 `onJianyingExport(episode, draftPath, jianyingVersion)`（处理逻辑落在 `GlobalHeader.tsx`），不复用 `onSelect`；表单含剪映版本（6/5）选择
 4. 组件内部需要接收 `episodes` prop（或从 store 读取）来填充集数下拉
 5. 状态机：选择模式 → 表单模式 → 导出中（按钮禁用）→ 完成（关闭弹窗）
 
@@ -167,7 +169,9 @@ if content_mode == "narration":
 
 ```typescript
 // 复用现有 requestExportToken，无需新方法
-getJianyingDraftDownloadUrl(projectName: string, episode: number, draftPath: string, token: string): string
+getJianyingDraftDownloadUrl(
+  projectName: string, episode: number, draftPath: string, token: string, jianyingVersion: string,
+): string
 ```
 
 ---

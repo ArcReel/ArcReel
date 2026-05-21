@@ -9,19 +9,19 @@
 在 `NarrationSegment` 和 `DramaScene` 模型中新增字段：
 
 ```python
-note: Optional[str] = None
+note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
 ```
 
 - 前端类型 `script.ts` 对应增加 `note?: string`
-- `Optional` + `default=None` 自动兼容旧数据，无需迁移
-- 生成逻辑不读取此字段，无需改动
+- `default=None` 自动兼容旧数据，无需迁移
+- `SkipJsonSchema` 对 LLM 隐藏，生成逻辑不读取此字段，无需改动
 
 ## API 层
 
 无需新增端点，复用现有 PATCH 接口：
 
 - Narration：`PATCH /api/v1/projects/{name}/segments/{segment_id}` — body 含 `"note": "..."`
-- Drama：`PATCH /api/v1/projects/{name}/scenes/{scene_id}` — updates 含 `"note": "..."`
+- Drama：`PATCH /api/v1/projects/{name}/script-scenes/{scene_id}` — updates 含 `"note": "..."`
 
 ## 前端 UI
 
