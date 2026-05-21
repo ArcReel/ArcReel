@@ -196,8 +196,15 @@ class TestGenerationTasks:
         fake_generator = _FakeGenerator()
         emitted_batches = []
 
+        from lib.config.resolver import ProviderModel
+
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        # get_media_generator 已 mock；storyboard 路径仍直接调 _resolve_effective_image_backend
+        # 推导 image_size（DB 无 provider 配置），此处 stub 掉解析——解析逻辑由 TestResolveImageBackend 覆盖。
+        monkeypatch.setattr(
+            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
+        )
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",

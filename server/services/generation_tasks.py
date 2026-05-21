@@ -79,18 +79,15 @@ async def _resolve_effective_image_backend(
     """图片 provider 解析的薄投影：委托 ``ConfigResolver.resolve_image_backend``。
 
     capability 仅在执行层确定（见 ``docs/adr/0001``）：``needs_i2i`` → i2i 槽，否则 t2i 槽。
-    全局默认失败（未配置供应商）时返回空 ``ProviderModel``，调用方按空 ``provider_id`` 处理
-    （让 ``_get_or_create_image_backend`` 抛出清晰错误）。
+    与 ``_resolve_video_backend`` 一致不吞解析异常——未配置供应商时让 ``ConfigResolver`` 抛出的
+    清晰 ``ValueError``（"未找到可用的 image 供应商..."）直接透传，而非掩盖成空 backend 的通用错误。
     """
-    from lib.config.resolver import ConfigResolver, ProviderModel
+    from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)
     capability = "i2i" if needs_i2i else "t2i"
-    try:
-        return await resolver.resolve_image_backend(project, payload, capability=capability)
-    except Exception:
-        return ProviderModel("", "")
+    return await resolver.resolve_image_backend(project, payload, capability=capability)
 
 
 async def _create_custom_backend(provider_name: str, model_id: str | None, media_type: str):

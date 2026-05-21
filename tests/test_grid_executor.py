@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from lib.config.resolver import ProviderModel
+
 
 @pytest.fixture
 def project_with_script(tmp_path):
@@ -198,6 +200,10 @@ class TestExecuteGridTask:
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
             patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
+            patch(
+                "server.services.generation_tasks._resolve_effective_image_backend",
+                new=AsyncMock(return_value=ProviderModel("openai", "gpt-image-2")),
+            ),
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
@@ -243,6 +249,10 @@ class TestExecuteGridTask:
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
             patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
+            patch(
+                "server.services.generation_tasks._resolve_effective_image_backend",
+                new=AsyncMock(return_value=ProviderModel("openai", "gpt-image-2")),
+            ),
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
