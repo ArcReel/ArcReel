@@ -105,6 +105,21 @@ class TestModeDetection:
     def test_drama_detected_by_scenes(self):
         assert validate_script_structure(_drama()).valid
 
+    def test_empty_scenes_drama_detected_by_content_mode(self):
+        """空场景 drama（scenes=[]，结构合法）应按 content_mode 判到 Drama，而非靠列表真值落回 Narration。
+
+        scenes 无 min_length 约束，空列表合法（对应「先建空 drama 再逐步填充场景」流程）。
+        若用 script.get("scenes") 真值判别，[] falsy 会误落 NarrationEpisodeScript 而被拒写。
+        """
+        script = _drama(scenes=[])
+        assert validate_script_structure(script).valid
+
+    def test_drama_detected_by_scenes_key_when_content_mode_absent(self):
+        # 无 content_mode、有 scenes 键（即便空）：按键存在推断 Drama
+        script = _drama(scenes=[])
+        del script["content_mode"]
+        assert validate_script_structure(script).valid
+
     def test_narration_is_default_fallback(self):
         # 无 content_mode、无 scenes/video_units：回退 NarrationEpisodeScript
         script = _narration()

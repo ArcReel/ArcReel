@@ -37,15 +37,19 @@ def _select_model(script: dict[str, Any]) -> type[BaseModel]:
     """按 generation_mode / content_mode / 顶层键判别该用哪个剧本模型。
 
     reference 分支最优先：generation_mode == "reference_video"（或存在 video_units）压过
-    content_mode，即使 content_mode == "narration" 也走 ReferenceVideoScript。其余按
-    content_mode + 顶层键二分到 narration / drama。
+    content_mode，即使 content_mode == "narration" 也走 ReferenceVideoScript。其余以
+    content_mode 为权威：drama → Drama、narration → Narration；content_mode 缺省时才按顶层键
+    存在性（而非列表真值）推断。用 "scenes" in script 而非 script.get("scenes") 真值，否则
+    空场景 drama（{"content_mode": "drama", "scenes": []}，结构合法）会被误判到 Narration 拒写。
     """
     if script.get("generation_mode") == "reference_video" or "video_units" in script:
         return ReferenceVideoScript
-    content_mode = script.get("content_mode", "narration")
-    if content_mode == "narration" and script.get("segments"):
+    content_mode = script.get("content_mode")
+    if content_mode == "drama":
+        return DramaEpisodeScript
+    if content_mode == "narration":
         return NarrationEpisodeScript
-    if script.get("scenes"):
+    if "scenes" in script and "segments" not in script:
         return DramaEpisodeScript
     return NarrationEpisodeScript
 
