@@ -47,7 +47,7 @@ async def test_script_generator_build_prompt_selects_reference_branch(reference_
     # reference 分支特征标签
     assert "ReferenceVideoScript" in prompt
     assert "references" in prompt
-    assert "@名称" in prompt
+    assert "@[名称]" in prompt
     # 不应出现 narration / drama 特征
     assert "characters_in_segment" not in prompt
 
@@ -328,4 +328,4 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
     # 走 reference 分支：模板包含 ReferenceVideoScript 与 references 字段说明
     assert "ReferenceVideoScript" in prompt
     assert "references" in prompt
-    assert "@名称" in prompt
+    assert "@[名称]" in prompt

@@ -15,11 +15,15 @@ _SHOT_HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 
-# @名称：左侧必须不是 ASCII 词字符，否则视为 email/标识符残片而非 mention。
+# @名称 / @[名称] / @{名称}：左侧必须不是 ASCII 词字符，否则视为 email/标识符残片而非 mention。
 # Python `re` 下 `\w` 默认 Unicode-aware（会匹配 CJK），因此这里用显式 ASCII 字符类，
 # 以保留 `你好@张三` 这类合法中文前缀场景。前后端共用约定，见
 # frontend/src/utils/reference-mentions.ts。
-_MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])@([\w\u4e00-\u9fff]+)")
+_MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])@(?:\[([^\]\r\n]+)\]|\{([^}\r\n]+)\}|([\w\u4e00-\u9fff]+))")
+
+
+def _mention_name(match: re.Match[str]) -> str:
+    return next(group for group in match.groups() if group is not None)
 
 
 def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
@@ -70,7 +74,7 @@ def _extract_mentions(text: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for m in _MENTION_RE.finditer(text):
-        name = m.group(1)
+        name = _mention_name(m)
         if name not in seen:
             seen.add(name)
             result.append(name)
@@ -78,13 +82,13 @@ def _extract_mentions(text: str) -> list[str]:
 
 
 def render_prompt_for_backend(text: str, references: list[ReferenceResource]) -> str:
-    """把 prompt 中的 @名称 替换为 [图N]，其中 N 是 references 列表中 1-based 序号。"""
+    """把 prompt 中的 @mention 替换为 [图N]，其中 N 是 references 列表中 1-based 序号。"""
     index_by_name: dict[str, int] = {}
     for i, ref in enumerate(references, start=1):
         index_by_name[ref.name] = i
 
     def _repl(m: re.Match[str]) -> str:
-        name = m.group(1)
+        name = _mention_name(m)
         idx = index_by_name.get(name)
         return f"[图{idx}]" if idx else m.group(0)  # 未注册 → 保留原样
 

@@ -110,20 +110,20 @@ def build_reference_video_prompt(
 a. **unit_id**：保留 step1 中的 `E{episode}U{{序号}}`（当前为第 {episode} 集），不要改格式。
 
 b. **shots**：1-4 个 Shot。
-   - `duration`：整数秒，取值必须在当前模型支持列表中：{durations_desc}。{max_duration_line}
-   - `text`：镜头描述，聚焦此刻可见画面（语言遵循上方"输出语言"约束）。仅用 `@名称` 引用角色 / 场景 / 道具——**不要**写外貌、服装、场景细节（这些由参考图提供视觉一致性）。
-     好例：「@角色A 立于 @场景A 前，左手紧握 @道具A，目光投向远处」。
-     反例：「身穿某色服装的角色A 站在某色场景A 前，手里紧握着某色道具A」（外貌 / 服装 / 颜色应由参考图承担）。
-     动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
-   - 单 unit 内所有 Shot `duration` 之和即该 unit `duration_seconds`。
+    - `duration`：整数秒，取值必须在当前模型支持列表中：{durations_desc}。{max_duration_line}
+    - `text`：镜头描述，聚焦此刻可见画面（语言遵循上方"输出语言"约束）。仅用 `@[名称]` 引用角色 / 场景 / 道具——**不要**写外貌、服装、场景细节（这些由参考图提供视觉一致性）。
+        - 好例：「@[角色A] 立于 @[场景A] 前，左手紧握 @[道具A]，目光投向远处」。
+        - 反例：「身穿某色服装的角色A 站在某色场景A 前，手里紧握着某色道具A」（外貌 / 服装 / 颜色应由参考图承担）。
+        - 动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
+    - 单 unit 内所有 Shot `duration` 之和即该 unit `duration_seconds`。
 
 c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
-   - `name` 必须来自候选：
-     - character: {", ".join(character_names) or "（无）"}
-     - scene: {", ".join(scene_names) or "（无）"}
-     - prop: {", ".join(prop_names) or "（无）"}
-   - 每个 shot `text` 中出现的 `@名称` 都要在 references 注册一次。
-   - **references 数量不超过 {max_refs}**（模型上限）；超出时把次要角色合并到背景描述。
+    - `name` 必须来自候选：
+        - character: {", ".join(character_names) or "（无）"}
+        - scene: {", ".join(scene_names) or "（无）"}
+        - prop: {", ".join(prop_names) or "（无）"}
+    - 每个 shot `text` 中出现的 `@[名称]` 都要在 references 注册一次。
+    - **references 数量不超过 {max_refs}**（模型上限）；超出时把次要角色合并到背景描述。
 
 d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 
@@ -136,7 +136,7 @@ d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 # 复核
 
 - 每 unit 最多 4 个 shot；shot 时长之和贴近 step1 预估。
-- `@名称` 只能引用 characters / scenes / props 三表中已注册的名字。
+- `@[名称]` 只能引用 characters / scenes / props 三表中已注册的名字。
 - 不要在 shot `text` 中描写外貌、服装、场景细节。
 - 不要发明新资产。
 

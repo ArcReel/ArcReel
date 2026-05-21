@@ -185,7 +185,7 @@ class Shot(BaseModel):
     """参考视频单元内的一个镜头。"""
 
     duration: int = Field(ge=1, le=15, description="该镜头时长（秒）")
-    text: str = Field(description="镜头描述，可包含 @角色/@场景/@道具 引用")
+    text: str = Field(description="镜头描述，可包含 @[角色]/@[场景]/@[道具] 引用")
 
 
 class ReferenceResource(BaseModel):

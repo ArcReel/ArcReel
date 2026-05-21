@@ -5,7 +5,7 @@
   2. POST .../generate → GenerationQueue enqueue（mock）
   3. dispatch 到 execute_reference_video_task
   4. executor 解析 3 bucket 的 references（character + scene + prop）
-  5. shot_parser 多 shot 解析 + `@名称` → `[图N]` 渲染正确性
+  5. shot_parser 多 shot 解析 + `@mention` → `[图N]` 渲染正确性
   6. mp4 + thumbnail 落盘
   7. generated_assets.status / video_clip / video_thumbnail 写回
 """

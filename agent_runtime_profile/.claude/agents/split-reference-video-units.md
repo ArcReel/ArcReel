@@ -21,7 +21,7 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 ## 核心原则
 
 1. **跳过分镜**：不生成分镜图，直接按视频生成粒度（video_unit）拆分；每 unit = 一次生成调用。
-2. **参考图驱动**：每个 unit 的描述只用 `@角色 / @场景 / @道具` 引用**已注册**的资产名；不写外貌 / 服装 / 场景细节（由参考图承担视觉一致性）。
+2. **参考图驱动**：每个 unit 的描述只用 `@[角色] / @[场景] / @[道具]` 引用**已注册**的资产名；不写外貌 / 服装 / 场景细节（由参考图承担视觉一致性）。
 3. **时长上限**：每 unit 所有 shot `duration` 之和不超过 Step 0 查得的 `max_duration`；总 references 数不超过 `max_reference_images`。
 4. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认。
 
@@ -71,7 +71,7 @@ mcp__arcreel__get_video_capabilities({})
 **描述规则**：
 
 - 每 shot 的 `text` 字段用中文叙事，聚焦当下瞬间可见动作。
-- 角色 / 场景 / 道具引用使用 `@名称`；名称需来自 project.json 三张表。
+- 角色 / 场景 / 道具引用统一使用 `@[名称]`；名称需来自 project.json 三张表。
 - 不要描写外貌、服装、场景色调、光影细节——这些由参考图提供。
 - 不要新增 project.json 中不存在的资产名。
 
@@ -96,7 +96,7 @@ mcp__arcreel__get_video_capabilities({})
 
 #### E<ep>U<idx>
 
-Shot 1 (<d1>s): @<已注册名> 动作描述（不写外貌/服装）。
+Shot 1 (<d1>s): @[<已注册名>] 动作描述（不写外貌/服装）。
 Shot 2 (<d2>s): ...
 ```
 
@@ -130,5 +130,5 @@ Shot 2 (<d2>s): ...
 
 - unit_id 从 `E{集数}U1` 开始按顺序递增。
 - 每 unit shots 不超过 4 个；单 unit references 不超过 Step 0 查到的 `max_reference_images`。
-- `@名称` 中的「名称」需出现在 project.json 的 characters / scenes / props 三张表之一；若确实需要新资产，报告给主 agent 要求补资产生成，不要在本 unit 中先发明。
+- `@[名称]` 中的「名称」需出现在 project.json 的 characters / scenes / props 三张表之一；若确实需要新资产，报告给主 agent 要求补资产生成，不要在本 unit 中先发明。
 - 所有 shot 时长从 Step 0 查到的 `supported_durations` 中选；优先组合使 unit 总时长贴近 `max_duration`（若 `default_duration` 非 null，单 shot 默认取其值；特殊情况另议）；不要自己发明其它时长，也不要默认挑最短值。

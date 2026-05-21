@@ -162,7 +162,7 @@ describe("ReferenceVideoCard", () => {
     fireEvent.click(await screen.findByRole("option", { name: /主角/ }));
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     const lastCall = onChange.mock.calls.at(-1)!;
-    expect(lastCall[0]).toMatch(/@主角\s$/);
+    expect(lastCall[0]).toMatch(/@\[主角\]\s$/);
   });
 
   it("closes the picker synchronously on textarea blur", async () => {
