@@ -137,6 +137,20 @@ class TestExtractProvider:
         task = {"payload": {"video_provider": "ark"}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
+    async def test_deleted_project_load_failure_falls_back_not_raises(self, monkeypatch):
+        """指向已删除/不可读项目的历史任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
+        绝不冒泡阻断认领循环（否则一个坏任务会拖垮整个 worker）。"""
+
+        def _raising_pm():
+            def _load(self, name):
+                raise FileNotFoundError(name)
+
+            return type("PM", (), {"load_project": _load})()
+
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", _raising_pm)
+        task = {"payload": {}, "project_name": "deleted-proj", "task_type": "video"}
+        assert await _extract_provider(task) == DEFAULT_PROVIDER
+
 
 class TestExtractProviderAlignsWithExecution:
     """M5 投影对齐：worker 取到的 provider_id 与执行层解析在同一 project/payload 下一致。"""

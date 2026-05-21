@@ -84,22 +84,25 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     # 以 media lane 区分 video / image：reference_video 等 task_type 同属 video lane。
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
 
-    project: dict | None = None
-    if project_name:
-        from lib.config.resolver import get_project_manager
-
-        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-
-    from lib.config.resolver import ConfigResolver
-    from lib.db import async_session_factory
-
-    resolver = ConfigResolver(async_session_factory)
+    # 整体兜底：含项目加载（队列里可能有指向已删除/不可读项目的历史任务，load_project 会抛
+    # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
     try:
+        project: dict | None = None
+        if project_name:
+            from lib.config.resolver import get_project_manager
+
+            project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+
+        from lib.config.resolver import ConfigResolver
+        from lib.db import async_session_factory
+
+        resolver = ConfigResolver(async_session_factory)
         if is_video:
             resolved = await resolver.resolve_video_backend(project, payload)
         else:
             resolved = await resolver.resolve_image_backend(project, payload, capability="t2i")
     except Exception:
+        logger.debug("provider 解析失败，回退 DEFAULT_PROVIDER 仅供限流路由", exc_info=True)
         return DEFAULT_PROVIDER
     return resolved.provider_id or DEFAULT_PROVIDER
 
