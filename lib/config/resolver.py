@@ -110,13 +110,30 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
     return None
 
 
-def _is_known_provider(provider_id: str) -> bool:
-    """provider_id 是否为已知 provider：``PROVIDER_REGISTRY`` 规范 id 或自定义 provider。
+def _trusted_payload_provider(provider_id: object) -> str | None:
+    """返回可信任的规范 provider_id（已知 provider），否则 None。
 
-    payload 是解析链唯一绕过写边界校验的输入来源（in-flight 队列任务在旧代码入队时即序列化），
-    据此守卫：不可识别的 payload provider（如 legacy ``seedance``/``vertex``）不予信任，回退到
-    已迁移的 project/global 解析——不做 legacy→规范映射，仅拒绝不可信输入。"""
-    return provider_id in PROVIDER_REGISTRY or is_custom_provider(provider_id)
+    payload 是解析链唯一绕过写边界校验的输入来源（in-flight 队列任务在旧代码入队时即序列化）。
+    据此守卫：非字符串 / 空白 / 不可识别的 provider（如 legacy ``seedance``/``vertex``）一律不予
+    信任，返回 None 让解析回退到已迁移的 project/global——不做 legacy→规范映射，仅拒绝不可信输入。"""
+    if not isinstance(provider_id, str):
+        return None
+    provider_id = provider_id.strip()
+    if not provider_id:
+        return None
+    if provider_id in PROVIDER_REGISTRY or is_custom_provider(provider_id):
+        return provider_id
+    return None
+
+
+def _payload_model_or_default(raw_model: object, provider_id: str, media_type: str) -> str | None:
+    """payload 显式 model（非空字符串）优先；缺失则补该 provider 的 registry 默认 model。
+
+    避免「半截 payload」（只有 provider、缺 model）把空 model 带到执行层。补不出默认 model 时
+    返回 None，由调用方回退 project/global。"""
+    if isinstance(raw_model, str) and raw_model.strip():
+        return raw_model.strip()
+    return _default_model_for_provider(provider_id, media_type)
 
 
 _TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
@@ -342,16 +359,18 @@ class ConfigResolver:
         payload 层保留 ``payload>project>global`` 的规范骨架，当前服务于部署时队列里
         历史任务（携带 ``image_provider_<cap>`` 或旧 ``image_provider``/``image_model``）的排空，
         并作为未来"单请求显式覆盖"的落点。payload provider 须是已知 provider（见
-        ``_is_known_provider``），否则不予信任、回退 project/global。
+        ``_trusted_payload_provider``），否则不予信任、回退 project/global。
         """
         cap_key = f"image_provider_{capability}"
         if payload:
             pair = _split_pair(payload.get(cap_key))
-            if pair is not None and _is_known_provider(pair[0]):
+            if pair is not None and _trusted_payload_provider(pair[0]) is not None:
                 return ProviderModel(*pair)
-            provider = payload.get("image_provider")
-            if provider and _is_known_provider(provider):
-                return ProviderModel(provider, payload.get("image_model") or "")
+            provider_id = _trusted_payload_provider(payload.get("image_provider"))
+            if provider_id is not None:
+                model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
+                if model is not None:
+                    return ProviderModel(provider_id, model)
         if project:
             parsed = _parse_project_provider(project.get(cap_key), "image")
             if parsed is not None:
@@ -370,14 +389,16 @@ class ConfigResolver:
 
         payload 层服务于历史任务（携带 ``video_provider`` + ``video_model`` /
         ``video_provider_settings.model``）的排空。payload provider 须是已知 provider（见
-        ``_is_known_provider``），否则不予信任、回退 project/global。
+        ``_trusted_payload_provider``），否则不予信任、回退 project/global。
         """
         if payload:
-            provider = payload.get("video_provider")
-            if provider and _is_known_provider(provider):
-                settings = payload.get("video_provider_settings") or {}
-                model = payload.get("video_model") or settings.get("model") or ""
-                return ProviderModel(provider, model)
+            provider_id = _trusted_payload_provider(payload.get("video_provider"))
+            if provider_id is not None:
+                settings = payload.get("video_provider_settings")
+                settings_model = settings.get("model") if isinstance(settings, dict) else None
+                model = _payload_model_or_default(payload.get("video_model") or settings_model, provider_id, "video")
+                if model is not None:
+                    return ProviderModel(provider_id, model)
         provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
         return ProviderModel(provider_id, model_id)
 

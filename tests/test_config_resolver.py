@@ -694,6 +694,14 @@ class TestResolveImageBackend:
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
         assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
 
+    async def test_payload_known_provider_missing_model_uses_provider_default(self):
+        """半截 payload（已知 provider 但缺 model）→ 补该 provider 默认 model，不带空 model 到执行层。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        payload = {"image_provider": "openai"}  # 只有 provider，无 image_model
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, {}, payload, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
+
 
 class TestResolveVideoBackend:
     """resolve_video_backend：payload > project > 全局默认。"""
@@ -736,3 +744,12 @@ class TestResolveVideoBackend:
         payload = {"video_provider": "seedance", "video_model": "legacy"}  # legacy，不可识别
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
         assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+
+    async def test_payload_non_dict_video_provider_settings_does_not_crash(self):
+        """脏 payload：video_provider_settings 非 dict → 不抛异常，按缺 model 补该 provider 默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "grok/grok-imagine-video"})
+        payload = {"video_provider": "ark", "video_provider_settings": "not-a-dict"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, {}, payload)
+        assert resolved.provider_id == "ark"
+        assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # 补 ark 默认 video model
