@@ -41,11 +41,16 @@ _PROVIDER_FIELDS: tuple[str, ...] = (
 
 
 def _normalize_field(value: str) -> str:
-    """归一化单个 ``"provider/model"`` 或裸 ``"provider"`` 字段的 provider 部分。"""
+    """归一化单个 ``"provider/model"`` 或裸 ``"provider"`` 字段的 provider 部分。
+
+    先 strip 再比对别名表：带空白的 legacy 名（如 ``" gemini / model "``）若不 strip 会比对落空、
+    残留未归一化，违背一次性「干净断裂」的目的。"""
     if "/" in value:
         provider, model = value.split("/", 1)
+        provider, model = provider.strip(), model.strip()
         return f"{_LEGACY_PROVIDER_ALIASES.get(provider, provider)}/{model}"
-    return _LEGACY_PROVIDER_ALIASES.get(value, value)
+    stripped = value.strip()
+    return _LEGACY_PROVIDER_ALIASES.get(stripped, stripped)
 
 
 def migrate_project_dict(project: dict) -> dict:

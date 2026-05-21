@@ -45,6 +45,14 @@ class TestMigrateProjectDictPureFunction:
         after = migrate_project_dict({"video_backend": "seedance"})
         assert after["video_backend"] == "ark"
 
+    def test_strips_whitespace_before_normalizing(self):
+        """带空白的 legacy 名也须归一化（先 strip 再比对别名表），否则残留未规范值。"""
+        after = migrate_project_dict(
+            {"video_backend": " seedance / seedance-1-0-pro ", "text_backend_script": " gemini "}
+        )
+        assert after["video_backend"] == "ark/seedance-1-0-pro"
+        assert after["text_backend_script"] == "gemini-aistudio"
+
     def test_deletes_legacy_image_backend_key(self):
         after = migrate_project_dict({"image_backend": "openai/gpt-image-1"})
         assert "image_backend" not in after

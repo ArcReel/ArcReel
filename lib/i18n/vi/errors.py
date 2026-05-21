@@ -116,6 +116,7 @@ MESSAGES = {
     "cost_estimation_failed": "Ước tính chi phí thất bại, vui lòng thử lại sau",
     # Validators
     "invalid_backend_format": "Định dạng {field_name} phải là provider/model",
+    "deprecated_image_backend": "Trường image_backend đã ngừng dùng; hãy dùng image_provider_t2i và image_provider_i2i",
     # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",
     # Reference Video
