@@ -5,7 +5,7 @@ description: PR 提交后无人值守驱动 AI reviewer（CodeRabbit、Gemini Co
 
 # AI Review Auto-Loop
 
-PR 提交后，多家 AI reviewer 的 review → 修复 → push → 再 review 循环交给本 skill 调度：盯状态、必要时手动唤起、把意见汇总后交给 `superpowers:receiving-code-review` 处理。
+PR 提交后，多家 AI reviewer 的 review → 修复 → push → 再 review 循环交给本 skill 调度：盯状态、必要时手动唤起、把意见汇总后交给 `receiving-code-review` 处理。
 
 ## 运行模式：无人值守
 
@@ -152,7 +152,7 @@ gh api "repos/${OWNER_REPO}/pulls/<PR_NUMBER>/comments" \
 
 ### 3. 收意见 → 交给 receiving-code-review
 
-把所有 reviewer 的新意见**合并一次**通过 Skill 工具调用 `superpowers:receiving-code-review`，不要逐家分调。
+把所有 reviewer 的新意见**合并一次**通过 Skill 工具调用 `receiving-code-review`，不要逐家分调。
 
 > **为什么合并：** 不同 reviewer 经常对同一段代码给覆盖性或冲突建议。合并后 receiving-code-review 在一次心智周期内做去重和仲裁；分开调容易让同一处代码被反复改、最后绕回原点。
 
@@ -238,8 +238,8 @@ AI reviewer 都有 cold-start 延迟，刚 push 就猛 poll 是浪费：
 | 任务 | 用哪个 |
 |---|---|
 | 创建 PR | `commit-commands:commit-push-pr` |
-| 回应 / 实施 / 反驳 review 意见 | `superpowers:receiving-code-review` |
-| 验证修复是否真的解决问题 | `superpowers:verification-before-completion` |
+| 回应 / 实施 / 反驳 review 意见 | `receiving-code-review` |
+| 验证修复是否真的解决问题 | `verify` |
 | **盯多 AI reviewer 的循环节奏** | **本 skill** |
 
 本 skill 只做调度——什么时候 poll、什么时候 resume/触发、什么时候把控制权交给 receiving-code-review、什么时候结束循环。**不**负责"如何回应意见"和"如何验证修复"。
