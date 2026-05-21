@@ -36,9 +36,9 @@ class ScriptStructureValidationError(ValueError):
 def _select_model(script: dict[str, Any]) -> type[BaseModel]:
     """按 generation_mode / content_mode / 顶层键判别该用哪个剧本模型。
 
-    判别顺序与 `ProjectManager._write_script_unlocked` 的模式分支保持一致，额外前置
-    reference 分支：generation_mode == "reference_video"（或存在 video_units）优先于
-    content_mode，即使 content_mode == "narration" 也走 ReferenceVideoScript。
+    reference 分支最优先：generation_mode == "reference_video"（或存在 video_units）压过
+    content_mode，即使 content_mode == "narration" 也走 ReferenceVideoScript。其余按
+    content_mode + 顶层键二分到 narration / drama。
     """
     if script.get("generation_mode") == "reference_video" or "video_units" in script:
         return ReferenceVideoScript

@@ -821,7 +821,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
     except ScriptStructureValidationError as exc:
         raise HTTPException(
             status_code=422,
-            detail=_t("script_validation_failed", details="; ".join(exc.result.errors)),
+            detail=_t("script_validation_failed", details=str(exc)),
         )
     except HTTPException:
         raise
@@ -897,7 +897,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
     except ScriptStructureValidationError as exc:
         raise HTTPException(
             status_code=422,
-            detail=_t("script_validation_failed", details="; ".join(exc.result.errors)),
+            detail=_t("script_validation_failed", details=str(exc)),
         )
     except HTTPException:
         raise

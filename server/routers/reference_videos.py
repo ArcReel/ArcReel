@@ -120,7 +120,7 @@ def _locked_episode_script(project_name: str, resolver: Callable[[dict], str], _
         # 本次编辑把单元改成结构非法（如 shots↔duration 不一致）：当场转 422，而非生成时才炸
         raise HTTPException(
             status_code=422,
-            detail=_t("script_validation_failed", details="; ".join(exc.result.errors)),
+            detail=_t("script_validation_failed", details=str(exc)),
         ) from exc
 
 

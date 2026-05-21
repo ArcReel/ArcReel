@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
-from lib.json_io import atomic_write_json, load_json
+from lib.json_io import atomic_write_json, load_json, load_json_or_none
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
     ContentMode,
@@ -654,13 +654,7 @@ class ProjectManager:
     @staticmethod
     def _load_script_or_none(path: Path) -> dict | None:
         """裸读剧本 JSON 取「改前」快照；文件不存在或损坏时返回 None（→ 按严格校验处理）。"""
-        if not path.exists():
-            return None
-        try:
-            with open(path, encoding="utf-8") as f:  # noqa: PTH123
-                loaded = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return None
+        loaded = load_json_or_none(path)
         return loaded if isinstance(loaded, dict) else None
 
     @staticmethod
