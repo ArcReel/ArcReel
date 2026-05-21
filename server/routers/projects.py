@@ -35,6 +35,7 @@ from lib.i18n import Translator
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
+from lib.script_structure_validator import ScriptStructureValidationError
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -817,6 +818,11 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except ScriptStructureValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_t("script_validation_failed", details="; ".join(exc.result.errors)),
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -888,6 +894,11 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except ScriptStructureValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_t("script_validation_failed", details="; ".join(exc.result.errors)),
+        )
     except HTTPException:
         raise
     except Exception as e:

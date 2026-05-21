@@ -15,6 +15,7 @@ MESSAGES = {
     "scene_not_found": "Cảnh '{id}' không tồn tại",
     "segment_not_found": "Đoạn '{id}' không tồn tại",
     "script_missing": "Kịch bản không tồn tại",
+    "script_validation_failed": "Xác thực cấu trúc kịch bản thất bại: {details}",
     "narration_mode_required": "Kịch bản này không ở chế độ thuyết minh, vui lòng dùng API cập nhật cảnh",
     "content_or_file_required": "Vui lòng cung cấp nội dung hoặc tệp",
     "one_of_content_or_file": "Không thể đồng thời cung cấp nội dung và tệp, vui lòng chọn một",

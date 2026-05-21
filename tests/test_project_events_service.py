@@ -41,6 +41,7 @@ class TestProjectEventService:
                     ],
                 },
                 "episode_1.json",
+                validate=False,  # 事件 diff 测试用简化替身剧本
             )
 
         service = ProjectEventService(tmp_path)
@@ -62,7 +63,7 @@ class TestProjectEventService:
         segment["generated_assets"]["storyboard_image"] = "storyboards/scene_E1S01.png"
         segment["generated_assets"]["status"] = "storyboard_ready"
         with project_change_source("filesystem"):
-            pm.save_script("demo", script, "episode_1.json")
+            pm.save_script("demo", script, "episode_1.json", validate=False)
 
         current = service._build_snapshot("demo")
         changes = service._diff_snapshots(previous, current)
@@ -103,6 +104,7 @@ class TestProjectEventService:
                     ],
                 },
                 "episode_1.json",
+                validate=False,  # 事件 diff 测试用简化替身剧本
             )
 
         service = ProjectEventService(tmp_path)
@@ -134,7 +136,7 @@ class TestProjectEventService:
             }
         )
         with project_change_source("filesystem"):
-            pm.save_script("demo", script, "episode_1.json")
+            pm.save_script("demo", script, "episode_1.json", validate=False)
 
         current = service._build_snapshot("demo")
         changes = service._diff_snapshots(previous, current)

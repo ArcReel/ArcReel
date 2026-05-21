@@ -332,7 +332,7 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     live_script = json.loads(script_path.read_text(encoding="utf-8"))
 
     @contextmanager
-    def _locked_script(_name, _file):
+    def _locked_script(_name, _file, *, validate=True):
         yield live_script
 
     fake_pm = MagicMock()

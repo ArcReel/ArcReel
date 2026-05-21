@@ -41,6 +41,7 @@ def _seed(pm: ProjectManager, name: str) -> None:
             "video_units": [],
         },
         "episode_1.json",
+        validate=False,  # 测锁/TOCTOU 用简化替身剧本，结构守卫不在本测试关注范围
     )
 
 
@@ -61,7 +62,7 @@ def test_locked_episode_script_no_relock_but_refreshes_project(tmp_path: Path, m
     calls: list[tuple] = []
     monkeypatch.setattr(pm, "sync_episode_from_script", lambda *a, **k: calls.append(a))
 
-    with pm.locked_episode_script(name, lambda _proj: "episode_1.json") as script:
+    with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
         script["video_units"] = [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}]
 
     # 不调用会二次取项目锁的 sync_episode_from_script（否则自死锁）
@@ -88,7 +89,7 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
     t = threading.Thread(target=_other)
     t.start()
     try:
-        with pm.locked_episode_script(name, lambda _proj: "episode_1.json") as script:
+        with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
             inside.set()  # 此刻已持脚本锁 + 项目锁
             time.sleep(0.3)
             assert not other_done.is_set(), "持项目锁期间 update_project 不应完成"
@@ -112,7 +113,7 @@ def test_locked_episode_script_detects_rebind(tmp_path: Path) -> None:
         return next(seq)
 
     with pytest.raises(EpisodeScriptReboundError):
-        with pm.locked_episode_script(name, _resolver) as script:
+        with pm.locked_episode_script(name, _resolver, validate=False) as script:
             script["video_units"] = [{"unit_id": "SHOULD_NOT_PERSIST"}]
 
     # 旧脚本未被写入（with 体未执行）
@@ -129,7 +130,7 @@ def test_locked_episode_script_no_self_deadlock(tmp_path: Path) -> None:
     done = threading.Event()
 
     def _run() -> None:
-        with pm.locked_episode_script(name, lambda _proj: "episode_1.json") as script:
+        with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
             script.setdefault("video_units", []).append({"unit_id": "E1U1"})
         done.set()
 

@@ -321,7 +321,8 @@ async def execute_reference_video_task(
     #    避免与并发的 PATCH / 其他 unit 回写互相覆盖）
     def _update_unit_assets():
         pm = get_project_manager()
-        with pm.locked_script(project_name, script_file) as script:
+        # 资产回写热路径：只动 unit.generated_assets，结构不可能因此变坏，豁免结构校验。
+        with pm.locked_script(project_name, script_file, validate=False) as script:
             for u in script.get("video_units") or []:
                 if u.get("unit_id") == resource_id:
                     ga = u.setdefault("generated_assets", {})
