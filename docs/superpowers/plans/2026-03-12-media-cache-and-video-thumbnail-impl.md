@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python/FastAPI, TypeScript/React, Zustand, ffmpeg, @tanstack/react-virtual
 
-**Design doc:** `docs/plans/2026-03-12-media-cache-and-video-thumbnail-design.md`
+**Design doc:** `docs/superpowers/specs/2026-03-12-media-cache-and-video-thumbnail-design.md`
 
 ---
 

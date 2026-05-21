@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+, claude-agent-sdk v0.1.46, FastAPI, React/TypeScript (htm 模板)
 
-**设计文档:** `docs/plans/2026-03-05-sdk-upgrade-agent-runtime-refactor-design.md`
+**设计文档:** `docs/superpowers/specs/2026-03-05-sdk-upgrade-agent-runtime-refactor-design.md`
 
 ---
 

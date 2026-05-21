@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, Pydantic, google-genai SDK
 
-**Design Doc:** `docs/plans/2026-02-05-generate-script-design.md`
+**Design Doc:** `docs/superpowers/specs/2026-02-05-generate-script-design.md`
 
 ---
 

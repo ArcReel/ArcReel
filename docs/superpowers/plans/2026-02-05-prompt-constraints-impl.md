@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python, Prompt Engineering
 
-**Design Doc:** `docs/plans/2026-02-05-prompt-constraints-design.md`
+**Design Doc:** `docs/superpowers/specs/2026-02-05-prompt-constraints-design.md`
 
 ---
 

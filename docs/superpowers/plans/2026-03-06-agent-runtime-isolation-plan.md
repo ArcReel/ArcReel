@@ -107,7 +107,7 @@ git commit -m "refactor: migrate business skills/agents to agent_runtime_profile
 ## 智能体运行环境
 
 智能体专用配置（skills、agents、系统 prompt）位于 `agent_runtime_profile/` 目录，
-与开发态 `.claude/` 物理分离。详见 `docs/plans/2026-03-06-agent-runtime-isolation-design.md`。
+与开发态 `.claude/` 物理分离。详见 `docs/superpowers/specs/2026-03-06-agent-runtime-isolation-design.md`。
 ```
 
 **Step 3: 验证两个 CLAUDE.md 内容不重叠**

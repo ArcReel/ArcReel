@@ -636,12 +636,12 @@ Run: `pkill -f "python -m webui.server.main"`
 
 **Step 1: 更新设计文档状态**
 
-将 `docs/plans/2026-02-05-character-reference-image-design.md` 中的状态改为"已实现"。
+将 `docs/superpowers/specs/2026-02-05-character-reference-image-design.md` 中的状态改为"已实现"。
 
 **Step 2: 最终 Commit**
 
 ```bash
-git add docs/plans/2026-02-05-character-reference-image-design.md
+git add docs/superpowers/specs/2026-02-05-character-reference-image-design.md
 git commit -m "docs: mark character reference image feature as implemented"
 ```
 

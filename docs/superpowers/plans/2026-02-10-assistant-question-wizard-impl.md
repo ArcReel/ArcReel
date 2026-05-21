@@ -15,7 +15,7 @@
 ### Task 1: Baseline And Scope Guard
 
 **Files:**
-- Reference: `docs/plans/2026-02-10-assistant-question-wizard-design.md`
+- Reference: `docs/superpowers/specs/2026-02-10-assistant-question-wizard-design.md`
 - Reference: `frontend/src/react/pages/assistant-page.js`
 - Reference: `frontend/src/react/hooks/use-assistant-state.js`
 
@@ -463,7 +463,7 @@ Expected: 全部 PASS。
 
 **Step 3: 自检改造是否符合设计文档**
 
-对照 `docs/plans/2026-02-10-assistant-question-wizard-design.md`，逐项确认：
+对照 `docs/superpowers/specs/2026-02-10-assistant-question-wizard-design.md`，逐项确认：
 - 逐题展示
 - 顶部横向步骤条
 - 可回退修改

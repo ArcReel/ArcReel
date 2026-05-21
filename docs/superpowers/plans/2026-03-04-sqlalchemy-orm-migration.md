@@ -8,7 +8,7 @@
 
 **Tech Stack:** SQLAlchemy 2.0+ (async), aiosqlite, asyncpg, Alembic
 
-**Design Doc:** `docs/plans/2026-03-04-sqlalchemy-orm-migration-design.md`
+**Design Doc:** `docs/superpowers/specs/2026-03-04-sqlalchemy-orm-migration-design.md`
 
 ---
 

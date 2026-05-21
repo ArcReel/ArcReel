@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12 / pytest / TypeScript / React 19 / Tailwind CSS 4
 
-**Design Doc:** `docs/plans/2026-03-10-progress-redesign-design.md`
+**Design Doc:** `docs/superpowers/specs/2026-03-10-progress-redesign-design.md`
 
 ---
 
