@@ -94,6 +94,12 @@ def test_extract_mentions_rejects_non_ascii_legacy_letters():
     assert _extract_mentions("@éclair @한글 @张三 @abc_123") == ["张三", "abc_123"]
 
 
+def test_extract_mentions_rejects_curly_wrapped_form():
+    from lib.reference_video.shot_parser import _extract_mentions
+
+    assert _extract_mentions("@[角色甲（成年）] 与 @{道具甲}") == ["角色甲（成年）"]
+
+
 def test_render_prompt_unknown_mention_kept():
     text = "@张三 和 @未知 对话"
     refs = [ReferenceResource(type="character", name="张三")]

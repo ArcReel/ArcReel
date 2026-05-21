@@ -155,6 +155,16 @@ describe("ReferenceVideoCard", () => {
     expect(await screen.findByRole("option", { name: "角色甲（成年）" })).toBeInTheDocument();
   });
 
+  it("does not treat curly-brace input as a wrapped mention query", async () => {
+    render(<ControlledCard unit={mkUnit()} />);
+    const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
+    const value = "x @{道具甲";
+    fireEvent.change(ta, { target: { value, selectionStart: value.length } });
+    await waitFor(() =>
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
+    );
+  });
+
   it("inserts selected mention into the prompt and closes picker", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

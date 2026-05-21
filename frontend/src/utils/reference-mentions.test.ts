@@ -47,6 +47,10 @@ describe("extractMentions", () => {
   it("rejects non-ascii legacy mentions to stay aligned with backend", () => {
     expect(extractMentions("@éclair @한글 @张三 @abc_123")).toEqual(["张三", "abc_123"]);
   });
+
+  it("rejects curly-brace wrapped mentions", () => {
+    expect(extractMentions("@[角色甲（成年）] 与 @{道具甲}")).toEqual(["角色甲（成年）"]);
+  });
 });
 
 describe("resolveMentionType", () => {

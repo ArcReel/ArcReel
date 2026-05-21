@@ -37,7 +37,9 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
 
     The left side of `@` must not be an ASCII word character, otherwise the text
     is treated as an email/id fragment. Wrapped mentions may contain punctuation
-    but cannot cross line breaks.
+    but cannot cross line breaks. Curly-brace wrapping is intentionally excluded
+    because the editor only writes `@[名称]` and the runtime contract stays on a
+    single wrapped form.
     """
     next_square = _next_positions(text, {"]"})
     next_line_break = _next_positions(text, {"\r", "\n"})

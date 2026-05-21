@@ -14,6 +14,10 @@ import type { AssetKind, ReferenceResource } from "@/types/reference-video";
  *
  * Supports legacy `@名称` plus wrapped `@[名称]` for asset names
  * containing punctuation, spaces, or parentheses.
+ *
+ * Curly-brace wrapping (`@{名称}`) is intentionally unsupported: the editor
+ * only emits `@[名称]`, and narrowing the parser avoids carrying an unused
+ * alternate syntax through highlight / merge / backend replacement paths.
  */
 export const MENTION_RE = /(?<!\w)@(?:\[([^\]\r\n]+)\]|([\w\u4e00-\u9fff]+))/g;
 

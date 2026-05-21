@@ -66,6 +66,13 @@ describe("tokenizePrompt", () => {
     ]);
   });
 
+  it("treats curly-brace wrapped text as plain text", () => {
+    const t = tokenizePrompt("Shot 1 (3s): @{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
+    const mentions = t.filter((x) => x.kind === "mention");
+    expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);
+    expect(t.some((x) => x.kind === "text" && x.text.includes("@{载具甲}"))).toBe(true);
+  });
+
   it("handles multi-line with multiple shot headers", () => {
     const t = tokenizePrompt(
       "Shot 1 (3s): line1\nShot 2 (5s): line2 @主角",
