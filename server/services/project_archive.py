@@ -287,16 +287,18 @@ class ProjectArchiveService:
                     )
 
                     self._ensure_standard_subdirs(staging_dir)
+
+                    # 在安装前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend）：
+                    # 启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的旧归档需在此补跑，
+                    # 否则解析链不再读 legacy 字段会让该项目静默回退全局默认。放在安装**前** → 迁移若抛错，
+                    # staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目目录，无需回滚已落盘安装。
+                    migrate_project_dir(staging_dir)
+
                     self._install_project_dir(
                         staging_dir,
                         target_name,
                         overwrite=(conflict_policy == "overwrite"),
                     )
-
-                    # 启动期 run_project_migrations 只覆盖启动时已存在的项目；启动后导入的旧归档
-                    # 需在此补跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend），
-                    # 否则解析链不再读 legacy 字段会让该项目静默回退到全局默认供应商。
-                    migrate_project_dir(self.project_manager.get_project_path(target_name))
 
                     imported_project = self.project_manager.load_project(target_name)
                     emit_project_change_hint(
