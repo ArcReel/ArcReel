@@ -72,6 +72,9 @@ frontend/.vite/
 .worktrees/
 .claude/worktrees/
 
+# Claude Code 本地配置（.worktreeinclude 据此复制到新 worktree）
+.claude/settings.local.json
+
 # Superpowers (Claude Code plugin cache)
 .superpowers/
 

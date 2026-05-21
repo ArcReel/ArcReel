@@ -6,6 +6,7 @@
 # 代价：每个 worktree 约 1.6GB（versions/ 历史 + 媒体占大头）；
 # .arcreel.db 处于 WAL 模式，建 worktree 前建议先停开发服务器，避免复制到不一致快照。
 .env
+.env.local
 .vscode/
 .claude/settings.local.json
 projects/
