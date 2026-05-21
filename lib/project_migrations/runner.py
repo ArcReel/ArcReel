@@ -13,10 +13,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
+from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 
@@ -155,5 +156,6 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
                 logger.warning("无法删除 clues 备份：%s", bak_dir)
 
 
-# 注册 v0→v1 迁移器（顶部 import，此处仅赋值）
+# 注册迁移器（顶部 import，此处仅赋值）
 MIGRATORS[0] = migrate_v0_to_v1
+MIGRATORS[1] = migrate_v1_to_v2

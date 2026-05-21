@@ -622,3 +622,73 @@ class TestVideoCapabilities:
         assert caps["source"] == "custom"
         assert caps["supported_durations"] == [5, 10]
         assert caps["max_duration"] == 10
+
+
+class TestResolveImageBackend:
+    """resolve_image_backend：payload > project > 全局默认，capability=t2i/i2i 各覆盖。"""
+
+    async def test_payload_capability_slot_wins(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_t2i": "ark/proj-t2i", "image_provider_i2i": "ark/proj-i2i"}
+        payload = {"image_provider_t2i": "openai/pay-t2i", "image_provider_i2i": "openai/pay-i2i"}
+        t2i = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
+        i2i = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "i2i")
+        assert (t2i.provider_id, t2i.model_id) == ("openai", "pay-t2i")
+        assert (i2i.provider_id, i2i.model_id) == ("openai", "pay-i2i")
+
+    async def test_payload_legacy_fields_for_historical_tasks(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        payload = {"image_provider": "openai", "image_model": "legacy"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, {}, payload, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "legacy")
+
+    async def test_project_capability_slot_when_no_payload(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_t2i": "ark/proj-t2i", "image_provider_i2i": "ark/proj-i2i"}
+        t2i = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        i2i = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "i2i")
+        assert (t2i.provider_id, t2i.model_id) == ("ark", "proj-t2i")
+        assert (i2i.provider_id, i2i.model_id) == ("ark", "proj-i2i")
+
+    async def test_falls_through_to_global_default(self):
+        """payload/project 都缺 → 落到全局默认（显式 default_image_backend_t2i）。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, None, None, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-2-image")
+
+    async def test_no_legacy_image_backend_fallback(self):
+        """解析链不再认 legacy 单字段 image_backend（由迁移转规范字段），直接落全局默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_backend": "openai/legacy"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert resolved.provider_id == "grok"
+
+
+class TestResolveVideoBackend:
+    """resolve_video_backend：payload > project > 全局默认。"""
+
+    async def test_payload_historical_provider_wins(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider": "ark", "video_provider_settings": {"model": "seedance"}}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance")
+
+    async def test_project_video_backend_when_no_payload(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "ark/seedance-1-0-pro"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+
+    async def test_falls_through_to_global_default(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "ark/doubao-seedance-1-5-pro"})
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-1-5-pro")

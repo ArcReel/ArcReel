@@ -534,7 +534,7 @@ class TestProjectsRouter:
                 json={
                     "title": "Bad Backend",
                     "name": "bad-bk",
-                    "video_backend": "garbage",  # 无 "/"，且不在 _LEGACY_PROVIDER_NAMES/PROVIDER_REGISTRY
+                    "video_backend": "garbage",  # 无 "/"，且不在 PROVIDER_REGISTRY
                 },
             )
             assert resp.status_code == 400

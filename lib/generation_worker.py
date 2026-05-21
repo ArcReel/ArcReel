@@ -70,61 +70,38 @@ class ProviderPool:
         return [*self.image_inflight.values(), *self.video_inflight.values()]
 
 
-def _project_level_provider(project: dict, task_type: str) -> str | None:
-    """Read project-level provider override, if any.
-
-    video/image 均统一从 ``video_backend`` / ``image_backend``（"provider/model" 格式）解析。
-    """
-    field = "video_backend" if task_type == "video" else "image_backend"
-    project_backend = project.get(field)
-    if project_backend and "/" in project_backend:
-        return project_backend.split("/", 1)[0]
-    return project_backend
-
-
 async def _extract_provider(task: dict[str, Any]) -> str:
-    """Extract provider_id from a claimed task dict.
+    """Extract a provider_id from a claimed task, used **only** for rate-limit pool routing.
 
-    优先级：payload 显式值 > 项目级配置 > 全局默认。
+    这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
+    ``resolve_image_backend``，取 ``.provider_id``。image 任务一律按 ``capability="t2i"`` 取一个
+    **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
+    生成正确性（执行层会独立精确再解析一次）。解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER
+    仅供限流，不阻断认领。
     """
-    payload = task.get("payload") or {}
-    # 兼容已入队的历史任务（payload 中显式携带 provider）
-    provider = payload.get("video_provider") or payload.get("image_provider")
-    if provider:
-        return _normalize_provider_id(provider)
-    # 从项目配置 → 全局默认解析真实 provider
     project_name = task.get("project_name")
-    if not project_name:
-        return DEFAULT_PROVIDER
+    payload = task.get("payload") or {}
+    # 以 media lane 区分 video / image：reference_video 等 task_type 同属 video lane。
+    is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
 
-    from lib.config.resolver import get_project_manager
+    project: dict | None = None
+    if project_name:
+        from lib.config.resolver import get_project_manager
 
-    task_type = task.get("task_type", "")
-    project = get_project_manager().load_project(project_name)
-    project_provider = _project_level_provider(project, task_type)
-    if project_provider:
-        return _normalize_provider_id(project_provider)
+        project = get_project_manager().load_project(project_name)
 
-    # 回退到全局默认
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)
-    if task_type == "video":
-        provider_id, _ = await resolver.default_video_backend()
-    else:
-        provider_id, _ = await resolver.default_image_backend()
-    return provider_id
-
-
-def _normalize_provider_id(raw: str) -> str:
-    """Normalize old-style provider names to registry provider_id."""
-    mapping = {
-        "gemini": "gemini-aistudio",
-        "vertex": "gemini-vertex",
-        "seedance": "ark",
-    }
-    return mapping.get(raw, raw)
+    try:
+        if is_video:
+            resolved = await resolver.resolve_video_backend(project, payload)
+        else:
+            resolved = await resolver.resolve_image_backend(project, payload, capability="t2i")
+    except Exception:
+        return DEFAULT_PROVIDER
+    return resolved.provider_id or DEFAULT_PROVIDER
 
 
 async def _load_pools_from_db() -> dict[str, ProviderPool]:

@@ -9,26 +9,20 @@ from fastapi import HTTPException
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.i18n import _ as _default_translate
 
-# 旧格式 provider 名 → 新格式 registry provider_id。
-# 与 generation_worker._normalize_provider_id() 保持一致。
-_LEGACY_PROVIDER_NAMES: dict[str, str] = {
-    "gemini": "gemini-aistudio",
-    "vertex": "gemini-vertex",
-    "seedance": "ark",
-}
-
 
 def validate_backend_value(value: str, field_name: str, _t: Callable[..., str] = _default_translate) -> None:
     """校验 ``provider/model`` 格式的 backend 字段值。
 
-    也接受旧格式的单 provider 名（如 ``"gemini"``），以兼容存量项目。
+    只接受规范 provider id（``PROVIDER_REGISTRY`` 的 key 或 ``custom-`` 前缀）。legacy provider 名
+    （``gemini``/``aistudio``/``vertex``/``seedance``）一律拒绝——它们是待清除的历史数据，由一次性项目迁移
+    转为规范 id 后即不再被接受（见 ``docs/adr/0001``）。
 
     Raises:
-        HTTPException(400): 格式不合法或 provider 不在注册表中。
+        HTTPException(400): 格式不合法、provider 不在注册表中、或为 legacy 名。
     """
     if "/" not in value:
-        if value in _LEGACY_PROVIDER_NAMES or value in PROVIDER_REGISTRY:
-            return  # 旧格式或裸 registry id，下游 _normalize_provider_id() 处理
+        if value in PROVIDER_REGISTRY:
+            return  # 裸 registry id（无 model），下游按全局默认补全
         detail = _t("invalid_backend_format", field_name=field_name)
         raise HTTPException(
             status_code=400,

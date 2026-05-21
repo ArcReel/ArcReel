@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from lib.config.resolver import ConfigResolver
+    from lib.config.resolver import ConfigResolver, ProviderModel
 
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
@@ -70,74 +70,27 @@ def invalidate_backend_cache() -> None:
     _backend_cache.clear()
 
 
-def _parse_project_backend(raw: str | None) -> tuple[str | None, str | None]:
-    """解析 project.json 中 ``video_backend`` / ``image_backend`` 的 ``"provider/model"`` 格式。"""
-    if not raw:
-        return None, None
-    if "/" in raw:
-        provider, model = raw.split("/", 1)
-        return provider, model
-    return raw, None
-
-
-def _split_pair(raw: str | None) -> tuple[str, str] | None:
-    """解析 '<provider>/<model>' → (provider, model)；不合法返回 None。"""
-    if not isinstance(raw, str) or "/" not in raw:
-        return None
-    p, m = raw.split("/", 1)
-    if not p:
-        return None
-    return p, m
-
-
 async def _resolve_effective_image_backend(
     project: dict,
     payload: dict | None,
     *,
     needs_i2i: bool = False,
-) -> tuple[str, str]:
-    """根据当前请求是否带参考图，返回 (provider_id, model_id)。
+) -> ProviderModel:
+    """图片 provider 解析的薄投影：委托 ``ConfigResolver.resolve_image_backend``。
 
-    优先级：
-    1. payload 显式 image_provider_<cap>
-    2. payload 旧字段 image_provider / image_model（存量任务兼容）
-    3. project 显式 image_provider_<cap>
-    4. project 旧字段 image_backend（lazy 升级路径）
-    5. resolver 的全局默认 default_image_backend_<cap>
-
-    全局默认失败（未配置供应商）时返回空串，调用方按 None 处理。
+    capability 仅在执行层确定（见 ``docs/adr/0001``）：``needs_i2i`` → i2i 槽，否则 t2i 槽。
+    全局默认失败（未配置供应商）时返回空 ``ProviderModel``，调用方按空 ``provider_id`` 处理
+    （让 ``_get_or_create_image_backend`` 抛出清晰错误）。
     """
-    cap_key = "image_provider_i2i" if needs_i2i else "image_provider_t2i"
-
-    if payload:
-        pair = _split_pair(payload.get(cap_key))
-        if pair is not None:
-            return pair
-        # legacy payload (image_provider + image_model 分字段)
-        provider = payload.get("image_provider") or ""
-        if provider:
-            return provider, payload.get("image_model") or ""
-
-    pair = _split_pair(project.get(cap_key))
-    if pair is not None:
-        return pair
-    proj_provider, proj_model = _parse_project_backend(project.get("image_backend"))
-    if proj_provider:
-        return proj_provider, proj_model or ""
-
-    from lib.config.resolver import ConfigResolver
+    from lib.config.resolver import ConfigResolver, ProviderModel
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)
+    capability = "i2i" if needs_i2i else "t2i"
     try:
-        async with resolver.session() as r:
-            if needs_i2i:
-                provider, model = await r.default_image_backend_i2i()
-            else:
-                provider, model = await r.default_image_backend_t2i()
+        return await resolver.resolve_image_backend(project, payload, capability=capability)
     except Exception:
-        return "", ""
-    return provider or "", model or ""
+        return ProviderModel("", "")
 
 
 async def _create_custom_backend(provider_name: str, model_id: str | None, media_type: str):
@@ -315,38 +268,32 @@ async def _resolve_video_backend(
     resolver: ConfigResolver,
     payload: dict | None,
 ) -> tuple[Any | None, str, str]:
-    """解析视频后端，返回 (video_backend, video_backend_type, video_model)。
+    """解析并构造视频后端，返回 (video_backend, video_backend_type, video_model)。
 
-    仅在 payload 存在时创建 VideoBackend，避免图片任务因视频配置缺失而报错。
-    注意：video_backend_type 仅在 video_backend 为 None（回退到 GeminiClient）时生效，
-    因此只需要在全局默认回退分支中设置。
+    provider/model 的**解析**是 ``resolver.resolve_video_backend`` 的薄投影；backend **构造**
+    （``_get_or_create_video_backend``）留在原地。仅在 payload 存在时创建 VideoBackend，避免
+    图片任务因视频配置缺失而报错。注意：video_backend_type 仅在 video_backend 为 None
+    （回退到 GeminiClient）时生效。
     """
-    default_video_provider_id, video_model = await resolver.default_video_backend()
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name) if payload else None
+    resolved = await resolver.resolve_video_backend(project, payload)
+
     video_backend = None
     video_backend_type = "aistudio"
+    mapped = _PROVIDER_ID_TO_BACKEND.get(resolved.provider_id, resolved.provider_id)
+    if mapped == PROVIDER_GEMINI:
+        video_backend_type = "vertex" if resolved.provider_id == "gemini-vertex" else "aistudio"
 
     if payload:
-        # provider 统一从项目配置 → 全局默认解析，调用方无需传递
-        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-
-        # 从 project.json 的 video_backend（"provider/model" 格式）解析
-        provider_name, project_model = _parse_project_backend(project.get("video_backend"))
-
-        if not provider_name:
-            provider_name = default_video_provider_id
-            mapped = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
-            if mapped == PROVIDER_GEMINI:
-                video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
-
-        provider_settings: dict = {"model": project_model} if project_model else {}
+        provider_settings: dict = {"model": resolved.model_id} if resolved.model_id else {}
         video_backend = await _get_or_create_video_backend(
-            provider_name,
+            resolved.provider_id,
             provider_settings,
             resolver,
-            default_video_model=video_model,
+            default_video_model=resolved.model_id or None,
         )
 
-    return video_backend, video_backend_type, video_model
+    return video_backend, video_backend_type, resolved.model_id
 
 
 async def get_media_generator(
@@ -371,15 +318,13 @@ async def get_media_generator(
         image_backend = None
         if require_image_backend:
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-            image_provider_id, image_model = await _resolve_effective_image_backend(
-                project, payload, needs_i2i=needs_i2i
-            )
-            # 解析失败 → image_provider_id 为空，让 _get_or_create_image_backend 抛出清晰错误
+            resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=needs_i2i)
+            # 解析失败 → provider_id 为空，让 _get_or_create_image_backend 抛出清晰错误
             image_backend = await _get_or_create_image_backend(
-                image_provider_id,
+                resolved_image.provider_id,
                 {},
                 r,
-                default_image_model=image_model or None,
+                default_image_model=resolved_image.model_id or None,
             )
 
         # 解析 video backend（保持现有逻辑）
@@ -766,8 +711,8 @@ async def execute_storyboard_task(
     )
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
-    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
-    image_size = await resolve_resolution(project, image_provider_id, image_model_id)
+    resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
+    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
 
     _, version = await generator.generate_image_async(
         prompt=prompt_text,
@@ -839,40 +784,29 @@ async def execute_video_task(
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
-    # 解析 provider / model，供 duration fallback 和分辨率查找共用
-    provider_settings = payload.get("video_provider_settings", {})
-    model_name = provider_settings.get("model")
-    # payload 中 video_provider 由任务入队时设置；project 中存的是 video_backend（"provider/model" 格式）
-    provider_name = payload.get("video_provider")
-    registry_provider_id = provider_name  # 用于 PROVIDER_REGISTRY 查找的原始 provider_id
-    if not provider_name:
-        video_backend = project.get("video_backend") or ""
-        if "/" in video_backend:
-            provider_name, model_name = video_backend.split("/", 1)
-            registry_provider_id = provider_name
-    if not provider_name:
-        from lib.config.resolver import ConfigResolver
-        from lib.db import async_session_factory
+    # 解析 provider / model（薄投影），供 duration fallback 和分辨率查找共用。
+    # 与执行层 backend 构造同走 resolve_video_backend，确保限流/分辨率与实际调用对齐。
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
 
-        _resolver = ConfigResolver(async_session_factory)
-        try:
-            default_provider_id, default_model_id = await _resolver.default_video_backend()
-        except Exception:
-            default_provider_id, default_model_id = "gemini-aistudio", "veo-3.1-lite-generate-preview"
-        registry_provider_id = default_provider_id
-        model_name = model_name or default_model_id
-        provider_name = _PROVIDER_ID_TO_BACKEND.get(default_provider_id, default_provider_id)
+    _resolver = ConfigResolver(async_session_factory)
+    try:
+        resolved_video = await _resolver.resolve_video_backend(project, payload)
+        registry_provider_id = resolved_video.provider_id
+        model_name = resolved_video.model_id or None
+    except Exception:
+        registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
 
     resolution = await resolve_resolution(
         project,
-        registry_provider_id or provider_name,
+        registry_provider_id,
         model_name or "",
     )
 
     # duration fallback: payload > project.default_duration > supported_durations[0] > 4
     duration_seconds = payload.get("duration_seconds") or project.get("default_duration")
     if not duration_seconds:
-        duration_seconds = _get_model_default_duration(registry_provider_id or provider_name, model_name)
+        duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
 
     end_image = None  # 宫格模式不再使用首尾帧，统一走普通图生视频
 
@@ -967,8 +901,8 @@ async def execute_character_task(
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id, needs_i2i=_needs_i2i)
     aspect_ratio = get_aspect_ratio(project, "characters")
 
-    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
-    image_size = await resolve_resolution(project, image_provider_id, image_model_id)
+    resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
+    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
 
     _, version = await generator.generate_image_async(
         prompt=full_prompt,
@@ -1038,8 +972,8 @@ async def execute_design_task(
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id, needs_i2i=False)
     aspect_ratio = get_aspect_ratio(project, bucket_key)
 
-    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
-    image_size = await resolve_resolution(project, image_provider_id, image_model_id)
+    resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
+    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
 
     _, version = await generator.generate_image_async(
         prompt=full_prompt,
@@ -1219,14 +1153,14 @@ async def execute_grid_task(
         project = await asyncio.to_thread(get_project_manager().load_project, project_name)
         aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
 
-        image_provider_id, image_model_id = await _resolve_effective_image_backend(
-            project, payload, needs_i2i=_needs_i2i
-        )
+        resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
         # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐
-        grid.provider = image_provider_id
-        grid.model = image_model_id
+        grid.provider = resolved_image.provider_id
+        grid.model = resolved_image.model_id
         grid_manager.save(grid)
-        image_size = await resolve_resolution(project, image_provider_id, image_model_id) or "2K"  # 宫格图保底高分辨率
+        image_size = (
+            await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id) or "2K"
+        )  # 宫格图保底高分辨率
 
         image_path, version = await generator.generate_image_async(
             prompt=prompt_text,
