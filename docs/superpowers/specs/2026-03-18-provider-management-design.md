@@ -38,7 +38,7 @@ PROVIDER_REGISTRY = {
         display_name="火山方舟",
         media_types=["video", "image"],
         required_keys=["api_key"],
-        optional_keys=["file_service_base_url", "video_rpm", "request_gap", "video_max_workers"],
+        optional_keys=["file_service_base_url", "video_rpm", "request_gap", "video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
     ),
     "grok": ProviderMeta(
