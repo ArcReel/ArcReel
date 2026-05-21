@@ -110,6 +110,15 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
     return None
 
 
+def _is_known_provider(provider_id: str) -> bool:
+    """provider_id 是否为已知 provider：``PROVIDER_REGISTRY`` 规范 id 或自定义 provider。
+
+    payload 是解析链唯一绕过写边界校验的输入来源（in-flight 队列任务在旧代码入队时即序列化），
+    据此守卫：不可识别的 payload provider（如 legacy ``seedance``/``vertex``）不予信任，回退到
+    已迁移的 project/global 解析——不做 legacy→规范映射，仅拒绝不可信输入。"""
+    return provider_id in PROVIDER_REGISTRY or is_custom_provider(provider_id)
+
+
 _TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
     TextTaskType.SCRIPT: "text_backend_script",
     TextTaskType.OVERVIEW: "text_backend_overview",
@@ -332,15 +341,16 @@ class ConfigResolver:
 
         payload 层保留 ``payload>project>global`` 的规范骨架，当前服务于部署时队列里
         历史任务（携带 ``image_provider_<cap>`` 或旧 ``image_provider``/``image_model``）的排空，
-        并作为未来"单请求显式覆盖"的落点。
+        并作为未来"单请求显式覆盖"的落点。payload provider 须是已知 provider（见
+        ``_is_known_provider``），否则不予信任、回退 project/global。
         """
         cap_key = f"image_provider_{capability}"
         if payload:
             pair = _split_pair(payload.get(cap_key))
-            if pair is not None:
+            if pair is not None and _is_known_provider(pair[0]):
                 return ProviderModel(*pair)
             provider = payload.get("image_provider")
-            if provider:
+            if provider and _is_known_provider(provider):
                 return ProviderModel(provider, payload.get("image_model") or "")
         if project:
             parsed = _parse_project_provider(project.get(cap_key), "image")
@@ -359,11 +369,12 @@ class ConfigResolver:
         """payload > project > 全局默认 三级解析视频 ProviderModel。
 
         payload 层服务于历史任务（携带 ``video_provider`` + ``video_model`` /
-        ``video_provider_settings.model``）的排空。
+        ``video_provider_settings.model``）的排空。payload provider 须是已知 provider（见
+        ``_is_known_provider``），否则不予信任、回退 project/global。
         """
         if payload:
             provider = payload.get("video_provider")
-            if provider:
+            if provider and _is_known_provider(provider):
                 settings = payload.get("video_provider_settings") or {}
                 model = payload.get("video_model") or settings.get("model") or ""
                 return ProviderModel(provider, model)

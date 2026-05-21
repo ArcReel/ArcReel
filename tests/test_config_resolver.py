@@ -685,6 +685,15 @@ class TestResolveImageBackend:
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
         assert resolved.provider_id == "grok"
 
+    async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
+        """in-flight 历史任务 payload 携带 legacy 名（写边界拦不到）→ 不予信任，回退已迁移的 project。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_t2i": "openai/gpt-image-2"}  # 启动期已迁移为规范名
+        payload = {"image_provider": "vertex", "image_model": "legacy"}  # legacy，不可识别
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
+
 
 class TestResolveVideoBackend:
     """resolve_video_backend：payload > project > 全局默认。"""
@@ -718,3 +727,12 @@ class TestResolveVideoBackend:
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
         assert resolved.provider_id == "ark"
         assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # registry 中 ark 的默认 video model
+
+    async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
+        """in-flight 历史任务 payload 携带 legacy video_provider（如 seedance）→ 不予信任，回退已迁移的 project。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "ark/seedance-1-0-pro"}  # 启动期已迁移为规范名
+        payload = {"video_provider": "seedance", "video_model": "legacy"}  # legacy，不可识别
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
