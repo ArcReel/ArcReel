@@ -74,6 +74,12 @@ class TestTaskSpecFromRequest:
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="S01", prompt={"action": "  "})
         assert exc.value.code == "video_prompt_action_empty"
 
+    def test_video_null_action_rejected(self):
+        # 显式 null：str(None) 会得到 truthy 的 "None"，必须当作空值拒绝而非放行。
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="S01", prompt={"action": None})
+        assert exc.value.code == "video_prompt_action_empty"
+
     def test_video_dialogue_not_array_rejected(self):
         with pytest.raises(TaskSpecValidationError) as exc:
             TaskSpec.from_request(
@@ -106,6 +112,11 @@ class TestTaskSpecFromRequest:
             TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt={"scene": " "})
         assert exc.value.code == "prompt_scene_empty"
 
+    def test_storyboard_null_scene_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt={"scene": None})
+        assert exc.value.code == "prompt_scene_empty"
+
     def test_asset_empty_prompt_rejected(self):
         with pytest.raises(TaskSpecValidationError) as exc:
             TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="")
@@ -118,6 +129,30 @@ class TestTaskSpecFromRequest:
     def test_empty_resource_id_rejected(self):
         with pytest.raises(ValueError):
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="", prompt="跑")
+
+    def test_extra_payload_cannot_override_reserved_keys(self):
+        # extra_payload 携带保留键会绕过单一守卫点，必须拒绝。
+        with pytest.raises(ValueError) as exc:
+            TaskSpec.from_request(
+                task_type="video",
+                media_type="video",
+                resource_id="S01",
+                prompt="跑",
+                extra_payload={"prompt": "未校验的别的值"},
+            )
+        assert "reserved" in str(exc.value)
+
+    def test_extra_payload_cannot_override_script_file(self):
+        with pytest.raises(ValueError) as exc:
+            TaskSpec.from_request(
+                task_type="video",
+                media_type="video",
+                resource_id="S01",
+                prompt="跑",
+                script_file="e.json",
+                extra_payload={"script_file": "../越权.json"},
+            )
+        assert "reserved" in str(exc.value)
 
     def test_webui_and_sdk_same_input_same_spec(self):
         # 同一非法输入，两路（WebUI / SDK）都经 from_request，结果一致。

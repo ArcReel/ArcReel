@@ -805,13 +805,14 @@ async def execute_video_task(
     except Exception:
         registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
 
-    # supported_durations 单独解析：caps 失败不得丢弃已解析出的 provider/model，
-    # 否则 resolve_resolution 与默认 duration 会错配到 gemini。能力不可解析时留空，
-    # 守卫遇空列表放行（不更坏，见 ADR-0002）。caps 是 supported_durations 的单一
-    # 真相源，registry 与 custom provider 都准确。
+    # supported_durations 按上面已解析出的 provider/model 取（而非按 project 二次解析），
+    # 确保 duration 守卫所依据的能力与实际要调用的 model 一致——历史任务 payload 携带
+    # provider 覆盖时，二者不一致会用「项目默认 model 的能力」误判「payload 解析出的 model」。
+    # caps 失败不得丢弃已解析出的 provider/model，否则 resolve_resolution 与默认 duration
+    # 会错配。能力不可解析时留空，守卫遇空列表放行（不更坏，见 ADR-0002）。
     supported_durations: list[int] = []
     try:
-        caps = await _resolver.video_capabilities_for_project(project)
+        caps = await _resolver.video_capabilities_for_model(registry_provider_id, model_name or "", project)
         supported_durations = [int(d) for d in caps.get("supported_durations") or []]
     except Exception:
         supported_durations = []
@@ -823,7 +824,10 @@ async def execute_video_task(
     )
 
     # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
-    duration_seconds = payload.get("duration_seconds") or project.get("default_duration")
+    # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
+    duration_seconds = payload.get("duration_seconds")
+    if duration_seconds is None:
+        duration_seconds = project.get("default_duration")
     if not duration_seconds:
         duration_seconds = (
             supported_durations[0]

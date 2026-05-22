@@ -392,8 +392,8 @@ async def test_generate_video_selected_no_match(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
-def test_build_asset_specs_skips_whitespace_description(monkeypatch) -> None:
-    """空白描述被跳过并告警，不应漏到 from_request 抛错而中断整批资产。"""
+def test_build_asset_specs_skips_invalid_description(monkeypatch) -> None:
+    """空白 / 非字符串描述都被跳过并告警，不应抛错（.strip()）或漏到 from_request 而中断整批。"""
     from lib.asset_types import ASSET_SPECS
     from server.agent_runtime.sdk_tools.enqueue_assets import _build_specs
 
@@ -401,12 +401,19 @@ def test_build_asset_specs_skips_whitespace_description(monkeypatch) -> None:
 
     class _PM:
         def load_project(self, _name):
-            return {bucket: {"Alice": {"description": "   "}, "Bob": {"description": "勇士"}}}
+            return {
+                bucket: {
+                    "Alice": {"description": "   "},  # 空白
+                    "Carol": {"description": {"x": 1}},  # 非字符串，.strip() 会抛 AttributeError
+                    "Bob": {"description": "勇士"},
+                }
+            }
 
     warnings: list[str] = []
-    specs = _build_specs(_PM(), "demo", "character", ["Alice", "Bob"], warnings)  # type: ignore[arg-type]
+    specs = _build_specs(_PM(), "demo", "character", ["Alice", "Carol", "Bob"], warnings)  # type: ignore[arg-type]
     assert [s.resource_id for s in specs] == ["Bob"]
     assert any("Alice" in w for w in warnings)
+    assert any("Carol" in w for w in warnings)
 
 
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:

@@ -260,7 +260,9 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
         if isinstance(prompt, dict):
             if not is_structured_video_prompt(prompt):
                 raise TaskSpecValidationError("video_prompt_must_be_string_or_action_object")
-            if not str(prompt.get("action", "")).strip():
+            # ``or ""`` 而非默认参数：``{"action": null}`` 时 get 返回 None，
+            # ``str(None)`` 会得到 truthy 的 "None" 字符串绕过空值校验。
+            if not str(prompt.get("action") or "").strip():
                 raise TaskSpecValidationError("video_prompt_action_empty")
             dialogue = prompt.get("dialogue")
             if dialogue is not None and not isinstance(dialogue, list):
@@ -275,7 +277,7 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
     if task_type in _IMAGE_STRUCTURED_TASK_TYPES and isinstance(prompt, dict):
         if not is_structured_image_prompt(prompt):
             raise TaskSpecValidationError("prompt_must_be_string_or_scene_object")
-        if not str(prompt.get("scene", "")).strip():
+        if not str(prompt.get("scene") or "").strip():
             raise TaskSpecValidationError("prompt_scene_empty")
         return
 
@@ -347,11 +349,16 @@ class TaskSpec:
             raise ValueError("resource_id is required")
         _validate_prompt(task_type, prompt)
 
-        payload: dict[str, Any] = {"prompt": prompt}
+        # extra_payload 不得携带守卫点已校验的保留键，否则调用方能绕过单一守卫点
+        # 把未校验的 prompt / script_file 入队。
+        reserved = {"prompt", "script_file"}
+        if extra_payload and (conflict := reserved & extra_payload.keys()):
+            raise ValueError(f"extra_payload contains reserved keys: {', '.join(sorted(conflict))}")
+
+        payload: dict[str, Any] = dict(extra_payload) if extra_payload else {}
+        payload["prompt"] = prompt
         if script_file is not None:
             payload["script_file"] = script_file
-        if extra_payload:
-            payload.update(extra_payload)
 
         return cls(
             task_type=task_type,

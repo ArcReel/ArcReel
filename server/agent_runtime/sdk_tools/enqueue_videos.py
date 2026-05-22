@@ -119,11 +119,12 @@ def _build_video_specs(
             continue
 
         # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
-        # 仅透传调用方显式指定的值，缺省由执行层按 caps 收口默认。
+        # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
+        # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
         extra_payload: dict[str, Any] = {}
         duration = item.get("duration_seconds")
         if duration is not None:
-            extra_payload["duration_seconds"] = int(duration)
+            extra_payload["duration_seconds"] = duration
 
         specs.append(
             TaskSpec.from_request(
@@ -480,11 +481,12 @@ def generate_video_scene_tool(ctx: ToolContext):
 
             prompt = _get_video_prompt(item)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
-            # 仅透传调用方显式指定的值，缺省由执行层按 caps 收口默认。
+            # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
+            # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
             extra_payload: dict[str, Any] = {}
             duration = item.get("duration_seconds")
             if duration is not None:
-                extra_payload["duration_seconds"] = int(duration)
+                extra_payload["duration_seconds"] = duration
             spec = TaskSpec.from_request(
                 task_type="video",
                 media_type="video",

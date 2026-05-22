@@ -49,8 +49,10 @@ def _build_specs(
             if name not in assets_dict:
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 不存在于 project.json 中，跳过")
                 continue
-            # strip 检查：空白描述也跳过并告警，避免漏到 from_request 抛错而中断整批。
-            if not (assets_dict[name].get("description") or "").strip():
+            # 仅当 description 是非空字符串才入队；空白 / 非字符串（dict、数字等）
+            # 都告警跳过，避免漏到 from_request 抛错或 .strip() 抛 AttributeError 而中断整批。
+            desc = assets_dict[name].get("description")
+            if not (isinstance(desc, str) and desc.strip()):
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)
@@ -59,7 +61,8 @@ def _build_specs(
         resolved = []
         for item in pending:
             name = item["name"]
-            if not (assets_dict.get(name, {}).get("description") or "").strip():
+            desc = assets_dict.get(name, {}).get("description")
+            if not (isinstance(desc, str) and desc.strip()):
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)

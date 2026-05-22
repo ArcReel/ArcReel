@@ -364,7 +364,7 @@ class TestGenerationTasks:
         )
         monkeypatch.setattr(
             resolver_mod.ConfigResolver,
-            "video_capabilities_for_project",
+            "video_capabilities_for_model",
             _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
         )
 
@@ -401,7 +401,7 @@ class TestGenerationTasks:
         )
         monkeypatch.setattr(
             resolver_mod.ConfigResolver,
-            "video_capabilities_for_project",
+            "video_capabilities_for_model",
             _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
         )
 
@@ -436,7 +436,7 @@ class TestGenerationTasks:
         )
         monkeypatch.setattr(
             resolver_mod.ConfigResolver,
-            "video_capabilities_for_project",
+            "video_capabilities_for_model",
             _async_return({"supported_durations": [6, 10], "default_duration": None}),
         )
         # 项目默认 duration 也置空，强制走 caps 默认。
@@ -464,7 +464,7 @@ class TestGenerationTasks:
         from lib.config import resolver as resolver_mod
         from lib.config.resolver import ProviderModel
 
-        async def boom_caps(self, project):
+        async def boom_caps(self, provider_id, model_id, project=None):
             raise ValueError("supported_durations is empty for ark/seedance")
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -475,7 +475,7 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
         )
-        monkeypatch.setattr(resolver_mod.ConfigResolver, "video_capabilities_for_project", boom_caps)
+        monkeypatch.setattr(resolver_mod.ConfigResolver, "video_capabilities_for_model", boom_caps)
 
         result = await generation_tasks.execute_video_task(
             "demo",
@@ -489,6 +489,43 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         # caps 失败时 supported_durations 留空 → 守卫放行（不更坏），但 provider 不被改写。
         assert seen_resolution_args == [("ark", "seedance")]
+
+    async def test_caps_resolved_for_payload_provider_model(self, monkeypatch, tmp_path):
+        """caps 按已解析（含 payload 覆盖）的 provider/model 取，而非按 project 二次解析。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        seen_caps_args: list[tuple] = []
+
+        from lib.config import resolver as resolver_mod
+        from lib.config.resolver import ProviderModel
+
+        async def capture_caps(self, provider_id, model_id, project=None):
+            seen_caps_args.append((provider_id, model_id))
+            return {"supported_durations": [4, 6, 8], "default_duration": None}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        # 模拟历史任务 payload 覆盖：resolve_video_backend 解析出 ark/seedance。
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
+        )
+        monkeypatch.setattr(resolver_mod.ConfigResolver, "video_capabilities_for_model", capture_caps)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 8,
+            },
+        )
+        # caps 用解析后的 model 而非 project 默认取，二者一致。
+        assert seen_caps_args == [("ark", "seedance")]
 
     async def test_get_media_generator_skips_image_backend_for_video_tasks(self, monkeypatch, tmp_path):
         """视频任务只应初始化视频 backend，避免图片配置缺失导致提前失败。"""
