@@ -25,25 +25,42 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+_KIND_ID_FIELD = {"video_units": "unit_id", "scenes": "scene_id", "segments": "segment_id"}
+
+
+def resolve_kind(script: dict[str, Any]) -> str:
+    """判别剧本当前的分镜数组种类：返回 ``"video_units"`` / ``"scenes"`` / ``"segments"``。
+
+    reference 最优先，但仅当 ``generation_mode`` 显式为 ``reference_video``，**或** ``video_units``
+    是唯一结构（无 ``segments`` / ``scenes``）时才认定 reference——否则 storyboard 脚本被误塞的
+    游离 ``video_units``（segments + 空 video_units 并存的历史脏数据）会抢走判别、把编辑与
+    metadata 重算误路由到错误的列表。其余以 ``content_mode`` 为权威，缺省时按顶层键存在性推断。
+
+    `_select_model`（结构校验）/ `resolve_items`（编辑核心）/ 写盘咽喉的 metadata 重算共用本
+    判别，三处只此一处真相、不漂移。
+    """
+    if script.get("generation_mode") == "reference_video" or (
+        "video_units" in script and "segments" not in script and "scenes" not in script
+    ):
+        return "video_units"
+    content_mode = script.get("content_mode")
+    if content_mode == "drama":
+        return "scenes"
+    if content_mode == "narration":
+        return "segments"
+    if "scenes" in script and "segments" not in script:
+        return "scenes"
+    return "segments"
+
+
 def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
     """按内容/生成模式选出当前剧本的分镜数组、其 id 字段名与种类。
 
-    返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "video_units"}。
-    判别顺序与 `script_structure_validator._select_model` 一致：reference 最优先
-    （``generation_mode == "reference_video"`` 或存在 ``video_units``），其余以 ``content_mode``
-    为权威，缺省时按顶层键存在性推断。返回的 list 在键存在时即 script 内的实际引用
-    （就地编辑生效）。
+    返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "video_units"}，由
+    `resolve_kind` 判别。返回的 list 在键存在时即 script 内的实际引用（就地编辑生效）。
     """
-    if script.get("generation_mode") == "reference_video" or "video_units" in script:
-        return _as_list(script.get("video_units")), "unit_id", "video_units"
-    content_mode = script.get("content_mode")
-    if content_mode == "drama":
-        return _as_list(script.get("scenes")), "scene_id", "scenes"
-    if content_mode == "narration":
-        return _as_list(script.get("segments")), "segment_id", "segments"
-    if "scenes" in script and "segments" not in script:
-        return _as_list(script.get("scenes")), "scene_id", "scenes"
-    return _as_list(script.get("segments")), "segment_id", "segments"
+    kind = resolve_kind(script)
+    return _as_list(script.get(kind)), _KIND_ID_FIELD[kind], kind
 
 
 def _find_index(items: list[dict[str, Any]], id_field: str, item_id: str) -> int:

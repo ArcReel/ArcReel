@@ -118,6 +118,25 @@ class TestResolveItems:
         items.append(_segment("E1S03"))
         assert len(script["segments"]) == 3
 
+    def test_stray_video_units_do_not_hijack_storyboard_script(self):
+        # 历史脏数据：storyboard 脚本被误塞游离 video_units（无 generation_mode/content_mode）。
+        # video_units 与 segments 并存时不认定为 reference，编辑/metadata 仍作用于真实 segments。
+        script = {
+            "segments": [_segment("E1S01"), _segment("E1S02")],
+            "video_units": [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}],
+        }
+        items, id_field, kind = resolve_items(script)
+        assert kind == "segments"
+        assert id_field == "segment_id"
+        assert len(items) == 2
+
+    def test_bare_video_units_without_segments_is_reference(self):
+        # video_units 为唯一结构（无 segments/scenes、无显式 mode）→ 仍判为 reference
+        script = {"video_units": [{"unit_id": "E1U1"}]}
+        _items, id_field, kind = resolve_items(script)
+        assert kind == "video_units"
+        assert id_field == "unit_id"
+
 
 class TestPatchField:
     def test_patch_top_level_field(self):
