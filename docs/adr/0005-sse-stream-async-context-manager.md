@@ -5,7 +5,7 @@
 ## Consequences
 
 - `stream_messages()`/`stream_events()` 必须以 `async with` 消费，不能当裸 generator 直接 `async for`。新增 SSE 消费方一律走 CM 形态;评审遇到裸 `async for some_stream()` 即视为清理隐患。
-- 迭代器吐"控制信号"沿用 in-band 哨兵(`{"type": "_idle"}` / `_replay_done` / `_queue_overflow`)，与历史上已存在的 `_queue_overflow` 一致;消费方靠 `msg.get("type")` 分发。**不要**为此另起 typed event 体系或带外通道——会偏离既有约定且无收益。
+- 控制信号一律走 in-band 哨兵(`{"type": "_xxx"}` dict，消费方靠 `msg.get("type")` 分发)，但**哨兵集合按流而非全局**:`_idle` 两条流共有;`_replay_done` 与 `_queue_overflow` **仅 `SessionManager` 流**会吐——`ProjectEventService` 流用"snapshot 作首个事件"取代回放边界、用"静默丢订阅者"取代溢出哨兵(见末条),两者皆不吐。消费方须按"自己消费的是哪条流"分支处理,不要假定存在一个全局统一的哨兵集。沿用历史上已存在的 `_queue_overflow` 形态;**不要**另起 typed event 体系或带外通道——会偏离既有约定且无收益。
 - 空闲哨兵一物两用:SSE 路径在其上查 `is_disconnected` + 发心跳;非 SSE 的同步收集方(`agent_chat._collect_reply`，无 `request`)在其上查自己的 deadline/会话状态。同一个哨兵，各接各的存活策略。
 - 不要把"客户端断线时的及时清理"单独寄望于 FastAPI/anyio 的取消注入或 GC。断线及时性由消费方的 `is_disconnected` 自检负责;CM 的 `__aexit__` 负责"无论因何退出都注销"。两者缺一:只有 CM 而不自检，parked-at-send 断线仍漂到 GC;只自检而无 CM，异常路径仍可能漏注销。
 - `ProjectEventService` 的"队列满则静默丢订阅者"语义保持不变(无 `_queue_overflow` 哨兵);本次只收编接口形态，不改其溢出行为。被静默丢弃的订阅者最终由 `is_disconnected` 自检或对端重连收场,这一既有近似不在本决策范围内。
