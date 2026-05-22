@@ -105,14 +105,15 @@ class ScriptGenerator:
     async def generate(
         self,
         episode: int,
-        output_path: Path | None = None,
+        output_filename: str | None = None,
     ) -> Path:
         """
         异步生成剧集剧本
 
         Args:
             episode: 剧集编号
-            output_path: 输出路径，默认为 scripts/episode_{episode}.json
+            output_filename: 输出文件名，默认 episode_{episode}.json。剧本一律经写盘咽喉写入
+                项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
 
         Returns:
             生成的 JSON 文件路径
@@ -198,12 +199,9 @@ class ScriptGenerator:
         # 7. 经写盘咽喉保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         #    Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
         #    同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
-        if output_path is None:
-            output_path = self.project_path / "scripts" / f"episode_{episode}.json"
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        filename = output_filename or f"episode_{episode}.json"
         pm = ProjectManager(str(self.project_path.parent))
-        output_path = pm.save_script(self.project_path.name, script_data, output_path.name, validate=True)
+        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
 
         self._quality_probe(script_data, episode)
 
