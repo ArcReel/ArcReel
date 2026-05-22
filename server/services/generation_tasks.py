@@ -439,15 +439,28 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
     return 4
 
 
-def assert_duration_supported(duration: int, supported_durations: list[int]) -> None:
+def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
     """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
 
     这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
     （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
     放行（能力不可解析，不更坏：保持既有行为不被本次改动弄坏）。
+
+    duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
+    可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
+    视为非法而**拒绝**，不做截断式归一化（截断会把本应拒绝的非法值静默修正）。
     """
-    if supported_durations and duration not in supported_durations:
-        raise ValueError(f"duration={duration}s 不在该模型支持范围 {supported_durations} 内")
+    if not supported_durations:
+        return
+    try:
+        numeric = float(duration)
+    except (TypeError, ValueError):
+        raise ValueError(f"duration={duration!r} 不是合法的秒数")
+    if not numeric.is_integer():
+        raise ValueError(f"duration={duration!r} 不是整数秒，不在该模型支持范围 {supported_durations} 内")
+    seconds = int(numeric)
+    if seconds not in supported_durations:
+        raise ValueError(f"duration={seconds}s 不在该模型支持范围 {supported_durations} 内")
 
 
 def _collect_sheet_paths(
@@ -834,8 +847,9 @@ async def execute_video_task(
             if supported_durations
             else _get_model_default_duration(registry_provider_id, model_name)
         )
-    # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。
-    assert_duration_supported(int(duration_seconds), supported_durations)
+    # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
+    # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
+    assert_duration_supported(duration_seconds, supported_durations)
 
     end_image = None  # 宫格模式不再使用首尾帧，统一走普通图生视频
 
