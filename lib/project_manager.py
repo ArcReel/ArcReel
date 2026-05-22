@@ -1367,9 +1367,10 @@ class ProjectManager:
         """
         创建新的项目元数据文件
 
-        `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_backend /
-        text_backend_{script,overview,style}）。调用方负责剔除空值，本方法只按字面
-        写入 extras 中已有的键。
+        `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_provider_t2i /
+        image_provider_i2i / text_backend_{script,overview,style}）。调用方负责剔除空值，
+        本方法只按字面写入 extras 中已有的键——退役的单字段 image_backend 不在写入范围
+        （解析链不再读取、写边界已拒绝），调用方不应再传入。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
