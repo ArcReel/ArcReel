@@ -396,7 +396,7 @@ class TestProjectsRouter:
             assert resp.status_code == 400
 
     def test_update_segment_write_value_error_returns_422(self, tmp_path, monkeypatch):
-        # 写盘咽喉对客户端错误（结构非法 / 集号错配 / 非法文件名）抛 ValueError，
+        # 写盘统一入口对客户端错误（结构非法 / 集号错配 / 非法文件名）抛 ValueError，
         # router 须统一转 422 而非落到 500 兜底。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "narration.json")] = {

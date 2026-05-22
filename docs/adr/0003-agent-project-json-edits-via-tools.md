@@ -4,7 +4,7 @@ status: proposed
 
 # Agent 改项目 JSON 数据收归 in-process MCP 工具，裸 Write/Edit/Bash 一律 deny
 
-Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`）直改 `scripts/*.json` 与 `project.json`，只过一个 PreToolUse 的 **JSON 语法** hook——结构错误（`duration_seconds` 越界、缺 `image_prompt`、`ReferenceVideoUnit` 的 shots↔duration 不一致）照样落盘，绕开 `_write_script_unlocked` 咽喉（ADR-0002）。这条旁路让「单一守卫点」是假的。我们决定把 Agent 对项目 JSON 数据的一切写入收归一组 in-process MCP 工具，并在工具外**禁止**裸字节写入这两类文件，使 ADR-0002 的结构校验真正只有一个强制点。
+Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`）直改 `scripts/*.json` 与 `project.json`，只过一个 PreToolUse 的 **JSON 语法** hook——结构错误（`duration_seconds` 越界、缺 `image_prompt`、`ReferenceVideoUnit` 的 shots↔duration 不一致）照样落盘，绕开 `_write_script_unlocked` 统一入口（ADR-0002）。这条旁路让「单一守卫点」是假的。我们决定把 Agent 对项目 JSON 数据的一切写入收归一组 in-process MCP 工具，并在工具外**禁止**裸字节写入这两类文件，使 ADR-0002 的结构校验真正只有一个强制点。
 
 工具集（均为 in-process MCP `arcreel`，跑在 server 进程、不在 agent sandbox 内）：
 

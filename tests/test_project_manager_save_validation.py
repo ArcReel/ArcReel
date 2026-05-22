@@ -1,4 +1,4 @@
-"""写盘咽喉「不更坏」结构校验守卫测试。
+"""写盘统一入口「不更坏」结构校验守卫测试。
 
 只断言外部行为：构造 before/after 剧本，断言写盘是否 raise ScriptStructureValidationError，
 以及资产回写豁免、validate 默认值，不 patch 私有方法。

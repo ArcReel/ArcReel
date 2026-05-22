@@ -48,7 +48,7 @@ _DEFAULT_GENERATION_MODE = "storyboard"
 
 
 class _Unset:
-    """哨兵：区分「未传 before」（写盘咽喉自行读盘取改前）与「显式传 None」（无改前）。"""
+    """哨兵：区分「未传 before」（写盘统一入口自行读盘取改前）与「显式传 None」（无改前）。"""
 
 
 _UNSET = _Unset()
@@ -459,7 +459,7 @@ class ProjectManager:
             script: 剧本字典
             filename: 可选的文件名，默认使用章节名
             validate: 是否做「不更坏」结构校验（默认 True，fail-safe）。直连保存不持有
-                改前剧本，由写盘咽喉按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
+                改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
 
         Returns:
             保存的文件路径
