@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -127,6 +128,36 @@ class TestVersionsRouter:
             for unrestorable in ("grids", "reference_videos"):
                 resp = client.post(f"/api/v1/projects/demo/versions/{unrestorable}/x/restore/1")
                 assert resp.status_code == 400
+
+    def test_resolve_resource_path_rejects_traversal(self):
+        """resource_id 拼出的绝对路径若逃出项目目录，必须 400（路径遍历防护）。
+
+        正常路由的 path 参数不会含 `/`，故直接对 helper 断言这道收口防护。
+        """
+        from pathlib import Path
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            versions._resolve_resource_path(
+                "characters",
+                "../../../../etc/passwd",
+                Path("/tmp/demo"),
+                lambda key, **kw: key,
+            )
+        assert exc.value.status_code == 400
+
+    def test_resolve_resource_path_accepts_normal_id(self):
+        from pathlib import Path
+
+        current_file, relative = versions._resolve_resource_path(
+            "characters",
+            "Alice",
+            Path("/tmp/demo"),
+            lambda key, **kw: key,
+        )
+        assert relative == "characters/Alice.png"
+        assert current_file == Path("/tmp/demo/characters/Alice.png")
 
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
         project_path = tmp_path / "demo"

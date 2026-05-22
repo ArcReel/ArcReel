@@ -120,6 +120,7 @@ MESSAGES = {
     "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
+    "invalid_resource_id": "Invalid resource ID: {resource_id}",
     # Reference Video
     "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
     "ref_duration_exceeded": "Reference video unit duration {duration}s exceeds {model} limit of {max_duration}s, clamped",

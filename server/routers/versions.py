@@ -47,11 +47,17 @@ def _resolve_resource_path(
     project_path: Path,
     _t: Callable[..., str],
 ) -> tuple[Path, str]:
-    """返回 (current_file_absolute, relative_file_path)，资源类型不可还原时抛出 HTTPException。"""
+    """返回 (current_file_absolute, relative_file_path)；资源类型不可还原或 ID 越界时抛出 HTTPException。"""
     if resource_type not in _RESTORABLE_RESOURCE_TYPES:
         raise HTTPException(status_code=400, detail=_t("unsupported_resource_type", resource_type=resource_type))
     relative = resource_relative_path(resource_type, resource_id)
-    return project_path / relative, relative
+    current_file = project_path / relative
+    # 路径遍历防护：resource_id 拼出的绝对路径不得逃出项目目录（与 MediaGenerator._get_output_path 对齐）。
+    try:
+        current_file.resolve().relative_to(project_path.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=resource_id))
+    return current_file, relative
 
 
 def _sync_storyboard_metadata(
