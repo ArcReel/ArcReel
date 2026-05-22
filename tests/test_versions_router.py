@@ -1,5 +1,8 @@
+import tempfile
+from pathlib import Path
+
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
@@ -134,30 +137,29 @@ class TestVersionsRouter:
 
         正常路由的 path 参数不会含 `/`，故直接对 helper 断言这道收口防护。
         """
-        from pathlib import Path
-
-        from fastapi import HTTPException
+        project_path = Path(tempfile.gettempdir()) / "demo"
 
         with pytest.raises(HTTPException) as exc:
             versions._resolve_resource_path(
                 "characters",
                 "../../../../etc/passwd",
-                Path("/tmp/demo"),
+                project_path,
                 lambda key, **kw: key,
             )
         assert exc.value.status_code == 400
 
     def test_resolve_resource_path_accepts_normal_id(self):
-        from pathlib import Path
+        project_path = Path(tempfile.gettempdir()) / "demo"
 
         current_file, relative = versions._resolve_resource_path(
             "characters",
             "Alice",
-            Path("/tmp/demo"),
+            project_path,
             lambda key, **kw: key,
         )
         assert relative == "characters/Alice.png"
-        assert current_file == Path("/tmp/demo/characters/Alice.png")
+        # helper 返回未 resolve 的 project_path/relative，故用同一入参 base 拼接断言。
+        assert current_file == project_path / "characters" / "Alice.png"
 
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
         project_path = tmp_path / "demo"
