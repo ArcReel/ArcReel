@@ -798,18 +798,23 @@ async def execute_video_task(
     from lib.db import async_session_factory
 
     _resolver = ConfigResolver(async_session_factory)
-    supported_durations: list[int] = []
     try:
         resolved_video = await _resolver.resolve_video_backend(project, payload)
         registry_provider_id = resolved_video.provider_id
         model_name = resolved_video.model_id or None
-        # caps 是 supported_durations 的单一真相源（registry 与 custom provider 都准确）。
+    except Exception:
+        registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
+
+    # supported_durations 单独解析：caps 失败不得丢弃已解析出的 provider/model，
+    # 否则 resolve_resolution 与默认 duration 会错配到 gemini。能力不可解析时留空，
+    # 守卫遇空列表放行（不更坏，见 ADR-0002）。caps 是 supported_durations 的单一
+    # 真相源，registry 与 custom provider 都准确。
+    supported_durations: list[int] = []
+    try:
         caps = await _resolver.video_capabilities_for_project(project)
         supported_durations = [int(d) for d in caps.get("supported_durations") or []]
     except Exception:
-        # 能力不可解析时退回 gemini 默认且 supported_durations 留空——
-        # 不更坏：守卫遇空列表放行，保持既有行为不被本次改动弄坏。
-        registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
+        supported_durations = []
 
     resolution = await resolve_resolution(
         project,

@@ -49,7 +49,8 @@ def _build_specs(
             if name not in assets_dict:
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 不存在于 project.json 中，跳过")
                 continue
-            if not assets_dict[name].get("description"):
+            # strip 检查：空白描述也跳过并告警，避免漏到 from_request 抛错而中断整批。
+            if not (assets_dict[name].get("description") or "").strip():
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)
@@ -58,7 +59,7 @@ def _build_specs(
         resolved = []
         for item in pending:
             name = item["name"]
-            if not assets_dict.get(name, {}).get("description"):
+            if not (assets_dict.get(name, {}).get("description") or "").strip():
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)

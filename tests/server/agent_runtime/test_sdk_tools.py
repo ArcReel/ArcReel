@@ -392,6 +392,23 @@ async def test_generate_video_selected_no_match(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
+def test_build_asset_specs_skips_whitespace_description(monkeypatch) -> None:
+    """空白描述被跳过并告警，不应漏到 from_request 抛错而中断整批资产。"""
+    from lib.asset_types import ASSET_SPECS
+    from server.agent_runtime.sdk_tools.enqueue_assets import _build_specs
+
+    bucket = ASSET_SPECS["character"].bucket_key
+
+    class _PM:
+        def load_project(self, _name):
+            return {bucket: {"Alice": {"description": "   "}, "Bob": {"description": "勇士"}}}
+
+    warnings: list[str] = []
+    specs = _build_specs(_PM(), "demo", "character", ["Alice", "Bob"], warnings)  # type: ignore[arg-type]
+    assert [s.resource_id for s in specs] == ["Bob"]
+    assert any("Alice" in w for w in warnings)
+
+
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
     """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs

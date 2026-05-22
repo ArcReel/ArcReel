@@ -450,6 +450,46 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 6
 
+    async def test_caps_failure_preserves_resolved_provider(self, monkeypatch, tmp_path):
+        """caps 解析失败不得丢弃已解析的 provider/model：resolve_resolution 仍按真实 provider。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        seen_resolution_args: list[tuple] = []
+
+        async def fake_resolution(project, provider, model):
+            seen_resolution_args.append((provider, model))
+            return "720p"
+
+        from lib.config import resolver as resolver_mod
+        from lib.config.resolver import ProviderModel
+
+        async def boom_caps(self, project):
+            raise ValueError("supported_durations is empty for ark/seedance")
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_resolution", fake_resolution)
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
+        )
+        monkeypatch.setattr(resolver_mod.ConfigResolver, "video_capabilities_for_project", boom_caps)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 9,
+            },
+        )
+        assert result["resource_type"] == "videos"
+        # caps 失败时 supported_durations 留空 → 守卫放行（不更坏），但 provider 不被改写。
+        assert seen_resolution_args == [("ark", "seedance")]
+
     async def test_get_media_generator_skips_image_backend_for_video_tasks(self, monkeypatch, tmp_path):
         """视频任务只应初始化视频 backend，避免图片配置缺失导致提前失败。"""
         project_path = _prepare_files(tmp_path)
