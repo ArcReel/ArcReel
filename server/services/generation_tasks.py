@@ -439,6 +439,17 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
     return 4
 
 
+def assert_duration_supported(duration: int, supported_durations: list[int]) -> None:
+    """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
+
+    这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
+    （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
+    放行（能力不可解析，不更坏：保持既有行为不被本次改动弄坏）。
+    """
+    if supported_durations and duration not in supported_durations:
+        raise ValueError(f"duration={duration}s 不在该模型支持范围 {supported_durations} 内")
+
+
 def _collect_sheet_paths(
     project: dict,
     project_path: Path,
@@ -787,11 +798,17 @@ async def execute_video_task(
     from lib.db import async_session_factory
 
     _resolver = ConfigResolver(async_session_factory)
+    supported_durations: list[int] = []
     try:
         resolved_video = await _resolver.resolve_video_backend(project, payload)
         registry_provider_id = resolved_video.provider_id
         model_name = resolved_video.model_id or None
+        # caps 是 supported_durations 的单一真相源（registry 与 custom provider 都准确）。
+        caps = await _resolver.video_capabilities_for_project(project)
+        supported_durations = [int(d) for d in caps.get("supported_durations") or []]
     except Exception:
+        # 能力不可解析时退回 gemini 默认且 supported_durations 留空——
+        # 不更坏：守卫遇空列表放行，保持既有行为不被本次改动弄坏。
         registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
 
     resolution = await resolve_resolution(
@@ -800,10 +817,16 @@ async def execute_video_task(
         model_name or "",
     )
 
-    # duration fallback: payload > project.default_duration > supported_durations[0] > 4
+    # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
     duration_seconds = payload.get("duration_seconds") or project.get("default_duration")
     if not duration_seconds:
-        duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
+        duration_seconds = (
+            supported_durations[0]
+            if supported_durations
+            else _get_model_default_duration(registry_provider_id, model_name)
+        )
+    # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。
+    assert_duration_supported(int(duration_seconds), supported_durations)
 
     end_image = None  # 宫格模式不再使用首尾帧，统一走普通图生视频
 

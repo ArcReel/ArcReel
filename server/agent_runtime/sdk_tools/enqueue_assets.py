@@ -8,7 +8,7 @@ from claude_agent_sdk import tool
 
 from lib.asset_types import ASSET_SPECS, AssetSpec
 from lib.generation_queue_client import (
-    BatchTaskSpec,
+    TaskSpec,
     batch_enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
@@ -38,7 +38,7 @@ def _build_specs(
     asset_type: str,
     names: list[str] | None,
     warnings: list[str],
-) -> list[BatchTaskSpec]:
+) -> list[TaskSpec]:
     spec: AssetSpec = ASSET_SPECS[asset_type]
     project = pm.load_project(project_name)
     assets_dict = project.get(spec.bucket_key, {})
@@ -64,11 +64,11 @@ def _build_specs(
             resolved.append(name)
 
     return [
-        BatchTaskSpec(
+        TaskSpec.from_request(
             task_type=spec.asset_type,
             media_type="image",
             resource_id=name,
-            payload={"prompt": assets_dict[name]["description"]},
+            prompt=assets_dict[name]["description"],
         )
         for name in resolved
     ]

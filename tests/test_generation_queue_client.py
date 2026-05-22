@@ -6,8 +6,9 @@ import pytest
 
 from lib.generation_queue_client import (
     BatchTaskResult,
-    BatchTaskSpec,
     TaskCancelledError,
+    TaskSpec,
+    TaskSpecValidationError,
     TaskWaitTimeoutError,
     WorkerOfflineError,
     batch_enqueue_and_wait_sync,
@@ -15,6 +16,117 @@ from lib.generation_queue_client import (
     enqueue_task_only,
     wait_for_task,
 )
+
+
+class TestTaskSpecFromRequest:
+    def test_video_string_prompt_builds_spec(self):
+        spec = TaskSpec.from_request(
+            task_type="video",
+            media_type="video",
+            resource_id="S01",
+            prompt="一个奔跑的镜头",
+            script_file="episode_1.json",
+        )
+        assert spec.task_type == "video"
+        assert spec.media_type == "video"
+        assert spec.resource_id == "S01"
+        assert spec.script_file == "episode_1.json"
+        assert spec.payload == {"prompt": "一个奔跑的镜头", "script_file": "episode_1.json"}
+
+    def test_video_action_object_prompt_builds_spec(self):
+        prompt = {"action": "转身", "camera_motion": "Static", "dialogue": [{"speaker": "甲", "line": "走"}]}
+        spec = TaskSpec.from_request(
+            task_type="video",
+            media_type="video",
+            resource_id="S01",
+            prompt=prompt,
+        )
+        assert spec.payload == {"prompt": prompt}
+
+    def test_video_extra_payload_merged(self):
+        spec = TaskSpec.from_request(
+            task_type="video",
+            media_type="video",
+            resource_id="S01",
+            prompt="跑",
+            script_file="episode_1.json",
+            extra_payload={"duration_seconds": 8, "seed": 42},
+        )
+        assert spec.payload == {
+            "prompt": "跑",
+            "script_file": "episode_1.json",
+            "duration_seconds": 8,
+            "seed": 42,
+        }
+
+    def test_video_empty_string_prompt_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="S01", prompt="   ")
+        assert exc.value.code == "prompt_text_empty"
+
+    def test_video_dict_without_action_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="S01", prompt={"scene": "x"})
+        assert exc.value.code == "video_prompt_must_be_string_or_action_object"
+
+    def test_video_empty_action_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="S01", prompt={"action": "  "})
+        assert exc.value.code == "video_prompt_action_empty"
+
+    def test_video_dialogue_not_array_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(
+                task_type="video",
+                media_type="video",
+                resource_id="S01",
+                prompt={"action": "转身", "dialogue": "走"},
+            )
+        assert exc.value.code == "video_prompt_dialogue_array"
+
+    def test_video_non_string_non_dict_prompt_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="S01", prompt=123)
+        assert exc.value.code == "prompt_must_be_string_or_object"
+
+    def test_storyboard_scene_object_builds_spec(self):
+        prompt = {"scene": "黄昏的码头", "composition": {}}
+        spec = TaskSpec.from_request(
+            task_type="storyboard", media_type="image", resource_id="S01", prompt=prompt, script_file="e.json"
+        )
+        assert spec.payload == {"prompt": prompt, "script_file": "e.json"}
+
+    def test_storyboard_dict_without_scene_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt={"action": "x"})
+        assert exc.value.code == "prompt_must_be_string_or_scene_object"
+
+    def test_storyboard_empty_scene_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt={"scene": " "})
+        assert exc.value.code == "prompt_scene_empty"
+
+    def test_asset_empty_prompt_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="")
+        assert exc.value.code == "prompt_text_empty"
+
+    def test_asset_string_prompt_builds_spec(self):
+        spec = TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="一位老者")
+        assert spec.payload == {"prompt": "一位老者"}
+
+    def test_empty_resource_id_rejected(self):
+        with pytest.raises(ValueError):
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="", prompt="跑")
+
+    def test_webui_and_sdk_same_input_same_spec(self):
+        # 同一非法输入，两路（WebUI / SDK）都经 from_request，结果一致。
+        kwargs = dict(task_type="video", media_type="video", resource_id="S01", prompt={"action": ""})
+        with pytest.raises(TaskSpecValidationError) as web:
+            TaskSpec.from_request(**kwargs)
+        with pytest.raises(TaskSpecValidationError) as sdk:
+            TaskSpec.from_request(**kwargs)
+        assert web.value.code == sdk.value.code == "video_prompt_action_empty"
 
 
 class TestGenerationQueueClient:
@@ -159,8 +271,8 @@ class TestBatchEnqueueAndWaitSync:
         ]
 
         specs = [
-            BatchTaskSpec(task_type="character", media_type="image", resource_id="张三"),
-            BatchTaskSpec(task_type="character", media_type="image", resource_id="李四"),
+            TaskSpec(task_type="character", media_type="image", resource_id="张三"),
+            TaskSpec(task_type="character", media_type="image", resource_id="李四"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
             project_name="demo",
@@ -186,8 +298,8 @@ class TestBatchEnqueueAndWaitSync:
         ]
 
         specs = [
-            BatchTaskSpec(task_type="clue", media_type="image", resource_id="玉佩"),
-            BatchTaskSpec(task_type="clue", media_type="image", resource_id="老槐树"),
+            TaskSpec(task_type="clue", media_type="image", resource_id="玉佩"),
+            TaskSpec(task_type="clue", media_type="image", resource_id="老槐树"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
             project_name="demo",
@@ -206,7 +318,7 @@ class TestBatchEnqueueAndWaitSync:
         mock_wait.side_effect = RuntimeError("connection lost")
 
         specs = [
-            BatchTaskSpec(task_type="storyboard", media_type="image", resource_id="S01"),
+            TaskSpec(task_type="storyboard", media_type="image", resource_id="S01"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
             project_name="demo",
@@ -230,12 +342,12 @@ class TestBatchEnqueueAndWaitSync:
         ]
 
         specs = [
-            BatchTaskSpec(
+            TaskSpec(
                 task_type="storyboard",
                 media_type="image",
                 resource_id="S01",
             ),
-            BatchTaskSpec(
+            TaskSpec(
                 task_type="storyboard",
                 media_type="image",
                 resource_id="S02",
@@ -278,8 +390,8 @@ class TestBatchEnqueueAndWaitSync:
             failure_ids.append(br.resource_id)
 
         specs = [
-            BatchTaskSpec(task_type="character", media_type="image", resource_id="A"),
-            BatchTaskSpec(task_type="character", media_type="image", resource_id="B"),
+            TaskSpec(task_type="character", media_type="image", resource_id="A"),
+            TaskSpec(task_type="character", media_type="image", resource_id="B"),
         ]
         batch_enqueue_and_wait_sync(
             project_name="demo",

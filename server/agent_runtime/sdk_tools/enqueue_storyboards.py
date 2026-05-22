@@ -12,7 +12,7 @@ from claude_agent_sdk import tool
 
 from lib.generation_queue_client import (
     BatchTaskResult,
-    BatchTaskSpec,
+    TaskSpec,
     batch_enqueue_and_wait,
 )
 from lib.prompt_utils import image_prompt_to_yaml, is_structured_image_prompt
@@ -98,17 +98,17 @@ def _build_specs(
     style_description: str,
     id_field: str,
     script_filename: str,
-) -> list[BatchTaskSpec]:
-    specs: list[BatchTaskSpec] = []
+) -> list[TaskSpec]:
+    specs: list[TaskSpec] = []
     for plan in plans:
         item = items_by_id[plan.resource_id]
         prompt = _build_prompt(item, style, style_description, id_field)
         specs.append(
-            BatchTaskSpec(
+            TaskSpec.from_request(
                 task_type="storyboard",
                 media_type="image",
                 resource_id=plan.resource_id,
-                payload={"prompt": prompt, "script_file": script_filename},
+                prompt=prompt,
                 script_file=script_filename,
                 dependency_resource_id=plan.dependency_resource_id,
                 dependency_group=plan.dependency_group,

@@ -4,6 +4,21 @@ from pathlib import Path
 import pytest
 
 from server.services import generation_tasks
+from server.services.generation_tasks import assert_duration_supported
+
+
+class TestAssertDurationSupported:
+    def test_supported_duration_passes(self):
+        assert_duration_supported(8, [4, 6, 8])  # no raise
+
+    def test_unsupported_duration_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            assert_duration_supported(5, [4, 6, 8])
+        assert "5" in str(exc.value)
+
+    def test_empty_supported_list_passes(self):
+        # 能力不可解析时不更坏：空列表放行，保持既有行为不被本次改动弄坏。
+        assert_duration_supported(99, [])  # no raise
 
 
 def _async_return(value):
@@ -331,6 +346,109 @@ class TestGenerationTasks:
         asset_types = [call["asset_type"] for call in fake_pm.updated_assets]
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
+
+    async def test_execute_video_task_rejects_unsupported_duration(self, monkeypatch, tmp_path):
+        """执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        from lib.config import resolver as resolver_mod
+        from lib.config.resolver import ProviderModel
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
+        )
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver,
+            "video_capabilities_for_project",
+            _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
+        )
+
+        with pytest.raises(ValueError) as exc:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                    "duration_seconds": 5,
+                },
+            )
+        assert "5" in str(exc.value)
+        # 越界 duration 在起跑时被拒，绝不应调用后端生成。
+        assert fake_generator.video_calls == []
+
+    async def test_execute_video_task_supported_duration_passes(self, monkeypatch, tmp_path):
+        """合法 duration 通过守卫，正常进入后端生成。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        from lib.config import resolver as resolver_mod
+        from lib.config.resolver import ProviderModel
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
+        )
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver,
+            "video_capabilities_for_project",
+            _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
+        )
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 8,
+            },
+        )
+        assert result["resource_type"] == "videos"
+        assert fake_generator.video_calls[0]["duration_seconds"] == 8
+
+    async def test_execute_video_task_default_duration_from_caps(self, monkeypatch, tmp_path):
+        """无显式 duration 时，默认值由 caps 收口（取 supported_durations[0]），且必然合法。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        from lib.config import resolver as resolver_mod
+        from lib.config.resolver import ProviderModel
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
+        )
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver,
+            "video_capabilities_for_project",
+            _async_return({"supported_durations": [6, 10], "default_duration": None}),
+        )
+        # 项目默认 duration 也置空，强制走 caps 默认。
+        fake_pm.project.pop("default_duration", None)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+        assert result["resource_type"] == "videos"
+        assert fake_generator.video_calls[0]["duration_seconds"] == 6
 
     async def test_get_media_generator_skips_image_backend_for_video_tasks(self, monkeypatch, tmp_path):
         """视频任务只应初始化视频 backend，避免图片配置缺失导致提前失败。"""

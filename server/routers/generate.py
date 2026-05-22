@@ -16,12 +16,9 @@ from pydantic import BaseModel
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
 from lib.generation_queue import get_generation_queue
+from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager
-from lib.prompt_utils import (
-    is_structured_image_prompt,
-    is_structured_video_prompt,
-)
 from lib.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
@@ -93,34 +90,27 @@ async def generate_storyboard(
 
         await asyncio.to_thread(_sync)
 
-        # 验证 prompt 格式
-        if isinstance(req.prompt, dict):
-            if not is_structured_image_prompt(req.prompt):
-                raise HTTPException(
-                    status_code=400,
-                    detail=_t("prompt_must_be_string_or_scene_object"),
-                )
-            scene_text = str(req.prompt.get("scene", "")).strip()
-            if not scene_text:
-                raise HTTPException(status_code=400, detail=_t("prompt_scene_empty"))
-        elif isinstance(req.prompt, str):
-            if not req.prompt.strip():
-                raise HTTPException(status_code=400, detail=_t("prompt_text_empty"))
-        else:
-            raise HTTPException(status_code=400, detail=_t("prompt_must_be_string_or_object"))
+        # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）
+        try:
+            spec = TaskSpec.from_request(
+                task_type="storyboard",
+                media_type="image",
+                resource_id=segment_id,
+                prompt=req.prompt,
+                script_file=req.script_file,
+            )
+        except TaskSpecValidationError as e:
+            raise HTTPException(status_code=400, detail=_t(e.code, **e.params))
 
         # 入队
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
-            task_type="storyboard",
-            media_type="image",
-            resource_id=segment_id,
-            script_file=req.script_file,
-            payload={
-                "prompt": req.prompt,
-                "script_file": req.script_file,
-            },
+            task_type=spec.task_type,
+            media_type=spec.media_type,
+            resource_id=spec.resource_id,
+            script_file=spec.script_file,
+            payload=spec.payload,
             source="webui",
             user_id=_user.id,
         )
@@ -188,39 +178,29 @@ async def generate_video(
 
         await asyncio.to_thread(_sync)
 
-        # 验证 prompt 格式
-        if isinstance(req.prompt, dict):
-            if not is_structured_video_prompt(req.prompt):
-                raise HTTPException(
-                    status_code=400,
-                    detail=_t("video_prompt_must_be_string_or_action_object"),
-                )
-            action_text = str(req.prompt.get("action", "")).strip()
-            if not action_text:
-                raise HTTPException(status_code=400, detail=_t("video_prompt_action_empty"))
-            dialogue = req.prompt.get("dialogue", [])
-            if dialogue is not None and not isinstance(dialogue, list):
-                raise HTTPException(status_code=400, detail=_t("video_prompt_dialogue_array"))
-        elif isinstance(req.prompt, str):
-            if not req.prompt.strip():
-                raise HTTPException(status_code=400, detail=_t("prompt_text_empty"))
-        else:
-            raise HTTPException(status_code=400, detail=_t("prompt_must_be_string_or_object"))
+        # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
+        # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。
+        try:
+            spec = TaskSpec.from_request(
+                task_type="video",
+                media_type="video",
+                resource_id=segment_id,
+                prompt=req.prompt,
+                script_file=req.script_file,
+                extra_payload={"duration_seconds": req.duration_seconds, "seed": req.seed},
+            )
+        except TaskSpecValidationError as e:
+            raise HTTPException(status_code=400, detail=_t(e.code, **e.params))
 
         # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
-            task_type="video",
-            media_type="video",
-            resource_id=segment_id,
-            script_file=req.script_file,
-            payload={
-                "prompt": req.prompt,
-                "script_file": req.script_file,
-                "duration_seconds": req.duration_seconds,
-                "seed": req.seed,
-            },
+            task_type=spec.task_type,
+            media_type=spec.media_type,
+            resource_id=spec.resource_id,
+            script_file=spec.script_file,
+            payload=spec.payload,
             source="webui",
             user_id=_user.id,
         )
@@ -271,13 +251,23 @@ async def _enqueue_asset_generation(
 
     await asyncio.to_thread(_sync)
 
+    try:
+        task_spec = TaskSpec.from_request(
+            task_type=asset_type,
+            media_type="image",
+            resource_id=resource_name,
+            prompt=prompt,
+        )
+    except TaskSpecValidationError as e:
+        raise HTTPException(status_code=400, detail=_t(e.code, **e.params))
+
     queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
-        task_type=asset_type,
-        media_type="image",
-        resource_id=resource_name,
-        payload={"prompt": prompt},
+        task_type=task_spec.task_type,
+        media_type=task_spec.media_type,
+        resource_id=task_spec.resource_id,
+        payload=task_spec.payload,
         source="webui",
         user_id=user_id,
     )

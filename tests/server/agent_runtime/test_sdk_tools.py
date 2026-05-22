@@ -287,11 +287,6 @@ async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
 async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
-
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -322,11 +317,6 @@ async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
 async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
-
     async def fake_enqueue(**kwargs):
         return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
 
@@ -344,11 +334,6 @@ async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
 
 async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
@@ -380,11 +365,6 @@ async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
 async def test_generate_video_selected_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
-
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -410,6 +390,47 @@ async def test_generate_video_selected_no_match(fake_ctx: ToolContext) -> None:
     tool_obj = generate_video_selected_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["NO_SUCH"]})
     assert out.get("is_error") is True
+
+
+def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
+    """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
+
+    (tmp_path / "storyboards").mkdir()
+    (tmp_path / "storyboards" / "scene_S01.png").write_bytes(b"png")
+    items = [
+        {
+            "segment_id": "S01",
+            "video_prompt": "一个奔跑的镜头",
+            "duration_seconds": 7,  # 不属于任何典型 supported_durations
+            "generated_assets": {"storyboard_image": "storyboards/scene_S01.png"},
+        }
+    ]
+    log: list[str] = []
+    specs, order_map = _build_video_specs(
+        items=items,
+        id_field="segment_id",
+        content_mode="narration",
+        script_filename="episode_1.json",
+        project_dir=tmp_path,
+        skip_ids=None,
+        log=log,
+    )
+    assert len(specs) == 1
+    assert specs[0].payload["duration_seconds"] == 7
+
+    # 未显式指定 duration 时不携带该键，留给执行层按 caps 收口默认。
+    items[0].pop("duration_seconds")
+    specs2, _ = _build_video_specs(
+        items=items,
+        id_field="segment_id",
+        content_mode="narration",
+        script_filename="episode_1.json",
+        project_dir=tmp_path,
+        skip_ids=None,
+        log=[],
+    )
+    assert "duration_seconds" not in specs2[0].payload
 
 
 # ---------------------------------------------------------------------------
