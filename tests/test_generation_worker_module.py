@@ -131,6 +131,24 @@ class TestExtractProvider:
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
+    async def test_reference_video_routes_to_video_lane(self, monkeypatch):
+        """reference_video task_type 必须按 video lane 解析 video_backend，而非 image 槽。
+
+        项目同时配置了不同 provider 的 video_backend（ark）与 image_provider_t2i
+        （gemini-vertex）。reference_video 属于 video lane，认领期 provider 投影须取 ark；
+        若误判为 image lane（历史上 task_type != "video" 即读 image 槽），会取到纯图片
+        供应商，导致 worker 在 video 通道以 video_max==0 直接把任务标记
+        「供应商不支持 video 生成」。"""
+        _patch_pm(
+            monkeypatch,
+            {
+                "video_backend": "ark/seedance-1-0-pro",
+                "image_provider_t2i": "gemini-vertex/imagen-3",
+            },
+        )
+        task = {"payload": {}, "project_name": "demo", "task_type": "reference_video"}
+        assert await _extract_provider(task) == "ark"
+
     async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
         """payload 历史 provider 优先于项目级。"""
         _patch_pm(monkeypatch, {"video_backend": "grok/grok-imagine-video"})
