@@ -74,16 +74,19 @@ async def _collect_reply(
 
     async with service.session_manager.stream_messages(session_id, replay=True, idle_timeout=5.0) as stream:
         async for message in stream:
+            # deadline 必须每轮都查：持续 <idle_timeout 间隔的消息流会让 _idle 永不触发，
+            # 若只在 _idle 上判超时，跑飞/刷屏的会话会让本同步请求无界挂起。
+            if loop.time() >= deadline:
+                status = "timeout"
+                break
+
             msg_type = message.get("type", "")
 
             if msg_type == "_replay_done":
                 continue
 
             if msg_type == "_idle":
-                # 无 request 对象：在空闲哨兵上判 deadline 到期与会话状态。
-                if loop.time() >= deadline:
-                    status = "timeout"
-                    break
+                # 无 request 对象：在空闲哨兵上判会话状态（deadline 已在循环顶部统一判）。
                 live_status = await service.session_manager.get_status(session_id)
                 if live_status and live_status != "running":
                     status = "completed" if live_status in {"idle", "completed"} else live_status

@@ -37,8 +37,11 @@ async def _project_events_service(
     service = get_project_event_service(request)
     try:
         await asyncio.to_thread(service.pm.get_project_path, project_name)
-    except (FileNotFoundError, KeyError):
-        raise HTTPException(status_code=404, detail=f"project not found: {project_name}")
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        # 非法项目名(路径穿越等)是坏请求,不是「不存在」。
+        raise HTTPException(status_code=400, detail=str(exc))
     return service
 
 

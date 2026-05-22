@@ -239,6 +239,38 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.asyncio
+    async def test_subscribe_cancellation_cleans_up_subscriber(self, tmp_path, monkeypatch):
+        """客户端在首次扫描期间断开 → _subscribe 被取消 → 订阅者与 watch task 不泄漏。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+
+        service = ProjectEventService(tmp_path, poll_interval=0.05)
+        await service.start()
+
+        # 模拟首次扫描卡住:watch task 永不 set ready_event,_subscribe 会 park 在 wait()。
+        async def _never_ready(project_name, channel):
+            await asyncio.sleep(3600)
+
+        monkeypatch.setattr(service, "_watch_project", _never_ready)
+
+        task = asyncio.create_task(service._subscribe("demo"))
+        await asyncio.sleep(0.05)  # 让 _subscribe 注册 queue 并 park
+        channel = service._channels["demo"]
+        assert channel.subscribers  # 已注册
+        watch_task = channel.task
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # 取消后:订阅者被清理、channel 被弹出、watch task 被取消(不泄漏)。
+        assert "demo" not in service._channels
+        await asyncio.sleep(0)  # 让 watch task 的取消落定
+        assert watch_task.cancelled() or watch_task.done()
+
+        await service.shutdown()
+
     def test_projects_root_kwarg_overrides_default_subdir(self, tmp_path):
         """显式传 projects_root 时，service.pm 走该目录而非 project_root/'projects'。
 

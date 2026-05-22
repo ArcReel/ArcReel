@@ -4,6 +4,9 @@
 测试 POST /api/v1/agent/chat 端点的核心逻辑。
 """
 
+import asyncio
+import contextlib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
@@ -111,6 +114,75 @@ class TestAgentChatEndpoint:
         assert resp.status_code == 200
         assert resp.json()["status"] == "timeout"
         assert resp.json()["reply"] == "部分响应"
+
+
+class _StubSessionManager:
+    """A SessionManager whose stream_messages yields a scripted sequence."""
+
+    def __init__(self, live_messages, *, status="running", flood=False):
+        self._live = list(live_messages)
+        self.status = status
+        self._flood = flood
+
+    async def get_status(self, session_id):
+        return self.status
+
+    @contextlib.asynccontextmanager
+    async def stream_messages(self, session_id, *, replay=True, idle_timeout=5.0):
+        live = self._live
+        flood = self._flood
+
+        async def _iter():
+            yield {"type": "_replay_done"}
+            for msg in live:
+                yield msg
+            # flood: 持续以 <idle_timeout 间隔吐消息,_idle 永不触发。
+            while flood:
+                await asyncio.sleep(0.01)
+                yield {"type": "assistant", "content": [{"type": "text", "text": "x"}]}
+
+        yield _iter()
+
+
+class TestCollectReply:
+    async def test_enforces_deadline_under_continuous_traffic(self):
+        """持续 <idle_timeout 间隔的消息流下,deadline 仍被每轮检查 → timeout。
+
+        回归保护:若 deadline 只在 _idle 上判,这里会无限挂起(由外层 wait_for 兜底失败)。
+        """
+        service = SimpleNamespace(session_manager=_StubSessionManager([], flood=True))
+        reply, status = await asyncio.wait_for(
+            agent_chat._collect_reply(service, "sess-1", timeout=0.05),
+            timeout=5.0,
+        )
+        assert status == "timeout"
+
+    async def test_queue_overflow_yields_error(self):
+        """直播阶段 _queue_overflow → 显式收尾为 error,不傻等超时。"""
+        service = SimpleNamespace(
+            session_manager=_StubSessionManager([{"type": "_queue_overflow", "session_id": "sdk-1"}]),
+        )
+        reply, status = await asyncio.wait_for(
+            agent_chat._collect_reply(service, "sess-1", timeout=5.0),
+            timeout=5.0,
+        )
+        assert status == "error"
+
+    async def test_result_message_completes(self):
+        service = SimpleNamespace(
+            session_manager=_StubSessionManager(
+                [
+                    {"type": "assistant", "content": [{"type": "text", "text": "你好"}]},
+                    {"type": "result", "subtype": "success", "is_error": False},
+                ]
+            ),
+        )
+        reply, status = await asyncio.wait_for(
+            agent_chat._collect_reply(service, "sess-1", timeout=5.0),
+            timeout=5.0,
+        )
+        assert status == "completed"
+        assert reply == "你好"
 
 
 class TestExtractTextFromAssistantMessage:

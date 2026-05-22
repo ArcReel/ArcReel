@@ -116,6 +116,7 @@ class ProjectEventService:
             self._channels[project_name] = channel
 
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        # 队列必须在首次扫描前注册,否则会漏掉扫描完成到注册之间广播的事件。
         channel.subscribers.add(queue)
 
         if channel.task is None or channel.task.done():
@@ -127,7 +128,17 @@ class ProjectEventService:
                 name=f"project-events-{project_name}",
             )
 
-        await channel.ready_event.wait()
+        try:
+            await channel.ready_event.wait()
+        except BaseException:
+            # 客户端在首次扫描期间断开会取消这里:此时 _subscribe 尚未返回 queue,
+            # stream_events 的 try/finally 进不去。同步清理掉刚注册的订阅者(空闲项目
+            # 下 watch task 不会自愈),不 await 以免取消重入。
+            channel.subscribers.discard(queue)
+            if not channel.subscribers and channel.task is not None:
+                channel.task.cancel()
+                self._channels.pop(project_name, None)
+            raise
         return queue, self._build_snapshot_payload(project_name, channel)
 
     async def _unsubscribe(self, project_name: str, queue: asyncio.Queue) -> None:
