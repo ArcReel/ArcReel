@@ -494,12 +494,14 @@ def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
     assert any("E1U1" in w for w in log)
 
 
-def test_build_reference_specs_skips_empty_unit_id_without_aborting_batch(tmp_path) -> None:
-    """unit_id 为空时 from_request 抛裸 ValueError；该 unit 跳过而非中断整批（Agent 裸写 JSON 可致）。"""
+def test_build_reference_specs_skips_bad_unit_id_without_aborting_batch(tmp_path) -> None:
+    """unit_id 为空或键缺失（Agent 裸写 JSON 可致）都跳过该 unit 而非中断整批：
+    空串经 from_request 抛 ValueError 被捕获，缺键经 .get 归一化为空串后同样被拒。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
     units = [
-        {"unit_id": "", "shots": [{"duration": 3, "text": "@张三 推门"}]},
+        {"unit_id": "", "shots": [{"duration": 3, "text": "@张三 推门"}]},  # 空串
+        {"shots": [{"duration": 3, "text": "@王五 起身"}]},  # 缺 unit_id 键 → 不应抛 KeyError
         {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
     ]
     log: list[str] = []

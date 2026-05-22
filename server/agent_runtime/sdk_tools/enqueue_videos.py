@@ -152,7 +152,9 @@ def _build_reference_specs(
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
     for idx, unit in enumerate(units):
-        unit_id = unit["unit_id"]
+        # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
+        # 当作空 resource_id 拒绝并走下面的跳过分支，而不是在此抛 KeyError 中断整批。
+        unit_id = str(unit.get("unit_id") or "")
         if unit_id in skip_set:
             continue
         if not unit.get("shots"):
