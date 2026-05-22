@@ -138,31 +138,21 @@ def test_compress_references_empty_input(tmp_path: Path):
     assert _compress_references_to_tempfiles([]) == []
 
 
-def test_render_unit_prompt_rejects_empty_shots():
-    """所有 shots[].text 都为空时必须抛错，避免只追加负向尾词后被当成有效 prompt 提交给 backend。"""
-    unit = {
-        "shots": [
-            {"duration": 3, "text": ""},
-            {"duration": 2, "text": "   "},
-        ],
-        "references": [{"type": "character", "name": "张三"}],
-    }
-    with pytest.raises(ValueError, match="empty"):
-        _render_unit_prompt(unit)
+def test_render_unit_prompt_no_longer_rejects_empty():
+    """空提示词的结构校验已上移到入队守卫点，渲染函数自身不再拦截（不重复守门）。"""
+    references = [{"type": "character", "name": "张三"}]
+    # 不抛错；返回的只是负向尾词部分（不含正文）。
+    rendered = _render_unit_prompt("   ", references)
+    assert isinstance(rendered, str)
 
 
 def test_render_unit_prompt_replaces_mentions_in_order():
-    unit = {
-        "shots": [
-            {"duration": 3, "text": "Shot 1 (3s): @张三 推门"},
-            {"duration": 5, "text": "Shot 2 (5s): 对面的 @张三 抬眼，背景是 @酒馆"},
-        ],
-        "references": [
-            {"type": "character", "name": "张三"},
-            {"type": "scene", "name": "酒馆"},
-        ],
-    }
-    rendered = _render_unit_prompt(unit)
+    raw = "Shot 1 (3s): @张三 推门\nShot 2 (5s): 对面的 @张三 抬眼，背景是 @酒馆"
+    references = [
+        {"type": "character", "name": "张三"},
+        {"type": "scene", "name": "酒馆"},
+    ]
+    rendered = _render_unit_prompt(raw, references)
     assert "[图1]" in rendered
     assert "[图2]" in rendered
     assert "@张三" not in rendered

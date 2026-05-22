@@ -14,11 +14,13 @@ from claude_agent_sdk import tool
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
+    TaskSpecValidationError,
     batch_enqueue_and_wait,
     enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import is_structured_video_prompt, video_prompt_to_yaml
+from lib.reference_video import assemble_shots_text
 from lib.storyboard_sequence import get_storyboard_items
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -157,15 +159,20 @@ def _build_reference_specs(
         if not unit.get("shots"):
             log.append(f"⚠️  {unit_id} 没有 shots，跳过")
             continue
-        specs.append(
-            TaskSpec(
+        # prompt 由 shots[*].text 拼接，经统一守卫点做空提示词结构校验（见 ADR-0001）；
+        # 全空白的 unit 跳过并告警，与「没有 shots」一致，不让一个空 unit 中断整批。
+        try:
+            spec = TaskSpec.from_request(
                 task_type="reference_video",
                 media_type="video",
                 resource_id=unit_id,
-                payload={"script_file": script_filename},
+                prompt=assemble_shots_text(unit["shots"]),
                 script_file=script_filename,
             )
-        )
+        except TaskSpecValidationError:
+            log.append(f"⚠️  {unit_id} 提示词为空，跳过")
+            continue
+        specs.append(spec)
         order_map[unit_id] = idx
     return specs, order_map
 

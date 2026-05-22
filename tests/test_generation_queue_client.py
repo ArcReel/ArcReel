@@ -126,6 +126,30 @@ class TestTaskSpecFromRequest:
         spec = TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="一位老者")
         assert spec.payload == {"prompt": "一位老者"}
 
+    def test_reference_video_prompt_builds_spec(self):
+        # 参考生视频的 prompt 由 shots[*].text 拼接而成，走默认（非空字符串）分支。
+        spec = TaskSpec.from_request(
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            prompt="Shot 1 (3s): @张三 推门",
+            script_file="episode_1.json",
+        )
+        assert spec.task_type == "reference_video"
+        assert spec.payload == {"prompt": "Shot 1 (3s): @张三 推门", "script_file": "episode_1.json"}
+
+    def test_reference_video_empty_prompt_rejected(self):
+        # 所有 shots[*].text 拼接后只剩空白 → 守卫点拒绝，不再漏到执行层。
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(
+                task_type="reference_video",
+                media_type="video",
+                resource_id="E1U1",
+                prompt="\n   ",
+                script_file="episode_1.json",
+            )
+        assert exc.value.code == "prompt_text_empty"
+
     def test_empty_resource_id_rejected(self):
         with pytest.raises(ValueError):
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="", prompt="跑")

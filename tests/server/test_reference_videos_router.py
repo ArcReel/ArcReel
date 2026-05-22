@@ -214,6 +214,22 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
     assert enqueued[0]["task_type"] == "reference_video"
     assert enqueued[0]["media_type"] == "video"
     assert enqueued[0]["resource_id"] == uid
+    # 经统一守卫点构造：shots[*].text 拼接出的 prompt 随 payload 入队（见 ADR-0001）。
+    # parse_prompt 已剥离 `Shot N (Xs):` header，存盘的 shot text 仅余正文。
+    assert enqueued[0]["payload"]["prompt"] == "@张三 推门"
+
+
+def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):
+    """shots 文本全空白的 unit 在入队时被守卫点拒绝（400），不再漏到执行层失败。"""
+    script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"] = [
+        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": "  "}], "references": [], "duration_seconds": 3}
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
+    assert resp.status_code == 400, resp.text
 
 
 def test_generate_unit_missing_returns_404(client: TestClient):

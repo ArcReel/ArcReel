@@ -457,6 +457,41 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     assert "duration_seconds" not in specs2[0].payload
 
 
+def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
+    """参考生视频入队经统一守卫点：prompt 由 shots 拼接后随 payload 入队（见 ADR-0001）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        {
+            "unit_id": "E1U1",
+            "shots": [{"duration": 3, "text": "Shot 1 (3s): @张三 推门"}],
+            "references": [{"type": "character", "name": "张三"}],
+        }
+    ]
+    log: list[str] = []
+    specs, order_map = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert len(specs) == 1
+    assert specs[0].task_type == "reference_video"
+    assert specs[0].resource_id == "E1U1"
+    # 拼接出的 prompt 经守卫点校验后落入 payload。
+    assert specs[0].payload["prompt"] == "Shot 1 (3s): @张三 推门"
+    assert specs[0].payload["script_file"] == "episode_1.json"
+
+
+def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
+    """shots 存在但文本全空白的 unit 被跳过并告警，不漏到执行层（结构校验上移到守卫点）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": "   "}, {"duration": 2, "text": ""}]},
+        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+    ]
+    log: list[str] = []
+    specs, order_map = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert [s.resource_id for s in specs] == ["E1U2"]
+    assert any("E1U1" in w for w in log)
+
+
 # ---------------------------------------------------------------------------
 # text_generation
 # ---------------------------------------------------------------------------

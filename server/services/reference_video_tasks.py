@@ -20,7 +20,7 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_utils import compress_image_bytes
 from lib.prompt_builders import append_video_negative_tail
-from lib.reference_video import render_prompt_for_backend
+from lib.reference_video import assemble_shots_text, render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
@@ -99,19 +99,14 @@ def _compress_references_to_tempfiles(
     return temp_paths
 
 
-def _render_unit_prompt(unit: dict) -> str:
-    """拼接 unit.shots[*].text 为单一 prompt，再用 shot_parser 把 @X 替成 [图N]，
-    并在末尾追加统一文本化的反向提示词。
+def _render_unit_prompt(raw: str, references: list[dict]) -> str:
+    """把原始 prompt 文本用 shot_parser 将 @X 替成 [图N]，并追加统一文本化的反向提示词。
 
-    空 prompt 会被显式拒绝：否则尾词追加后会变成只含「画面避免：…」的非空文本，
-    绕过 backend 端的空 prompt 保护，浪费配额且产出与分镜无关的内容。
+    空 prompt 的结构校验已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
+    （WebUI / SDK）都在入队时拒绝空提示词，故此处不再重复拦截。
     """
-    shots = unit.get("shots") or []
-    raw = "\n".join(str(s.get("text", "")) for s in shots)
-    references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
-    rendered = render_prompt_for_backend(raw, references)
-    if not rendered.strip():
-        raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
+    refs = [ReferenceResource(type=r["type"], name=r["name"]) for r in references]
+    rendered = render_prompt_for_backend(raw, refs)
     return append_video_negative_tail(rendered)
 
 
@@ -258,11 +253,12 @@ async def execute_reference_video_task(
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images
     #    长度严格对齐；否则裁剪后的 `@clipped_name` 会被替成 `[图N]` 指向不存在的图。
-    unit_for_prompt = unit
+    #    prompt 原文取自入队时守卫点校验过的 payload；缺省（如更早入队的在途任务）
+    #    时回退到从 unit.shots 重组。
     unit_refs = unit.get("references") or []
-    if len(constrained_refs) < len(unit_refs):
-        unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
-    rendered_prompt = _render_unit_prompt(unit_for_prompt)
+    clipped_refs = unit_refs[: len(constrained_refs)] if len(constrained_refs) < len(unit_refs) else unit_refs
+    raw_prompt = payload.get("prompt") or assemble_shots_text(unit.get("shots") or [])
+    rendered_prompt = _render_unit_prompt(raw_prompt, clipped_refs)
 
     # 7. 压缩到临时文件（2048px/q=85）→ 首次调用
     tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)

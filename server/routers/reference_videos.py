@@ -16,9 +16,10 @@ from pydantic import BaseModel, Field
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
+from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager, effective_mode
-from lib.reference_video import parse_prompt
+from lib.reference_video import assemble_shots_text, parse_prompt
 from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -327,16 +328,29 @@ async def generate_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     _project, script, script_file = _load_episode_script(project_name, episode, _t)
-    _find_unit(script, unit_id, _t)  # raises 404 if missing
+    unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
+
+    # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
+    # 不再漏到执行层失败（见 ADR-0001）。
+    try:
+        spec = TaskSpec.from_request(
+            task_type="reference_video",
+            media_type="video",
+            resource_id=unit_id,
+            prompt=assemble_shots_text(unit.get("shots") or []),
+            script_file=script_file,
+        )
+    except TaskSpecValidationError as exc:
+        raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
-        task_type="reference_video",
-        media_type="video",
-        resource_id=unit_id,
-        payload={"script_file": script_file},
-        script_file=script_file,
+        task_type=spec.task_type,
+        media_type=spec.media_type,
+        resource_id=spec.resource_id,
+        payload=spec.payload,
+        script_file=spec.script_file,
         source="webui",
         user_id=_user.id,
     )

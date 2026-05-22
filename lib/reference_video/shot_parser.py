@@ -91,6 +91,16 @@ def render_prompt_for_backend(text: str, references: list[ReferenceResource]) ->
     return _MENTION_RE.sub(_repl, text)
 
 
+def assemble_shots_text(shots: list[dict]) -> str:
+    """把 unit.shots[*].text 拼接为单一原始 prompt（渲染、@→[图N] 替换之前）。
+
+    供入队守卫点对参考生视频做空提示词结构校验：``render_prompt_for_backend`` 对未注册
+    的 @mention 保留原文、从不删字，故「拼接文本去空白后为空」等价于「渲染后为空」，
+    空检查可无损地在入队侧完成。
+    """
+    return "\n".join(str(s.get("text", "")) for s in shots)
+
+
 def compute_duration_from_shots(shots: list[Shot]) -> int:
     """把 shots 时长求和，返回整数秒。"""
     return sum(s.duration for s in shots)
