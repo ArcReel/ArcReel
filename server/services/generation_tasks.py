@@ -40,6 +40,7 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
+from lib.video_backends.base import VideoCapabilityError
 from server.services.resolution_resolver import resolve_resolution
 
 pm = ProjectManager(app_data_dir())
@@ -449,18 +450,25 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
     duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
     可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
     视为非法而**拒绝**，不做截断式归一化（截断会把本应拒绝的非法值静默修正）。
+
+    校验失败抛 :class:`VideoCapabilityError`（带稳定 code），与 ImageCapabilityError 对称——
+    Worker 捕获后渲染为本地化的 task.error_message。
     """
     if not supported_durations:
         return
     try:
         numeric = float(duration)
     except (TypeError, ValueError):
-        raise ValueError(f"duration={duration!r} 不是合法的秒数")
+        raise VideoCapabilityError("video_duration_invalid", duration=duration)
     if not numeric.is_integer():
-        raise ValueError(f"duration={duration!r} 不是整数秒，不在该模型支持范围 {supported_durations} 内")
+        raise VideoCapabilityError("video_duration_invalid", duration=duration)
     seconds = int(numeric)
     if seconds not in supported_durations:
-        raise ValueError(f"duration={seconds}s 不在该模型支持范围 {supported_durations} 内")
+        raise VideoCapabilityError(
+            "video_duration_not_supported",
+            duration=seconds,
+            supported=", ".join(str(d) for d in supported_durations),
+        )
 
 
 def _collect_sheet_paths(
@@ -1321,7 +1329,7 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
     with project_change_source("worker"):
         try:
             result = await executor(project_name, resource_id, payload, user_id=user_id)
-        except ImageCapabilityError as err:
+        except (ImageCapabilityError, VideoCapabilityError) as err:
             # Worker 后台无 request 上下文，按 DEFAULT_LOCALE 渲染稳定的 i18n 文案
             # 落到 task.error_message，前端轮询时即可看到本地化提示
             message = i18n_translate(err.code, locale=DEFAULT_LOCALE, **err.params)
