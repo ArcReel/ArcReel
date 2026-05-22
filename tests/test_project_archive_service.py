@@ -313,6 +313,7 @@ class TestProjectArchiveService:
         installed = _json.loads((pm.get_project_path(result.project_name) / "project.json").read_text(encoding="utf-8"))
         assert installed["schema_version"] == 2
         assert installed["image_provider_t2i"] == "gemini-vertex/imagen-3"
+        assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
         assert "image_backend" not in installed
 
     def test_import_rejects_missing_project_json(self, tmp_path):

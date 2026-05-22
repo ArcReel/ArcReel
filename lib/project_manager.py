@@ -1399,6 +1399,10 @@ class ProjectManager:
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
+            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不再读取，写回只会
+            # 重新制造被静默忽略的 legacy 形态）。路由层已返回 400，这里再兜一道防非路由调用方。
+            if "image_backend" in extras:
+                raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
             project.update(extras)
 
         self.save_project(project_name, project)

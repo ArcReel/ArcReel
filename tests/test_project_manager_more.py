@@ -75,6 +75,24 @@ class TestProjectManagerMore:
         pm.save_project("demo", loaded)
         assert pm.load_project("demo")["style"] == "Noir"
 
+    def test_create_project_metadata_rejects_legacy_image_backend(self, tmp_path):
+        """数据层守卫：extras 含退役的 image_backend → 直接 ValueError，绝不写回 legacy 形态。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        with pytest.raises(ValueError, match="image_backend"):
+            pm.create_project_metadata(
+                "demo", "Demo", "Anime", "narration", extras={"image_backend": "openai/gpt-image-1"}
+            )
+
+    def test_create_project_metadata_accepts_new_image_provider_fields(self, tmp_path):
+        """新字段 image_provider_t2i/i2i 正常写入（不受守卫影响）。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        project = pm.create_project_metadata(
+            "demo", "Demo", "Anime", "narration", extras={"image_provider_t2i": "openai/gpt-image-1"}
+        )
+        assert project["image_provider_t2i"] == "openai/gpt-image-1"
+
     def test_project_identifier_validation_and_title_fallback(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
