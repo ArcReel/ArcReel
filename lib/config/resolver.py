@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -50,9 +51,95 @@ logger = logging.getLogger(__name__)
 _TRUTHY = frozenset({"true", "1", "yes"})
 
 
+@dataclass(frozen=True)
+class ProviderModel:
+    """provider 解析的结果值对象：一对 (规范 provider_id, model_id)。
+
+    见 CONTEXT.md「ProviderModel」。这是"选了哪个 provider 及其 model"，**不是** backend
+    （未构造任何客户端）；命名刻意避开 ``*Backend`` 以保持 provider 身份与 backend 构造的区分。
+    ``provider_id`` 一律为规范 id——解析链假设输入即规范形态（由项目迁移 + 写边界保证），不做归一化。
+    """
+
+    provider_id: str
+    model_id: str
+
+
 def _parse_bool(raw: str) -> bool:
     """将配置字符串解析为布尔值。"""
     return raw.strip().lower() in _TRUTHY
+
+
+def _split_pair(raw: object) -> tuple[str, str] | None:
+    """解析 ``"<provider>/<model>"`` → (provider, model)；不合法返回 None。
+
+    provider 或 model 为空/纯空白（如 ``"openai/"`` / ``"/m"``）均视为不合法返回 None，
+    交由调用方走裸 provider 补默认 model 或回退——避免把空 model 带到执行层。"""
+    if not isinstance(raw, str) or "/" not in raw:
+        return None
+    provider, model = raw.split("/", 1)
+    provider, model = provider.strip(), model.strip()
+    if not provider or not model:
+        return None
+    return provider, model
+
+
+def _default_model_for_provider(provider_id: str, media_type: str) -> str | None:
+    """返回该 provider 在 ``PROVIDER_REGISTRY`` 中指定 media_type 的默认 model_id；无则 None。"""
+    meta = PROVIDER_REGISTRY.get(provider_id)
+    if meta is None:
+        return None
+    for model_id, model_info in meta.models.items():
+        if model_info.media_type == media_type and model_info.default:
+            return model_id
+    return None
+
+
+def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
+    """解析 project.json 的 provider 字段，兼容裸 provider 覆盖。
+
+    - ``"provider/model"`` → (provider, model)
+    - 裸 ``"provider"``（registry 中存在且有该 media_type 默认 model）→ (provider, 默认 model)
+    - 其余 → None（交由全局默认解析）
+
+    裸 provider 经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
+    pin 住该 provider 并补全其默认 model，避免静默回退到全局默认的**另一**供应商。"""
+    pair = _split_pair(raw)
+    if pair is not None:
+        return pair
+    if isinstance(raw, str):
+        # 裸 provider，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该 provider 默认 model
+        provider = raw.strip().rstrip("/").strip()
+        if provider:
+            model = _default_model_for_provider(provider, media_type)
+            if model is not None:
+                return provider, model
+    return None
+
+
+def _trusted_payload_provider(provider_id: object) -> str | None:
+    """返回可信任的规范 provider_id（已知 provider），否则 None。
+
+    payload 是解析链唯一绕过写边界校验的输入来源（in-flight 队列任务在旧代码入队时即序列化）。
+    据此守卫：非字符串 / 空白 / 不可识别的 provider（如 legacy ``seedance``/``vertex``）一律不予
+    信任，返回 None 让解析回退到已迁移的 project/global——不做 legacy→规范映射，仅拒绝不可信输入。"""
+    if not isinstance(provider_id, str):
+        return None
+    provider_id = provider_id.strip()
+    if not provider_id:
+        return None
+    if provider_id in PROVIDER_REGISTRY or is_custom_provider(provider_id):
+        return provider_id
+    return None
+
+
+def _payload_model_or_default(raw_model: object, provider_id: str, media_type: str) -> str | None:
+    """payload 显式 model（非空字符串）优先；缺失则补该 provider 的 registry 默认 model。
+
+    避免「半截 payload」（只有 provider、缺 model）把空 model 带到执行层。补不出默认 model 时
+    返回 None，由调用方回退 project/global。"""
+    if isinstance(raw_model, str) and raw_model.strip():
+        return raw_model.strip()
+    return _default_model_for_provider(provider_id, media_type)
 
 
 _TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
@@ -128,6 +215,34 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_backend(svc, session, project_name)
+
+    async def resolve_image_backend(
+        self,
+        project: dict | None,
+        payload: dict | None,
+        *,
+        capability: Literal["t2i", "i2i"],
+    ) -> ProviderModel:
+        """解析图片任务应使用的 ProviderModel。
+
+        优先级：payload（本次请求/历史任务）> project（``image_provider_<cap>``）> 全局默认。
+        capability 决定走 t2i 还是 i2i 槽（见 ``docs/adr/0001``）。不做任何 provider 归一化。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_image_provider_model(svc, session, project, payload, capability)
+
+    async def resolve_video_backend(
+        self,
+        project: dict | None,
+        payload: dict | None,
+    ) -> ProviderModel:
+        """解析视频任务应使用的 ProviderModel。
+
+        优先级：payload（历史任务携带的 ``video_provider``）> project（``video_backend``）> 全局默认。
+        视频任务无 capability 维度。不做任何 provider 归一化。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_video_provider_model(svc, session, project, payload)
 
     async def video_capabilities(self, project_name: str | None = None) -> dict:
         """解析当前项目视频 model 的综合能力 + 用户项目偏好。
@@ -232,10 +347,66 @@ class ConfigResolver:
         project: dict | None,
     ) -> tuple[str, str]:
         if project is not None:
-            project_val = project.get("video_backend")
-            if project_val and isinstance(project_val, str) and "/" in project_val:
-                return ConfigService._parse_backend(project_val, _DEFAULT_VIDEO_BACKEND)
+            parsed = _parse_project_provider(project.get("video_backend"), "video")
+            if parsed is not None:
+                return parsed
         return await self._resolve_default_video_backend(svc, session)
+
+    async def _resolve_image_provider_model(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+        payload: dict | None,
+        capability: Literal["t2i", "i2i"],
+    ) -> ProviderModel:
+        """payload > project > 全局默认 三级解析图片 ProviderModel。
+
+        payload 层保留 ``payload>project>global`` 的规范骨架，当前服务于部署时队列里
+        历史任务（携带 ``image_provider_<cap>`` 或旧 ``image_provider``/``image_model``）的排空，
+        并作为未来"单请求显式覆盖"的落点。payload provider 须是已知 provider（见
+        ``_trusted_payload_provider``），否则不予信任、回退 project/global。
+        """
+        cap_key = f"image_provider_{capability}"
+        if payload:
+            pair = _split_pair(payload.get(cap_key))
+            if pair is not None and _trusted_payload_provider(pair[0]) is not None:
+                return ProviderModel(*pair)
+            provider_id = _trusted_payload_provider(payload.get("image_provider"))
+            if provider_id is not None:
+                model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
+                if model is not None:
+                    return ProviderModel(provider_id, model)
+        if project:
+            parsed = _parse_project_provider(project.get(cap_key), "image")
+            if parsed is not None:
+                return ProviderModel(*parsed)
+        provider_id, model_id = await self._resolve_default_image_backend(svc, session, capability)
+        return ProviderModel(provider_id, model_id)
+
+    async def _resolve_video_provider_model(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+        payload: dict | None,
+    ) -> ProviderModel:
+        """payload > project > 全局默认 三级解析视频 ProviderModel。
+
+        payload 层服务于历史任务（携带 ``video_provider`` + ``video_model`` /
+        ``video_provider_settings.model``）的排空。payload provider 须是已知 provider（见
+        ``_trusted_payload_provider``），否则不予信任、回退 project/global。
+        """
+        if payload:
+            provider_id = _trusted_payload_provider(payload.get("video_provider"))
+            if provider_id is not None:
+                settings = payload.get("video_provider_settings")
+                settings_model = settings.get("model") if isinstance(settings, dict) else None
+                model = _payload_model_or_default(payload.get("video_model") or settings_model, provider_id, "video")
+                if model is not None:
+                    return ProviderModel(provider_id, model)
+        provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
+        return ProviderModel(provider_id, model_id)
 
     async def _resolve_video_capabilities(
         self,

@@ -9,6 +9,7 @@ import pytest
 from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
     cleanup_stale_backups,
+    migrate_project_dir,
     run_project_migrations,
 )
 
@@ -34,27 +35,62 @@ def test_skip_already_current(tmp_projects: Path):
     assert summary.skipped == ["p1"]
 
 
-def test_migrate_v0_bumps_version(tmp_projects: Path, monkeypatch):
+def test_migrate_bumps_through_all_versions(tmp_projects: Path, monkeypatch):
+    """runner 逐级跑到 CURRENT_SCHEMA_VERSION（此处 v0→v1→v2）。"""
     _write_project(tmp_projects, "p1", {"name": "p1"})  # 无 schema_version
 
-    called = {}
+    called: list[int] = []
 
-    def fake_migrate_v0_to_v1(project_dir: Path) -> None:
-        called["p1"] = True
+    def fake_v0(project_dir: Path) -> None:
+        called.append(0)
         data = json.loads((project_dir / "project.json").read_text())
         data["schema_version"] = 1
         (project_dir / "project.json").write_text(json.dumps(data))
 
+    def fake_v1(project_dir: Path) -> None:
+        called.append(1)
+        data = json.loads((project_dir / "project.json").read_text())
+        data["schema_version"] = 2
+        (project_dir / "project.json").write_text(json.dumps(data))
+
     monkeypatch.setattr(
         "lib.project_migrations.runner.MIGRATORS",
-        {0: fake_migrate_v0_to_v1},
+        {0: fake_v0, 1: fake_v1},
     )
 
     summary = run_project_migrations(tmp_projects)
     assert "p1" in summary.migrated
-    assert called == {"p1": True}
+    assert called == [0, 1]
     data = json.loads((tmp_projects / "p1" / "project.json").read_text())
-    assert data["schema_version"] == 1
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
+
+
+def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
+    """用真实 MIGRATORS：v1 项目经 runner 归一化 legacy provider 名并升到 v2。"""
+    _write_project(
+        tmp_projects,
+        "p1",
+        {"schema_version": 1, "video_backend": "seedance/x", "image_backend": "vertex/y"},
+    )
+    summary = run_project_migrations(tmp_projects)
+    assert "p1" in summary.migrated
+    data = json.loads((tmp_projects / "p1" / "project.json").read_text())
+    assert data["schema_version"] == 2
+    assert data["video_backend"] == "ark/x"
+    assert data["image_provider_t2i"] == "gemini-vertex/y"
+    assert "image_backend" not in data
+
+
+def test_migrate_project_dir_single_project(tmp_projects: Path):
+    """单项目入口（供导入路径复用）：v1 项目走完整链升到 v2 并归一化 legacy 名。"""
+    d = _write_project(tmp_projects, "imported", {"schema_version": 1, "image_backend": "vertex/y"})
+    assert migrate_project_dir(d) is True
+    data = json.loads((d / "project.json").read_text())
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert data["image_provider_t2i"] == "gemini-vertex/y"
+    assert "image_backend" not in data
+    # 幂等：已是最新版本再调返回 False、不改动
+    assert migrate_project_dir(d) is False
 
 
 def test_skip_underscore_dirs(tmp_projects: Path):

@@ -65,43 +65,6 @@ class GeneratePropRequest(BaseModel):
     prompt: str
 
 
-_LEGACY_PROVIDER_NAMES: dict[str, str] = {
-    "gemini": "gemini-aistudio",
-    "aistudio": "gemini-aistudio",
-    "vertex": "gemini-vertex",
-}
-
-
-def _normalize_provider_id(raw: str) -> str:
-    """将旧格式 provider 名称归一化为标准 provider_id。"""
-    return _LEGACY_PROVIDER_NAMES.get(raw, raw)
-
-
-def _snapshot_image_backend(project_name: str) -> dict:
-    """快照图片供应商配置，返回可合并到 payload 的字典。
-
-    新拆分语义：写入 image_provider_t2i / image_provider_i2i 两键。
-    优先级（每个槽独立）：
-        project[image_provider_<cap>] > project[image_backend] (legacy fallback)
-    都缺失则不写该键，让下游 resolver 走全局默认。
-    """
-    project = get_project_manager().load_project(project_name)
-    legacy = project.get("image_backend")
-    if not isinstance(legacy, str) or "/" not in legacy:
-        legacy = None  # 旧字段不可用作 fallback
-
-    snapshot: dict = {}
-    for cap in ("t2i", "i2i"):
-        key = f"image_provider_{cap}"
-        value = project.get(key)
-        if isinstance(value, str) and "/" in value:
-            snapshot[key] = value
-        elif legacy:
-            snapshot[key] = legacy
-
-    return snapshot
-
-
 # ==================== 分镜图生成 ====================
 
 
@@ -127,9 +90,8 @@ async def generate_storyboard(
             resolved = find_storyboard_item(items, id_field, segment_id)
             if resolved is None:
                 raise HTTPException(status_code=404, detail=_t("segment_not_found", id=segment_id))
-            return _snapshot_image_backend(project_name)
 
-        image_snapshot = await asyncio.to_thread(_sync)
+        await asyncio.to_thread(_sync)
 
         # 验证 prompt 格式
         if isinstance(req.prompt, dict):
@@ -158,7 +120,6 @@ async def generate_storyboard(
             payload={
                 "prompt": req.prompt,
                 "script_file": req.script_file,
-                **image_snapshot,
             },
             source="webui",
             user_id=_user.id,
@@ -307,9 +268,8 @@ async def _enqueue_asset_generation(
         project = get_project_manager().load_project(project_name)
         if resource_name not in project.get(spec.bucket_key, {}):
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=resource_name))
-        return _snapshot_image_backend(project_name)
 
-    image_snapshot = await asyncio.to_thread(_sync)
+    await asyncio.to_thread(_sync)
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(
@@ -317,7 +277,7 @@ async def _enqueue_asset_generation(
         task_type=asset_type,
         media_type="image",
         resource_id=resource_name,
-        payload={"prompt": prompt, **image_snapshot},
+        payload={"prompt": prompt},
         source="webui",
         user_id=user_id,
     )

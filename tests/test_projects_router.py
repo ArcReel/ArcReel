@@ -270,6 +270,13 @@ class TestProjectsRouter:
             assert updated_ratio.status_code == 200
             assert updated_ratio.json()["project"]["aspect_ratio"] == "16:9"
 
+            # 退役的 image_backend 字段在 PATCH 上也被直接拒绝
+            rejected_legacy = client.patch(
+                "/api/v1/projects/ready",
+                json={"image_backend": "gemini-aistudio/nano-banana"},
+            )
+            assert rejected_legacy.status_code == 400
+
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200
 
@@ -518,7 +525,7 @@ class TestProjectsRouter:
                     "title": "模型项目",
                     "name": "m-1",
                     "video_backend": "gemini-aistudio/veo-3",
-                    "image_backend": "gemini-aistudio/nano-banana",
+                    "image_provider_t2i": "gemini-aistudio/nano-banana",
                     "text_backend_script": "gemini-aistudio/gemini-2.5",
                     "default_duration": 8,
                 },
@@ -526,9 +533,22 @@ class TestProjectsRouter:
             assert resp.status_code == 200
             data = fake_pm.project_data["m-1"]
             assert data["video_backend"] == "gemini-aistudio/veo-3"
-            assert data["image_backend"] == "gemini-aistudio/nano-banana"
+            assert data["image_provider_t2i"] == "gemini-aistudio/nano-banana"
             assert data["text_backend_script"] == "gemini-aistudio/gemini-2.5"
             assert data["default_duration"] == 8
+
+    def test_create_project_rejects_legacy_image_backend(self, tmp_path, monkeypatch):
+        """退役的 image_backend 字段在写路径被直接 400 拒绝，避免静默错配（应改用 image_provider_t2i/i2i）。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={"title": "旧字段项目", "name": "legacy-1", "image_backend": "gemini-aistudio/nano-banana"},
+            )
+            assert resp.status_code == 400
+            assert "legacy-1" not in fake_pm.project_data
 
     def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
@@ -560,7 +580,7 @@ class TestProjectsRouter:
                 json={
                     "title": "Bad Backend",
                     "name": "bad-bk",
-                    "video_backend": "garbage",  # 无 "/"，且不在 _LEGACY_PROVIDER_NAMES/PROVIDER_REGISTRY
+                    "video_backend": "garbage",  # 无 "/"，且不在 PROVIDER_REGISTRY
                 },
             )
             assert resp.status_code == 400

@@ -1241,23 +1241,6 @@ class ProjectManager:
             return False
 
     @staticmethod
-    def _lazy_upgrade_image_provider(project: dict) -> None:
-        """读取时把旧 image_backend 字段映射到 image_provider_t2i / _i2i 两字段（不写盘）。
-
-        历史 project.json 用 `image_backend: "<provider>/<model>"` 单字段；本次改造引入
-        `image_provider_t2i` / `image_provider_i2i` 两字段。lazy 升级保留旧字段作为 fallback。
-
-        - 仅当 `image_backend` 是 "<provider>/<model>" 字符串时才生效
-        - 已有 _t2i / _i2i 不覆盖
-        - 旧 image_backend 字段保留
-        """
-        legacy = project.get("image_backend")
-        if not isinstance(legacy, str) or "/" not in legacy:
-            return
-        project.setdefault("image_provider_t2i", legacy)
-        project.setdefault("image_provider_i2i", legacy)
-
-    @staticmethod
     def _migrate_legacy_style(project: dict) -> bool:
         """检测旧 style 值并就地迁移。返回是否发生了变更。"""
         if "style_template_id" in project:
@@ -1305,7 +1288,6 @@ class ProjectManager:
                 project_name,
                 changed_paths=[self.PROJECT_FILE],
             )
-        self._lazy_upgrade_image_provider(project)
         return project
 
     @contextmanager
@@ -1378,8 +1360,7 @@ class ProjectManager:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
         避免并发任务（如同时生成多张角色图片）之间的 lost-update 竞态。
-        在同一持锁窗口内统一应用读时迁移（_migrate_legacy_style），并在锁外应用
-        内存映射升级（_lazy_upgrade_image_provider），返回迁移后的项目元数据 dict，
+        在同一持锁窗口内统一应用读时迁移（_migrate_legacy_style），返回迁移后的项目元数据 dict，
         调用方无需再 load_project 一次。
 
         Args:
@@ -1405,7 +1386,6 @@ class ProjectManager:
             changed_paths=[self.PROJECT_FILE],
         )
 
-        self._lazy_upgrade_image_provider(project)
         return project
 
     @staticmethod
@@ -1457,17 +1437,20 @@ class ProjectManager:
         """
         创建新的项目元数据文件
 
-        `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_backend /
-        text_backend_{script,overview,style}）。调用方负责剔除空值，本方法只按字面
-        写入 extras 中已有的键。
+        `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_provider_t2i /
+        image_provider_i2i / text_backend_{script,overview,style}）。调用方负责剔除空值，
+        本方法只按字面写入 extras 中已有的键——退役的单字段 image_backend 不在写入范围
+        （解析链不再读取、写边界已拒绝），调用方不应再传入。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
 
-        # schema_version 与 CURRENT_SCHEMA_VERSION 对齐，防止 v0→v1 迁移
-        # 在"新项目未含 clues 字段"时误清空已有的 scenes/props。
+        # schema_version 与 CURRENT_SCHEMA_VERSION 对齐：新项目即最新形态，
+        # 避免被启动迁移误处理（如 v0→v1 在"未含 clues 字段"时误清空 scenes/props）。
+        from lib.project_migrations import CURRENT_SCHEMA_VERSION
+
         project = {
-            "schema_version": 1,
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "title": project_title or project_name,
             "content_mode": content_mode or "narration",
             "aspect_ratio": aspect_ratio or "9:16",
@@ -1486,6 +1469,10 @@ class ProjectManager:
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
+            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不再读取，写回只会
+            # 重新制造被静默忽略的 legacy 形态）。路由层已返回 400，这里再兜一道防非路由调用方。
+            if "image_backend" in extras:
+                raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
             project.update(extras)
 
         self.save_project(project_name, project)

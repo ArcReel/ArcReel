@@ -622,3 +622,142 @@ class TestVideoCapabilities:
         assert caps["source"] == "custom"
         assert caps["supported_durations"] == [5, 10]
         assert caps["max_duration"] == 10
+
+
+class TestResolveImageBackend:
+    """resolve_image_backend：payload > project > 全局默认，capability=t2i/i2i 各覆盖。"""
+
+    async def test_payload_capability_slot_wins(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_t2i": "ark/proj-t2i", "image_provider_i2i": "ark/proj-i2i"}
+        payload = {"image_provider_t2i": "openai/pay-t2i", "image_provider_i2i": "openai/pay-i2i"}
+        t2i = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
+        i2i = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "i2i")
+        assert (t2i.provider_id, t2i.model_id) == ("openai", "pay-t2i")
+        assert (i2i.provider_id, i2i.model_id) == ("openai", "pay-i2i")
+
+    async def test_payload_legacy_fields_for_historical_tasks(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        payload = {"image_provider": "openai", "image_model": "legacy"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, {}, payload, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "legacy")
+
+    async def test_project_capability_slot_when_no_payload(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_t2i": "ark/proj-t2i", "image_provider_i2i": "ark/proj-i2i"}
+        t2i = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        i2i = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "i2i")
+        assert (t2i.provider_id, t2i.model_id) == ("ark", "proj-t2i")
+        assert (i2i.provider_id, i2i.model_id) == ("ark", "proj-i2i")
+
+    async def test_falls_through_to_global_default(self):
+        """payload/project 都缺 → 落到全局默认（显式 default_image_backend_t2i）。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, None, None, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-2-image")
+
+    async def test_no_legacy_image_backend_fallback(self):
+        """解析链不再认 legacy 单字段 image_backend（由迁移转规范字段），直接落全局默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_backend": "openai/legacy"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert resolved.provider_id == "grok"
+
+    async def test_project_bare_provider_pins_provider_with_default_model(self):
+        """裸 provider 项目覆盖（写边界放行）→ pin 该 provider 并补全其默认 model，不静默回退全局默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_provider_t2i": "openai"}  # 裸 provider，无 model
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert resolved.provider_id == "openai"
+        assert resolved.model_id == "gpt-image-2"  # registry 中 openai 的默认 image model
+
+    async def test_project_unknown_bare_provider_falls_through(self):
+        """裸 provider 不在 registry（无默认 model 可补）→ 退回全局默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_provider_t2i": "does-not-exist"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert resolved.provider_id == "grok"
+
+    async def test_project_provider_with_trailing_slash_uses_provider_default(self):
+        """脏值 "openai/"（缺 model，写校验器会放行）→ 取 openai 默认 model，不带空 model 下游。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        project = {"image_provider_t2i": "openai/"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
+
+    async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
+        """in-flight 历史任务 payload 携带 legacy 名（写边界拦不到）→ 不予信任，回退已迁移的 project。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_t2i": "openai/gpt-image-2"}  # 启动期已迁移为规范名
+        payload = {"image_provider": "vertex", "image_model": "legacy"}  # legacy，不可识别
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
+
+    async def test_payload_known_provider_missing_model_uses_provider_default(self):
+        """半截 payload（已知 provider 但缺 model）→ 补该 provider 默认 model，不带空 model 到执行层。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
+        payload = {"image_provider": "openai"}  # 只有 provider，无 image_model
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, {}, payload, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
+
+
+class TestResolveVideoBackend:
+    """resolve_video_backend：payload > project > 全局默认。"""
+
+    async def test_payload_historical_provider_wins(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider": "ark", "video_provider_settings": {"model": "seedance"}}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance")
+
+    async def test_project_video_backend_when_no_payload(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "ark/seedance-1-0-pro"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+
+    async def test_falls_through_to_global_default(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "ark/doubao-seedance-1-5-pro"})
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-1-5-pro")
+
+    async def test_project_bare_provider_pins_provider_with_default_model(self):
+        """裸 video_backend(如 "ark") → pin ark 并补全其默认 video model，不回退全局默认的另一供应商。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "grok/grok-imagine-video"})
+        project = {"video_backend": "ark"}  # 裸 provider
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
+        assert resolved.provider_id == "ark"
+        assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # registry 中 ark 的默认 video model
+
+    async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
+        """in-flight 历史任务 payload 携带 legacy video_provider（如 seedance）→ 不予信任，回退已迁移的 project。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "ark/seedance-1-0-pro"}  # 启动期已迁移为规范名
+        payload = {"video_provider": "seedance", "video_model": "legacy"}  # legacy，不可识别
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+
+    async def test_payload_non_dict_video_provider_settings_does_not_crash(self):
+        """脏 payload：video_provider_settings 非 dict → 不抛异常，按缺 model 补该 provider 默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "grok/grok-imagine-video"})
+        payload = {"video_provider": "ark", "video_provider_settings": "not-a-dict"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, {}, payload)
+        assert resolved.provider_id == "ark"
+        assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # 补 ark 默认 video model
