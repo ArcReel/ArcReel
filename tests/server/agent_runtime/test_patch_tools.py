@@ -114,13 +114,19 @@ class TestInsertRemoveSplit:
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S02"]
 
     async def test_split_keeps_first_id_clears_assets(self, ctx: ToolContext) -> None:
+        # part 自带已生成资产，验证 split 改变分镜身份后会清空它（旧资产无合理归属）
+        part_a = _segment("a")
+        part_a["generated_assets"] = {"storyboard_image": "stale.png", "status": "completed"}
         out = await _call(
             split_segment_tool(ctx),
-            {"script": "episode_1.json", "id": "E1S01", "parts": [_segment("a"), _segment("b")]},
+            {"script": "episode_1.json", "id": "E1S01", "parts": [part_a, _segment("b")]},
         )
         assert out.get("is_error") is not True
-        ids = [s["segment_id"] for s in _load(ctx)["segments"]]
+        saved = _load(ctx)["segments"]
+        ids = [s["segment_id"] for s in saved]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
+        assert not saved[0].get("generated_assets")
+        assert not saved[1].get("generated_assets")
 
     async def test_split_too_few_parts_errors(self, ctx: ToolContext) -> None:
         out = await _call(

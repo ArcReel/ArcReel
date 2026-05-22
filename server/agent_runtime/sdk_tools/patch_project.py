@@ -42,8 +42,8 @@ def patch_project_tool(ctx: ToolContext):
         try:
             table = str(args["table"])
             entries = args["entries"]
-            if not isinstance(entries, dict):
-                raise ValueError("entries 必须是 { 名称: 字段对象 } 映射")
+            if not isinstance(entries, dict) or not entries:
+                raise ValueError("entries 必须是非空 { 名称: 字段对象 } 映射")
             ctx.pm.upsert_assets(ctx.project_name, table, entries)
             names = ", ".join(entries.keys())
             return {"content": [{"type": "text", "text": f"✅ 已写入 {table}: {names}"}]}
