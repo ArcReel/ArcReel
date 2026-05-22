@@ -168,3 +168,14 @@ class TestPatchProject:
     async def test_unknown_table_errors(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"table": "weapons", "entries": {"剑": {"description": "x"}}})
         assert out.get("is_error") is True
+
+    async def test_upsert_allowed_when_project_already_invalid(self, ctx: ToolContext) -> None:
+        """「不更坏」：项目本就含与资产无关的历史非法（空 style）时，patch_project 仍应成功——
+        否则带历史脏数据的项目会整条编辑路径不可用。"""
+        ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
+        )
+        assert out.get("is_error") is not True
+        assert "李白" in ctx.pm.load_project("demo").get("characters", {})

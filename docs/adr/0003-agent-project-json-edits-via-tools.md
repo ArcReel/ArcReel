@@ -17,7 +17,7 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 - **Bash 子进程**（Linux/macOS，内核级）：`sandbox.filesystem.denyWrite` 覆盖 `scripts/` 目录与 `project.json`。SDK 文档（sandboxing.md）明确 `denyWrite` 是 OS 级（Seatbelt / bwrap profile），对 sandbox 内**所有子进程（含 Bash 及其 child）生效**——堵住 `echo>`/`sed`/`python -c` 旁路。选 `denyWrite` 而非「Edit-deny 规则下推」：前者是文档化的 write-deny 字段，与现有 `denyRead` 同一 `filesystem` passthrough，不依赖 Edit allow/deny 规则被 SDK 派生进 Bash FS profile 这一未明文保证的行为。
 - **内置 Write/Edit**（全平台）：内置文件工具不走 sandbox（走权限系统），由 `_check_write_access` hook 拒绝 `scripts/*.json` + `project.json`。与上面的 denyWrite 同源（同两类路径），构成双层。
-- 剧本写入全 funnel 进 `_write_script_unlocked`：继承 ADR-0002 的「不更坏」语义 + metadata 重算（`total_scenes`/`estimated_duration_seconds`）+ 加锁 + filename↔episode 一致性。`project.json` 走 `update_project(_mutate)` + `validate_project`。
+- 剧本写入全 funnel 进 `_write_script_unlocked`：继承 ADR-0002 的「不更坏」语义 + metadata 重算（`total_scenes`/`estimated_duration_seconds`）+ 加锁 + filename↔episode 一致性。`project.json` 走 `update_project(_mutate)`，并在 mutation 内对结果 payload 做**同款「不更坏」校验**（改前已非法的历史脏数据放行，仅当本次 upsert 把合法 project 改非法时拒写）——与剧本咽喉的 `_guard_no_worse` 同源；若改成「结果必须绝对合法」会让带历史问题（如空 `style`）的项目整条 `patch_project` 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
 
 ## Consequences
 

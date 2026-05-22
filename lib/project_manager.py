@@ -1577,9 +1577,11 @@ class ProjectManager:
         """按 table（characters/scenes/props）+ name upsert 资产：不存在则新增、存在则改字段。
 
         在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
-        project dict 做 payload 级结构校验，非法则 raise ValueError 且**不落盘**（mutation
-        抛错时 `update_project` 不会执行 atomic_write）。取代 `add_assets.py` 的「先写后验、
-        失败仍留脏数据」，且把「只能加」扩为「可改」。返回更新后的项目元数据。
+        project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当本次 upsert 把原本
+        合法的 project 改成非法时才 raise 且**不落盘**（mutation 抛错时 `update_project` 不执行
+        atomic_write）；改前已非法（历史遗留脏数据，如空 `style`）则照常放行——否则带历史问题的
+        项目会整条 patch_project 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
+        与剧本写盘咽喉的 `_guard_no_worse` 同源。把「只能加」扩为「可改」。返回更新后的项目元数据。
         """
         # data_validator 在模块级 import 本模块（effective_mode），故惰性 import 破环。
         from lib.data_validator import DataValidator
@@ -1597,15 +1599,18 @@ class ProjectManager:
         cleaned = {name: self._strip_legacy_asset_fields(attrs) for name, attrs in entries.items()}
 
         def _mutate(project: dict) -> None:
+            validator = DataValidator(str(self.projects_root))
+            before_valid = validator.validate_project_payload(project).valid  # 改前快照（含历史遗留）
             bucket = project.setdefault(spec.bucket_key, {})
             for name, attrs in cleaned.items():
                 if isinstance(bucket.get(name), dict):
                     bucket[name].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
                 else:
                     bucket[name] = self._build_asset_entry(asset_type, attrs.get("description", ""), attrs)
-            result = DataValidator(str(self.projects_root)).validate_project_payload(project)
-            if not result.valid:
-                raise ValueError("project.json 结构校验失败: " + "; ".join(result.errors))
+            after = validator.validate_project_payload(project)
+            # 「不更坏」：只在本次 upsert 把原本合法的 project 改非法时拦；改前已非法则放行。
+            if not after.valid and before_valid:
+                raise ValueError("project.json 结构校验失败: " + "; ".join(after.errors))
 
         return self.update_project(project_name, _mutate)
 
