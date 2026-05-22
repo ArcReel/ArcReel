@@ -1602,6 +1602,11 @@ class ProjectManager:
             validator = DataValidator(str(self.projects_root))
             before_valid = validator.validate_project_payload(project).valid  # 改前快照（含历史遗留）
             bucket = project.setdefault(spec.bucket_key, {})
+            if not isinstance(bucket, dict):
+                # 历史脏数据：bucket_key 已存在却非 dict（如 list/str）。继续会让下方
+                # bucket.get/bucket[name].update 抛含糊的 AttributeError，故先 fail-loud
+                # 给出意外类型与 offending key（mutation 物理上无法对非 dict 施加，与「不更坏」无关）。
+                raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，当前为 {type(bucket).__name__}")
             for name, attrs in cleaned.items():
                 if isinstance(bucket.get(name), dict):
                     bucket[name].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段

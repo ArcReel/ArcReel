@@ -179,3 +179,13 @@ class TestPatchProject:
         )
         assert out.get("is_error") is not True
         assert "李白" in ctx.pm.load_project("demo").get("characters", {})
+
+    async def test_upsert_fails_loud_when_bucket_not_dict(self, ctx: ToolContext) -> None:
+        """bucket_key 已存在却非 dict（历史脏数据，如 list）→ fail-loud，
+        而非在 bucket.get 处抛含糊的 AttributeError。"""
+        ctx.pm.update_project("demo", lambda p: p.update({"characters": []}))
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
+        )
+        assert out.get("is_error") is True

@@ -53,14 +53,15 @@ def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, st
     """按内容/生成模式选出当前剧本的分镜数组、其 id 字段名与种类。
 
     返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "video_units"}，由
-    `resolve_kind` 判别。键缺失视为空数组；键存在但类型非 list 时 fail-loud 抛
-    `ScriptEditError`（不静默降级为 []，避免把数据损坏掩盖成「未找到 id」）。返回的 list 在键
-    存在时即 script 内的实际引用（就地编辑生效）。
+    `resolve_kind` 判别。**键缺失**视为空数组；**键存在但类型非 list（含值为 null）**时
+    fail-loud 抛 `ScriptEditError`（不静默降级为 []，避免把数据损坏掩盖成「未找到 id」——
+    `"segments": null` 这类损坏会暴露而非被当成空草稿）。返回的 list 在键存在时即 script 内的
+    实际引用（就地编辑生效）。
     """
     kind = resolve_kind(script)
-    items = script.get(kind)
-    if items is None:
+    if kind not in script:
         return [], _KIND_ID_FIELD[kind], kind
+    items = script[kind]
     if not isinstance(items, list):
         raise ScriptEditError(f"{kind} 必须是列表，当前为 {type(items).__name__}")
     return items, _KIND_ID_FIELD[kind], kind

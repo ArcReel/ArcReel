@@ -148,6 +148,11 @@ class TestResolveItems:
         with pytest.raises(ScriptEditError):
             resolve_items({"content_mode": "narration", "segments": "oops"})
 
+    def test_present_but_null_fails_loud(self):
+        # 键存在但值为 null（损坏数据）→ fail-loud，不与「键缺失」混为空草稿
+        with pytest.raises(ScriptEditError):
+            resolve_items({"content_mode": "narration", "segments": None})
+
 
 class TestPatchField:
     def test_patch_top_level_field(self):
