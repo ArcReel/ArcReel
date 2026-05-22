@@ -137,6 +137,17 @@ class TestResolveItems:
         assert kind == "video_units"
         assert id_field == "unit_id"
 
+    def test_missing_key_is_empty_list(self):
+        # 内容数组键缺失 → 空列表（合法的「空草稿」），不报错
+        items, _id, kind = resolve_items({"content_mode": "narration"})
+        assert kind == "segments"
+        assert items == []
+
+    def test_non_list_items_fail_loud(self):
+        # 键存在但类型非 list（数据损坏）→ fail-loud，而非静默降级为 []
+        with pytest.raises(ScriptEditError):
+            resolve_items({"content_mode": "narration", "segments": "oops"})
+
 
 class TestPatchField:
     def test_patch_top_level_field(self):
