@@ -1584,10 +1584,9 @@ class ProjectManager:
         # data_validator 在模块级 import 本模块（effective_mode），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
-        bucket_to_type = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
-        asset_type = bucket_to_type.get(table)
+        asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)
         if asset_type is None:
-            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(bucket_to_type)} 之一")
+            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(self._BUCKET_TO_ASSET_TYPE)} 之一")
         if not isinstance(entries, dict) or not entries:
             raise ValueError("entries 不能为空")
         for name, attrs in entries.items():
@@ -1609,6 +1608,9 @@ class ProjectManager:
                 raise ValueError("project.json 结构校验失败: " + "; ".join(result.errors))
 
         return self.update_project(project_name, _mutate)
+
+    # bucket_key（characters/scenes/props）→ 资产类型，从静态 ASSET_SPECS 派生一次，避免每次 upsert 重建。
+    _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 
     _LEGACY_ASSET_FIELDS = frozenset({"type", "importance"})
 
