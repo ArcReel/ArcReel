@@ -1075,6 +1075,11 @@ export default {
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_normalize_drama_script': 'Normalize drama script',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
+  'tool_name_patch_episode_script': 'Edit shot field',
+  'tool_name_insert_segment': 'Insert shot',
+  'tool_name_remove_segment': 'Remove shot',
+  'tool_name_split_segment': 'Split shot',
+  'tool_name_patch_project': 'Edit project assets',
   // Skill display names (single source of truth: user-invocable SKILL.md files
   // under agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py enforces parity)
   'skill_name_manga_workflow': 'Video workflow',

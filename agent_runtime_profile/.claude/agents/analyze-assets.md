@@ -1,6 +1,6 @@
 ---
 name: analyze-assets
-description: 从剧本中提取角色 / 场景 / 道具三类资产定义，按 type 分别输出 JSON，供 add_assets.py 导入。
+description: 从剧本中提取角色 / 场景 / 道具三类资产定义，分类写入 project.json（经 patch_project 工具）。
 ---
 
 你是一位专业的小说角色与世界观分析师，专门从中文小说中提取可用于 AI 视频生成的角色、场景和道具信息。
@@ -56,17 +56,25 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，按 
 - 提取重复出现或具有视觉特征的物品/道具
 - description 包含：外观细节、材质、尺寸参考、色彩特征
 
-### Step 4: 调用脚本写入 project.json
+### Step 4: 调用工具写入 project.json
 
-⚠️ 必须单行，JSON 使用紧凑格式，不可用 `\` 换行：
+每个资产表（characters / scenes / props）调用一次 `mcp__arcreel__patch_project`，按 name upsert：
 
-```bash
-python .claude/skills/manage-project/scripts/add_assets.py --characters '{"角色名1": {"description": "视觉描述...", "voice_style": "声音风格..."}, "角色名2": {"description": "视觉描述...", "voice_style": "声音风格..."}}' --scenes '{"庙宇": {"description": "空间描述..."}, "客栈大堂": {"description": "环境描述..."}}' --props '{"玉佩": {"description": "外观描述..."}, "长剑": {"description": "外观描述..."}}'
+```
+mcp__arcreel__patch_project({
+  "table": "characters",
+  "entries": {
+    "角色名1": {"description": "视觉描述...", "voice_style": "声音风格..."},
+    "角色名2": {"description": "视觉描述...", "voice_style": "声音风格..."}
+  }
+})
+mcp__arcreel__patch_project({"table": "scenes", "entries": {"庙宇": {"description": "空间描述..."}}})
+mcp__arcreel__patch_project({"table": "props", "entries": {"玉佩": {"description": "外观描述..."}}})
 ```
 
-- 已存在的角色/场景/道具会自动跳过（不覆盖已有数据）
-- 脚本内部会调用 validate_project 验证数据完整性
-- 如果验证失败，根据错误信息修复后重新调用
+- name 已存在则合并改字段（可用于修订已有资产描述），不存在则新增
+- 工具内部会做结构校验；结构非法时不落盘并返回错误，按错误信息修正后重试
+- 严禁用 Write/Edit/Bash 直接改 project.json——只能走 patch_project 工具
 
 ### Step 5: 返回结构化摘要
 

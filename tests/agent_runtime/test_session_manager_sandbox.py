@@ -272,18 +272,21 @@ def _make_session_manager(tmp_path: Path, *, sandbox_enabled: bool) -> SessionMa
 def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Path) -> None:
     """sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
-    assert sm._build_sandbox_settings() == {"enabled": False}
+    cwd = sm.project_root / "projects" / "demo"
+    assert sm._build_sandbox_settings(cwd) == {"enabled": False}
 
 
 def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
     """sandbox_enabled=True（默认）依然返回完整 dict（含 network / filesystem）。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    settings = sm._build_sandbox_settings()
+    cwd = sm.project_root / "projects" / "demo"
+    settings = sm._build_sandbox_settings(cwd)
     assert settings["enabled"] is True
     assert settings["autoAllowBashIfSandboxed"] is True
     assert settings["allowUnsandboxedCommands"] is False
     assert "allowedDomains" in settings["network"]
     assert "denyRead" in settings["filesystem"]
+    assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
 
 
 @pytest.mark.asyncio

@@ -503,9 +503,9 @@ class TestSessionManagerMore:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        # Write .json — allowed
+        # Write 普通 .json — allowed（project.json / scripts/*.json 另由专门 deny 覆盖）
         result = await hook(
-            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "project.json")}},
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "notes.json")}},
             None,
             None,
         )

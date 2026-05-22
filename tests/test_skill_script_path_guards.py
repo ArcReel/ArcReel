@@ -20,7 +20,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILLS_ROOT = REPO_ROOT / "agent_runtime_profile" / ".claude" / "skills"
-ADD_ASSETS = SKILLS_ROOT / "manage-project" / "scripts" / "add_assets.py"
 SPLIT_EPISODE = SKILLS_ROOT / "manage-project" / "scripts" / "split_episode.py"
 PEEK_SPLIT = SKILLS_ROOT / "manage-project" / "scripts" / "peek_split_point.py"
 COMPOSE_VIDEO = SKILLS_ROOT / "compose-video" / "scripts" / "compose_video.py"
@@ -80,24 +79,6 @@ def fake_project(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return project_dir
-
-
-# ---------- add_assets.py ----------
-
-
-def test_add_assets_rejects_non_project_cwd(tmp_path: Path) -> None:
-    """cwd 不含 project.json 时应当拒绝并提示。"""
-    result = _run(ADD_ASSETS, tmp_path, "--characters", "{}")
-    assert result.returncode != 0
-    assert "必须在项目目录内运行" in (result.stdout + result.stderr)
-
-
-def test_add_assets_rejects_non_project_cwd_stdin_mode(tmp_path: Path) -> None:
-    """stdin 模式同样必须先过 cwd 校验，不能因为有 stdin 输入就绕过。"""
-    payload = json.dumps({"characters": {"X": {"description": "y"}}})
-    result = _run(ADD_ASSETS, tmp_path, "--stdin", stdin=payload)
-    assert result.returncode != 0
-    assert "必须在项目目录内运行" in (result.stdout + result.stderr)
 
 
 # ---------- split_episode.py ----------

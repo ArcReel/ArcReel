@@ -1,0 +1,151 @@
+"""剧本编辑核心（纯函数）。
+
+把「如何按 id 安全地编辑一份剧本 dict」收敛到唯一一处：喂入剧本 dict + 一个编辑操作，
+就地改 dict 并返回它，或对非法操作（id 未命中、数组越界、拆分份数不足、字段路径不存在）
+抛 `ScriptEditError`。**不读盘、不依赖项目状态、不做结构良构校验**——结构是否合法交给写盘
+咽喉的 `_write_script_unlocked`（「不更坏」+ Pydantic 模型）兜底，本模块只负责数组手术、
+id 分配与资产作废。MCP 工具与测试都复用它。
+
+三种内容/生成模式（narration/drama/reference_video）的分镜数组与 id 字段判别集中在
+`resolve_items`，与 `script_structure_validator._select_model`、写盘咽喉的 metadata 重算共用
+同一判别，避免三处漂移。
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+
+class ScriptEditError(ValueError):
+    """剧本编辑操作非法（id 未命中、数组越界、拆分份数不足、字段路径不存在等）。"""
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
+    """按内容/生成模式选出当前剧本的分镜数组、其 id 字段名与种类。
+
+    返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "video_units"}。
+    判别顺序与 `script_structure_validator._select_model` 一致：reference 最优先
+    （``generation_mode == "reference_video"`` 或存在 ``video_units``），其余以 ``content_mode``
+    为权威，缺省时按顶层键存在性推断。返回的 list 在键存在时即 script 内的实际引用
+    （就地编辑生效）。
+    """
+    if script.get("generation_mode") == "reference_video" or "video_units" in script:
+        return _as_list(script.get("video_units")), "unit_id", "video_units"
+    content_mode = script.get("content_mode")
+    if content_mode == "drama":
+        return _as_list(script.get("scenes")), "scene_id", "scenes"
+    if content_mode == "narration":
+        return _as_list(script.get("segments")), "segment_id", "segments"
+    if "scenes" in script and "segments" not in script:
+        return _as_list(script.get("scenes")), "scene_id", "scenes"
+    return _as_list(script.get("segments")), "segment_id", "segments"
+
+
+def _find_index(items: list[dict[str, Any]], id_field: str, item_id: str) -> int:
+    for idx, item in enumerate(items):
+        if isinstance(item, dict) and str(item.get(id_field)) == str(item_id):
+            return idx
+    raise ScriptEditError(f"未找到 id={item_id!r} 的分镜（{id_field}）")
+
+
+def _existing_ids(items: list[dict[str, Any]], id_field: str) -> set[str]:
+    return {str(item.get(id_field)) for item in items if isinstance(item, dict)}
+
+
+def _next_suffixed_id(base: str, taken: set[str]) -> str:
+    """在 ``base`` 后追加 ``_{k}`` 生成不与 ``taken`` 冲突的稳定新 id（k 从 1 起）。
+
+    id 稳定不重排：新 id 由锚点 id 派生 ``_{子序号}`` 后缀，不触动其余分镜的 id，
+    序列顺序由数组位决定。
+    """
+    k = 1
+    while f"{base}_{k}" in taken:
+        k += 1
+    return f"{base}_{k}"
+
+
+def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
+    parts = field_path.split(".")
+    if not parts or any(not p for p in parts):
+        raise ScriptEditError(f"非法字段路径: {field_path!r}")
+    if parts[0] == "generated_assets":
+        # patch 是纯字段 setter，资产生命周期与剧本编辑解耦（见 ADR-0003）。
+        raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
+    cur: Any = obj
+    for p in parts[:-1]:
+        if not isinstance(cur, dict) or p not in cur or not isinstance(cur[p], dict):
+            raise ScriptEditError(f"字段路径不存在或父节点非对象: {field_path!r}")
+        cur = cur[p]
+    if not isinstance(cur, dict):
+        raise ScriptEditError(f"字段路径不存在或父节点非对象: {field_path!r}")
+    cur[parts[-1]] = value
+
+
+def patch_field(script: dict[str, Any], item_id: str, field_path: str, value: Any) -> dict[str, Any]:
+    """按 id 定位一个分镜，设置其（可嵌套的）字段。纯 setter，不触碰 generated_assets。"""
+    items, id_field, _ = resolve_items(script)
+    idx = _find_index(items, id_field, item_id)
+    _set_nested(items[idx], field_path, value)
+    return script
+
+
+def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, Any]) -> dict[str, Any]:
+    """在 ``after_id`` 之后插入一个新分镜，分配派生自锚点 id 的稳定新 id。
+
+    新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 清空。
+    其余字段由 agent 提供，结构是否合法由写盘咽喉校验。
+    """
+    if not isinstance(new_item, dict):
+        raise ScriptEditError("new_item 必须是对象")
+    items, id_field, _ = resolve_items(script)
+    idx = _find_index(items, id_field, after_id)
+    item = deepcopy(new_item)
+    item[id_field] = _next_suffixed_id(str(after_id), _existing_ids(items, id_field))
+    item["generated_assets"] = {}
+    items.insert(idx + 1, item)
+    return script
+
+
+def remove_segment(script: dict[str, Any], item_id: str) -> dict[str, Any]:
+    """按 id 删除一个分镜。被删分镜的资产随之消失；不改动其余分镜的 id。"""
+    items, id_field, _ = resolve_items(script)
+    idx = _find_index(items, id_field, item_id)
+    items.pop(idx)
+    return script
+
+
+def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """把 ``item_id`` 分镜按 agent 提供的各部分内容拆成多个。
+
+    首个部分保留原 id，其余取 ``{item_id}_{k}`` 后缀；**所有部分的 generated_assets 清空**
+    （结构操作改变分镜身份，旧资产无合理归属，退回 pending 待重生）。reference 模式下各 unit
+    的 ``duration_seconds`` 须与其 ``shots`` 总时长一致——由写盘咽喉的 ReferenceVideoUnit
+    校验兜住，本函数不代算。
+    """
+    if not isinstance(parts, list) or len(parts) < 2:
+        raise ScriptEditError("split 至少需要 2 个部分")
+    if any(not isinstance(p, dict) for p in parts):
+        raise ScriptEditError("split 的每个部分必须是对象")
+    items, id_field, _ = resolve_items(script)
+    idx = _find_index(items, id_field, item_id)
+
+    taken = _existing_ids(items, id_field)
+    new_parts: list[dict[str, Any]] = []
+    for offset, raw in enumerate(parts):
+        part = deepcopy(raw)
+        if offset == 0:
+            part[id_field] = str(item_id)
+        else:
+            new_id = _next_suffixed_id(str(item_id), taken)
+            taken.add(new_id)
+            part[id_field] = new_id
+        part["generated_assets"] = {}
+        new_parts.append(part)
+
+    items[idx : idx + 1] = new_parts
+    return script

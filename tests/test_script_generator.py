@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from lib.script_generator import ScriptGenerator
+from lib.script_structure_validator import ScriptStructureValidationError
 
 
 def _write(path: Path, text: str):
@@ -229,8 +230,10 @@ class TestScriptGenerator:
 
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
-        # generate 会因验证失败但 schema 已传入，检查传入的 schema 是否为类
-        await generator.generate(1)
+        # 结构非法的响应在写盘咽喉被严格校验拒绝；但模型调用已发生，
+        # 仍可断言传入的 schema 是 Pydantic 类。
+        with pytest.raises(ScriptStructureValidationError):
+            await generator.generate(1)
         assert fake.backend.last_request.response_schema is DramaEpisodeScript
 
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):
@@ -255,7 +258,8 @@ class TestScriptGenerator:
 
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
-        await generator.generate(1)
+        with pytest.raises(ScriptStructureValidationError):
+            await generator.generate(1)
 
         assert fake.backend.last_request.max_output_tokens == SCRIPT_MAX_OUTPUT_TOKENS
         assert SCRIPT_MAX_OUTPUT_TOKENS >= 16000

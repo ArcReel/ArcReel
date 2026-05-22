@@ -1177,6 +1177,11 @@ export default {
   'tool_name_generate_episode_script': 'Tạo kịch bản',
   'tool_name_normalize_drama_script': 'Chuẩn hóa kịch bản',
   'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
+  'tool_name_patch_episode_script': 'Sửa trường phân cảnh',
+  'tool_name_insert_segment': 'Chèn phân cảnh',
+  'tool_name_remove_segment': 'Xóa phân cảnh',
+  'tool_name_split_segment': 'Tách phân cảnh',
+  'tool_name_patch_project': 'Sửa tài sản dự án',
   // Skill display names (single source of truth: user-invocable SKILL.md
   // dưới agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py kiểm tra đồng bộ)
   'skill_name_manga_workflow': 'Quy trình video',

@@ -36,6 +36,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
+from lib.script_editor import resolve_items
 from lib.script_models import SCRIPT_SHAPES, ScriptShape
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
@@ -538,28 +539,14 @@ class ProjectManager:
         metadata.setdefault("status", "draft")
         metadata["updated_at"] = now
 
-        scenes = script.get("scenes", [])
-        if not isinstance(scenes, list):
-            scenes = []
-        segments = script.get("segments", [])
-        if not isinstance(segments, list):
-            segments = []
-
-        content_mode = script.get("content_mode", "narration")
-        if content_mode == "narration" and segments:
-            items = segments
-            items_type = "segments"
-        elif scenes:
-            items = scenes
-            items_type = "scenes"
-        else:
-            items = segments
-            items_type = "segments"
+        # 选当前剧本的分镜数组：与结构校验 `_select_model` / 编辑核心 `resolve_items` 共用同一
+        # 判别（含 reference 模式的 video_units——否则它会落入 segments 兜底分支、total_scenes 错算为 0）。
+        items, _id_field, kind = resolve_items(script)
 
         metadata["total_scenes"] = len(items)
 
         # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判
-        default_duration = 4 if items_type == "segments" else 8
+        default_duration = 4 if kind == "segments" else 8
         total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
         metadata["estimated_duration_seconds"] = total_duration
 
@@ -1585,6 +1572,50 @@ class ProjectManager:
         if entries:
             self.update_project(project_name, _mutate)
         return added
+
+    def upsert_assets(self, project_name: str, table: str, entries: dict[str, dict]) -> dict:
+        """按 table（characters/scenes/props）+ name upsert 资产：不存在则新增、存在则改字段。
+
+        在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
+        project dict 做 payload 级结构校验，非法则 raise ValueError 且**不落盘**（mutation
+        抛错时 `update_project` 不会执行 atomic_write）。取代 `add_assets.py` 的「先写后验、
+        失败仍留脏数据」，且把「只能加」扩为「可改」。返回更新后的项目元数据。
+        """
+        # data_validator 在模块级 import 本模块（effective_mode），故惰性 import 破环。
+        from lib.data_validator import DataValidator
+
+        bucket_to_type = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
+        asset_type = bucket_to_type.get(table)
+        if asset_type is None:
+            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(bucket_to_type)} 之一")
+        if not isinstance(entries, dict) or not entries:
+            raise ValueError("entries 不能为空")
+        for name, attrs in entries.items():
+            if not isinstance(attrs, dict):
+                raise ValueError(f"{table} '{name}' 的内容必须是对象")
+
+        spec = ASSET_SPECS[asset_type]
+        cleaned = {name: self._strip_legacy_asset_fields(attrs) for name, attrs in entries.items()}
+
+        def _mutate(project: dict) -> None:
+            bucket = project.setdefault(spec.bucket_key, {})
+            for name, attrs in cleaned.items():
+                if isinstance(bucket.get(name), dict):
+                    bucket[name].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
+                else:
+                    bucket[name] = self._build_asset_entry(asset_type, attrs.get("description", ""), attrs)
+            result = DataValidator(str(self.projects_root)).validate_project_payload(project)
+            if not result.valid:
+                raise ValueError("project.json 结构校验失败: " + "; ".join(result.errors))
+
+        return self.update_project(project_name, _mutate)
+
+    _LEGACY_ASSET_FIELDS = frozenset({"type", "importance"})
+
+    @classmethod
+    def _strip_legacy_asset_fields(cls, attrs: dict) -> dict:
+        """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
+        return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
     def _update_asset_sheet(self, asset_type: str, project_name: str, name: str, sheet_path: str) -> dict:
         """更新资产 sheet 字段路径。资产不存在抛 KeyError。

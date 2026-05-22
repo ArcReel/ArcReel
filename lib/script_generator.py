@@ -17,7 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.project_manager import effective_mode
+from lib.project_manager import ProjectManager, effective_mode
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
     build_drama_prompt,
@@ -195,13 +195,15 @@ class ScriptGenerator:
         # 6. 补充元数据
         script_data = self._add_metadata(script_data, episode)
 
-        # 7. 保存文件
+        # 7. 经写盘咽喉保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
+        #    Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
+        #    同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
         if output_path is None:
             output_path = self.project_path / "scripts" / f"episode_{episode}.json"
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(script_data, f, ensure_ascii=False, indent=2)
+        pm = ProjectManager(str(self.project_path.parent))
+        output_path = pm.save_script(self.project_path.name, script_data, output_path.name, validate=True)
 
         self._quality_probe(script_data, episode)
 

@@ -126,6 +126,48 @@ class TestValidateDefaultsOn:
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["video_prompt"] == "坏形状"
 
 
+def _unit(unit_id: str = "E1U1") -> dict:
+    shots = [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    return {
+        "unit_id": unit_id,
+        "shots": shots,
+        "references": [],
+        "duration_seconds": sum(s["duration"] for s in shots),
+    }
+
+
+def _reference_script(units: list[dict] | None = None) -> dict:
+    return {
+        "episode": 1,
+        "title": "标题",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "summary": "摘要",
+        "novel": {"title": "小说", "chapter": "第一章"},
+        "video_units": units if units is not None else [_unit("E1U1"), _unit("E1U2")],
+    }
+
+
+class TestMetadataRecompute:
+    def test_reference_video_metadata_counts_units(self, tmp_path: Path):
+        """reference 模式经咽喉后 total_scenes 应等于 video_units 数、时长为各 unit 之和，
+        而非落入 segments 兜底分支错算为 0。"""
+        pm = _pm(tmp_path)
+        pm.save_script("demo", _reference_script(), "episode_1.json")
+
+        saved = pm.load_script("demo", "episode_1.json")
+        assert saved["metadata"]["total_scenes"] == 2
+        assert saved["metadata"]["estimated_duration_seconds"] == 14
+
+    def test_narration_metadata_unchanged(self, tmp_path: Path):
+        pm = _pm(tmp_path)
+        pm.save_script("demo", _valid_script([_segment("E1S01", 4), _segment("E1S02", 6)]), "episode_1.json")
+
+        saved = pm.load_script("demo", "episode_1.json")
+        assert saved["metadata"]["total_scenes"] == 2
+        assert saved["metadata"]["estimated_duration_seconds"] == 10
+
+
 class TestAssetWritebackExemption:
     def test_update_scene_asset_succeeds_on_invalid_script(self, tmp_path: Path):
         """资产回写（validate=False）在剧本本就非法时仍能成功写入。"""

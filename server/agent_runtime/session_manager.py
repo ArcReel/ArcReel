@@ -715,7 +715,7 @@ class SessionManager:
             }
 
         provider_env = await self._build_provider_env_overrides()
-        sandbox_typed = self._build_sandbox_settings()
+        sandbox_typed = self._build_sandbox_settings(project_cwd)
 
         # Windows 回退：sandbox 关闭时把 Bash 系列从 allowed_tools 剥离，
         # 让 _can_use_tool 接管 prefix 白名单匹配（_WINDOWS_BASH_PREFIX_WHITELIST）。
@@ -2093,7 +2093,7 @@ class SessionManager:
         "example.com",
     )
 
-    def _build_sandbox_settings(self) -> dict[str, Any]:
+    def _build_sandbox_settings(self, project_cwd: Path) -> dict[str, Any]:
         """构造 SandboxSettings dict（SDK 0.1.80 Python TypedDict 未声明
         filesystem 子结构，但 CLI 运行时透传 JSON 接受）。
 
@@ -2101,6 +2101,12 @@ class SessionManager:
           Bash 工具改走 ``_WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
         - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
           bwrap profile），对 sandbox 内所有子进程生效。
+        - ``filesystem.denyWrite``：内核级文件写拒绝，覆盖 ``scripts/`` 目录与
+          ``project.json``——这两类项目 JSON 的写入只能走 in-process MCP 工具
+          （``patch_episode_script`` / ``patch_project`` 等，跑在主进程不受 sandbox 约束），
+          堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对 sandbox 内所有
+          子进程生效。删除 ``add_assets.py`` 后 sandbox 内已无合法 Bash 写这两类文件
+          （compose 写视频输出、split 写 ``source/``，均不碰），故不误伤。
         - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
         """
@@ -2112,8 +2118,24 @@ class SessionManager:
             "allowUnsandboxedCommands": False,
             "network": {"allowedDomains": list(self._DEFAULT_SANDBOX_ALLOWED_DOMAINS)},
             "enableWeakerNestedSandbox": bool(self._in_docker),
-            "filesystem": {"denyRead": self._build_sensitive_abs_paths()},
+            "filesystem": {
+                "denyRead": self._build_sensitive_abs_paths(),
+                "denyWrite": self._build_protected_json_abs_paths(project_cwd),
+            },
         }
+
+    @staticmethod
+    def _build_protected_json_abs_paths(project_cwd: Path) -> list[str]:
+        """项目 JSON 写禁清单（绝对路径）：``scripts/`` 目录子树 + ``project.json``。
+
+        与 ``_check_write_access`` 的内置 Write/Edit 拒绝同源（同两类路径），二者构成双层：
+        sandbox denyWrite 管 Bash 子进程（内核级），``_check_write_access`` hook 管内置
+        Write/Edit（权限系统，全平台）。
+        """
+        return [
+            str(project_cwd / "scripts"),
+            str(project_cwd / "project.json"),
+        ]
 
     def _build_sensitive_abs_paths(self) -> list[str]:
         """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
@@ -2267,9 +2289,18 @@ class SessionManager:
         return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
 
     def _check_write_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
-        """Write/Edit 的写入约束：cwd 外一律拒，cwd 内代码扩展名拒（agent 不写代码）。"""
+        """Write/Edit 的写入约束：cwd 外一律拒，cwd 内代码扩展名拒（agent 不写代码），
+        且 ``scripts/*.json`` 与 ``project.json`` 一律拒——只能走收归后的 MCP 工具。"""
         if not resolved.is_relative_to(project_cwd):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
+
+        if self._is_protected_project_json(resolved, project_cwd):
+            return False, (
+                "访问被拒绝：scripts/*.json 与 project.json 不可用 Write/Edit 直改，"
+                "请改用 MCP 工具——剧本编辑走 mcp__arcreel__patch_episode_script / "
+                "insert_segment / remove_segment / split_segment，"
+                "角色/场景/道具走 mcp__arcreel__patch_project。"
+            )
 
         ext = resolved.suffix.lower()
         if ext in self._CODE_EXTENSIONS_FORBIDDEN:
@@ -2280,6 +2311,18 @@ class SessionManager:
             )
 
         return True, None
+
+    @staticmethod
+    def _is_protected_project_json(resolved: Path, project_cwd: Path) -> bool:
+        """命中受保护的项目 JSON（``scripts/`` 下任意 .json，或根 ``project.json``）。
+
+        与 sandbox ``denyWrite`` 同源；此谓词覆盖内置 Write/Edit（权限系统，全平台），
+        与 denyWrite（Bash 子进程，内核级）构成双层。
+        """
+        if resolved == project_cwd / "project.json":
+            return True
+        scripts_dir = project_cwd / "scripts"
+        return resolved.is_relative_to(scripts_dir) and resolved.suffix.lower() == ".json"
 
     async def _handle_ask_user_question(
         self,

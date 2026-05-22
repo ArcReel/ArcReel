@@ -63,6 +63,34 @@ def test_write_cwd_internal_data_ext_allowed(sm: SessionManager) -> None:
         assert allowed, f"扩展名 {ext} 应允许"
 
 
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize("relative", ["scripts/episode_1.json", "scripts/episode_10.json", "project.json"])
+def test_write_protected_project_json_denied(sm: SessionManager, tool: str, relative: str) -> None:
+    """scripts/*.json 与 project.json 不可用 Write/Edit 直改，报错指向 MCP 工具。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    allowed, reason = sm._is_path_allowed(str(cwd / relative), tool, cwd)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert reason and "patch_episode_script" in reason or "patch_project" in (reason or "")
+
+
+def test_write_drafts_and_source_still_allowed(sm: SessionManager) -> None:
+    """合法的草稿/源文件写入不受影响（drafts/*.md、source/*.txt、scripts 外的 .json）。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    for relative in ("drafts/episode_1/step1_segments.md", "source/episode_1.txt", "config_data.json"):
+        allowed, _ = sm._is_path_allowed(str(cwd / relative), "Write", cwd)
+        assert allowed, f"{relative} 应允许"
+
+
+def test_build_sandbox_settings_denies_write_to_project_json(sm: SessionManager) -> None:
+    """sandbox 启用时 denyWrite 覆盖 scripts/ 与 project.json（Bash 子进程内核级封堵）。"""
+    sm._sandbox_enabled = True
+    cwd = sm.project_root / "projects" / "selfproj"
+    settings = sm._build_sandbox_settings(cwd)
+    deny_write = settings["filesystem"]["denyWrite"]
+    assert str(cwd / "scripts") in deny_write
+    assert str(cwd / "project.json") in deny_write
+
+
 @pytest.mark.parametrize(
     "relative",
     [

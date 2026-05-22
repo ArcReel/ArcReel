@@ -1076,6 +1076,11 @@ export default {
   'tool_name_generate_episode_script': '生成剧本',
   'tool_name_normalize_drama_script': '规范化剧本',
   'tool_name_get_video_capabilities': '查询视频模型能力',
+  'tool_name_patch_episode_script': '编辑分镜字段',
+  'tool_name_insert_segment': '插入分镜',
+  'tool_name_remove_segment': '删除分镜',
+  'tool_name_split_segment': '拆分分镜',
+  'tool_name_patch_project': '编辑项目资产',
   // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
   // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
   'skill_name_manga_workflow': '视频工作流',
