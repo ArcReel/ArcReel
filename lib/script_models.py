@@ -6,6 +6,7 @@ script_models.py - 剧本数据模型
 2. 输出验证
 """
 
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -249,3 +250,35 @@ class ReferenceVideoScript(BaseModel):
     summary: str = Field(description="剧集摘要")
     novel: NovelInfo = Field(description="小说来源信息")
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
+
+
+# ============ content_mode → 剧本字段名分派 ============
+
+
+@dataclass(frozen=True)
+class ScriptShape:
+    """某个 content_mode 下剧本的结构形状：列表字段名 / 每项 id 字段名 / 角色字段名。"""
+
+    items_key: str
+    id_field: str
+    chars_field: str
+
+
+SCRIPT_SHAPES: dict[str, ScriptShape] = {
+    "narration": ScriptShape("segments", "segment_id", "characters_in_segment"),
+    "drama": ScriptShape("scenes", "scene_id", "characters_in_scene"),
+}
+
+
+def script_shape(content_mode: str) -> ScriptShape:
+    """返回该 content_mode 的剧本形状。
+
+    忠实于既有二分语义（``"segments" if content_mode == "narration" else "scenes"``）：
+    只有 ``"narration"`` 返回 narration 形状，其余一切（含未知值）落 drama。
+
+    reference_video 模式用 video_units/unit_id/references 组织，结构不同，不经此分派
+    （由 project_archive 的专用分支处理）。
+    """
+    if content_mode == "narration":
+        return SCRIPT_SHAPES["narration"]
+    return SCRIPT_SHAPES["drama"]

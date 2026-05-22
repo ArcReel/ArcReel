@@ -120,6 +120,7 @@ MESSAGES = {
     "deprecated_image_backend": "image_backend 字段已废弃，请改用 image_provider_t2i 与 image_provider_i2i",
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
+    "invalid_resource_id": "非法的资源 ID: {resource_id}",
     # Reference Video
     "ref_missing_asset": "参考图引用的{type}「{name}」不在项目资产库中，请先生成",
     "ref_duration_exceeded": "参考视频单元时长 {duration}s 超出 {model} 上限 {max_duration}s，已裁剪",

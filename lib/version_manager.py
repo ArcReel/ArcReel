@@ -11,6 +11,9 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
+from lib.resource_paths import resource_extension
+
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 
@@ -28,19 +31,9 @@ def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
 class VersionManager:
     """版本管理器"""
 
-    # 支持的资源类型
-    RESOURCE_TYPES = ("storyboards", "videos", "characters", "scenes", "props", "grids", "reference_videos")
-
-    # 资源类型对应的文件扩展名
-    EXTENSIONS = {
-        "storyboards": ".png",
-        "videos": ".mp4",
-        "characters": ".png",
-        "scenes": ".png",
-        "props": ".png",
-        "grids": ".png",
-        "reference_videos": ".mp4",
-    }
+    # 支持的资源类型与扩展名均派生自单一真相源 lib.resource_paths，避免副本漂移。
+    RESOURCE_TYPES = _RESOURCE_TYPES
+    EXTENSIONS = {rt: resource_extension(rt) for rt in _RESOURCE_TYPES}
 
     def __init__(self, project_path: Path):
         """

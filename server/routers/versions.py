@@ -17,6 +17,7 @@ from lib.app_data_dir import app_data_dir
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
+from lib.resource_paths import resource_relative_path
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 
@@ -25,13 +26,9 @@ router = APIRouter()
 # 初始化项目管理器
 pm = ProjectManager(app_data_dir())
 
-_RESOURCE_FILE_PATTERNS: dict[str, tuple[str, str]] = {
-    "storyboards": ("storyboards", "scene_{id}.png"),
-    "videos": ("videos", "scene_{id}.mp4"),
-    "characters": ("characters", "{id}.png"),
-    "scenes": ("scenes", "{id}.png"),
-    "props": ("props", "{id}.png"),
-}
+# 经此路由可还原的资源类型（API 面策略）。路径形状委托 lib.resource_paths，但本路由
+# 仅放行有还原后元数据同步分支的这五类；grids/reference_videos 的还原是独立议题。
+_RESTORABLE_RESOURCE_TYPES = frozenset({"storyboards", "videos", "characters", "scenes", "props"})
 
 
 def get_project_manager() -> ProjectManager:
@@ -50,13 +47,17 @@ def _resolve_resource_path(
     project_path: Path,
     _t: Callable[..., str],
 ) -> tuple[Path, str]:
-    """返回 (current_file_absolute, relative_file_path)，资源类型无效时抛出 HTTPException。"""
-    pattern = _RESOURCE_FILE_PATTERNS.get(resource_type)
-    if pattern is None:
+    """返回 (current_file_absolute, relative_file_path)；资源类型不可还原或 ID 越界时抛出 HTTPException。"""
+    if resource_type not in _RESTORABLE_RESOURCE_TYPES:
         raise HTTPException(status_code=400, detail=_t("unsupported_resource_type", resource_type=resource_type))
-    subdir, name_tpl = pattern
-    name = name_tpl.format(id=resource_id)
-    return project_path / subdir / name, f"{subdir}/{name}"
+    relative = resource_relative_path(resource_type, resource_id)
+    current_file = project_path / relative
+    # 路径遍历防护：resource_id 拼出的绝对路径不得逃出项目目录（与 MediaGenerator._get_output_path 对齐）。
+    try:
+        current_file.resolve().relative_to(project_path.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=resource_id))
+    return current_file, relative
 
 
 def _sync_storyboard_metadata(
