@@ -14,7 +14,6 @@ from claude_agent_sdk import tool
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
-    TaskSpecValidationError,
     batch_enqueue_and_wait,
     enqueue_and_wait,
 )
@@ -160,7 +159,9 @@ def _build_reference_specs(
             log.append(f"⚠️  {unit_id} 没有 shots，跳过")
             continue
         # prompt 由 shots[*].text 拼接，经统一守卫点做空提示词结构校验（见 ADR-0001）；
-        # 全空白的 unit 跳过并告警，与「没有 shots」一致，不让一个空 unit 中断整批。
+        # 任一 unit 不合法（空提示词、或 from_request 对空 resource_id 抛的裸 ValueError）
+        # 都跳过并告警，与「没有 shots」一致，不让一个坏 unit 中断整批。
+        # 注意 TaskSpecValidationError 是 ValueError 子类，捕 ValueError 同时覆盖两者。
         try:
             spec = TaskSpec.from_request(
                 task_type="reference_video",
@@ -169,8 +170,8 @@ def _build_reference_specs(
                 prompt=assemble_shots_text(unit["shots"]),
                 script_file=script_filename,
             )
-        except TaskSpecValidationError:
-            log.append(f"⚠️  {unit_id} 提示词为空，跳过")
+        except ValueError as exc:
+            log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
             continue
         specs.append(spec)
         order_map[unit_id] = idx

@@ -99,14 +99,20 @@ def _compress_references_to_tempfiles(
     return temp_paths
 
 
-def _render_unit_prompt(raw: str, references: list[dict]) -> str:
-    """把原始 prompt 文本用 shot_parser 将 @X 替成 [图N]，并追加统一文本化的反向提示词。
+def _render_unit_prompt(unit: dict) -> str:
+    """从 unit.shots[*].text 拼接 prompt，用 shot_parser 把 @X 替成 [图N]，再追加反向尾词。
 
-    空 prompt 的结构校验已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
-    （WebUI / SDK）都在入队时拒绝空提示词，故此处不再重复拦截。
+    空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
+    （WebUI / SDK）在入队时即拒绝空提示词。此处保留一道防御性空检查，因为参考生视频的
+    提示词源是*可变*的 script 文件且执行期从新读取（队列 dedup 不看 payload，无法靠入队
+    快照兜底）：若提示词在入队后被改空、或在途遗留任务漏过守卫，这道检查避免空提示词被
+    尾词追加成非空文本绕过 backend 的空值保护、白白消耗付费配额。
     """
-    refs = [ReferenceResource(type=r["type"], name=r["name"]) for r in references]
-    rendered = render_prompt_for_backend(raw, refs)
+    raw = assemble_shots_text(unit.get("shots") or [])
+    references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
+    rendered = render_prompt_for_backend(raw, references)
+    if not rendered.strip():
+        raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
     return append_video_negative_tail(rendered)
 
 
@@ -253,12 +259,14 @@ async def execute_reference_video_task(
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images
     #    长度严格对齐；否则裁剪后的 `@clipped_name` 会被替成 `[图N]` 指向不存在的图。
-    #    prompt 原文取自入队时守卫点校验过的 payload；缺省（如更早入队的在途任务）
-    #    时回退到从 unit.shots 重组。
+    #    prompt 始终从执行期新读取的 unit.shots 重组（脚本可变 + 队列 dedup 不看 payload，
+    #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
+    #    校验记录，执行期不使用。
+    unit_for_prompt = unit
     unit_refs = unit.get("references") or []
-    clipped_refs = unit_refs[: len(constrained_refs)] if len(constrained_refs) < len(unit_refs) else unit_refs
-    raw_prompt = payload.get("prompt") or assemble_shots_text(unit.get("shots") or [])
-    rendered_prompt = _render_unit_prompt(raw_prompt, clipped_refs)
+    if len(constrained_refs) < len(unit_refs):
+        unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
+    rendered_prompt = _render_unit_prompt(unit_for_prompt)
 
     # 7. 压缩到临时文件（2048px/q=85）→ 首次调用
     tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)

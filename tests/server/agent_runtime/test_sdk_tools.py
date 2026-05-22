@@ -461,10 +461,12 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     """参考生视频入队经统一守卫点：prompt 由 shots 拼接后随 payload 入队（见 ADR-0001）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
+    # production 的 shots[*].text 由 parse_prompt 产出、已剥离 "Shot N (Xs):" header，
+    # fixture 用同样的 header-stripped 形态以贴近真实数据。
     units = [
         {
             "unit_id": "E1U1",
-            "shots": [{"duration": 3, "text": "Shot 1 (3s): @张三 推门"}],
+            "shots": [{"duration": 3, "text": "@张三 推门"}],
             "references": [{"type": "character", "name": "张三"}],
         }
     ]
@@ -474,7 +476,7 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     assert specs[0].task_type == "reference_video"
     assert specs[0].resource_id == "E1U1"
     # 拼接出的 prompt 经守卫点校验后落入 payload。
-    assert specs[0].payload["prompt"] == "Shot 1 (3s): @张三 推门"
+    assert specs[0].payload["prompt"] == "@张三 推门"
     assert specs[0].payload["script_file"] == "episode_1.json"
 
 
@@ -490,6 +492,34 @@ def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
     specs, order_map = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
     assert [s.resource_id for s in specs] == ["E1U2"]
     assert any("E1U1" in w for w in log)
+
+
+def test_build_reference_specs_skips_empty_unit_id_without_aborting_batch(tmp_path) -> None:
+    """unit_id 为空时 from_request 抛裸 ValueError；该 unit 跳过而非中断整批（Agent 裸写 JSON 可致）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        {"unit_id": "", "shots": [{"duration": 3, "text": "@张三 推门"}]},
+        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+    ]
+    log: list[str] = []
+    specs, _ = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert [s.resource_id for s in specs] == ["E1U2"]
+
+
+def test_build_reference_specs_handles_malformed_shots(tmp_path) -> None:
+    """畸形 shots（显式 null text / 非 dict 元素）不应崩溃整批，且不得把 'None' 注入 prompt。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        # text 显式 null + 一个非 dict 元素 → 拼接后为空 → 被守卫点判空跳过（不注入 'None'）。
+        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": None}, "garbage"]},
+        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+    ]
+    log: list[str] = []
+    specs, _ = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert [s.resource_id for s in specs] == ["E1U2"]
+    assert all("None" not in (s.payload.get("prompt") or "") for s in specs)
 
 
 # ---------------------------------------------------------------------------
