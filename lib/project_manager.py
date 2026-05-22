@@ -36,6 +36,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
+from lib.script_models import SCRIPT_SHAPES, ScriptShape
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,19 @@ def effective_mode(*, project: dict, episode: dict) -> str:
     if proj_mode in _VALID_GENERATION_MODES:
         return proj_mode
     return _DEFAULT_GENERATION_MODE
+
+
+def _script_items_shape(script: dict, content_mode: str) -> ScriptShape:
+    """选剧本列表所在的形状（字段名取自 lib.script_models.SCRIPT_SHAPES）。
+
+    仅当 content_mode=narration **且**脚本确有 narration 列表键时走 narration 形状；
+    否则落 drama 形状——这覆盖了 narration 但数据畸形落在 `scenes` 键下的回退，保持
+    与历史 `if content_mode == "narration" and "segments" in script` 守卫一致。
+    """
+    narration = SCRIPT_SHAPES["narration"]
+    if content_mode == "narration" and narration.items_key in script:
+        return narration
+    return SCRIPT_SHAPES["drama"]
 
 
 class EpisodeScriptReboundError(RuntimeError):
@@ -1081,12 +1095,9 @@ class ProjectManager:
         with self.locked_script(project_name, script_filename, validate=False) as script:
             # 根据内容模式选择正确的数据结构
             content_mode = script.get("content_mode", "narration")
-            if content_mode == "narration" and "segments" in script:
-                items = script["segments"]
-                id_field = "segment_id"
-            else:
-                items = script.get("scenes", [])
-                id_field = "scene_id"
+            shape = _script_items_shape(script, content_mode)
+            items = script.get(shape.items_key, [])
+            id_field = shape.id_field
 
             for item in items:
                 if str(item.get(id_field)) == str(scene_id):
@@ -1132,12 +1143,9 @@ class ProjectManager:
         # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             content_mode = script.get("content_mode", "narration")
-            if content_mode == "narration" and "segments" in script:
-                items = script["segments"]
-                id_field = "segment_id"
-            else:
-                items = script.get("scenes", [])
-                id_field = "scene_id"
+            shape = _script_items_shape(script, content_mode)
+            items = script.get(shape.items_key, [])
+            id_field = shape.id_field
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找
             item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items}
@@ -1177,10 +1185,7 @@ class ProjectManager:
 
         # 根据内容模式选择正确的数据结构
         content_mode = script.get("content_mode", "narration")
-        if content_mode == "narration" and "segments" in script:
-            items = script["segments"]
-        else:
-            items = script.get("scenes", [])
+        items = script.get(_script_items_shape(script, content_mode).items_key, [])
 
         return [item for item in items if not item["generated_assets"].get(asset_type)]
 
@@ -1220,10 +1225,7 @@ class ProjectManager:
         script = self.load_script(project_name, script_filename)
 
         content_mode = script.get("content_mode", "narration")
-        if content_mode == "narration" and "segments" in script:
-            items = script["segments"]
-        else:
-            items = script.get("scenes", [])
+        items = script.get(_script_items_shape(script, content_mode).items_key, [])
 
         return [item for item in items if not item.get("generated_assets", {}).get("storyboard_image")]
 

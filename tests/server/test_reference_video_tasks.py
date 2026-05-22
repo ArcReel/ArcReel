@@ -530,11 +530,10 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """回归守门：executor 必须走真实 MediaGenerator._get_output_path 白名单。
+    """回归守门：executor 必须走真实 MediaGenerator._get_output_path。
 
     只 mock 最外层的 VideoBackend.generate — 若未来哪次又漏注册新 resource_type
-    到 OUTPUT_PATTERNS，这条测试会立刻爆 ValueError。
-    参见 issue #364。
+    到 lib.resource_paths，这条测试会立刻爆 ValueError。
     """
     from lib.media_generator import MediaGenerator
     from lib.version_manager import VersionManager
@@ -620,7 +619,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
         user_id="u1",
     )
 
-    # Backend 被真实调用一次，且 output_path 走 OUTPUT_PATTERNS["reference_videos"] 模板
+    # Backend 被真实调用一次，且 output_path 走 resource_relative_path("reference_videos", ...) 模板
     assert len(captured_requests) == 1
     req = captured_requests[0]
     assert req.output_path == (proj_dir / "reference_videos" / "E1U1.mp4")

@@ -122,6 +122,12 @@ class TestVersionsRouter:
             unsupported = client.post("/api/v1/projects/demo/versions/unknown/Alice/restore/1")
             assert unsupported.status_code == 400
 
+            # grids/reference_videos 是 VersionManager 合法类型，但本路由不放行其还原
+            # （无还原后元数据同步分支），行为保持为 400——不因路径形状收敛而被静默放开。
+            for unrestorable in ("grids", "reference_videos"):
+                resp = client.post(f"/api/v1/projects/demo/versions/{unrestorable}/x/restore/1")
+                assert resp.status_code == 400
+
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
         project_path = tmp_path / "demo"
         scripts_dir = project_path / "scripts"

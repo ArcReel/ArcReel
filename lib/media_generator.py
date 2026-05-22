@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
+from lib.resource_paths import resource_relative_path
 from lib.usage_tracker import UsageTracker
 from lib.version_manager import VersionManager
 
@@ -38,17 +39,6 @@ class MediaGenerator:
 
     封装 GeminiClient + VersionManager，提供自动版本管理。
     """
-
-    # 资源类型到输出路径模式的映射
-    OUTPUT_PATTERNS = {
-        "storyboards": "storyboards/scene_{resource_id}.png",
-        "videos": "videos/scene_{resource_id}.mp4",
-        "characters": "characters/{resource_id}.png",
-        "scenes": "scenes/{resource_id}.png",
-        "props": "props/{resource_id}.png",
-        "grids": "grids/{resource_id}.png",
-        "reference_videos": "reference_videos/{resource_id}.mp4",
-    }
 
     def __init__(
         self,
@@ -109,11 +99,7 @@ class MediaGenerator:
         Returns:
             输出文件的绝对路径
         """
-        if resource_type not in self.OUTPUT_PATTERNS:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
-
-        pattern = self.OUTPUT_PATTERNS[resource_type]
-        relative_path = pattern.format(resource_id=resource_id)
+        relative_path = resource_relative_path(resource_type, resource_id)
         output_path = (self.project_path / relative_path).resolve()
         try:
             output_path.relative_to(self.project_path.resolve())

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from lib.project_manager import ProjectManager
+from lib.resource_paths import resource_relative_path
 from server.services.project_archive import ProjectArchiveService, ProjectArchiveValidationError
 
 REMOTE_VIDEO_URI = "https://cdn.example.com/v/E1U1.mp4"
@@ -122,8 +123,8 @@ def _create_reference_video_project(
 
 class TestProjectArchiveReferenceVideo:
     def test_canonical_resource_path_reference_videos(self):
-        # 验收项：reference_videos 走 unit_id 无前缀分支
-        assert ProjectArchiveService._canonical_resource_path("reference_videos", "E1U1") == "reference_videos/E1U1.mp4"
+        # 验收项：reference_videos 走 unit_id 无前缀分支（路径形状由 lib.resource_paths 独家拥有）
+        assert resource_relative_path("reference_videos", "E1U1") == "reference_videos/E1U1.mp4"
 
     def test_round_trip_preserves_video_units(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
