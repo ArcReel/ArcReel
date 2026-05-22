@@ -14,7 +14,7 @@ import shlex
 import tempfile
 import time
 from collections import deque
-from collections.abc import AsyncIterable, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -2631,26 +2631,73 @@ class SessionManager:
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")
 
-    async def subscribe(self, session_id: str, replay_buffer: bool = True) -> asyncio.Queue:
-        """Subscribe to session messages. Returns queue for SSE."""
+    async def _subscribe(self, session_id: str, *, replay: bool = True) -> tuple[asyncio.Queue, list[dict[str, Any]]]:
+        """Register a live-message queue and capture the replay snapshot atomically.
+
+        Returns the (live-only) queue plus a snapshot of the buffered messages.
+        The buffer snapshot and queue registration happen with no ``await`` in
+        between, so no synchronous live broadcast can interleave between the two
+        and be lost — the replay/live split has no race.
+
+        Private: the only consumer is :meth:`stream_messages`, which owns the
+        deterministic unsubscribe via its context-manager ``__aexit__``.
+        """
         managed = await self.get_or_connect(session_id)
+        # Synchronous critical section — no ``await`` until registration completes.
+        replay_snapshot = list(managed.message_buffer) if replay else []
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-
-        if replay_buffer:
-            # Replay buffered messages
-            for msg in managed.message_buffer:
-                try:
-                    queue.put_nowait(msg)
-                except asyncio.QueueFull:
-                    break
-
         managed.subscribers.add(queue)
-        return queue
+        return queue, replay_snapshot
 
-    async def unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
-        """Unsubscribe from session messages."""
+    async def _unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
+        """Remove a queue from a session's subscriber set."""
         if session_id in self.sessions:
             self.sessions[session_id].subscribers.discard(queue)
+
+    @contextlib.asynccontextmanager
+    async def stream_messages(
+        self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0
+    ) -> AsyncIterator[AsyncIterator[dict[str, Any]]]:
+        """Subscribe to a session's messages as a self-cleaning async iterator.
+
+        Yields an async iterator producing, in order:
+
+        - the replayed buffer messages (when *replay*),
+        - a ``{"type": "_replay_done"}`` sentinel marking the live boundary,
+        - live messages as they are broadcast,
+        - a ``{"type": "_idle"}`` sentinel whenever *idle_timeout* elapses with no
+          message (consumers poll liveness / disconnect on it),
+        - a ``{"type": "_queue_overflow"}`` sentinel if the subscriber queue is
+          dropped under backpressure, after which iteration ends.
+
+        Subscription, replay, queue draining and unsubscribe all live behind this
+        seam; cleanup is carried deterministically by ``__aexit__`` (see ADR-0005).
+        Consume as ``async with stream_messages(...) as stream: async for msg in stream``.
+        """
+        queue, replay_msgs = await self._subscribe(session_id, replay=replay)
+
+        async def _iter() -> AsyncIterator[dict[str, Any]]:
+            # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
+            # by the enclosing context manager's __aexit__ (ADR-0005): a bare async
+            # generator's finally only runs at GC on break/disconnect, which is the
+            # exact leak this design avoids. Do not add a finally to this inner gen.
+            for msg in replay_msgs:
+                yield msg
+            yield {"type": "_replay_done"}
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
+                except TimeoutError:
+                    yield {"type": "_idle"}
+                    continue
+                yield msg
+                if msg.get("type") == "_queue_overflow":
+                    return
+
+        try:
+            yield _iter()
+        finally:
+            await self._unsubscribe(session_id, queue)
 
     async def get_status(self, session_id: str) -> SessionStatus | None:
         """Get session status."""

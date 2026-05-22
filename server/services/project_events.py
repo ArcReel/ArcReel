@@ -5,10 +5,12 @@ Project data change detection and SSE fanout for workspace realtime updates.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -101,7 +103,12 @@ class ProjectEventService:
         self._channels.clear()
         self._loop = None
 
-    async def subscribe(self, project_name: str) -> tuple[asyncio.Queue, dict[str, Any]]:
+    async def _subscribe(self, project_name: str) -> tuple[asyncio.Queue, dict[str, Any]]:
+        """Register a queue for *project_name* and return it with the initial snapshot.
+
+        Private: the only consumer is :meth:`stream_events`, which owns the
+        deterministic unsubscribe via its context-manager ``__aexit__``.
+        """
         await asyncio.to_thread(self.pm.get_project_path, project_name)
         channel = self._channels.get(project_name)
         if channel is None:
@@ -123,7 +130,8 @@ class ProjectEventService:
         await channel.ready_event.wait()
         return queue, self._build_snapshot_payload(project_name, channel)
 
-    async def unsubscribe(self, project_name: str, queue: asyncio.Queue) -> None:
+    async def _unsubscribe(self, project_name: str, queue: asyncio.Queue) -> None:
+        """Remove a queue; stop the watch task once the last subscriber leaves."""
         channel = self._channels.get(project_name)
         if channel is None:
             return
@@ -135,6 +143,43 @@ class ProjectEventService:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         self._channels.pop(project_name, None)
+
+    @contextlib.asynccontextmanager
+    async def stream_events(
+        self, project_name: str, *, idle_timeout: float = 1.0
+    ) -> AsyncIterator[AsyncIterator[tuple[str, Any] | dict[str, Any]]]:
+        """Subscribe to a project's events as a self-cleaning async iterator.
+
+        Yields an async iterator producing, in order:
+
+        - a ``("snapshot", payload)`` tuple as the first event (initial state),
+        - live ``(event_name, payload)`` tuples as changes are broadcast,
+        - a ``{"type": "_idle"}`` sentinel whenever *idle_timeout* elapses with no
+          event (consumers poll disconnect on it).
+
+        The "queue full → silently drop subscriber" overflow semantics are
+        unchanged (no ``_queue_overflow`` sentinel). Subscription and unsubscribe
+        live behind this seam; cleanup is carried by ``__aexit__`` (see ADR-0005).
+        Consume as ``async with stream_events(...) as stream: async for item in stream``.
+        """
+        queue, snapshot = await self._subscribe(project_name)
+
+        async def _iter() -> AsyncIterator[tuple[str, Any] | dict[str, Any]]:
+            # NOTE: intentionally NO ``finally: _unsubscribe`` here — cleanup is owned
+            # by the enclosing context manager's __aexit__ (ADR-0005). Do not add one.
+            yield ("snapshot", snapshot)
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
+                except TimeoutError:
+                    yield {"type": "_idle"}
+                    continue
+                yield item
+
+        try:
+            yield _iter()
+        finally:
+            await self._unsubscribe(project_name, queue)
 
     def _on_hint(
         self,
