@@ -186,6 +186,13 @@ class TestPatchField:
         with pytest.raises(ScriptEditError):
             patch_field(_narration(), "E1S01", "generated_assets.status", "completed")
 
+    @pytest.mark.parametrize("id_field", ["segment_id", "scene_id", "unit_id"])
+    def test_patch_id_field_rejected(self, id_field):
+        # 三类 id 字段（segment/scene/unit）均不可直改：id 由 insert/split 派生，agent 改 id
+        # 会让其他依赖 id 定位的 helper 回写到错误分镜，或产生重复 id 歧义。
+        with pytest.raises(ScriptEditError, match="不可改分镜 id"):
+            patch_field(_narration(), "E1S01", id_field, "X")
+
     def test_patch_does_not_touch_generated_assets(self):
         script = patch_field(_narration(), "E1S01", "duration_seconds", 7)
         assert script["segments"][0]["generated_assets"]["status"] == "completed"

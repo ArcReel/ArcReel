@@ -103,6 +103,13 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if parts[0] == "generated_assets":
         # patch 是纯字段 setter，资产生命周期与剧本编辑解耦（见 ADR-0003）。
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
+    if parts[0] in {"segment_id", "scene_id", "unit_id"}:
+        # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
+        # agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
+        # 或产生重复 id 歧义。增减分镜走 insert_segment / split_segment / remove_segment 工具。
+        raise ScriptEditError(
+            f"patch_episode_script 不可改分镜 id 字段 ({parts[0]})；id 由 insert/split 派生，不允许直接修改"
+        )
     cur: Any = obj
     # 三类异常分别报告，让 agent 错误信息更精确（拼写错误 vs 类型错误 vs 中间节点不存在）。
     for p in parts[:-1]:
