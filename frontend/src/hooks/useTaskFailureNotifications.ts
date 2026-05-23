@@ -47,15 +47,16 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   }, [projectName]);
 
   useEffect(() => {
-    // 等首个成功 poll 再建立基线。项目切换时 useTasksSSE 的 cleanup 会先把 connected
-    // 置 false（同一 commit 内 destroy 先于 setup），故这里不会用旧项目的 tasks 误 seed。
+    // 等首个成功 poll 再建立基线。
     if (!connected) return;
     const prev = prevStatusRef.current;
     const next = new Map<string, TaskStatus>();
     const seeded = seededRef.current;
+    let sawCurrentProject = false;
     for (const tk of tasks) {
       // 只跟踪当前项目的任务：其余项目的任务既不通知也不进 prevStatus。
       if (tk.project_name !== projectName) continue;
+      sawCurrentProject = true;
       const before = prev.get(tk.task_id);
       const isTransition = before !== undefined && before !== "failed";
       const isFreshFailure = seeded && before === undefined;
@@ -70,6 +71,12 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       next.set(tk.task_id, tk.status);
     }
     prevStatusRef.current = next;
-    seededRef.current = true;
+    // 仅当本轮真正读到当前项目的 task 才建立基线。projectName 切换的过渡 commit 里
+    // tasks 仍是旧项目数据（被 project_name 过滤后 next 为空），此时若也把 seeded 置
+    // true，下一轮新项目的 tasks 进来时 prev 仍为空、所有 failed 都满足
+    // isFreshFailure，造成离开再回到项目时重弹历史失败通知。
+    if (sawCurrentProject) {
+      seededRef.current = true;
+    }
   }, [tasks, connected, projectName]);
 }
