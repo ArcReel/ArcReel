@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_TYPES
+from lib.asset_types import ASSET_SPECS, ASSET_TYPES
 from lib.json_io import load_json_or_none
 from lib.project_manager import effective_mode
 
@@ -198,6 +198,7 @@ class DataValidator:
 
         characters = project.get("characters", {})
         if isinstance(characters, dict):
+            char_extra_fields = ASSET_SPECS["character"].extra_string_fields
             for char_name, char_data in characters.items():
                 if not isinstance(char_data, dict):
                     errors.append(f"角色 '{char_name}' 数据格式错误，应为对象")
@@ -207,6 +208,13 @@ class DataValidator:
                     # 必须是非空字符串：description 是 LLM 直写字段，agent 误传数字/对象
                     # 应在守卫点 fail-loud，否则会作为合法资产落盘、下游消费时才崩
                     errors.append(f"角色 '{char_name}' 缺少必填字段: description（须为非空字符串）")
+                for field_name in char_extra_fields:
+                    # spec 声明的 extra_string_fields（voice_style / reference_image 等）若存在
+                    # 须为字符串（可空），否则下游消费方（如把 reference_image 当路径拼接）
+                    # 会运行时崩。None 视为「未设置」放行，非 str 类型 fail-loud。
+                    val = char_data.get(field_name)
+                    if val is not None and not isinstance(val, str):
+                        errors.append(f"角色 '{char_name}'.{field_name} 必须是字符串，当前为 {type(val).__name__}")
 
         if project.get("clues") is not None:
             errors.append("project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务")
@@ -235,6 +243,10 @@ class DataValidator:
         if not isinstance(catalog, dict):
             errors.append(f"{field_label} 必须是对象")
             return
+        # scene/prop 的 extra_string_fields 当前均为空 tuple（见 ASSET_SPECS），仍按 spec 取
+        # 以保持「validator 跟 spec 同步」——将来给 scenes/props 加 extra 字段时无需改本处。
+        asset_type = field_label.rstrip("s")  # "scenes" → "scene"; "props" → "prop"
+        extra_fields = ASSET_SPECS[asset_type].extra_string_fields if asset_type in ASSET_SPECS else ()
         for name, data in catalog.items():
             if not isinstance(data, dict):
                 errors.append(f"{kind_label} '{name}' 数据格式错误，应为对象")
@@ -243,6 +255,10 @@ class DataValidator:
             if not isinstance(desc, str) or not desc:
                 # 同 characters：description 须为非空字符串，避免数字/对象被 truthy 判通过
                 errors.append(f"{kind_label} '{name}' 缺少必填字段: description（须为非空字符串）")
+            for field_name in extra_fields:
+                val = data.get(field_name)
+                if val is not None and not isinstance(val, str):
+                    errors.append(f"{kind_label} '{name}'.{field_name} 必须是字符串，当前为 {type(val).__name__}")
 
     def _validate_segment_refs(
         self,

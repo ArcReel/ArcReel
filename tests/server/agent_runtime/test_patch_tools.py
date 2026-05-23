@@ -195,6 +195,16 @@ class TestPatchProject:
         assert out.get("is_error") is not True
         assert "李白" in ctx.pm.load_project("demo").get("characters", {})
 
+    async def test_non_string_extra_field_rejected(self, ctx: ToolContext) -> None:
+        """voice_style 等 extra_string_fields 须为字符串：agent 传 int / dict / list 会被守卫点拦下，
+        否则下游把 reference_image 当路径拼接时会运行时崩。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": 1}}},
+        )
+        assert out.get("is_error") is True
+        assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
+
     async def test_upsert_strips_sheet_and_unknown_fields(self, ctx: ToolContext) -> None:
         """least-privilege：agent 仅能改 description + spec.extra_string_fields。
         sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 agent
