@@ -98,12 +98,17 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         # patch 是纯字段 setter，资产生命周期与剧本编辑解耦（见 ADR-0003）。
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
     cur: Any = obj
+    # 三类异常分别报告，让 agent 错误信息更精确（拼写错误 vs 类型错误 vs 中间节点不存在）。
     for p in parts[:-1]:
-        if not isinstance(cur, dict) or p not in cur or not isinstance(cur[p], dict):
-            raise ScriptEditError(f"字段路径不存在或父节点非对象: {field_path!r}")
+        if not isinstance(cur, dict):
+            raise ScriptEditError(f"父节点非对象 (类型 {type(cur).__name__}): {field_path!r}")
+        if p not in cur:
+            raise ScriptEditError(f"字段路径不存在: {field_path!r}")
+        if not isinstance(cur[p], dict):
+            raise ScriptEditError(f"父节点非对象 (键 {p!r} 类型为 {type(cur[p]).__name__}): {field_path!r}")
         cur = cur[p]
     if not isinstance(cur, dict):
-        raise ScriptEditError(f"字段路径不存在或父节点非对象: {field_path!r}")
+        raise ScriptEditError(f"父节点非对象: {field_path!r}")
     if parts[-1] not in cur:
         # 叶子不存在也 fail-loud：模块 docstring 承诺「字段路径不存在抛错」，且
         # 此处不该让 agent 的拼写错误（如 `image_prompt.scen`）被当成成功 patch
