@@ -83,11 +83,17 @@ def _next_suffixed_id(base: str, taken: set[str]) -> str:
 
     id 稳定不重排：新 id 由锚点 id 派生 ``_{子序号}`` 后缀，不触动其余分镜的 id，
     序列顺序由数组位决定。
+
+    先把 ``base`` 收敛到 stem（首个 ``_`` 之前的部分）再追加子序号——否则锚点本身已含
+    后缀（如 ``E1S01_1``）时会产生 ``E1S01_1_1`` 这种多层嵌套，违反 ``data_validator.ID_PATTERN``
+    （``^E\\d+S\\d+(?:_\\d+)?$``，archive 层）。base 一律 segment_id 形式
+    ``E\\d+S\\d+`` / ``E\\d+U\\d+`` 不含 ``_``，``split('_')[0]`` 取 stem 是安全的。
     """
+    stem = base.split("_")[0]
     k = 1
-    while f"{base}_{k}" in taken:
+    while f"{stem}_{k}" in taken:
         k += 1
-    return f"{base}_{k}"
+    return f"{stem}_{k}"
 
 
 def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:

@@ -211,6 +211,14 @@ class TestInsertSegment:
         ids = [s["segment_id"] for s in script["segments"]]
         assert ids == ["E1S01", "E1S01_2", "E1S01_1"]
 
+    def test_insert_anchor_already_suffixed_flattens_subindex(self):
+        # 锚点本身已含子序号（E1S01_1）→ 新 id 取 stem `E1S01` + 下一个空闲子序号，
+        # 不产生 `E1S01_1_1` 这种多层后缀（违反 data_validator.ID_PATTERN）。
+        script = insert_segment(_narration([_segment("E1S01"), _segment("E1S01_1")]), "E1S01_1", _segment("X"))
+        ids = [s["segment_id"] for s in script["segments"]]
+        # 跳过已占用的 E1S01_1，得到 E1S01_2，仍是合法单层后缀
+        assert ids == ["E1S01", "E1S01_1", "E1S01_2"]
+
     def test_insert_unknown_anchor_raises(self):
         with pytest.raises(ScriptEditError):
             insert_segment(_narration(), "E9S99", _segment("X"))
