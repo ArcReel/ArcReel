@@ -50,9 +50,12 @@ def migrate_legacy_log_dir() -> None:
     - 用户显式设了 ARCREEL_LOG_DIR → 不动（用户已自主决定路径）
     - 新旧路径解析到同一处 → no-op（例如 ARCREEL_DATA_DIR == PROJECT_ROOT）
     - 旧目录不存在 → no-op
-    - 新目录不存在 → 用 shutil.move 平移旧→新（跨设备自动 fallback 到
-      copy+unlink，专门覆盖 docker bind-mount 等典型升级路径）
-    - 新旧都存在 → 警告，不动（避免静默覆盖；让用户自己处置）
+    - 新目录不存在，或存在但为空 → 用 shutil.move 平移旧→新（跨设备自动
+      fallback 到 copy+unlink，专门覆盖 docker bind-mount 等典型升级路径）。
+      "存在但为空" 分支专门照顾 docker-compose 的 ``./logs:/app/logs`` 挂载——
+      容器启动时宿主机 ``./logs`` 会被预创建为空目录，否则升级路径下旧 logs
+      会一直留在 projects/logs 下被当成伪项目枚举
+    - 新目录存在且非空 → 警告，不动（避免静默覆盖；让用户自己处置）
     - OSError 升级为 ERROR：迁移失败常意味着 logs 仍卡在旧路径下，会以
       伪项目形式出现在 UI，operator 必须看到这条
     """
@@ -68,12 +71,16 @@ def migrate_legacy_log_dir() -> None:
         if not old_dir.exists():
             return
         if new_dir.exists():
-            logger.warning(
-                "legacy log dir %s and new log dir %s both exist; leaving both in place — please move/delete manually",
-                old_dir,
-                new_dir,
-            )
-            return
+            if any(new_dir.iterdir()):
+                logger.warning(
+                    "legacy log dir %s and new log dir %s both have content; leaving both in place — please move/delete manually",
+                    old_dir,
+                    new_dir,
+                )
+                return
+            # 空目录（典型来自 docker bind-mount 预创建）—— rmdir 让 shutil.move
+            # 能把整个旧目录搬过来，而不是嵌套成 new_dir/old_dir_basename
+            new_dir.rmdir()
 
         new_dir.parent.mkdir(parents=True, exist_ok=True)
         # shutil.move 在 src/dst 同设备时走 os.rename，跨设备时降级到 copytree + rmtree。

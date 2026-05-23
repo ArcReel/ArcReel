@@ -26,6 +26,7 @@ from lib.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import LOCALE_LANGUAGE_MAP
+from lib.logging_config import resolve_log_dir
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
@@ -468,10 +469,14 @@ class SessionManager:
             data / ".system_config.json.bak",
             profile / ".claude" / "settings.json",
         )
-        # ``repo / "logs"`` —— 服务器日志含 HTTP 请求路径、provider 探测、异常栈，
-        # 默认 read 规则会把 PROJECT_ROOT 当成参考资料根（lib/docs/...）放行，
-        # 不显式 deny 会让任意项目 session 里的 agent 通过 Read/Grep 读到全局日志。
-        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", repo / "logs")
+        # 日志目录 —— 服务器日志含 HTTP 请求路径、provider 探测、异常栈，默认
+        # read 规则会把 PROJECT_ROOT 当成参考资料根（lib/docs/...）放行，不显式
+        # deny 会让任意项目 session 里的 agent 通过 Read/Grep 读到全局日志。
+        # 用 resolve_log_dir() 拿真实路径，覆盖 ARCREEL_LOG_DIR 自定义场景；
+        # 无论 LOG_DIR 落在 repo 内还是外（如 /var/log/arcreel）都必须 deny——
+        # 把约束反过来用 is_relative_to(repo) 限制只会让 repo 外的 LOG_DIR 漏过。
+        log_dir = resolve_log_dir().resolve()
+        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", log_dir)
         # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
         globs: tuple[tuple[Path, str], ...] = (
             (repo, ".env.*"),

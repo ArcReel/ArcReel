@@ -144,7 +144,8 @@ def test_migrate_moves_legacy_dir_when_new_absent(isolated_data_dir: Path) -> No
     assert (new_dir / "arcreel.log.2026-05-20").exists()
 
 
-def test_migrate_skips_when_both_exist(isolated_data_dir: Path) -> None:
+def test_migrate_skips_when_both_have_content(isolated_data_dir: Path) -> None:
+    """新旧都有内容时不动，避免静默覆盖。"""
     old_dir = isolated_data_dir / "data" / "logs"
     new_dir = isolated_data_dir / "root" / "logs"
     old_dir.mkdir()
@@ -157,6 +158,27 @@ def test_migrate_skips_when_both_exist(isolated_data_dir: Path) -> None:
     # 两边都原样保留，不静默覆盖
     assert (old_dir / "arcreel.log").read_text(encoding="utf-8") == "old\n"
     assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "new\n"
+
+
+def test_migrate_proceeds_when_new_dir_empty(isolated_data_dir: Path) -> None:
+    """docker bind-mount 预创建场景：new_dir 是空目录时仍要搬旧目录过来。
+
+    docker-compose 的 ``./logs:/app/logs`` 会让 docker 启动时把宿主机 ``./logs``
+    创建为空目录。若 ``new_dir.exists()`` 直接放弃迁移，旧 logs 会一直留在
+    projects/logs 下被当作伪项目枚举——这是升级路径的核心回归用例。
+    """
+    old_dir = isolated_data_dir / "data" / "logs"
+    new_dir = isolated_data_dir / "root" / "logs"
+    old_dir.mkdir()
+    new_dir.mkdir()  # 模拟 docker 预创建的空 mount point
+    (old_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
+    (old_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
+
+    logging_config.migrate_legacy_log_dir()
+
+    assert not old_dir.exists(), "旧目录应已被搬走"
+    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "payload\n"
+    assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
 
 
 def test_migrate_noop_when_legacy_absent(isolated_data_dir: Path) -> None:
