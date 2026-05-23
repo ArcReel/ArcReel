@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.15.1](https://github.com/ArcReel/ArcReel/compare/v0.15.0...v0.15.1) (2026-05-23)
+
+
+### 🐛 Bug 修复
+
+* **custom-providers:** classify vidu models by media type ([#597](https://github.com/ArcReel/ArcReel/issues/597)) ([4e4a5f0](https://github.com/ArcReel/ArcReel/commit/4e4a5f0e76e38295c202f719645545e0616b9a1d))
+* **frontend:** 任务失败通知不再在切走再回项目时重弹 ([#619](https://github.com/ArcReel/ArcReel/issues/619)) ([4cfc3fa](https://github.com/ArcReel/ArcReel/commit/4cfc3fa3d6684f52df231a119c6702570303526c))
+* **logging:** 日志目录搬出 projects 根 + 加固迁移与 agent 沙箱 ([#620](https://github.com/ArcReel/ArcReel/issues/620)) ([4b17958](https://github.com/ArcReel/ArcReel/commit/4b17958b6afb3b34002352a450629c69eab17d22))
+
+
+### ♻️ 重构
+
+* **project_manager:** 剧本保存校验单一守卫点（「不更坏」语义） ([#606](https://github.com/ArcReel/ArcReel/issues/606)) ([9a7486d](https://github.com/ArcReel/ArcReel/commit/9a7486d901b92c569abffa97fc3749dfb49ad1a7))
+* **sse:** 把会话/项目事件流深化到 async 上下文管理器背后 ([#613](https://github.com/ArcReel/ArcReel/issues/613)) ([#617](https://github.com/ArcReel/ArcReel/issues/617)) ([46d8f22](https://github.com/ArcReel/ArcReel/commit/46d8f22dd55f0b927fa3d04f3619b4a44b62e8d8))
+* 收敛 provider 解析为深模块 + legacy provider 名一次性迁移 ([#599](https://github.com/ArcReel/ArcReel/issues/599)) ([#600](https://github.com/ArcReel/ArcReel/issues/600)) ([dccf220](https://github.com/ArcReel/ArcReel/commit/dccf2207029f7cf77df412f15d4d3f2b134f523e))
+* 收敛资源路径与剧本字段名形状常量到单一真相源 ([#611](https://github.com/ArcReel/ArcReel/issues/611)) ([#616](https://github.com/ArcReel/ArcReel/issues/616)) ([7a8be58](https://github.com/ArcReel/ArcReel/commit/7a8be58f4999c2351ca1bee61aeddc0239269443))
+
+
+### 📚 文档
+
+* **adr:** ADR-0002 不更坏语义 + ADR-0003 Agent JSON 工具 ([#605](https://github.com/ArcReel/ArcReel/issues/605)) ([65265d5](https://github.com/ArcReel/ArcReel/commit/65265d5d99e8f570377bcc0bdc928d9490f207d4))
+* **adr:** ADR-0004 导入修复留在 archive + 统一入口术语替换 ([#610](https://github.com/ArcReel/ArcReel/issues/610)) ([f43fbf8](https://github.com/ArcReel/ArcReel/commit/f43fbf88eea9d1ef4367b5100f15c10a57033e43))
+* **adr:** ADR-0005 SSE 流走 async 上下文管理器收清理 ([#614](https://github.com/ArcReel/ArcReel/issues/614)) ([148d539](https://github.com/ArcReel/ArcReel/commit/148d539c63a05b98f8cc236f6149a8b9c02d01b4))
+* 新增 CONTEXT 术语表与 ADR-0001（provider 解析走查） ([b4c1286](https://github.com/ArcReel/ArcReel/commit/b4c12869389e68128ed2f65136ea728face726b4))
+* 核实并清理过时设计文档 ([#595](https://github.com/ArcReel/ArcReel/issues/595)) ([7cae4cc](https://github.com/ArcReel/ArcReel/commit/7cae4ccd6fc963a891fa59497f035e4f65c34d54))
+
 ## [0.15.0](https://github.com/ArcReel/ArcReel/compare/v0.14.0...v0.15.0) (2026-05-20)
 
 
