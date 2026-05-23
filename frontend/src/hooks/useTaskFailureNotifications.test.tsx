@@ -193,6 +193,35 @@ describe("useTaskFailureNotifications", () => {
     expect(useAppStore.getState().workspaceNotifications[0].target).toMatchObject({ id: "E1S03" });
   });
 
+  // 回归：connected=false 期间切换项目（如网络抖动 + 用户切到别的项目），随后网络
+  // 恢复时第一个成功 poll 不能被误判为过渡 commit，否则永远不 seed，下一轮快速失败
+  // 任务将被永久漏报。
+  it("notifies for fast failures after switching project while disconnected", async () => {
+    useTasksStore.setState({ tasks: [], connected: true });
+    const { rerender } = render(<Harness project="demo" />);
+
+    // 网络断
+    act(() => {
+      useTasksStore.setState({ connected: false });
+    });
+    // 断网期间切换项目（projectName 变了，但 effect 因 connected=false early return）
+    act(() => {
+      rerender(<Harness project="other" />);
+    });
+    // 网络恢复，首个成功 poll 返回空 tasks（other 项目当前没任务）
+    act(() => {
+      useTasksStore.setState({ tasks: [], connected: true });
+    });
+    // 下一轮 poll：一个新任务在两 poll 间快速失败，首次被观测即 failed
+    act(() => {
+      useTasksStore.setState({
+        tasks: [task({ task_id: "fast-after-reconnect", project_name: "other", status: "failed", resource_id: "E1S04" })],
+      });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(useAppStore.getState().workspaceNotifications[0].target).toMatchObject({ id: "E1S04" });
+  });
+
   it("builds a reference_unit target for reference_video failures", async () => {
     useTasksStore.setState({
       tasks: [task({ task_id: "r1", task_type: "reference_video", resource_id: "E1U1", status: "running" })],

@@ -51,12 +51,16 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   }, [projectName]);
 
   useEffect(() => {
-    // 等首个成功 poll 再建立基线。
-    if (!connected) return;
     // 过渡 commit：projectName 已变但 tasks/lastSeenProjectName 尚未跟上。此时
     // tasks 仍是旧项目数据，不该用它建立新项目的基线，否则下一轮新 tasks 进来时
     // prev 为空、seeded=true 会把历史 failed 全部当 fresh failure 重弹。
     const isTransitionCommit = lastSeenProjectNameRef.current !== projectName;
+    // 在 connected 检查之前同步 lastSeenProjectName——否则 connected=false 期间
+    // 切换项目时 effect early return 会让 ref 卡在旧 projectName，下一次 connected
+    // 恢复时第一个成功 poll 又被误判为 transition、不 seed，进而漏报本应捕获的
+    // fast failure。
+    lastSeenProjectNameRef.current = projectName;
+    if (!connected) return;
     const prev = prevStatusRef.current;
     const next = new Map<string, TaskStatus>();
     const seeded = seededRef.current;
@@ -83,6 +87,5 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     if (!isTransitionCommit) {
       seededRef.current = true;
     }
-    lastSeenProjectNameRef.current = projectName;
   }, [tasks, connected, projectName]);
 }
