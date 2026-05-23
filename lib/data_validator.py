@@ -202,8 +202,11 @@ class DataValidator:
                 if not isinstance(char_data, dict):
                     errors.append(f"角色 '{char_name}' 数据格式错误，应为对象")
                     continue
-                if not char_data.get("description"):
-                    errors.append(f"角色 '{char_name}' 缺少必填字段: description")
+                desc = char_data.get("description")
+                if not isinstance(desc, str) or not desc:
+                    # 必须是非空字符串：description 是 LLM 直写字段，agent 误传数字/对象
+                    # 应在守卫点 fail-loud，否则会作为合法资产落盘、下游消费时才崩
+                    errors.append(f"角色 '{char_name}' 缺少必填字段: description（须为非空字符串）")
 
         if project.get("clues") is not None:
             errors.append("project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务")
@@ -236,8 +239,10 @@ class DataValidator:
             if not isinstance(data, dict):
                 errors.append(f"{kind_label} '{name}' 数据格式错误，应为对象")
                 continue
-            if not data.get("description"):
-                errors.append(f"{kind_label} '{name}' 缺少必填字段: description")
+            desc = data.get("description")
+            if not isinstance(desc, str) or not desc:
+                # 同 characters：description 须为非空字符串，避免数字/对象被 truthy 判通过
+                errors.append(f"{kind_label} '{name}' 缺少必填字段: description（须为非空字符串）")
 
     def _validate_segment_refs(
         self,

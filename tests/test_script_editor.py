@@ -78,6 +78,7 @@ def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None) -> dict:
         "shots": shots,
         "references": [],
         "duration_seconds": sum(s["duration"] for s in shots),
+        "transition_to_next": "cut",  # 对齐 Pydantic 默认；剧本经 model_dump 后该字段总会出现
         "generated_assets": {"video_clip": "scripts/z.mp4"},
     }
 
@@ -170,6 +171,12 @@ class TestPatchField:
     def test_patch_reference_unit_field(self):
         script = patch_field(_reference(), "E1U2", "transition_to_next", "fade")
         assert script["video_units"][1]["transition_to_next"] == "fade"
+
+    def test_patch_unknown_leaf_field_raises(self):
+        # 叶子字段不存在 → fail-loud。否则 agent 的拼写错误（如 `image_prompt.scen`）
+        # 会被当成成功 patch 写成额外字段，违反模块 docstring「字段路径不存在抛错」契约。
+        with pytest.raises(ScriptEditError):
+            patch_field(_narration(), "E1S01", "image_prompt.scen", "x")
 
     def test_patch_unknown_id_raises(self):
         with pytest.raises(ScriptEditError):

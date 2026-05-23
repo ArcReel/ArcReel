@@ -73,6 +73,34 @@ def test_write_protected_project_json_denied(sm: SessionManager, tool: str, rela
     assert reason and "patch_episode_script" in reason or "patch_project" in (reason or "")
 
 
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+def test_write_protected_via_symlink_project_json_denied(sm: SessionManager, tool: str) -> None:
+    """`project.json` 本身被做成项目内 symlink（指向另一个项目内文件）时，仍须拒——
+    防止"把入口换成 symlink"绕过 protected 区判定。仅靠 resolve 后路径比较会失配。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    real = cwd / "other.json"
+    real.write_text("{}", encoding="utf-8")
+    link = cwd / "project.json"
+    link.symlink_to(real)
+    allowed, reason = sm._is_path_allowed(str(link), tool, cwd)
+    assert not allowed, "symlink 形态的 project.json 写入应被拒"
+    assert reason and ("patch_project" in reason or "patch_episode_script" in reason)
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+def test_write_protected_via_symlink_scripts_dir_denied(sm: SessionManager, tool: str) -> None:
+    """`scripts/` 整个目录被做成项目内 symlink 时，对其下 .json 的写入仍须拒。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    real_dir = cwd / "data"
+    real_dir.mkdir()
+    link_dir = cwd / "scripts"
+    link_dir.symlink_to(real_dir)
+    target = link_dir / "episode_1.json"
+    allowed, reason = sm._is_path_allowed(str(target), tool, cwd)
+    assert not allowed, "symlink 形态的 scripts/ 下 .json 写入应被拒"
+    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+
+
 def test_write_drafts_and_source_still_allowed(sm: SessionManager) -> None:
     """合法的草稿/源文件写入不受影响（drafts/*.md、source/*.txt、scripts 外的 .json）。"""
     cwd = sm.project_root / "projects" / "selfproj"

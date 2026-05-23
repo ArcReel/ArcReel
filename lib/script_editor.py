@@ -104,6 +104,11 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         cur = cur[p]
     if not isinstance(cur, dict):
         raise ScriptEditError(f"字段路径不存在或父节点非对象: {field_path!r}")
+    if parts[-1] not in cur:
+        # 叶子不存在也 fail-loud：模块 docstring 承诺「字段路径不存在抛错」，且
+        # 此处不该让 agent 的拼写错误（如 `image_prompt.scen`）被当成成功 patch
+        # 在 dict 上凭空新建字段。
+        raise ScriptEditError(f"字段路径不存在: {field_path!r}")
     cur[parts[-1]] = value
 
 

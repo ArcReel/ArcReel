@@ -2202,7 +2202,12 @@ class SessionManager:
         """
         try:
             p = Path(file_path)
-            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+            logical = p if p.is_absolute() else project_cwd / p
+            # normpath 收敛 `.`/`..` 但不展开 symlink——保留「逻辑目标」与「resolve 后的真实
+            # 目标」两个视角，用来识别 symlink 起点（逻辑在 protected 区、resolve 跳到外面）
+            # 与 symlink 终点（逻辑在外、resolve 落入 protected 区）两类绕过。
+            logical_norm = Path(os.path.normpath(str(logical)))
+            resolved = logical.resolve()
         except (ValueError, OSError):
             return False, "访问被拒绝：无效的文件路径"
 
@@ -2211,7 +2216,7 @@ class SessionManager:
             return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
 
         if tool_name in self._WRITE_TOOLS:
-            return self._check_write_access(resolved, project_cwd)
+            return self._check_write_access(resolved, project_cwd, logical_norm=logical_norm)
         return self._check_read_access(resolved, project_cwd)
 
     @functools.cached_property
@@ -2288,13 +2293,15 @@ class SessionManager:
         # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
         return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
 
-    def _check_write_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
+    def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
         """Write/Edit 的写入约束：cwd 外一律拒，cwd 内代码扩展名拒（agent 不写代码），
         且 ``scripts/*.json`` 与 ``project.json`` 一律拒——只能走收归后的 MCP 工具。"""
         if not resolved.is_relative_to(project_cwd):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
 
-        if self._is_protected_project_json(resolved, project_cwd):
+        if self._is_protected_project_json(resolved, project_cwd) or self._is_protected_project_json(
+            logical_norm, project_cwd
+        ):
             return False, (
                 "访问被拒绝：scripts/*.json 与 project.json 不可用 Write/Edit 直改，"
                 "请改用 MCP 工具——剧本编辑走 mcp__arcreel__patch_episode_script / "
@@ -2313,16 +2320,19 @@ class SessionManager:
         return True, None
 
     @staticmethod
-    def _is_protected_project_json(resolved: Path, project_cwd: Path) -> bool:
+    def _is_protected_project_json(target: Path, project_cwd: Path) -> bool:
         """命中受保护的项目 JSON（``scripts/`` 下任意 .json，或根 ``project.json``）。
 
-        与 sandbox ``denyWrite`` 同源；此谓词覆盖内置 Write/Edit（权限系统，全平台），
+        caller 应分别对「逻辑目标」（normpath 收敛 `.`/`..` 但不展开 symlink）和「resolve
+        后的真实目标」各调一次：任一落入 protected 区都判定命中——覆盖项目内 symlink 起点
+        指 protected 路径（resolved 跳到外）与终点指 protected 路径（逻辑在外、resolved 跳入）
+        两类绕过。与 sandbox ``denyWrite`` 同源；此谓词覆盖内置 Write/Edit（权限系统，全平台），
         与 denyWrite（Bash 子进程，内核级）构成双层。
         """
-        if resolved == project_cwd / "project.json":
+        if target == project_cwd / "project.json":
             return True
         scripts_dir = project_cwd / "scripts"
-        return resolved.is_relative_to(scripts_dir) and resolved.suffix.lower() == ".json"
+        return target.is_relative_to(scripts_dir) and target.suffix.lower() == ".json"
 
     async def _handle_ask_user_question(
         self,

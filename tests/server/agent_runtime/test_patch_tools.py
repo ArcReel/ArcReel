@@ -180,6 +180,16 @@ class TestPatchProject:
         assert out.get("is_error") is not True
         assert "李白" in ctx.pm.load_project("demo").get("characters", {})
 
+    async def test_non_string_description_rejected(self, ctx: ToolContext) -> None:
+        """description 必须是非空字符串：agent 误传数字（如 LLM 把"1"输出成 int）
+        会让原 truthy 校验放行、错误数据作为合法资产落盘——守卫点须 fail-loud。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"阿青": {"description": 1}}},
+        )
+        assert out.get("is_error") is True
+        assert "阿青" not in ctx.pm.load_project("demo").get("characters", {})
+
     async def test_upsert_fails_loud_when_bucket_not_dict(self, ctx: ToolContext) -> None:
         """bucket_key 已存在却非 dict（历史脏数据，如 list）→ fail-loud，
         而非在 bucket.get 处抛含糊的 AttributeError。"""
