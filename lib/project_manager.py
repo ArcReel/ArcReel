@@ -1618,7 +1618,7 @@ class ProjectManager:
 
         def _mutate(project: dict) -> None:
             validator = DataValidator(str(self.projects_root))
-            before_valid = validator.validate_project_payload(project).valid  # 改前快照（含历史遗留）
+            before_errors = set(validator.validate_project_payload(project).errors)  # 改前快照
             bucket = project.setdefault(spec.bucket_key, {})
             if not isinstance(bucket, dict):
                 # 历史脏数据：bucket_key 已存在却非 dict（如 list/str）。继续会让下方
@@ -1630,10 +1630,16 @@ class ProjectManager:
                     bucket[name].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
                 else:
                     bucket[name] = self._build_asset_entry(asset_type, attrs.get("description", ""), attrs)
-            after = validator.validate_project_payload(project)
-            # 「不更坏」：只在本次 upsert 把原本合法的 project 改非法时拦；改前已非法则放行。
-            if not after.valid and before_valid:
-                raise ValueError("project.json 结构校验失败: " + "; ".join(after.errors))
+            after_errors = set(validator.validate_project_payload(project).errors)
+            # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
+            #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
+            #   - 改前已脏、改后相同脏 → new_errors=∅ → 放行（允许带历史脏数据的项目继续 patch）
+            #   - 改前已脏、改后引入新错误（如本次 entries 缺 description）→ new_errors≠∅ → 拒
+            #   - 改前已脏、改后修复了部分 → new_errors=∅ → 放行（允许 patch 改进历史脏数据）
+            # 比单纯比 valid 标志更严：堵住「带历史脏数据的项目里新 entry 的结构错误 piggyback 落盘」。
+            new_errors = after_errors - before_errors
+            if new_errors:
+                raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
 
         return self.update_project(project_name, _mutate)
 

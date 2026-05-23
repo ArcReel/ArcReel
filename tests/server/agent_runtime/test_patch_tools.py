@@ -169,6 +169,21 @@ class TestPatchProject:
         out = await _call(patch_project_tool(ctx), {"table": "weapons", "entries": {"剑": {"description": "x"}}})
         assert out.get("is_error") is True
 
+    async def test_invalid_entry_rejected_even_when_project_already_invalid(self, ctx: ToolContext) -> None:
+        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，本次 upsert 引入的
+        新错误（如新 entry 缺 description）仍应被拒——单纯 `before_valid AND after.valid` 判定
+        会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
+        # 让项目改前先脏（与资产无关的历史问题，如空 style）
+        ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
+        out = await _call(
+            patch_project_tool(ctx),
+            # 缺 description 的非法 entry，本次写入引入的「新错误」
+            {"table": "scenes", "entries": {"空场景": {"voice_style": "x"}}},
+        )
+        assert out.get("is_error") is True
+        # 不落盘：空场景没写入
+        assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
+
     async def test_upsert_allowed_when_project_already_invalid(self, ctx: ToolContext) -> None:
         """「不更坏」：项目本就含与资产无关的历史非法（空 style）时，patch_project 仍应成功——
         否则带历史脏数据的项目会整条编辑路径不可用。"""
