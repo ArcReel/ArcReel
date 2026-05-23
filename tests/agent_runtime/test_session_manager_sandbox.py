@@ -156,6 +156,37 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
 
 
+def test_logs_dir_is_sensitive_prefix(tmp_path: Path) -> None:
+    """PROJECT_ROOT/logs 必须落在 sensitive prefixes 里，agent 不能 Read/Grep 全局日志。
+
+    背景：lib/logging_config.py 把日志目录默认改为 PROJECT_ROOT/logs 后，
+    _check_read_access 走到 line ~2264 的 'is_relative_to(_project_root_resolved)
+    -> 放行' 分支，会把全局服务器日志当成参考资料放给 agent。规则 0 的
+    sensitive-path 拒绝必须在前面截住，所以 logs/ 要进 _sensitive_prefixes。
+    """
+    from server.agent_runtime.session_manager import SessionManager
+    from server.agent_runtime.session_store import SessionMetaStore
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    logs_dir = root / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
+    (logs_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
+
+    sm = SessionManager(root, tmp_path / "data", SessionMetaStore())
+
+    # 当前 + 历史 log 文件都被认定为敏感
+    assert sm._is_sensitive_path((logs_dir / "arcreel.log").resolve())
+    assert sm._is_sensitive_path((logs_dir / "arcreel.log.2026-05-20").resolve())
+    # 整目录本身也是敏感（Glob/listdir 拒）
+    assert sm._is_sensitive_path(logs_dir.resolve())
+
+    # _build_sensitive_abs_paths 也必须把 logs 目录交给 SDK denyRead 清单
+    paths = sm._build_sensitive_abs_paths()
+    assert str(logs_dir.resolve()) in paths
+
+
 def test_build_sensitive_abs_paths_honors_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 把数据/profile 目录搬到
     项目外时，sandbox denyRead 必须跟着指到新位置——否则源码根下的硬编码

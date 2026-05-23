@@ -468,7 +468,10 @@ class SessionManager:
             data / ".system_config.json.bak",
             profile / ".claude" / "settings.json",
         )
-        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys",)
+        # ``repo / "logs"`` —— 服务器日志含 HTTP 请求路径、provider 探测、异常栈，
+        # 默认 read 规则会把 PROJECT_ROOT 当成参考资料根（lib/docs/...）放行，
+        # 不显式 deny 会让任意项目 session 里的 agent 通过 Read/Grep 读到全局日志。
+        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", repo / "logs")
         # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
         globs: tuple[tuple[Path, str], ...] = (
             (repo, ".env.*"),

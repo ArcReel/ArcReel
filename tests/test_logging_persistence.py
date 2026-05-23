@@ -192,3 +192,82 @@ def test_migrate_noop_when_paths_equal(tmp_path: Path, monkeypatch: pytest.Monke
         assert (logs / "arcreel.log").read_text(encoding="utf-8") == "hi\n"
     finally:
         app_data_dir_mod._reset_for_tests()
+
+
+def test_migrate_falls_back_to_copy_on_exdev(isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """跨 mount 场景（docker bind-mount）下 os.rename 抛 EXDEV，shutil.move 自动降级 copy+unlink。"""
+    import errno
+    import os
+
+    old_dir = isolated_data_dir / "data" / "logs"
+    old_dir.mkdir()
+    (old_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
+    (old_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
+
+    real_rename = os.rename
+
+    def fake_rename(src: str, dst: str, *args: object, **kwargs: object) -> None:
+        # 只对老 logs dir 的根 rename 制造 EXDEV，其他路径（如 shutil 内部的临时操作）
+        # 不受影响
+        if str(src) == str(old_dir):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        real_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rename", fake_rename)
+
+    logging_config.migrate_legacy_log_dir()
+
+    new_dir = isolated_data_dir / "root" / "logs"
+    assert not old_dir.exists(), "shutil.move 应在跨设备时自动 copy+unlink"
+    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "payload\n"
+    assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
+
+
+def test_migrate_failure_logs_error(
+    isolated_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """迁移失败必须 ERROR 级（不是 WARNING）以让 operator 看到 logs 卡在旧位置。"""
+    import shutil
+
+    old_dir = isolated_data_dir / "data" / "logs"
+    old_dir.mkdir()
+    (old_dir / "arcreel.log").write_text("stuck\n", encoding="utf-8")
+
+    def fake_move(src: str, dst: str, *args: object, **kwargs: object) -> None:
+        raise PermissionError("simulated permission denied")
+
+    monkeypatch.setattr(shutil, "move", fake_move)
+
+    with caplog.at_level(logging.ERROR, logger="lib.logging_config"):
+        logging_config.migrate_legacy_log_dir()
+
+    assert any("FAILED" in rec.message and rec.levelno == logging.ERROR for rec in caplog.records)
+    # 旧 dir 仍在
+    assert (old_dir / "arcreel.log").exists()
+
+
+def test_setup_logging_file_false_skips_file_handler(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """模块导入期用 file=False 时不应挂 file handler、不应 mkdir 新目录。"""
+    # 注意：isolated_log_dir 把 ARCREEL_LOG_DIR 设到 tmp_path/logs 但还没创建
+    log_dir = isolated_log_dir
+    assert not log_dir.exists()
+
+    logging_config.setup_logging(file=False)
+
+    root = logging.getLogger()
+    assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
+    assert not log_dir.exists(), "file=False 不应触发 mkdir"
+
+
+def test_attach_file_handler_is_idempotent(isolated_log_dir: Path) -> None:
+    """attach_file_handler() 多次调用只挂一个 file handler。"""
+    logging_config.setup_logging(file=False)
+    logging_config.attach_file_handler()
+    logging_config.attach_file_handler()
+    logging_config.attach_file_handler()
+
+    root = logging.getLogger()
+    file_handlers = [h for h in root.handlers if isinstance(h, TimedRotatingFileHandler)]
+    assert len(file_handlers) == 1

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
@@ -49,18 +50,19 @@ def migrate_legacy_log_dir() -> None:
     - 用户显式设了 ARCREEL_LOG_DIR → 不动（用户已自主决定路径）
     - 新旧路径解析到同一处 → no-op（例如 ARCREEL_DATA_DIR == PROJECT_ROOT）
     - 旧目录不存在 → no-op
-    - 新目录不存在 → 整体 rename 旧→新
+    - 新目录不存在 → 用 shutil.move 平移旧→新（跨设备自动 fallback 到
+      copy+unlink，专门覆盖 docker bind-mount 等典型升级路径）
     - 新旧都存在 → 警告，不动（避免静默覆盖；让用户自己处置）
-    - 任意异常 → warning，不抛（迁移辅助逻辑不阻塞启动）
+    - OSError 升级为 ERROR：迁移失败常意味着 logs 仍卡在旧路径下，会以
+      伪项目形式出现在 UI，operator 必须看到这条
     """
     if os.environ.get("ARCREEL_LOG_DIR", "").strip():
         return
 
     logger = logging.getLogger(__name__)
+    old_dir = legacy_log_dir()
+    new_dir = resolve_log_dir()
     try:
-        old_dir = legacy_log_dir()
-        new_dir = resolve_log_dir()
-
         if old_dir.resolve() == new_dir.resolve():
             return
         if not old_dir.exists():
@@ -74,18 +76,30 @@ def migrate_legacy_log_dir() -> None:
             return
 
         new_dir.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(old_dir, new_dir)
-        logger.info("migrated legacy log dir %s → %s", old_dir, new_dir)
-    except Exception as exc:
-        logger.warning("legacy log dir migration skipped: %s", exc)
+        # shutil.move 在 src/dst 同设备时走 os.rename，跨设备时降级到 copytree + rmtree。
+        # 这正是 docker bind-mount 升级路径下 os.replace 报 EXDEV 的解药。
+        shutil.move(str(old_dir), str(new_dir))
+        logger.info("migrated legacy log dir %s -> %s", old_dir, new_dir)
+    except OSError as exc:
+        logger.error(
+            "legacy log dir migration FAILED (logs may still appear at %s as a pseudo-project; "
+            "please move %s -> %s manually): %s",
+            old_dir,
+            old_dir,
+            new_dir,
+            exc,
+        )
 
 
-def setup_logging(level: str | None = None) -> None:
+def setup_logging(level: str | None = None, *, file: bool = True) -> None:
     """配置根 logger。
 
     Args:
         level: 日志级别字符串（DEBUG/INFO/WARNING/ERROR）。
                如未提供，从环境变量 LOG_LEVEL 读取，默认 INFO。
+        file: 是否挂 TimedRotatingFileHandler。模块导入期传 False 推迟到
+              lifespan 之后挂——避免 import 期 mkdir 新 logs/ 污染开发树，
+              也让 migrate_legacy_log_dir() 能在新目录还不存在时 rename。
     """
     if level is None:
         level = os.environ.get("LOG_LEVEL", "INFO")
@@ -107,24 +121,8 @@ def setup_logging(level: str | None = None) -> None:
         setattr(handler, _HANDLER_ATTR, True)
         root.addHandler(handler)
 
-    # 文件 handler：默认开启，按天切，保留 7 份。失败不阻塞 stdout。
-    file_handler_exists = any(getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers)
-    if not _file_logging_disabled() and not file_handler_exists:
-        try:
-            log_dir = resolve_log_dir()
-            log_dir.mkdir(parents=True, exist_ok=True)
-            file_handler = TimedRotatingFileHandler(
-                filename=str(log_dir / "arcreel.log"),
-                when="midnight",
-                backupCount=7,
-                encoding="utf-8",
-                utc=False,
-            )
-            file_handler.setFormatter(formatter)
-            setattr(file_handler, _FILE_HANDLER_ATTR, True)
-            root.addHandler(file_handler)
-        except Exception as exc:
-            logging.getLogger(__name__).warning("file logging disabled: %s", exc)
+    if file:
+        attach_file_handler(formatter)
 
     # 统一 uvicorn 的日志格式，避免两种格式并存
     for name in ("uvicorn", "uvicorn.error"):
@@ -139,3 +137,40 @@ def setup_logging(level: str | None = None) -> None:
 
     # 抑制 aiosqlite 的 DEBUG 噪音（每次 SQL 操作都会输出两行日志）
     logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))
+
+
+def attach_file_handler(formatter: logging.Formatter | None = None) -> None:
+    """为 root logger 挂 TimedRotatingFileHandler（默认开启，按天切，保留 7 份）。
+
+    幂等：已挂则直接返回。被 setup_logging 调用，也可在 lifespan 内
+    单独触发——后者用于先跑 migrate_legacy_log_dir() 平移旧目录，再挂
+    file handler 以避免新目录被提前创建堵掉 rename。
+    """
+    if _file_logging_disabled():
+        return
+
+    root = logging.getLogger()
+    if any(getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers):
+        return
+
+    if formatter is None:
+        formatter = logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+
+    try:
+        log_dir = resolve_log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = TimedRotatingFileHandler(
+            filename=str(log_dir / "arcreel.log"),
+            when="midnight",
+            backupCount=7,
+            encoding="utf-8",
+            utc=False,
+        )
+        file_handler.setFormatter(formatter)
+        setattr(file_handler, _FILE_HANDLER_ATTR, True)
+        root.addHandler(file_handler)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("file logging disabled: %s", exc)

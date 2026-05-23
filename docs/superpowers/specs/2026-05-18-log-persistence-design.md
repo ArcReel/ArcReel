@@ -191,7 +191,7 @@ async function downloadDiagnostics() {
 ## 平台兼容
 
 - **Windows**：`TimedRotatingFileHandler` 单进程写无锁问题（uvicorn 默认 worker=1）；路径用 pathlib，IO 显式 `encoding="utf-8"`；zip 用标准 `ZipFile`（自带 UTF-8 文件名支持）
-- **Sandbox**：日志写在 `app_data_dir()` 下，已是 bwrap 白名单的写路径，无需额外声明
+- **Sandbox**：日志写在 `PROJECT_ROOT/logs` 下，作为 server 进程写路径需在 bwrap 白名单中（默认 PROJECT_ROOT 整树可写已涵盖）；同时该路径在 `SessionManager._compute_sensitive_paths` 里登记为 sensitive prefix，agent 工具无法 Read/Grep 全局日志
 - **Docker / journald**：stdout 不变，外部收集器零感知
 
 ## 测试
