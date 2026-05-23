@@ -195,6 +195,41 @@ class TestPatchProject:
         assert out.get("is_error") is not True
         assert "李白" in ctx.pm.load_project("demo").get("characters", {})
 
+    async def test_upsert_strips_sheet_and_unknown_fields(self, ctx: ToolContext) -> None:
+        """least-privilege：agent 仅能改 description + spec.extra_string_fields。
+        sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 agent
+        覆写本不该碰的字段。"""
+        # 先 upsert 一个干净 entry，再尝试用 patch 改 sheet（应被忽略）+ 加 unknown key
+        await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
+        )
+        # 模拟系统通过 _update_asset_sheet 写入 sheet 路径
+        ctx.pm.update_project(
+            "demo", lambda p: p["characters"]["李白"].update({"character_sheet": "characters/li_bai.png"})
+        )
+
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "改后描述",
+                        "voice_style": "沉稳",
+                        "character_sheet": "fake/agent_overwrite.png",  # 应被丢弃
+                        "random_extra_field": "noise",  # 应被丢弃
+                    }
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        char = ctx.pm.load_project("demo")["characters"]["李白"]
+        assert char["description"] == "改后描述"
+        assert char["voice_style"] == "沉稳"
+        assert char["character_sheet"] == "characters/li_bai.png"  # 系统字段未被 agent 覆写
+        assert "random_extra_field" not in char  # spec 外字段不入库
+
     async def test_non_string_description_rejected(self, ctx: ToolContext) -> None:
         """description 必须是非空字符串：agent 误传数字（如 LLM 把"1"输出成 int）
         会让原 truthy 校验放行、错误数据作为合法资产落盘——守卫点须 fail-loud。"""

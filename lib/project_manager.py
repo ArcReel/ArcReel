@@ -1614,7 +1614,16 @@ class ProjectManager:
                 raise ValueError(f"{table} '{name}' 的内容必须是对象")
 
         spec = ASSET_SPECS[asset_type]
-        cleaned = {name: self._strip_legacy_asset_fields(attrs) for name, attrs in entries.items()}
+        # 收紧字段白名单：agent 仅能改 `description` + spec 声明的 `extra_string_fields`（如 voice_style），
+        # **不允许**改 `sheet_field`（character_sheet / scene_sheet / prop_sheet——系统生成的资产图路径，
+        # 由资产生成流水线在图像就绪后通过 `_update_asset_sheet` 专用 API 回写，不该被 patch_project 直改），
+        # 也不允许写入 spec 之外的任意 key。`_strip_legacy_asset_fields` 处理 type/importance 等历史字段，
+        # 这层再加白名单形成「最小特权」——不再依赖 agent self-discipline。
+        allowed_fields = {"description", *spec.extra_string_fields}
+        cleaned = {
+            name: {k: v for k, v in self._strip_legacy_asset_fields(attrs).items() if k in allowed_fields}
+            for name, attrs in entries.items()
+        }
 
         def _mutate(project: dict) -> None:
             validator = DataValidator(str(self.projects_root))
