@@ -2326,13 +2326,21 @@ class SessionManager:
         caller 应分别对「逻辑目标」（normpath 收敛 `.`/`..` 但不展开 symlink）和「resolve
         后的真实目标」各调一次：任一落入 protected 区都判定命中——覆盖项目内 symlink 起点
         指 protected 路径（resolved 跳到外）与终点指 protected 路径（逻辑在外、resolved 跳入）
-        两类绕过。与 sandbox ``denyWrite`` 同源；此谓词覆盖内置 Write/Edit（权限系统，全平台），
+        两类绕过。
+
+        路径用 ``casefold`` 后比较：Windows NTFS / macOS APFS 默认卷是大小写不敏感文件系统，
+        ``PROJECT.JSON`` 与 ``project.json`` 指向同一物理文件，但 ``Path`` 字符串比较 case-sensitive
+        会漏判这一类大小写变体绕过。Linux case-sensitive 卷上 agent 实际不会用大小写变体，
+        casefold 的偶尔 over-match 不会破坏 fail-loud 语义。
+
+        与 sandbox ``denyWrite`` 同源；此谓词覆盖内置 Write/Edit（权限系统，全平台），
         与 denyWrite（Bash 子进程，内核级）构成双层。
         """
-        if target == project_cwd / "project.json":
+        target_s = str(target).casefold()
+        if target_s == str(project_cwd / "project.json").casefold():
             return True
-        scripts_dir = project_cwd / "scripts"
-        return target.is_relative_to(scripts_dir) and target.suffix.lower() == ".json"
+        scripts_prefix = str(project_cwd / "scripts").casefold() + os.sep
+        return target_s.startswith(scripts_prefix) and target_s.endswith(".json")
 
     async def _handle_ask_user_question(
         self,

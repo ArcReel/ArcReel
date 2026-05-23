@@ -74,6 +74,21 @@ def test_write_protected_project_json_denied(sm: SessionManager, tool: str, rela
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
+    "relative",
+    ["PROJECT.JSON", "Project.Json", "scripts/EPISODE_1.JSON", "Scripts/episode_1.json"],
+)
+def test_write_protected_case_variants_denied(sm: SessionManager, tool: str, relative: str) -> None:
+    """大小写变体（PROJECT.JSON / Scripts/x.json）在 Windows NTFS / macOS APFS 默认卷
+    上指向同一物理文件，Path 字符串比较 case-sensitive 会漏判——`_is_protected_project_json`
+    用 casefold 比较后这类变体也应被拒，否则 agent 可改大小写绕过收口。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    allowed, reason = sm._is_path_allowed(str(cwd / relative), tool, cwd)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
 def test_write_protected_via_symlink_project_json_denied(sm: SessionManager, tool: str) -> None:
     """`project.json` 本身被做成项目内 symlink（指向另一个项目内文件）时，仍须拒——
     防止"把入口换成 symlink"绕过 protected 区判定。仅靠 resolve 后路径比较会失配。"""
