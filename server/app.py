@@ -35,7 +35,7 @@ from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
-from lib.logging_config import setup_logging
+from lib.logging_config import migrate_legacy_log_dir, setup_logging
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
@@ -237,6 +237,9 @@ def detect_docker_environment() -> bool:
 
 
 # 初始化日志
+# 迁移必须先于 setup_logging：后者会创建新 logs/ 目录并打开 file handler，
+# 之后再迁移会撞到 "新旧都存在" 而放弃。
+migrate_legacy_log_dir()
 setup_logging()
 logger = logging.getLogger(__name__)
 
