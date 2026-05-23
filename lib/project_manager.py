@@ -1229,9 +1229,14 @@ class ProjectManager:
             script, _script_items_shape(script, content_mode).items_key, script_filename=script_filename
         )
 
-        # item 缺 generated_assets 字段时（结构脏数据）也按读取侧容错：当作"未生成"算进 pending。
-        # 与 get_scenes_needing_storyboard 的 `.get("generated_assets", {})` 用法对齐。
-        return [item for item in items if not item.get("generated_assets", {}).get(asset_type)]
+        # item.generated_assets 缺失 / null / 非 dict 一律视为"未生成"——读取侧脏数据容错：
+        # `.get("generated_assets", {}).get(...)` 只挡 key 缺失，None 与非 dict 仍会抛 AttributeError。
+        # 与写入侧 update_scene_asset 的 isinstance check（line 1124-1127）mirror。
+        def _missing(item: dict) -> bool:
+            assets = item.get("generated_assets")
+            return not isinstance(assets, dict) or not assets.get(asset_type)
+
+        return [item for item in items if _missing(item)]
 
     # ==================== 文件路径工具 ====================
 
@@ -1269,12 +1274,17 @@ class ProjectManager:
         script = self.load_script(project_name, script_filename)
 
         # 同 get_pending_scenes：读取路径用 `_items_or_warn` 在脏数据下降级到 [] + warning。
+        # generated_assets 缺失 / null / 非 dict 一律视为"未生成"，写入侧 isinstance check 的镜像。
         content_mode = script.get("content_mode", "narration")
         items = _items_or_warn(
             script, _script_items_shape(script, content_mode).items_key, script_filename=script_filename
         )
 
-        return [item for item in items if not item.get("generated_assets", {}).get("storyboard_image")]
+        def _missing_storyboard(item: dict) -> bool:
+            assets = item.get("generated_assets")
+            return not isinstance(assets, dict) or not assets.get("storyboard_image")
+
+        return [item for item in items if _missing_storyboard(item)]
 
     # ==================== 项目级元数据管理 ====================
 

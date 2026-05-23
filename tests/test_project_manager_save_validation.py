@@ -289,3 +289,27 @@ class TestAssetWritebackExemption:
         result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
         assert len(result) == 1
         assert result[0]["segment_id"] == "E1S01"
+
+    @pytest.mark.parametrize(
+        "assets_json",
+        ["null", '"corrupted"', "[]"],
+        ids=["null", "string", "list"],
+    )
+    def test_get_pending_scenes_handles_non_dict_generated_assets(self, tmp_path: Path, assets_json: str):
+        """读取侧容错：item.generated_assets 存在但是 null / 字符串 / 非 dict 时不抛 AttributeError，
+        视为"未生成"算进 pending。`item.get("generated_assets", {}).get(...)` 只挡 key 缺失,
+        None / 非 dict 仍会崩——必须用 isinstance check 与写入侧 update_scene_asset 的 mirror。"""
+        pm = _pm(tmp_path)
+        script_dir = tmp_path / "projects" / "demo" / "scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "episode_1.json").write_text(
+            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            f'"segments": [{{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": {assets_json}}}], '
+            '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
+            encoding="utf-8",
+        )
+        result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
+        assert len(result) == 1
+        # 同样 get_scenes_needing_storyboard 也容错
+        result2 = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
+        assert len(result2) == 1
