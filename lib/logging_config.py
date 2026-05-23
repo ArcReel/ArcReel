@@ -85,13 +85,13 @@ def migrate_legacy_log_dir() -> None:
             # 的内容到 new_dir，最后再删已清空的 old_dir。每项独立 shutil.move
             # 在跨设备时仍会 fallback 到 copy+unlink。
             for entry in old_dir.iterdir():
-                shutil.move(str(entry), str(new_dir / entry.name))
+                shutil.move(entry, new_dir / entry.name)
             old_dir.rmdir()
         else:
             new_dir.parent.mkdir(parents=True, exist_ok=True)
             # shutil.move 在 src/dst 同设备时走 os.rename，跨设备时降级到 copytree + rmtree。
             # 这正是 docker bind-mount 升级路径下 os.replace 报 EXDEV 的解药。
-            shutil.move(str(old_dir), str(new_dir))
+            shutil.move(old_dir, new_dir)
         logger.info("migrated legacy log dir %s -> %s", old_dir, new_dir)
     except OSError as exc:
         logger.error(
