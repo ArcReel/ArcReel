@@ -83,15 +83,25 @@ def _script_items_shape(script: dict, content_mode: str) -> ScriptShape:
     return SCRIPT_SHAPES["drama"]
 
 
-def _safe_items(script: dict, key: str) -> list[dict]:
-    """从 script 取列表式数据，对历史脏数据（键存在但值为 null / 非 list）回退到 [] 而非 TypeError。
+def _items_or_warn(script: dict, key: str, *, script_filename: str | None = None) -> list[dict]:
+    """读取路径的脏数据降级：键存在但值非 list（含 null）时 log warning + 返回 []。
 
-    与 `_write_script_unlocked` 写盘咽喉对 `resolve_items` 的 try-except 同源——保证读取
-    helper（待处理列表）与资产回写热路径（update_scene_asset 等）在 `segments: null` /
-    `scenes: null` 等历史脏键下不抛 TypeError 而能继续推进。
+    写入路径（update_scene_asset / batch_update_scene_assets）不用本 helper——写入侧应该
+    fail-loud（直接 raise ScriptEditError 让 worker 显式失败、上层 API 5xx 告知数据损坏），
+    在脏数据下静默 no-op 等于把数据丢失藏起来。本 helper 仅给读取侧（get_pending_scenes /
+    get_scenes_needing_storyboard）用——读取在脏数据下返回 [] 不阻塞 UI 渲染，但 warning
+    给运维一个可观测信号去人工修复，不让降级变隐形。
     """
     raw = script.get(key, [])
-    return raw if isinstance(raw, list) else []
+    if isinstance(raw, list):
+        return raw
+    logger.warning(
+        "剧本 %s 的 %r 字段不是 list（type=%s），读取降级为空列表——数据损坏，请人工修复",
+        script_filename or "<unknown>",
+        key,
+        type(raw).__name__,
+    )
+    return []
 
 
 class EpisodeScriptReboundError(RuntimeError):
@@ -552,21 +562,26 @@ class ProjectManager:
 
         # 选当前剧本的分镜数组：与结构校验 `_select_model` / 编辑核心 `resolve_items` 共用同一
         # 判别（含 reference 模式的 video_units——否则它会落入 segments 兜底分支、total_scenes 错算为 0）。
-        # `resolve_items` 对 segments/scenes/video_units 存在但非 list（含 null 这类历史脏数据）
-        # 会 fail-loud；本路径在 metadata 重算时把它翻译为 fallback——`validate=True` 的「不更坏」
-        # 守卫不会到这里（已在 `_guard_no_worse` 失败处 raise），`validate=False` 资产回写热路径
-        # 文档明确「整体豁免结构校验」，不应因脏列表键阻塞 generated_assets 的回写。
+        # `resolve_items` 对 segments/scenes/video_units 存在但非 list（含 null 这类历史脏数据）会
+        # fail-loud：`validate=True` 路径已被 `_guard_no_worse` 提前拦下（不会到这里）；只有
+        # `validate=False` 资产回写热路径才会撞上脏数据键，此时**保留旧 metadata 不重算**——
+        # 旧的 total_scenes / estimated_duration_seconds 即便陈旧，也好过把 reference 模式
+        # 改写成 0-scene narration shell（fallback hard-pin kind='segments' 那种）。资产回写本就
+        # 「整体豁免结构校验」，连带豁免 metadata 重算与「不更坏」语义一致：脏数据不更坏。
         try:
             items, _id_field, kind = resolve_items(script)
-        except ScriptEditError:
-            items, _id_field, kind = [], "segment_id", "segments"
-
-        metadata["total_scenes"] = len(items)
-
-        # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判
-        default_duration = 4 if kind == "segments" else 8
-        total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
-        metadata["estimated_duration_seconds"] = total_duration
+        except ScriptEditError as e:
+            logger.warning(
+                "剧本 %s 数据损坏（%s），跳过 metadata 重算以保留旧值",
+                output_path.name,
+                e,
+            )
+        else:
+            metadata["total_scenes"] = len(items)
+            # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判
+            default_duration = 4 if kind == "segments" else 8
+            total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
+            metadata["estimated_duration_seconds"] = total_duration
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)
@@ -1097,11 +1112,20 @@ class ProjectManager:
             更新后的剧本
         """
         # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
+        # 但「分镜数组键损坏（如 segments: null）」是更严重的损坏，写入侧必须 fail-loud——
+        # 静默 no-op 等于把数据丢失藏起来：worker 写完 N 个 video_clip 还以为成功了，UI 却
+        # 看不到任何回写。让 ScriptEditError 上冒，worker 层负责降级（记 task 失败、人工修复）。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             # 根据内容模式选择正确的数据结构
             content_mode = script.get("content_mode", "narration")
             shape = _script_items_shape(script, content_mode)
-            items = _safe_items(script, shape.items_key)
+            raw = script.get(shape.items_key, [])
+            if not isinstance(raw, list):
+                raise ScriptEditError(
+                    f"剧本 {script_filename} 的 {shape.items_key!r} 字段损坏（type={type(raw).__name__}），"
+                    "资产回写无法进行；请先人工修复剧本数据"
+                )
+            items = raw
             id_field = shape.id_field
 
             for item in items:
@@ -1146,10 +1170,18 @@ class ProjectManager:
             return {}
 
         # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
+        # 分镜数组键损坏时与 update_scene_asset 同款 fail-loud——批量场景下静默 no-op 危害
+        # 更大：worker 写完 N 个 clip 全被丢、SSE 仍然广播「all updated」，UI 永远 pending。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             content_mode = script.get("content_mode", "narration")
             shape = _script_items_shape(script, content_mode)
-            items = _safe_items(script, shape.items_key)
+            raw = script.get(shape.items_key, [])
+            if not isinstance(raw, list):
+                raise ScriptEditError(
+                    f"剧本 {script_filename} 的 {shape.items_key!r} 字段损坏（type={type(raw).__name__}），"
+                    "资产回写无法进行；请先人工修复剧本数据"
+                )
+            items = raw
             id_field = shape.id_field
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找
@@ -1188,9 +1220,14 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
-        # 根据内容模式选择正确的数据结构
+        # 根据内容模式选择正确的数据结构。读取路径在脏数据下用 `_items_or_warn` 降级到 []
+        # （+ log warning 提供可观测信号）——读取侧 silent 比写入侧 silent 安全：UI 渲染空
+        # 列表好过 5xx 阻塞页面，但写入侧（update_scene_asset / batch_update_scene_assets）
+        # 必须 raise，保证数据损坏永远有显式信号。
         content_mode = script.get("content_mode", "narration")
-        items = _safe_items(script, _script_items_shape(script, content_mode).items_key)
+        items = _items_or_warn(
+            script, _script_items_shape(script, content_mode).items_key, script_filename=script_filename
+        )
 
         return [item for item in items if not item["generated_assets"].get(asset_type)]
 
@@ -1229,8 +1266,11 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
+        # 同 get_pending_scenes：读取路径用 `_items_or_warn` 在脏数据下降级到 [] + warning。
         content_mode = script.get("content_mode", "narration")
-        items = _safe_items(script, _script_items_shape(script, content_mode).items_key)
+        items = _items_or_warn(
+            script, _script_items_shape(script, content_mode).items_key, script_filename=script_filename
+        )
 
         return [item for item in items if not item.get("generated_assets", {}).get("storyboard_image")]
 
@@ -1621,12 +1661,13 @@ class ProjectManager:
             normalized_entries[name] = attrs
 
         spec = ASSET_SPECS[asset_type]
-        # 收紧字段白名单：agent 仅能改 `description` + spec 声明的 `extra_string_fields`（如 voice_style），
-        # **不允许**改 `sheet_field`（character_sheet / scene_sheet / prop_sheet——系统生成的资产图路径，
-        # 由资产生成流水线在图像就绪后通过 `_update_asset_sheet` 专用 API 回写，不该被 patch_project 直改），
-        # 也不允许写入 spec 之外的任意 key。`_strip_legacy_asset_fields` 处理 type/importance 等历史字段，
-        # 这层再加白名单形成「最小特权」——不再依赖 agent self-discipline。
-        allowed_fields = {"description", *spec.extra_string_fields}
+        # 字段白名单走 spec 的「agent 权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
+        # `extra_string_fields`——后者包括 `reference_image` 这类系统/用户路径字段（与 sheet_field
+        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被 agent patch_project 直改。
+        # 不允许的字段同样含 `sheet_field`（character_sheet / scene_sheet / prop_sheet，资产生成流水线
+        # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
+        # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
+        allowed_fields = {"description", *spec.agent_editable_extra_fields}
         cleaned = {
             name: {k: v for k, v in self._strip_legacy_asset_fields(attrs).items() if k in allowed_fields}
             for name, attrs in normalized_entries.items()

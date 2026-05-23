@@ -15,7 +15,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AssetSpec:
-    """单一资产类型的所有结构性属性。"""
+    """单一资产类型的所有结构性属性。
+
+    ``extra_string_fields`` 是 schema 维度——validator 据此校验「这些字段若存在须为
+    string」、`_build_asset_entry` 据此初始化默认空串、REST PATCH 据此扩展可更新字段集；
+    ``agent_editable_extra_fields`` 是权限维度——`upsert_assets`（agent 走的入口）的字段
+    白名单来自这里，**不复用 schema 维度**。两者解耦的原因：``reference_image`` 是用户
+    上传或系统生成的文件路径，是 ``extra_string_fields``（schema 层 string）但不是
+    ``agent_editable_extra_fields``（agent 不该覆写用户上传的路径，更新走专用 API
+    ``update_character_reference_image``，与 sheet_field 同性质）。
+    """
 
     asset_type: str
     bucket_key: str
@@ -23,6 +32,7 @@ class AssetSpec:
     subdir: str
     label_zh: str
     extra_string_fields: tuple[str, ...] = ()
+    agent_editable_extra_fields: tuple[str, ...] = ()
 
 
 ASSET_SPECS: dict[str, AssetSpec] = {
@@ -33,6 +43,9 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         subdir="characters",
         label_zh="角色",
         extra_string_fields=("voice_style", "reference_image"),
+        # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image 是用户上传
+        # 的文件路径（系统级），不进 agent 白名单——更新走 update_character_reference_image。
+        agent_editable_extra_fields=("voice_style",),
     ),
     "scene": AssetSpec(
         asset_type="scene",
@@ -41,6 +54,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         subdir="scenes",
         label_zh="场景",
         extra_string_fields=(),
+        agent_editable_extra_fields=(),
     ),
     "prop": AssetSpec(
         asset_type="prop",
@@ -49,6 +63,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         subdir="props",
         label_zh="道具",
         extra_string_fields=(),
+        agent_editable_extra_fields=(),
     ),
 }
 

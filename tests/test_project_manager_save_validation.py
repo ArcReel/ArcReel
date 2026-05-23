@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
 from lib.project_manager import ProjectManager
+from lib.script_editor import ScriptEditError
 from lib.script_structure_validator import ScriptStructureValidationError
 
 
@@ -198,40 +200,74 @@ class TestAssetWritebackExemption:
             encoding="utf-8",
         )
 
-    def test_update_scene_asset_survives_corrupted_list_key(self, tmp_path: Path):
-        """`update_scene_asset` 公开 API 在 `segments: null` 下不该抛 TypeError——
-        虽然 scene 找不到时仍合理地报 KeyError（scene_id 不存在），但根本失败模式
-        应该是「未命中」而不是「在 null 上迭代崩溃」。"""
-        pm = _pm(tmp_path)
-        self._seed_corrupted_null_segments(pm, tmp_path)
-        with pytest.raises(KeyError, match="不存在"):
-            # segments=null 下 _safe_items fallback 到 []，遍历找不到 → KeyError 而非 TypeError
-            pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "x.png")
-
-    def test_batch_update_scene_assets_survives_corrupted_list_key(self, tmp_path: Path):
-        """`batch_update_scene_assets` 在 `segments: null` 下不该崩溃；找不到的 update 静默跳过。"""
-        pm = _pm(tmp_path)
-        self._seed_corrupted_null_segments(pm, tmp_path)
-        # 不抛 TypeError；返回的 dict 包含项目状态
-        result = pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
-        assert isinstance(result, dict)
-
-    def test_writeback_survives_corrupted_list_key(self, tmp_path: Path):
-        """资产回写热路径：剧本含 `segments: null` 这类历史脏数据时，metadata 重算需 fallback
-        而非阻塞写回——`resolve_items` 自身 fail-loud 是给编辑路径用的，写盘咽喉应翻译为容错。
-        否则带脏列表键的项目里 update_scene_asset 等会全部失败。"""
-        pm = _pm(tmp_path)
-        # 直接落盘构造一个 segments=null 的脏剧本（绕开 save_script，模拟历史遗留）
+    def _seed_corrupted_null_video_units(self, tmp_path: Path) -> None:
+        """构造 video_units=null 的 reference 模式脏剧本，且事先有合理的 metadata（模拟数据
+        损坏前的状态），用于验证脏数据 fallback 时保留旧 metadata 而非重算成错值。"""
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
-            '{"episode": 1, "title": "x", "content_mode": "narration", "segments": null, '
-            '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
+            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            '"generation_mode": "reference_video", "video_units": null, '
+            '"novel": {"title": "n", "chapter": "c"}, "summary": "", '
+            '"metadata": {"created_at": "2024-01-01T00:00:00+00:00", "status": "draft", '
+            '"updated_at": "2024-01-01T00:00:00+00:00", "total_scenes": 5, "estimated_duration_seconds": 40}}',
             encoding="utf-8",
         )
+
+    def test_update_scene_asset_fails_loud_on_corrupted_list_key(self, tmp_path: Path):
+        """`update_scene_asset` 在 `segments: null` 下必须 fail-loud（raise ScriptEditError）——
+        静默 no-op 会让 worker 以为回写成功但实际数据丢失。worker 层应该 catch 这个错误并
+        把任务标为失败，让运维看到「数据损坏」而不是「成功但空」。"""
+        pm = _pm(tmp_path)
+        self._seed_corrupted_null_segments(pm, tmp_path)
+        with pytest.raises(ScriptEditError, match="损坏"):
+            pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "x.png")
+
+    def test_batch_update_scene_assets_fails_loud_on_corrupted_list_key(self, tmp_path: Path):
+        """`batch_update_scene_assets` 在 `segments: null` 下必须 fail-loud——批量场景下静默
+        no-op 危害更大：worker 写完 N 个 clip 全被丢、SSE 仍然广播「all updated」、UI 永远 pending。"""
+        pm = _pm(tmp_path)
+        self._seed_corrupted_null_segments(pm, tmp_path)
+        with pytest.raises(ScriptEditError, match="损坏"):
+            pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
+
+    def test_writeback_preserves_old_metadata_on_corrupted_list_key(self, tmp_path: Path):
+        """资产回写热路径在 reference 模式 `video_units: null` 下：metadata 重算应**跳过**而非
+        hard-pin 到 segments shell。否则 fallback 会把 total_scenes=0 / 默认时长写回，
+        把 reference 项目的 metadata 改写成 0-scene narration shell——脏数据「不更坏」的反面。
+        正确行为：保留旧 metadata 不动（即便陈旧也好过写错的），仅 updated_at 刷新。"""
+        pm = _pm(tmp_path)
+        self._seed_corrupted_null_video_units(tmp_path)
+
+        # 非结构性变更走 validate=False（资产回写热路径）
         with pm.locked_script("demo", "episode_1.json", validate=False) as script:
-            script["generated_assets_demo"] = "anything"  # 任意非结构性变更
+            script["generated_assets_demo"] = "anything"
+
         saved = pm.load_script("demo", "episode_1.json")
-        # 写回成功 + metadata 计算 fallback 到 0（脏数据下不汇总）
+        # 旧 metadata 完全保留（除 updated_at 必然刷新外）
+        assert saved["metadata"]["total_scenes"] == 5
+        assert saved["metadata"]["estimated_duration_seconds"] == 40
         assert saved.get("generated_assets_demo") == "anything"
-        assert saved["metadata"]["total_scenes"] == 0
+
+    def test_get_pending_scenes_warns_and_returns_empty_on_corrupted_list_key(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ):
+        """读取路径（get_pending_scenes）在脏数据下不阻塞 UI 渲染：返回 [] + 发出可观测的
+        warning 日志，让运维有信号去人工修复，不让降级变隐形。"""
+        pm = _pm(tmp_path)
+        self._seed_corrupted_null_segments(pm, tmp_path)
+        with caplog.at_level(logging.WARNING, logger="lib.project_manager"):
+            result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
+        assert result == []
+        assert any("segments" in rec.message and "数据损坏" in rec.message for rec in caplog.records)
+
+    def test_get_scenes_needing_storyboard_warns_and_returns_empty_on_corrupted_list_key(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ):
+        """同上：get_scenes_needing_storyboard 在脏数据下也是 warn + []。"""
+        pm = _pm(tmp_path)
+        self._seed_corrupted_null_segments(pm, tmp_path)
+        with caplog.at_level(logging.WARNING, logger="lib.project_manager"):
+            result = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
+        assert result == []
+        assert any("segments" in rec.message and "数据损坏" in rec.message for rec in caplog.records)

@@ -279,3 +279,38 @@ class TestPatchProject:
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
         )
         assert out.get("is_error") is True
+
+    async def test_upsert_strips_reference_image_field(self, ctx: ToolContext) -> None:
+        """reference_image 是用户上传或系统生成的文件路径（与 sheet_field 同性质），
+        agent_editable_extra_fields 不包含它——patch_project 应静默丢弃，不让 agent
+        覆写用户已上传的角色参考图。更新走专用 API update_character_reference_image。
+        validator 维度的 extra_string_fields 仍保留 reference_image 用于类型校验。"""
+        # 先 upsert 一个干净 entry
+        await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
+        )
+        # 模拟用户通过 WebUI 上传参考图
+        ctx.pm.update_character_reference_image("demo", "李白", "characters/refs/li_bai.jpg")
+        assert ctx.pm.load_project("demo")["characters"]["李白"]["reference_image"] == "characters/refs/li_bai.jpg"
+
+        # agent 尝试改描述时顺带覆写 reference_image——应被丢弃
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "改后描述",
+                        "voice_style": "沉稳",
+                        "reference_image": "",  # 应被白名单过滤掉
+                    }
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        char = ctx.pm.load_project("demo")["characters"]["李白"]
+        assert char["description"] == "改后描述"
+        assert char["voice_style"] == "沉稳"
+        # 用户上传的 reference_image 不被 agent 覆写
+        assert char["reference_image"] == "characters/refs/li_bai.jpg"
