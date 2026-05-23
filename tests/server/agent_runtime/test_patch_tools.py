@@ -280,6 +280,23 @@ class TestPatchProject:
         )
         assert out.get("is_error") is True
 
+    async def test_normalized_name_collision_fails_loud(self, ctx: ToolContext) -> None:
+        """两个 raw key strip 后等价（如 "李白" 与 "  李白  "）→ fail-loud，避免后者
+        silent overwrite 前者的 attrs；agent 应明确感知 collision 并去重。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {"description": "白衣剑客"},
+                    "  李白  ": {"description": "白衣剑客v2"},
+                },
+            },
+        )
+        assert out.get("is_error") is True
+        # 任何一个版本都不应入库（mutation 在校验阶段就 raise，不落盘）
+        assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
+
     async def test_upsert_strips_reference_image_field(self, ctx: ToolContext) -> None:
         """reference_image 是用户上传或系统生成的文件路径（与 sheet_field 同性质），
         agent_editable_extra_fields 不包含它——patch_project 应静默丢弃，不让 agent

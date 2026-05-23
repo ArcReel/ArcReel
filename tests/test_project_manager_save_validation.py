@@ -271,3 +271,21 @@ class TestAssetWritebackExemption:
             result = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
         assert result == []
         assert any("segments" in rec.message and "数据损坏" in rec.message for rec in caplog.records)
+
+    def test_get_pending_scenes_handles_item_without_generated_assets(self, tmp_path: Path):
+        """读取侧容错：列表内 item 缺 generated_assets 字段（结构脏数据但列表本身完好）时
+        不应抛 KeyError，按"未生成"算进 pending——与 get_scenes_needing_storyboard 的容错对齐。"""
+        pm = _pm(tmp_path)
+        # 直接落盘：segments 是合法 list，但内部 item 缺 generated_assets
+        script_dir = tmp_path / "projects" / "demo" / "scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "episode_1.json").write_text(
+            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            '"segments": [{"segment_id": "E1S01", "duration_seconds": 4}], '
+            '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
+            encoding="utf-8",
+        )
+        # 不应抛 KeyError；item 缺字段 → pending（含进结果）
+        result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
+        assert len(result) == 1
+        assert result[0]["segment_id"] == "E1S01"
