@@ -177,6 +177,43 @@ def test_migrate_proceeds_when_new_dir_empty(isolated_data_dir: Path) -> None:
     logging_config.migrate_legacy_log_dir()
 
     assert not old_dir.exists(), "旧目录应已被搬走"
+    # new_dir 本身（挂载点）不能被 rmdir，但内容已被填入
+    assert new_dir.exists(), "new_dir 必须保留（bind-mount 挂载点不能 rmdir）"
+    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "payload\n"
+    assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
+
+
+def test_migrate_preserves_new_dir_when_it_is_mountpoint(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """new_dir 是 docker bind-mount 挂载点时，rmdir(new_dir) 会抛 EBUSY。
+    迁移必须不依赖 rmdir(new_dir) 成功——通过 mock 让任何对 new_dir 自身
+    的 rmdir 都抛 OSError(EBUSY)，确认搬运仍能完成。
+    """
+    import errno
+
+    old_dir = isolated_data_dir / "data" / "logs"
+    new_dir = isolated_data_dir / "root" / "logs"
+    old_dir.mkdir()
+    new_dir.mkdir()
+    (old_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
+    (old_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
+
+    real_rmdir = Path.rmdir
+
+    def fake_rmdir(self: Path) -> None:
+        # 任何对 new_dir 路径的 rmdir 都模拟成挂载点失败
+        if self.resolve() == new_dir.resolve():
+            raise OSError(errno.EBUSY, "Device or resource busy")
+        real_rmdir(self)
+
+    monkeypatch.setattr(Path, "rmdir", fake_rmdir)
+
+    logging_config.migrate_legacy_log_dir()
+
+    # 即使 new_dir.rmdir 全程会失败，迁移仍要完成
+    assert not old_dir.exists()
+    assert new_dir.exists()
     assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "payload\n"
     assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
 

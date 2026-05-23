@@ -78,14 +78,20 @@ def migrate_legacy_log_dir() -> None:
                     new_dir,
                 )
                 return
-            # 空目录（典型来自 docker bind-mount 预创建）—— rmdir 让 shutil.move
-            # 能把整个旧目录搬过来，而不是嵌套成 new_dir/old_dir_basename
-            new_dir.rmdir()
-
-        new_dir.parent.mkdir(parents=True, exist_ok=True)
-        # shutil.move 在 src/dst 同设备时走 os.rename，跨设备时降级到 copytree + rmtree。
-        # 这正是 docker bind-mount 升级路径下 os.replace 报 EXDEV 的解药。
-        shutil.move(str(old_dir), str(new_dir))
+            # new_dir 存在但为空 —— 这是 docker bind-mount 的典型形态：
+            # ``./logs:/app/logs`` 让 docker 启动时把宿主机 ./logs 创建为空
+            # 目录，容器内 /app/logs 是挂载点。不能对挂载点本身 rmdir
+            # （会报 EBUSY/Device or resource busy），所以逐项搬运 old_dir
+            # 的内容到 new_dir，最后再删已清空的 old_dir。每项独立 shutil.move
+            # 在跨设备时仍会 fallback 到 copy+unlink。
+            for entry in old_dir.iterdir():
+                shutil.move(str(entry), str(new_dir / entry.name))
+            old_dir.rmdir()
+        else:
+            new_dir.parent.mkdir(parents=True, exist_ok=True)
+            # shutil.move 在 src/dst 同设备时走 os.rename，跨设备时降级到 copytree + rmtree。
+            # 这正是 docker bind-mount 升级路径下 os.replace 报 EXDEV 的解药。
+            shutil.move(str(old_dir), str(new_dir))
         logger.info("migrated legacy log dir %s -> %s", old_dir, new_dir)
     except OSError as exc:
         logger.error(
