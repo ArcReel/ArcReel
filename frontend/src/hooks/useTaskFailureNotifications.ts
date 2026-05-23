@@ -39,6 +39,10 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   const prevStatusRef = useRef<Map<string, TaskStatus>>(new Map());
   // 是否已用首个成功 poll 建立基线。基线内的 failed 一律视为历史失败、不推送。
   const seededRef = useRef(false);
+  // 上次 effect 跑时观察到的 projectName。projectName 切换的过渡 commit 里 tasks 仍是
+  // 旧项目数据，此 ref 仍是旧 projectName；只有等到 tasks/connected 因新一轮 poll
+  // 变化、effect 再次跑时，ref 才与 props 同步。用它检测"这一轮是否是过渡 commit"。
+  const lastSeenProjectNameRef = useRef<string | null | undefined>(projectName);
 
   // 项目切换时重置基线，避免把新项目的历史 failed 误判为新失败。
   useEffect(() => {
@@ -49,14 +53,16 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   useEffect(() => {
     // 等首个成功 poll 再建立基线。
     if (!connected) return;
+    // 过渡 commit：projectName 已变但 tasks/lastSeenProjectName 尚未跟上。此时
+    // tasks 仍是旧项目数据，不该用它建立新项目的基线，否则下一轮新 tasks 进来时
+    // prev 为空、seeded=true 会把历史 failed 全部当 fresh failure 重弹。
+    const isTransitionCommit = lastSeenProjectNameRef.current !== projectName;
     const prev = prevStatusRef.current;
     const next = new Map<string, TaskStatus>();
     const seeded = seededRef.current;
-    let sawCurrentProject = false;
     for (const tk of tasks) {
       // 只跟踪当前项目的任务：其余项目的任务既不通知也不进 prevStatus。
       if (tk.project_name !== projectName) continue;
-      sawCurrentProject = true;
       const before = prev.get(tk.task_id);
       const isTransition = before !== undefined && before !== "failed";
       const isFreshFailure = seeded && before === undefined;
@@ -71,12 +77,12 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       next.set(tk.task_id, tk.status);
     }
     prevStatusRef.current = next;
-    // 仅当本轮真正读到当前项目的 task 才建立基线。projectName 切换的过渡 commit 里
-    // tasks 仍是旧项目数据（被 project_name 过滤后 next 为空），此时若也把 seeded 置
-    // true，下一轮新项目的 tasks 进来时 prev 仍为空、所有 failed 都满足
-    // isFreshFailure，造成离开再回到项目时重弹历史失败通知。
-    if (sawCurrentProject) {
+    // 非过渡 commit 才建立基线——即使本轮 tasks 为空（项目就是没有任务），也代表
+    // 已经收到当前项目的真实响应；后续若有 task 在两 poll 间快速失败被首次观测即
+    // failed，仍能走 isFreshFailure 通道触发通知。
+    if (!isTransitionCommit) {
       seededRef.current = true;
     }
+    lastSeenProjectNameRef.current = projectName;
   }, [tasks, connected, projectName]);
 }

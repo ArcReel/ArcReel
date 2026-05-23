@@ -178,6 +178,21 @@ describe("useTaskFailureNotifications", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
+  // 回归：项目首轮 poll 即使无任务也应建立基线，否则后续 task 在两 poll 间快速失败、
+  // 首次被观测即 failed 时，因 seeded=false 永远走不进 isFreshFailure 通道，永久漏报。
+  it("notifies for fast failures in a project whose first poll had no tasks", async () => {
+    useTasksStore.setState({ tasks: [], connected: true });
+    render(<Harness project="demo" />);
+    // 此前没有任何 task，但首轮 poll 已建立基线。后续 poll 一个新 task 直接以 failed 出现。
+    act(() => {
+      useTasksStore.setState({
+        tasks: [task({ task_id: "fast", status: "failed", resource_id: "E1S03" })],
+      });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(useAppStore.getState().workspaceNotifications[0].target).toMatchObject({ id: "E1S03" });
+  });
+
   it("builds a reference_unit target for reference_video failures", async () => {
     useTasksStore.setState({
       tasks: [task({ task_id: "r1", task_type: "reference_video", resource_id: "E1U1", status: "running" })],
