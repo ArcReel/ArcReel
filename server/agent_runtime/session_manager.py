@@ -2339,11 +2339,13 @@ class SessionManager:
         target_s = str(target).casefold()
         if target_s == str(project_cwd / "project.json").casefold():
             return True
-        scripts_prefix = str(project_cwd / "scripts").casefold() + os.sep
-        # 拒绝 scripts/ 下任意文件类型（不仅 .json）：sandbox denyWrite 把整个 scripts/ 列入
-        # 内核级 deny，hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp /
-        # .md 会污染剧本目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
-        return target_s.startswith(scripts_prefix)
+        scripts_dir = str(project_cwd / "scripts").casefold()
+        # 拒绝 scripts/ 子树（含目录本身）：sandbox denyWrite 把整个 scripts/ 列入内核级 deny，
+        # hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp / .md 会污染剧本
+        # 目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
+        # 同时显式覆盖目录路径本身（target == scripts_dir）：agent 把目录名当文件路径 Write 时
+        # 文件系统会拒，但 hook 层 fail-fast 优先，不依赖 OS 兜底。
+        return target_s == scripts_dir or target_s.startswith(scripts_dir + os.sep)
 
     async def _handle_ask_user_question(
         self,

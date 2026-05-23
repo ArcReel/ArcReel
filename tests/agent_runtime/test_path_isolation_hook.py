@@ -74,6 +74,16 @@ def test_write_protected_project_json_denied(sm: SessionManager, tool: str, rela
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
+def test_write_protected_scripts_dir_itself_denied(sm: SessionManager, tool: str) -> None:
+    """`scripts/` 目录路径本身（不带 trailing sep）也该拒：defense-in-depth，
+    不依赖 OS 兜底 agent 把目录名当文件路径的 typo。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    allowed, reason = sm._is_path_allowed(str(cwd / "scripts"), tool, cwd)
+    assert not allowed
+    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize(
     "relative",
     ["scripts/episode_1.bak", "scripts/notes.md", "scripts/.tmp", "scripts/subdir/anything.txt"],

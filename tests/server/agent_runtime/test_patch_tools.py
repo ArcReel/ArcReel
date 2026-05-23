@@ -195,6 +195,26 @@ class TestPatchProject:
         assert out.get("is_error") is not True
         assert "李白" in ctx.pm.load_project("demo").get("characters", {})
 
+    async def test_entry_name_whitespace_normalized(self, ctx: ToolContext) -> None:
+        """agent 传带前后空格的 name → strip 规范化后存储（避免按 name 查找因空格差异 mismatch）。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"  李白  ": {"description": "白衣剑客"}}},
+        )
+        assert out.get("is_error") is not True
+        chars = ctx.pm.load_project("demo")["characters"]
+        assert "李白" in chars  # 规范化后存储
+        assert "  李白  " not in chars
+
+    async def test_blank_entry_name_rejected(self, ctx: ToolContext) -> None:
+        """全空白或空 name fail-loud：避免把 \"\" / \"   \" 写成合法 entry key。"""
+        for blank_name in ("", "   ", "\t\n"):
+            out = await _call(
+                patch_project_tool(ctx),
+                {"table": "characters", "entries": {blank_name: {"description": "x"}}},
+            )
+            assert out.get("is_error") is True
+
     async def test_non_string_extra_field_rejected(self, ctx: ToolContext) -> None:
         """voice_style 等 extra_string_fields 须为字符串：agent 传 int / dict / list 会被守卫点拦下，
         否则下游把 reference_image 当路径拼接时会运行时崩。"""

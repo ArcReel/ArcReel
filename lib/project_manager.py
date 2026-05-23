@@ -1609,9 +1609,16 @@ class ProjectManager:
             raise ValueError(f"未知资产表: {table!r}，须是 {sorted(self._BUCKET_TO_ASSET_TYPE)} 之一")
         if not isinstance(entries, dict) or not entries:
             raise ValueError("entries 不能为空")
-        for name, attrs in entries.items():
+        # 规范化 name：strip 空白后非空。agent 误传 "  李白  " 这种带空格的 name 会让后续按
+        # name 索引查找（角色生成等）因空格差异 mismatch。空白 name 全空 fail-loud。
+        normalized_entries: dict[str, dict] = {}
+        for raw_name, attrs in entries.items():
+            name = raw_name.strip() if isinstance(raw_name, str) else raw_name
+            if not isinstance(name, str) or not name:
+                raise ValueError(f"{table} 的名称不能为空或仅含空白字符")
             if not isinstance(attrs, dict):
                 raise ValueError(f"{table} '{name}' 的内容必须是对象")
+            normalized_entries[name] = attrs
 
         spec = ASSET_SPECS[asset_type]
         # 收紧字段白名单：agent 仅能改 `description` + spec 声明的 `extra_string_fields`（如 voice_style），
@@ -1622,7 +1629,7 @@ class ProjectManager:
         allowed_fields = {"description", *spec.extra_string_fields}
         cleaned = {
             name: {k: v for k, v in self._strip_legacy_asset_fields(attrs).items() if k in allowed_fields}
-            for name, attrs in entries.items()
+            for name, attrs in normalized_entries.items()
         }
 
         def _mutate(project: dict) -> None:
