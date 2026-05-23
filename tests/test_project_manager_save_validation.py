@@ -187,3 +187,23 @@ class TestAssetWritebackExemption:
 
         saved = pm.load_script("demo", "episode_1.json")
         assert saved["segments"][0]["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
+
+    def test_writeback_survives_corrupted_list_key(self, tmp_path: Path):
+        """资产回写热路径：剧本含 `segments: null` 这类历史脏数据时，metadata 重算需 fallback
+        而非阻塞写回——`resolve_items` 自身 fail-loud 是给编辑路径用的，写盘咽喉应翻译为容错。
+        否则带脏列表键的项目里 update_scene_asset 等会全部失败。"""
+        pm = _pm(tmp_path)
+        # 直接落盘构造一个 segments=null 的脏剧本（绕开 save_script，模拟历史遗留）
+        script_dir = tmp_path / "projects" / "demo" / "scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "episode_1.json").write_text(
+            '{"episode": 1, "title": "x", "content_mode": "narration", "segments": null, '
+            '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
+            encoding="utf-8",
+        )
+        with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+            script["generated_assets_demo"] = "anything"  # 任意非结构性变更
+        saved = pm.load_script("demo", "episode_1.json")
+        # 写回成功 + metadata 计算 fallback 到 0（脏数据下不汇总）
+        assert saved.get("generated_assets_demo") == "anything"
+        assert saved["metadata"]["total_scenes"] == 0

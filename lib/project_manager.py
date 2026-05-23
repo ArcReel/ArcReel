@@ -36,7 +36,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
-from lib.script_editor import resolve_items
+from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import SCRIPT_SHAPES, ScriptShape
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
@@ -541,7 +541,14 @@ class ProjectManager:
 
         # 选当前剧本的分镜数组：与结构校验 `_select_model` / 编辑核心 `resolve_items` 共用同一
         # 判别（含 reference 模式的 video_units——否则它会落入 segments 兜底分支、total_scenes 错算为 0）。
-        items, _id_field, kind = resolve_items(script)
+        # `resolve_items` 对 segments/scenes/video_units 存在但非 list（含 null 这类历史脏数据）
+        # 会 fail-loud；本路径在 metadata 重算时把它翻译为 fallback——`validate=True` 的「不更坏」
+        # 守卫不会到这里（已在 `_guard_no_worse` 失败处 raise），`validate=False` 资产回写热路径
+        # 文档明确「整体豁免结构校验」，不应因脏列表键阻塞 generated_assets 的回写。
+        try:
+            items, _id_field, kind = resolve_items(script)
+        except ScriptEditError:
+            items, _id_field, kind = [], "segment_id", "segments"
 
         metadata["total_scenes"] = len(items)
 
