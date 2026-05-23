@@ -83,6 +83,17 @@ def _script_items_shape(script: dict, content_mode: str) -> ScriptShape:
     return SCRIPT_SHAPES["drama"]
 
 
+def _safe_items(script: dict, key: str) -> list[dict]:
+    """从 script 取列表式数据，对历史脏数据（键存在但值为 null / 非 list）回退到 [] 而非 TypeError。
+
+    与 `_write_script_unlocked` 写盘咽喉对 `resolve_items` 的 try-except 同源——保证读取
+    helper（待处理列表）与资产回写热路径（update_scene_asset 等）在 `segments: null` /
+    `scenes: null` 等历史脏键下不抛 TypeError 而能继续推进。
+    """
+    raw = script.get(key, [])
+    return raw if isinstance(raw, list) else []
+
+
 class EpisodeScriptReboundError(RuntimeError):
     """加锁前后 episode→script_file 绑定发生变化（并发 PATCH 改绑），调用方应重试。"""
 
@@ -1090,7 +1101,7 @@ class ProjectManager:
             # 根据内容模式选择正确的数据结构
             content_mode = script.get("content_mode", "narration")
             shape = _script_items_shape(script, content_mode)
-            items = script.get(shape.items_key, [])
+            items = _safe_items(script, shape.items_key)
             id_field = shape.id_field
 
             for item in items:
@@ -1138,7 +1149,7 @@ class ProjectManager:
         with self.locked_script(project_name, script_filename, validate=False) as script:
             content_mode = script.get("content_mode", "narration")
             shape = _script_items_shape(script, content_mode)
-            items = script.get(shape.items_key, [])
+            items = _safe_items(script, shape.items_key)
             id_field = shape.id_field
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找
@@ -1179,7 +1190,7 @@ class ProjectManager:
 
         # 根据内容模式选择正确的数据结构
         content_mode = script.get("content_mode", "narration")
-        items = script.get(_script_items_shape(script, content_mode).items_key, [])
+        items = _safe_items(script, _script_items_shape(script, content_mode).items_key)
 
         return [item for item in items if not item["generated_assets"].get(asset_type)]
 
@@ -1219,7 +1230,7 @@ class ProjectManager:
         script = self.load_script(project_name, script_filename)
 
         content_mode = script.get("content_mode", "narration")
-        items = script.get(_script_items_shape(script, content_mode).items_key, [])
+        items = _safe_items(script, _script_items_shape(script, content_mode).items_key)
 
         return [item for item in items if not item.get("generated_assets", {}).get("storyboard_image")]
 

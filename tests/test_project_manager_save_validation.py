@@ -188,6 +188,34 @@ class TestAssetWritebackExemption:
         saved = pm.load_script("demo", "episode_1.json")
         assert saved["segments"][0]["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
 
+    def _seed_corrupted_null_segments(self, pm, tmp_path: Path) -> None:
+        """直接落盘构造 segments=null 的脏剧本，绕过 save_script 模拟历史遗留。"""
+        script_dir = tmp_path / "projects" / "demo" / "scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "episode_1.json").write_text(
+            '{"episode": 1, "title": "x", "content_mode": "narration", "segments": null, '
+            '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
+            encoding="utf-8",
+        )
+
+    def test_update_scene_asset_survives_corrupted_list_key(self, tmp_path: Path):
+        """`update_scene_asset` 公开 API 在 `segments: null` 下不该抛 TypeError——
+        虽然 scene 找不到时仍合理地报 KeyError（scene_id 不存在），但根本失败模式
+        应该是「未命中」而不是「在 null 上迭代崩溃」。"""
+        pm = _pm(tmp_path)
+        self._seed_corrupted_null_segments(pm, tmp_path)
+        with pytest.raises(KeyError, match="不存在"):
+            # segments=null 下 _safe_items fallback 到 []，遍历找不到 → KeyError 而非 TypeError
+            pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "x.png")
+
+    def test_batch_update_scene_assets_survives_corrupted_list_key(self, tmp_path: Path):
+        """`batch_update_scene_assets` 在 `segments: null` 下不该崩溃；找不到的 update 静默跳过。"""
+        pm = _pm(tmp_path)
+        self._seed_corrupted_null_segments(pm, tmp_path)
+        # 不抛 TypeError；返回的 dict 包含项目状态
+        result = pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
+        assert isinstance(result, dict)
+
     def test_writeback_survives_corrupted_list_key(self, tmp_path: Path):
         """资产回写热路径：剧本含 `segments: null` 这类历史脏数据时，metadata 重算需 fallback
         而非阻塞写回——`resolve_items` 自身 fail-loud 是给编辑路径用的，写盘咽喉应翻译为容错。
