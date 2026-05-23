@@ -2340,7 +2340,10 @@ class SessionManager:
         if target_s == str(project_cwd / "project.json").casefold():
             return True
         scripts_prefix = str(project_cwd / "scripts").casefold() + os.sep
-        return target_s.startswith(scripts_prefix) and target_s.endswith(".json")
+        # 拒绝 scripts/ 下任意文件类型（不仅 .json）：sandbox denyWrite 把整个 scripts/ 列入
+        # 内核级 deny，hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp /
+        # .md 会污染剧本目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
+        return target_s.startswith(scripts_prefix)
 
     async def _handle_ask_user_question(
         self,

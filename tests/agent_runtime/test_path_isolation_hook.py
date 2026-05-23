@@ -76,6 +76,20 @@ def test_write_protected_project_json_denied(sm: SessionManager, tool: str, rela
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize(
     "relative",
+    ["scripts/episode_1.bak", "scripts/notes.md", "scripts/.tmp", "scripts/subdir/anything.txt"],
+)
+def test_write_protected_scripts_non_json_denied(sm: SessionManager, tool: str, relative: str) -> None:
+    """`scripts/` 下任意文件类型都该拒（不只 .json）：sandbox denyWrite 把整个 scripts/ 列入
+    内核级 deny，hook 层须保持一致，避免 agent 用 Write 污染剧本目录。"""
+    cwd = sm.project_root / "projects" / "selfproj"
+    allowed, reason = sm._is_path_allowed(str(cwd / relative), tool, cwd)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
+    "relative",
     ["PROJECT.JSON", "Project.Json", "scripts/EPISODE_1.JSON", "Scripts/episode_1.json"],
 )
 def test_write_protected_case_variants_denied(sm: SessionManager, tool: str, relative: str) -> None:
