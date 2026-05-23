@@ -15,13 +15,37 @@ from lib import logging_config
 
 @pytest.fixture(autouse=True)
 def _reset_root_logger():
-    """每个用例前后清空 root logger handlers，避免污染。"""
+    """每个用例前后清空 root logger handlers，避免污染。
+
+    setup_logging() / attach_file_handler() 不止改 root.handlers——还动
+    root.level 以及 uvicorn*/aiosqlite 等命名 logger 的 handlers/disabled/
+    propagate。teardown 必须把这些都恢复，并 close() 临时挂的 file handler
+    以释放 fd（Windows 上 file locking 尤其敏感）。
+    """
     root = logging.getLogger()
-    saved = list(root.handlers)
+    saved_handlers = list(root.handlers)
+    saved_level = root.level
+    named_loggers = {
+        name: logging.getLogger(name) for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "aiosqlite")
+    }
+    saved_named = {
+        name: (list(logger.handlers), logger.level, logger.disabled, logger.propagate)
+        for name, logger in named_loggers.items()
+    }
     root.handlers.clear()
     yield
-    root.handlers.clear()
-    root.handlers.extend(saved)
+    # 关闭测试中临时挂的 handler 释放 fd
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+        handler.close()
+    root.setLevel(saved_level)
+    root.handlers[:] = saved_handlers
+    for name, logger in named_loggers.items():
+        handlers, level, disabled, propagate = saved_named[name]
+        logger.handlers[:] = handlers
+        logger.setLevel(level)
+        logger.disabled = disabled
+        logger.propagate = propagate
 
 
 @pytest.fixture
@@ -123,6 +147,18 @@ def test_resolve_log_dir_env_override(tmp_path: Path, monkeypatch: pytest.Monkey
     target = tmp_path / "custom-logs"
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(target))
     assert logging_config.resolve_log_dir() == target
+
+
+def test_resolve_log_dir_relative_path_resolves_against_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """相对路径 ARCREEL_LOG_DIR 必须基于 PROJECT_ROOT 解析。"""
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    monkeypatch.setattr(logging_config, "PROJECT_ROOT", project_root)
+    monkeypatch.setenv("ARCREEL_LOG_DIR", "var/log/arcreel")
+
+    assert logging_config.resolve_log_dir() == project_root / "var" / "log" / "arcreel"
 
 
 def test_legacy_log_dir_points_to_app_data(isolated_data_dir: Path) -> None:
