@@ -373,6 +373,11 @@ class AssistantService:
             projector: AssistantStreamProjector | None = None
             status: SessionStatus = initial_status
             async for message in stream:
+                # 直播阶段每轮顶部检查断线;不依赖 _idle 作为唤醒条件,持续高频消息
+                # 流下断线一样能立刻发现。回放阶段尚未对客户端 yield 过,不查。
+                if projector is not None and request is not None and await request.is_disconnected():
+                    break
+
                 msg_type = message.get("type", "")
 
                 if projector is None:
@@ -390,8 +395,8 @@ class AssistantService:
 
                 # Live phase.
                 if msg_type == "_idle":
-                    if request is not None and await request.is_disconnected():
-                        break
+                    # 断线已在循环顶部判过;_idle 仅作为「无消息也要醒来」的 backstop,
+                    # 用来兜底「会话状态转换没带消息广播」这种异常路径。
                     event = await self._handle_heartbeat_timeout(session_id, status, projector)
                     if event is not None:
                         yield event

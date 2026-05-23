@@ -58,10 +58,11 @@ async def stream_project_events(
     try:
         async with service.stream_events(project_name, idle_timeout=PROJECT_EVENTS_SSE_POLL_SECONDS) as stream:
             async for item in stream:
+                # 每轮迭代顶部都查断线;_idle 仅作为「队列空闲时也要醒一次」的唤醒兜底,
+                # 不再独占断线检测的时机——持续高频事件流下断线一样能立刻发现。
+                if await request.is_disconnected():
+                    break
                 if isinstance(item, dict) and item.get("type") == "_idle":
-                    # Idle tick: poll for disconnect so __aexit__ unsubscribes promptly.
-                    if await request.is_disconnected():
-                        break
                     continue
                 event_name, payload = item
                 yield ServerSentEvent(event=event_name, data=payload)
