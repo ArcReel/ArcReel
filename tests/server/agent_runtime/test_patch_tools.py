@@ -65,6 +65,12 @@ def _load(ctx: ToolContext) -> dict[str, Any]:
     return ctx.pm.load_script("demo", "episode_1.json")
 
 
+def _text(out: dict[str, Any]) -> str:
+    """从 tool 返回的 ``{"content": [{"type": "text", "text": ...}]}`` 中抽出文本。"""
+    blocks = out.get("content") or []
+    return "\n".join(b.get("text", "") for b in blocks if isinstance(b, dict))
+
+
 class TestPatchEpisodeScript:
     async def test_patch_nested_field(self, ctx: ToolContext) -> None:
         out = await _call(
@@ -331,3 +337,63 @@ class TestPatchProject:
         assert char["voice_style"] == "沉稳"
         # 用户上传的 reference_image 不被 agent 覆写
         assert char["reference_image"] == "characters/refs/li_bai.jpg"
+
+    async def test_response_distinguishes_added_and_merged(self, ctx: ToolContext) -> None:
+        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 agent 验证是否符合预期策略
+        (如 analyze-assets subagent 应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
+        out1 = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
+        )
+        text1 = _text(out1)
+        assert "新增" in text1 and "李白" in text1
+        assert "合并" not in text1
+
+        out2 = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "改后描述"}}},
+        )
+        text2 = _text(out2)
+        assert "合并改字段" in text2 and "李白" in text2
+        assert "新增" not in text2
+
+    async def test_response_lists_dropped_non_allowed_fields(self, ctx: ToolContext) -> None:
+        """工具返回文本应显式列出被白名单丢弃的字段(reference_image / sheet_field 等),
+        让 LLM 知道为何这些字段没生效,不再重复尝试。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "白衣剑客",
+                        "reference_image": "x.jpg",  # 系统管理,应被忽略
+                        "character_sheet": "y.jpg",  # 资产流水线回写,应被忽略
+                    }
+                },
+            },
+        )
+        text = _text(out)
+        assert "reference_image" in text
+        assert "character_sheet" in text
+        assert "agent 可编辑范围" in text or "已忽略" in text
+
+    async def test_response_lists_dropped_legacy_fields(self, ctx: ToolContext) -> None:
+        """工具返回文本应显式列出被剔除的历史字段(type / importance),让 agent 不再发它们。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "白衣剑客",
+                        "type": "主角",  # 历史字段,应被剔除
+                        "importance": "high",  # 历史字段,应被剔除
+                    }
+                },
+            },
+        )
+        text = _text(out)
+        assert "type" in text
+        assert "importance" in text
+        assert "历史字段" in text or "已废弃" in text

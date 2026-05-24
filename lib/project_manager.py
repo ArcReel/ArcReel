@@ -1629,7 +1629,7 @@ class ProjectManager:
             self.update_project(project_name, _mutate)
         return added
 
-    def upsert_assets(self, project_name: str, table: str, entries: dict[str, dict]) -> dict:
+    def upsert_assets(self, project_name: str, table: str, entries: dict[str, dict]) -> dict[str, Any]:
         """按 table（characters/scenes/props）+ name upsert 资产：不存在则新增、存在则改字段。
 
         在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
@@ -1637,7 +1637,14 @@ class ProjectManager:
         合法的 project 改成非法时才 raise 且**不落盘**（mutation 抛错时 `update_project` 不执行
         atomic_write）；改前已非法（历史遗留脏数据，如空 `style`）则照常放行——否则带历史问题的
         项目会整条 patch_project 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
-        与剧本写盘统一入口的 `_guard_no_worse` 同源。把「只能加」扩为「可改」。返回更新后的项目元数据。
+        与剧本写盘统一入口的 `_guard_no_worse` 同源。把「只能加」扩为「可改」。
+
+        返回**诊断 dict**（不是 project 元数据）：``added``（新建条目名列表）、``merged``
+        （合并已有条目名列表）、``dropped_fields``（被白名单丢弃的非允许字段，{name: [字段名]}）、
+        ``dropped_legacy``（被剔除的历史字段如 type/importance，{name: [字段名]}）。caller
+        （MCP tool 层）据此构造对 agent 的明确反馈——silent drop 是设计意图（least privilege），
+        但纯 silent 让 agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
+        把忽略原因明示给 agent，避免 agent 重复尝试同样会被丢的字段。
         """
         # data_validator 在模块级 import 本模块（effective_mode），故惰性 import 破环。
         from lib.data_validator import DataValidator
@@ -1678,16 +1685,23 @@ class ProjectManager:
         # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
         # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
         allowed_fields = {"description", *spec.agent_editable_extra_fields}
-        # 展开嵌套 dict comprehension 为显式循环,被丢弃的 key 走 logger.debug——给 agent /
-        # 运维一个可观测信号(LLM 经常重复传遗留字段如 type/importance,或 sheet_field 这类
-        # 系统字段;silent drop 是设计意图,但纯 silent 让调试时摸不着头绪)。
+        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 agent。silent drop 仍是设计意图,
+        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 agent,避免 LLM 重复尝试。
         cleaned: dict[str, dict[str, Any]] = {}
+        dropped_fields: dict[str, list[str]] = {}  # name → [被白名单丢的字段]
+        dropped_legacy: dict[str, list[str]] = {}  # name → [被 _LEGACY_ASSET_FIELDS 剔除的字段]
         for name, attrs in normalized_entries.items():
+            legacy_keys = sorted(set(attrs) & self._LEGACY_ASSET_FIELDS)
+            if legacy_keys:
+                dropped_legacy[name] = legacy_keys
+
             entry_clean: dict[str, Any] = {}
+            non_allowed: list[str] = []
             for k, v in self._strip_legacy_asset_fields(attrs).items():
                 if k in allowed_fields:
                     entry_clean[k] = v
                 else:
+                    non_allowed.append(k)
                     logger.debug(
                         "upsert_assets: %s '%s' 的字段 %r 不在 agent 可编辑白名单 %s,已忽略",
                         table,
@@ -1695,7 +1709,12 @@ class ProjectManager:
                         k,
                         sorted(allowed_fields),
                     )
+            if non_allowed:
+                dropped_fields[name] = sorted(non_allowed)
             cleaned[name] = entry_clean
+
+        added: list[str] = []
+        merged: list[str] = []
 
         def _mutate(project: dict) -> None:
             validator = DataValidator(str(self.projects_root))
@@ -1709,8 +1728,10 @@ class ProjectManager:
             for name, attrs in cleaned.items():
                 if isinstance(bucket.get(name), dict):
                     bucket[name].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
+                    merged.append(name)
                 else:
                     bucket[name] = self._build_asset_entry(asset_type, attrs.get("description", ""), attrs)
+                    added.append(name)
             after_errors = set(validator.validate_project_payload(project).errors)
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
             #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
@@ -1722,7 +1743,13 @@ class ProjectManager:
             if new_errors:
                 raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
 
-        return self.update_project(project_name, _mutate)
+        self.update_project(project_name, _mutate)
+        return {
+            "added": added,
+            "merged": merged,
+            "dropped_fields": dropped_fields,
+            "dropped_legacy": dropped_legacy,
+        }
 
     # bucket_key（characters/scenes/props）→ 资产类型，从静态 ASSET_SPECS 派生一次，避免每次 upsert 重建。
     _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
