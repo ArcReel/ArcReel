@@ -17,3 +17,4 @@ status: proposed
 - 重启时遇到 `status='cancelling'` 的孤儿任务（服务在 cancel running 收尾过程中重启留下），直接标 `cancelled`：用户已通过 cancel API 表达了停止意愿，继续轮询出 success 再 cancel 一次毫无意义。这条与「running 孤儿走 failed/resume」是两条独立分支——cancelling 和 running 在状态机里是两个不同状态，cancelling 孤儿不消耗 resume 协议、不计费用语义。
 - 与 `docs/adr/0006-cancelling-intermediate-state.md` 互不重叠也互不冲突：0006 管「跑着的任务怎么被外部中止」，0007 管「重启后还没死的任务怎么处理」。Cancel running 走 cancelling 中间态；重启孤儿走 failed 或 resume，**不**经过 cancelling（cancelling 是用户主观意愿，重启是系统事件）。
 - 不要为了「让重启更无感」回退到 requeue：那会把费用模型从「次数计费」变成「次数 × 重启次数」，用户从账单上吃亏，且会让本 ADR 的费用语义保护点失效。
+- `provider_job_id` 持久化必须在进入轮询前**同步完成**——如果 `submit` 已返回 job_id 但 DB 写入失败（如 SQLite I/O 错、连接中断），task 必须立刻标 `failed`、**不**进入轮询。否则该 job 在 provider 那里继续 charge，但 ArcReel 既无法 resume（job_id 没存）也无法 cancel（worker 不知道这个 task 还在跑），形成不可追踪的「幽灵任务」。实现路径：`submit` 后用单独事务先 commit job_id，commit 失败立即抛出由 worker finally 标 failed；commit 成功才进入 `_poll_until_complete` 循环。
