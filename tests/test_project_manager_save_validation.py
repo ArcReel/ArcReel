@@ -152,7 +152,7 @@ def _reference_script(units: list[dict] | None = None) -> dict:
 
 class TestMetadataRecompute:
     def test_reference_video_metadata_counts_units(self, tmp_path: Path):
-        """reference 模式经咽喉后 total_scenes 应等于 video_units 数、时长为各 unit 之和，
+        """reference 模式经统一入口后 total_scenes 应等于 video_units 数、时长为各 unit 之和，
         而非落入 segments 兜底分支错算为 0。"""
         pm = _pm(tmp_path)
         pm.save_script("demo", _reference_script(), "episode_1.json")

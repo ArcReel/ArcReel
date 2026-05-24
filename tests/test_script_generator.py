@@ -230,7 +230,7 @@ class TestScriptGenerator:
 
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
-        # 结构非法的响应在写盘咽喉被严格校验拒绝；但模型调用已发生，
+        # 结构非法的响应在写盘统一入口被严格校验拒绝；但模型调用已发生，
         # 仍可断言传入的 schema 是 Pydantic 类。
         with pytest.raises(ScriptStructureValidationError):
             await generator.generate(1)

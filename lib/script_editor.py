@@ -3,11 +3,11 @@
 把「如何按 id 安全地编辑一份剧本 dict」收敛到唯一一处：喂入剧本 dict + 一个编辑操作，
 就地改 dict 并返回它，或对非法操作（id 未命中、数组越界、拆分份数不足、字段路径不存在）
 抛 `ScriptEditError`。**不读盘、不依赖项目状态、不做结构良构校验**——结构是否合法交给写盘
-咽喉的 `_write_script_unlocked`（「不更坏」+ Pydantic 模型）兜底，本模块只负责数组手术、
+统一入口的 `_write_script_unlocked`（「不更坏」+ Pydantic 模型）兜底，本模块只负责数组手术、
 id 分配与资产作废。MCP 工具与测试都复用它。
 
 三种内容/生成模式（narration/drama/reference_video）的分镜数组与 id 字段判别集中在
-`resolve_items`，与 `script_structure_validator._select_model`、写盘咽喉的 metadata 重算共用
+`resolve_items`，与 `script_structure_validator._select_model`、写盘统一入口的 metadata 重算共用
 同一判别，避免三处漂移。
 """
 
@@ -32,7 +32,7 @@ def resolve_kind(script: dict[str, Any]) -> str:
     游离 ``video_units``（segments + 空 video_units 并存的历史脏数据）会抢走判别、把编辑与
     metadata 重算误路由到错误的列表。其余以 ``content_mode`` 为权威，缺省时按顶层键存在性推断。
 
-    `_select_model`（结构校验）/ `resolve_items`（编辑核心）/ 写盘咽喉的 metadata 重算共用本
+    `_select_model`（结构校验）/ `resolve_items`（编辑核心）/ 写盘统一入口的 metadata 重算共用本
     判别，三处只此一处真相、不漂移。
     """
     if script.get("generation_mode") == "reference_video" or (
@@ -147,7 +147,7 @@ def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, An
     """在 ``after_id`` 之后插入一个新分镜，分配派生自锚点 id 的稳定新 id。
 
     新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 清空。
-    其余字段由 agent 提供，结构是否合法由写盘咽喉校验。
+    其余字段由 agent 提供，结构是否合法由写盘统一入口校验。
     """
     if not isinstance(new_item, dict):
         raise ScriptEditError("new_item 必须是对象")
@@ -173,7 +173,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
 
     首个部分保留原 id，其余取 ``{item_id}_{k}`` 后缀；**所有部分的 generated_assets 清空**
     （结构操作改变分镜身份，旧资产无合理归属，退回 pending 待重生）。reference 模式下各 unit
-    的 ``duration_seconds`` 须与其 ``shots`` 总时长一致——由写盘咽喉的 ReferenceVideoUnit
+    的 ``duration_seconds`` 须与其 ``shots`` 总时长一致——由写盘统一入口的 ReferenceVideoUnit
     校验兜住，本函数不代算。
     """
     if not isinstance(parts, list) or len(parts) < 2:

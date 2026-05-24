@@ -1,7 +1,7 @@
 """端到端测试：剧本/项目 JSON 编辑 MCP 工具（patch_episode_script / insert_segment /
 remove_segment / split_segment / patch_project）。
 
-用真实 ProjectManager 跑工具 handler → 编辑核心 → 写盘咽喉的完整路径，断言落盘结果与
+用真实 ProjectManager 跑工具 handler → 编辑核心 → 写盘统一入口的完整路径，断言落盘结果与
 错误信封（结构「不更坏」校验、upsert 校验真实生效），不 mock 私有方法。
 """
 
@@ -82,7 +82,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is True
 
     async def test_patch_to_invalid_blocked_by_funnel(self, ctx: ToolContext) -> None:
-        """把合法剧本改非法（duration 越界）→ 写盘咽喉「不更坏」语义当场挡下。"""
+        """把合法剧本改非法（duration 越界）→ 写盘统一入口「不更坏」语义当场挡下。"""
         out = await _call(
             patch_episode_script_tool(ctx),
             {"script": "episode_1.json", "id": "E1S01", "field": "duration_seconds", "value": 999},

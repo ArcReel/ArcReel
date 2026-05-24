@@ -3,7 +3,7 @@
 把 agent 对 ``scripts/*.json`` 的一切编辑收归这组工具：通用字段编辑（``patch_episode_script``）
 + 结构性增删拆（``insert_segment`` / ``remove_segment`` / ``split_segment``）。每个工具在
 ``ProjectManager.locked_script`` 读-改-写上下文里调 ``lib.script_editor`` 的纯函数核心改
-dict，退出时经写盘咽喉 ``_write_script_unlocked`` 写回——继承「不更坏」结构校验、metadata
+dict，退出时经写盘统一入口 ``_write_script_unlocked`` 写回——继承「不更坏」结构校验、metadata
 重算、加锁与 filename↔episode 一致性。结构错误当场以「不更坏」语义挡下并返回明确错误。
 
 工具返回文本是 agent-facing（免 i18n）；显示名在 ``ARCREEL_MCP_TOOL_IDS`` 注册、补三语。

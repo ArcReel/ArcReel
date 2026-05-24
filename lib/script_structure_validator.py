@@ -43,7 +43,7 @@ _KIND_MODEL: dict[str, type[BaseModel]] = {
 
 def _select_model(script: dict[str, Any]) -> type[BaseModel]:
     """按模式判别该用哪个剧本模型，判别逻辑收归 `script_editor.resolve_kind`（单一真相源，
-    与编辑核心、写盘咽喉的 metadata 重算共用，不漂移）。
+    与编辑核心、写盘统一入口的 metadata 重算共用，不漂移）。
 
     reference 分支仅在 generation_mode == "reference_video" 或 video_units 为唯一结构时命中——
     storyboard 脚本被误塞的游离 video_units 不会抢走判别（详见 `resolve_kind`）。其余以

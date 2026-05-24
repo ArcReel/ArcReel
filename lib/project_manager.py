@@ -1621,7 +1621,7 @@ class ProjectManager:
         合法的 project 改成非法时才 raise 且**不落盘**（mutation 抛错时 `update_project` 不执行
         atomic_write）；改前已非法（历史遗留脏数据，如空 `style`）则照常放行——否则带历史问题的
         项目会整条 patch_project 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
-        与剧本写盘咽喉的 `_guard_no_worse` 同源。把「只能加」扩为「可改」。返回更新后的项目元数据。
+        与剧本写盘统一入口的 `_guard_no_worse` 同源。把「只能加」扩为「可改」。返回更新后的项目元数据。
         """
         # data_validator 在模块级 import 本模块（effective_mode），故惰性 import 破环。
         from lib.data_validator import DataValidator
