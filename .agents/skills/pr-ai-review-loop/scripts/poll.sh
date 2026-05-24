@@ -167,7 +167,7 @@ jq -n \
           path,
           commit_id,
           created_at,
-          severity_alt: (.body | capture("!\\[(?<s>[^\\]]+)\\]")? | .s // null),
+          severity_alt: ([.body | capture("!\\[(?<s>[^\\]]+)\\]")] | .[0].s // null),
           is_ack:       (.body | is_ack_body),
           body_head:    (.body | .[0:200])
         })

@@ -72,7 +72,10 @@ echo "$FILTERED" | jq -c '.[]' | while IFS= read -r commit; do
   MSG_HEAD=$(echo "$commit" | jq -r '.messageHeadline')
 
   # git show --numstat: one line per file: <added>\t<deleted>\t<path>
-  STATS=$(git show --numstat --format= "$SHA" 2>/dev/null || echo "")
+  if ! STATS=$(git show --numstat --format= "$SHA" 2>/dev/null); then
+    echo "WARNING: git show --numstat failed for commit $SHA (shallow clone or missing object)" >&2
+    STATS=""
+  fi
 
   # git show --numstat uses TAB as separator; default awk splits on any whitespace
   # and breaks on filenames containing spaces. Pin -F'\t' explicitly.
