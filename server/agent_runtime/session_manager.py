@@ -2310,8 +2310,12 @@ class SessionManager:
             resolved_cwd = project_cwd.resolve(strict=False)
             if resolved_cwd != project_cwd:
                 bases.append(resolved_cwd)
-        except (OSError, RuntimeError):
-            pass
+        except (OSError, RuntimeError) as exc:
+            # 静默 pass 会让"权限不足 / symlink 环路解析失败" 类 fs 异常吃掉,后续
+            # is_relative_to 用 raw base 与 caller 传入的 resolved target 比对可能漏判;
+            # 失败时 fail-closed（bases 仅含 raw,target 不在 raw 下时拒绝写入）仍是安全的,
+            # 但加 warning 让运维知道 base 解析失败,而非把诊断信号全部吞掉。
+            logger.warning("project_cwd 解析失败,write_access 检查降级为仅 raw base: %s (%s)", project_cwd, exc)
 
         if not any(resolved.is_relative_to(base) for base in bases):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
