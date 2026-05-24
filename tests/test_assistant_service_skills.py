@@ -40,3 +40,25 @@ class TestListAvailableSkills:
 
         skills = service.list_available_skills()
         assert skills == []
+
+    def test_lists_skill_with_only_content_mode_variants(self, tmp_path, monkeypatch):
+        """Variant-only skills (SKILL.<mode>.md without a plain SKILL.md) must appear."""
+        profile_root = tmp_path / "agent_runtime_profile"
+        skill_dir = profile_root / ".claude" / "skills" / "manga-workflow"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.narration.md").write_text(
+            "---\nname: manga-workflow\ndescription: Narration variant\n---\n"
+        )
+        (skill_dir / "SKILL.drama.md").write_text("---\nname: manga-workflow\ndescription: Drama variant\n---\n")
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
+
+        with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
+            service = AssistantService.__new__(AssistantService)
+            service.project_root = tmp_path
+            from lib.project_manager import ProjectManager
+
+            service.pm = ProjectManager(tmp_path / "projects")
+
+        skills = service.list_available_skills()
+        names = [s["name"] for s in skills]
+        assert "manga-workflow" in names

@@ -946,8 +946,8 @@ class AssistantService:
             for skill_dir in directories:
                 if not skill_dir.is_dir():
                     continue
-                skill_file = skill_dir / "SKILL.md"
-                if not skill_file.exists():
+                skill_file = self._resolve_skill_entry_file(skill_dir)
+                if skill_file is None:
                     continue
 
                 try:
@@ -974,6 +974,20 @@ class AssistantService:
                 skills.append(skill_entry)
 
         return skills
+
+    @staticmethod
+    def _resolve_skill_entry_file(skill_dir: Path) -> Path | None:
+        # profile 端的 content_mode 变体（SKILL.narration.md / SKILL.drama.md）只在 sync
+        # 进项目目录时才会被物化为 SKILL.md；列表接口直接扫 profile 时必须自己识别变体，
+        # 否则 manga-workflow 这类 variant-only skill 永远拿不到。约定：variant 之间
+        # frontmatter 的 user-facing 字段（name / description）保持一致。
+        skill_file = skill_dir / "SKILL.md"
+        if skill_file.exists():
+            return skill_file
+        for variant in sorted(skill_dir.glob("SKILL.*.md")):
+            if variant.is_file():
+                return variant
+        return None
 
     @staticmethod
     def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, Any]:
