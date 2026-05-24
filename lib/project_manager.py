@@ -1629,8 +1629,11 @@ class ProjectManager:
         asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)
         if asset_type is None:
             raise ValueError(f"未知资产表: {table!r}，须是 {sorted(self._BUCKET_TO_ASSET_TYPE)} 之一")
-        if not isinstance(entries, dict) or not entries:
-            raise ValueError("entries 不能为空")
+        # 拆开两种失败 case 让 agent 错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
+        if not isinstance(entries, dict):
+            raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
+        if not entries:
+            raise ValueError("entries 不能为空（至少需要一个 name → attrs 条目）")
         # 规范化 name：strip 空白后非空。agent 误传 "  李白  " 这种带空格的 name 会让后续按
         # name 索引查找（角色生成等）因空格差异 mismatch。空白 name 全空 fail-loud。
         # 同时检测 strip 后冲突：{"李白": {...}, "  李白  ": {...}} 规范化后 key 相同 →
