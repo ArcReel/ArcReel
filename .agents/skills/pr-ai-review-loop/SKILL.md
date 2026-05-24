@@ -1,15 +1,15 @@
 ---
 name: pr-ai-review-loop
-description: PR 提交后无人值守驱动 AI reviewer（CodeRabbit、Gemini Code Assist、OpenAI Codex）的 review → 修复 → push → 再 review 循环。在以下场景主动调用：用户刚跑完 `/commit-push-pr` 或刚 push 了 PR；用户提到"盯着 coderabbit / 监控 PR review / 等审查完 / 处理 coderabbit / gemini review / codex review / watch the PR / wait for AI review"；CodeRabbit 被 pause 后需要重新唤醒；任一 AI reviewer 出现 actionable comments 需要处理。
+description: 无人值守驱动 CodeRabbit、Gemini Code Assist、OpenAI Codex 的 review → 修复 → push → 再 review 循环,直到全部通过或触发收敛退出。主动调用:用户刚 push PR 或跑完 /commit-push-pr;提到 review / coderabbit / gemini / codex / 审查 / AI review / 等 bot 回复;CodeRabbit paused 需 resume;reviewer 有 actionable comments。即使用户只说"PR 怎么样了""review 回了吗"也应触发。
 ---
 
 # AI Review Auto-Loop
 
-PR push 上去之后,CodeRabbit / Gemini / Codex 这几家 AI reviewer 会反复 review → 触发修复 → push → 再 review。这套循环由本 skill 接手:盯状态、必要时手动催、把意见收拢后交给 `receiving-code-review` 处理。
+PR push 上去之后,CodeRabbit / Gemini / Codex 三家 AI reviewer 反复 review → 触发修复 → push → 再 review。本 skill 负责调度:盯状态、必要时手动催、把意见收拢后交给 `receiving-code-review` 处理。
 
 ## 运行模式:无人值守 + 两类停问
 
-本 skill 的设计就是自动跑完整个循环,不要每轮停下来征求授权。该不该触发命令、要不要 push 修复、回不回 inline、什么时候下一轮 poll,按决策表自行决定。
+自动跑完整个循环,不要每轮停下来征求授权。该不该触发命令、要不要 push 修复、回不回 inline、什么时候下一轮 poll,按决策表自行决定。
 
 **驱动方式(重要):** 本 skill 自带 self-pace。每轮 poll + 决策做完后,直接调 `ScheduleWakeup` 排下一次唤醒,到点 harness 会自动重新进入本 skill。**不用**外层套 `/loop`,也**不用**等用户输入"继续"。`delaySeconds` 见下文「polling 节奏」表;`prompt` 字段按当前 PR 号和轮数自行组织,能让 harness 重新拉起本 skill 即可。
 
@@ -46,7 +46,7 @@ PR push 上去之后,CodeRabbit / Gemini / Codex 这几家 AI reviewer 会反复
 
 ## 每轮 poll 的步骤
 
-每轮就一件事:"拉数据 → 决策 → 动作"。**不要**用单条长 sleep 把会话卡死。
+每轮流程:拉数据 → 决策 → 动作。**不要**用单条长 sleep 把会话卡死。
 
 ### 1. 拉当前状态
 

@@ -28,7 +28,7 @@ Codex 表达"对当前 HEAD 没意见"有三条路径,任一命中都算 ack:
 | `gh api repos/.../pulls/.../comments` (REST inline) | `.user.login` | **带** —— 比如 `coderabbitai[bot]` |
 | `gh api repos/.../issues/.../reactions` (REST) | `.user.login` | **带** —— 比如 `chatgpt-codex-connector[bot]` |
 
-混用必踩坑。两边的字符串不通用。
+两边的字符串不通用。
 
 ## 查询 bot 新名称
 
