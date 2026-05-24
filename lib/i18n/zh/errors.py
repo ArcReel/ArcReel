@@ -16,6 +16,7 @@ MESSAGES = {
     "segment_not_found": "片段 '{id}' 不存在",
     "script_missing": "剧本不存在",
     "script_validation_failed": "剧本结构校验失败：{details}",
+    "script_data_corrupted": "剧本数据损坏：{reason}",
     "narration_mode_required": "该剧本不是说书模式，请使用场景更新接口",
     "content_or_file_required": "需要提供 content（文本内容）或 file（文件上传）其中之一",
     "one_of_content_or_file": "content 和 file 不能同时提供，请选择其一",

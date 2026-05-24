@@ -213,6 +213,46 @@ class TestVersionsRouter:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             assert resp.status_code == 500
 
+    def test_storyboard_restore_transient_oserror_does_not_5xx(self, tmp_path, monkeypatch):
+        """跨集同步 sibling 集遇到 transient IO 错误(OSError)不应让主集 restore 5xx——
+        restore 主集已成功,housekeeping 性质的 sibling 同步应降级跳过 + warning。
+        """
+        project_path = tmp_path / "demo"
+        scripts_dir = project_path / "scripts"
+        scripts_dir.mkdir(parents=True)
+        for name in ("a.json", "b.json"):
+            (scripts_dir / name).write_text("{}", encoding="utf-8")
+
+        class _TransientIOFailPM:
+            """模拟 sibling 集 IO 失败(flock 超时 / EBUSY 等),主集 a.json 同步正常。"""
+
+            def __init__(self, path):
+                self.project_path = path
+                self.calls: list[str] = []
+
+            def get_project_path(self, project_name):
+                return self.project_path
+
+            def update_scene_asset(self, project_name, script_filename, scene_id, asset_type, asset_path):
+                self.calls.append(script_filename)
+                if script_filename == "b.json":
+                    raise OSError("transient flock timeout")
+
+        fake_pm = _TransientIOFailPM(project_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
+            # transient IO 降级 + warning,主集 restore 仍 200
+            assert resp.status_code == 200
+            assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
+        # 两个 sibling 集都被尝试过(b.json 抛 OSError 后 continue,不阻塞)
+        assert sorted(fake_pm.calls) == ["a.json", "b.json"]
+
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
         """版本还原应返回受影响文件的 fingerprint"""
         fake_pm = _FakePM()

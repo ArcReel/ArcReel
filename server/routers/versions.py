@@ -84,10 +84,15 @@ def _sync_storyboard_metadata(
             # 该集脚本里无此 scene_id（不引用该资产），跳过同步是正常情况而非脏数据。
             continue
         except ScriptEditError as exc:
-            # 脏脚本（分镜数组键损坏）：跨集同步降级跳过,但 warning 标出集名 + 原因,
-            # 避免 except Exception 把所有 ValueError 一并吞掉无可观测信号。
-            # 真正未预期的异常让它冒到 router 层（HTTP 500）暴露问题。
+            # 脏脚本（分镜数组键损坏）：跨集同步降级跳过,但 warning 标出集名 + 原因。
             logger.warning("跨集同步元数据跳过脏脚本 %s: %s", script_file.name, exc)
+            continue
+        except OSError as exc:
+            # transient IO 错误(单文件权限 / EBUSY / flock 超时 / 损坏 inode 等):跨集同步是
+            # best-effort housekeeping,主集恢复在调用本函数前已成功,不应让 sibling 集的
+            # 临时 IO 失败把整个 restore 操作 5xx。降级跳过 + warning 含集名 + 异常信息。
+            # 真正未预期的异常(RuntimeError / ImportError / ...)仍让它冒到 router 5xx 暴露。
+            logger.warning("跨集同步元数据 sibling 集 %s IO 失败: %s", script_file.name, exc)
             continue
 
 

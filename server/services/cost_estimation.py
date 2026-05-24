@@ -9,6 +9,7 @@ from typing import Any
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
 from lib.grid.layout import calculate_grid_layout
+from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.usage_tracker import UsageTracker
 from server.services.resolution_resolver import get_provider_fallback, resolve_resolution
@@ -139,7 +140,13 @@ class CostEstimationService:
             if not script:
                 continue
 
-            raw_segments, id_key, _, _, _ = get_storyboard_items(script)
+            try:
+                raw_segments, id_key, _, _, _ = get_storyboard_items(script)
+            except ScriptEditError as exc:
+                # 单集脏脚本(segments/scenes 键损坏)不应让整个项目费用估算 5xx;降级把该集
+                # 估算为 0(raw_segments=[]) + warning 让运维知道,UI 仍能展示其他正常集的估算。
+                logger.warning("费用估算跳过脏脚本 %s: %s", script_file, exc)
+                raw_segments, id_key = [], "segment_id"
 
             # Grid 模式：预计算每个 segment 的图片分摊费用
             grid_cost_per_segment: dict[str, tuple[float, str]] = {}

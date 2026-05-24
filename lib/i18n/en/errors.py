@@ -16,6 +16,7 @@ MESSAGES = {
     "segment_not_found": "Segment '{id}' does not exist",
     "script_missing": "Script does not exist",
     "script_validation_failed": "Script structure validation failed: {details}",
+    "script_data_corrupted": "Script data is corrupted: {reason}",
     "narration_mode_required": "This script is not in narration mode, please use the scene update interface",
     "content_or_file_required": "Please provide either content or file",
     "one_of_content_or_file": "Cannot provide both content and file, please choose one",

@@ -239,6 +239,53 @@ class TestCostEstimationService:
         # 旧 key 不应出现
         assert "character_and_clue" not in actual
 
+    async def test_dirty_script_skipped_with_warning(self, db_factory, caplog):
+        """单集脏脚本(segments=null)不应让整个项目费用估算 5xx;脏集降级为 0 segments
+        + warning,其他正常集仍参与估算。"""
+        import logging
+
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "episodes": [
+                {"episode": 1, "title": "Ep1", "script_file": "ep1.json"},
+                {"episode": 2, "title": "Ep2-dirty", "script_file": "ep2.json"},
+                {"episode": 3, "title": "Ep3", "script_file": "ep3.json"},
+            ],
+        }
+        # ep2 segments 是 null(脏数据)→ get_storyboard_items 抛 ScriptEditError
+        dirty_script = {
+            "episode": 2,
+            "title": "Dirty",
+            "content_mode": "narration",
+            "summary": "t",
+            "novel": {"title": "t", "chapter": "c"},
+            "segments": None,  # 脏数据
+        }
+        scripts = {
+            "ep1.json": _make_script(1, ["E1S001"], [6]),
+            "ep2.json": dirty_script,
+            "ep3.json": _make_script(3, ["E3S001"], [8]),
+        }
+
+        with caplog.at_level(logging.WARNING, logger="server.services.cost_estimation"):
+            result = await service.compute(project_data, scripts, project_name="test")
+
+        # 正常集 ep1 / ep3 都参与估算,脏集 ep2 仍出现但 segments 为空
+        assert len(result["episodes"]) == 3
+        eps_by_episode = {ep["episode"]: ep for ep in result["episodes"]}
+        assert len(eps_by_episode[1]["segments"]) == 1
+        assert len(eps_by_episode[2]["segments"]) == 0
+        assert len(eps_by_episode[3]["segments"]) == 1
+
+        # warning 显式标出哪一集被跳过
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("ep2.json" in m for m in warnings), warnings
+
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)
         tracker = UsageTracker(session_factory=db_factory)

@@ -20,7 +20,9 @@ from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
+from lib.i18n import Translator
 from lib.project_manager import ProjectManager
+from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
 
@@ -86,6 +88,7 @@ async def generate_grid(
     episode: int,
     req: GenerateGridRequest,
     _user: CurrentUser,
+    _t: Translator,
 ):
     """
     提交宫格图生成任务到队列，按分段分组，每组 N>=4 个场景生成一个宫格图。
@@ -210,6 +213,9 @@ async def generate_grid(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
+    except ScriptEditError as e:
+        # 脏脚本(分镜数组键损坏)→ 4xx 客户端错误而非 5xx,走 i18n 不直接暴露 str(e)
+        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
     except Exception as e:
         logger.exception("宫格生成请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

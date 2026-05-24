@@ -22,6 +22,7 @@ from lib.prompt_utils import (
     is_structured_image_prompt,
     is_structured_video_prompt,
 )
+from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
@@ -135,6 +136,9 @@ async def generate_storyboard(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
+    except ScriptEditError as e:
+        # 脏脚本(分镜数组键损坏)→ 4xx 客户端错误而非 5xx,detail 走 i18n 不直接暴露 str(e)
+        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -176,6 +180,11 @@ async def generate_video(
                         storyboard_rel = assets.get("storyboard_image")
             except FileNotFoundError:
                 # 脚本不存在交由后续流程报错；此处只负责存在性检查
+                pass
+            except ScriptEditError:
+                # 脏脚本(分镜数组键损坏)时无法定位 storyboard_rel,降级走 default 路径
+                # (project_path / storyboards / scene_{id}.png),让后续 line 190 的
+                # storyboard_file.exists() 检查给用户「先生成分镜图」的明确指引。
                 pass
 
             storyboard_file = (
