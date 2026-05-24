@@ -121,6 +121,14 @@ class ScriptGenerator:
         if self.generator is None:
             raise RuntimeError("TextGenerator 未初始化，请使用 ScriptGenerator.create() 工厂方法")
 
+        # 兑现 docstring 的「只决定文件名、不接受目录」契约:写盘咽喉 _safe_subpath 能挡绝对
+        # 路径与 path traversal,但不会挡子目录(`subdir/x.json` 拼出的 realpath 仍在 scripts/
+        # 内,会让剧本写到 scripts/subdir/x.json,偏离扁平布局)。在公开 API 入口 fail-fast 拒,
+        # 既兑现契约也避免跑完整套生成流程才撞到错。
+        # 显式拒 `\\`:POSIX 上 Path 不当其为分隔符,但 Windows 上是;按跨平台兼容做防御。
+        if output_filename is not None and (Path(output_filename).name != output_filename or "\\" in output_filename):
+            raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
+
         gen_mode = self._effective_generation_mode(episode)
         caps = await self._fetch_video_capabilities()
 

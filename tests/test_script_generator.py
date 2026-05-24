@@ -273,6 +273,28 @@ class TestScriptGenerator:
         with pytest.raises(RuntimeError, match="TextGenerator 未初始化"):
             await generator.generate(1)
 
+    @pytest.mark.parametrize(
+        "bad_filename",
+        [
+            "subdir/episode_1.json",  # 子目录
+            "../etc/passwd",  # path traversal
+            "/tmp/abs.json",  # 绝对路径
+            "a\\b.json",  # Windows 分隔符
+        ],
+    )
+    async def test_generate_rejects_non_basename_output_filename(self, tmp_path, bad_filename):
+        """generate(output_filename=...) 的公开契约「只决定文件名,不接受目录」必须在入口兑现:
+        save_script 咽喉的 _safe_subpath 能挡绝对路径与 path traversal,但子目录拼出的 realpath
+        仍在 scripts/ 内,不挡;故公开 API 这层必须显式拒,让 docstring 不骗人。
+        """
+        project_path = tmp_path / "demo"
+        _write_json(project_path / "project.json", {"title": "项目"})
+
+        fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        with pytest.raises(ValueError, match="只接受纯文件名"):
+            await generator.generate(1, output_filename=bad_filename)
+
 
 class TestAddMetadataRewritesEpisodePrefix:
     """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀（#574）。"""
