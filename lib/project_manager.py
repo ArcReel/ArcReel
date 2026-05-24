@@ -1662,10 +1662,24 @@ class ProjectManager:
         # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
         # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
         allowed_fields = {"description", *spec.agent_editable_extra_fields}
-        cleaned = {
-            name: {k: v for k, v in self._strip_legacy_asset_fields(attrs).items() if k in allowed_fields}
-            for name, attrs in normalized_entries.items()
-        }
+        # 展开嵌套 dict comprehension 为显式循环,被丢弃的 key 走 logger.debug——给 agent /
+        # 运维一个可观测信号(LLM 经常重复传遗留字段如 type/importance,或 sheet_field 这类
+        # 系统字段;silent drop 是设计意图,但纯 silent 让调试时摸不着头绪)。
+        cleaned: dict[str, dict[str, Any]] = {}
+        for name, attrs in normalized_entries.items():
+            entry_clean: dict[str, Any] = {}
+            for k, v in self._strip_legacy_asset_fields(attrs).items():
+                if k in allowed_fields:
+                    entry_clean[k] = v
+                else:
+                    logger.debug(
+                        "upsert_assets: %s '%s' 的字段 %r 不在 agent 可编辑白名单 %s,已忽略",
+                        table,
+                        name,
+                        k,
+                        sorted(allowed_fields),
+                    )
+            cleaned[name] = entry_clean
 
         def _mutate(project: dict) -> None:
             validator = DataValidator(str(self.projects_root))
