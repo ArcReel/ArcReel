@@ -92,14 +92,25 @@ class TestValidScripts:
 
 
 class TestModeDetection:
-    def test_reference_video_takes_priority_over_content_mode(self):
-        """generation_mode=reference_video 即使 content_mode=narration 也走 ReferenceVideoScript。
+    def test_video_units_only_picks_reference_model(self):
+        """video_units 唯一存在(无 segments/scenes)时走 ReferenceVideoScript,不论
+        content_mode 标记是什么——按数据形状路由(动作 5 引入)。
 
-        reference 剧本只有 video_units、无 segments；若误判为 NarrationEpisodeScript 会因缺
+        reference 剧本只有 video_units、无 segments;若误判为 NarrationEpisodeScript 会因缺
         segments 而 invalid。结果 valid 证明判别走了 ReferenceVideoScript。
         """
         script = _reference(content_mode="narration")
         assert script.get("content_mode") == "narration"
+        assert validate_script_structure(script).valid
+
+    def test_partial_migration_segments_picks_narration_model(self):
+        """partial migration:generation_mode='reference_video' 但数据还在 segments,
+        应按数据形状走 NarrationEpisodeScript 而非让 generation_mode 单向赢——
+        若强制 ReferenceVideoScript 校验会因 video_units 缺失 invalid。
+        """
+        # 用 _narration() 的 segments,但带 generation_mode='reference_video' 标记(partial migration)
+        script = _narration()
+        script["generation_mode"] = "reference_video"
         assert validate_script_structure(script).valid
 
     def test_stray_video_units_do_not_hijack_storyboard_script(self):

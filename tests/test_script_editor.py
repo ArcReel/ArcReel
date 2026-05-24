@@ -107,11 +107,31 @@ class TestResolveItems:
         assert id_field == "scene_id"
         assert kind == "scenes"
 
-    def test_reference_priority_over_content_mode(self):
-        # content_mode=narration 但有 generation_mode=reference_video → 走 video_units
+    def test_reference_data_shape_picks_video_units(self):
+        # video_units 唯一存在(无 segments/scenes)时走 video_units——按数据形状路由,
+        # 与 generation_mode / content_mode 标记无关。
         _items, id_field, kind = resolve_items(_reference())
         assert id_field == "unit_id"
         assert kind == "video_units"
+
+    def test_partial_migration_data_shape_wins_over_generation_mode(self):
+        # partial migration 中间态:generation_mode 改成了 reference_video 但数据还在 segments,
+        # 数据形状优先让 agent 仍能通过 MCP 工具编辑 segments(旧版让 generation_mode 单向赢
+        # 会导致 resolve_items 返回 [],按 id 编辑都报"未找到",整集脚本对所有工具不可触达)。
+        script = {
+            "title": "标题",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episode": 1,
+            "summary": "摘要",
+            "novel": {"title": "小说", "chapter": "第一章"},
+            "segments": [_segment("E1S01")],
+        }
+        items, id_field, kind = resolve_items(script)
+        assert kind == "segments"
+        assert id_field == "segment_id"
+        assert len(items) == 1
+        assert items[0]["segment_id"] == "E1S01"
 
     def test_returned_list_is_live_reference(self):
         script = _narration()

@@ -27,17 +27,24 @@ _KIND_ID_FIELD = {"video_units": "unit_id", "scenes": "scene_id", "segments": "s
 def resolve_kind(script: dict[str, Any]) -> str:
     """判别剧本当前的分镜数组种类：返回 ``"video_units"`` / ``"scenes"`` / ``"segments"``。
 
-    reference 最优先，但仅当 ``generation_mode`` 显式为 ``reference_video``，**或** ``video_units``
-    是唯一结构（无 ``segments`` / ``scenes``）时才认定 reference——否则 storyboard 脚本被误塞的
-    游离 ``video_units``（segments + 空 video_units 并存的历史脏数据）会抢走判别、把编辑与
-    metadata 重算误路由到错误的列表。其余以 ``content_mode`` 为权威，缺省时按顶层键存在性推断。
+    **数据形状优先,``generation_mode`` 不参与路由**:配置改了 reference 但数据还在
+    ``segments`` 的 partial migration 中间态下,若让 ``generation_mode`` 单向赢,整集脚本
+    通过所有 MCP 编辑工具完全不可触达(``resolve_items`` 返回空列表、按 id 编辑都报"未找到"),
+    agent 看到错误也无法定位是配置/数据冲突。数据形状优先让 agent 能拿到真实存在的列表继续
+    编辑;``generation_mode`` 改为信息字段,具体生成路径由 caller(``enqueue_videos`` 等)按
+    它自己的 ``generation_mode`` 分流决定。
 
-    `_select_model`（结构校验）/ `resolve_items`（编辑核心）/ 写盘统一入口的 metadata 重算共用本
-    判别，三处只此一处真相、不漂移。
+    判别顺序:
+    1. ``video_units`` 在场且 ``segments`` / ``scenes`` 都不在 → reference(避免 storyboard
+       脚本被误塞的游离 ``video_units`` 抢走判别)
+    2. ``content_mode`` 为权威(``drama`` → scenes,``narration`` → segments)
+    3. ``content_mode=narration`` 但数据落 ``scenes`` 键(无 ``segments``)的历史遗留兼容
+    4. ``content_mode`` 缺失时按顶层键存在性推断
+
+    `_select_model`(结构校验)/ `resolve_items`(编辑核心)/ 写盘统一入口的 metadata 重算共用
+    本判别,三处只此一处真相、不漂移。
     """
-    if script.get("generation_mode") == "reference_video" or (
-        "video_units" in script and "segments" not in script and "scenes" not in script
-    ):
+    if "video_units" in script and "segments" not in script and "scenes" not in script:
         return "video_units"
     content_mode = script.get("content_mode")
     if content_mode == "drama":
@@ -45,7 +52,6 @@ def resolve_kind(script: dict[str, Any]) -> str:
     if content_mode == "narration":
         # 畸形脚本兼容：content_mode=narration 但数据实际落在 scenes 键下（无 segments 键）的
         # 历史遗留状态——回退去读 scenes，而非按 content_mode 字面映射到不存在的 segments。
-        # 与原 `_script_items_shape` 的「键存在性兜底」语义统一（PR #616 引入的回归守卫）。
         if "segments" not in script and "scenes" in script:
             return "scenes"
         return "segments"
