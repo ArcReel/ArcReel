@@ -28,3 +28,16 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 - **结构工具（split/remove）清受影响分镜的 `generated_assets`**：与字段编辑相反，结构改动改变了分镜身份（`E1S3` 拆成两个，旧资产无合理归属），故必须清空使其退回 pending。
 - 工具**返回文本**是 agent-facing（免 i18n）；工具**显示名**是 user-facing，须在 `ARCREEL_MCP_TOOL_IDS` 注册并补 `tool_name_<id>` 三语（zh/en/vi）。
 - 与 ADR-0002 同源：本 ADR 是其「Agent 裸写入面收归」承诺的兑现。reference_video 切分的精确语义（切 unit 还是切 shots）留作实现细节，约束是结果必须满足 `ReferenceVideoUnit` 的 `duration==sum(shots)` 校验（结构校验 `_select_model` 已将 `video_units` 路由到 `ReferenceVideoScript`、由其 model_validator 兜住）。`_write_script_unlocked` 的 metadata 重算（`total_scenes`/`estimated_duration_seconds`）原先只识别 `segments`/`scenes`（`video_units` 落入 segments 兜底、错算为 0），#604 已把该判别收敛到与 `_select_model` 同款的 `script_editor.resolve_items`，三处（结构校验 / 编辑核心 / metadata 重算）共用一处判别。
+
+## 「不更坏」语义的边界限定（post-#604 根因迭代）
+
+PR #608 在 ADR-0002「不更坏」基础上落地了本 ADR 的工具收归,但 5 角度 code-review 反复审出同一类问题:`「不更坏」从一个具体策略悄悄泛化成了「宽容氛围」`,在写盘咽喉之外的 helper、读路径、跨集同步、agent 白名单都被复用了「遇到脏数据就降级」的态度,叠加产生 silent-noop / silent-overwrite 漏格。本次根因迭代把边界画死:
+
+- **「不更坏」只存在两个咽喉点**:剧本写盘 `_write_script_unlocked` 的 `_guard_no_worse`(对剧本结构,基于 `_select_model` + Pydantic ValidationError);`upsert_assets` 的 `_mutate` 内 error-set diff(对 project.json,基于 `DataValidator.validate_project_payload` 的 errors 集合差)。这两处之外的所有 helper / caller **不允许**自带「脏数据怎么办」的局部策略。
+- **咽喉外一律 fail-loud**:`resolve_items` 在分镜数组键存在但非 list 时抛 `ScriptEditError`(已经如此);`batch_update_scene_assets` 在 id 未命中时 fail-loud 抛 `KeyError`(本 PR);`_write_script_unlocked` metadata 重算的 `duration_seconds=None` 视为缺失而非 crash;`get_storyboard_items` 走 `resolve_items` 让脏数据异常类型对齐(不再 `list(None)` 抛 generic TypeError)。
+- **降级是 caller 的显式决策**:`versions.py::_sync_storyboard_metadata` 从 `except Exception` 收紧为 `except ScriptEditError` + warning 包含集名 + continue(脏脚本跨集同步降级,有可观测信号);未预期异常让其冒到 router 5xx。读路径 `_resolve_items_or_warn` 在脏数据时 warning(已经如此),missing key 返回 `[]` 不 warning(空草稿合法初始态)。**禁止零信号成功**——任何降级路径必须有 warning。
+- **agent 白名单 silent drop 改为显式反馈**:`upsert_assets` 返回诊断 dict(added / merged / dropped_fields / dropped_legacy),`patch_project` 工具据此构造文本告知 agent「以下字段不在 agent 可编辑范围(reference_image / sheet_field),已忽略」「以下历史字段已废弃(type / importance)」,让 LLM 不再重复尝试同样会被丢的字段;`analyze-assets` subagent prompt 改为严格 skip 已存在(调用 patch_project 前过滤),消除「不覆盖」与「可修订」自相矛盾的措辞。
+- **路由按数据形状优先**:`resolve_kind` 取消 `generation_mode` 作为优先判别项,改为按 `video_units` / `segments` / `scenes` 顶层键存在性 + `content_mode` 辅助路由。理由:partial migration 中间态(配置改了 reference 但数据还在 segments)下,旧逻辑让 `generation_mode` 单向赢会导致整集脚本对所有 MCP 编辑工具不可触达,agent 看到「未找到 id」无线索定位。
+- **工具职责边界**:`patch_episode_script` 的 `_set_nested` 在叶子(最后一段)不存在时**允许写入**(LLM 漏写的 optional 字段如 `video_prompt.note` agent 应能补,而非被迫走 remove+insert 重生整集),父节点(中间路径段)不存在仍 fail-loud(挡 typo);`split_segment` 保留 `parts[0]`(锚点)的 `generated_assets` 不动,与 `insert_segment` 锚点资产保留语义对齐,误用 split 当 insert 不再丢失已生成资产。
+
+横切原则:**fail-loud 改造时需先枚举二维矩阵**(读/写 × 键缺失/键脏 × validate/no-validate),逐格做决策;不能把「在结构校验层不引入新错误」的「不更坏」策略下沉到没有 before/after 概念的 helper(元数据重算、key lookup、异常处理)——那些场景的脏数据降级是 caller 的显式职责,不是 helper 的默认行为。
