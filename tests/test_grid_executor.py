@@ -350,11 +350,15 @@ class TestExecuteGridTask:
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("E1S02" in m and "E1S03" in m for m in warnings)
 
-        # batch_update 只对 valid 分镜(E1S01)调用,不抛 KeyError
-        if mock_pm.batch_update_scene_assets.called:
-            updates = mock_pm.batch_update_scene_assets.call_args.kwargs["updates"]
-            scene_ids = {sid for sid, _, _ in updates}
-            assert scene_ids == {"E1S01"}
+        # batch_update 必须被对 valid 分镜(E1S01)调用,且仅包含此 scene id ——
+        # 旧的 `if .called:` 条件分支会让「实现完全不写回」时测试静默通过,无法锁定
+        # 「有效分镜必须被回写」的契约;改为强制断言。
+        assert mock_pm.batch_update_scene_assets.called, (
+            "valid 分镜(E1S01)应触发 batch_update_scene_assets 回写,实现未调用"
+        )
+        updates = mock_pm.batch_update_scene_assets.call_args.kwargs["updates"]
+        scene_ids = {sid for sid, _, _ in updates}
+        assert scene_ids == {"E1S01"}
 
     async def test_execute_grid_task_not_found(self):
         from server.services.generation_tasks import execute_grid_task

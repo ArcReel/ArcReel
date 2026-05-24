@@ -31,7 +31,7 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 ## 「不更坏」语义的边界限定（post-#604 根因迭代）
 
-PR #608 在 ADR-0002「不更坏」基础上落地了本 ADR 的工具收归,但 5 角度 code-review 反复审出同一类问题:`「不更坏」从一个具体策略悄悄泛化成了「宽容氛围」`,在写盘咽喉之外的 helper、读路径、跨集同步、agent 白名单都被复用了「遇到脏数据就降级」的态度,叠加产生 silent-noop / silent-overwrite 漏格。本次根因迭代把边界画死:
+PR #608 在 ADR-0002「不更坏」基础上落地了本 ADR 的工具收归,但多轮 code-review 反复审出同一类问题:`「不更坏」从一个具体策略悄悄泛化成了「宽容氛围」`,在写盘咽喉之外的 helper、读路径、跨集同步、agent 白名单都被复用了「遇到脏数据就降级」的态度,叠加产生 silent-noop / silent-overwrite 漏格。本次根因迭代把边界画死:
 
 - **「不更坏」只存在两个咽喉点**:剧本写盘 `_write_script_unlocked` 的 `_guard_no_worse`(对剧本结构,基于 `_select_model` + Pydantic ValidationError);`upsert_assets` 的 `_mutate` 内 error-set diff(对 project.json,基于 `DataValidator.validate_project_payload` 的 errors 集合差)。这两处之外的所有 helper / caller **不允许**自带「脏数据怎么办」的局部策略。
 - **咽喉外一律 fail-loud**:`resolve_items` 在分镜数组键存在但非 list 时抛 `ScriptEditError`(已经如此);`batch_update_scene_assets` 在 id 未命中时 fail-loud 抛 `KeyError`(本 PR);`_write_script_unlocked` metadata 重算的 `duration_seconds=None` 视为缺失而非 crash;`get_storyboard_items` 走 `resolve_items` 让脏数据异常类型对齐(不再 `list(None)` 抛 generic TypeError)。
