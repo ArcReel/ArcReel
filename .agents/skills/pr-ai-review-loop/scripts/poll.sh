@@ -23,7 +23,7 @@
 #     "reviews":              [...]                     # CR's review-level submissions
 #   },
 #   "gemini": {
-#     "reviews":  [{submittedAt, state, body}],         # body = review SUMMARY (## Code Review ...) — see IMPROVEMENT 1
+#     "reviews":  [{submittedAt, state, body}],         # body = review SUMMARY (## Code Review ...) — can contain actionable text not in inline
 #     "comments": [...]
 #   },
 #   "codex": {
@@ -34,11 +34,11 @@
 #   "inline_comments_by_user": {                        # PR-level inline review comments grouped by bot
 #     "<bot[bot]>": [{path, commit_id, created_at, severity_alt, is_ack, body_head}]
 #   },
-#   "quota_alerts": [...],                              # PR-level issue comments matching quota keywords — IMPROVEMENT 3
+#   "quota_alerts": [...],                              # PR-level issue comments matching quota keywords (bots emit quota errors as plain comments, not reviews)
 #   "own_trigger_comments": [...]                       # human-authored /gemini review / @codex review / @coderabbitai resume
 # }
 #
-# PITFALLS (PR #608 postmortem)
+# PITFALLS
 #
 # 1. last_push_at uses head commit committedDate, NOT pushedDate.
 #    Empirically pushedDate is null on the PR's head commit — GitHub's PR API doesn't surface push event time here.
@@ -89,7 +89,7 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) ||
   exit 4
 }
 
-# Stage gh output into temp files. Large PRs (PR #608 had 76+ comments) make --argjson
+# Stage gh output into temp files. Large PRs (dozens of comments) make --argjson
 # overflow ARG_MAX; --slurpfile reads from disk and is unbounded. Each gh call paginates,
 # so PRs with hundreds of comments work too.
 TMPDIR=$(mktemp -d)
