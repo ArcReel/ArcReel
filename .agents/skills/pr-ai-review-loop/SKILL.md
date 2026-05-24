@@ -56,10 +56,10 @@ bash .agents/skills/pr-ai-review-loop/scripts/poll.sh <PR_NUMBER>
 
 脚本输出一个 JSON。字段 schema、设计意图、关键踩坑(比如为什么用 `created_at > last_push_at` 而不是 `commit_id == head`)都写在 `scripts/poll.sh` 头部注释里 —— 第一次进循环时 Read 一遍脚本注释,之后只看 JSON 输出。
 
-JSON 解析后**只放在对话上下文里**,不要落盘。同时更新:
-- `round_count` —— **只在本轮 `last_push_at` / HEAD SHA 与上一轮记录的不同时 +1**(初次进入算第 1 轮);HEAD 没变、仅仅是 wakeup 回来继续等 reviewer 出意见的 poll **不计**(一轮 = 一次"修复 → push → reviewer 回意见"周期,不是"poll 了多少次")
-- `topic_history`(把本轮 reviewer 的新意见提炼成一句话主题加进去;同 HEAD 重复 poll 拉到的同一条意见不重复加)
-- `last_commit_shapes`(同样 HEAD 切换时才追加,见下文「收敛兜底」)
+JSON 解析后**只放在对话上下文里**,不要落盘。同时更新(下面三个状态字段都用同一组「触发条件」:本轮 `last_push_at` / HEAD SHA 与上一轮记录的不同):
+- `round_count` —— **只在触发条件命中时 +1**(初次进入算第 1 轮);HEAD 没变、仅仅是 wakeup 回来继续等 reviewer 出意见的 poll **不计**(一轮 = 一次"修复 → push → reviewer 回意见"周期,不是"poll 了多少次")
+- `topic_history` —— 把本轮 reviewer 的新意见提炼成一句话主题加进去。**跨 HEAD 累积、不清空**:收敛兜底 #3 的"同一主题指纹连提 ≥ 3 轮"靠它跨 HEAD 比对(line 32 的语义相似度判同主题),清空就破坏了这个判定。同 HEAD 内多次 poll 拉到的同一条 reviewer comment 只入一次,避免噪声
+- `last_commit_shapes` —— 触发条件命中时追加一条 Claude 看 `classify_commits.sh` 输出后概括的简短标签(如 `all_nit/format` / `contains_functional`),供收敛兜底 #2 判定;长度 ≤ 3 的滑窗
 
 ### 2. 对每家启用的 reviewer 决定动作
 
