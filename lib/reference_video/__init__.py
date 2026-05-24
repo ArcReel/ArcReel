@@ -4,6 +4,7 @@ from lib.reference_video.errors import (
     RequestPayloadTooLargeError,
 )
 from lib.reference_video.shot_parser import (
+    assemble_shots_text,
     compute_duration_from_shots,
     parse_prompt,
     render_prompt_for_backend,
@@ -14,6 +15,7 @@ __all__ = [
     "MissingReferenceError",
     "ProviderUnsupportedFeatureError",
     "RequestPayloadTooLargeError",
+    "assemble_shots_text",
     "compute_duration_from_shots",
     "parse_prompt",
     "render_prompt_for_backend",

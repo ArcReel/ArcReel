@@ -332,14 +332,95 @@ class TestSessionManagerMore:
         managed.message_buffer.append({"type": "assistant", "uuid": "a1"})
         session_manager.sessions[meta.id] = managed
 
-        queue = await session_manager.subscribe(meta.id, replay_buffer=True)
-        assert queue.get_nowait()["uuid"] == "a1"
-        await session_manager.unsubscribe(meta.id, queue)
+        queue, replay = await session_manager._subscribe(meta.id, replay=True)
+        # 回放作为快照单独返回，不再塞进直播队列。
+        assert replay[0]["uuid"] == "a1"
+        assert queue.empty()
+        await session_manager._unsubscribe(meta.id, queue)
         assert queue not in managed.subscribers
 
         await session_manager.shutdown_gracefully(timeout=0.01)
         assert client.disconnected is True
         assert session_manager.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_stream_messages_replay_boundary_live_and_idle(self, session_manager, meta_store):
+        from tests.fakes import build_managed_with_actor
+
+        meta = await meta_store.create("demo", "sdk-stream-seq")
+        managed, _actor, _client = await build_managed_with_actor(
+            session_id=meta.id,
+            project_name="demo",
+            status="running",
+        )
+        managed.message_buffer.append({"type": "assistant", "uuid": "replay-1"})
+        session_manager.sessions[meta.id] = managed
+
+        async with session_manager.stream_messages(meta.id, replay=True, idle_timeout=0.05) as stream:
+            assert (await anext(stream))["uuid"] == "replay-1"
+            assert (await anext(stream))["type"] == "_replay_done"
+            managed.add_message({"type": "assistant", "uuid": "live-1"})
+            assert (await anext(stream))["uuid"] == "live-1"
+            # idle_timeout 内无消息 → _idle 哨兵
+            assert (await anext(stream))["type"] == "_idle"
+        # 正常退出后订阅者被移除
+        assert managed.subscribers == set()
+
+    @pytest.mark.asyncio
+    async def test_stream_messages_overflow_ends_iteration(self, session_manager, meta_store):
+        from tests.fakes import build_managed_with_actor
+
+        meta = await meta_store.create("demo", "sdk-stream-overflow")
+        managed, _actor, _client = await build_managed_with_actor(
+            session_id=meta.id,
+            project_name="demo",
+            status="running",
+        )
+        session_manager.sessions[meta.id] = managed
+
+        async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=5.0) as stream:
+            assert (await anext(stream))["type"] == "_replay_done"
+            # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 注入 _queue_overflow。
+            for i in range(120):
+                managed.add_message({"type": "assistant", "uuid": f"m{i}"})
+            saw_overflow = False
+            async for msg in stream:
+                if msg.get("type") == "_queue_overflow":
+                    saw_overflow = True
+                    break
+            assert saw_overflow
+        assert managed.subscribers == set()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("exit_mode", ["break", "exception"])
+    async def test_stream_messages_unsubscribes_on_every_exit(self, session_manager, meta_store, exit_mode):
+        from tests.fakes import build_managed_with_actor
+
+        meta = await meta_store.create("demo", f"sdk-exit-{exit_mode}")
+        managed, _actor, _client = await build_managed_with_actor(
+            session_id=meta.id,
+            project_name="demo",
+            status="running",
+        )
+        session_manager.sessions[meta.id] = managed
+
+        async def consume():
+            async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=0.02) as stream:
+                assert len(managed.subscribers) == 1
+                async for msg in stream:
+                    if msg.get("type") == "_replay_done":
+                        continue
+                    if exit_mode == "exception":
+                        raise RuntimeError("boom")
+                    break  # break 退出路径
+
+        if exit_mode == "exception":
+            with pytest.raises(RuntimeError):
+                await consume()
+        else:
+            await consume()
+        # break / 异常退出路径同样确定性移除订阅者
+        assert managed.subscribers == set()
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_within_project_root(self, tmp_path):

@@ -145,6 +145,9 @@ MESSAGES = {
     "image_endpoint_mismatch_no_t2i": "模型 {model} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型",
     "image_capability_missing_i2i": "{provider}/{model} 不支持图生图；请配置一个支持图生图的默认模型",
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
+    # Video Capability
+    "video_duration_invalid": "视频时长 {duration} 不是合法的整数秒数",
+    "video_duration_not_supported": "视频时长 {duration}s 不在该模型支持的时长（{supported}）内",
     # Agent credentials
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",

@@ -1,6 +1,7 @@
 """Unit tests for AssistantService streaming snapshot/replay behavior."""
 
 import asyncio
+import contextlib
 
 import pytest
 from fastapi.sse import ServerSentEvent
@@ -52,16 +53,32 @@ class _FakeSessionManager:
         self.call_log.append(("get_buffered_messages", session_id))
         return list(self.replay_messages)
 
-    async def subscribe(self, session_id: str, replay_buffer: bool = True):
-        self.call_log.append(("subscribe", session_id, replay_buffer))
+    @contextlib.asynccontextmanager
+    async def stream_messages(self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0):
+        """Mirror the real CM: replay snapshot → _replay_done → live queue → _idle."""
+        self.call_log.append(("stream_messages", session_id, replay))
         queue: asyncio.Queue = asyncio.Queue()
-        for message in self.replay_messages:
-            queue.put_nowait(message)
         self.last_queue = queue
-        return queue
+        replay_msgs = list(self.replay_messages) if replay else []
 
-    async def unsubscribe(self, session_id: str, queue: asyncio.Queue):
-        self.call_log.append(("unsubscribe", session_id))
+        async def _iter():
+            for message in replay_msgs:
+                yield message
+            yield {"type": "_replay_done"}
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
+                except TimeoutError:
+                    yield {"type": "_idle"}
+                    continue
+                yield message
+                if message.get("type") == "_queue_overflow":
+                    return
+
+        try:
+            yield _iter()
+        finally:
+            self.call_log.append(("unsubscribe", session_id))
 
     async def get_pending_questions_snapshot(self, session_id: str):
         self.call_log.append(("get_pending_questions_snapshot", session_id))
@@ -106,31 +123,35 @@ class TestAssistantServiceStreaming:
         assert payload["turns"][0]["type"] == "user"
         await stream.aclose()
 
-        subscribe_idx = call_log.index(("subscribe", "session-1", True))
+        subscribe_idx = call_log.index(("stream_messages", "session-1", True))
         read_raw_idx = call_log.index(("read_raw_messages", "session-1"))
         assert subscribe_idx < read_raw_idx
 
-    async def test_stream_replay_overflow_closes_stream_immediately(self, tmp_path):
+    async def test_stream_live_overflow_ends_stream_after_snapshot(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta()
 
         call_log: list[tuple] = []
+        fake_manager = _FakeSessionManager(call_log, status="running", replay_messages=[])
         service.meta_store = _FakeMetaStore(meta)
         service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=[])
-        service.session_manager = _FakeSessionManager(
-            call_log,
-            status="running",
-            replay_messages=[{"type": "_queue_overflow", "session_id": "sdk-1"}],
-        )
+        service.session_manager = fake_manager
 
         stream = service.stream_events("session-1")
+        # 快照先发出(回放阶段干净,溢出只可能发生在直播阶段)。
+        snapshot_event = await anext(stream)
+        assert _parse_sse_event(snapshot_event)[0] == "snapshot"
+
+        # 直播阶段队列被挤爆 → _queue_overflow → 流结束。
+        queue = fake_manager.last_queue
+        assert queue is not None
+        queue.put_nowait({"type": "_queue_overflow", "session_id": "sdk-1"})
         with pytest.raises(StopAsyncIteration):
             await anext(stream)
         await stream.aclose()
 
-        assert ("subscribe", "session-1", True) in call_log
+        assert ("stream_messages", "session-1", True) in call_log
         assert ("unsubscribe", "session-1") in call_log
-        assert ("read_raw_messages", "session-1", "sdk-1", "demo") not in call_log
 
     async def test_stream_emits_delta_patch_question_and_status_events(self, tmp_path):
         service = AssistantService(project_root=tmp_path)

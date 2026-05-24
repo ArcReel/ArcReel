@@ -33,6 +33,9 @@ projects/*
 vertex_keys/*
 !vertex_keys/.gitkeep
 
+# Runtime log directory (PROJECT_ROOT/logs from lib/logging_config.py)
+logs/
+
 # Keep project structure but ignore generated content
 !projects/.gitkeep
 !projects/.agent_data/

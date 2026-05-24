@@ -13,16 +13,16 @@ from claude_agent_sdk import tool
 
 from lib.generation_queue_client import (
     BatchTaskResult,
-    BatchTaskSpec,
+    TaskSpec,
     batch_enqueue_and_wait,
     enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import is_structured_video_prompt, video_prompt_to_yaml
+from lib.reference_video import assemble_shots_text
 from lib.storyboard_sequence import get_storyboard_items
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
-    fetch_video_caps,
     tool_error,
     validate_script_filename,
 )
@@ -46,16 +46,6 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
 
 def _is_reference_script(script: dict[str, Any]) -> bool:
     return script.get("generation_mode") == "reference_video"
-
-
-async def _fetch_video_caps(project: dict[str, Any]) -> tuple[int | None, list[int]]:
-    """Video generation requires non-empty supported_durations — hard fail when
-    ``ConfigResolver`` returns nothing (script normalization uses a soft
-    fallback path, see ``_fetch_caps_with_fallback`` in ``text_generation``)."""
-    default_int, durations = await fetch_video_caps(project)
-    if not durations:
-        raise ValueError("supported_durations 无法解析：ConfigResolver 未返回任何时长")
-    return default_int, durations
 
 
 # Checkpoint helpers
@@ -101,15 +91,13 @@ def _build_video_specs(
     content_mode: str,
     script_filename: str,
     project_dir: Path,
-    default_duration: int,
-    supported_durations: list[int],
     skip_ids: list[str] | None,
     log: list[str],
-) -> tuple[list[BatchTaskSpec], dict[str, int]]:
+) -> tuple[list[TaskSpec], dict[str, int]]:
     item_type = "片段" if content_mode == "narration" else "场景"
     skip_set = set(skip_ids or [])
 
-    specs: list[BatchTaskSpec] = []
+    specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
     for idx, item in enumerate(items):
         item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id") or f"item_{idx}"
@@ -131,21 +119,22 @@ def _build_video_specs(
             log.append(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {exc}")
             continue
 
-        duration = item.get("duration_seconds", default_duration)
-        if duration not in supported_durations:
-            raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported_durations} 内")
+        # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
+        # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
+        # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
+        extra_payload: dict[str, Any] = {}
+        duration = item.get("duration_seconds")
+        if duration is not None:
+            extra_payload["duration_seconds"] = duration
 
         specs.append(
-            BatchTaskSpec(
+            TaskSpec.from_request(
                 task_type="video",
                 media_type="video",
                 resource_id=item_id,
-                payload={
-                    "prompt": prompt,
-                    "script_file": script_filename,
-                    "duration_seconds": int(duration),
-                },
+                prompt=prompt,
                 script_file=script_filename,
+                extra_payload=extra_payload or None,
             )
         )
         order_map[item_id] = idx
@@ -158,26 +147,35 @@ def _build_reference_specs(
     script_filename: str,
     skip_ids: list[str] | None,
     log: list[str],
-) -> tuple[list[BatchTaskSpec], dict[str, int]]:
+) -> tuple[list[TaskSpec], dict[str, int]]:
     skip_set = set(skip_ids or [])
-    specs: list[BatchTaskSpec] = []
+    specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
     for idx, unit in enumerate(units):
-        unit_id = unit["unit_id"]
+        # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
+        # 当作空 resource_id 拒绝并走下面的跳过分支，而不是在此抛 KeyError 中断整批。
+        unit_id = str(unit.get("unit_id") or "")
         if unit_id in skip_set:
             continue
         if not unit.get("shots"):
             log.append(f"⚠️  {unit_id} 没有 shots，跳过")
             continue
-        specs.append(
-            BatchTaskSpec(
+        # prompt 由 shots[*].text 拼接，经统一守卫点做空提示词结构校验（见 ADR-0001）；
+        # 任一 unit 不合法（空提示词、或 from_request 对空 resource_id 抛的裸 ValueError）
+        # 都跳过并告警，与「没有 shots」一致，不让一个坏 unit 中断整批。
+        # 注意 TaskSpecValidationError 是 ValueError 子类，捕 ValueError 同时覆盖两者。
+        try:
+            spec = TaskSpec.from_request(
                 task_type="reference_video",
                 media_type="video",
                 resource_id=unit_id,
-                payload={"script_file": script_filename},
+                prompt=assemble_shots_text(unit["shots"]),
                 script_file=script_filename,
             )
-        )
+        except ValueError as exc:
+            log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
+            continue
+        specs.append(spec)
         order_map[unit_id] = idx
     return specs, order_map
 
@@ -227,7 +225,7 @@ async def _submit_with_checkpoint(
     *,
     project_name: str,
     project_dir: Path,
-    specs: list[BatchTaskSpec],
+    specs: list[TaskSpec],
     order_map: dict[str, int],
     ordered_paths: list[Path | None],
     completed: list[str],
@@ -389,13 +387,8 @@ def generate_video_episode_tool(ctx: ToolContext):
                 )
 
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-            project = ctx.pm.load_project(ctx.project_name)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
-            caps_default, supported_durations = await _fetch_video_caps(project)
-            default_duration = (
-                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
-            )
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
@@ -417,8 +410,6 @@ def generate_video_episode_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
-                default_duration=default_duration,
-                supported_durations=supported_durations,
                 skip_ids=already_done,
                 log=log,
             )
@@ -483,9 +474,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     ctx=ctx, script=script, script_filename=script_filename, resume=False, log=log
                 )
 
-            project = ctx.pm.load_project(ctx.project_name)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = script.get("content_mode", "narration")
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
                 raise ValueError(f"场景/片段 '{scene_id}' 不存在")
@@ -501,25 +490,29 @@ def generate_video_scene_tool(ctx: ToolContext):
                 raise FileNotFoundError(f"分镜图不存在: {project_dir / storyboard_image}")
 
             prompt = _get_video_prompt(item)
-            caps_default, supported_durations = await _fetch_video_caps(project)
-            default_duration = (
-                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
-            )
-            duration = item.get("duration_seconds", default_duration)
-            if duration not in supported_durations:
-                raise ValueError(f"duration={duration}s 不在模型 supported_durations={supported_durations} 内")
-
-            queued = await enqueue_and_wait(
-                project_name=ctx.project_name,
+            # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
+            # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
+            # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
+            extra_payload: dict[str, Any] = {}
+            duration = item.get("duration_seconds")
+            if duration is not None:
+                extra_payload["duration_seconds"] = duration
+            spec = TaskSpec.from_request(
                 task_type="video",
                 media_type="video",
                 resource_id=item_id,
-                payload={
-                    "prompt": prompt,
-                    "script_file": script_filename,
-                    "duration_seconds": int(duration),
-                },
+                prompt=prompt,
                 script_file=script_filename,
+                extra_payload=extra_payload or None,
+            )
+
+            queued = await enqueue_and_wait(
+                project_name=ctx.project_name,
+                task_type=spec.task_type,
+                media_type=spec.media_type,
+                resource_id=spec.resource_id,
+                payload=spec.payload,
+                script_file=spec.script_file,
                 source="skill",
             )
             result = queued.get("result") or {}
@@ -559,25 +552,18 @@ def generate_video_all_tool(ctx: ToolContext):
                     ctx=ctx, script=script, script_filename=script_filename, resume=False, log=log
                 )
 
-            project = ctx.pm.load_project(ctx.project_name)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
             pending = [it for it in items if not (it.get("generated_assets") or {}).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
-            caps_default, supported_durations = await _fetch_video_caps(project)
-            default_duration = (
-                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
-            )
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
-                default_duration=default_duration,
-                supported_durations=supported_durations,
                 skip_ids=None,
                 log=log,
             )
@@ -643,7 +629,6 @@ def generate_video_selected_tool(ctx: ToolContext):
                     ctx=ctx, script=script, script_filename=script_filename, resume=resume, log=log
                 )
 
-            project = ctx.pm.load_project(ctx.project_name)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
 
@@ -688,10 +673,6 @@ def generate_video_selected_tool(ctx: ToolContext):
 
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
-            caps_default, supported_durations = await _fetch_video_caps(project)
-            default_duration = (
-                project.get("default_duration") or caps_default or (4 if content_mode == "narration" else 8)
-            )
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
             specs, order_map = _build_video_specs(
                 items=selected,
@@ -699,8 +680,6 @@ def generate_video_selected_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
-                default_duration=default_duration,
-                supported_durations=supported_durations,
                 skip_ids=already_done,
                 log=log,
             )

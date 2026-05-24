@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+from fastapi import Request
 from fastapi.sse import ServerSentEvent
 
 from lib.agent_profile import agent_profile_dir
@@ -343,9 +344,17 @@ class AssistantService:
     # ==================== Streaming ====================
 
     async def stream_events(
-        self, session_id: str, *, meta: SessionMeta | None = None
+        self, session_id: str, *, meta: SessionMeta | None = None, request: Request | None = None
     ) -> AsyncIterator[ServerSentEvent]:
-        """Stream SSE events for a session."""
+        """Stream SSE events for a session.
+
+        Consumes the session's messages through ``SessionManager.stream_messages``
+        (an async context manager): replay messages are accumulated until the
+        ``_replay_done`` boundary, where the projector is built and the snapshot
+        emitted; live messages then drive patch/delta/question/status events. On
+        the ``_idle`` sentinel we poll ``request.is_disconnected()`` so a dropped
+        client triggers deterministic unsubscribe via ``__aexit__`` (see ADR-0005).
+        """
         if meta is None:
             meta = await self.meta_store.get(session_id)
             if meta is None:
@@ -357,47 +366,51 @@ class AssistantService:
                 yield event
             return
 
-        queue = await self.session_manager.subscribe(session_id, replay_buffer=True)
-        try:
-            async for event in self._stream_running_session(meta, session_id, initial_status, queue):
-                yield event
-        finally:
-            await self.session_manager.unsubscribe(session_id, queue)
+        async with self.session_manager.stream_messages(
+            session_id, replay=True, idle_timeout=self.stream_heartbeat_seconds
+        ) as stream:
+            replayed: list[dict[str, Any]] = []
+            projector: AssistantStreamProjector | None = None
+            status: SessionStatus = initial_status
+            async for message in stream:
+                # 直播阶段每轮顶部检查断线;不依赖 _idle 作为唤醒条件,持续高频消息
+                # 流下断线一样能立刻发现。回放阶段尚未对客户端 yield 过,不查。
+                if projector is not None and request is not None and await request.is_disconnected():
+                    break
 
-    async def _stream_running_session(
-        self,
-        meta: SessionMeta,
-        session_id: str,
-        initial_status: SessionStatus,
-        queue: asyncio.Queue,
-    ) -> AsyncIterator[ServerSentEvent]:
-        """Inner generator for a running session's SSE stream."""
-        replayed_messages, replay_overflowed = self._drain_replay(queue)
-        if replay_overflowed:
-            return
+                msg_type = message.get("type", "")
 
-        status = await self.session_manager.get_status(session_id) or initial_status
-        projector = await self._build_projector(meta, session_id, replayed_messages)
-        snapshot_events = await self._emit_running_snapshot(session_id, status, projector)
-        for event in snapshot_events:
-            yield event
-        if status != "running":
-            return
+                if projector is None:
+                    # Replay phase: accumulate buffer messages until the boundary.
+                    if msg_type == "_replay_done":
+                        status = await self.session_manager.get_status(session_id) or initial_status
+                        projector = await self._build_projector(meta, session_id, replayed)
+                        for event in await self._emit_running_snapshot(session_id, status, projector):
+                            yield event
+                        if status != "running":
+                            return
+                        continue
+                    replayed.append(message)
+                    continue
 
-        while True:
-            try:
-                message = await asyncio.wait_for(queue.get(), timeout=self.stream_heartbeat_seconds)
+                # Live phase.
+                if msg_type == "_idle":
+                    # 断线已在循环顶部判过;_idle 仅作为「无消息也要醒来」的 backstop,
+                    # 用来兜底「会话状态转换没带消息广播」这种异常路径。
+                    event = await self._handle_heartbeat_timeout(session_id, status, projector)
+                    if event is not None:
+                        yield event
+                        break
+                    continue
+
+                if msg_type == "_queue_overflow":
+                    break
+
                 events, should_break = await self._dispatch_live_message(message, projector, session_id)
                 for event in events:
                     yield event
                 if should_break:
                     break
-            except TimeoutError:
-                event = await self._handle_heartbeat_timeout(session_id, status, projector)
-                if event is not None:
-                    yield event
-                    break
-                continue
 
     async def _emit_completed_snapshot(
         self, meta: SessionMeta, session_id: str, status: SessionStatus
@@ -457,23 +470,6 @@ class AssistantService:
                 )
             )
         return events
-
-    @staticmethod
-    def _drain_replay(
-        queue: asyncio.Queue,
-    ) -> tuple[list[dict[str, Any]], bool]:
-        """Drain replayed messages from *queue*, detecting overflow sentinel."""
-        replayed: list[dict[str, Any]] = []
-        while True:
-            try:
-                msg = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            if isinstance(msg, dict):
-                if msg.get("type") == "_queue_overflow":
-                    return replayed, True
-                replayed.append(msg)
-        return replayed, False
 
     async def _dispatch_live_message(
         self,

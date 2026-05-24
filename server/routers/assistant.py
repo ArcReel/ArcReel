@@ -228,12 +228,13 @@ async def answer_question(
 async def stream_events(
     project_name: str,
     session_id: str,
+    request: Request,
     _user: CurrentUserFlexible,
     deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
 ) -> AsyncIterator[ServerSentEvent]:
     service, meta = deps
     try:
-        async for event in service.stream_events(session_id, meta=meta):
+        async for event in service.stream_events(session_id, meta=meta, request=request):
             yield event
     except HTTPException:
         raise

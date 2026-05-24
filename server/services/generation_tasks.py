@@ -40,6 +40,7 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
+from lib.video_backends.base import VideoCapabilityError
 from server.services.resolution_resolver import resolve_resolution
 
 pm = ProjectManager(app_data_dir())
@@ -439,6 +440,37 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
     return 4
 
 
+def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
+    """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
+
+    这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
+    （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
+    放行（能力不可解析，不更坏：保持既有行为不被本次改动弄坏）。
+
+    duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
+    可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
+    视为非法而**拒绝**，不做截断式归一化（截断会把本应拒绝的非法值静默修正）。
+
+    校验失败抛 :class:`VideoCapabilityError`（带稳定 code），与 ImageCapabilityError 对称——
+    Worker 捕获后渲染为本地化的 task.error_message。
+    """
+    if not supported_durations:
+        return
+    try:
+        numeric = float(duration)
+    except (TypeError, ValueError):
+        raise VideoCapabilityError("video_duration_invalid", duration=duration)
+    if not numeric.is_integer():
+        raise VideoCapabilityError("video_duration_invalid", duration=duration)
+    seconds = int(numeric)
+    if seconds not in supported_durations:
+        raise VideoCapabilityError(
+            "video_duration_not_supported",
+            duration=seconds,
+            supported=", ".join(str(d) for d in supported_durations),
+        )
+
+
 def _collect_sheet_paths(
     project: dict,
     project_path: Path,
@@ -794,16 +826,38 @@ async def execute_video_task(
     except Exception:
         registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
 
+    # supported_durations 按上面已解析出的 provider/model 取（而非按 project 二次解析），
+    # 确保 duration 守卫所依据的能力与实际要调用的 model 一致——历史任务 payload 携带
+    # provider 覆盖时，二者不一致会用「项目默认 model 的能力」误判「payload 解析出的 model」。
+    # caps 失败不得丢弃已解析出的 provider/model，否则 resolve_resolution 与默认 duration
+    # 会错配。能力不可解析时留空，守卫遇空列表放行（不更坏，见 ADR-0002）。
+    supported_durations: list[int] = []
+    try:
+        caps = await _resolver.video_capabilities_for_model(registry_provider_id, model_name or "", project)
+        supported_durations = [int(d) for d in caps.get("supported_durations") or []]
+    except Exception:
+        supported_durations = []
+
     resolution = await resolve_resolution(
         project,
         registry_provider_id,
         model_name or "",
     )
 
-    # duration fallback: payload > project.default_duration > supported_durations[0] > 4
-    duration_seconds = payload.get("duration_seconds") or project.get("default_duration")
+    # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
+    # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
+    duration_seconds = payload.get("duration_seconds")
+    if duration_seconds is None:
+        duration_seconds = project.get("default_duration")
     if not duration_seconds:
-        duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
+        duration_seconds = (
+            supported_durations[0]
+            if supported_durations
+            else _get_model_default_duration(registry_provider_id, model_name)
+        )
+    # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
+    # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
+    assert_duration_supported(duration_seconds, supported_durations)
 
     end_image = None  # 宫格模式不再使用首尾帧，统一走普通图生视频
 
@@ -1299,7 +1353,7 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
     with project_change_source("worker"):
         try:
             result = await executor(project_name, resource_id, payload, user_id=user_id)
-        except ImageCapabilityError as err:
+        except (ImageCapabilityError, VideoCapabilityError) as err:
             # Worker 后台无 request 上下文，按 DEFAULT_LOCALE 渲染稳定的 i18n 文案
             # 落到 task.error_message，前端轮询时即可看到本地化提示
             message = i18n_translate(err.code, locale=DEFAULT_LOCALE, **err.params)

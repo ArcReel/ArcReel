@@ -58,38 +58,40 @@ async def _collect_reply(
     session_id: str,
     timeout: float,
 ) -> tuple[str, str]:
-    """订阅会话队列，收集 assistant 回复直到完成或超时。
+    """消费会话消息流，收集 assistant 回复直到完成或超时。
+
+    通过 ``stream_messages`` 上下文管理器消费（非 SSE、无 ``request`` 对象）：
+    deadline 与会话状态判断挂在 ``_idle`` 哨兵上，超时检测粒度因此变为 idle_timeout
+    （≤5s）。退出注销由 ``__aexit__`` 确定性承载（见 ADR-0005）。
 
     Returns:
         (reply_text, status) — status 为 "completed" / "timeout" / "error"
     """
-    queue = await service.session_manager.subscribe(session_id, replay_buffer=True)
-    try:
-        reply_parts: list[str] = []
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
+    reply_parts: list[str] = []
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    status = "timeout"
 
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
+    async with service.session_manager.stream_messages(session_id, replay=True, idle_timeout=5.0) as stream:
+        async for message in stream:
+            # deadline 必须每轮都查：持续 <idle_timeout 间隔的消息流会让 _idle 永不触发，
+            # 若只在 _idle 上判超时，跑飞/刷屏的会话会让本同步请求无界挂起。
+            if loop.time() >= deadline:
                 status = "timeout"
                 break
 
-            try:
-                message = await asyncio.wait_for(queue.get(), timeout=min(remaining, 5.0))
-            except TimeoutError:
-                # 检查会话是否已完成
+            msg_type = message.get("type", "")
+
+            if msg_type == "_replay_done":
+                continue
+
+            if msg_type == "_idle":
+                # 无 request 对象：在空闲哨兵上判会话状态（deadline 已在循环顶部统一判）。
                 live_status = await service.session_manager.get_status(session_id)
                 if live_status and live_status != "running":
                     status = "completed" if live_status in {"idle", "completed"} else live_status
                     break
-                # 检查是否超时
-                if loop.time() >= deadline:
-                    status = "timeout"
-                    break
                 continue
-
-            msg_type = message.get("type", "")
 
             if msg_type == "assistant":
                 text = _extract_text_from_assistant_message(message)
@@ -100,10 +102,7 @@ async def _collect_reply(
                 # 终结消息：提取最后一条 assistant 回复（如果还没有从队列里收到）
                 subtype = str(message.get("subtype") or "").lower()
                 is_error = bool(message.get("is_error"))
-                if is_error or subtype.startswith("error"):
-                    status = "error"
-                else:
-                    status = "completed"
+                status = "error" if is_error or subtype.startswith("error") else "completed"
                 break
 
             elif msg_type == "runtime_status":
@@ -113,14 +112,11 @@ async def _collect_reply(
                     break
 
             elif msg_type == "_queue_overflow":
-                # 队列溢出，中断
+                # 队列溢出：显式收尾（不再忽略后傻等到超时）。
                 status = "error"
                 break
 
-        return "".join(reply_parts), status
-
-    finally:
-        await service.session_manager.unsubscribe(session_id, queue)
+    return "".join(reply_parts), status
 
 
 @router.post("/agent/chat")

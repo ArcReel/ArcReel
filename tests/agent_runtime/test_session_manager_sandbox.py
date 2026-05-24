@@ -156,6 +156,73 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
 
 
+def test_logs_dir_is_sensitive_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """PROJECT_ROOT/logs 必须落在 sensitive prefixes 里，agent 不能 Read/Grep 全局日志。
+
+    背景：lib/logging_config.py 把日志目录默认改为 PROJECT_ROOT/logs 后，
+    _check_read_access 的 "仓库根内参考资料放行" 分支
+    （is_relative_to(_project_root_resolved)）会把全局服务器日志当成参考资料
+    放给 agent。规则 0 的 sensitive-path 拒绝必须在前面截住，所以 logs/ 要进
+    _sensitive_prefixes。
+    """
+    from lib import logging_config
+    from server.agent_runtime.session_manager import SessionManager
+    from server.agent_runtime.session_store import SessionMetaStore
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    logs_dir = root / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
+    (logs_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
+
+    # SessionManager 通过 lib.logging_config.resolve_log_dir() 解析 sensitive
+    # log 目录；钉到测试 root 才能让 deny 命中 tmp_path/repo/logs
+    monkeypatch.setattr(logging_config, "PROJECT_ROOT", root)
+    monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
+
+    sm = SessionManager(root, tmp_path / "data", SessionMetaStore())
+
+    # 当前 + 历史 log 文件都被认定为敏感
+    assert sm._is_sensitive_path((logs_dir / "arcreel.log").resolve())
+    assert sm._is_sensitive_path((logs_dir / "arcreel.log.2026-05-20").resolve())
+    # 整目录本身也是敏感（Glob/listdir 拒）
+    assert sm._is_sensitive_path(logs_dir.resolve())
+
+    # _build_sensitive_abs_paths 也必须把 logs 目录交给 SDK denyRead 清单
+    paths = sm._build_sensitive_abs_paths()
+    assert str(logs_dir.resolve()) in paths
+
+
+def test_logs_dir_honors_arcreel_log_dir_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """用户用 ARCREEL_LOG_DIR 把日志搬到任意目录（含 repo 外）时，sandbox
+    sensitive prefixes 必须跟着指过去——硬编码 repo/logs 会让 agent 仍能
+    Read/Grep 真实 LOG_DIR 下的日志，PR 上 gemini 给的 security-high 反馈。
+    """
+    from server.agent_runtime.session_manager import SessionManager
+    from server.agent_runtime.session_store import SessionMetaStore
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    # 把 LOG_DIR 设到 repo 之外，模拟用户自定义日志位置
+    external_logs = tmp_path / "external" / "arcreel_logs"
+    external_logs.mkdir(parents=True)
+    (external_logs / "arcreel.log").write_text("secret\n", encoding="utf-8")
+    monkeypatch.setenv("ARCREEL_LOG_DIR", str(external_logs))
+
+    sm = SessionManager(repo, tmp_path / "data", SessionMetaStore())
+
+    # repo 外的自定义 LOG_DIR 也要被 deny
+    assert sm._is_sensitive_path((external_logs / "arcreel.log").resolve())
+    assert sm._is_sensitive_path(external_logs.resolve())
+    # repo/logs 在此场景下不应被默认 deny（避免误覆盖）
+    assert not sm._is_sensitive_path((repo / "logs" / "anything.txt").resolve())
+
+    paths = sm._build_sensitive_abs_paths()
+    assert str(external_logs.resolve()) in paths
+    assert str((repo / "logs").resolve()) not in paths
+
+
 def test_build_sensitive_abs_paths_honors_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 把数据/profile 目录搬到
     项目外时，sandbox denyRead 必须跟着指到新位置——否则源码根下的硬编码

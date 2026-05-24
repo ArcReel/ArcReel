@@ -276,6 +276,17 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities_from_project(svc, session, project)
 
+    async def video_capabilities_for_model(self, provider_id: str, model_id: str, project: dict | None = None) -> dict:
+        """读取指定 provider/model 的视频能力，不再二次解析 provider。
+
+        供执行层使用：调用方已通过 `resolve_video_backend(project, payload)` 解析出实际
+        要调用的 ProviderModel（含历史任务 payload 覆盖），用此变体取能力可保证 duration
+        守卫所依据的 supported_durations 与实际调用的 model 一致，避免「按项目默认 model
+        的能力去校验 payload 解析出的 model」的错配。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
+
     async def default_image_backend_t2i(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)，T2I 默认。"""
         async with self._open_session() as (session, svc):
@@ -425,7 +436,16 @@ class ConfigResolver:
         project: dict | None,
     ) -> dict:
         provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
+        return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
 
+    async def _resolve_video_caps_for_model(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        provider_id: str,
+        model_id: str,
+        project: dict | None,
+    ) -> dict:
         if is_custom_provider(provider_id):
             source = "custom"
             try:

@@ -6,6 +6,7 @@ Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §4.3
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from lib.asset_types import BUCKET_KEY
 from lib.script_models import ReferenceResource, Shot
@@ -89,6 +90,26 @@ def render_prompt_for_backend(text: str, references: list[ReferenceResource]) ->
         return f"[图{idx}]" if idx else m.group(0)  # 未注册 → 保留原样
 
     return _MENTION_RE.sub(_repl, text)
+
+
+def assemble_shots_text(shots: list[Any]) -> str:
+    """把 unit.shots[*].text 拼接为单一原始 prompt（渲染、@→[图N] 替换之前）。
+
+    供入队守卫点对参考生视频做空提示词结构校验：``render_prompt_for_backend`` 对未注册
+    的 @mention 保留原文、从不删字，故「拼接文本去空白后为空」等价于「渲染后为空」，
+    空检查可无损地在入队侧完成。
+
+    对畸形数据做防御性归一化（Agent 可裸写 script JSON，绕过 ProjectManager 校验）：
+    非 dict 的 shot 元素跳过；``text`` 缺失或非字符串（含显式 ``null``）按空串处理——
+    否则 ``str(None)`` 会得到 truthy 的 "None" 既绕过空校验又把字面量注入 backend。
+    """
+    parts: list[str] = []
+    for s in shots:
+        if not isinstance(s, dict):
+            continue
+        text = s.get("text")
+        parts.append(text if isinstance(text, str) else "")
+    return "\n".join(parts)
 
 
 def compute_duration_from_shots(shots: list[Shot]) -> int:

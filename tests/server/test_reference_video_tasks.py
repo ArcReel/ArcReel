@@ -139,7 +139,9 @@ def test_compress_references_empty_input(tmp_path: Path):
 
 
 def test_render_unit_prompt_rejects_empty_shots():
-    """所有 shots[].text 都为空时必须抛错，避免只追加负向尾词后被当成有效 prompt 提交给 backend。"""
+    """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
+    入队守卫点后仍需挡住「入队后被改空 / 在途遗留任务」漏过的空提示词，避免尾词追加后
+    被当成有效 prompt 提交给付费 backend。"""
     unit = {
         "shots": [
             {"duration": 3, "text": ""},

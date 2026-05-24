@@ -35,6 +35,7 @@ services:
     volumes:
       - ./.env:/app/.env
       - ./projects:/app/projects
+      - ./logs:/app/logs
       - ./vertex_keys:/app/vertex_keys
       - ./claude_data:/root/.claude
     depends_on:

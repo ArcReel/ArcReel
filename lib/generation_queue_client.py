@@ -19,6 +19,7 @@ from lib.generation_queue import (
     get_generation_queue,
     read_queue_poll_interval,
 )
+from lib.prompt_utils import is_structured_image_prompt, is_structured_video_prompt
 
 
 class WorkerOfflineError(RuntimeError):
@@ -241,9 +242,76 @@ def enqueue_and_wait_sync(**kwargs) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+# Task types whose prompt is a *video* prompt (string or structured action object);
+# everything else carries an *image* prompt (string or structured scene object), and
+# plain-string-only asset prompts still flow through the image branch (no scene key).
+_VIDEO_TASK_TYPES = frozenset({"video"})
+_IMAGE_STRUCTURED_TASK_TYPES = frozenset({"storyboard"})
+
+
+def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> None:
+    """Structural prompt validation, provider-agnostic and keyed by task type.
+
+    Mirrors (and now owns) the rules that previously lived inline in the WebUI
+    routes, so WebUI and SDK enqueue paths can't diverge. Raises
+    :class:`TaskSpecValidationError` with an i18n message code on failure.
+    """
+    if task_type in _VIDEO_TASK_TYPES:
+        if isinstance(prompt, dict):
+            if not is_structured_video_prompt(prompt):
+                raise TaskSpecValidationError("video_prompt_must_be_string_or_action_object")
+            # ``or ""`` 而非默认参数：``{"action": null}`` 时 get 返回 None，
+            # ``str(None)`` 会得到 truthy 的 "None" 字符串绕过空值校验。
+            if not str(prompt.get("action") or "").strip():
+                raise TaskSpecValidationError("video_prompt_action_empty")
+            dialogue = prompt.get("dialogue")
+            if dialogue is not None and not isinstance(dialogue, list):
+                raise TaskSpecValidationError("video_prompt_dialogue_array")
+        elif isinstance(prompt, str):
+            if not prompt.strip():
+                raise TaskSpecValidationError("prompt_text_empty")
+        else:
+            raise TaskSpecValidationError("prompt_must_be_string_or_object")
+        return
+
+    if task_type in _IMAGE_STRUCTURED_TASK_TYPES and isinstance(prompt, dict):
+        if not is_structured_image_prompt(prompt):
+            raise TaskSpecValidationError("prompt_must_be_string_or_scene_object")
+        if not str(prompt.get("scene") or "").strip():
+            raise TaskSpecValidationError("prompt_scene_empty")
+        return
+
+    # Asset (character/scene/prop) and string-form storyboard prompts: non-empty string.
+    if isinstance(prompt, str):
+        if not prompt.strip():
+            raise TaskSpecValidationError("prompt_text_empty")
+        return
+    raise TaskSpecValidationError("prompt_must_be_string_or_object")
+
+
+class TaskSpecValidationError(ValueError):
+    """Raised when a request fails the structural validation in ``TaskSpec.from_request``.
+
+    Carries an i18n message *code* (matching keys in the ``errors`` namespace) plus
+    optional format params, so routers can translate it to a 4xx without re-deriving
+    which rule failed. Agent-facing callers may just render ``str(self)``.
+    """
+
+    def __init__(self, code: str, **params: Any) -> None:
+        super().__init__(code)
+        self.code = code
+        self.params = params
+
+
 @dataclass
-class BatchTaskSpec:
-    """Specification for a single task in a batch submission."""
+class TaskSpec:
+    """Specification for a single enqueue request (single-task or batch member).
+
+    Construct via :meth:`from_request`, the single guard point that owns a request's
+    structural validity. Validation is provider-agnostic (no provider fields here):
+    capability checks such as ``duration ↔ supported_durations`` live at the execution
+    layer, after provider resolution (see ADR-0001).
+    """
 
     task_type: str
     media_type: str
@@ -255,6 +323,54 @@ class BatchTaskSpec:
     dependency_resource_id: str | None = None
     dependency_group: str | None = None
     dependency_index: int | None = None
+
+    @classmethod
+    def from_request(
+        cls,
+        *,
+        task_type: str,
+        media_type: str,
+        resource_id: str,
+        prompt: str | dict[str, Any] | None = None,
+        script_file: str | None = None,
+        source: str = "skill",
+        extra_payload: dict[str, Any] | None = None,
+        dependency_resource_id: str | None = None,
+        dependency_group: str | None = None,
+        dependency_index: int | None = None,
+    ) -> TaskSpec:
+        """Validate a request structurally and build a :class:`TaskSpec`.
+
+        Single source of truth for "is this enqueue request structurally legal" —
+        both the WebUI routes and the SDK spec builders construct through here so the
+        rules can't diverge. Raises :class:`TaskSpecValidationError` on invalid input.
+        """
+        if not resource_id:
+            raise ValueError("resource_id is required")
+        _validate_prompt(task_type, prompt)
+
+        # extra_payload 不得携带守卫点已校验的保留键，否则调用方能绕过单一守卫点
+        # 把未校验的 prompt / script_file 入队。
+        reserved = {"prompt", "script_file"}
+        if extra_payload and (conflict := reserved & extra_payload.keys()):
+            raise ValueError(f"extra_payload contains reserved keys: {', '.join(sorted(conflict))}")
+
+        payload: dict[str, Any] = dict(extra_payload) if extra_payload else {}
+        payload["prompt"] = prompt
+        if script_file is not None:
+            payload["script_file"] = script_file
+
+        return cls(
+            task_type=task_type,
+            media_type=media_type,
+            resource_id=resource_id,
+            payload=payload,
+            script_file=script_file,
+            source=source,
+            dependency_resource_id=dependency_resource_id,
+            dependency_group=dependency_group,
+            dependency_index=dependency_index,
+        )
 
 
 @dataclass
@@ -295,7 +411,7 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
 async def batch_enqueue_and_wait(
     *,
     project_name: str,
-    specs: list[BatchTaskSpec],
+    specs: list[TaskSpec],
     on_success: Callable[[BatchTaskResult], None] | None = None,
     on_failure: Callable[[BatchTaskResult], None] | None = None,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
@@ -330,7 +446,7 @@ async def batch_enqueue_and_wait(
         task_ids[spec.resource_id] = enqueue_result["task_id"]
 
     # Phase 2 — Parallel wait via asyncio.gather (single event loop)
-    async def _wait_one(spec: BatchTaskSpec) -> BatchTaskResult:
+    async def _wait_one(spec: TaskSpec) -> BatchTaskResult:
         tid = task_ids[spec.resource_id]
         try:
             task = await wait_for_task(tid)
@@ -363,7 +479,7 @@ async def batch_enqueue_and_wait(
 def batch_enqueue_and_wait_sync(
     *,
     project_name: str,
-    specs: list[BatchTaskSpec],
+    specs: list[TaskSpec],
     on_success: Callable[[BatchTaskResult], None] | None = None,
     on_failure: Callable[[BatchTaskResult], None] | None = None,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
