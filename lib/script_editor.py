@@ -43,6 +43,11 @@ def resolve_kind(script: dict[str, Any]) -> str:
     if content_mode == "drama":
         return "scenes"
     if content_mode == "narration":
+        # 畸形脚本兼容：content_mode=narration 但数据实际落在 scenes 键下（无 segments 键）的
+        # 历史遗留状态——回退去读 scenes，而非按 content_mode 字面映射到不存在的 segments。
+        # 与原 `_script_items_shape` 的「键存在性兜底」语义统一（PR #616 引入的回归守卫）。
+        if "segments" not in script and "scenes" in script:
+            return "scenes"
         return "segments"
     if "scenes" in script and "segments" not in script:
         return "scenes"

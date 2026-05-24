@@ -37,7 +37,6 @@ from lib.profile_manifest import (
 )
 from lib.project_change_hints import emit_project_change_hint
 from lib.script_editor import ScriptEditError, resolve_items
-from lib.script_models import SCRIPT_SHAPES, ScriptShape
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
 logger = logging.getLogger(__name__)
@@ -70,38 +69,26 @@ def effective_mode(*, project: dict, episode: dict) -> str:
     return _DEFAULT_GENERATION_MODE
 
 
-def _script_items_shape(script: dict, content_mode: str) -> ScriptShape:
-    """选剧本列表所在的形状（字段名取自 lib.script_models.SCRIPT_SHAPES）。
+def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[dict]:
+    """读取路径的脏数据降级：基于 `resolve_items` 三模式判别（narration/drama/reference_video），
+    脏数据（键存在但值非 list）下 log warning + 返回 []。
 
-    仅当 content_mode=narration **且**脚本确有 narration 列表键时走 narration 形状；
-    否则落 drama 形状——这覆盖了 narration 但数据畸形落在 `scenes` 键下的回退，保持
-    与历史 `if content_mode == "narration" and "segments" in script` 守卫一致。
+    与写入路径（`update_scene_asset` / `batch_update_scene_assets`）共用 `resolve_items` 判别
+    保证三模式一致——上一版本用 `_script_items_shape` 在 reference 模式下会静默落到 drama
+    兜底返回 []，破坏一致性。写入侧应该 fail-loud（让 ScriptEditError 上冒，worker 显式失败，
+    上层 API 5xx 告知数据损坏）；读取侧在脏数据下返回 [] 不阻塞 UI 渲染，但 warning 给运维
+    可观测信号去人工修复，不让降级变隐形。
     """
-    narration = SCRIPT_SHAPES["narration"]
-    if content_mode == "narration" and narration.items_key in script:
-        return narration
-    return SCRIPT_SHAPES["drama"]
-
-
-def _items_or_warn(script: dict, key: str, *, script_filename: str | None = None) -> list[dict]:
-    """读取路径的脏数据降级：键存在但值非 list（含 null）时 log warning + 返回 []。
-
-    写入路径（update_scene_asset / batch_update_scene_assets）不用本 helper——写入侧应该
-    fail-loud（直接 raise ScriptEditError 让 worker 显式失败、上层 API 5xx 告知数据损坏），
-    在脏数据下静默 no-op 等于把数据丢失藏起来。本 helper 仅给读取侧（get_pending_scenes /
-    get_scenes_needing_storyboard）用——读取在脏数据下返回 [] 不阻塞 UI 渲染，但 warning
-    给运维一个可观测信号去人工修复，不让降级变隐形。
-    """
-    raw = script.get(key, [])
-    if isinstance(raw, list):
-        return raw
-    logger.warning(
-        "剧本 %s 的 %r 字段不是 list（type=%s），读取降级为空列表——数据损坏，请人工修复",
-        script_filename or "<unknown>",
-        key,
-        type(raw).__name__,
-    )
-    return []
+    try:
+        items, _id_field, _kind = resolve_items(script)
+        return items
+    except ScriptEditError as e:
+        logger.warning(
+            "剧本 %s 数据损坏（%s），读取降级为空列表——请人工修复",
+            script_filename or "<unknown>",
+            e,
+        )
+        return []
 
 
 class EpisodeScriptReboundError(RuntimeError):
@@ -1115,18 +1102,12 @@ class ProjectManager:
         # 但「分镜数组键损坏（如 segments: null）」是更严重的损坏，写入侧必须 fail-loud——
         # 静默 no-op 等于把数据丢失藏起来：worker 写完 N 个 video_clip 还以为成功了，UI 却
         # 看不到任何回写。让 ScriptEditError 上冒，worker 层负责降级（记 task 失败、人工修复）。
+        # `resolve_items` 三模式判别（narration/drama/reference_video）与 `_write_script_unlocked`
+        # / 读取 helper 共用同一源——避免 `_script_items_shape` 那种 reference 模式落到 drama 兜底
+        # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"场景不存在"的根因被掩盖路径。
         with self.locked_script(project_name, script_filename, validate=False) as script:
-            # 根据内容模式选择正确的数据结构
             content_mode = script.get("content_mode", "narration")
-            shape = _script_items_shape(script, content_mode)
-            raw = script.get(shape.items_key, [])
-            if not isinstance(raw, list):
-                raise ScriptEditError(
-                    f"剧本 {script_filename} 的 {shape.items_key!r} 字段损坏（type={type(raw).__name__}），"
-                    "资产回写无法进行；请先人工修复剧本数据"
-                )
-            items = raw
-            id_field = shape.id_field
+            items, id_field, _kind = resolve_items(script)
 
             for item in items:
                 if str(item.get(id_field)) == str(scene_id):
@@ -1172,17 +1153,11 @@ class ProjectManager:
         # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
         # 分镜数组键损坏时与 update_scene_asset 同款 fail-loud——批量场景下静默 no-op 危害
         # 更大：worker 写完 N 个 clip 全被丢、SSE 仍然广播「all updated」，UI 永远 pending。
+        # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units（之前
+        # `_script_items_shape` 在 reference 下落到 drama 兜底，scene_id 永远找不到）。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             content_mode = script.get("content_mode", "narration")
-            shape = _script_items_shape(script, content_mode)
-            raw = script.get(shape.items_key, [])
-            if not isinstance(raw, list):
-                raise ScriptEditError(
-                    f"剧本 {script_filename} 的 {shape.items_key!r} 字段损坏（type={type(raw).__name__}），"
-                    "资产回写无法进行；请先人工修复剧本数据"
-                )
-            items = raw
-            id_field = shape.id_field
+            items, id_field, _kind = resolve_items(script)
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找
             item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items}
@@ -1220,18 +1195,16 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
-        # 根据内容模式选择正确的数据结构。读取路径在脏数据下用 `_items_or_warn` 降级到 []
-        # （+ log warning 提供可观测信号）——读取侧 silent 比写入侧 silent 安全：UI 渲染空
-        # 列表好过 5xx 阻塞页面，但写入侧（update_scene_asset / batch_update_scene_assets）
-        # 必须 raise，保证数据损坏永远有显式信号。
-        content_mode = script.get("content_mode", "narration")
-        items = _items_or_warn(
-            script, _script_items_shape(script, content_mode).items_key, script_filename=script_filename
-        )
+        # `_resolve_items_or_warn` 三模式判别 + 脏数据 warn-and-skip 降级——读取侧 silent
+        # 比写入侧 silent 安全（UI 渲染空列表好过 5xx 阻塞页面），但 warning 给可观测信号；
+        # 写入侧（update_scene_asset / batch_update_scene_assets）则用 `resolve_items` 直接
+        # 抛 ScriptEditError 保证数据损坏永远有显式信号。reference 模式下也能正确返回
+        # video_units，不会静默落到 drama 兜底丢失 reference 数据。
+        items = _resolve_items_or_warn(script, script_filename=script_filename)
 
         # item.generated_assets 缺失 / null / 非 dict 一律视为"未生成"——读取侧脏数据容错：
         # `.get("generated_assets", {}).get(...)` 只挡 key 缺失，None 与非 dict 仍会抛 AttributeError。
-        # 与写入侧 update_scene_asset 的 isinstance check（line 1124-1127）mirror。
+        # 与写入侧 update_scene_asset 的 isinstance check mirror。
         def _missing(item: dict) -> bool:
             assets = item.get("generated_assets")
             return not isinstance(assets, dict) or not assets.get(asset_type)
@@ -1273,12 +1246,9 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
-        # 同 get_pending_scenes：读取路径用 `_items_or_warn` 在脏数据下降级到 [] + warning。
-        # generated_assets 缺失 / null / 非 dict 一律视为"未生成"，写入侧 isinstance check 的镜像。
-        content_mode = script.get("content_mode", "narration")
-        items = _items_or_warn(
-            script, _script_items_shape(script, content_mode).items_key, script_filename=script_filename
-        )
+        # 同 get_pending_scenes：resolve_items 三模式判别 + warn-and-skip 降级 +
+        # generated_assets 容错 isinstance check。
+        items = _resolve_items_or_warn(script, script_filename=script_filename)
 
         def _missing_storyboard(item: dict) -> bool:
             assets = item.get("generated_assets")

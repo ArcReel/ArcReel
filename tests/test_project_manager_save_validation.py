@@ -220,7 +220,7 @@ class TestAssetWritebackExemption:
         把任务标为失败，让运维看到「数据损坏」而不是「成功但空」。"""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_segments(pm, tmp_path)
-        with pytest.raises(ScriptEditError, match="损坏"):
+        with pytest.raises(ScriptEditError, match="必须是列表"):
             pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "x.png")
 
     def test_batch_update_scene_assets_fails_loud_on_corrupted_list_key(self, tmp_path: Path):
@@ -228,7 +228,7 @@ class TestAssetWritebackExemption:
         no-op 危害更大：worker 写完 N 个 clip 全被丢、SSE 仍然广播「all updated」、UI 永远 pending。"""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_segments(pm, tmp_path)
-        with pytest.raises(ScriptEditError, match="损坏"):
+        with pytest.raises(ScriptEditError, match="必须是列表"):
             pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
 
     def test_writeback_preserves_old_metadata_on_corrupted_list_key(self, tmp_path: Path):
@@ -289,6 +289,31 @@ class TestAssetWritebackExemption:
         result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
         assert len(result) == 1
         assert result[0]["segment_id"] == "E1S01"
+
+    def test_reference_video_read_helpers_return_units(self, tmp_path: Path):
+        """reference 模式下 get_pending_scenes / get_scenes_needing_storyboard 必须按 video_units
+        返回待办——旧 `_script_items_shape` 在 reference 下落到 drama 兜底取 "scenes" 键,reference
+        脚本无该键,静默返回 [],UI 显示"无待办"。改用 resolve_items 统一三模式判别后修复。"""
+        pm = _pm(tmp_path)
+        pm.save_script("demo", _reference_script(), "episode_1.json")
+
+        pending = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
+        assert [item["unit_id"] for item in pending] == ["E1U1", "E1U2"]
+
+        needing = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
+        assert [item["unit_id"] for item in needing] == ["E1U1", "E1U2"]
+
+    def test_reference_video_update_scene_asset_writes_unit(self, tmp_path: Path):
+        """reference 模式下 update_scene_asset 必须按 unit_id 索引 video_units 回写资产——
+        旧 helper 在 reference 下取 "scenes" 键找不到任何 unit_id,KeyError("场景不存在")
+        掩盖了根因（路径选错而非 id 不存在）。"""
+        pm = _pm(tmp_path)
+        pm.save_script("demo", _reference_script(), "episode_1.json")
+
+        pm.update_scene_asset("demo", "episode_1.json", "E1U1", "storyboard_image", "storyboards/E1U1.png")
+
+        saved = pm.load_script("demo", "episode_1.json")
+        assert saved["video_units"][0]["generated_assets"]["storyboard_image"] == "storyboards/E1U1.png"
 
     @pytest.mark.parametrize(
         "assets_json",
