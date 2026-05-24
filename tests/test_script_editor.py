@@ -192,11 +192,12 @@ class TestPatchField:
         script = patch_field(_reference(), "E1U2", "transition_to_next", "fade")
         assert script["video_units"][1]["transition_to_next"] == "fade"
 
-    def test_patch_unknown_leaf_field_raises(self):
-        # 叶子字段不存在 → fail-loud。否则 agent 的拼写错误（如 `image_prompt.scen`）
-        # 会被当成成功 patch 写成额外字段，违反模块 docstring「字段路径不存在抛错」契约。
-        with pytest.raises(ScriptEditError):
-            patch_field(_narration(), "E1S01", "image_prompt.scen", "x")
+    def test_patch_unknown_leaf_field_succeeds(self):
+        # 叶子(最后一段)不存在允许写入:LLM 漏写的 optional 字段(如 video_prompt.note、
+        # 默认空 list 的 dialogue)agent 应能补,而不是被迫走 remove+insert 重生整集。
+        # 父节点不存在仍 fail-loud(见 test_patch_missing_parent_path_raises)。
+        script = patch_field(_narration(), "E1S01", "video_prompt.note", "新增备注")
+        assert script["segments"][0]["video_prompt"]["note"] == "新增备注"
 
     def test_patch_unknown_id_raises(self):
         with pytest.raises(ScriptEditError):
@@ -277,9 +278,14 @@ class TestSplitSegment:
         ids = [s["segment_id"] for s in script["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S01_2", "E1S02"]
 
-    def test_split_clears_generated_assets_on_all_parts(self):
+    def test_split_keeps_anchor_assets_clears_new_parts(self):
+        # 锚点(parts[0],保留原 id)的 generated_assets 不动,与 insert_segment 的「锚点资产
+        # 不动」语义对齐;其余 parts(新派生 id)清空 generated_assets 退回 pending 待重生。
+        # 即便 agent 在 parts[0] 自带了 generated_assets 也以原分镜实际值为准,不让 agent
+        # 凭空写资产路径。
+        anchor_assets = _narration()["segments"][0]["generated_assets"]
         script = split_segment(_narration(), "E1S01", [_segment("a"), _segment("b")])
-        assert script["segments"][0]["generated_assets"] == {}
+        assert script["segments"][0]["generated_assets"] == anchor_assets
         assert script["segments"][1]["generated_assets"] == {}
 
     def test_split_requires_at_least_two_parts(self):
@@ -291,7 +297,10 @@ class TestSplitSegment:
             split_segment(_narration(), "E9S99", [_segment("a"), _segment("b")])
 
     def test_split_reference_units_act_on_video_units(self):
+        anchor_assets = _reference()["video_units"][0]["generated_assets"]
         script = split_segment(_reference(), "E1U1", [_unit("a"), _unit("b")])
         ids = [u["unit_id"] for u in script["video_units"]]
         assert ids == ["E1U1", "E1U1_1", "E1U2"]
-        assert script["video_units"][0]["generated_assets"] == {}
+        # 锚点 video_unit 保留原 generated_assets,新派生 unit 清空
+        assert script["video_units"][0]["generated_assets"] == anchor_assets
+        assert script["video_units"][1]["generated_assets"] == {}

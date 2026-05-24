@@ -132,8 +132,10 @@ def remove_segment_tool(ctx: ToolContext):
 def split_segment_tool(ctx: ToolContext):
     @tool(
         "split_segment",
-        "把一个分镜按你提供的各部分内容拆成多个（≥2 份）。首份保留原 id，其余分配稳定的派生 id；"
-        "因内容已变，所有拆出部分的已生成资产被清空、需重新生成。reference 模式下各 unit 的 "
+        "把一个分镜按你提供的各部分内容拆成多个（≥2 份）。**首份保留原 id 且 generated_assets 不动**"
+        "（锚点延续,与 insert_segment 资产保留语义对齐）;其余分配稳定的派生 id 且 generated_assets "
+        "清空,需重新生成。只想微调原分镜内容请用 patch_episode_script——split 适合"
+        "「这一镜信息量太大,拆成 N 镜分别表达」这类身份变化的场景。reference 模式下各 unit 的 "
         "duration_seconds 须等于其 shots 总时长。",
         {
             "type": "object",
@@ -143,7 +145,8 @@ def split_segment_tool(ctx: ToolContext):
                 "parts": {
                     "type": "array",
                     "items": {"type": "object"},
-                    "description": "拆分后各部分的完整内容对象（≥2 个；id 由系统分配，generated_assets 会被清空）",
+                    "description": "拆分后各部分的完整内容对象（≥2 个;id 由系统分配。首份保留原 id 的 "
+                    "generated_assets,其余清空）",
                 },
             },
             "required": ["script", "id", "parts"],

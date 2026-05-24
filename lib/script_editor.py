@@ -133,11 +133,11 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         cur = cur[p]
     if not isinstance(cur, dict):
         raise ScriptEditError(f"父节点非对象: {field_path!r}")
-    if parts[-1] not in cur:
-        # 叶子不存在也 fail-loud：模块 docstring 承诺「字段路径不存在抛错」，且
-        # 此处不该让 agent 的拼写错误（如 `image_prompt.scen`）被当成成功 patch
-        # 在 dict 上凭空新建字段。
-        raise ScriptEditError(f"字段路径不存在: {field_path!r}")
+    # 叶子(最后一段)允许不存在:LLM 漏写的 optional 字段(video_prompt.dialogue / note 等
+    # 在 Pydantic 模型里有 default 或 default_factory,JSON 序列化时可能被省略)agent 应能补,
+    # 而不是被迫走 remove+insert 重生整个分镜。父节点(中间路径段)不存在仍 fail-loud——那是
+    # 真的拼写错误(如 image_prompt.scen 应为 image_prompt.scene),不该在 dict 上凭空新建
+    # 中间节点。结构上的错误最终由写盘统一入口的「不更坏」结构校验兜住。
     cur[parts[-1]] = value
 
 
@@ -177,10 +177,14 @@ def remove_segment(script: dict[str, Any], item_id: str) -> dict[str, Any]:
 def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
     """把 ``item_id`` 分镜按 agent 提供的各部分内容拆成多个。
 
-    首个部分保留原 id，其余取 ``{item_id}_{k}`` 后缀；**所有部分的 generated_assets 清空**
-    （结构操作改变分镜身份，旧资产无合理归属，退回 pending 待重生）。reference 模式下各 unit
-    的 ``duration_seconds`` 须与其 ``shots`` 总时长一致——由写盘统一入口的 ReferenceVideoUnit
-    校验兜住，本函数不代算。
+    首个部分保留原 id 且**保留** ``generated_assets`` 不清空——视为"锚点延续",与
+    ``insert_segment`` 的锚点资产不动语义对齐(同族结构操作,资产作废粒度统一)。其余 parts
+    取 ``{item_id}_{k}`` 后缀的新 id 且清空 ``generated_assets``(身份变化,旧资产无归属,
+    退回 pending 待重生)。agent 想微调原分镜内容请用 ``patch_episode_script`` 改字段,
+    用 split 时锚点资产被保留是为了避免误用一次 split 把已生成的图/视频全部失效。
+
+    reference 模式下各 unit 的 ``duration_seconds`` 须与其 ``shots`` 总时长一致——由写盘
+    统一入口的 ReferenceVideoUnit 校验兜住,本函数不代算。
     """
     if not isinstance(parts, list) or len(parts) < 2:
         raise ScriptEditError("split 至少需要 2 个部分")
@@ -188,6 +192,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
         raise ScriptEditError("split 的每个部分必须是对象")
     items, id_field, _ = resolve_items(script)
     idx = _find_index(items, id_field, item_id)
+    anchor_assets = items[idx].get("generated_assets")
 
     taken = _existing_ids(items, id_field)
     new_parts: list[dict[str, Any]] = []
@@ -195,11 +200,17 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
         part = deepcopy(raw)
         if offset == 0:
             part[id_field] = str(item_id)
+            # 锚点延续:保留原分镜的 generated_assets(若 agent 在 parts[0] 自带了
+            # generated_assets,以原分镜实际值为准,不让 agent 凭空写资产路径)。
+            if isinstance(anchor_assets, dict):
+                part["generated_assets"] = deepcopy(anchor_assets)
+            else:
+                part["generated_assets"] = {}
         else:
             new_id = _next_suffixed_id(str(item_id), taken)
             taken.add(new_id)
             part[id_field] = new_id
-        part["generated_assets"] = {}
+            part["generated_assets"] = {}
         new_parts.append(part)
 
     items[idx : idx + 1] = new_parts
