@@ -2302,8 +2302,9 @@ class SessionManager:
         是 symlink 入口（macOS ``/var↔/private/var``、Linux symlinked 项目根）。仅用 raw base 拼
         protected 路径与 resolved target 字符串比对会失配 → bypass；同时枚举两种 base 保证同口径。
         """
-        # 同时枚举 raw 与 resolved 形式的 base，避免 symlinked project_cwd 下 is_relative_to /
-        # `_is_protected_project_json` 因 base↔target 形式不一致漏判。
+        # 一次性 resolve project_cwd 同时枚举 raw 与 resolved 形式的 base，避免 symlinked
+        # project_cwd 下 is_relative_to / 受保护谓词因 base↔target 形式不一致漏判。bases 复用
+        # 给下游 `_is_protected_project_json`,后者直接消费列表不再做第二次 resolve（消除冗余 lstat）。
         bases: list[Path] = [project_cwd]
         try:
             resolved_cwd = project_cwd.resolve(strict=False)
@@ -2315,7 +2316,7 @@ class SessionManager:
         if not any(resolved.is_relative_to(base) for base in bases):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
 
-        if any(self._is_protected_project_json(target, base) for target in (resolved, logical_norm) for base in bases):
+        if any(self._is_protected_project_json(target, bases) for target in (resolved, logical_norm)):
             return False, (
                 "访问被拒绝：scripts/*.json 与 project.json 不可用 Write/Edit 直改，"
                 "请改用 MCP 工具——剧本编辑走 mcp__arcreel__patch_episode_script / "
@@ -2334,7 +2335,7 @@ class SessionManager:
         return True, None
 
     @staticmethod
-    def _is_protected_project_json(target: Path, project_cwd: Path) -> bool:
+    def _is_protected_project_json(target: Path, bases: list[Path]) -> bool:
         """命中受保护的项目 JSON（``scripts/`` 下任意 .json，或根 ``project.json``）。
 
         caller 应分别对「逻辑目标」（normpath 收敛 `.`/`..` 但不展开 symlink）和「resolve
@@ -2342,10 +2343,9 @@ class SessionManager:
         指 protected 路径（resolved 跳到外）与终点指 protected 路径（逻辑在外、resolved 跳入）
         两类绕过。
 
-        **base 路径与 target 同口径**：``project_cwd`` 同时按 raw 与 resolve 两种形式拼接
-        protected 路径，与 caller 传入的 logical_norm（不展开 symlink）或 resolved 形式 target
-        分别匹配。否则 macOS ``/var↔/private/var``、Linux symlinked 项目根等场景下 caller 给
-        resolved 形式的 target 拼接 raw base 会字符串不等 → bypass。
+        ``bases`` 由 caller(`_check_write_access`)一次性传入 raw + resolved 两种形式的
+        project_cwd 列表（同口径 raw/resolved 与 target 比对，避免 macOS ``/var↔/private/var``、
+        Linux symlinked 项目根下漏判），本谓词消费现成 list 不再自行 resolve（消除冗余 lstat）。
 
         路径用 ``casefold`` 后比较：Windows NTFS / macOS APFS 默认卷是大小写不敏感文件系统，
         ``PROJECT.JSON`` 与 ``project.json`` 指向同一物理文件，但 ``Path`` 字符串比较 case-sensitive
@@ -2356,15 +2356,6 @@ class SessionManager:
         与 denyWrite（Bash 子进程，内核级）构成双层。
         """
         target_s = str(target).casefold()
-
-        # 同时枚举 raw base 与 resolved base：caller 可能传 logical_norm（不展开 symlink）或
-        # resolved 形式的 target，两种 base 形式各拼一次保证 target↔base 同口径不错配。
-        bases: set[Path] = {project_cwd}
-        try:
-            bases.add(project_cwd.resolve(strict=False))
-        except (OSError, RuntimeError):
-            # resolve 失败（symlink 环 / 权限不足）：仅用 raw base，fail-closed 不影响安全。
-            pass
 
         for base in bases:
             if target_s == str(base / "project.json").casefold():
