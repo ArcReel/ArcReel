@@ -41,8 +41,8 @@
 # PITFALLS
 #
 # 1. last_push_at uses head commit committedDate, NOT pushedDate.
-#    Empirically pushedDate is null on the PR's head commit — GitHub's PR API doesn't surface push event time here.
-#    committedDate is the most stable signal we can get.
+#    pushedDate is null on the PR's head commit — GitHub's PR API doesn't surface push event time here.
+#    committedDate is the most reliable timestamp available.
 #
 # 2. Determining "this round's new inline" must use `created_at > last_push_at`, NOT `commit_id == head`.
 #    CodeRabbit's old inline comments get their commit_id advanced when it re-reviews a new HEAD
@@ -56,15 +56,15 @@
 # 4. Codex acks PR in 3 modes — all must be checked (see references/reviewers.md for full table):
 #    (a) inline review with body "### 💡 Codex Review" + "Reviewed commit: <SHA>"
 #    (b) PR-level +1 reaction with NO comment (silent pass)
-#    (c) empty-body review (state=COMMENTED, body="") with no new inline (newer Codex behavior)
+#    (c) empty-body review (state=COMMENTED, body="") with no new inline
 #
 # 5. Trigger-command dedup MUST normalize whitespace + case.
 #    "@CodeRabbitAI Resume" / " @coderabbitai resume " / "@coderabbitai resume\n" all count as the same command.
-#    We use `test("...";"i")` with leading/trailing \s* — keep this regex consistent everywhere.
+#    Use `test("...";"i")` with leading/trailing \s* — keep this regex consistent everywhere.
 #
 # 6. Quota / rate-limit errors from Codex are PR-level ISSUE comments, NOT reviews/inline/reactions.
 #    Codex emits e.g. "You have reached your Codex usage limits..." as a plain PR comment — easy to miss.
-#    Added as quota_alerts here so the skill catches it on the first poll.
+#    Captured into quota_alerts so the skill catches it on the first poll.
 
 set -euo pipefail
 
