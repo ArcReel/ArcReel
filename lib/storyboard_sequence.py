@@ -8,6 +8,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from lib.script_editor import resolve_items
+
 
 @dataclass(frozen=True)
 class StoryboardTaskPlan:
@@ -25,25 +27,29 @@ PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
 
 
 def get_storyboard_items(script: dict) -> tuple[list[dict], str, str, str, str]:
-    # 参考视频集没有 segments / scenes，由 generation_mode 区分；这里返回空列表交给调用方处理。
-    content_mode = script.get("content_mode", "narration")
+    """返回 narration/drama 模式剧本的分镜列表 + 各引用字段名。
+
+    ``reference_video`` 模式没有 storyboard 一说（视频按 ``video_units`` 直出，
+    见 ``server/agent_runtime/sdk_tools/enqueue_videos.py`` 的 reference 分支），
+    这里硬返回空列表是「该模式下不存在 storyboard 任务」的明示，调用方据此跳过。
+
+    narration/drama 路径委托给 ``lib.script_editor.resolve_items``——与写盘咽喉
+    / 编辑核心 / 元数据重算共用同一判别（``narration→segments``、``drama→scenes``、
+    以及 narration 数据落 scenes 键的历史兼容）。``segments`` / ``scenes`` 键存在
+    但值非 list（如 ``null``）时 ``resolve_items`` 抛 ``ScriptEditError``——读取侧的
+    调用方（``cost_estimation`` / 路由 / enqueue 工具）应让异常上冒，避免脏数据
+    被静默吞成 ``TypeError: 'NoneType' is not iterable``。
+    """
     if script.get("generation_mode") == "reference_video":
         return ([], "unit_id", "characters_in_unit", "scenes", "props")
-    if content_mode == "narration" and "segments" in script:
-        return (
-            list(script.get("segments", [])),
-            "segment_id",
-            "characters_in_segment",
-            "scenes",
-            "props",
-        )
-    return (
-        list(script.get("scenes", [])),
-        "scene_id",
-        "characters_in_scene",
-        "scenes",
-        "props",
-    )
+
+    items, id_field, kind = resolve_items(script)
+    if kind == "segments":
+        char_field = "characters_in_segment"
+    else:
+        # kind == "scenes"（drama 或 narration 数据落 scenes 键的历史兼容路径）
+        char_field = "characters_in_scene"
+    return (items, id_field, char_field, "scenes", "props")
 
 
 def find_storyboard_item(

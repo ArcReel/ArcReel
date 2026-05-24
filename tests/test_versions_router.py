@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from lib.script_editor import ScriptEditError
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import versions
 
@@ -60,9 +61,11 @@ class _StoryboardSyncPM:
     def update_scene_asset(self, project_name, script_filename, scene_id, asset_type, asset_path):
         self.update_calls.append(script_filename)
         if script_filename == "a.json":
+            # KeyError = 该集脚本不引用此 scene_id,正常跳过(非脏数据)
             raise KeyError("missing scene")
         if script_filename == "b.json":
-            raise RuntimeError("bad script")
+            # ScriptEditError = 该集脚本脏(分镜数组键损坏),路由层精确捕获 + warning 后跳过
+            raise ScriptEditError("segments 必须是列表，当前为 NoneType")
 
 
 def _client(monkeypatch):
@@ -181,6 +184,34 @@ class TestVersionsRouter:
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
 
         assert sorted(fake_pm.update_calls) == ["a.json", "b.json", "c.json"]
+
+    def test_storyboard_restore_unexpected_error_surfaces_as_5xx(self, tmp_path, monkeypatch):
+        """跨集同步遇未预期异常时不再被 except Exception 吞掉，让 router 层 5xx 暴露问题。"""
+        project_path = tmp_path / "demo"
+        scripts_dir = project_path / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "x.json").write_text("{}", encoding="utf-8")
+
+        class _CrashingPM:
+            def __init__(self, path):
+                self.project_path = path
+
+            def get_project_path(self, project_name):
+                return self.project_path
+
+            def update_scene_asset(self, *args, **kwargs):
+                raise RuntimeError("unexpected crash")
+
+        fake_pm = _CrashingPM(project_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
+            assert resp.status_code == 500
 
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
         """版本还原应返回受影响文件的 fingerprint"""

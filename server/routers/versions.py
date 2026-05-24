@@ -18,6 +18,7 @@ from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.resource_paths import resource_relative_path
+from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 
@@ -80,9 +81,13 @@ def _sync_storyboard_metadata(
                     asset_path=file_path,
                 )
         except KeyError:
+            # 该集脚本里无此 scene_id（不引用该资产），跳过同步是正常情况而非脏数据。
             continue
-        except Exception as exc:
-            logger.warning("同步分镜元数据失败: %s", exc)
+        except ScriptEditError as exc:
+            # 脏脚本（分镜数组键损坏）：跨集同步降级跳过,但 warning 标出集名 + 原因,
+            # 避免 except Exception 把所有 ValueError 一并吞掉无可观测信号。
+            # 真正未预期的异常让它冒到 router 层（HTTP 500）暴露问题。
+            logger.warning("跨集同步元数据跳过脏脚本 %s: %s", script_file.name, exc)
             continue
 
 
