@@ -57,9 +57,9 @@ bash .agents/skills/pr-ai-review-loop/scripts/poll.sh <PR_NUMBER>
 脚本输出一个 JSON。字段 schema、设计意图、关键踩坑(比如为什么用 `created_at > last_push_at` 而不是 `commit_id == head`)都写在 `scripts/poll.sh` 头部注释里 —— 第一次进循环时 Read 一遍脚本注释,之后只看 JSON 输出。
 
 JSON 解析后**只放在对话上下文里**,不要落盘。同时更新:
-- `round_count`(+1)
-- `topic_history`(把本轮 reviewer 的意见提炼成一句话主题加进去)
-- `last_commit_shapes`(见下文「收敛兜底」)
+- `round_count` —— **只在本轮 `last_push_at` / HEAD SHA 与上一轮记录的不同时 +1**(初次进入算第 1 轮);HEAD 没变、仅仅是 wakeup 回来继续等 reviewer 出意见的 poll **不计**(一轮 = 一次"修复 → push → reviewer 回意见"周期,不是"poll 了多少次")
+- `topic_history`(把本轮 reviewer 的新意见提炼成一句话主题加进去;同 HEAD 重复 poll 拉到的同一条意见不重复加)
+- `last_commit_shapes`(同样 HEAD 切换时才追加,见下文「收敛兜底」)
 
 ### 2. 对每家启用的 reviewer 决定动作
 
