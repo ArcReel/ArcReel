@@ -103,6 +103,37 @@ class TestPatchEpisodeScript:
         )
         assert out.get("is_error") is True
 
+    async def test_patch_hallucinated_leaf_blocked_by_funnel(self, ctx: ToolContext) -> None:
+        """_set_nested 单元层面允许任意叶子写入(为了让 agent 补 LLM 漏写的 optional 字段),
+        但 lib/script_models.py 子模型(VideoPrompt / ImagePrompt / Composition 等)
+        都加了 model_config = ConfigDict(extra="forbid"),写盘统一入口的「不更坏」校验
+        会把 hallucinated 字段(如 video_prompt.hallucinated_key)列为 ValidationError 拒写。
+        防止 LLM typo / hallucination 字段静默落盘 JSON 文件。
+        """
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "id": "E1S01",
+                "field": "video_prompt.hallucinated_key",
+                "value": "stray",
+            },
+        )
+        assert out.get("is_error") is True
+        # 校验未落盘:重新 load script 应不含 hallucinated_key
+        assert "hallucinated_key" not in _load(ctx)["segments"][0]["video_prompt"]
+
+    async def test_patch_image_prompt_scene_typo_blocked_by_funnel(self, ctx: ToolContext) -> None:
+        """同款典型 typo 场景:agent 想写 image_prompt.scene 但拼成 .scen。
+        _set_nested 在 dict 上加 'scen' 成功,_guard_no_worse 经 ImagePrompt 的
+        extra="forbid" 拒写——agent 拿到结构错误明确知道是字段名错。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "id": "E1S01", "field": "image_prompt.scen", "value": "x"},
+        )
+        assert out.get("is_error") is True
+        assert "scen" not in _load(ctx)["segments"][0]["image_prompt"]
+
 
 class TestInsertRemoveSplit:
     async def test_insert_adds_at_position(self, ctx: ToolContext) -> None:
@@ -377,6 +408,31 @@ class TestPatchProject:
         assert "reference_image" in text
         assert "character_sheet" in text
         assert "agent 可编辑范围" in text or "已忽略" in text
+
+    async def test_existing_entry_with_only_dropped_fields_reports_noop(self, ctx: ToolContext) -> None:
+        """已存在的 entry,agent 提交的全部字段都被白名单/legacy strip 丢空时,
+        cleaned[name]={} → bucket.update({}) 是 no-op。工具应明确报『无可写字段已跳过』,
+        不应误报『合并改字段 1 个』让 agent 以为有变更。"""
+        # 先建一个干净 entry
+        await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
+        )
+        # 再提交一个只有被丢字段的 patch(reference_image 系统管理 / type 历史字段)
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {"李白": {"reference_image": "x.jpg", "type": "主角"}},
+            },
+        )
+        assert out.get("is_error") is not True
+        text = _text(out)
+        # 不报 merged,应报 noop / 无可写字段
+        assert "合并改字段" not in text
+        assert "无可写字段已跳过" in text or "无变更" in text
+        # 描述未被改写,仍为原值
+        assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "白衣剑客"
 
     async def test_response_lists_dropped_legacy_fields(self, ctx: ToolContext) -> None:
         """工具返回文本应显式列出被剔除的历史字段(type / importance),让 agent 不再发它们。"""

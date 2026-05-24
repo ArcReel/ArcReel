@@ -31,7 +31,6 @@ def _valid_narration_response() -> dict:
                 "segment_break": False,
                 "novel_text": "原文",
                 "characters_in_segment": ["姜月茴"],
-                "clues_in_segment": ["玉佩"],
                 "image_prompt": {
                     "scene": "场景",
                     "composition": {

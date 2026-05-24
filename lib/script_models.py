@@ -9,8 +9,18 @@ script_models.py - 剧本数据模型
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.json_schema import SkipJsonSchema
+
+# 所有剧本模型默认禁止额外字段:agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
+# dict 上凭空创建叶子(为了让 agent 补 LLM 漏写的 optional 字段);若 Pydantic 走默认
+# `extra="ignore"`,任何 typo / hallucinated 字段都会被静默丢,但 dict 已被 atomic_write_json
+# 持久化,JSON 文件里垃圾字段长存,「不更坏」error-set diff 永远抓不到(before/after Pydantic
+# 都 ignore → 两边 errors 集合相同 → new_errors=∅ → 放行)。`extra="forbid"` 让 Pydantic
+# 在 typo 写入后明确把它列为新 ValidationError,「不更坏」就能挡下。
+# ScriptGenerator 路径(LLM 输出走 model_validate + model_dump)也会被这层保护:LLM 在
+# Structured Outputs 下不太会产出额外字段,产出即 hallucination,拒比静默丢更安全。
+_STRICT_CONFIG = ConfigDict(extra="forbid")
 
 # ============ 枚举类型定义 ============
 
@@ -47,12 +57,16 @@ TransitionType = Literal[
 class Dialogue(BaseModel):
     """对话条目"""
 
+    model_config = _STRICT_CONFIG
+
     speaker: str = Field(description="说话人名称")
     line: str = Field(description="对话内容")
 
 
 class Composition(BaseModel):
     """构图信息"""
+
+    model_config = _STRICT_CONFIG
 
     shot_type: ShotType = Field(description="镜头类型")
     lighting: str = Field(description="光线描述：光源、方向、色温；避免抽象词")
@@ -62,12 +76,16 @@ class Composition(BaseModel):
 class ImagePrompt(BaseModel):
     """分镜图生成 Prompt"""
 
+    model_config = _STRICT_CONFIG
+
     scene: str = Field(description="画面静态描述：角色姿态、环境元素、光影氛围（动作请写到 video_prompt.action）")
     composition: Composition = Field(description="构图信息")
 
 
 class VideoPrompt(BaseModel):
     """视频生成 Prompt"""
+
+    model_config = _STRICT_CONFIG
 
     action: str = Field(description="动作描述：仅描述物理可观察动作，避免内心动词（如 陷入/回忆/意识到）")
     camera_motion: CameraMotion = Field(description="镜头运动")
@@ -77,6 +95,8 @@ class VideoPrompt(BaseModel):
 
 class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
+
+    model_config = _STRICT_CONFIG
 
     storyboard_image: str | None = Field(default=None, description="分镜图路径")
     storyboard_last_image: str | None = Field(default=None, description="分镜图最后一帧路径")
@@ -97,6 +117,8 @@ class NarrationSegment(BaseModel):
     与 `DramaScene.scene_id` / `ReferenceVideoUnit.unit_id` 保持一致。避免 AI 在每个
     segment 上重复生成集号造成幻觉污染（详见 `NarrationEpisodeScript` docstring）。
     """
+
+    model_config = _STRICT_CONFIG
 
     segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
@@ -119,6 +141,8 @@ class NarrationSegment(BaseModel):
 class NovelInfo(BaseModel):
     """小说来源信息"""
 
+    model_config = _STRICT_CONFIG
+
     title: str = Field(description="小说标题")
     chapter: str = Field(description="章节名称")
 
@@ -129,6 +153,11 @@ class NarrationEpisodeScript(BaseModel):
     注意：`episode` 字段不在 schema 中。CLI 参数 `--episode N` 是集号的唯一真相源，
     由 `ScriptGenerator._add_metadata` 写入。不让 AI 生成该字段，避免幻觉写错集号
     进而污染 project.json（曾导致 episode_10.json 内部 episode=1 覆盖第 1 集条目）。
+
+    顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` / ``generation_mode`` 等
+    字段由运行时注入(``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,
+    顶层 forbid 会让现有写盘流程崩。typo 防护靠子模型(VideoPrompt / ImagePrompt /
+    NarrationSegment 等)的 ``extra="forbid"`` 在嵌套字段路径上挡。
     """
 
     title: str = Field(description="剧集标题")
@@ -145,6 +174,8 @@ class NarrationEpisodeScript(BaseModel):
 
 class DramaScene(BaseModel):
     """剧集动画模式的场景"""
+
+    model_config = _STRICT_CONFIG
 
     scene_id: str = Field(description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
@@ -167,7 +198,7 @@ class DramaEpisodeScript(BaseModel):
     """剧集动画模式剧集脚本
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
-    详见 `NarrationEpisodeScript` docstring。
+    详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
     """
 
     title: str = Field(description="剧集标题")
@@ -185,6 +216,8 @@ class DramaEpisodeScript(BaseModel):
 class Shot(BaseModel):
     """参考视频单元内的一个镜头。"""
 
+    model_config = _STRICT_CONFIG
+
     duration: int = Field(ge=1, le=15, description="该镜头时长（秒）")
     text: str = Field(description="镜头描述，可包含 @角色/@场景/@道具 引用")
 
@@ -192,12 +225,16 @@ class Shot(BaseModel):
 class ReferenceResource(BaseModel):
     """参考图引用——只存名称 + 类型，具体路径从 project.json 对应 bucket 读时解析。"""
 
+    model_config = _STRICT_CONFIG
+
     type: Literal["character", "scene", "prop"] = Field(description="引用的资源类型")
     name: str = Field(description="角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
 
 
 class ReferenceVideoUnit(BaseModel):
     """参考视频单元——一个视频文件的最小生成粒度。"""
+
+    model_config = _STRICT_CONFIG
 
     unit_id: str = Field(description="格式 E{集}U{序号}")
     shots: list[Shot] = Field(min_length=1, max_length=4, description="1-4 个 shot")
@@ -230,7 +267,7 @@ class ReferenceVideoScript(BaseModel):
     """参考生视频模式剧集脚本。
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
-    详见 `NarrationEpisodeScript` docstring。
+    详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
 
     ``content_mode`` 仅承担"内容类型"维度（narration/drama），"视频来源"维度由
     ``generation_mode = "reference_video"`` 表达。两字段都对 LLM 隐藏，由

@@ -55,12 +55,14 @@ def patch_project_tool(ctx: ToolContext):
 def _format_upsert_result(table: str, result: dict[str, Any]) -> str:
     """把 upsert_assets 的诊断 dict 渲染为 agent 可读文本。
 
-    区分新增/合并让 subagent 能验证『严格 skip 已存在』策略是否实际执行,而非凭推测;
-    显式列出被忽略字段让 LLM 不再重复尝试同样会被丢的字段（reference_image 系统管理、
-    sheet_field 资产流水线回写、type/importance 已废弃）。
+    区分新增/合并/无变更让 subagent 能验证策略是否符合预期(分析提取场景应预期合并/无变更=0,
+    出现说明遗漏了已存在过滤);显式列出被忽略字段让 LLM 不再重复尝试同样会被丢的字段
+    (reference_image 系统管理、sheet_field 资产流水线回写、type/importance 已废弃)。
+    name 维度按字母序排序,渲染顺序稳定不依赖 agent 入参 dict 序。
     """
-    added: list[str] = result.get("added") or []
-    merged: list[str] = result.get("merged") or []
+    added: list[str] = sorted(result.get("added") or [])
+    merged: list[str] = sorted(result.get("merged") or [])
+    noop: list[str] = sorted(result.get("noop") or [])
     dropped_fields: dict[str, list[str]] = result.get("dropped_fields") or {}
     dropped_legacy: dict[str, list[str]] = result.get("dropped_legacy") or {}
 
@@ -69,16 +71,21 @@ def _format_upsert_result(table: str, result: dict[str, Any]) -> str:
         summary_parts.append(f"新增 {len(added)} 个: {', '.join(added)}")
     if merged:
         summary_parts.append(f"合并改字段 {len(merged)} 个: {', '.join(merged)}")
+    if noop:
+        # 全字段被白名单/legacy strip 丢空 → no-op:project.json 字节未变,工具不报『合并』
+        # 误导 agent。dropped_fields / dropped_legacy 段会详述被丢的字段,agent 据此修参。
+        summary_parts.append(f"无可写字段已跳过 {len(noop)} 个: {', '.join(noop)}")
     summary = "; ".join(summary_parts) if summary_parts else "无变更（所有条目均无可写字段）"
-    lines = [f"✅ {table}: {summary}"]
+    icon = "ℹ️" if (not added and not merged) else "✅"
+    lines = [f"{icon} {table}: {summary}"]
 
     if dropped_fields:
-        detail = "; ".join(f"{name}: {', '.join(fields)}" for name, fields in dropped_fields.items())
+        detail = "; ".join(f"{name}: {', '.join(fields)}" for name, fields in sorted(dropped_fields.items()))
         lines.append(f"⚠️  以下字段不在 agent 可编辑范围,已忽略 → {detail}")
         lines.append("   说明: reference_image 由用户上传/系统管理;")
         lines.append("   character_sheet / scene_sheet / prop_sheet 由资产生成流水线回写,不可手动设置。")
     if dropped_legacy:
-        detail = "; ".join(f"{name}: {', '.join(fields)}" for name, fields in dropped_legacy.items())
+        detail = "; ".join(f"{name}: {', '.join(fields)}" for name, fields in sorted(dropped_legacy.items()))
         lines.append(f"ℹ️  以下历史字段已废弃,本次未持久化 → {detail}")
     return "\n".join(lines)
 

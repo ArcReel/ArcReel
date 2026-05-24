@@ -1715,6 +1715,7 @@ class ProjectManager:
 
         added: list[str] = []
         merged: list[str] = []
+        noop: list[str] = []
 
         def _mutate(project: dict) -> None:
             validator = DataValidator(str(self.projects_root))
@@ -1726,7 +1727,15 @@ class ProjectManager:
                 # 给出意外类型与 offending key（mutation 物理上无法对非 dict 施加，与「不更坏」无关）。
                 raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，当前为 {type(bucket).__name__}")
             for name, attrs in cleaned.items():
-                if isinstance(bucket.get(name), dict):
+                existing = isinstance(bucket.get(name), dict)
+                # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
+                # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
+                # cleaned 空也仍走 _build_asset_entry,让 description 缺失的 validator 拒写
+                # fail-loud(不能让"无可写字段"变成绕过 entry 创建必填校验的旁路)。
+                if existing and not attrs:
+                    noop.append(name)
+                    continue
+                if existing:
                     bucket[name].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
                     merged.append(name)
                 else:
@@ -1747,6 +1756,7 @@ class ProjectManager:
         return {
             "added": added,
             "merged": merged,
+            "noop": noop,
             "dropped_fields": dropped_fields,
             "dropped_legacy": dropped_legacy,
         }

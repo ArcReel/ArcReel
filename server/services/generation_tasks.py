@@ -1183,7 +1183,19 @@ async def execute_grid_task(
         storyboards_dir.mkdir(parents=True, exist_ok=True)
 
         def _assign_cells():
+            from lib.script_editor import resolve_items
+
+            # batch_update_scene_assets 在任一 scene_id 未命中时整批 fail-loud 回滚——避免
+            # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
+            # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
+            # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
+            pm = get_project_manager()
+            script = pm.load_script(project_name, script_file)
+            items, id_field, _kind = resolve_items(script)
+            valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
+
             asset_updates: list[tuple[str, str, Any]] = []
+            missing_ids: list[str] = []
 
             # 宫格已统一走普通图生视频（不再使用 first_last 模式），cell 仅作为
             # next_scene_id 的起始分镜图，文件名与普通分镜对齐为 scene_{id}.png。
@@ -1195,6 +1207,10 @@ async def execute_grid_task(
                 if not frame.next_scene_id:
                     continue
 
+                if str(frame.next_scene_id) not in valid_ids:
+                    missing_ids.append(str(frame.next_scene_id))
+                    continue
+
                 cell_rel = f"storyboards/scene_{frame.next_scene_id}.png"
                 cell_path = storyboards_dir / f"scene_{frame.next_scene_id}.png"
                 cell.save(cell_path, format="PNG")
@@ -1203,9 +1219,17 @@ async def execute_grid_task(
                 asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
                 asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
 
+            if missing_ids:
+                logger.warning(
+                    "grid %s: frame_chain 中以下分镜在剧本 %s 已不存在,跳过 cell 保存: %s",
+                    resource_id,
+                    script_file,
+                    sorted(set(missing_ids)),
+                )
+
             # Batch-write all asset updates in one script read+write pass
             if asset_updates:
-                get_project_manager().batch_update_scene_assets(
+                pm.batch_update_scene_assets(
                     project_name=project_name,
                     script_filename=script_file,
                     updates=asset_updates,

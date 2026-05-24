@@ -208,6 +208,9 @@ class TestExecuteGridTask:
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
             mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text()
+            )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
             mock_get_gen.return_value = mock_generator
@@ -257,6 +260,9 @@ class TestExecuteGridTask:
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
             mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text()
+            )
             mock_pm_fn.return_value = mock_pm
             mock_get_gen.return_value = mock_generator
 
@@ -285,6 +291,70 @@ class TestExecuteGridTask:
             "E1S02": "storyboards/scene_E1S02.png",
             "E1S03": "storyboards/scene_E1S03.png",
         }
+
+    async def test_execute_grid_task_skips_missing_scene_ids(self, project_with_script, grid_json, caplog):
+        """grid_plan 生成后 agent 改动了剧本(删/拆分镜)→ frame_chain 中部分 next_scene_id
+        不再存在于当前剧本时:跳过该 cell 的 PNG 保存 + warning + 不让 batch_update 抛
+        KeyError 整批回滚(避免 cell PNG 已落盘但 script 无引用的 orphan PNG)。
+        """
+        import logging
+
+        from PIL import Image
+
+        from server.services.generation_tasks import execute_grid_task
+
+        grid = grid_json
+
+        fake_grid_image = Image.new("RGB", (400, 400), color=(50, 50, 50))
+        grid_image_path = project_with_script / "grids" / f"{grid.id}.png"
+        fake_grid_image.save(grid_image_path, format="PNG")
+
+        # 模拟"剧本被并发改动"——load_script 返回的剧本只含 E1S01,故 E1S02 / E1S03 应被 skip
+        script_data = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script_data["segments"] = [seg for seg in script_data["segments"] if seg["segment_id"] == "E1S01"]
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
+            patch(
+                "server.services.generation_tasks._resolve_effective_image_backend",
+                new=AsyncMock(return_value=ProviderModel("openai", "gpt-image-2")),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_script.return_value = script_data
+            mock_pm_fn.return_value = mock_pm
+            mock_get_gen.return_value = mock_generator
+
+            with caplog.at_level(logging.WARNING, logger="server.services.generation_tasks"):
+                await execute_grid_task(
+                    "test-project",
+                    grid.id,
+                    {"prompt": "p", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        storyboards_dir = project_with_script / "storyboards"
+        # E1S01 仍存在 → cell PNG 落盘
+        assert (storyboards_dir / "scene_E1S01.png").exists()
+        # E1S02 / E1S03 已不存在 → cell PNG 未落盘(避免 orphan)
+        assert not (storyboards_dir / "scene_E1S02.png").exists()
+        assert not (storyboards_dir / "scene_E1S03.png").exists()
+
+        # warning 显式列出跳过的分镜 id
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("E1S02" in m and "E1S03" in m for m in warnings)
+
+        # batch_update 只对 valid 分镜(E1S01)调用,不抛 KeyError
+        if mock_pm.batch_update_scene_assets.called:
+            updates = mock_pm.batch_update_scene_assets.call_args.kwargs["updates"]
+            scene_ids = {sid for sid, _, _ in updates}
+            assert scene_ids == {"E1S01"}
 
     async def test_execute_grid_task_not_found(self):
         from server.services.generation_tasks import execute_grid_task
@@ -356,6 +426,9 @@ class TestGridMetadataT2II2ISlotSelection:
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
             mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text()
+            )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
             mock_get_gen.return_value = mock_generator

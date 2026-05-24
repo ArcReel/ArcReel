@@ -192,12 +192,27 @@ class TestPatchField:
         script = patch_field(_reference(), "E1U2", "transition_to_next", "fade")
         assert script["video_units"][1]["transition_to_next"] == "fade"
 
-    def test_patch_unknown_leaf_field_succeeds(self):
-        # 叶子(最后一段)不存在允许写入:LLM 漏写的 optional 字段(如 video_prompt.note、
-        # 默认空 list 的 dialogue)agent 应能补,而不是被迫走 remove+insert 重生整集。
-        # 父节点不存在仍 fail-loud(见 test_patch_missing_parent_path_raises)。
+    def test_patch_unknown_leaf_field_succeeds_at_set_nested_layer(self):
+        # _set_nested 单元层面允许叶子写入——dict 操作不查 schema。
+        # 但这里写的是 video_prompt.note(VideoPrompt 实际无 note 字段),
+        # 是个 hallucinated 字段——在 _set_nested 这层确实写进 dict,但经
+        # _write_script_unlocked 的 _guard_no_worse 会被 Pydantic extra="forbid" 拒,
+        # 真实工具链不允许落盘(见 test_patch_unknown_leaf_blocked_at_write_throat)。
         script = patch_field(_narration(), "E1S01", "video_prompt.note", "新增备注")
         assert script["segments"][0]["video_prompt"]["note"] == "新增备注"
+
+    def test_patch_optional_leaf_present_in_schema_succeeds(self):
+        # 合法的「补 LLM 漏写的 optional 字段」:NarrationSegment.note 是 schema 内的
+        # SkipJsonSchema[str | None] 字段,允许通过 patch 补;此路径既在 _set_nested
+        # 写入成功,也能通过 _guard_no_worse 校验(字段是合法 schema 字段)。
+        # 但 _narration() fixture 默认带 note=None,需要先 strip 再测「补」语义——
+        # 退而求其次,改测「写入 schema 合法字段」本身。
+        script = _narration()
+        # 删 segment.note 模拟 LLM 漏写
+        for seg in script["segments"]:
+            seg.pop("note", None)
+        script = patch_field(script, "E1S01", "note", "补全的备注")
+        assert script["segments"][0]["note"] == "补全的备注"
 
     def test_patch_unknown_id_raises(self):
         with pytest.raises(ScriptEditError):
