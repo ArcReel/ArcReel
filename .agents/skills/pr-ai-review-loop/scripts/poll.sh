@@ -175,9 +175,19 @@ jq -n \
     | from_entries;
 
   def quota_alerts:
+    # Match ONLY explicit quota/rate-limit ERROR phrases, restricted to body head.
+    # Bare keywords like "quota" / "rate limit" alone produce false positives when a
+    # bot reply happens to discuss quota as a topic (e.g. a PR description that mentions quota).
+    # Real alerts always pair a keyword with a verb like "exceeded" / "reached" / "exhausted",
+    # or use a fixed phrase like the Codex error "You have reached your ... limit".
     [$sub_a[]
      | select(.user.login | test("(chatgpt-codex-connector|gemini-code-assist|coderabbitai)\\[bot\\]$"))
-     | select(.body | test("(usage limit|rate limit|quota|too many requests)"; "i"))
+     | select(
+         (.body[0:500] | test("you have reached your[^\\n]*?limit"; "i"))
+         or (.body[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
+         or (.body[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
+         or (.body[0:500] | test("(http\\s*)?429\\b|too many requests"; "i"))
+       )
      | {user: .user.login, created_at, body_head: (.body | .[0:300])}];
 
   # ---- main projection ----

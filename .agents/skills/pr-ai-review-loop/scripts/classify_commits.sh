@@ -74,10 +74,12 @@ echo "$FILTERED" | jq -c '.[]' | while IFS= read -r commit; do
   # git show --numstat: one line per file: <added>\t<deleted>\t<path>
   STATS=$(git show --numstat --format= "$SHA" 2>/dev/null || echo "")
 
-  FILES_JSON=$(echo "$STATS" | awk 'NF==3 {print $3}' | jq -R . | jq -s .)
+  # git show --numstat uses TAB as separator; default awk splits on any whitespace
+  # and breaks on filenames containing spaces. Pin -F'\t' explicitly.
+  FILES_JSON=$(echo "$STATS" | awk -F'\t' 'NF==3 {print $3}' | jq -R . | jq -s .)
   FILES_COUNT=$(echo "$FILES_JSON" | jq 'length')
-  LINES_ADDED=$(echo "$STATS" | awk 'NF==3 && $1 ~ /^[0-9]+$/ {s+=$1} END {print s+0}')
-  LINES_DELETED=$(echo "$STATS" | awk 'NF==3 && $2 ~ /^[0-9]+$/ {s+=$2} END {print s+0}')
+  LINES_ADDED=$(echo "$STATS" | awk -F'\t' 'NF==3 && $1 ~ /^[0-9]+$/ {s+=$1} END {print s+0}')
+  LINES_DELETED=$(echo "$STATS" | awk -F'\t' 'NF==3 && $2 ~ /^[0-9]+$/ {s+=$2} END {print s+0}')
 
   jq -n \
     --arg sha "$SHA" \
