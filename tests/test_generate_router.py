@@ -198,6 +198,46 @@ class TestGenerateRouter:
             assert video.status_code == 200, video.text
             assert video.json()["success"] is True
 
+    def test_video_dirty_script_fail_fast_400(self, tmp_path, monkeypatch):
+        """脏脚本(分镜数组键损坏)时,/generate/video 应在路由层 4xx 失败,
+        而不是 silently 走 default storyboard 路径继续 enqueue —— 后者会让用户
+        先收到「提交成功」,worker 解析脚本时再确定失败,撕裂提交-执行预期。
+
+        本测试保 default `storyboards/scene_E1S01.png` 存在(否则会被 line 192 的
+        「先生成分镜图」分支挡住,无法暴露 surprise 路径)。
+        """
+        from lib.script_editor import ScriptEditError
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+
+        def _raise_dirty(*args, **kwargs):
+            raise ScriptEditError("segments 必须是列表，当前为 NoneType")
+
+        fake_pm.load_script = _raise_dirty  # type: ignore[method-assign]
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "duration_seconds": 5,
+                    "prompt": "fail fast",
+                },
+            )
+            assert video.status_code == 400, video.text
+            # detail 走 i18n 不直接暴露内部 str(e)
+            assert (
+                "segments" not in video.json()["detail"]
+                or "script" in video.json()["detail"].lower()
+                or "kịch bản" in video.json()["detail"]
+                or "损坏" in video.json()["detail"]
+            )
+            # 任务未入队
+            assert fake_queue.calls == []
+
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

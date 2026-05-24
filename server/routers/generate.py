@@ -171,11 +171,15 @@ async def generate_video(
             except FileNotFoundError:
                 # 脚本不存在交由后续流程报错；此处只负责存在性检查
                 pass
-            except ScriptEditError:
-                # 脏脚本(分镜数组键损坏)时无法定位 storyboard_rel,降级走 default 路径
-                # (project_path / storyboards / scene_{id}.png),让后续 line 190 的
-                # storyboard_file.exists() 检查给用户「先生成分镜图」的明确指引。
-                pass
+            except ScriptEditError as exc:
+                # 脏脚本(分镜数组键损坏)→ fail-fast 4xx,与 storyboard endpoint 对齐。
+                # 不再 silently pass 降级走 default 路径:default 文件恰好存在时会让请求
+                # 「先返回提交成功、worker 解析脚本时再确定失败」,撕裂用户预期;脚本损坏是
+                # 路由层就能识别的客户端错误,提前 4xx 比让 worker 后置失败更准确。
+                raise HTTPException(
+                    status_code=400,
+                    detail=_t("script_data_corrupted", reason=str(exc)),
+                )
 
             storyboard_file = (
                 project_path / storyboard_rel
