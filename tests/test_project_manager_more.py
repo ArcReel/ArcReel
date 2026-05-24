@@ -206,7 +206,7 @@ class TestProjectManagerMore:
         assert loaded["scenes"][0]["generated_assets"]["storyboard_image"] == "sb/001.png"
 
     def test_batch_update_scene_assets_persists_all(self, tmp_path):
-        """batch_update_scene_assets 单次锁内写多个场景，缺失 scene_id 静默跳过。"""
+        """batch_update_scene_assets 单次锁内写多个场景，命中全部 id 时持久化所有更新。"""
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "drama")
@@ -234,7 +234,6 @@ class TestProjectManagerMore:
             [
                 ("001", "storyboard_image", "sb/001.png"),
                 ("002", "video_clip", "v/002.mp4"),
-                ("999", "video_clip", "ignored.mp4"),  # 不存在 → 静默跳过
             ],
         )
         loaded = pm.load_script("demo", "episode_1.json")
@@ -257,6 +256,43 @@ class TestProjectManagerMore:
         pm.batch_update_scene_assets("demo", "episode_2.json", [("E2S01", "storyboard_image", "sb/E2S01.png")])
         seg = pm.load_script("demo", "episode_2.json")["segments"][0]
         assert seg["generated_assets"]["storyboard_image"] == "sb/E2S01.png"
+
+    def test_batch_update_scene_assets_fails_loud_on_missing_ids(self, tmp_path):
+        """batch_update 遇到不存在的 scene_id 抛 KeyError 列出所有缺失 id,with 体整体回滚不写回。
+
+        与 update_scene_asset 单个版本对齐 fail-loud:静默 no-op 会让 worker 误以为 N 个
+        clip 全部更新成功、SSE 广播 all updated、UI 永远 pending,失败必须显式可见。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "drama",
+                "scenes": [
+                    {"scene_id": "001", "duration_seconds": 4, "generated_assets": {}},
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+
+        with pytest.raises(KeyError, match="999"):
+            pm.batch_update_scene_assets(
+                "demo",
+                "episode_1.json",
+                [
+                    ("001", "storyboard_image", "sb/001.png"),
+                    ("999", "video_clip", "ignored.mp4"),  # 不存在 → 抛错
+                ],
+            )
+
+        # 整体回滚:命中的 "001" 也未持久化(与 update_scene_asset 单个版本同款 with 体内抛错跳过写回)
+        loaded = pm.load_script("demo", "episode_1.json")
+        assert loaded["scenes"][0]["generated_assets"] == {}
 
     def test_update_character_sheet_success_and_missing(self, tmp_path):
         """update_character_sheet 写入 sheet 路径；角色缺失时锁内 raise 且跳过写回。"""

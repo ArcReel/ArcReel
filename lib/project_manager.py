@@ -565,10 +565,20 @@ class ProjectManager:
             )
         else:
             metadata["total_scenes"] = len(items)
-            # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判
+            # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判。
+            # ``.get(k, default)`` 仅在键缺失时返回 default，键存在但值为 None（脏数据）会
+            # 返回 None 让 sum() 抛 TypeError——显式判 None 视为缺失，与同函数前面对 metadata
+            # 缺字段时按 setdefault 兜底的语义一致：脏值不阻塞 metadata 重算，但若 default 也
+            # 失真（如 reference 模式未填 duration_seconds），下游 estimated 字段仍是近似值。
             default_duration = 4 if kind == "segments" else 8
-            total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
-            metadata["estimated_duration_seconds"] = total_duration
+
+            def _duration(item: dict) -> int:
+                value = item.get("duration_seconds")
+                if isinstance(value, (int, float)):
+                    return int(value)
+                return default_duration
+
+            metadata["estimated_duration_seconds"] = sum(_duration(item) for item in items)
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)
@@ -1151,20 +1161,23 @@ class ProjectManager:
             return {}
 
         # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
-        # 分镜数组键损坏时与 update_scene_asset 同款 fail-loud——批量场景下静默 no-op 危害
-        # 更大：worker 写完 N 个 clip 全被丢、SSE 仍然广播「all updated」，UI 永远 pending。
-        # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units（之前
-        # `_script_items_shape` 在 reference 下落到 drama 兜底，scene_id 永远找不到）。
+        # 分镜数组键损坏（resolve_items 抛 ScriptEditError）与 id 未命中两类错误都 fail-loud：
+        # 静默 no-op 等于把 worker 写完的 N 个 clip 路径丢弃但 SSE 仍广播「all updated」、UI
+        # 永远 pending。id 未命中收集一轮再统一抛，让 worker 看到完整失败集合而不是只看到首个；
+        # locked_script 在 with 体内抛异常时整体不写回（与 update_scene_asset 单个版本对齐）。
+        # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             content_mode = script.get("content_mode", "narration")
             items, id_field, _kind = resolve_items(script)
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找
             item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items}
+            missing: list[str] = []
 
             for scene_id, asset_type, asset_path in updates:
                 item = item_by_id.get(str(scene_id))
                 if item is None:
+                    missing.append(str(scene_id))
                     continue
 
                 assets = item.get("generated_assets")
@@ -1179,6 +1192,9 @@ class ProjectManager:
 
                 assets[asset_type] = asset_path
                 self.update_scene_status(item)
+
+            if missing:
+                raise KeyError(f"批量回写命中失败：以下分镜不存在 {sorted(set(missing))}")
         return script
 
     def get_pending_scenes(self, project_name: str, script_filename: str, asset_type: str) -> list[dict]:
