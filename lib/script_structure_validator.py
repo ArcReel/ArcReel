@@ -45,10 +45,10 @@ def _select_model(script: dict[str, Any]) -> type[BaseModel]:
     """按模式判别该用哪个剧本模型，判别逻辑收归 `script_editor.resolve_kind`（单一真相源，
     与编辑核心、写盘统一入口的 metadata 重算共用，不漂移）。
 
-    reference 分支仅在 generation_mode == "reference_video" 或 video_units 为唯一结构时命中——
-    storyboard 脚本被误塞的游离 video_units 不会抢走判别（详见 `resolve_kind`）。其余以
-    content_mode 为权威，缺省按顶层键存在性（而非列表真值）推断，故空场景 drama
-    （{"content_mode": "drama", "scenes": []}，结构合法）不会被误判到 Narration 拒写。
+    判别**数据形状优先**(详见 `resolve_kind` docstring):video_units 唯一存在时才路由
+    reference,否则按 content_mode → segments/scenes(空场景 drama 仍走 DramaEpisodeScript)。
+    ``generation_mode`` 不参与判别——caller 端的生成路径(enqueue_videos 等)自己按
+    generation_mode 分流;此函数只决定**结构校验**用哪个 Pydantic 模型。
     """
     return _KIND_MODEL[resolve_kind(script)]
 

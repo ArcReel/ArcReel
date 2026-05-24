@@ -319,3 +319,32 @@ class TestSplitSegment:
         # 锚点 video_unit 保留原 generated_assets,新派生 unit 清空
         assert script["video_units"][0]["generated_assets"] == anchor_assets
         assert script["video_units"][1]["generated_assets"] == {}
+
+    def test_split_warns_when_anchor_assets_dirty_non_dict(self, caplog):
+        """锚点 generated_assets 形态异常(非 dict 的脏数据)时退化为空 dict,
+        但必须 warning——符合 ADR-0003 增补「禁止零信号成功」原则。anchor_assets is None
+        视为合法初始态不 warn,只对 list / str / int 等真正脏数据 warn。"""
+        import logging
+
+        # 脏数据:generated_assets 是 list 而非 dict
+        script_dirty = _narration([_segment("E1S01"), _segment("E1S02")])
+        script_dirty["segments"][0]["generated_assets"] = ["unexpected_list_form"]
+
+        with caplog.at_level(logging.WARNING, logger="lib.script_editor"):
+            split_segment(script_dirty, "E1S01", [_segment("a"), _segment("b")])
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("E1S01" in m and "list" in m for m in warnings), warnings
+
+    def test_split_no_warn_when_anchor_assets_none(self, caplog):
+        """anchor generated_assets is None / 缺失是合法初始态(未生成),不应 warning。"""
+        import logging
+
+        script_clean = _narration([_segment("E1S01"), _segment("E1S02")])
+        script_clean["segments"][0].pop("generated_assets", None)  # 模拟初始态缺失
+
+        with caplog.at_level(logging.WARNING, logger="lib.script_editor"):
+            split_segment(script_clean, "E1S01", [_segment("a"), _segment("b")])
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert not warnings, f"unexpected warnings: {warnings}"

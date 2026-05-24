@@ -35,7 +35,10 @@ def patch_episode_script_tool(ctx: ToolContext):
         "patch_episode_script",
         "按分镜 id（segment_id/scene_id/unit_id）编辑剧本的一个字段，支持嵌套路径"
         "（如 image_prompt.scene、duration_seconds、video_prompt.action）。三种内容/生成模式通用。"
-        "纯字段 setter，不触碰已生成资产——改了 prompt 须另行重新生成对应分镜图/视频。",
+        "纯字段 setter，不触碰已生成资产——改了 prompt 须另行重新生成对应分镜图/视频。"
+        "叶子字段不存在会被创建（允许补 LLM 漏写的 optional 字段如 video_prompt.dialogue）;"
+        "拼写错误（如 image_prompt.scen 应为 image_prompt.scene）会经写盘统一入口的 Pydantic "
+        "extra='forbid' 结构校验拒,提交前请确认字段名拼写正确。",
         {
             "type": "object",
             "properties": {
@@ -43,7 +46,8 @@ def patch_episode_script_tool(ctx: ToolContext):
                 "id": {"type": "string", "description": "分镜 id（如 E1S03 / E1U02）"},
                 "field": {
                     "type": "string",
-                    "description": "字段名或点分嵌套路径（如 duration_seconds、image_prompt.scene）；不可改 generated_assets",
+                    "description": "字段名或点分嵌套路径（如 duration_seconds、image_prompt.scene）；"
+                    "不可改 generated_assets;叶子不存在会创建,但需是合法 schema 字段否则写盘被拒",
                 },
                 "value": {"description": "新值（类型随字段而定）"},
             },

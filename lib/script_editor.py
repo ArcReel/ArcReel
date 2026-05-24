@@ -13,8 +13,11 @@ id 分配与资产作废。MCP 工具与测试都复用它。
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class ScriptEditError(ValueError):
@@ -205,6 +208,16 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
             if isinstance(anchor_assets, dict):
                 part["generated_assets"] = deepcopy(anchor_assets)
             else:
+                # 锚点 generated_assets 形态异常(非 dict,如 list/str 等脏数据)→ 退化为空 dict。
+                # agent 在 parts[0] 自带的 generated_assets(deepcopy(raw) 已拷入 part)也会被这里
+                # 覆盖丢弃。warning 让运维知道,符合 ADR-0003 增补「禁止零信号成功」原则。
+                # anchor_assets is None 视为"原本就没有"正常态,不 warn。
+                if anchor_assets is not None:
+                    logger.warning(
+                        "split_segment: 锚点 %r generated_assets 形态异常(%s),退化为空 dict",
+                        item_id,
+                        type(anchor_assets).__name__,
+                    )
                 part["generated_assets"] = {}
         else:
             new_id = _next_suffixed_id(str(item_id), taken)

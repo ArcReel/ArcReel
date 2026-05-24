@@ -574,6 +574,9 @@ class ProjectManager:
 
             def _duration(item: dict) -> int:
                 value = item.get("duration_seconds")
+                # bool 是 int 子类,排除避免 duration_seconds=True 被算成 1 秒、=False 算成 0 秒
+                if isinstance(value, bool):
+                    return default_duration
                 if isinstance(value, (int, float)):
                     return int(value)
                 return default_duration
