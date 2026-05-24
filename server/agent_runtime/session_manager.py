@@ -2295,13 +2295,27 @@ class SessionManager:
 
     def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
         """Write/Edit 的写入约束：cwd 外一律拒，cwd 内代码扩展名拒（agent 不写代码），
-        且 ``scripts/*.json`` 与 ``project.json`` 一律拒——只能走收归后的 MCP 工具。"""
-        if not resolved.is_relative_to(project_cwd):
+        且 ``scripts/*.json`` 与 ``project.json`` 一律拒——只能走收归后的 MCP 工具。
+
+        所有 cwd-relative 判定（cwd 内外、protected 区命中）都按 **base 同时枚举 raw + resolved**
+        两种形式与 target 比对：caller 传入的 ``resolved`` 已展开 symlink，但 ``project_cwd`` 可能
+        是 symlink 入口（macOS ``/var↔/private/var``、Linux symlinked 项目根）。仅用 raw base 拼
+        protected 路径与 resolved target 字符串比对会失配 → bypass；同时枚举两种 base 保证同口径。
+        """
+        # 同时枚举 raw 与 resolved 形式的 base，避免 symlinked project_cwd 下 is_relative_to /
+        # `_is_protected_project_json` 因 base↔target 形式不一致漏判。
+        bases: list[Path] = [project_cwd]
+        try:
+            resolved_cwd = project_cwd.resolve(strict=False)
+            if resolved_cwd != project_cwd:
+                bases.append(resolved_cwd)
+        except (OSError, RuntimeError):
+            pass
+
+        if not any(resolved.is_relative_to(base) for base in bases):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
 
-        if self._is_protected_project_json(resolved, project_cwd) or self._is_protected_project_json(
-            logical_norm, project_cwd
-        ):
+        if any(self._is_protected_project_json(target, base) for target in (resolved, logical_norm) for base in bases):
             return False, (
                 "访问被拒绝：scripts/*.json 与 project.json 不可用 Write/Edit 直改，"
                 "请改用 MCP 工具——剧本编辑走 mcp__arcreel__patch_episode_script / "
@@ -2328,6 +2342,11 @@ class SessionManager:
         指 protected 路径（resolved 跳到外）与终点指 protected 路径（逻辑在外、resolved 跳入）
         两类绕过。
 
+        **base 路径与 target 同口径**：``project_cwd`` 同时按 raw 与 resolve 两种形式拼接
+        protected 路径，与 caller 传入的 logical_norm（不展开 symlink）或 resolved 形式 target
+        分别匹配。否则 macOS ``/var↔/private/var``、Linux symlinked 项目根等场景下 caller 给
+        resolved 形式的 target 拼接 raw base 会字符串不等 → bypass。
+
         路径用 ``casefold`` 后比较：Windows NTFS / macOS APFS 默认卷是大小写不敏感文件系统，
         ``PROJECT.JSON`` 与 ``project.json`` 指向同一物理文件，但 ``Path`` 字符串比较 case-sensitive
         会漏判这一类大小写变体绕过。Linux case-sensitive 卷上 agent 实际不会用大小写变体，
@@ -2337,15 +2356,28 @@ class SessionManager:
         与 denyWrite（Bash 子进程，内核级）构成双层。
         """
         target_s = str(target).casefold()
-        if target_s == str(project_cwd / "project.json").casefold():
-            return True
-        scripts_dir = str(project_cwd / "scripts").casefold()
-        # 拒绝 scripts/ 子树（含目录本身）：sandbox denyWrite 把整个 scripts/ 列入内核级 deny，
-        # hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp / .md 会污染剧本
-        # 目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
-        # 同时显式覆盖目录路径本身（target == scripts_dir）：agent 把目录名当文件路径 Write 时
-        # 文件系统会拒，但 hook 层 fail-fast 优先，不依赖 OS 兜底。
-        return target_s == scripts_dir or target_s.startswith(scripts_dir + os.sep)
+
+        # 同时枚举 raw base 与 resolved base：caller 可能传 logical_norm（不展开 symlink）或
+        # resolved 形式的 target，两种 base 形式各拼一次保证 target↔base 同口径不错配。
+        bases: set[Path] = {project_cwd}
+        try:
+            bases.add(project_cwd.resolve(strict=False))
+        except (OSError, RuntimeError):
+            # resolve 失败（symlink 环 / 权限不足）：仅用 raw base，fail-closed 不影响安全。
+            pass
+
+        for base in bases:
+            if target_s == str(base / "project.json").casefold():
+                return True
+            scripts_dir = str(base / "scripts").casefold()
+            # 拒绝 scripts/ 子树（含目录本身）：sandbox denyWrite 把整个 scripts/ 列入内核级 deny，
+            # hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp / .md 会污染剧本
+            # 目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
+            # 同时显式覆盖目录路径本身（target == scripts_dir）：agent 把目录名当文件路径 Write 时
+            # 文件系统会拒，但 hook 层 fail-fast 优先，不依赖 OS 兜底。
+            if target_s == scripts_dir or target_s.startswith(scripts_dir + os.sep):
+                return True
+        return False
 
     async def _handle_ask_user_question(
         self,

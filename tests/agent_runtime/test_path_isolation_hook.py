@@ -140,6 +140,29 @@ def test_write_protected_via_symlink_scripts_dir_denied(sm: SessionManager, tool
     assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
 
 
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+def test_write_protected_with_symlinked_project_cwd_denied(sm: SessionManager, tmp_path: Path, tool: str) -> None:
+    """project_cwd 本身是个 symlink 指向真实项目目录时(macOS /var↔/private/var、Linux
+    symlinked 项目根),`_is_protected_project_json` 要把 base 也按 resolve 一次再拼接 protected
+    路径,避免 resolved target 与 raw base 字符串不等 → bypass。"""
+    # 真实项目目录在 tmp 根的另一处,通过 symlink 暴露
+    real_root = tmp_path / "real_data"
+    (real_root / "projects" / "selfproj").mkdir(parents=True)
+    link_cwd = sm.project_root / "projects" / "selfproj_link"
+    link_cwd.symlink_to(real_root / "projects" / "selfproj")
+
+    # caller 把 symlinked cwd 传入,_is_path_allowed 内 logical.resolve() 会展开 symlink,
+    # 然后 _check_write_access 把 resolved target 与原始 link_cwd 比较——若不把 base 也
+    # resolve,就会因为字符串不等漏判。
+    allowed, reason = sm._is_path_allowed(str(link_cwd / "project.json"), tool, link_cwd)
+    assert not allowed, "symlinked project_cwd 下 project.json 写入应被拒"
+    assert reason and ("patch_project" in reason or "patch_episode_script" in reason)
+
+    allowed, reason = sm._is_path_allowed(str(link_cwd / "scripts" / "episode_1.json"), tool, link_cwd)
+    assert not allowed, "symlinked project_cwd 下 scripts/*.json 写入应被拒"
+    assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
+
+
 def test_write_drafts_and_source_still_allowed(sm: SessionManager) -> None:
     """合法的草稿/源文件写入不受影响（drafts/*.md、source/*.txt、scripts 外的 .json）。"""
     cwd = sm.project_root / "projects" / "selfproj"
