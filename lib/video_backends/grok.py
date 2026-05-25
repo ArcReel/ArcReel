@@ -58,6 +58,10 @@ class GrokVideoBackend:
     def video_capabilities(self) -> VideoCapabilities:
         return VideoCapabilities(reference_images=True, max_reference_images=7)
 
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # Grok 同步型 API，无 job_id 可接续；orphan handler 据 NotImplementedError 标 [resume_unsupported]
+        raise NotImplementedError("GrokVideoBackend 不支持 resume_video（同步型 API）")
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。生成与下载分离重试，避免下载失败导致重新生成浪费额度。"""
         response = await self._create_video(request)

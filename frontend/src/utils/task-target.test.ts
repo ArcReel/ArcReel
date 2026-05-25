@@ -16,6 +16,8 @@ function makeTask(overrides: Partial<TaskItem>): TaskItem {
     result: null,
     error_message: "boom",
     cancelled_by: null,
+    provider_id: null,
+    provider_job_id: null,
     source: "webui",
     queued_at: "",
     started_at: null,

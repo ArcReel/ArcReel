@@ -12,10 +12,13 @@ from lib.providers import PROVIDER_OPENAI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
+    ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    get_resume_job_id,
+    persist_job_id_if_in_task_context,
     poll_with_retry,
 )
 
@@ -80,6 +83,12 @@ class OpenAIVideoBackend:
         return VideoCapabilities(reference_images=True, max_reference_images=3)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
+        # 直接 resume_video，避免重复扣费（ADR 0007）。
+        resume_id = get_resume_job_id()
+        if resume_id is not None:
+            return await self.resume_video(resume_id, request)
+
         kwargs: dict = {
             "prompt": request.prompt,
             "model": self._model,
@@ -106,8 +115,25 @@ class OpenAIVideoBackend:
         logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
 
         video = await self._create_video(**kwargs)
+        # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed（ADR 0007）
+        await persist_job_id_if_in_task_context(video.id)
         final = await self._poll_until_complete(video.id, request.duration_seconds)
 
+        return await self._download_and_build_result(final, request, kwargs)
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """接续已 submit 的 OpenAI job：仅 poll + 下载，不调 videos.create。"""
+        try:
+            final = await self._poll_until_complete(job_id, request.duration_seconds)
+        except Exception as exc:
+            if _is_openai_not_found(exc):
+                raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_OPENAI) from exc
+            raise
+        return await self._download_and_build_result(final, request, {"seconds": str(request.duration_seconds)})
+
+    async def _download_and_build_result(
+        self, final, request: VideoGenerationRequest, kwargs: dict
+    ) -> VideoGenerationResult:
         content = await self._download_content_with_retry(final.id)
 
         def _write():
@@ -122,7 +148,9 @@ class OpenAIVideoBackend:
             video_path=request.output_path,
             provider=PROVIDER_OPENAI,
             model=self._model,
-            duration_seconds=int(final.seconds if final.seconds is not None else kwargs["seconds"]),
+            duration_seconds=int(
+                final.seconds if final.seconds is not None else kwargs.get("seconds") or request.duration_seconds
+            ),
             task_id=final.id,
         )
 
@@ -165,3 +193,19 @@ class OpenAIVideoBackend:
 def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:
     mime = IMAGE_MIME_TYPES.get(image_path.suffix.lower(), "image/png")
     return (image_path.name, image_path.read_bytes(), mime)
+
+
+def _is_openai_not_found(exc: BaseException) -> bool:
+    """识别 OpenAI/Sora 「job 不存在 / 已过期」响应（NotFoundError、HTTP 404、status=expired）。"""
+    try:
+        from openai import NotFoundError  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        NotFoundError = None  # noqa: N806
+
+    if NotFoundError is not None and isinstance(exc, NotFoundError):
+        return True
+    status_code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code == 404:
+        return True
+    msg = str(exc).lower()
+    return "not found" in msg or "expired" in msg

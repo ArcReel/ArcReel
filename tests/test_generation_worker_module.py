@@ -13,11 +13,15 @@ from lib.generation_worker import (
 
 
 class _FakeQueue:
-    def __init__(self):
+    def __init__(self, *, succeeded_rows: int = 1, failed_rows: int = 1):
         self.released = False
         self.succeeded = []
         self.failed = []
+        self.cancelled = []
         self._lease_calls = 0
+        self._succeeded_rows = succeeded_rows
+        self._failed_rows = failed_rows
+        self._orphans: list[dict] = []
 
     async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
         self._lease_calls += 1
@@ -29,14 +33,23 @@ class _FakeQueue:
     async def requeue_running_tasks(self):
         return 0
 
-    async def claim_next_task(self, media_type):
+    async def list_orphan_tasks_on_start(self):
+        return self._orphans
+
+    async def claim_next_task(self, media_type, **_kwargs):
         return None
 
     async def mark_task_succeeded(self, task_id, result):
         self.succeeded.append((task_id, result))
+        return self._succeeded_rows
 
     async def mark_task_failed(self, task_id, error):
         self.failed.append((task_id, error))
+        return self._failed_rows
+
+    async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):
+        self.cancelled.append((task_id, cancelled_by))
+        return 1
 
 
 class TestReadIntEnv:
@@ -239,6 +252,96 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0][0] == "t2"
 
     @pytest.mark.asyncio
+    async def test_process_task_cancelled_error_marks_cancelled(self, monkeypatch):
+        """ADR 0006: asyncio.CancelledError 走 finally → mark_cancelled。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _cancelled(_task):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _cancelled)
+        with pytest.raises(asyncio.CancelledError):
+            await worker._process_task({"task_id": "tc"})
+        assert queue.cancelled and queue.cancelled[0][0] == "tc"
+
+    @pytest.mark.asyncio
+    async def test_process_task_zero_rows_succeeded_falls_through_to_cancelled(self, monkeypatch):
+        """ADR 0006 0-rows-cancelled 协议：mark_succeeded 返回 0 时 finally 调 mark_cancelled。"""
+        queue = _FakeQueue(succeeded_rows=0)
+        worker = GenerationWorker(queue=queue)
+
+        async def _ok(_task):
+            return {"result": "ok"}
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _ok)
+        await worker._process_task({"task_id": "t0rows"})
+        # mark_succeeded 调过但返回 0 rows → mark_cancelled 兜底
+        assert queue.succeeded == [("t0rows", {"result": "ok"})]
+        assert queue.cancelled and queue.cancelled[0][0] == "t0rows"
+
+    @pytest.mark.asyncio
+    async def test_request_cancel_signals_inflight_task(self):
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+
+        async def _long():
+            await asyncio.sleep(10)
+
+        t = asyncio.create_task(_long())
+        pool.video_inflight["tid"] = t
+
+        assert worker.request_cancel("tid") is True
+        # asyncio 会在下次调度时 cancel
+        await asyncio.sleep(0)
+        assert t.cancelled() or t.done()
+
+        # 不在 inflight → False
+        assert worker.request_cancel("ghost") is False
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_cancelling_marks_cancelled(self, monkeypatch):
+        """ADR 0007：orphan cancelling 状态 → mark_cancelled。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "orphan-cancelling",
+                "status": "cancelling",
+                "provider_id": None,
+                "provider_job_id": None,
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        await worker._handle_orphan_tasks_on_start()
+        assert queue.cancelled and queue.cancelled[0][0] == "orphan-cancelling"
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_running_no_job_id_marks_restart_lost(self, monkeypatch):
+        """ADR 0007：running 但无 provider_job_id → [restart_lost]。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "orphan-lost",
+                "status": "running",
+                "provider_id": None,
+                "provider_job_id": None,
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        await worker._handle_orphan_tasks_on_start()
+        assert queue.failed and queue.failed[0][0] == "orphan-lost"
+        assert "[restart_lost]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
     async def test_start_stop_run_loop_releases_lease(self):
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
@@ -315,7 +418,7 @@ class TestGenerationWorker:
                     },
                 ]
 
-            async def claim_next_task(self, media_type):  # type: ignore[override]
+            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
                 for i, t in enumerate(self._tasks):
                     if t["media_type"] == media_type:
                         return self._tasks.pop(i)

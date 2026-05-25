@@ -28,6 +28,8 @@ class Task(UserOwnedMixin, Base):
     dependency_group: Mapped[str | None] = mapped_column(String)
     dependency_index: Mapped[int | None] = mapped_column(Integer)
     cancelled_by: Mapped[str | None] = mapped_column(String)
+    provider_id: Mapped[str | None] = mapped_column(String)
+    provider_job_id: Mapped[str | None] = mapped_column(String)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -37,6 +39,7 @@ class Task(UserOwnedMixin, Base):
         Index("idx_tasks_status_queued_at", "status", "queued_at"),
         Index("idx_tasks_project_updated_at", "project_name", "updated_at"),
         Index("idx_tasks_dependency_task_id", "dependency_task_id"),
+        Index("idx_tasks_status_provider_queued", "status", "provider_id", "queued_at"),
         Index(
             "idx_tasks_dedupe_active",
             "project_name",
@@ -44,8 +47,8 @@ class Task(UserOwnedMixin, Base):
             "resource_id",
             text("COALESCE(script_file, '')"),
             unique=True,
-            sqlite_where=text("status IN ('queued', 'running')"),
-            postgresql_where=text("status IN ('queued', 'running')"),
+            sqlite_where=text("status IN ('queued', 'running', 'cancelling')"),
+            postgresql_where=text("status IN ('queued', 'running', 'cancelling')"),
         ),
     )
 

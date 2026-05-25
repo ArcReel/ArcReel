@@ -21,6 +21,9 @@ class _FakeWorker:
     async def stop(self):
         pass
 
+    def request_cancel(self, _task_id: str) -> bool:
+        return False
+
 
 @pytest.mark.asyncio
 async def test_startup_invokes_project_migrations(monkeypatch):

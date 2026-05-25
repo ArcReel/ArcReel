@@ -39,6 +39,7 @@ async def test_lifespan_invokes_session_store_migration():
             {
                 "start": AsyncMock(),
                 "stop": AsyncMock(),
+                "request_cancel": lambda self, _tid: False,
             },
         )()
         # assistant_service.startup is awaited

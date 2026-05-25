@@ -190,6 +190,11 @@ class ViduVideoBackend:
             max_reference_images=_MAX_REFERENCE_IMAGES,
         )
 
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 本 PR 暂不实现 Vidu resume（poll 完全内联在 generate，需要先抽 _poll_until_done）；
+        # orphan handler 据 NotImplementedError 标 [resume_unsupported]
+        raise NotImplementedError("ViduVideoBackend 暂不支持 resume_video")
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         endpoint, body = self._build_request(request)
         # _build_request 已把 duration 归一化到 body["duration"]，统一使用以避免 None 崩溃及结果不一致。

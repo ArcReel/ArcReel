@@ -2,7 +2,16 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { activateOnEnterSpace } from "@/utils/a11y";
 import { voidPromise } from "@/utils/async";
 import { motion, AnimatePresence } from "framer-motion";
-import { Image, Video, Check, X, Loader2, ChevronDown, Activity } from "lucide-react";
+import {
+  Image,
+  Video,
+  Check,
+  X,
+  Loader2,
+  ChevronDown,
+  Activity,
+  AlertTriangle,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useAppStore } from "@/stores/app-store";
@@ -18,6 +27,7 @@ import { GlassPopover } from "@/components/ui/GlassPopover";
 const STATUS_COLORS: Record<TaskItem["status"], string> = {
   running: "var(--color-accent-2)",
   queued: "var(--color-text-4)",
+  cancelling: "var(--color-text-3)",
   succeeded: "var(--color-good)",
   failed: "oklch(0.72 0.18 25)",
   cancelled: "var(--color-text-3)",
@@ -45,6 +55,13 @@ function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
             background: STATUS_COLORS.queued,
             boxShadow: "0 0 4px oklch(1 0 0 / 0.1)",
           }}
+        />
+      );
+    case "cancelling":
+      return (
+        <Loader2
+          className="h-3.5 w-3.5 animate-spin"
+          style={{ color: STATUS_COLORS.cancelling }}
         />
       );
     case "succeeded":
@@ -105,6 +122,7 @@ function TaskRow({
   const statusLabel: Record<TaskItem["status"], string> = {
     running: t("generating_status"),
     queued: t("queued_status"),
+    cancelling: t("cancelling_status"),
     succeeded: t("completed_status"),
     failed: t("failed_status"),
     cancelled: t("cancelled_status"),
@@ -193,6 +211,43 @@ function TaskRow({
             {t("cancel_btn")}
           </button>
         )}
+        {task.status === "running" && onCancel && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel(task.task_id);
+            }}
+            className="focus-ring ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10.5px] transition-colors"
+            style={{ color: "var(--color-text-4)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "oklch(0.72 0.18 25)";
+              e.currentTarget.style.background = "oklch(0.30 0.10 25 / 0.18)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-4)";
+              e.currentTarget.style.background = "transparent";
+            }}
+            title={t("cancel_running_warning")}
+            aria-label={t("cancel_this_task")}
+          >
+            <AlertTriangle className="h-3 w-3" aria-hidden />
+            {t("cancel_btn")}
+          </button>
+        )}
+        {task.status === "cancelling" && (
+          <button
+            type="button"
+            disabled
+            className="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10.5px] opacity-60"
+            style={{ color: "var(--color-text-4)" }}
+            title={t("cancelling_status")}
+            aria-label={t("cancelling_status")}
+          >
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            {t("cancelling_status")}
+          </button>
+        )}
         {task.status === "cancelled" && task.cancelled_by === "cascade" && (
           <span
             className="ml-1 text-[10.5px]"
@@ -209,7 +264,7 @@ function TaskRow({
         )}
       </div>
 
-      {task.status === "running" && (
+      {(task.status === "running" || task.status === "cancelling") && (
         <div className="px-3 pb-1">
           <RunningProgressBar />
         </div>
@@ -307,7 +362,12 @@ function ChannelSection({
     };
   }, []);
 
-  const running = tasks.filter((task) => task.status === "running");
+  // cancelling 是 running 的延伸中间态：worker 在响应 CancelledError 期间任务仍占用
+  // provider 槽位。归入 running 桶展示，让用户看到带 spinner 的"Cancelling…"按钮
+  // 而不是直接消失。
+  const running = tasks.filter(
+    (task) => task.status === "running" || task.status === "cancelling",
+  );
   const queued = tasks.filter((task) => task.status === "queued");
   const recent = tasks
     .filter(

@@ -52,7 +52,9 @@ class TestGenerationQueue:
         assert running["task_id"] == first["task_id"]
         assert running["status"] == "running"
 
-        done = await queue.mark_task_succeeded(first["task_id"], {"file_path": "storyboards/scene_E1S01.png"})
+        rows = await queue.mark_task_succeeded(first["task_id"], {"file_path": "storyboards/scene_E1S01.png"})
+        assert rows == 1
+        done = await queue.get_task(first["task_id"])
         assert done is not None
         assert done["status"] == "succeeded"
         assert done["result"]["file_path"] == "storyboards/scene_E1S01.png"

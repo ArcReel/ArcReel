@@ -54,7 +54,9 @@ class TestTaskRepository:
         assert running is not None
         assert running["status"] == "running"
 
-        done = await repo.mark_succeeded(first["task_id"], {"file": "test.png"})
+        affected = await repo.mark_succeeded(first["task_id"], {"file": "test.png"})
+        assert affected == 1
+        done = await repo.get(first["task_id"])
         assert done["status"] == "succeeded"
 
     async def test_event_sequence(self, db_session):
@@ -221,7 +223,8 @@ class TestTaskRepository:
         assert len(result["cancelled"]) == 1
         assert result["cancelled"][0]["task_id"] == task["task_id"]
         assert result["cancelled"][0]["cancelled_by"] == "user"
-        assert result["skipped_running"] == []
+        assert result["cancelling"] == []
+        assert result["skipped_terminal"] == []
 
         cancelled = await repo.get(task["task_id"])
         assert cancelled["status"] == "cancelled"
@@ -274,7 +277,9 @@ class TestTaskRepository:
         assert dep_task["status"] == "cancelled"
         assert dep_task["cancelled_by"] == "cascade"
 
-    async def test_cancel_running_task_rejected(self, db_session):
+    async def test_cancel_running_task_marks_cancelling(self, db_session):
+        """ADR 0006: 取消 running task 转入 cancelling 中间态；
+        Repository 不再 raise，由上层 GenerationQueue 分发 worker 信号。"""
         repo = TaskRepository(db_session)
 
         task = await repo.enqueue(
@@ -287,8 +292,13 @@ class TestTaskRepository:
         )
         await repo.claim_next("image")
 
-        with pytest.raises(ValueError, match="只有排队中的任务可以取消"):
-            await repo.cancel_task(task["task_id"])
+        result = await repo.cancel_task(task["task_id"])
+        assert result["cancelled"] == []
+        assert result["cancelling"] == [task["task_id"]]
+        assert result["skipped_terminal"] == []
+
+        refreshed = await repo.get(task["task_id"])
+        assert refreshed["status"] == "cancelling"
 
     async def test_cancel_preview(self, db_session):
         repo = TaskRepository(db_session)
