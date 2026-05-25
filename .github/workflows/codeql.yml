@@ -9,8 +9,28 @@ on:
     - cron: "22 9 * * 3"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!LICENSE'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/pull_request_template.md'
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -42,3 +62,16 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
+
+  codeql-required:
+    if: always()
+    needs: [changes, analyze]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CodeQL jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "CodeQL job failed"
+            exit 1
+          fi
+          echo "CodeQL passed or skipped (docs-only / changes job ok)"
