@@ -407,8 +407,8 @@ class TestProjectManagerMore:
         pm.create_project_metadata("demo", "Demo", "Anime", "drama")
 
         scene = {"scene_id": "S1", "generated_assets": {}}
-        normalized = pm.normalize_scene(scene, episode=3)
-        assert normalized["episode"] == 3
+        normalized = pm.normalize_scene(scene)
+        assert normalized["scene_id"] == "S1"
         assert normalized["generated_assets"]["status"] == "pending"
 
         assert pm.update_scene_status({"generated_assets": {"video_clip": "v.mp4"}}) == "completed"

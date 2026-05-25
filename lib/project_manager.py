@@ -838,13 +838,12 @@ class ProjectManager:
         }
 
     @staticmethod
-    def create_scene_template(scene_id: str, episode: int = 1, duration_seconds: int = 8) -> dict:
+    def create_scene_template(scene_id: str, duration_seconds: int = 8) -> dict:
         """
         创建标准场景对象模板
 
         Args:
-            scene_id: 场景 ID（如 "E1S01"）
-            episode: 集数编号
+            scene_id: 场景 ID（如 "E1S01"），集号已编码在 ID 中
             duration_seconds: 场景时长（秒）
 
         Returns:
@@ -852,8 +851,6 @@ class ProjectManager:
         """
         return {
             "scene_id": scene_id,
-            "episode": episode,
-            "title": "",
             "duration_seconds": duration_seconds,
             "segment_break": False,
             "characters_in_scene": [],
@@ -872,20 +869,18 @@ class ProjectManager:
             "generated_assets": ProjectManager.create_generated_assets(),
         }
 
-    def normalize_scene(self, scene: dict, episode: int = 1) -> dict:
+    def normalize_scene(self, scene: dict) -> dict:
         """
         补全单个场景中缺失的字段
 
         Args:
             scene: 场景字典
-            episode: 集数编号（用于补全 episode 字段）
 
         Returns:
             补全后的场景字典
         """
         template = self.create_scene_template(
             scene_id=scene.get("scene_id", "000"),
-            episode=episode,
             duration_seconds=scene.get("duration_seconds", 8),
         )
 
@@ -916,8 +911,6 @@ class ProjectManager:
 
         # 补全其他顶层字段
         top_level_defaults = {
-            "episode": episode,
-            "title": "",
             "segment_break": False,
             "characters_in_scene": [],
             "scenes": [],
@@ -1030,7 +1023,7 @@ class ProjectManager:
 
         # 规范化每个场景
         for scene in script["scenes"]:
-            self.normalize_scene(scene, episode)
+            self.normalize_scene(scene)
 
         # 更新统计信息
         script["metadata"]["total_scenes"] = len(script["scenes"])
