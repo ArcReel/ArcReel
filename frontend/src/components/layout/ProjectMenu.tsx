@@ -28,7 +28,8 @@ export function ProjectMenu() {
   }, [open]);
 
   const projectTitle =
-    currentProjectData?.title?.trim() || currentProjectName || t("no_project_selected");
+    currentProjectData?.title?.trim() ||
+    (currentProjectName ? t("dashboard:untitled_project") : t("no_project_selected"));
   const initial = (projectTitle || "?").slice(0, 1).toUpperCase();
   const contentMode = currentProjectData?.content_mode;
   const aspectRatio =

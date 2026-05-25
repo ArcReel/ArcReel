@@ -51,7 +51,7 @@ export function WelcomeCanvas({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
-  const displayProjectTitle = projectTitle?.trim() || projectName;
+  const displayProjectTitle = projectTitle?.trim() || t("untitled_project");
 
   // 拉取已有源文件，决定初始 phase
   useEffect(() => {

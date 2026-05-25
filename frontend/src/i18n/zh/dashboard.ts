@@ -7,6 +7,7 @@ export default {
   'new_project': '新建项目',
   'project_name': '项目名称',
   'project_title': '项目标题',
+  'untitled_project': '未命名项目',
   'content_mode': '内容模式',
   'narration': '说书',
   'standard': '标准',

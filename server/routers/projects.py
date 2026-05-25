@@ -397,7 +397,9 @@ async def list_projects(_user: CurrentUser):
                     projects.append(
                         {
                             "name": name,
-                            "title": project.get("title", name),
+                            # title 缺失/空时返回空串,由前端 i18n 兜底显示「未命名项目」,
+                            # 避免把 slug 风格的 name 当成显示名暴露给用户。
+                            "title": project.get("title", ""),
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
                             "style_image": project.get("style_image"),
@@ -410,7 +412,7 @@ async def list_projects(_user: CurrentUser):
                     projects.append(
                         {
                             "name": name,
-                            "title": name,
+                            "title": "",
                             "style": "",
                             "thumbnail": None,
                             "status": {},
@@ -420,7 +422,7 @@ async def list_projects(_user: CurrentUser):
                 # 出错时返回基本信息
                 logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
                 projects.append(
-                    {"name": name, "title": name, "style": "", "thumbnail": None, "status": {}, "error": str(e)}
+                    {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "error": str(e)}
                 )
 
         return {"projects": projects}

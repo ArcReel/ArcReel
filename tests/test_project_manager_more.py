@@ -93,7 +93,7 @@ class TestProjectManagerMore:
         )
         assert project["image_provider_t2i"] == "openai/gpt-image-1"
 
-    def test_project_identifier_validation_and_title_fallback(self, tmp_path):
+    def test_project_identifier_validation_and_empty_title(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
         with pytest.raises(ValueError):
@@ -104,19 +104,31 @@ class TestProjectManagerMore:
         pm.create_project("demo")
         project = pm.create_project_metadata("demo", "")
 
-        assert project["title"] == "demo"
+        # 空 title 直接保留为空字符串,由前端 i18n 兜底,不再 fallback 为 project_name(slug)
+        assert project["title"] == ""
+
+    def test_create_project_metadata_preserves_cjk_title(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_name = pm.generate_project_name("第1集")
+        pm.create_project(project_name)
+        project = pm.create_project_metadata(project_name, "第1集")
+        assert project["title"] == "第1集"
 
     def test_generate_project_name_is_unique_and_safe(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
         first = pm.generate_project_name("My Demo Project")
         second = pm.generate_project_name("我的项目")
+        third = pm.generate_project_name("第1集")
 
         assert first.startswith("my-demo-project-")
-        assert second.startswith("project-")
-        assert first != second
+        # CJK 标题 / 只剩孤立数字的标题统一塌成中性前缀 proj-,避免误导性 slug
+        assert second.startswith("proj-")
+        assert third.startswith("proj-")
+        assert first != second != third
         assert pm.normalize_project_name(first) == first
         assert pm.normalize_project_name(second) == second
+        assert pm.normalize_project_name(third) == third
 
     def test_script_operations_and_scene_updates(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

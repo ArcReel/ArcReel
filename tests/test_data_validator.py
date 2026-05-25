@@ -42,10 +42,10 @@ class TestDataValidator:
 
     def test_validate_project_reports_missing_and_invalid_fields(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
+        # title 字段完全缺失才报错;空字符串在新策略下属于合法状态(前端 i18n 兜底)
         _write_json(
             project_dir / "project.json",
             {
-                "title": "",
                 "content_mode": "invalid",
                 "style": "",
                 "characters": {"A": []},
@@ -67,6 +67,19 @@ class TestDataValidator:
         # scenes/props 缺少 description 也应报错
         assert any("场景 'X'" in error for error in result.errors)
         assert any("道具 'Y'" in error for error in result.errors)
+
+    def test_validate_project_allows_empty_title(self, tmp_path):
+        # title 为空字符串属于合法状态:前端会以「未命名项目」i18n 兜底,
+        # lib 层不再要求 title 非空,避免 ProjectManager 写路径被迫存 slug 作 fallback。
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["title"] = ""
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert result.valid
+        assert not any("title" in error for error in result.errors)
 
     def test_validate_episode_narration_success_with_warnings(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"

@@ -163,7 +163,7 @@ class DataValidator:
         errors: list[str],
         warnings: list[str],
     ) -> None:
-        if not project.get("title"):
+        if "title" not in project or not isinstance(project["title"], str):
             errors.append("缺少必填字段: title")
 
         content_mode = project.get("content_mode")

@@ -447,11 +447,11 @@ export function ProjectSettingsPage() {
                 letterSpacing: "-0.012em",
                 color: "var(--color-text)",
               }}
-              title={projectTitle || projectName}
+              title={projectTitle?.trim() || t("untitled_project")}
             >
               {t("project_settings")}
               <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-text-3">
-                {projectTitle || projectName}
+                {projectTitle?.trim() || t("untitled_project")}
               </span>
             </h1>
           </div>

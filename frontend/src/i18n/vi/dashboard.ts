@@ -7,6 +7,7 @@ export default {
   'new_project': 'Dự án mới',
   'project_name': 'Tên dự án',
   'project_title': 'Tiêu đề dự án',
+  'untitled_project': 'Dự án chưa đặt tên',
   'content_mode': 'Chế độ nội dung',
   'narration': 'Thuyết minh',
   'standard': 'Tiêu chuẩn',

@@ -131,10 +131,17 @@ class ProjectManager:
 
     @staticmethod
     def _slugify_project_title(title: str) -> str:
-        """Build a filesystem-safe slug prefix from the project title."""
+        """Build a filesystem-safe slug prefix from the project title.
+
+        CJK 标题经 NFKD + ascii ignore 后会丢光汉字;若结果不包含任何字母
+        （纯空 / 仅夹在标题里的孤立数字,如「第1集」→ "1"),退化为中性
+        前缀 ``proj``,避免产生 ``1-<hex>`` 这种看似有意义实则误导的 slug。
+        """
         ascii_text = unicodedata.normalize("NFKD", str(title).strip()).encode("ascii", "ignore").decode("ascii")
         slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()
-        return slug[:24] or "project"
+        if not slug or not any(c.isalpha() for c in slug):
+            return "proj"
+        return slug[:24]
 
     def generate_project_name(self, title: str | None = None) -> str:
         """Generate a unique internal project identifier."""
@@ -1453,7 +1460,9 @@ class ProjectManager:
 
         project = {
             "schema_version": CURRENT_SCHEMA_VERSION,
-            "title": project_title or project_name,
+            # 允许空字符串:前端会以 i18n「未命名项目」兜底显示,避免把 slug
+            # 风格的 project_name 固化为用户可见的标题。
+            "title": project_title,
             "content_mode": content_mode or "narration",
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
