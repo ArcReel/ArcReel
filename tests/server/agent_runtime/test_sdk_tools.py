@@ -287,11 +287,6 @@ async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
 async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
-
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -322,11 +317,6 @@ async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
 async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
-
     async def fake_enqueue(**kwargs):
         return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
 
@@ -344,11 +334,6 @@ async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
 
 async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
@@ -380,11 +365,6 @@ async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
 async def test_generate_video_selected_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_caps(_project):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_video_caps", fake_caps)
-
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -410,6 +390,138 @@ async def test_generate_video_selected_no_match(fake_ctx: ToolContext) -> None:
     tool_obj = generate_video_selected_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["NO_SUCH"]})
     assert out.get("is_error") is True
+
+
+def test_build_asset_specs_skips_invalid_description(monkeypatch) -> None:
+    """空白 / 非字符串描述都被跳过并告警，不应抛错（.strip()）或漏到 from_request 而中断整批。"""
+    from lib.asset_types import ASSET_SPECS
+    from server.agent_runtime.sdk_tools.enqueue_assets import _build_specs
+
+    bucket = ASSET_SPECS["character"].bucket_key
+
+    class _PM:
+        def load_project(self, _name):
+            return {
+                bucket: {
+                    "Alice": {"description": "   "},  # 空白
+                    "Carol": {"description": {"x": 1}},  # 非字符串，.strip() 会抛 AttributeError
+                    "Bob": {"description": "勇士"},
+                }
+            }
+
+    warnings: list[str] = []
+    specs = _build_specs(_PM(), "demo", "character", ["Alice", "Carol", "Bob"], warnings)  # type: ignore[arg-type]
+    assert [s.resource_id for s in specs] == ["Bob"]
+    assert any("Alice" in w for w in warnings)
+    assert any("Carol" in w for w in warnings)
+
+
+def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
+    """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
+
+    (tmp_path / "storyboards").mkdir()
+    (tmp_path / "storyboards" / "scene_S01.png").write_bytes(b"png")
+    items = [
+        {
+            "segment_id": "S01",
+            "video_prompt": "一个奔跑的镜头",
+            "duration_seconds": 7,  # 不属于任何典型 supported_durations
+            "generated_assets": {"storyboard_image": "storyboards/scene_S01.png"},
+        }
+    ]
+    log: list[str] = []
+    specs, order_map = _build_video_specs(
+        items=items,
+        id_field="segment_id",
+        content_mode="narration",
+        script_filename="episode_1.json",
+        project_dir=tmp_path,
+        skip_ids=None,
+        log=log,
+    )
+    assert len(specs) == 1
+    assert specs[0].payload["duration_seconds"] == 7
+
+    # 未显式指定 duration 时不携带该键，留给执行层按 caps 收口默认。
+    items[0].pop("duration_seconds")
+    specs2, _ = _build_video_specs(
+        items=items,
+        id_field="segment_id",
+        content_mode="narration",
+        script_filename="episode_1.json",
+        project_dir=tmp_path,
+        skip_ids=None,
+        log=[],
+    )
+    assert "duration_seconds" not in specs2[0].payload
+
+
+def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
+    """参考生视频入队经统一守卫点：prompt 由 shots 拼接后随 payload 入队（见 ADR-0001）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    # production 的 shots[*].text 由 parse_prompt 产出、已剥离 "Shot N (Xs):" header，
+    # fixture 用同样的 header-stripped 形态以贴近真实数据。
+    units = [
+        {
+            "unit_id": "E1U1",
+            "shots": [{"duration": 3, "text": "@张三 推门"}],
+            "references": [{"type": "character", "name": "张三"}],
+        }
+    ]
+    log: list[str] = []
+    specs, order_map = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert len(specs) == 1
+    assert specs[0].task_type == "reference_video"
+    assert specs[0].resource_id == "E1U1"
+    # 拼接出的 prompt 经守卫点校验后落入 payload。
+    assert specs[0].payload["prompt"] == "@张三 推门"
+    assert specs[0].payload["script_file"] == "episode_1.json"
+
+
+def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
+    """shots 存在但文本全空白的 unit 被跳过并告警，不漏到执行层（结构校验上移到守卫点）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": "   "}, {"duration": 2, "text": ""}]},
+        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+    ]
+    log: list[str] = []
+    specs, order_map = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert [s.resource_id for s in specs] == ["E1U2"]
+    assert any("E1U1" in w for w in log)
+
+
+def test_build_reference_specs_skips_bad_unit_id_without_aborting_batch(tmp_path) -> None:
+    """unit_id 为空或键缺失（Agent 裸写 JSON 可致）都跳过该 unit 而非中断整批：
+    空串经 from_request 抛 ValueError 被捕获，缺键经 .get 归一化为空串后同样被拒。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        {"unit_id": "", "shots": [{"duration": 3, "text": "@张三 推门"}]},  # 空串
+        {"shots": [{"duration": 3, "text": "@王五 起身"}]},  # 缺 unit_id 键 → 不应抛 KeyError
+        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+    ]
+    log: list[str] = []
+    specs, _ = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert [s.resource_id for s in specs] == ["E1U2"]
+
+
+def test_build_reference_specs_handles_malformed_shots(tmp_path) -> None:
+    """畸形 shots（显式 null text / 非 dict 元素）不应崩溃整批，且不得把 'None' 注入 prompt。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        # text 显式 null + 一个非 dict 元素 → 拼接后为空 → 被守卫点判空跳过（不注入 'None'）。
+        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": None}, "garbage"]},
+        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+    ]
+    log: list[str] = []
+    specs, _ = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
+    assert [s.resource_id for s in specs] == ["E1U2"]
+    assert all("None" not in (s.payload.get("prompt") or "") for s in specs)
 
 
 # ---------------------------------------------------------------------------

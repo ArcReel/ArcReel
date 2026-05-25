@@ -20,7 +20,7 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_utils import compress_image_bytes
 from lib.prompt_builders import append_video_negative_tail
-from lib.reference_video import render_prompt_for_backend
+from lib.reference_video import assemble_shots_text, render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
@@ -100,14 +100,15 @@ def _compress_references_to_tempfiles(
 
 
 def _render_unit_prompt(unit: dict) -> str:
-    """拼接 unit.shots[*].text 为单一 prompt，再用 shot_parser 把 @X 替成 [图N]，
-    并在末尾追加统一文本化的反向提示词。
+    """从 unit.shots[*].text 拼接 prompt，用 shot_parser 把 @X 替成 [图N]，再追加反向尾词。
 
-    空 prompt 会被显式拒绝：否则尾词追加后会变成只含「画面避免：…」的非空文本，
-    绕过 backend 端的空 prompt 保护，浪费配额且产出与分镜无关的内容。
+    空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
+    （WebUI / SDK）在入队时即拒绝空提示词。此处保留一道防御性空检查，因为参考生视频的
+    提示词源是*可变*的 script 文件且执行期从新读取（队列 dedup 不看 payload，无法靠入队
+    快照兜底）：若提示词在入队后被改空、或在途遗留任务漏过守卫，这道检查避免空提示词被
+    尾词追加成非空文本绕过 backend 的空值保护、白白消耗付费配额。
     """
-    shots = unit.get("shots") or []
-    raw = "\n".join(str(s.get("text", "")) for s in shots)
+    raw = assemble_shots_text(unit.get("shots") or [])
     references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
     rendered = render_prompt_for_backend(raw, references)
     if not rendered.strip():
@@ -258,6 +259,9 @@ async def execute_reference_video_task(
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images
     #    长度严格对齐；否则裁剪后的 `@clipped_name` 会被替成 `[图N]` 指向不存在的图。
+    #    prompt 始终从执行期新读取的 unit.shots 重组（脚本可变 + 队列 dedup 不看 payload，
+    #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
+    #    校验记录，执行期不使用。
     unit_for_prompt = unit
     unit_refs = unit.get("references") or []
     if len(constrained_refs) < len(unit_refs):
@@ -321,7 +325,8 @@ async def execute_reference_video_task(
     #    避免与并发的 PATCH / 其他 unit 回写互相覆盖）
     def _update_unit_assets():
         pm = get_project_manager()
-        with pm.locked_script(project_name, script_file) as script:
+        # 资产回写热路径：只动 unit.generated_assets，结构不可能因此变坏，豁免结构校验。
+        with pm.locked_script(project_name, script_file, validate=False) as script:
             for u in script.get("video_units") or []:
                 if u.get("unit_id") == resource_id:
                     ga = u.setdefault("generated_assets", {})

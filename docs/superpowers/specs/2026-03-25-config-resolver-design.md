@@ -42,7 +42,7 @@ class ConfigResolver:
     """运行时配置解析器。每次调用从 DB 读取，不缓存。"""
 
     # 唯一的默认值定义点。后端默认值复用 ConfigService 常量。
-    _DEFAULT_VIDEO_GENERATE_AUDIO = False
+    _DEFAULT_VIDEO_GENERATE_AUDIO = True
 
     def __init__(self, session_factory: async_sessionmaker) -> None:
         self._session_factory = session_factory
@@ -50,7 +50,7 @@ class ConfigResolver:
     async def video_generate_audio(self, project_name: str | None = None) -> bool:
         """解析 video_generate_audio。
 
-        优先级：项目级覆盖 > 全局配置 > 默认值(False)。
+        优先级：项目级覆盖 > 全局配置 > 默认值(True)。
         项目级覆盖从 project.json 读取（通过 ProjectManager）。
         """
         # 1. 从 DB 读全局配置
@@ -134,8 +134,8 @@ await self.usage_tracker.finish_call(..., generate_audio=result.generate_audio)
 **`version_metadata` 调用级覆盖**：仅在 VideoBackend 路径中支持，通过 `version_metadata.get("generate_audio", configured)` 实现。GeminiClient 路径不支持此覆盖（重构前即如此）。完整优先级链：
 
 ```
-VideoBackend 路径: version_metadata > 项目级覆盖 > 全局配置 > 默认值(False)
-GeminiClient 路径:                   项目级覆盖 > 全局配置 > 默认值(False)
+VideoBackend 路径: version_metadata > 项目级覆盖 > 全局配置 > 默认值(True)
+GeminiClient 路径:                   项目级覆盖 > 全局配置 > 默认值(True)
                                       ↑ ConfigResolver 内部处理
 ```
 
@@ -219,7 +219,7 @@ else:
 | `server/routers/generate.py` | 移除 `_load_all_config()` 导入，使用 ConfigResolver |
 | `lib/video_backends/base.py` | `VideoGenerationResult` 新增 `generate_audio` 字段 |
 | `lib/video_backends/gemini.py` | `generate()` 回写实际 `generate_audio` 值 |
-| `lib/video_backends/seedance.py` | `generate()` 回写实际 `generate_audio` 值 |
+| `lib/video_backends/ark.py` | `generate()` 回写实际 `generate_audio` 值 |
 | `lib/video_backends/grok.py` | `generate()` 回写实际 `generate_audio` 值 |
 | `lib/usage_tracker.py` | `finish_call` 新增 `generate_audio` 可选参数 |
 | `lib/db/repositories/usage_repo.py` | `finish_call` 支持用后端实际值覆盖 `generate_audio` |
@@ -228,7 +228,7 @@ else:
 ## 测试策略
 
 1. **ConfigResolver 单元测试**
-   - 默认值：DB 无值时返回 `False`
+   - 默认值：DB 无值时返回 `True`
    - 全局配置读取：DB 有值时正确解析布尔字符串（`"true"`, `"false"`, `"TRUE"`, `"0"`, `"1"`, `"yes"`）
    - 项目级覆盖优先级：项目值非 None 时覆盖全局值
    - `project_name=None` 时跳过项目级覆盖

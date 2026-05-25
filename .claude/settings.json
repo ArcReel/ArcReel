@@ -2,8 +2,7 @@
   "enabledPlugins": {
     "agent-sdk-dev@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true
+    "claude-md-management@claude-plugins-official": true
   },
   "permissions": {
     "allow": [
@@ -48,17 +47,11 @@
       "Bash(gh repo clone:*)",
       "Bash(openspec:*)",
       "Bash(command -v openspec)",
-      "Bash(bash scripts/new-worktree.sh:*)",
       "Skill(commit-commands:commit)",
       "Skill(commit-commands:commit-push-pr)",
       "Skill(claude-api)",
-      "Skill(superpowers:brainstorming)",
-      "Skill(superpowers:writing-plans)",
-      "Skill(superpowers:executing-plans)",
-      "Skill(superpowers:systematic-debugging)",
-      "Skill(superpowers:test-driven-development)",
-      "Skill(superpowers:verification-before-completion)",
-      "Skill(superpowers:subagent-driven-development)",
+      "Skill(receiving-code-review)",
+      "Skill(verify)",
       "mcp__github__issue_read",
       "mcp__github__pull_request_read",
       "mcp__github__list_pull_requests",

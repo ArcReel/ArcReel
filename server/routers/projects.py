@@ -394,10 +394,13 @@ async def list_projects(_user: CurrentUser):
                     # 使用 StatusCalculator 计算进度（读时计算）
                     status = calculator.calculate_project_status(name, project, preloaded_scripts=preloaded_scripts)
 
+                    raw_title = project.get("title")
                     projects.append(
                         {
                             "name": name,
-                            "title": project.get("title", name),
+                            # title 缺失/为 None/类型异常时统一归一为空串,前端 i18n
+                            # 兜底显示「未命名项目」,确保接口契约始终返回 str。
+                            "title": raw_title if isinstance(raw_title, str) else "",
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
                             "style_image": project.get("style_image"),
@@ -410,7 +413,7 @@ async def list_projects(_user: CurrentUser):
                     projects.append(
                         {
                             "name": name,
-                            "title": name,
+                            "title": "",
                             "style": "",
                             "thumbnail": None,
                             "status": {},
@@ -420,7 +423,7 @@ async def list_projects(_user: CurrentUser):
                 # 出错时返回基本信息
                 logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
                 projects.append(
-                    {"name": name, "title": name, "style": "", "thumbnail": None, "status": {}, "error": str(e)}
+                    {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "error": str(e)}
                 )
 
         return {"projects": projects}
@@ -454,10 +457,14 @@ async def create_project(
                     )
                 style_prompt = resolve_template_prompt(req.style_template_id)
 
+            # legacy image_backend 已退役（拆为 image_provider_t2i/i2i）；写路径直接拒绝，
+            # 避免迁移后再写时被解析链忽略、静默落到全局默认的另一供应商。
+            if req.image_backend:
+                raise HTTPException(status_code=400, detail=_t("deprecated_image_backend"))
+
             # 与 update 路径对称：校验所有 backend 字段
             for field_name in (
                 "video_backend",
-                "image_backend",
                 "image_provider_t2i",
                 "image_provider_i2i",
                 "text_backend_script",
@@ -476,7 +483,6 @@ async def create_project(
                 field: value
                 for field in (
                     "video_backend",
-                    "image_backend",
                     "image_provider_t2i",
                     "image_provider_i2i",
                     "text_backend_script",
@@ -607,6 +613,11 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     detail=_t("project_id_not_editable"),
                 )
 
+            # legacy image_backend 已退役（拆为 image_provider_t2i/i2i）；写路径直接拒绝，
+            # 避免迁移后再写时被解析链忽略、静默落到全局默认的另一供应商。
+            if req.image_backend:
+                raise HTTPException(status_code=400, detail=_t("deprecated_image_backend"))
+
             def _mutate(project: dict) -> None:
                 # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
                 if req.title is not None:
@@ -615,7 +626,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     project["style"] = req.style
                 for field in (
                     "video_backend",
-                    "image_backend",
                     "image_provider_t2i",
                     "image_provider_i2i",
                     "text_backend_script",
@@ -630,15 +640,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                         else:
                             project.pop(field, None)
 
-                # 用户显式清空 t2i/i2i 任一时，同步清掉 legacy `image_backend`：否则 ProjectManager
-                # 的 lazy upgrade 会在下次 load_project 时用 legacy 值回填新字段，让"清空 → 跟随
-                # 全局默认"的语义失效。仅当客户端没在同一请求里写入 image_backend 才执行（避免
-                # 撤掉用户刚写入的值）。
-                if "image_backend" not in req.model_fields_set:
-                    cleared_t2i = "image_provider_t2i" in req.model_fields_set and not req.image_provider_t2i
-                    cleared_i2i = "image_provider_i2i" in req.model_fields_set and not req.image_provider_i2i
-                    if cleared_t2i or cleared_i2i:
-                        project.pop("image_backend", None)
                 if "video_generate_audio" in req.model_fields_set:
                     if req.video_generate_audio is None:
                         project.pop("video_generate_audio", None)
@@ -817,6 +818,13 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except ValueError as exc:
+        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
+        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
+        raise HTTPException(
+            status_code=422,
+            detail=_t("script_validation_failed", details=str(exc)),
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -888,6 +896,13 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except ValueError as exc:
+        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
+        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
+        raise HTTPException(
+            status_code=422,
+            detail=_t("script_validation_failed", details=str(exc)),
+        )
     except HTTPException:
         raise
     except Exception as e:

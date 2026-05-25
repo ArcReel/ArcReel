@@ -33,6 +33,9 @@ projects/*
 vertex_keys/*
 !vertex_keys/.gitkeep
 
+# Runtime log directory (PROJECT_ROOT/logs from lib/logging_config.py)
+logs/
+
 # Keep project structure but ignore generated content
 !projects/.gitkeep
 !projects/.agent_data/
@@ -70,6 +73,10 @@ frontend/.vite/
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
+
+# Claude Code 本地配置（.worktreeinclude 据此复制到新 worktree）
+.claude/settings.local.json
 
 # Superpowers (Claude Code plugin cache)
 .superpowers/

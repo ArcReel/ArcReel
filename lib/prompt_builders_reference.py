@@ -129,9 +129,8 @@ d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 
 # 顶层字段
 
-- `episode` / `title` / `summary` / `novel.title` / `novel.chapter` 必填。
-- `generation_mode` 固定 "reference_video"（由 caller 注入，不需 LLM 填）。
-- `duration_seconds` 可先写 0，由 caller 重算。
+- `title` 必填。
+- `episode` / `content_mode` / `generation_mode` / `novel` / `duration_seconds` 由 caller 注入或派生，不需 LLM 填。
 
 # 复核
 

@@ -75,7 +75,7 @@ LEGACY_STYLE_MAP = {
 }
 
 def resolve_template_prompt(template_id: str) -> str:
-    """查表取 prompt，未知 id 抛 ValueError。"""
+    """查表取 prompt，未知 id 抛 KeyError（交给调用方转成 HTTPException）。"""
 ```
 
 前端副本 `frontend/src/data/style-templates.ts` 仅保存 `{id, category, thumbnail}`（不存 prompt 文本，由后端在创建时查表展开）。
@@ -129,7 +129,7 @@ def resolve_template_prompt(template_id: str) -> str:
 
 - `frontend/src/data/style-templates.ts` — 36 条 `{id, category, thumbnail}` 清单
 - `frontend/src/i18n/{zh,en}/templates.ts` — name / tagline / 分类名翻译
-- `frontend/src/components/common/ModelConfigSection.tsx` — 抽出的共享模型配置块（video + image + 3 × text + duration）
+- `frontend/src/components/shared/ModelConfigSection.tsx` — 抽出的共享模型配置块（video + image + 3 × text + duration）
 - `frontend/public/style-thumbnails/*.png` — 36 张方形缩略图（~8.6 MB）
 
 ### 重构
@@ -163,7 +163,7 @@ interface State {
   title: string;
   contentMode: "narration" | "drama";
   aspectRatio: "9:16" | "16:9";
-  generationMode: "single" | "grid";
+  generationMode: "storyboard" | "grid";
 
   videoBackend: string;        // "" 表示用全局默认
   imageBackend: string;

@@ -1,30 +1,19 @@
-"""Registry consistency — 三张资源注册表的 keys 必须互相一致。
+"""Registry consistency — 资源注册表派生自单一真相源。
 
-断言 MediaGenerator.OUTPUT_PATTERNS / VersionManager.RESOURCE_TYPES /
-VersionManager.EXTENSIONS 三者的 keys 集合相等。
-
-不预置 canonical 白名单：任何未来新增的资源类型只要三处都登记，测试自动通过；
-只登记到 1~2 处（漏登记）会立刻红。这样新增资源类型不需要修改本测试。
+`lib.resource_paths` 是「资源类型 → 路径/扩展名」的唯一真相源；VersionManager 的
+`RESOURCE_TYPES` / `EXTENSIONS` 均从它派生。本测试断言派生未脱钩——若有人把
+VersionManager 改回手写副本、与真相源漂移，立刻红。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from lib.media_generator import MediaGenerator
+from lib.resource_paths import RESOURCE_TYPES, resource_extension
 from lib.version_manager import VersionManager
 
 
 @pytest.mark.unit
-def test_resource_registries_have_consistent_keys() -> None:
-    patterns_keys = set(MediaGenerator.OUTPUT_PATTERNS.keys())
-    types_keys = set(VersionManager.RESOURCE_TYPES)
-    ext_keys = set(VersionManager.EXTENSIONS.keys())
-
-    assert patterns_keys == types_keys == ext_keys, (
-        "资源注册表 keys 漂移：\n"
-        f"  MediaGenerator.OUTPUT_PATTERNS keys = {sorted(patterns_keys)}\n"
-        f"  VersionManager.RESOURCE_TYPES     = {sorted(types_keys)}\n"
-        f"  VersionManager.EXTENSIONS keys    = {sorted(ext_keys)}\n"
-        "新增资源类型时三处都要同步登记。"
-    )
+def test_version_manager_derives_from_resource_paths() -> None:
+    assert set(VersionManager.RESOURCE_TYPES) == set(RESOURCE_TYPES)
+    assert VersionManager.EXTENSIONS == {rt: resource_extension(rt) for rt in RESOURCE_TYPES}

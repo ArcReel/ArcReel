@@ -39,6 +39,10 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   const prevStatusRef = useRef<Map<string, TaskStatus>>(new Map());
   // 是否已用首个成功 poll 建立基线。基线内的 failed 一律视为历史失败、不推送。
   const seededRef = useRef(false);
+  // 上次 effect 跑时观察到的 projectName。projectName 切换的过渡 commit 里 tasks 仍是
+  // 旧项目数据，此 ref 仍是旧 projectName；只有等到 tasks/connected 因新一轮 poll
+  // 变化、effect 再次跑时，ref 才与 props 同步。用它检测"这一轮是否是过渡 commit"。
+  const lastSeenProjectNameRef = useRef<string | null | undefined>(projectName);
 
   // 项目切换时重置基线，避免把新项目的历史 failed 误判为新失败。
   useEffect(() => {
@@ -47,8 +51,15 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   }, [projectName]);
 
   useEffect(() => {
-    // 等首个成功 poll 再建立基线。项目切换时 useTasksSSE 的 cleanup 会先把 connected
-    // 置 false（同一 commit 内 destroy 先于 setup），故这里不会用旧项目的 tasks 误 seed。
+    // 过渡 commit：projectName 已变但 tasks/lastSeenProjectName 尚未跟上。此时
+    // tasks 仍是旧项目数据，不该用它建立新项目的基线，否则下一轮新 tasks 进来时
+    // prev 为空、seeded=true 会把历史 failed 全部当 fresh failure 重弹。
+    const isTransitionCommit = lastSeenProjectNameRef.current !== projectName;
+    // 在 connected 检查之前同步 lastSeenProjectName——否则 connected=false 期间
+    // 切换项目时 effect early return 会让 ref 卡在旧 projectName，下一次 connected
+    // 恢复时第一个成功 poll 又被误判为 transition、不 seed，进而漏报本应捕获的
+    // fast failure。
+    lastSeenProjectNameRef.current = projectName;
     if (!connected) return;
     const prev = prevStatusRef.current;
     const next = new Map<string, TaskStatus>();
@@ -70,6 +81,11 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       next.set(tk.task_id, tk.status);
     }
     prevStatusRef.current = next;
-    seededRef.current = true;
+    // 非过渡 commit 才建立基线——即使本轮 tasks 为空（项目就是没有任务），也代表
+    // 已经收到当前项目的真实响应；后续若有 task 在两 poll 间快速失败被首次观测即
+    // failed，仍能走 isFreshFailure 通道触发通知。
+    if (!isTransitionCommit) {
+      seededRef.current = true;
+    }
   }, [tasks, connected, projectName]);
 }

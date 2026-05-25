@@ -91,7 +91,7 @@ elif provider_name == PROVIDER_GROK:
 
 ### CostCalculator
 
-新增 Grok 计费字典和实例方法（与现有 `calculate_video_cost` / `calculate_seedance_video_cost` 模式一致）：
+新增 Grok 计费字典和实例方法（与现有 `calculate_video_cost` / `calculate_ark_video_cost` 模式一致）：
 
 ```python
 GROK_VIDEO_COST = {

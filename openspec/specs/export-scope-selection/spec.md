@@ -16,7 +16,7 @@
 
 #### Scenario: scope=current 跳过历史版本文件
 - **WHEN** 导出请求携带 `scope=current`
-- **THEN** ZIP 不包含 `versions/storyboards/`、`versions/videos/`、`versions/characters/`、`versions/clues/` 目录下的任何文件
+- **THEN** ZIP 不包含 `versions/storyboards/`、`versions/videos/`、`versions/characters/`、`versions/scenes/`、`versions/props/`、`versions/reference_videos/` 目录下的任何文件
 
 #### Scenario: scope 值无效
 - **WHEN** 导出请求携带 `scope=invalid`

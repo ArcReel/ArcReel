@@ -15,6 +15,7 @@ MESSAGES = {
     "scene_not_found": "场景 '{id}' 不存在",
     "segment_not_found": "片段 '{id}' 不存在",
     "script_missing": "剧本不存在",
+    "script_validation_failed": "剧本结构校验失败：{details}",
     "narration_mode_required": "该剧本不是说书模式，请使用场景更新接口",
     "content_or_file_required": "需要提供 content（文本内容）或 file（文件上传）其中之一",
     "one_of_content_or_file": "content 和 file 不能同时提供，请选择其一",
@@ -116,8 +117,10 @@ MESSAGES = {
     "cost_estimation_failed": "费用估算失败，请稍后重试",
     # Validators
     "invalid_backend_format": "{field_name} 格式应为 provider/model",
+    "deprecated_image_backend": "image_backend 字段已废弃，请改用 image_provider_t2i 与 image_provider_i2i",
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
+    "invalid_resource_id": "非法的资源 ID: {resource_id}",
     # Reference Video
     "ref_missing_asset": "参考图引用的{type}「{name}」不在项目资产库中，请先生成",
     "ref_duration_exceeded": "参考视频单元时长 {duration}s 超出 {model} 上限 {max_duration}s，已裁剪",
@@ -141,6 +144,9 @@ MESSAGES = {
     "image_endpoint_mismatch_no_t2i": "模型 {model} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型",
     "image_capability_missing_i2i": "{provider}/{model} 不支持图生图；请配置一个支持图生图的默认模型",
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
+    # Video Capability
+    "video_duration_invalid": "视频时长 {duration} 不是合法的整数秒数",
+    "video_duration_not_supported": "视频时长 {duration}s 不在该模型支持的时长（{supported}）内",
     # Agent credentials
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",

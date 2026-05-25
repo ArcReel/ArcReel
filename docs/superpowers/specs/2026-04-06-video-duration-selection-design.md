@@ -64,18 +64,16 @@ class ModelInfo:
 ```python
 supported_durations: Mapped[str | None] = mapped_column(Text, nullable=True)
 # JSON 序列化的 list[int]，如 "[4, 8, 12]"
-# null 表示使用按 api_format 的保守预设
+# null 表示使用保守预设（已在 2026-05-04 的 redesign 中改为按 model_id 启发式预填）
 ```
 
 需一个 Alembic 迁移。
 
 ### 1.3 保守预设
 
-仅在自定义供应商且模型未声明 `supported_durations` 时回退：
+仅在自定义供应商且模型未声明 `supported_durations` 时回退到 `[4, 8]`。
 
-```python
-DEFAULT_DURATIONS_FALLBACK = [4, 8]
-```
+> 2026-05-04 的 video-duration-redesign 已把此回退收敛进 `lib/custom_provider/duration_presets.py` 的 `DEFAULT_FALLBACK = [4, 8]`，并新增按 `model_id` 启发式预设的 `infer_supported_durations()`；resolver 读到空 supported_durations 不再 silent fallback，改为抛 ConfigError。
 
 ---
 
@@ -114,15 +112,18 @@ class CreateProjectRequest(BaseModel):
 
 ```python
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    if resource_type == "characters":
-        return "3:4"
-    if resource_type == "clues":
+    if resource_type == "characters":      # 角色四视图横版
+        return "16:9"
+    if resource_type in ("scenes", "props"):
         return "16:9"
     # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
-    if "aspect_ratio" in project:
-        return project["aspect_ratio"]
+    val = project.get("aspect_ratio")
+    if isinstance(val, str):
+        return val
     return "9:16" if project.get("content_mode", "narration") == "narration" else "16:9"
 ```
+
+> 注：此函数实际位于 `server/services/generation_tasks.py`，资产类型为 characters/scenes/props（线索 clue 已拆分为 scene/prop，无 `clues` 分支）。
 
 ### 2.4 已有项目兼容
 
@@ -236,7 +237,7 @@ def build_drama_prompt(
 `server/services/generation_tasks.py`：
 
 - `execute_video_task()` 中 `duration_seconds` 回退逻辑：`payload > project.default_duration > supported_durations[0]`
-- `get_aspect_ratio()` 简化为直接读 `project["aspect_ratio"]`
+- `get_aspect_ratio()` 优先读顶层 `aspect_ratio` 字段，缺失时按 `content_mode` 回退（详见 §2.3，资产类型 characters/scenes/props 仍走固定 16:9 分支）
 
 `server/routers/generate.py`：
 
@@ -277,7 +278,7 @@ def build_drama_prompt(
 | 已有项目无 `aspect_ratio` | 读取时按 `content_mode` 推导（narration→9:16, drama→16:9） |
 | 已有项目无 `default_duration` | 视为 `null`（自动模式） |
 | 已有剧本中 4/6/8 值 | 仍合法，无需迁移 |
-| CustomProviderModel 新列 | Alembic 迁移，nullable，null 回退到按 api_format 预设 |
+| CustomProviderModel 新列 | Alembic 迁移，nullable，null 回退到保守预设（已在 2026-05-04 的 redesign 中改为按 model_id 启发式预填） |
 | API 响应 | 只新增字段，不删/改已有字段 |
 
 ---

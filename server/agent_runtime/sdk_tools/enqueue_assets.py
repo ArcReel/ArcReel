@@ -8,7 +8,7 @@ from claude_agent_sdk import tool
 
 from lib.asset_types import ASSET_SPECS, AssetSpec
 from lib.generation_queue_client import (
-    BatchTaskSpec,
+    TaskSpec,
     batch_enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
@@ -38,7 +38,7 @@ def _build_specs(
     asset_type: str,
     names: list[str] | None,
     warnings: list[str],
-) -> list[BatchTaskSpec]:
+) -> list[TaskSpec]:
     spec: AssetSpec = ASSET_SPECS[asset_type]
     project = pm.load_project(project_name)
     assets_dict = project.get(spec.bucket_key, {})
@@ -49,7 +49,10 @@ def _build_specs(
             if name not in assets_dict:
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 不存在于 project.json 中，跳过")
                 continue
-            if not assets_dict[name].get("description"):
+            # 仅当 description 是非空字符串才入队；空白 / 非字符串（dict、数字等）
+            # 都告警跳过，避免漏到 from_request 抛错或 .strip() 抛 AttributeError 而中断整批。
+            desc = assets_dict[name].get("description")
+            if not (isinstance(desc, str) and desc.strip()):
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)
@@ -58,17 +61,18 @@ def _build_specs(
         resolved = []
         for item in pending:
             name = item["name"]
-            if not assets_dict.get(name, {}).get("description"):
+            desc = assets_dict.get(name, {}).get("description")
+            if not (isinstance(desc, str) and desc.strip()):
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
                 continue
             resolved.append(name)
 
     return [
-        BatchTaskSpec(
+        TaskSpec.from_request(
             task_type=spec.asset_type,
             media_type="image",
             resource_id=name,
-            payload={"prompt": assets_dict[name]["description"]},
+            prompt=assets_dict[name]["description"],
         )
         for name in resolved
     ]

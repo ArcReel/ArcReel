@@ -44,9 +44,12 @@ def _build_grid_task_payload(
     cols: int,
     grid_aspect_ratio: str,
     video_aspect_ratio: str,
-    backend_snapshot: dict,
 ) -> dict:
-    """Build a consistent payload dict for grid generation tasks."""
+    """Build a consistent payload dict for grid generation tasks.
+
+    入队不携带 provider 信息——provider 在执行时由 ConfigResolver 按当前项目配置解析
+    （见 docs/adr/0001）。
+    """
     return {
         "prompt": prompt,
         "script_file": script_file,
@@ -56,7 +59,6 @@ def _build_grid_task_payload(
         "cols": cols,
         "grid_aspect_ratio": grid_aspect_ratio,
         "video_aspect_ratio": video_aspect_ratio,
-        **backend_snapshot,
     }
 
 
@@ -91,8 +93,6 @@ async def generate_grid(
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
     try:
-        from server.routers.generate import _snapshot_image_backend
-
         project = get_project_manager().load_project(project_name)
         script = get_project_manager().load_script(project_name, req.script_file)
         project_path = get_project_manager().get_project_path(project_name)
@@ -145,8 +145,6 @@ async def generate_grid(
             else:
                 chunks.append(group)
 
-            backend_snapshot = _snapshot_image_backend(project_name)
-
             for chunk in chunks:
                 chunk_ids = [item[id_field] for item in chunk]
                 chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio)
@@ -193,7 +191,6 @@ async def generate_grid(
                         cols=chunk_layout.cols,
                         grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
                         video_aspect_ratio=aspect_ratio,
-                        backend_snapshot=backend_snapshot,
                     ),
                     script_file=req.script_file,
                     source="webui",
@@ -264,8 +261,6 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
 async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """重置宫格图状态并重新入队生成任务。"""
     try:
-        from server.routers.generate import _snapshot_image_backend
-
         project_path = get_project_manager().get_project_path(project_name)
         gm = GridManager(project_path)
         grid = gm.get(grid_id)
@@ -284,7 +279,6 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
         layout = calculate_grid_layout(len(grid.scene_ids), aspect_ratio)
         grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio
 
-        backend_snapshot = _snapshot_image_backend(project_name)
         queue = get_generation_queue()
         task = await queue.enqueue_task(
             project_name=project_name,
@@ -300,7 +294,6 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
                 cols=grid.cols,
                 grid_aspect_ratio=grid_aspect_ratio,
                 video_aspect_ratio=aspect_ratio,
-                backend_snapshot=backend_snapshot,
             ),
             script_file=grid.script_file,
             source="webui",

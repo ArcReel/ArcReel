@@ -41,7 +41,7 @@ def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -
             for i in range(1, n_units + 1)
         ],
     }
-    pm.save_script(name, script, "episode_1.json")
+    pm.save_script(name, script, "episode_1.json", validate=False)  # 测并发 RMW 用简化替身 unit
 
 
 class TestReferenceVideoConcurrentRMW:
@@ -59,7 +59,7 @@ class TestReferenceVideoConcurrentRMW:
         def _append(idx: int) -> None:
             """模拟 add_unit：locked_script 内 fresh-load → append → save。"""
             barrier.wait()
-            with pm.locked_script(name, "episode_1.json") as script:
+            with pm.locked_script(name, "episode_1.json", validate=False) as script:
                 # 直接按 schema 访问，缺字段即报错（fail-loud），不用 setdefault 掩盖损坏
                 script["video_units"].append(
                     {
@@ -74,7 +74,7 @@ class TestReferenceVideoConcurrentRMW:
         def _writeback(unit_id: str) -> None:
             """模拟 executor 的 _update_unit_assets：定位 unit 写 generated_assets。"""
             barrier.wait()
-            with pm.locked_script(name, "episode_1.json") as script:
+            with pm.locked_script(name, "episode_1.json", validate=False) as script:
                 for u in script["video_units"]:
                     if u.get("unit_id") == unit_id:
                         ga = u.setdefault("generated_assets", {})

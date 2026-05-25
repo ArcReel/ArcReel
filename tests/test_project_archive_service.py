@@ -287,6 +287,35 @@ class TestProjectArchiveService:
         assert result.project_name != "demo"
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
 
+    def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
+        """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口被迁移到 v2。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        # 改回 v1 形态 + legacy image_backend，模拟旧版本导出的归档
+        pj = project_dir / "project.json"
+        data = _json.loads(pj.read_text(encoding="utf-8"))
+        data["schema_version"] = 1
+        data["image_backend"] = "vertex/imagen-3"
+        data.pop("image_provider_t2i", None)
+        data.pop("image_provider_i2i", None)
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "legacy.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="legacy.zip")
+
+        installed = _json.loads((pm.get_project_path(result.project_name) / "project.json").read_text(encoding="utf-8"))
+        assert installed["schema_version"] == 2
+        assert installed["image_provider_t2i"] == "gemini-vertex/imagen-3"
+        assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
+        assert "image_backend" not in installed
+
     def test_import_rejects_missing_project_json(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         service = ProjectArchiveService(pm)

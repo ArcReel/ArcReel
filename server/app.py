@@ -35,7 +35,7 @@ from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
-from lib.logging_config import setup_logging
+from lib.logging_config import attach_file_handler, migrate_legacy_log_dir, setup_logging
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
@@ -236,8 +236,12 @@ def detect_docker_environment() -> bool:
     return "docker" in content or "podman" in content
 
 
-# 初始化日志
-setup_logging()
+# 初始化日志：模块导入期只挂 stream handler。
+# file handler 推迟到 lifespan，前面要先跑 migrate_legacy_log_dir()
+# 把旧 app_data_dir()/logs 平移到 PROJECT_ROOT/logs，否则新目录在 import
+# 期被创建会堵掉 rename；同时也避免 pytest 收集阶段 import server.app 时
+# 对真实文件系统产生副作用。
+setup_logging(file=False)
 logger = logging.getLogger(__name__)
 
 
@@ -316,6 +320,12 @@ async def lifespan(app: FastAPI):
 
     app.state.in_docker = is_docker
     app.state.sandbox_enabled = sandbox_enabled
+
+    # 日志文件持久化：先一次性平移旧 app_data_dir()/logs，再挂 file handler。
+    # 顺序很重要——file handler 会 mkdir 新目录，提前挂会让 migrate 的 rename
+    # 撞到 "新旧都存在" 分支放弃迁移。
+    await asyncio.to_thread(migrate_legacy_log_dir)
+    attach_file_handler()
 
     ensure_auth_password()
 

@@ -15,6 +15,7 @@ MESSAGES = {
     "scene_not_found": "Cảnh '{id}' không tồn tại",
     "segment_not_found": "Đoạn '{id}' không tồn tại",
     "script_missing": "Kịch bản không tồn tại",
+    "script_validation_failed": "Xác thực cấu trúc kịch bản thất bại: {details}",
     "narration_mode_required": "Kịch bản này không ở chế độ thuyết minh, vui lòng dùng API cập nhật cảnh",
     "content_or_file_required": "Vui lòng cung cấp nội dung hoặc tệp",
     "one_of_content_or_file": "Không thể đồng thời cung cấp nội dung và tệp, vui lòng chọn một",
@@ -116,8 +117,10 @@ MESSAGES = {
     "cost_estimation_failed": "Ước tính chi phí thất bại, vui lòng thử lại sau",
     # Validators
     "invalid_backend_format": "Định dạng {field_name} phải là provider/model",
+    "deprecated_image_backend": "Trường image_backend đã ngừng dùng; hãy dùng image_provider_t2i và image_provider_i2i",
     # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",
+    "invalid_resource_id": "ID tài nguyên không hợp lệ: {resource_id}",
     # Reference Video
     "ref_missing_asset": "Tham chiếu đến {type} '{name}' không có trong thư viện tài nguyên dự án, vui lòng tạo trước",
     "ref_duration_exceeded": "Thời lượng đơn vị video tham chiếu {duration}s vượt giới hạn {max_duration}s của {model}, đã cắt bớt",
@@ -141,6 +144,9 @@ MESSAGES = {
     "image_endpoint_mismatch_no_t2i": "Mô hình {model} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image",
     "image_capability_missing_i2i": "{provider}/{model} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh",
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
+    # Video Capability
+    "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
+    "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",

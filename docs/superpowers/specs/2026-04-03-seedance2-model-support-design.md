@@ -30,28 +30,25 @@ Seedance 2.0 已对企业公测开放。当前 Ark 视频后端仅注册了 Seed
 ```
 
 - `default=True` 保留在 1.5 Pro，不变更默认模型
-- 2.0 系列声明 `video_extend`，不声明 `flex_tier`
+- registry 的 `capabilities` 列表保留 `video_extend` 标注（元数据），但 ark backend 的运行时能力集（见下节）不声明 `VIDEO_EXTEND`/`flex_tier`
 
 ### 2. 能力映射 — `lib/video_backends/ark.py`
 
 添加模型→能力映射表，替代 `__init__` 中写死的 capabilities：
 
 ```python
+# Seedance 2.0 系列不接受 service_tier，FLEX_TIER 必须剔除（否则 _create_task 触发上游 400）。
+# backend 层不声明 VIDEO_EXTEND（视频延长能力本次未实现）。
+_SEEDANCE_2_BASE_CAPABILITIES = {
+    VideoCapability.TEXT_TO_VIDEO,
+    VideoCapability.IMAGE_TO_VIDEO,
+    VideoCapability.GENERATE_AUDIO,
+    VideoCapability.SEED_CONTROL,
+}
+
 _MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
-    "doubao-seedance-2-0-260128": {
-        VideoCapability.TEXT_TO_VIDEO,
-        VideoCapability.IMAGE_TO_VIDEO,
-        VideoCapability.GENERATE_AUDIO,
-        VideoCapability.SEED_CONTROL,
-        VideoCapability.VIDEO_EXTEND,
-    },
-    "doubao-seedance-2-0-fast-260128": {
-        VideoCapability.TEXT_TO_VIDEO,
-        VideoCapability.IMAGE_TO_VIDEO,
-        VideoCapability.GENERATE_AUDIO,
-        VideoCapability.SEED_CONTROL,
-        VideoCapability.VIDEO_EXTEND,
-    },
+    "doubao-seedance-2-0-260128": _SEEDANCE_2_BASE_CAPABILITIES,
+    "doubao-seedance-2-0-fast-260128": _SEEDANCE_2_BASE_CAPABILITIES,
 }
 
 _DEFAULT_CAPABILITIES = {
@@ -95,7 +92,7 @@ self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAP
 在现有测试文件中扩展，不新增文件：
 
 - **`test_config_registry.py`**: 更新 ark 视频模型数量预期（如有断言）
-- **`test_video_backend_ark.py`**: 参数化测试验证 2.0 模型获得正确 capabilities（有 `video_extend`，无 `flex_tier`）
+- **`test_video_backend_ark.py`**: 参数化测试验证 2.0 模型获得正确 capabilities（无 `video_extend`、无 `flex_tier`）
 - **`test_cost_calculator.py`**（如存在）: 添加 2.0 模型费用计算断言
 
 ## 不在本次范围

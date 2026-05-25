@@ -15,6 +15,7 @@ MESSAGES = {
     "scene_not_found": "Scene '{id}' does not exist",
     "segment_not_found": "Segment '{id}' does not exist",
     "script_missing": "Script does not exist",
+    "script_validation_failed": "Script structure validation failed: {details}",
     "narration_mode_required": "This script is not in narration mode, please use the scene update interface",
     "content_or_file_required": "Please provide either content or file",
     "one_of_content_or_file": "Cannot provide both content and file, please choose one",
@@ -116,8 +117,10 @@ MESSAGES = {
     "cost_estimation_failed": "Cost estimation failed, please try again later",
     # Validators
     "invalid_backend_format": "{field_name} format should be provider/model",
+    "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
+    "invalid_resource_id": "Invalid resource ID: {resource_id}",
     # Reference Video
     "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
     "ref_duration_exceeded": "Reference video unit duration {duration}s exceeds {model} limit of {max_duration}s, clamped",
@@ -141,6 +144,9 @@ MESSAGES = {
     "image_endpoint_mismatch_no_t2i": "Model {model} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image",
     "image_capability_missing_i2i": "{provider}/{model} does not support image-to-image; configure a default model that supports image edits",
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
+    # Video Capability
+    "video_duration_invalid": "Video duration {duration} is not a valid integer number of seconds",
+    "video_duration_not_supported": "Video duration {duration}s is not within the durations supported by this model ({supported})",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",

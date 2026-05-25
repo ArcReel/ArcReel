@@ -29,7 +29,7 @@ class TestProjectManagerCompatibility:
             ],
         }
 
-        pm.save_script(project_name, script, "episode_1.json")
+        pm.save_script(project_name, script, "episode_1.json", validate=False)  # 故意缺字段测元数据补全
         saved = pm.load_script(project_name, "episode_1.json")
 
         assert "metadata" in saved
@@ -46,7 +46,7 @@ class TestProjectManagerCompatibility:
             "segments": [{"segment_id": "E1S01"}],
         }
 
-        pm.save_script(project_name, script, "episode_1.json")
+        pm.save_script(project_name, script, "episode_1.json", validate=False)  # 故意缺字段测元数据补全
         saved = pm.load_script(project_name, "episode_1.json")
 
         assert saved["metadata"]["total_scenes"] == 1
@@ -59,7 +59,7 @@ class TestProjectManagerCompatibility:
             "scenes": [{"scene_id": "001"}],
         }
 
-        pm.save_script(project_name, script, "episode_1.json")
+        pm.save_script(project_name, script, "episode_1.json", validate=False)  # 故意缺字段测元数据补全
         saved = pm.load_script(project_name, "episode_1.json")
 
         assert saved["metadata"]["total_scenes"] == 1

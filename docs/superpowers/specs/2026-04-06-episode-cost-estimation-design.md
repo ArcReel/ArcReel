@@ -8,7 +8,7 @@
 
 - **预估**：剧本变化时实时计算，基于 segment 数量 × 当前 image/video 模型定价
 - **实际**：累计所有成功的 API 调用费用（含重新生成），按 segment 精确归属
-- **费用项**：预估仅含分镜图 + 视频；实际在项目级额外包含角色/线索生成费用
+- **费用项**：预估仅含分镜图 + 视频；实际在项目级额外包含角色/场景/道具三类资产图生成费用
 - **货币**：所有费用均为 `Record<currency, amount>` 结构，支持 USD/CNY 混合，原始货币显示
 
 ## 数据模型变更
@@ -21,7 +21,7 @@
 
 - 新增 Alembic migration
 - 入队时由 `generation_tasks.py` 传入 segment_id，贯穿 `UsageTracker.start_call()` → `UsageRepository`
-- 角色/线索生成的 ApiCall 不设 segment_id（`null`），通过 `call_type` 区分
+- 角色/场景/道具资产生成的 ApiCall 不设 segment_id（`null`），三类共用 `call_type=image`，靠 `segment_id IS NULL` + `output_path` 前缀分桶到具体资产类型
 - 不做历史数据回溯
 
 ## 后端 API 设计
@@ -79,7 +79,9 @@
     "actual": {
       "image": { "USD": 1.08, "CNY": 1.20 },
       "video": { "USD": 10.50 },
-      "character_and_clue": { "USD": 0.45 }
+      "characters": { "USD": 0.30 },
+      "scenes": { "USD": 0.10 },
+      "props": { "USD": 0.05 }
     }
   }
 }
@@ -106,7 +108,7 @@
 **实际**：
 1. 从 UsageRepository 按 `project_name` + `segment_id` 查询所有成功的 ApiCall 记录
 2. 按 segment_id + call_type + currency 分组累加费用（含重新生成的累计）
-3. 项目级：额外查询 `segment_id IS NULL` 的 image 记录（角色+线索图片共用 `call_type=image`，合并为 `character_and_clue`）
+3. 项目级：额外查询 `segment_id IS NULL` 的 image 记录（角色/场景/道具三类资产图共用 `call_type=image`），通过 `UsageTracker.get_project_image_costs_by_asset_type()` 按资产类型分桶，返回 `characters` / `scenes` / `props` 三个键
 
 ### 新增服务层
 
@@ -131,7 +133,7 @@
 在剧集列表区域上方新增项目总费用汇总栏：
 
 - **预估**（黄色总价）：分镜 + 视频，按类型拆分
-- **实际**（绿色总价）：分镜 + 视频 + 角色 + 线索，按类型拆分
+- **实际**（绿色总价）：分镜 + 视频 + 角色 + 场景 + 道具，按类型拆分
 - 混合货币同行显示：`分镜 $0.20 + ¥4.00`
 
 剧集列表每行增加预估/实际费用列：

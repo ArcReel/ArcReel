@@ -103,11 +103,13 @@ FrameCell:
 
 ```json
 {
-  "generation_mode": "single" | "grid"
+  "generation_mode": "storyboard" | "grid"
 }
 ```
 
-项目创建和设置页均可切换。
+- `storyboard`（逐张生成）为默认值（`ProjectManager._DEFAULT_GENERATION_MODE = "storyboard"`）
+- 项目创建和设置页均可切换
+- 注：本文档历史用 "single" 指代逐张模式，实际枚举值是 `"storyboard"`
 
 ---
 
@@ -191,8 +193,8 @@ GenerationWorker 接到 grid 任务
   │     计算宫格图精确像素尺寸
   │
   ├─ 2. 收集参考图（最多 6 张）
-  │     按场景出现的角色/线索优先级排序
-  │     角色 character_sheet > 线索 clue_sheet
+  │     按场景出现的角色/场景/道具优先级排序
+  │     character_sheet / scene_sheet / prop_sheet（线索 clue 已拆分为 scene/prop）
   │
   ├─ 3. 组装 prompt（模板拼接）
   │     布局指令 + 帧链节奏 + 每格内容 + 风格约束 + 负面约束
@@ -328,7 +330,7 @@ class VideoGenerationRequest:
 ### 9.1 项目设置
 
 在项目创建和设置页新增"分镜生成模式"选项：
-- **逐张生成**（single）：每个场景独立生成分镜图
+- **逐张生成**（storyboard）：每个场景独立生成分镜图
 - **宫格生成**（grid）：按段落分组一次生成，首尾帧链式衔接
 
 ### 9.2 Timeline 视图
@@ -372,7 +374,7 @@ Grid 模式下每个场景卡片的 STORYBOARD 列：
 ### 10.2 manga-workflow 编排器
 
 根据 `generation_mode` 分支：
-- `single` → 调用 `generate-storyboard`（现有）
+- `storyboard` → 调用 `generate-storyboard`（现有）
 - `grid` → 调用 `generate-grid`（新增）
 
 视频阶段无需改动，`generate-video` 检测到首尾帧自动走 first_last。
@@ -429,7 +431,7 @@ def split_grid(grid_image, rows, cols, video_aspect_ratio):
 |------|------|
 | segment 组 N < 4 | 退化为 single 模式 |
 | segment 组 N > 9 | grid_9 装前 9 个，剩余 single |
-| 项目 single ↔ grid 切换 | 已有数据保留，新生成按新模式 |
+| 项目 storyboard ↔ grid 切换 | 已有数据保留，新生成按新模式 |
 | 宫格模式下单场景重新生图 | 走 single，覆盖首帧，帧链共享关系断开 |
 | video backend 不支持 first_last | 三级回退 |
 | 空占位格 | prompt 标记 placeholder，切割跳过 |

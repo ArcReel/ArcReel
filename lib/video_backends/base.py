@@ -99,6 +99,19 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
             await asyncio.to_thread(_write_all)
 
 
+class VideoCapabilityError(RuntimeError):
+    """视频后端能力不匹配（如 duration ↔ supported_durations）。
+
+    与 ImageCapabilityError 对称：不携带本地化字符串，只带稳定 code + 上下文 params；
+    Worker 捕获后用 i18n_translate(code, **params) 渲染到 task.error_message。
+    """
+
+    def __init__(self, code: str, **params) -> None:
+        self.code = code
+        self.params = params
+        super().__init__(code)
+
+
 @dataclass
 class VideoCapabilities:
     """Declares what a video backend supports."""

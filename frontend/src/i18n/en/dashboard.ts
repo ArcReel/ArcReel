@@ -6,6 +6,7 @@ export default {
   'new_project': 'New Project',
   'project_name': 'Project Name',
   'project_title': 'Project Title',
+  'untitled_project': 'Untitled Project',
   'content_mode': 'Content Mode',
   'narration': 'Narration',
   'standard': 'Standard',

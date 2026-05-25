@@ -447,7 +447,11 @@ class ScriptGenerator:
             script_data.setdefault("content_mode", self.content_mode)
 
         # 添加小说信息
-        if "novel" not in script_data:
+        # 注意守卫语义：novel 字段已 SkipJsonSchema 隐藏，但 default_factory=NovelInfo
+        # 让 model_dump 输出必带 {"title":"","chapter":""} 占位。所以判 "key 是否存在"
+        # 无法捕获真实"未注入"状态，必须按内容判：title/chapter 任一为空就重注入。
+        novel = script_data.get("novel")
+        if not isinstance(novel, dict) or not novel.get("title") or not novel.get("chapter"):
             script_data["novel"] = {
                 "title": self.project_json.get("title", ""),
                 "chapter": f"第{episode}集",

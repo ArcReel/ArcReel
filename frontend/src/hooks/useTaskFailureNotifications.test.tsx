@@ -117,6 +117,111 @@ describe("useTaskFailureNotifications", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
   });
 
+  // 回归：切换项目（A→B→A）模拟用户离开再回到同一项目。useTasksSSE 的真实时序是
+  // cleanup setConnected(false) → 新 poll → setTasks(新项目) + setConnected(true)。
+  // 切回 A 后已通过 transition 通知过的历史 failed 不应被当作 fresh failure 再推一遍。
+  it("does not re-notify historical failed tasks when leaving and returning to the project", async () => {
+    useTasksStore.setState({ tasks: [task({ status: "running" })], connected: true });
+    const { rerender } = render(<Harness project="demo" />);
+    act(() => {
+      useTasksStore.setState({ tasks: [task({ status: "failed" })] });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+
+    // 切到另一个项目：projectName 先变，然后 useTasksSSE cleanup+setup 模拟
+    // setConnected(false) → setTasks(空) + setConnected(true)
+    act(() => {
+      rerender(<Harness project="other" />);
+    });
+    act(() => {
+      useTasksStore.setState({ connected: false });
+    });
+    act(() => {
+      useTasksStore.setState({ tasks: [], connected: true });
+    });
+
+    // 切回 demo：同样的 useTasksSSE 时序，tasks 重新回到 demo 的（仍含同一条 failed）
+    act(() => {
+      rerender(<Harness project="demo" />);
+    });
+    act(() => {
+      useTasksStore.setState({ connected: false });
+    });
+    act(() => {
+      useTasksStore.setState({ tasks: [task({ status: "failed" })], connected: true });
+    });
+
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
+  });
+
+  // 回归：切到一个新项目，新项目里已有的历史 failed 应被基线吸收、不推送。
+  it("does not notify when switching to a project whose tasks are already failed", async () => {
+    useTasksStore.setState({
+      tasks: [task({ task_id: "demo-old", status: "succeeded" })],
+      connected: true,
+    });
+    const { rerender } = render(<Harness project="demo" />);
+
+    act(() => {
+      rerender(<Harness project="other" />);
+    });
+    act(() => {
+      useTasksStore.setState({ connected: false });
+    });
+    act(() => {
+      useTasksStore.setState({
+        tasks: [task({ task_id: "other-old", project_name: "other", status: "failed" })],
+        connected: true,
+      });
+    });
+
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+  });
+
+  // 回归：项目首轮 poll 即使无任务也应建立基线，否则后续 task 在两 poll 间快速失败、
+  // 首次被观测即 failed 时，因 seeded=false 永远走不进 isFreshFailure 通道，永久漏报。
+  it("notifies for fast failures in a project whose first poll had no tasks", async () => {
+    useTasksStore.setState({ tasks: [], connected: true });
+    render(<Harness project="demo" />);
+    // 此前没有任何 task，但首轮 poll 已建立基线。后续 poll 一个新 task 直接以 failed 出现。
+    act(() => {
+      useTasksStore.setState({
+        tasks: [task({ task_id: "fast", status: "failed", resource_id: "E1S03" })],
+      });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(useAppStore.getState().workspaceNotifications[0].target).toMatchObject({ id: "E1S03" });
+  });
+
+  // 回归：connected=false 期间切换项目（如网络抖动 + 用户切到别的项目），随后网络
+  // 恢复时第一个成功 poll 不能被误判为过渡 commit，否则永远不 seed，下一轮快速失败
+  // 任务将被永久漏报。
+  it("notifies for fast failures after switching project while disconnected", async () => {
+    useTasksStore.setState({ tasks: [], connected: true });
+    const { rerender } = render(<Harness project="demo" />);
+
+    // 网络断
+    act(() => {
+      useTasksStore.setState({ connected: false });
+    });
+    // 断网期间切换项目（projectName 变了，但 effect 因 connected=false early return）
+    act(() => {
+      rerender(<Harness project="other" />);
+    });
+    // 网络恢复，首个成功 poll 返回空 tasks（other 项目当前没任务）
+    act(() => {
+      useTasksStore.setState({ tasks: [], connected: true });
+    });
+    // 下一轮 poll：一个新任务在两 poll 间快速失败，首次被观测即 failed
+    act(() => {
+      useTasksStore.setState({
+        tasks: [task({ task_id: "fast-after-reconnect", project_name: "other", status: "failed", resource_id: "E1S04" })],
+      });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(useAppStore.getState().workspaceNotifications[0].target).toMatchObject({ id: "E1S04" });
+  });
+
   it("builds a reference_unit target for reference_video failures", async () => {
     useTasksStore.setState({
       tasks: [task({ task_id: "r1", task_type: "reference_video", resource_id: "E1U1", status: "running" })],

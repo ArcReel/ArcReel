@@ -30,17 +30,29 @@ def _seed_project(pm: ProjectManager, name: str) -> None:
 
 
 def _make_script(episode: int, payload_size: int) -> dict:
-    """构造一个说书模式剧本，segment 数量决定 JSON 体积。"""
+    """构造一个结构合法的说书模式剧本，segment 数量决定 JSON 体积。"""
+    filler = "填充文本 " * (payload_size // 10 + 1)
     return {
         "episode": episode,
         "title": f"Episode {episode}",
         "content_mode": "narration",
+        "summary": "测试摘要",
+        "novel": {"title": "测试小说", "chapter": f"第{episode}章"},
         "segments": [
             {
                 "segment_id": f"E{episode}S{i}",
                 "duration_seconds": 4,
-                "image_prompt": "图像提示词 " * (payload_size // 10),
-                "video_prompt": "视频提示词 " * (payload_size // 10),
+                "novel_text": filler,
+                "characters_in_segment": ["角色A"],
+                "image_prompt": {
+                    "scene": filler,
+                    "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+                },
+                "video_prompt": {
+                    "action": "转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                },
             }
             for i in range(payload_size)
         ],

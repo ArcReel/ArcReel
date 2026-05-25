@@ -14,7 +14,7 @@ import shlex
 import tempfile
 import time
 from collections import deque
-from collections.abc import AsyncIterable, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +26,7 @@ from lib.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import LOCALE_LANGUAGE_MAP
+from lib.logging_config import resolve_log_dir
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
@@ -468,7 +469,14 @@ class SessionManager:
             data / ".system_config.json.bak",
             profile / ".claude" / "settings.json",
         )
-        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys",)
+        # 日志目录 —— 服务器日志含 HTTP 请求路径、provider 探测、异常栈，默认
+        # read 规则会把 PROJECT_ROOT 当成参考资料根（lib/docs/...）放行，不显式
+        # deny 会让任意项目 session 里的 agent 通过 Read/Grep 读到全局日志。
+        # 用 resolve_log_dir() 拿真实路径，覆盖 ARCREEL_LOG_DIR 自定义场景；
+        # 无论 LOG_DIR 落在 repo 内还是外（如 /var/log/arcreel）都必须 deny——
+        # 把约束反过来用 is_relative_to(repo) 限制只会让 repo 外的 LOG_DIR 漏过。
+        log_dir = resolve_log_dir().resolve()
+        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", log_dir)
         # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
         globs: tuple[tuple[Path, str], ...] = (
             (repo, ".env.*"),
@@ -2631,26 +2639,73 @@ class SessionManager:
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")
 
-    async def subscribe(self, session_id: str, replay_buffer: bool = True) -> asyncio.Queue:
-        """Subscribe to session messages. Returns queue for SSE."""
+    async def _subscribe(self, session_id: str, *, replay: bool = True) -> tuple[asyncio.Queue, list[dict[str, Any]]]:
+        """Register a live-message queue and capture the replay snapshot atomically.
+
+        Returns the (live-only) queue plus a snapshot of the buffered messages.
+        The buffer snapshot and queue registration happen with no ``await`` in
+        between, so no synchronous live broadcast can interleave between the two
+        and be lost — the replay/live split has no race.
+
+        Private: the only consumer is :meth:`stream_messages`, which owns the
+        deterministic unsubscribe via its context-manager ``__aexit__``.
+        """
         managed = await self.get_or_connect(session_id)
+        # Synchronous critical section — no ``await`` until registration completes.
+        replay_snapshot = list(managed.message_buffer) if replay else []
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-
-        if replay_buffer:
-            # Replay buffered messages
-            for msg in managed.message_buffer:
-                try:
-                    queue.put_nowait(msg)
-                except asyncio.QueueFull:
-                    break
-
         managed.subscribers.add(queue)
-        return queue
+        return queue, replay_snapshot
 
-    async def unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
-        """Unsubscribe from session messages."""
+    async def _unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
+        """Remove a queue from a session's subscriber set."""
         if session_id in self.sessions:
             self.sessions[session_id].subscribers.discard(queue)
+
+    @contextlib.asynccontextmanager
+    async def stream_messages(
+        self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0
+    ) -> AsyncIterator[AsyncIterator[dict[str, Any]]]:
+        """Subscribe to a session's messages as a self-cleaning async iterator.
+
+        Yields an async iterator producing, in order:
+
+        - the replayed buffer messages (when *replay*),
+        - a ``{"type": "_replay_done"}`` sentinel marking the live boundary,
+        - live messages as they are broadcast,
+        - a ``{"type": "_idle"}`` sentinel whenever *idle_timeout* elapses with no
+          message (consumers poll liveness / disconnect on it),
+        - a ``{"type": "_queue_overflow"}`` sentinel if the subscriber queue is
+          dropped under backpressure, after which iteration ends.
+
+        Subscription, replay, queue draining and unsubscribe all live behind this
+        seam; cleanup is carried deterministically by ``__aexit__`` (see ADR-0005).
+        Consume as ``async with stream_messages(...) as stream: async for msg in stream``.
+        """
+        queue, replay_msgs = await self._subscribe(session_id, replay=replay)
+
+        async def _iter() -> AsyncIterator[dict[str, Any]]:
+            # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
+            # by the enclosing context manager's __aexit__ (ADR-0005): a bare async
+            # generator's finally only runs at GC on break/disconnect, which is the
+            # exact leak this design avoids. Do not add a finally to this inner gen.
+            for msg in replay_msgs:
+                yield msg
+            yield {"type": "_replay_done"}
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
+                except TimeoutError:
+                    yield {"type": "_idle"}
+                    continue
+                yield msg
+                if msg.get("type") == "_queue_overflow":
+                    return
+
+        try:
+            yield _iter()
+        finally:
+            await self._unsubscribe(session_id, queue)
 
     async def get_status(self, session_id: str) -> SessionStatus | None:
         """Get session status."""

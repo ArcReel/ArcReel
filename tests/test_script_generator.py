@@ -351,6 +351,122 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert out["segments"][1]["segment_id"] == "scene_1"
 
 
+class TestAddMetadataInjectsHiddenFields:
+    """LLM schema 隐藏 content_mode / novel 之后,_add_metadata 必须保证持久化 JSON 仍带这些字段。
+
+    下游消费方(status_calculator / files router / jianying / compose-video)读 dict,不读 model,
+    所以兜底必须落在 dict 层。
+    """
+
+    @staticmethod
+    def _make_generator(tmp_path: Path, content_mode: str = "drama") -> ScriptGenerator:
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目标题",
+                "content_mode": content_mode,
+                "_supported_durations": [4, 6, 8],
+            },
+        )
+        return ScriptGenerator(project_path)
+
+    def test_drama_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {"title": "第一集", "scenes": [{"scene_id": "E1S01"}]}
+        out = sg._add_metadata(data, episode=1)
+        assert out["content_mode"] == "drama"
+        assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
+
+    def test_narration_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {"title": "第一集", "segments": [{"segment_id": "E1S01"}]}
+        out = sg._add_metadata(data, episode=1)
+        assert out["content_mode"] == "narration"
+        assert out["novel"]["chapter"] == "第1集"
+
+    def test_setdefault_does_not_overwrite_existing_values(self, tmp_path: Path) -> None:
+        """LLM 若主动填了 content_mode / novel(理论上不会,但兜底要稳),setdefault 不应覆盖。"""
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {
+            "title": "第一集",
+            "content_mode": "drama",
+            "novel": {"title": "用户的小说", "chapter": "卷一·风起"},
+            "scenes": [{"scene_id": "E1S01"}],
+        }
+        out = sg._add_metadata(data, episode=1)
+        assert out["content_mode"] == "drama"
+        assert out["novel"] == {"title": "用户的小说", "chapter": "卷一·风起"}
+
+    def test_drama_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
+        """e2e: model_validate → model_dump 后 novel 永远存在但为空字典,_add_metadata
+        必须按"内容是否为空"判断而非"key 是否存在",否则 compose-video 输出文件名将退化为
+        '_final.mp4',save_script 退化为 '_script.json',多集互相覆盖。
+        """
+        from lib.script_models import DramaEpisodeScript
+
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        llm_response = {
+            "title": "第一集",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "characters_in_scene": ["A"],
+                    "image_prompt": {
+                        "scene": "s",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                    },
+                    "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                }
+            ],
+        }
+        # 完整模拟 _parse_response: model_validate → model_dump
+        dumped = DramaEpisodeScript.model_validate(llm_response).model_dump()
+        # 守卫前提:model_dump 已塞入空 NovelInfo
+        assert dumped["novel"] == {"title": "", "chapter": ""}
+
+        out = sg._add_metadata(dumped, episode=1)
+        assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
+
+    def test_narration_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
+        from lib.script_models import NarrationEpisodeScript
+
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        llm_response = {
+            "title": "第一集",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "x",
+                    "characters_in_segment": [],
+                    "image_prompt": {
+                        "scene": "s",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                    },
+                    "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                }
+            ],
+        }
+        dumped = NarrationEpisodeScript.model_validate(llm_response).model_dump()
+        assert dumped["novel"] == {"title": "", "chapter": ""}
+
+        out = sg._add_metadata(dumped, episode=2)
+        assert out["novel"] == {"title": "项目标题", "chapter": "第2集"}
+
+    def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
+        """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 compose-video 文件名残缺。"""
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {
+            "title": "第一集",
+            "novel": {"title": "残缺标题", "chapter": ""},
+            "scenes": [{"scene_id": "E1S01"}],
+        }
+        out = sg._add_metadata(data, episode=1)
+        assert out["novel"]["chapter"] == "第1集"
+        assert out["novel"]["title"] == "项目标题"
+
+
 def test_resolve_supported_durations_raises_when_unset(tmp_path):
     """caps、project.json、registry 三处都查不到时应抛 ValueError，不再 silent fallback。"""
     project_dir = tmp_path / "p"

@@ -31,7 +31,7 @@
 
 ```yaml
 name: generate-assets
-description: "统一资产生成 subagent。接收任务清单（包含资产类型、脚本命令、验证方式），按序执行生成脚本，返回结构化摘要。用于角色设计、线索设计、分镜图、视频生成。"
+description: "统一资产生成 subagent。接收任务清单（包含资产类型、脚本命令、验证方式），按序执行生成脚本，返回结构化摘要。用于角色/场景/道具设计、分镜图、视频生成。"
 ```
 
 **工作流程**：
@@ -64,55 +64,44 @@ description: "统一资产生成 subagent。接收任务清单（包含资产类
 **核心约束**：
 - 不做主 agent 未要求的额外操作
 - 不等待用户确认，完成即返回
-- 任务类型仅限：`characters` / `clues` / `storyboard` / `video`
+- 任务类型仅限：`character` / `scene` / `prop` / `storyboard` / `video`
+
+> 注：本 spec 撰写时资产模型为 character + clue（线索）两类；后续「全局资产库」重构把资产统一为 character / scene / prop 三类（见 `lib/asset_types.ASSET_SPECS`），`generate-assets` 的任务类型与下方各阶段随之改为该三类资产。`analyze-characters-clues` agent 亦更名为 `analyze-assets`。
 
 ### 2. 重写 manga-workflow 阶段 5-8
 
 #### 工作流阶段总览（修正后）
 
 1. 项目设置
-2. 全局角色/线索设计 → dispatch `analyze-characters-clues`
+2. 全局角色/场景/道具提取 → dispatch `analyze-assets`
 3. 分集规划 → 主 agent 直接执行
 4. 单集预处理 → dispatch `split-narration-segments`（narration）或 `normalize-drama-script`（drama）
 5. JSON 剧本生成 → dispatch `create-episode-script`
-6. 角色设计 + 线索设计 → **并行** dispatch 两个 `generate-assets`（互不依赖时）
+6. 角色/场景/道具设计 → dispatch `generate-assets`（一次覆盖三类，缺哪类生成哪类）
 7. 分镜图生成 → dispatch `generate-assets`
 8. 视频生成 → dispatch `generate-assets`
 
 > 原阶段 9（合成）已移除。视频生成完成后用户在 Web 端导出为剪映草稿。
 
-#### 阶段 6：角色设计 + 线索设计（可并行）
+#### 阶段 6：角色/场景/道具设计
 
-两个任务互不依赖，**同时 dispatch 两个 `generate-assets` subagent**。
+三类资产由统一的 `generate-assets` skill 处理：`--type` 省略时自动扫描所有 pending（缺对应
+`*_sheet` 的资产）并按 `character → scene → prop` 顺序分别生成。
 
-**subagent A — 角色设计**（触发：有角色缺少 character_sheet）：
-
-```
-dispatch `generate-assets` subagent：
-  任务类型：characters
-  项目名称：{project_name}
-  项目路径：projects/{project_name}/
-  待生成项：{缺失角色名列表}
-  脚本命令：
-    python .claude/skills/generate-characters/scripts/generate_character.py --all
-  验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
-```
-
-**subagent B — 线索设计**（触发：有 importance=major 线索缺少 clue_sheet）：
+**触发**：有任一 character/scene/prop 缺少对应的 `*_sheet`。
 
 ```
 dispatch `generate-assets` subagent：
-  任务类型：clues
+  任务类型：character / scene / prop（缺哪类生成哪类）
   项目名称：{project_name}
   项目路径：projects/{project_name}/
-  待生成项：{缺失线索名列表}
-  脚本命令：
-    python .claude/skills/generate-clues/scripts/generate_clue.py --all
-  验证方式：重新读取 project.json，检查对应线索的 clue_sheet 字段
+  待生成项：{缺失资产名列表}
+  执行方式：调用 generate-assets skill（进程内 MCP 工具 generate_assets）。
+            不传 type 时自动扫描所有 pending；或按 --type=character|scene|prop 指定单类
+  验证方式：重新读取 project.json，检查对应资产的 character_sheet / scene_sheet / prop_sheet 字段
 ```
 
-如果只有其中一个需要执行，只 dispatch 对应的一个。
-两个 subagent 全部返回后，合并摘要展示给用户，进入阶段间确认。
+subagent 返回后，将摘要展示给用户，进入阶段间确认。
 
 #### 阶段 7：分镜图生成
 
@@ -142,15 +131,14 @@ dispatch `generate-assets` subagent：
 
 修正后的状态检测清单（阶段重新编号）：
 
-1. characters/clues 为空？ → **阶段 1**（角色/线索提取）
-2. 目标集 `source/episode_{N}.txt` 不存在？ → **阶段 2**（分集规划）
-3. 目标集 drafts/ 中间文件不存在？ → **阶段 3**（预处理）
-4. `scripts/episode_{N}.json` 不存在？ → **阶段 4**（JSON 剧本）
-5. 有角色缺少 character_sheet？ → **阶段 5**（角色设计）—— 与阶段 6 可并行
-6. 有 importance=major 线索缺少 clue_sheet？ → **阶段 6**（线索设计）—— 与阶段 5 可并行
-7. 有场景缺少分镜图？ → **阶段 7**（分镜图）
-8. 有场景缺少视频？ → **阶段 8**（视频）
-9. 全部完成 → 工作流结束，引导用户在 Web 端导出剪映草稿
+1. characters/scenes/props 均为空？ → **阶段 2**（角色/场景/道具提取）
+2. 目标集 `source/episode_{N}.txt` 不存在？ → **阶段 3**（分集规划）
+3. 目标集 drafts/ 中间文件不存在？ → **阶段 4**（预处理）
+4. `scripts/episode_{N}.json` 不存在？ → **阶段 5**（JSON 剧本）
+5. 有 character/scene/prop 缺少对应 `*_sheet`？ → **阶段 6**（角色/场景/道具设计）
+6. 有场景缺少分镜图？ → **阶段 7**（分镜图）
+7. 有场景缺少视频？ → **阶段 8**（视频）
+8. 全部完成 → 工作流结束，引导用户在 Web 端导出剪映草稿
 
 ### 3. 信息去重
 
@@ -159,8 +147,10 @@ dispatch `generate-assets` subagent：
 **删除**第 40-51 行的内容模式对比表（含错误 agent 名称），替换为一行引用：
 
 ```markdown
-> 内容模式详细规格见 `.claude/references/content-modes.md`。
+> 内容模式详细规格见 `.claude/references/generation-modes.md`。
 ```
+
+> 注：当时该 reference 文件名为 `content-modes.md`，后续重构改名为 `generation-modes.md`；同时 `CLAUDE.md` 按 content_mode 拆为 `CLAUDE.narration.md` / `CLAUDE.drama.md` 两份变体（见 `2026-05-16-dynamic-agent-profile-design.md`），下文对单一 `CLAUDE.md` 的引用均落到对应变体。
 
 **修正**架构图（约第 77-87 行）：
 - 删除 `general-purpose subagent` 行
@@ -174,18 +164,18 @@ dispatch `generate-assets` subagent：
   │  只持有：项目状态摘要 + 用户对话历史
   │  职责：状态检测、流程决策、用户确认、dispatch subagent
   │
-  ├─ dispatch → analyze-characters-clues     全局角色/线索提取
+  ├─ dispatch → analyze-assets               全局角色/场景/道具提取
   ├─ dispatch → split-narration-segments     说书模式片段拆分
   ├─ dispatch → normalize-drama-script       剧集模式规范化剧本
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
-  └─ dispatch → generate-assets              资产生成（角色/线索/分镜/视频）
+  └─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频）
 ```
 
 **修正**可用 Skills 表：删除 compose-video 行。
 
 **修正**工作流程概览：
 - 删除原阶段 9（合成）和阶段 10
-- 阶段 5+6 标注"可并行"
+- 阶段 6 标注由统一 `generate-assets` 一次覆盖 character/scene/prop 三类
 - 末尾说明视频生成后在 Web 端导出剪映草稿
 
 #### Persona Prompt（session_manager.py）精简
@@ -245,7 +235,7 @@ python .claude/skills/{skill}/scripts/{script}.py {args}
 
 #### 修正 reference 路径
 
-各 SKILL.md 中引用 `references/content-modes.md` 改为完整的相对路径 `.claude/references/content-modes.md`。
+各 SKILL.md 中引用 `references/content-modes.md` 改为完整的相对路径 `.claude/references/content-modes.md`（该文件后续更名为 `generation-modes.md`）。
 
 涉及文件：
 - `manga-workflow/SKILL.md:17`

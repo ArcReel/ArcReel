@@ -4,6 +4,7 @@
 管理视频项目的目录结构、分镜剧本读写、状态追踪。
 """
 
+import copy
 import json
 import logging
 import os
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
-from lib.json_io import atomic_write_json, load_json
+from lib.json_io import atomic_write_json, load_json, load_json_or_none
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
     ContentMode,
@@ -35,6 +36,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
+from lib.script_models import SCRIPT_SHAPES, ScriptShape
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,13 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
 _VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}
 _DEFAULT_GENERATION_MODE = "storyboard"
+
+
+class _Unset:
+    """哨兵：区分「未传 before」（写盘统一入口自行读盘取改前）与「显式传 None」（无改前）。"""
+
+
+_UNSET = _Unset()
 
 
 def effective_mode(*, project: dict, episode: dict) -> str:
@@ -58,6 +67,19 @@ def effective_mode(*, project: dict, episode: dict) -> str:
     if proj_mode in _VALID_GENERATION_MODES:
         return proj_mode
     return _DEFAULT_GENERATION_MODE
+
+
+def _script_items_shape(script: dict, content_mode: str) -> ScriptShape:
+    """选剧本列表所在的形状（字段名取自 lib.script_models.SCRIPT_SHAPES）。
+
+    仅当 content_mode=narration **且**脚本确有 narration 列表键时走 narration 形状；
+    否则落 drama 形状——这覆盖了 narration 但数据畸形落在 `scenes` 键下的回退，保持
+    与历史 `if content_mode == "narration" and "segments" in script` 守卫一致。
+    """
+    narration = SCRIPT_SHAPES["narration"]
+    if content_mode == "narration" and narration.items_key in script:
+        return narration
+    return SCRIPT_SHAPES["drama"]
 
 
 class EpisodeScriptReboundError(RuntimeError):
@@ -109,10 +131,20 @@ class ProjectManager:
 
     @staticmethod
     def _slugify_project_title(title: str) -> str:
-        """Build a filesystem-safe slug prefix from the project title."""
+        """Build a filesystem-safe slug prefix from the project title.
+
+        CJK 标题经 NFKD + ascii ignore 后会丢光汉字;若结果不包含任何字母
+        （纯空 / 仅夹在标题里的孤立数字,如「第1集」→ "1"),退化为中性
+        前缀 ``proj``,避免产生 ``1-<hex>`` 这种看似有意义实则误导的 slug。
+
+        注意 truncate 必须在 letter 校验之前:像 ``"1-2345...23abc"``(>24 字符,
+        字母在尾部) 截前 24 后会只剩数字,这种结果同样应塌成 ``proj``。
+        """
         ascii_text = unicodedata.normalize("NFKD", str(title).strip()).encode("ascii", "ignore").decode("ascii")
-        slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()
-        return slug[:24] or "project"
+        slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()[:24]
+        if not slug or not any(c.isalpha() for c in slug):
+            return "proj"
+        return slug
 
     def generate_project_name(self, title: str | None = None) -> str:
         """Generate a unique internal project identifier."""
@@ -440,7 +472,9 @@ class ProjectManager:
 
         return script
 
-    def save_script(self, project_name: str, script: dict, filename: str | None = None) -> Path:
+    def save_script(
+        self, project_name: str, script: dict, filename: str | None = None, *, validate: bool = True
+    ) -> Path:
         """
         保存分镜剧本
 
@@ -448,6 +482,8 @@ class ProjectManager:
             project_name: 项目名称
             script: 剧本字典
             filename: 可选的文件名，默认使用章节名
+            validate: 是否做「不更坏」结构校验（默认 True，fail-safe）。直连保存不持有
+                改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
 
         Returns:
             保存的文件路径
@@ -460,9 +496,18 @@ class ProjectManager:
             filename = f"{chapter.replace(' ', '_')}_script.json"
 
         with self._script_lock(project_name, filename):
-            return self._write_script_unlocked(project_name, script, filename)
+            return self._write_script_unlocked(project_name, script, filename, validate=validate)
 
-    def _write_script_unlocked(self, project_name: str, script: dict, filename: str, sync_project: bool = True) -> Path:
+    def _write_script_unlocked(
+        self,
+        project_name: str,
+        script: dict,
+        filename: str,
+        sync_project: bool = True,
+        *,
+        validate: bool = True,
+        before: dict | None | _Unset = _UNSET,
+    ) -> Path:
         """剧本写盘主体：校验 + 更新元数据 + 原子写 + 同步 project.json。
 
         **不获取 `_script_lock`**——调用方必须已持有该锁（见 `save_script` / `locked_script`），
@@ -473,11 +518,24 @@ class ProjectManager:
         `sync_project=False` 时跳过 `sync_episode_from_script`：该同步会经 `update_project`
         再次获取 `_project_lock`，故已持有项目锁的调用方（见 `locked_episode_script`）须传 False
         以免同进程自死锁。仅写脚本内容、不改 episode 元数据的场景跳过同步无副作用。
+
+        `validate=True`（默认，fail-safe）时按「不更坏」语义做结构校验：仅当本次写入把一个
+        原本合法的剧本改成非法时才 `raise ScriptStructureValidationError`，改前就已非法的旧
+        剧本照常放行。读-改-写流程（`locked_script` 一族）已持有改前剧本，应作 `before` 传入
+        以零额外读盘；直连保存不传 `before`，由本函数按需读盘取改前（无改前则按严格校验）。
+        资产回写等只动 `generated_assets` 的热路径传 `validate=False` 整体豁免。
         """
         scripts_dir = self.get_project_path(project_name) / "scripts"
+        real = self._safe_subpath(scripts_dir, filename)
+        output_path = Path(real)
 
-        # 先做 filename/内部 episode 一致性校验，避免写盘后才在 sync 阶段抛错，
-        # 造成"脚本文件已落盘、project.json 未同步"的部分提交（codex 指出的原子性缺口）。
+        # 结构校验守卫（「不更坏」语义），置于落盘前，避免脏数据潜伏到 worker 执行层才暴露。
+        if validate:
+            before_script = self._load_script_or_none(output_path) if isinstance(before, _Unset) else before
+            self._guard_no_worse(before_script, script)
+
+        # 再做 filename/内部 episode 一致性校验，避免写盘后才在 sync 阶段抛错，
+        # 造成"脚本文件已落盘、project.json 未同步"的部分提交。
         self._require_filename_episode_consistency(script, filename)
 
         # 更新元数据（兼容旧脚本：可能缺少 metadata，或 narration 使用 segments）
@@ -515,10 +573,7 @@ class ProjectManager:
         total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
         metadata["estimated_duration_seconds"] = total_duration
 
-        # 保存文件（含路径遍历防护）+ 原子写，避免并发 PATCH 导致 JSON 损坏
-        real = self._safe_subpath(scripts_dir, filename)
-        output_path = Path(real)
-
+        # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)
 
         # 同步到 project.json，保证 script 写入与元数据同步是单一事务
@@ -534,18 +589,22 @@ class ProjectManager:
         return output_path
 
     @contextmanager
-    def locked_script(self, project_name: str, script_filename: str):
+    def locked_script(self, project_name: str, script_filename: str, *, validate: bool = True):
         """在单一 `_script_lock` 内完成剧本的 load → mutate → save 读-改-写。
 
         yield 出剧本字典供调用方就地修改；正常退出时写回，with 体内抛异常（如目标 scene/unit
         未找到）则跳过写回、照常释放锁。与 `update_project` 对称，消除"读改写之间被并发写覆盖"
         的 lost-update 竞态。
+
+        `validate=True`（默认）时在 yield 前快照「改前」剧本，写回走「不更坏」结构校验（零额外
+        读盘）。只动 `generated_assets` 的资产回写热路径传 `validate=False` 整体豁免。
         """
         norm = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
         with self._script_lock(project_name, norm):
             script = self.load_script(project_name, norm)
+            before = copy.deepcopy(script) if validate else None
             yield script
-            self._write_script_unlocked(project_name, script, norm)
+            self._write_script_unlocked(project_name, script, norm, validate=validate, before=before)
 
     def _read_project_raw_unlocked(self, project_name: str) -> dict:
         """裸读 project.json（不取锁、不迁移）。仅供已持 `_project_lock` 的复核调用。"""
@@ -554,7 +613,9 @@ class ProjectManager:
             return json.load(f)
 
     @contextmanager
-    def locked_episode_script(self, project_name: str, resolve_script_file: Callable[[dict], str]):
+    def locked_episode_script(
+        self, project_name: str, resolve_script_file: Callable[[dict], str], *, validate: bool = True
+    ):
         """统一「脚本锁 → 项目锁」顺序下，解析 episode→script_file 并对剧本做读-改-写。
 
         `resolve_script_file(project) -> script_file`：调用方提供的解析器，从 project.json
@@ -580,8 +641,11 @@ class ProjectManager:
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
                 script = self.load_script(project_name, norm)
+                before = copy.deepcopy(script) if validate else None
                 yield script
-                self._write_script_unlocked(project_name, script, norm, sync_project=False)
+                self._write_script_unlocked(
+                    project_name, script, norm, sync_project=False, validate=validate, before=before
+                )
                 # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
                 if isinstance(script.get("episode"), int):
                     self._apply_episode_sync(project, script, norm)
@@ -610,6 +674,32 @@ class ProjectManager:
                 f"脚本 {base_name} 内部 episode={script_episode} 与文件名隐含的 "
                 f"episode={filename_episode} 不一致，拒绝操作以避免污染 project.json"
             )
+
+    @staticmethod
+    def _load_script_or_none(path: Path) -> dict | None:
+        """裸读剧本 JSON 取「改前」快照；文件不存在或损坏时返回 None（→ 按严格校验处理）。"""
+        loaded = load_json_or_none(path)
+        return loaded if isinstance(loaded, dict) else None
+
+    @staticmethod
+    def _guard_no_worse(before: dict | None, after: dict) -> None:
+        """「不更坏」守卫：仅当本次写入引入新结构错误时拒绝。
+
+        改后合法 → 放行；改后非法时：改前合法或无改前 → 拒绝（`raise`）；改前已非法 → 放行
+        （不为历史遗留背锅）。校验器经函数内延迟 import，打破 project_manager → 校验器 →
+        data_validator → project_manager 的导入环。
+        """
+        from lib.script_structure_validator import (
+            ScriptStructureValidationError,
+            validate_script_structure,
+        )
+
+        after_result = validate_script_structure(after)
+        if after_result.valid:
+            return
+        if before is not None and not validate_script_structure(before).valid:
+            return
+        raise ScriptStructureValidationError(after_result)
 
     @staticmethod
     def resolve_episode_from_script(script: dict, script_filename: str) -> int:
@@ -715,7 +805,8 @@ class ProjectManager:
 
     def update_character_sheet(self, project_name: str, script_filename: str, name: str, sheet_path: str) -> dict:
         """更新角色设计图路径"""
-        with self.locked_script(project_name, script_filename) as script:
+        # 资产回写热路径：只动运行时字段，结构不可能因此变坏，豁免结构校验。
+        with self.locked_script(project_name, script_filename, validate=False) as script:
             if name not in script["characters"]:
                 # 在锁内抛出，locked_script 跳过写回
                 raise KeyError(f"角色 '{name}' 不存在")
@@ -747,13 +838,12 @@ class ProjectManager:
         }
 
     @staticmethod
-    def create_scene_template(scene_id: str, episode: int = 1, duration_seconds: int = 8) -> dict:
+    def create_scene_template(scene_id: str, duration_seconds: int = 8) -> dict:
         """
         创建标准场景对象模板
 
         Args:
-            scene_id: 场景 ID（如 "E1S01"）
-            episode: 集数编号
+            scene_id: 场景 ID（如 "E1S01"），集号已编码在 ID 中
             duration_seconds: 场景时长（秒）
 
         Returns:
@@ -761,9 +851,6 @@ class ProjectManager:
         """
         return {
             "scene_id": scene_id,
-            "episode": episode,
-            "title": "",
-            "scene_type": "剧情",
             "duration_seconds": duration_seconds,
             "segment_break": False,
             "characters_in_scene": [],
@@ -779,24 +866,21 @@ class ProjectManager:
             "action": "",
             "dialogue": {"speaker": "", "text": "", "emotion": "neutral"},
             "audio": {"dialogue": [], "narration": "", "sound_effects": []},
-            "transition_to_next": "cut",
             "generated_assets": ProjectManager.create_generated_assets(),
         }
 
-    def normalize_scene(self, scene: dict, episode: int = 1) -> dict:
+    def normalize_scene(self, scene: dict) -> dict:
         """
         补全单个场景中缺失的字段
 
         Args:
             scene: 场景字典
-            episode: 集数编号（用于补全 episode 字段）
 
         Returns:
             补全后的场景字典
         """
         template = self.create_scene_template(
             scene_id=scene.get("scene_id", "000"),
-            episode=episode,
             duration_seconds=scene.get("duration_seconds", 8),
         )
 
@@ -827,16 +911,12 @@ class ProjectManager:
 
         # 补全其他顶层字段
         top_level_defaults = {
-            "episode": episode,
-            "title": "",
-            "scene_type": "剧情",
             "segment_break": False,
             "characters_in_scene": [],
             "scenes": [],
             "props": [],
             "action": "",
             "dialogue": template["dialogue"],
-            "transition_to_next": "cut",
         }
 
         for key, default_value in top_level_defaults.items():
@@ -908,7 +988,6 @@ class ProjectManager:
             "episode": episode,
             "title": script.get("novel", {}).get("chapter", ""),
             "duration_seconds": 0,
-            "summary": "",
         }
 
         for key, default_value in script_defaults.items():
@@ -944,7 +1023,7 @@ class ProjectManager:
 
         # 规范化每个场景
         for scene in script["scenes"]:
-            self.normalize_scene(scene, episode)
+            self.normalize_scene(scene)
 
         # 更新统计信息
         script["metadata"]["total_scenes"] = len(script["scenes"])
@@ -971,7 +1050,8 @@ class ProjectManager:
         Returns:
             更新后的剧本
         """
-        with self.locked_script(project_name, script_filename) as script:
+        # legacy helper：产出数字 scene_id 的旧结构 scene，与现行 Pydantic 模型不兼容，豁免结构校验。
+        with self.locked_script(project_name, script_filename, validate=False) as script:
             # 自动生成场景 ID
             existing_ids = [s["scene_id"] for s in script["scenes"]]
             next_id = f"{len(existing_ids) + 1:03d}"
@@ -1009,15 +1089,13 @@ class ProjectManager:
         Returns:
             更新后的剧本
         """
-        with self.locked_script(project_name, script_filename) as script:
+        # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
+        with self.locked_script(project_name, script_filename, validate=False) as script:
             # 根据内容模式选择正确的数据结构
             content_mode = script.get("content_mode", "narration")
-            if content_mode == "narration" and "segments" in script:
-                items = script["segments"]
-                id_field = "segment_id"
-            else:
-                items = script.get("scenes", [])
-                id_field = "scene_id"
+            shape = _script_items_shape(script, content_mode)
+            items = script.get(shape.items_key, [])
+            id_field = shape.id_field
 
             for item in items:
                 if str(item.get(id_field)) == str(scene_id):
@@ -1060,14 +1138,12 @@ class ProjectManager:
         if not updates:
             return {}
 
-        with self.locked_script(project_name, script_filename) as script:
+        # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
+        with self.locked_script(project_name, script_filename, validate=False) as script:
             content_mode = script.get("content_mode", "narration")
-            if content_mode == "narration" and "segments" in script:
-                items = script["segments"]
-                id_field = "segment_id"
-            else:
-                items = script.get("scenes", [])
-                id_field = "scene_id"
+            shape = _script_items_shape(script, content_mode)
+            items = script.get(shape.items_key, [])
+            id_field = shape.id_field
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找
             item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items}
@@ -1107,10 +1183,7 @@ class ProjectManager:
 
         # 根据内容模式选择正确的数据结构
         content_mode = script.get("content_mode", "narration")
-        if content_mode == "narration" and "segments" in script:
-            items = script["segments"]
-        else:
-            items = script.get("scenes", [])
+        items = script.get(_script_items_shape(script, content_mode).items_key, [])
 
         return [item for item in items if not item["generated_assets"].get(asset_type)]
 
@@ -1150,10 +1223,7 @@ class ProjectManager:
         script = self.load_script(project_name, script_filename)
 
         content_mode = script.get("content_mode", "narration")
-        if content_mode == "narration" and "segments" in script:
-            items = script["segments"]
-        else:
-            items = script.get("scenes", [])
+        items = script.get(_script_items_shape(script, content_mode).items_key, [])
 
         return [item for item in items if not item.get("generated_assets", {}).get("storyboard_image")]
 
@@ -1169,23 +1239,6 @@ class ProjectManager:
             return self._get_project_file_path(project_name).exists()
         except FileNotFoundError:
             return False
-
-    @staticmethod
-    def _lazy_upgrade_image_provider(project: dict) -> None:
-        """读取时把旧 image_backend 字段映射到 image_provider_t2i / _i2i 两字段（不写盘）。
-
-        历史 project.json 用 `image_backend: "<provider>/<model>"` 单字段；本次改造引入
-        `image_provider_t2i` / `image_provider_i2i` 两字段。lazy 升级保留旧字段作为 fallback。
-
-        - 仅当 `image_backend` 是 "<provider>/<model>" 字符串时才生效
-        - 已有 _t2i / _i2i 不覆盖
-        - 旧 image_backend 字段保留
-        """
-        legacy = project.get("image_backend")
-        if not isinstance(legacy, str) or "/" not in legacy:
-            return
-        project.setdefault("image_provider_t2i", legacy)
-        project.setdefault("image_provider_i2i", legacy)
 
     @staticmethod
     def _migrate_legacy_style(project: dict) -> bool:
@@ -1235,7 +1288,6 @@ class ProjectManager:
                 project_name,
                 changed_paths=[self.PROJECT_FILE],
             )
-        self._lazy_upgrade_image_provider(project)
         return project
 
     @contextmanager
@@ -1308,8 +1360,7 @@ class ProjectManager:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
         避免并发任务（如同时生成多张角色图片）之间的 lost-update 竞态。
-        在同一持锁窗口内统一应用读时迁移（_migrate_legacy_style），并在锁外应用
-        内存映射升级（_lazy_upgrade_image_provider），返回迁移后的项目元数据 dict，
+        在同一持锁窗口内统一应用读时迁移（_migrate_legacy_style），返回迁移后的项目元数据 dict，
         调用方无需再 load_project 一次。
 
         Args:
@@ -1335,7 +1386,6 @@ class ProjectManager:
             changed_paths=[self.PROJECT_FILE],
         )
 
-        self._lazy_upgrade_image_provider(project)
         return project
 
     @staticmethod
@@ -1387,18 +1437,23 @@ class ProjectManager:
         """
         创建新的项目元数据文件
 
-        `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_backend /
-        text_backend_{script,overview,style}）。调用方负责剔除空值，本方法只按字面
-        写入 extras 中已有的键。
+        `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_provider_t2i /
+        image_provider_i2i / text_backend_{script,overview,style}）。调用方负责剔除空值，
+        本方法只按字面写入 extras 中已有的键——退役的单字段 image_backend 不在写入范围
+        （解析链不再读取、写边界已拒绝），调用方不应再传入。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
 
-        # schema_version 与 CURRENT_SCHEMA_VERSION 对齐，防止 v0→v1 迁移
-        # 在"新项目未含 clues 字段"时误清空已有的 scenes/props。
+        # schema_version 与 CURRENT_SCHEMA_VERSION 对齐：新项目即最新形态，
+        # 避免被启动迁移误处理（如 v0→v1 在"未含 clues 字段"时误清空 scenes/props）。
+        from lib.project_migrations import CURRENT_SCHEMA_VERSION
+
         project = {
-            "schema_version": 1,
-            "title": project_title or project_name,
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            # 允许空字符串:前端会以 i18n「未命名项目」兜底显示,避免把 slug
+            # 风格的 project_name 固化为用户可见的标题。
+            "title": project_title,
             "content_mode": content_mode or "narration",
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
@@ -1416,6 +1471,10 @@ class ProjectManager:
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
+            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不再读取，写回只会
+            # 重新制造被静默忽略的 legacy 形态）。路由层已返回 400，这里再兜一道防非路由调用方。
+            if "image_backend" in extras:
+                raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
             project.update(extras)
 
         self.save_project(project_name, project)

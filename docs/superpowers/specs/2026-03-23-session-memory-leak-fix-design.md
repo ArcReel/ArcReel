@@ -29,10 +29,9 @@ if final_status not in ("idle", "running"):
 ```
 ┌─────────────────────────────────────────────────────┐
 │  层 1: 统一延迟清理 _schedule_cleanup               │
-│  idle → 可配置 TTL（默认 10 分钟）                   │
-│  completed/error/interrupted → 短延迟（30 秒）       │
+│  非 running 会话 → 可配置延迟（默认 300 秒）         │
 │  cleanup task 追踪在 ManagedSession._cleanup_task    │
-│  到期 → _disconnect_session → 释放内存               │
+│  到期 → _evict_one → 释放内存                        │
 │  用户再发消息 → get_or_connect 透明恢复               │
 ├─────────────────────────────────────────────────────┤
 │  层 2: 并发上限 + LRU 淘汰                            │
@@ -53,7 +52,7 @@ if final_status not in ("idle", "running"):
 ```python
 idle_since: float | None = None                        # monotonic 时间戳，进入 idle 时记录
 last_activity: float | None = None                     # 每次发送/接收消息时更新
-_cleanup_task: asyncio.Task | None = None              # 当前清理定时器（idle TTL 或终态短延迟）
+_cleanup_task: asyncio.Task | None = None              # 当前清理定时器
 ```
 
 #### 触发点：`_finalize_turn()` 和 `_mark_session_terminal()`
@@ -70,11 +69,9 @@ if final_status != "running":
 #### `_schedule_cleanup()` 统一清理逻辑
 
 - **取消旧定时器**：调度前先检查 `managed._cleanup_task`，若存在且未完成则 `cancel()` 再创建新的
-- **按状态决定延迟**：
-  - `idle` → 可配置 TTL（默认 600 秒 = 10 分钟）
-  - `completed/error/interrupted` → 短延迟 `_TERMINAL_CLEANUP_DELAY`（30 秒）
-- 到期后检查：会话已恢复 `running` 则跳过；`idle` 且 `idle_since` 已刷新则跳过
-- cleanup task 追踪在 `managed._cleanup_task`，`_disconnect_session()` 会自动 cancel
+- **统一延迟**：所有非 running 状态（idle / completed / error / interrupted）共用 `agent_session_cleanup_delay_seconds`（默认 300 秒），不再按状态分档
+- 到期后检查：会话已恢复 `running` 则跳过
+- cleanup task 追踪在 `managed._cleanup_task`，`_evict_one()` 会自动 cancel
 
 #### 恢复路径
 
@@ -86,31 +83,11 @@ if final_status != "running":
 
 在 `send_new_session()` 和 `get_or_connect()` 中，**必须在 `client.connect()` 之前、新 session 加入 `self.sessions` 之前**调用 `_ensure_capacity()`。这确保新会话不会被计入活跃数。
 
-#### 统一清理辅助方法 `_disconnect_session()`
+#### 统一清理辅助方法 `_evict_one()`
 
-所有清理路径（TTL、LRU 淘汰、巡检）统一使用此方法，避免遗漏：
+所有清理路径（TTL、LRU 淘汰、巡检）统一使用此方法，避免遗漏。它取消 cleanup 定时器、优雅断开会话的 `SessionActor`（`send_disconnect()`，带超时 + cancel 兜底）、drain inbox processor、把仍处 running 的会话持久化为终态，最后从注册表与 connect-lock 字典移除。
 
-```python
-async def _disconnect_session(self, session_id: str) -> None:
-    """安全断开并移除一个会话，处理 consumer_task 和 connect_lock。"""
-    managed = self.sessions.get(session_id)
-    if managed is None:
-        return
-    # 取消 idle cleanup 定时器
-    if managed._cleanup_task and not managed._cleanup_task.done():
-        managed._cleanup_task.cancel()
-    # 取消 consumer_task（如果仍在运行）并等待完成，防止与 disconnect 竞争
-    if managed.consumer_task and not managed.consumer_task.done():
-        managed.consumer_task.cancel()
-        await asyncio.gather(managed.consumer_task, return_exceptions=True)
-    managed.clear_buffer()
-    try:
-        await managed.client.disconnect()
-    except Exception:
-        logger.debug("disconnect non-fatal error for %s", session_id)
-    self.sessions.pop(session_id, None)
-    self._connect_locks.pop(session_id, None)
-```
+> 说明：本文撰写时清理走的是 `consumer_task` + `client.disconnect()` 直连模式；该路径已被 2026-04-13 session-actor 重构替换为 `SessionActor`，`_evict_one` 即对应的统一断开入口（详见 `2026-04-13-session-actor-design.md`）。
 
 #### `_ensure_capacity()` 逻辑
 
@@ -118,7 +95,7 @@ async def _disconnect_session(self, session_id: str) -> None:
 async def _ensure_capacity(self) -> None:
     """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
     max_concurrent = await self._get_max_concurrent()
-    active = [s for s in self.sessions.values() if s.client is not None]
+    active = [s for s in self.sessions.values() if s.actor is not None]
 
     if len(active) < max_concurrent:
         return
@@ -131,7 +108,7 @@ async def _ensure_capacity(self) -> None:
 
     if evictable:
         victim = evictable[0]
-        await self._disconnect_session(victim.session_id)
+        await self._evict_one(victim)
         return
 
     # 所有会话都在 running → 拒绝
@@ -160,64 +137,66 @@ _PATROL_INTERVAL = 300  # 5 分钟，类常量
 
 async def _patrol_once(self) -> None:
     """单次巡检：清理所有超时的非 running 会话。"""
-    ttl = await self._get_idle_ttl()
+    delay = await self._get_cleanup_delay()
     now = time.monotonic()
     for sid, managed in list(self.sessions.items()):
         if managed.status == "running":
             continue
         if managed.status == "idle" and managed.idle_since:
-            if now - managed.idle_since > ttl:
-                await self._disconnect_session(sid)
+            if now - managed.idle_since > delay:
+                await self._evict_one(managed)
         elif managed.status in ("completed", "error", "interrupted"):
             activity_age = now - (managed.last_activity or 0)
-            if activity_age > self._TERMINAL_CLEANUP_DELAY * 2:
-                await self._disconnect_session(sid)
+            if activity_age > delay:
+                await self._evict_one(managed)
 ```
 
 在 `shutdown_gracefully()` 中取消此任务。
 
 ### 配置读取
 
-SessionManager 新增两个方法，遵循已有的 `refresh_config()` 模式——每次调用创建短生命周期的 DB session + ConfigService，避免持有过期的长连接：
+SessionManager 新增两个方法，每次调用创建短生命周期的 DB session + ConfigService，避免持有过期的长连接：
 
 ```python
-async def _get_idle_ttl(self) -> int:
-    """返回 idle TTL 秒数，默认 600。"""
+async def _get_cleanup_delay(self) -> int:
+    """返回会话清理延迟秒数，默认 300（5 分钟）。"""
     async with async_session_factory() as session:
         svc = ConfigService(session)
-        val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
-    return int(val) * 60
+        val = await svc.get_setting("agent_session_cleanup_delay_seconds", "300")
+    return max(int(val), 10)
 
 async def _get_max_concurrent(self) -> int:
     """返回最大并发会话数，默认 5。"""
     async with async_session_factory() as session:
         svc = ConfigService(session)
         val = await svc.get_setting("agent_max_concurrent_sessions", "5")
-    return int(val)
+    return max(int(val), 1)
 ```
+
+idle 与终态会话共用同一个延迟（`agent_session_cleanup_delay_seconds`），不再区分两档延迟。
 
 **注意**：
 - 不在 `SessionManager.__init__()` 中存储 `ConfigService` 实例属性，因为 `ConfigService` 依赖请求级的 `AsyncSession`，长期持有会导致 session 过期。
-- `_ensure_capacity()` 每次只淘汰一个 idle 会话。如果管理员动态调低 `max_concurrent`（如 10 → 3），超出的会话不会立即全部清理，而是由后续请求逐个淘汰 + TTL/巡检兜底。这是有意为之的渐进清理策略。
+- `_ensure_capacity()` 每次只淘汰一个 idle 会话。如果管理员动态调低 `max_concurrent`（如 10 → 3），超出的会话不会立即全部清理，而是由后续请求逐个淘汰 + 巡检兜底。这是有意为之的渐进清理策略。
 
 ### 后端配置 API 扩展
 
 #### `SystemConfigPatchRequest` 新增字段
 
 ```python
-agent_session_idle_ttl_minutes: Optional[int] = None   # 范围 1-60
-agent_max_concurrent_sessions: Optional[int] = None     # 范围 1-20
+agent_session_cleanup_delay_seconds: Optional[int] = None   # 范围 10-3600
+agent_max_concurrent_sessions: Optional[int] = None          # 范围 1-20
 ```
 
 #### PATCH 处理
 
-- 范围校验：`1 ≤ idle_ttl ≤ 60`，`1 ≤ max_concurrent ≤ 20`，超出返回 422
+- 范围校验：`10 ≤ cleanup_delay ≤ 3600`，`1 ≤ max_concurrent ≤ 20`，超出返回 422
 - 存储为字符串到 `SystemSetting` 表
 - 不需要映射到环境变量（SessionManager 直接通过 ConfigService 读取）
 
 #### GET 响应
 
-新增这两个字段，值从 `ConfigService.get_setting()` 读取，无值时返回默认值（10 和 5）。
+新增这两个字段，值从 `ConfigService.get_setting()` 读取，无值时返回默认值（300 和 5）。
 
 ### 前端 UI
 
@@ -226,7 +205,7 @@ agent_max_concurrent_sessions: Optional[int] = None     # 范围 1-20
 `SystemConfigSettings` 和 `SystemConfigPatch` 各新增：
 
 ```typescript
-agent_session_idle_ttl_minutes: number;
+agent_session_cleanup_delay_seconds: number;
 agent_max_concurrent_sessions: number;
 ```
 
@@ -241,8 +220,8 @@ agent_max_concurrent_sessions: number;
 │                                                   │
 │  ▶ 高级设置                                       │  ← 默认折叠
 │  ┌───────────────────────────────────────────┐    │
-│  │  会话空闲超时（分钟）  [  10  ]            │    │
-│  │  会话空闲超过此时间后自动释放资源，         │    │
+│  │  会话清理延迟（秒）    [ 300  ]            │    │
+│  │  会话空闲超过此秒数后自动释放资源，         │    │
 │  │  再次对话时会自动恢复                      │    │
 │  │                                           │    │
 │  │  最大并发会话数        [   5  ]            │    │

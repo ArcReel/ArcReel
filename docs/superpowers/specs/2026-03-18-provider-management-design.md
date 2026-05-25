@@ -5,7 +5,7 @@
 
 ## 概述
 
-随着多供应商（Gemini AI Studio、Gemini Vertex AI、Seedance、Grok）的接入，需要：
+随着多供应商（Gemini AI Studio、Gemini Vertex AI、Ark/火山方舟、Grok）的接入，需要：
 
 1. 将系统配置存储从 JSON 文件迁移到数据库
 2. 重构全局设置页为侧边栏布局，新增供应商管理与用量统计
@@ -34,11 +34,11 @@ PROVIDER_REGISTRY = {
         optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
         secret_keys=[],
     ),
-    "seedance": ProviderMeta(
-        display_name="Seedance",
-        media_types=["video"],
+    "ark": ProviderMeta(
+        display_name="火山方舟",
+        media_types=["video", "image"],
         required_keys=["api_key"],
-        optional_keys=["file_service_base_url", "video_rpm", "request_gap", "video_max_workers"],
+        optional_keys=["file_service_base_url", "video_rpm", "request_gap", "video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
     ),
     "grok": ProviderMeta(
@@ -51,15 +51,17 @@ PROVIDER_REGISTRY = {
 }
 ```
 
-每个 `ProviderMeta` 还包含 `capabilities` 字段，静态定义该供应商支持的能力列表（如 `text_to_video`, `image_to_video`, `generate_audio` 等）。这些值直接对应 `VideoBackend.capabilities` / `ImageBackend` 的能力枚举，但在 registry 中静态维护，无需实例化后端即可获取。
+每个 `ProviderMeta` 暴露 `media_types` 与 `capabilities`，用于在不实例化后端的前提下获取供应商能力。`capabilities` 值直接对应 `VideoBackend.capabilities` / `ImageBackend` 的能力枚举。
 
 ```python
-# capabilities 示例（包含在 ProviderMeta 中）
+# capabilities 示例
 # gemini-aistudio: [text_to_video, image_to_video, text_to_image, negative_prompt, video_extend]
 # gemini-vertex:   [text_to_video, image_to_video, text_to_image, generate_audio, negative_prompt, video_extend]
-# seedance:        [text_to_video, image_to_video, generate_audio, seed_control, flex_tier]
+# ark:             [text_to_video, image_to_video, generate_audio, seed_control, flex_tier, text_to_image, image_to_image]
 # grok:            [text_to_video, image_to_video]
 ```
+
+> 注：本文给出的 `ProviderMeta` 形态为初版设计。后续迭代将 `media_types` / `capabilities` 改为由 `models: dict[str, ModelInfo]` 推导的派生属性（见 text-backends-design），并把视频供应商标识从初版的 `seedance` 统一为 `ark`（火山方舟平台，运行 Seedance 模型；见 image-backend-design）。下文沿用初版字段名描述设计意图。
 
 ### 1.2 数据库表
 
@@ -68,7 +70,7 @@ PROVIDER_REGISTRY = {
 | 列 | 类型 | 说明 |
 |---|---|---|
 | id | INTEGER PK | 自增主键 |
-| provider | VARCHAR(32) NOT NULL | 供应商标识 (gemini-aistudio, gemini-vertex, seedance, grok) |
+| provider | VARCHAR(32) NOT NULL | 供应商标识 (gemini-aistudio, gemini-vertex, ark, grok) |
 | key | VARCHAR(64) NOT NULL | 配置键 (api_key, base_url, credentials_path, gcs_bucket, file_service_base_url) |
 | value | TEXT NOT NULL | 配置值 |
 | is_secret | BOOLEAN NOT NULL DEFAULT false | 是否为敏感字段，控制 GET 响应掩码 |
@@ -150,8 +152,8 @@ class ProviderStatus:
 | `gemini_base_url` | provider_config | gemini-aistudio / base_url |
 | Vertex 凭证文件路径 | provider_config | gemini-vertex / credentials_path |
 | `vertex_gcs_bucket` | provider_config | gemini-vertex / gcs_bucket |
-| `ark_api_key` | provider_config | seedance / api_key |
-| `file_service_base_url` | provider_config | seedance / file_service_base_url |
+| `ark_api_key` | provider_config | ark / api_key |
+| `file_service_base_url` | provider_config | ark / file_service_base_url |
 | `xai_api_key` | provider_config | grok / api_key |
 | `image_backend` ("aistudio"/"vertex") | system_setting | default_image_backend → 转换为 `gemini-{value}/{当前 image_model}` |
 | `video_backend` ("aistudio"/"vertex") | system_setting | default_video_backend → 转换为 `gemini-{value}/{当前 video_model}` |
@@ -243,7 +245,7 @@ class ProviderStatus:
 
 连接测试，返回可用模型列表。各供应商测试策略不同：
 - **gemini-aistudio / gemini-vertex**: 调用 list models API 验证凭证和连接
-- **seedance / grok**: 若 API 不支持 list models，则发送轻量级验证请求（如获取账户信息或发送最小参数请求），返回成功/失败即可，`available_models` 为该供应商在 registry 中注册的模型列表
+- **ark / grok**: 若 API 不支持 list models，则发送轻量级验证请求（如获取账户信息或发送最小参数请求），返回成功/失败即可，`available_models` 为该供应商在 registry 中注册的模型列表
 
 ```json
 {
@@ -278,7 +280,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
       "gemini-aistudio/veo-3.1-fast-generate-001",
       "gemini-vertex/veo-3.1-generate-001",
       "gemini-vertex/veo-3.1-fast-generate-001",
-      "seedance/doubao-seedance-1-5-pro-251215",
+      "ark/doubao-seedance-1-5-pro-251215",
       "grok/grok-imagine-video"
     ],
     "image_backends": [
@@ -294,7 +296,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 **PATCH /api/v1/system/config**
 
 ```json
-{ "default_video_backend": "seedance/doubao-seedance-1-5-pro-251215" }
+{ "default_video_backend": "ark/doubao-seedance-1-5-pro-251215" }
 ```
 
 ### 3.3 `/api/v1/usage/stats` — 用量统计
@@ -431,7 +433,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 
 ```json
 {
-  "video_backend": "seedance/doubao-seedance-1-5-pro-251215",
+  "video_backend": "ark/doubao-seedance-1-5-pro-251215",
   "image_backend": null
 }
 ```

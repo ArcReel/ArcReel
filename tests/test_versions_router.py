@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+import tempfile
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
@@ -121,6 +125,41 @@ class TestVersionsRouter:
 
             unsupported = client.post("/api/v1/projects/demo/versions/unknown/Alice/restore/1")
             assert unsupported.status_code == 400
+
+            # grids/reference_videos 是 VersionManager 合法类型，但本路由不放行其还原
+            # （无还原后元数据同步分支），行为保持为 400——不因路径形状收敛而被静默放开。
+            for unrestorable in ("grids", "reference_videos"):
+                resp = client.post(f"/api/v1/projects/demo/versions/{unrestorable}/x/restore/1")
+                assert resp.status_code == 400
+
+    def test_resolve_resource_path_rejects_traversal(self):
+        """resource_id 拼出的绝对路径若逃出项目目录，必须 400（路径遍历防护）。
+
+        正常路由的 path 参数不会含 `/`，故直接对 helper 断言这道收口防护。
+        """
+        project_path = Path(tempfile.gettempdir()) / "demo"
+
+        with pytest.raises(HTTPException) as exc:
+            versions._resolve_resource_path(
+                "characters",
+                "../../../../etc/passwd",
+                project_path,
+                lambda key, **kw: key,
+            )
+        assert exc.value.status_code == 400
+
+    def test_resolve_resource_path_accepts_normal_id(self):
+        project_path = Path(tempfile.gettempdir()) / "demo"
+
+        current_file, relative = versions._resolve_resource_path(
+            "characters",
+            "Alice",
+            project_path,
+            lambda key, **kw: key,
+        )
+        assert relative == "characters/Alice.png"
+        # helper 返回未 resolve 的 project_path/relative，故用同一入参 base 拼接断言。
+        assert current_file == project_path / "characters" / "Alice.png"
 
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
         project_path = tmp_path / "demo"

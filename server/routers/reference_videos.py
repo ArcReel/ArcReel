@@ -16,9 +16,10 @@ from pydantic import BaseModel, Field
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
+from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager, effective_mode
-from lib.reference_video import parse_prompt
+from lib.reference_video import assemble_shots_text, parse_prompt
 from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,15 @@ def _locked_episode_script(project_name: str, resolver: Callable[[dict], str], _
     except EpisodeScriptReboundError as exc:
         logger.info("episode script rebound during write: %s", exc)
         raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc
+    except ValueError as exc:
+        # 结构非法（如 shots↔duration 不一致）、集号错配、非法文件名都抛 ValueError
+        # （ScriptStructureValidationError 即其子类）：当场转 422，而非生成时才炸。
+        # EpisodeScriptReboundError(RuntimeError) 与 FileNotFoundError 不是 ValueError，
+        # 已被上面的 409 / 404 分支先行接住，不会落到这里。
+        raise HTTPException(
+            status_code=422,
+            detail=_t("script_validation_failed", details=str(exc)),
+        ) from exc
 
 
 def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) -> None:
@@ -318,16 +328,29 @@ async def generate_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     _project, script, script_file = _load_episode_script(project_name, episode, _t)
-    _find_unit(script, unit_id, _t)  # raises 404 if missing
+    unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
+
+    # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
+    # 不再漏到执行层失败（见 ADR-0001）。
+    try:
+        spec = TaskSpec.from_request(
+            task_type="reference_video",
+            media_type="video",
+            resource_id=unit_id,
+            prompt=assemble_shots_text(unit.get("shots") or []),
+            script_file=script_file,
+        )
+    except TaskSpecValidationError as exc:
+        raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
-        task_type="reference_video",
-        media_type="video",
-        resource_id=unit_id,
-        payload={"script_file": script_file},
-        script_file=script_file,
+        task_type=spec.task_type,
+        media_type=spec.media_type,
+        resource_id=spec.resource_id,
+        payload=spec.payload,
+        script_file=spec.script_file,
         source="webui",
         user_id=_user.id,
     )

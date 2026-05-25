@@ -37,7 +37,7 @@
 应用代码 logger.info(...)
    │
    ├─ StreamHandler → stdout（既有，不变）
-   └─ TimedRotatingFileHandler → app_data_dir()/logs/arcreel.log
+   └─ TimedRotatingFileHandler → PROJECT_ROOT/logs/arcreel.log
             │
             └─ 每日 midnight 切到 arcreel.log.YYYY-MM-DD，最多 7 份
 
@@ -75,7 +75,9 @@
 - 标记 `_HANDLER_ATTR = True` 保证幂等
 - 日志目录由新增函数 `resolve_log_dir()` 决定：
   1. `ARCREEL_LOG_DIR` env（绝对路径或相对 `PROJECT_ROOT`）
-  2. 默认 `app_data_dir() / "logs"`
+  2. 默认 `PROJECT_ROOT / "logs"`
+- 不放在 `app_data_dir()` 下：那一层同时是 `projects_root`，目录被枚举为视频项目列表，无前缀的兄弟目录会被错认为项目（容器部署用 `./logs:/app/logs` 单独挂出来）
+- 升级路径：`lib.logging_config.migrate_legacy_log_dir()` 在 `setup_logging()` 之前调用，把旧 `app_data_dir()/logs` 平移到新位置；新旧并存时告警保留
 - 首次启动 `mkdir(parents=True, exist_ok=True)`
 - 逃生口：`ARCREEL_LOG_FILE_DISABLED` 取值 `1` / `true` / `yes`（大小写不敏感）时跳过 file handler 注册
 - **容错**：mkdir 或 FileHandler 构造异常时 catch + `logging.getLogger(__name__).warning("file logging disabled: %s", exc)`，stdout 继续工作 — 日志辅助逻辑不阻塞主流程
@@ -162,9 +164,12 @@ async function downloadDiagnostics() {
 在现有 `# Logging` 区块下追加注释化变量：
 
 ```bash
-# Log file directory (default: $ARCREEL_DATA_DIR/logs)
-# Relative paths resolve against PROJECT_ROOT.
-# 日志文件目录（默认 $ARCREEL_DATA_DIR/logs），相对路径基于 PROJECT_ROOT。
+# Log file directory (default: $PROJECT_ROOT/logs)
+# Relative paths resolve against PROJECT_ROOT. Logs intentionally live OUTSIDE
+# the projects root: that root is enumerated as a list of video projects, so any
+# stray sibling directory would surface as a fake project in the UI.
+# 日志文件目录（默认 $PROJECT_ROOT/logs），相对路径基于 PROJECT_ROOT。
+# 刻意不放在项目根下：项目根会被枚举为视频项目列表，旁系目录会被错认为项目。
 # ARCREEL_LOG_DIR=
 
 # Disable file logging (default: false). When set to 1/true/yes, logs go only to stdout.
@@ -186,7 +191,7 @@ async function downloadDiagnostics() {
 ## 平台兼容
 
 - **Windows**：`TimedRotatingFileHandler` 单进程写无锁问题（uvicorn 默认 worker=1）；路径用 pathlib，IO 显式 `encoding="utf-8"`；zip 用标准 `ZipFile`（自带 UTF-8 文件名支持）
-- **Sandbox**：日志写在 `app_data_dir()` 下，已是 bwrap 白名单的写路径，无需额外声明
+- **Sandbox**：日志写在 `PROJECT_ROOT/logs` 下，作为 server 进程写路径需在 bwrap 白名单中（默认 PROJECT_ROOT 整树可写已涵盖）；同时该路径在 `SessionManager._compute_sensitive_paths` 里登记为 sensitive prefix，agent 工具无法 Read/Grep 全局日志
 - **Docker / journald**：stdout 不变，外部收集器零感知
 
 ## 测试

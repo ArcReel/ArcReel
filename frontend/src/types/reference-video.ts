@@ -87,7 +87,6 @@ export interface ReferenceVideoScript {
   /** 参考视频集固定 "reference_video"；由后端 ScriptGenerator 注入。 */
   generation_mode?: "reference_video";
   duration_seconds: number;
-  summary: string;
   schema_version?: number;
   novel: { title: string; chapter: string };
   video_units: ReferenceVideoUnit[];

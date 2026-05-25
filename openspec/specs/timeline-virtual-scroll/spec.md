@@ -1,14 +1,14 @@
 # timeline-virtual-scroll Specification
 
 ## Purpose
-TBD - created by archiving change timeline-perf-and-notifications. Update Purpose after archive.
+时间线分镜列表使用虚拟滚动（`@tanstack/react-virtual` 的 `useVirtualizer`），仅挂载视口附近的分镜行到 DOM，支持动态高度与原生图片懒加载，确保大量分镜时滚动流畅。实现于 `frontend/src/components/canvas/timeline/ShotList.tsx`。
 ## Requirements
 ### Requirement: 虚拟滚动渲染
-TimelineCanvas MUST 使用虚拟滚动技术渲染 SegmentCard 列表，仅将视口附近的 SegmentCard 挂载到 DOM 中。
+分镜列表（`ShotList`）MUST 使用虚拟滚动技术渲染分镜行，仅将视口附近的分镜行挂载到 DOM 中。
 
 #### Scenario: 大量分镜的初始加载
 - **WHEN** 用户打开包含 50 个分镜的剧集
-- **THEN** DOM 中仅渲染视口可见的 SegmentCard 加上 overscan 数量（约 8-12 个），而非全部 50 个
+- **THEN** DOM 中仅渲染视口可见的分镜行加上 overscan 数量（overscan 为 6），而非全部 50 个
 
 #### Scenario: 滚动浏览
 - **WHEN** 用户向下滚动时间线

@@ -17,6 +17,9 @@ from lib.data_validator import DataValidator, ValidationResult
 from lib.json_io import load_json
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager, effective_mode
+from lib.project_migrations.runner import migrate_project_dir
+from lib.resource_paths import resource_extension, resource_relative_path
+from lib.script_models import script_shape
 
 logger = logging.getLogger(__name__)
 
@@ -155,14 +158,6 @@ class ProjectArchiveService:
             "reference_videos",
         }
     )
-    _RESOURCE_EXTENSIONS = {
-        "storyboards": ".png",
-        "videos": ".mp4",
-        "characters": ".png",
-        "scenes": ".png",
-        "props": ".png",
-        "reference_videos": ".mp4",
-    }
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
     _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
@@ -286,6 +281,13 @@ class ProjectArchiveService:
                     )
 
                     self._ensure_standard_subdirs(staging_dir)
+
+                    # 在安装前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend）：
+                    # 启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的旧归档需在此补跑，
+                    # 否则解析链不再读 legacy 字段会让该项目静默回退全局默认。放在安装**前** → 迁移若抛错，
+                    # staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目目录，无需回滚已落盘安装。
+                    migrate_project_dir(staging_dir)
+
                     self._install_project_dir(
                         staging_dir,
                         target_name,
@@ -711,9 +713,10 @@ class ProjectArchiveService:
             )
             return script_changed or units_changed, project_changed or units_project_changed
 
-        items_key = "segments" if content_mode == "narration" else "scenes"
-        id_field = "segment_id" if content_mode == "narration" else "scene_id"
-        chars_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
+        shape = script_shape(content_mode)
+        items_key = shape.items_key
+        id_field = shape.id_field
+        chars_field = shape.chars_field
 
         raw_items = script_payload.get(items_key)
         if not isinstance(raw_items, list):
@@ -800,10 +803,7 @@ class ProjectArchiveService:
                         project_dir,
                         assets,
                         field_name=field_name,
-                        canonical_rel=self._canonical_resource_path(
-                            resource_type,
-                            resource_id,
-                        ),
+                        canonical_rel=resource_relative_path(resource_type, resource_id),
                         location=f"{location_prefix}.generated_assets.{field_name}",
                         diagnostics=diagnostics,
                         resource_type=resource_type,
@@ -946,7 +946,7 @@ class ProjectArchiveService:
                 project_dir,
                 assets,
                 field_name="video_clip",
-                canonical_rel=self._canonical_resource_path("reference_videos", resource_id),
+                canonical_rel=resource_relative_path("reference_videos", resource_id),
                 location=f"{location_prefix}.generated_assets.video_clip",
                 diagnostics=diagnostics,
                 resource_type="reference_videos",
@@ -1128,7 +1128,7 @@ class ProjectArchiveService:
             return None
 
         prefix = f"{resource_id}_v"
-        extension = self._RESOURCE_EXTENSIONS[resource_type]
+        extension = resource_extension(resource_type)
         candidates: list[str] = []
         for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name):
             if candidate.is_file() and candidate.name.startswith(prefix) and candidate.suffix == extension:
@@ -1270,13 +1270,6 @@ class ProjectArchiveService:
                 return candidate.as_posix()
 
         return None
-
-    @classmethod
-    def _canonical_resource_path(cls, resource_type: str, resource_id: str) -> str:
-        extension = cls._RESOURCE_EXTENSIONS[resource_type]
-        if resource_type in {"storyboards", "videos"}:
-            return f"{resource_type}/scene_{resource_id}{extension}"
-        return f"{resource_type}/{resource_id}{extension}"
 
     def _load_json_file(self, path: Path) -> dict[str, Any] | None:
         real = os.path.realpath(path)

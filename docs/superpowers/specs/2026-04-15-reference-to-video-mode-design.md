@@ -29,7 +29,7 @@
 
 - **四家供应商全覆盖**：Ark Seedance 2.0 / 2.0 fast（首推）、Grok grok-imagine-video、Gemini Veo、OpenAI Sora。
 - **项目级 + 集级**「生成模式」选择器（命名：**图生视频 / 宫格生视频 / 参考生视频**）。
-- 独立 Episode 脚本数据模型（`content_mode` 新增第三种值 `reference_video`，使用 `video_units[]` 替代 `segments[]/scenes[]`）。
+- 独立 Episode 脚本数据模型（脚本通过 `generation_mode == "reference_video"` 标识，使用 `video_units[]` 替代 `segments[]/scenes[]`）。
 - multi-shot prompt + `@` 提及式参考图语法。
 - 参考图上传/生成后调用前临时压缩（不落盘）。
 - 新路由 / 服务 / 任务 executor；复用现有 GenerationQueue + Worker + VideoBackends + MediaGenerator + UsageTracker。
@@ -89,18 +89,17 @@ GenerationModeSelector (三选)        ↓                                genera
 **`generation_mode` 与 `content_mode` 的关系**
 
 - `project.generation_mode` 是意图字段，UI / Agent 据此决定生成哪种形态的脚本。
-- `script.content_mode`（episode JSON 内字段）是脚本形态的 discriminator，三种取值：
-  - `"narration"` — 配合 `generation_mode ∈ {storyboard, grid}`，脚本含 `segments[]`
-  - `"drama"` — 配合 `generation_mode ∈ {storyboard, grid}`，脚本含 `scenes[]`
-  - `"reference_video"` — 配合 `generation_mode == "reference_video"`，脚本含 `video_units[]`
-- 当 `effective_mode == "reference_video"` 时，`project.content_mode` 字段被视为占位；脚本的 `content_mode` 强制为 `"reference_video"`。
+- 脚本（episode JSON）携 `content_mode` 与 `generation_mode` 两个独立维度字段，二者共同决定脚本形态：
+  - `content_mode ∈ {narration, drama}` — 内容类型维度，承载剧本结构（`segments[]` / `scenes[]`）
+  - `generation_mode` — 视频来源维度：`storyboard` / `grid` 用 `segments[]`/`scenes[]`；`reference_video` 用 `video_units[]`
+- 当 `effective_mode == "reference_video"` 时，脚本顶层 `generation_mode` 固定为 `"reference_video"`；`content_mode` 仍保留 narration/drama 取值但参考模式下不区分（占位，由 `_add_metadata` 注入）。两字段都对 LLM 隐藏（`SkipJsonSchema`）。
 
 ### 4.2 `ReferenceVideoScript` Pydantic 模型（`lib/script_models.py`）
 
 ```python
 class Shot(BaseModel):
     duration: int = Field(ge=1, le=15, description="该镜头时长（秒）")
-    text: str = Field(description="镜头描述，可包含 @角色/@场景 引用")
+    text: str = Field(description="镜头描述，可包含 @角色/@场景/@道具 引用")
 
 class ReferenceResource(BaseModel):
     type: Literal["character", "scene", "prop"] = Field(description="引用的资源类型")
@@ -108,19 +107,24 @@ class ReferenceResource(BaseModel):
 
 class ReferenceVideoUnit(BaseModel):
     unit_id: str = Field(description="格式 E{集}U{序号}")
-    shots: list[Shot] = Field(min_length=1, description="1-4 个 shot")
-    references: list[ReferenceResource] = Field(description="按顺序决定 [图N] 编号")
+    shots: list[Shot] = Field(min_length=1, max_length=4, description="1-4 个 shot")
+    references: list[ReferenceResource] = Field(default_factory=list, description="按顺序决定 [图N] 编号")
     duration_seconds: int = Field(description="派生字段：所有 shot 时长之和")
-    duration_override: bool = Field(default=False, description="true 时停止自动派生")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = "cut"
-    note: str | None = None
-    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets)
+    # 以下对 LLM 隐藏（SkipJsonSchema）
+    duration_override: SkipJsonSchema[bool] = Field(default=False, description="true 时停止自动派生")
+    transition_to_next: TransitionType = Field(default="cut", description="转场类型")
+    note: SkipJsonSchema[str | None] = None
+    generated_assets: SkipJsonSchema[GeneratedAssets] = Field(default_factory=GeneratedAssets)
+
+    # @model_validator: duration_override=False 时校验 duration_seconds == sum(shot.duration)
 
 class ReferenceVideoScript(BaseModel):
-    episode: int
+    # 无 episode 字段——集号由 CLI 真相源通过 _add_metadata 写入
     title: str
-    content_mode: Literal["reference_video"]
-    duration_seconds: int = 0
+    # content_mode / generation_mode 均对 LLM 隐藏，由 _add_metadata 注入
+    content_mode: SkipJsonSchema[Literal["narration", "drama"]] = "narration"
+    generation_mode: SkipJsonSchema[Literal["reference_video"]] = "reference_video"
+    duration_seconds: SkipJsonSchema[int] = 0
     summary: str
     novel: NovelInfo
     video_units: list[ReferenceVideoUnit]
