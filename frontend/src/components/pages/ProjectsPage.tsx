@@ -34,6 +34,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { WARM_TONE } from "@/utils/severity-tone";
+import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
@@ -231,7 +232,7 @@ function Poster({ project, styleLabel, large = false }: PosterProps) {
             overflowWrap: "anywhere",
           }}
         >
-          {project.title?.trim() || t("untitled_project")}
+          {getProjectDisplayName(project.title, t("untitled_project"))}
         </div>
       </div>
     </div>
@@ -366,7 +367,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
   const propsStat = status?.props ?? { completed: 0, total: 0 };
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
-  const projectDisplayName = project.title?.trim() || t("dashboard:untitled_project");
+  const projectDisplayName = getProjectDisplayName(project.title, t("dashboard:untitled_project"));
 
   const { trackStyle, barStyle } = gradientProgressStyles(
     phase === "completed" ? "good" : "accent",
@@ -579,7 +580,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
             color: "var(--color-text)",
           }}
         >
-          {project.title?.trim() || t("dashboard:untitled_project")}
+          {getProjectDisplayName(project.title, t("dashboard:untitled_project"))}
         </h3>
         <div className="font-editorial relative italic text-text-3" style={{ fontSize: 15 }}>
           {styleLabel}
@@ -1213,11 +1214,17 @@ export function ProjectsPage() {
           .pushToast(
             autoFixedCount > 0
               ? t("dashboard:import_auto_fixed", {
-                  title: result.project.title?.trim() || t("dashboard:untitled_project"),
+                  title: getProjectDisplayName(
+                    result.project.title,
+                    t("dashboard:untitled_project"),
+                  ),
                   count: autoFixedCount,
                 })
               : t("dashboard:import_success", {
-                  title: result.project.title?.trim() || t("dashboard:untitled_project"),
+                  title: getProjectDisplayName(
+                    result.project.title,
+                    t("dashboard:untitled_project"),
+                  ),
                 }),
             "success",
           );
