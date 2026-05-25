@@ -9,6 +9,7 @@
 # JSON SCHEMA
 # {
 #   "pr": <int>,                                        # PR number
+#   "pr_created_at": "<ISO8601>",                       # PR createdAt (issue creation time) — distinct from last_push_at
 #   "head": "<sha>",                                    # current PR head commit SHA
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
 #   "coderabbit": {
@@ -96,7 +97,7 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
-gh pr view "$PR" --json number,headRefOid,reviews,comments,commits > "$TMPDIR/main.json" 2>/dev/null || {
+gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$TMPDIR/main.json" 2>/dev/null || {
   echo "POLL_ERROR: gh pr view $PR failed" >&2
   exit 5
 }
@@ -192,9 +193,10 @@ jq -n \
 
   # ---- main projection ----
   {
-    pr:           $main.number,
-    head:         $main.headRefOid,
-    last_push_at: ($main.commits | last.committedDate),
+    pr:            $main.number,
+    pr_created_at: $main.createdAt,
+    head:          $main.headRefOid,
+    last_push_at:  ($main.commits | last.committedDate),
 
     coderabbit: {
       walkthrough:    cr_walkthrough_rest,

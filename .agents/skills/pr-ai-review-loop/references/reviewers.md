@@ -17,7 +17,11 @@ Gemini Code Assist 是事件驱动的 review bot,两种事件下行为不同,本
 - **PR opened**:GitHub App 自动 review,通常 5 分钟内提交首条 review summary。本 skill 首轮 poll 应预留至少 180 秒 cold-start 等待,期间**不应**手动发送 `/gemini review`——重复触发会让 Gemini 再扫一遍,既消耗 quota,也容易引入第一次未提及的边缘建议。
 - **synchronize**(向已存在的 PR push 新 commit):Gemini 不会自动重新 review。当前 HEAD 上若需要 Gemini 重新审查,需要手动发送 `/gemini review`。
 
-判别方法:`gemini.reviews` 完全为空且 PR 创建时间在 5 分钟内,处于 cold-start,等待即可;`gemini.reviews` 非空但最新一条 `submittedAt < last_push_at` 且当前 HEAD 未发送过 `/gemini review`,则需要手动触发。
+判别方法(按 `poll.sh` 输出的 `pr_created_at` 与 `gemini.reviews`):
+
+- `gemini.reviews` 完全为空且 `pr_created_at` 距今不足 5 分钟 → cold-start 窗口内,等待即可
+- `gemini.reviews` 完全为空且 `pr_created_at` 距今已超过 5 分钟 → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),手动发送 `/gemini review`
+- `gemini.reviews` 非空但最新一条 `submittedAt < last_push_at`,且 `own_trigger_comments` 中 `/gemini review` 的最大 `createdAt ≤ last_push_at` → synchronize 场景,手动发送 `/gemini review`
 
 ## Codex 三种 ack 模式
 
