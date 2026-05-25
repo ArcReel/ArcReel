@@ -227,7 +227,6 @@ class TestDataValidator:
                 "scenes": [
                     {
                         "scene_id": "E2S01",
-                        "scene_type": "剧情",
                         "duration_seconds": 8,
                         "characters_in_scene": ["姜月茴"],
                         "scenes": ["古宅"],
@@ -346,7 +345,6 @@ class TestDataValidator:
                 "scenes": [
                     {
                         "scene_id": "E3S01",
-                        "scene_type": "剧情",
                         "duration_seconds": 8,
                         "characters_in_scene": ["姜月茴"],
                         "scenes": ["未知场景"],
@@ -362,3 +360,33 @@ class TestDataValidator:
         assert not result.valid
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
+
+    def test_legacy_scene_type_field_does_not_block_export(self, tmp_path):
+        """存量项目里残留 scene_type='对话'/'动作'/'过渡' 等任意值不该阻断导出。
+
+        scene_type 字段已废弃,validator 不再校验。
+        """
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("drama"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "x",
+                "content_mode": "drama",
+                "scenes": [
+                    {
+                        "scene_id": f"E1S{i:02d}",
+                        "scene_type": legacy_value,
+                        "duration_seconds": 8,
+                        "characters_in_scene": ["姜月茴"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                    for i, legacy_value in enumerate(["对话", "动作", "过渡", "剧情", "空镜", "随便写"], start=1)
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        assert result.valid, f"导出预检查不应被 scene_type 阻断,errors={result.errors}"

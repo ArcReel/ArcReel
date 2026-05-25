@@ -118,13 +118,11 @@ class TestScriptModels:
     def test_episode_models_build_successfully(self):
         narration = NarrationEpisodeScript(
             title="第一集",
-            summary="摘要",
             novel={"title": "小说", "chapter": "1"},
             segments=[],
         )
         drama = DramaEpisodeScript(
             title="第一集",
-            summary="摘要",
             novel={"title": "小说", "chapter": "1"},
             scenes=[
                 DramaScene(
@@ -216,3 +214,95 @@ class TestLLMSchemaExclusion:
         )
         assert seg.note == "用户标注"
         assert seg.generated_assets.status == "completed"
+
+    def test_schema_excludes_scene_type_summary_content_mode_novel_transition(self):
+        """LLM 不该看到 scene_type / summary / content_mode / novel / transition_to_next。
+
+        前 4 个由 _add_metadata 注入或彻底无消费；transition_to_next 由 Pydantic default="cut"
+        兜底,FE PATCH 路径独立。
+        """
+        from lib.script_models import (
+            DramaEpisodeScript,
+            NarrationEpisodeScript,
+            ReferenceVideoScript,
+        )
+
+        for model in (NarrationEpisodeScript, DramaEpisodeScript, ReferenceVideoScript):
+            schema = model.model_json_schema()
+            keys = self._all_keys(schema)
+            top_props = set(schema["properties"].keys())
+            assert "summary" not in top_props, f"{model.__name__} 顶层不应有 summary"
+            assert "novel" not in top_props, f"{model.__name__} 顶层不应有 novel"
+            assert "content_mode" not in top_props, f"{model.__name__} 顶层不应有 content_mode"
+            assert "scene_type" not in keys, f"{model.__name__} 不应有 scene_type"
+            assert "transition_to_next" not in keys, f"{model.__name__} 不应有 transition_to_next"
+
+
+class TestRuntimeBackwardCompat:
+    """LLM schema 隐藏的字段在 Python 端 model_validate 时仍能接受旧数据,并由 default 兜底。"""
+
+    def test_drama_scene_accepts_legacy_scene_type_field(self):
+        """存量项目里残留 scene_type 字段不该让 model_validate 炸。"""
+        scene = DramaScene.model_validate(
+            {
+                "scene_id": "E1S01",
+                "duration_seconds": 8,
+                "characters_in_scene": ["王"],
+                "image_prompt": {
+                    "scene": "s",
+                    "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                },
+                "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                "scene_type": "对话",
+            }
+        )
+        assert scene.scene_id == "E1S01"
+        assert not hasattr(scene, "scene_type")
+
+    def test_episode_models_validate_without_optional_fields(self):
+        """LLM 不写 content_mode / novel / summary 时,model_validate 仍应成功并用 default 兜底。"""
+        drama = DramaEpisodeScript.model_validate(
+            {
+                "title": "第一集",
+                "scenes": [
+                    {
+                        "scene_id": "E1S01",
+                        "characters_in_scene": ["A"],
+                        "image_prompt": {
+                            "scene": "s",
+                            "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                        },
+                        "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                    }
+                ],
+            }
+        )
+        assert drama.content_mode == "drama"
+        assert drama.novel.title == ""
+        assert drama.novel.chapter == ""
+
+        narration = NarrationEpisodeScript.model_validate(
+            {
+                "title": "第一集",
+                "segments": [],
+            }
+        )
+        assert narration.content_mode == "narration"
+        assert narration.novel.title == ""
+
+    def test_segment_transition_to_next_defaults_to_cut(self):
+        """LLM 不写 transition_to_next 时,default='cut' 兜底。"""
+        seg = NarrationSegment.model_validate(
+            {
+                "segment_id": "E1S01",
+                "duration_seconds": 4,
+                "novel_text": "x",
+                "characters_in_segment": [],
+                "image_prompt": {
+                    "scene": "s",
+                    "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                },
+                "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+            }
+        )
+        assert seg.transition_to_next == "cut"

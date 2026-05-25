@@ -74,7 +74,6 @@ def test_reference_video_script_valid():
         title="江湖夜话",
         content_mode="narration",
         duration_seconds=8,
-        summary="主角闯江湖。",
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )
@@ -88,7 +87,6 @@ def test_reference_video_script_accepts_drama_content_mode():
     script = ReferenceVideoScript(
         title="剧集",
         content_mode="drama",
-        summary="x",
         novel=NovelInfo(title="x", chapter="x"),
         video_units=[_make_unit()],
     )
@@ -102,7 +100,6 @@ def test_reference_video_script_rejects_legacy_reference_video_content_mode():
         ReferenceVideoScript(
             title="x",
             content_mode="reference_video",
-            summary="x",
             novel=NovelInfo(title="x", chapter="x"),
             video_units=[_make_unit()],
         )

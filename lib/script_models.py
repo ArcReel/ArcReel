@@ -107,7 +107,9 @@ class NarrationSegment(BaseModel):
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: TransitionType = Field(default="cut", description="转场类型")
+    # transition_to_next 由 _add_metadata default + 用户 PATCH 路径(projects.py UpdateSegmentRequest)管理;
+    # LLM 无 prompt 引导,隐藏避免乱填污染剪映/compose-video 合成
+    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 以下字段对 LLM 隐藏（SkipJsonSchema）：note 是人工备注、generated_assets 是 post-LLM 运行时状态。
     # 仍保留在 Pydantic 模型里以便存储 / 校验，但不出现在 response_schema 中，避免 LLM 填污染数据。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
@@ -117,10 +119,15 @@ class NarrationSegment(BaseModel):
 
 
 class NovelInfo(BaseModel):
-    """小说来源信息"""
+    """小说来源信息
 
-    title: str = Field(description="小说标题")
-    chapter: str = Field(description="章节名称")
+    title/chapter 都带 default,以便 SkipJsonSchema[NovelInfo] 的 default_factory=NovelInfo 构造。
+    真实值由 ``ScriptGenerator._add_metadata`` setdefault 注入(项目 title + ``f"第N集"``);
+    LLM 不再被引导填写,避免虚构章节名污染 compose-video 的输出 mp4 文件命名。
+    """
+
+    title: str = Field(default="", description="小说标题")
+    chapter: str = Field(default="", description="章节名称")
 
 
 class NarrationEpisodeScript(BaseModel):
@@ -132,11 +139,12 @@ class NarrationEpisodeScript(BaseModel):
     """
 
     title: str = Field(description="剧集标题")
-    content_mode: Literal["narration"] = Field(default="narration", description="内容模式")
+    # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
+    content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="内容模式")
     # 顶层 duration_seconds 由 ScriptGenerator._add_metadata 求各段之和重算，LLM 填的值会被覆盖；隐藏避免冗余。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
-    summary: str = Field(description="剧集摘要")
-    novel: NovelInfo = Field(description="小说来源信息")
+    # novel 由 _add_metadata 注入 {项目 title, f"第N集"};compose-video 用 chapter 作输出文件名,LLM 自由发挥反而不可预测
+    novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     segments: list[NarrationSegment] = Field(description="片段列表")
 
 
@@ -149,13 +157,13 @@ class DramaScene(BaseModel):
     scene_id: str = Field(description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
-    scene_type: str = Field(default="剧情", description="场景类型")
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: TransitionType = Field(default="cut", description="转场类型")
+    # 见 NarrationSegment.transition_to_next 说明
+    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
@@ -171,11 +179,12 @@ class DramaEpisodeScript(BaseModel):
     """
 
     title: str = Field(description="剧集标题")
-    content_mode: Literal["drama"] = Field(default="drama", description="内容模式")
+    # 见 NarrationEpisodeScript.content_mode 说明
+    content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="内容模式")
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
-    summary: str = Field(description="剧集摘要")
-    novel: NovelInfo = Field(description="小说来源信息")
+    # 见 NarrationEpisodeScript.novel 说明
+    novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     scenes: list[DramaScene] = Field(description="场景列表")
 
 
@@ -206,9 +215,9 @@ class ReferenceVideoUnit(BaseModel):
         description="按顺序决定 [图N] 编号",
     )
     duration_seconds: int = Field(description="派生字段：所有 shot 时长之和")
-    # duration_override / note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
+    # duration_override / transition_to_next / note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
     duration_override: SkipJsonSchema[bool] = Field(default=False, description="true 时停止自动派生")
-    transition_to_next: TransitionType = Field(default="cut", description="转场类型")
+    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
@@ -247,8 +256,8 @@ class ReferenceVideoScript(BaseModel):
     )
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
-    summary: str = Field(description="剧集摘要")
-    novel: NovelInfo = Field(description="小说来源信息")
+    # 见 NarrationEpisodeScript.novel 说明
+    novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
 
 

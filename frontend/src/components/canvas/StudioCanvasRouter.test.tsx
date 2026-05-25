@@ -177,7 +177,6 @@ function makeScript(): EpisodeScript {
     title: "EP1",
     content_mode: "narration",
     duration_seconds: 4,
-    summary: "summary",
     novel: { title: "n", chapter: "1" },
     segments: [
       {

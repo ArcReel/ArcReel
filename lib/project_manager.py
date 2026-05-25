@@ -854,7 +854,6 @@ class ProjectManager:
             "scene_id": scene_id,
             "episode": episode,
             "title": "",
-            "scene_type": "剧情",
             "duration_seconds": duration_seconds,
             "segment_break": False,
             "characters_in_scene": [],
@@ -870,7 +869,6 @@ class ProjectManager:
             "action": "",
             "dialogue": {"speaker": "", "text": "", "emotion": "neutral"},
             "audio": {"dialogue": [], "narration": "", "sound_effects": []},
-            "transition_to_next": "cut",
             "generated_assets": ProjectManager.create_generated_assets(),
         }
 
@@ -920,14 +918,12 @@ class ProjectManager:
         top_level_defaults = {
             "episode": episode,
             "title": "",
-            "scene_type": "剧情",
             "segment_break": False,
             "characters_in_scene": [],
             "scenes": [],
             "props": [],
             "action": "",
             "dialogue": template["dialogue"],
-            "transition_to_next": "cut",
         }
 
         for key, default_value in top_level_defaults.items():
@@ -999,7 +995,6 @@ class ProjectManager:
             "episode": episode,
             "title": script.get("novel", {}).get("chapter", ""),
             "duration_seconds": 0,
-            "summary": "",
         }
 
         for key, default_value in script_defaults.items():

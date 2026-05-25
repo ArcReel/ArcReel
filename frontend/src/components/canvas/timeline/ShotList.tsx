@@ -29,12 +29,15 @@ function getSegmentId(seg: Segment, mode: "narration" | "drama"): string {
 
 function getSegmentText(seg: Segment, mode: "narration" | "drama"): string {
   if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
-  // drama 模式：显示 scene_type 或 image_prompt.scene 作为预览
-  const drama = seg as DramaScene;
-  if (drama.scene_type) return drama.scene_type;
-  const ip = drama.image_prompt;
+  // drama 模式：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
+  // 校验 scene 是 string 而非仅 key 存在 —— 类型允许 ImagePrompt | string，且实际数据中
+  // scene 可能为 null/undefined（手编 JSON、半生成态），返回 null 后下游 toLowerCase() 会炸。
+  const ip = (seg as DramaScene).image_prompt;
   if (typeof ip === "string") return ip;
-  if (ip && typeof ip === "object" && "scene" in ip) return (ip as { scene: string }).scene;
+  if (ip && typeof ip === "object") {
+    const scene = (ip as { scene?: unknown }).scene;
+    if (typeof scene === "string") return scene;
+  }
   return "";
 }
 

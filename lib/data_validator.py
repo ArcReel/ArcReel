@@ -44,7 +44,6 @@ class DataValidator:
     # content_mode 严格只表达"内容类型"；"视频来源"维度由 generation_mode 字段
     # 表达，通过 project_manager.effective_mode 解析。
     VALID_CONTENT_MODES = {"narration", "drama"}
-    VALID_SCENE_TYPES = {"剧情", "空镜"}
     VALID_SHOT_DURATION_RANGE = (1, 15)
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
@@ -425,12 +424,6 @@ class DataValidator:
                 errors.append(f"{prefix}: 缺少必填字段 scene_id")
             elif not self.ID_PATTERN.match(scene_id):
                 errors.append(f"{prefix}: scene_id 格式错误 '{scene_id}'，应为 E{{n}}S{{nn}}")
-
-            scene_type = scene.get("scene_type")
-            if not scene_type:
-                errors.append(f"{prefix}: 缺少必填字段 scene_type")
-            elif scene_type not in self.VALID_SCENE_TYPES:
-                errors.append(f"{prefix}: scene_type 值无效 '{scene_type}'，必须是 {self.VALID_SCENE_TYPES}")
 
             duration = scene.get("duration_seconds")
             if duration is None:

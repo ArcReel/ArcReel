@@ -27,7 +27,6 @@ def _narration(segments: list[dict] | None = None) -> dict:
     return {
         "title": "标题",
         "content_mode": "narration",
-        "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "segments": segments if segments is not None else [_segment()],
     }
@@ -37,7 +36,6 @@ def _scene(scene_id: str = "E1S01", duration: int = 8) -> dict:
     return {
         "scene_id": scene_id,
         "duration_seconds": duration,
-        "scene_type": "剧情",
         "characters_in_scene": ["角色A"],
         "image_prompt": {
             "scene": "场景描述",
@@ -51,7 +49,6 @@ def _drama(scenes: list[dict] | None = None) -> dict:
     return {
         "title": "标题",
         "content_mode": "drama",
-        "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "scenes": scenes if scenes is not None else [_scene()],
     }
@@ -74,7 +71,6 @@ def _reference(units: list[dict] | None = None, content_mode: str = "narration")
         "title": "标题",
         "content_mode": content_mode,
         "generation_mode": "reference_video",
-        "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "video_units": units if units is not None else [_unit()],
     }
@@ -130,10 +126,10 @@ class TestModeDetection:
 class TestInvalidNarration:
     def test_missing_required_top_field(self):
         script = _narration()
-        del script["summary"]
+        del script["title"]
         result = validate_script_structure(script)
         assert not result.valid
-        assert any("summary" in e for e in result.errors)
+        assert any("title" in e for e in result.errors)
 
     def test_missing_segment_required_field(self):
         seg = _segment()
