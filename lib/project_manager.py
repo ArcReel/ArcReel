@@ -136,12 +136,15 @@ class ProjectManager:
         CJK 标题经 NFKD + ascii ignore 后会丢光汉字;若结果不包含任何字母
         （纯空 / 仅夹在标题里的孤立数字,如「第1集」→ "1"),退化为中性
         前缀 ``proj``,避免产生 ``1-<hex>`` 这种看似有意义实则误导的 slug。
+
+        注意 truncate 必须在 letter 校验之前:像 ``"1-2345...23abc"``(>24 字符,
+        字母在尾部) 截前 24 后会只剩数字,这种结果同样应塌成 ``proj``。
         """
         ascii_text = unicodedata.normalize("NFKD", str(title).strip()).encode("ascii", "ignore").decode("ascii")
-        slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()
+        slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()[:24]
         if not slug or not any(c.isalpha() for c in slug):
             return "proj"
-        return slug[:24]
+        return slug
 
     def generate_project_name(self, title: str | None = None) -> str:
         """Generate a unique internal project identifier."""

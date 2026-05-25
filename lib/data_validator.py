@@ -163,8 +163,10 @@ class DataValidator:
         errors: list[str],
         warnings: list[str],
     ) -> None:
-        if "title" not in project or not isinstance(project["title"], str):
+        if "title" not in project:
             errors.append("缺少必填字段: title")
+        elif not isinstance(project["title"], str):
+            errors.append("字段类型错误: title 应为字符串")
 
         content_mode = project.get("content_mode")
         if not content_mode:

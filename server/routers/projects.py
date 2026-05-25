@@ -394,12 +394,13 @@ async def list_projects(_user: CurrentUser):
                     # 使用 StatusCalculator 计算进度（读时计算）
                     status = calculator.calculate_project_status(name, project, preloaded_scripts=preloaded_scripts)
 
+                    raw_title = project.get("title")
                     projects.append(
                         {
                             "name": name,
-                            # title 缺失/空时返回空串,由前端 i18n 兜底显示「未命名项目」,
-                            # 避免把 slug 风格的 name 当成显示名暴露给用户。
-                            "title": project.get("title", ""),
+                            # title 缺失/为 None/类型异常时统一归一为空串,前端 i18n
+                            # 兜底显示「未命名项目」,确保接口契约始终返回 str。
+                            "title": raw_title if isinstance(raw_title, str) else "",
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
                             "style_image": project.get("style_image"),

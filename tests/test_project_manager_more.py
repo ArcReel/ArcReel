@@ -130,6 +130,13 @@ class TestProjectManagerMore:
         assert pm.normalize_project_name(second) == second
         assert pm.normalize_project_name(third) == third
 
+    def test_generate_project_name_truncates_before_letter_check(self, tmp_path):
+        # 长 ASCII 标题前 24 字符全是数字/连字符、字母被截掉时,应塌成 proj-,
+        # 而不是返回 "1234567890-1234567890-12" 这种纯数字 slug。
+        pm = ProjectManager(tmp_path / "projects")
+        candidate = pm.generate_project_name("1234567890-1234567890-1234-letters")
+        assert candidate.startswith("proj-")
+
     def test_script_operations_and_scene_updates(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
