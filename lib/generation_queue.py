@@ -135,11 +135,11 @@ class GenerationQueue:
         self,
         media_type: str,
         *,
-        has_room_providers: frozenset[str] | None = None,
+        pool_full_providers: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         async with self._session_factory() as session:
             repo = TaskRepository(session)
-            task = await repo.claim_next(media_type, has_room_providers=has_room_providers)
+            task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task

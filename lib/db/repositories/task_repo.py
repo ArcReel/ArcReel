@@ -185,27 +185,29 @@ class TaskRepository(BaseRepository):
         self,
         media_type: str,
         *,
-        has_room_providers: frozenset[str] | None = None,
+        pool_full_providers: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         """领取下一个 queued 任务。
 
-        ``has_room_providers`` 为本 cycle 还有池容量的 provider_id 集合：
-        - ``None`` —— 不做 provider 过滤（向后兼容/无池信息时退化为原行为）
-        - 空集合 / 非空集合 —— 只 claim 已知列在集合内的行；
-          ``provider_id IS NULL`` 的老数据始终走兜底路径（claim 后由 worker
-          二次 ``_extract_provider`` 派生 provider 再校验池）。
+        ``pool_full_providers`` 为本 cycle 已知池满的 provider_id 集合（黑名单语义）：
+        - ``None`` / 空集合 —— 不做 provider 过滤
+        - 非空集合 —— 排除这些 provider 的任务。``provider_id IS NULL`` 的老数据和
+          ``provider_id`` 不在已知池集合里的任务（例如自定义 provider 被删除）都不会
+          被排除，worker claim 后由 ``_extract_provider`` 派生 provider 再校验。
+
+        采用黑名单语义而非白名单（早期实现）的原因：白名单会把"已知但未在当前
+        ``_pools`` 里的 provider"任务永久过滤掉（例如自定义 provider 被禁用 / 删除），
+        导致静默堆积。黑名单只排除已知池满，未知 provider 任务正常 claim 走 worker
+        二次解析（解析失败走 mark_failed 兜底，不会无声卡死）。
         """
         now = utc_now()
 
         params: dict[str, Any] = {"media_type": media_type}
         provider_filter = ""
-        if has_room_providers is not None:
-            if has_room_providers:
-                # SQLite/PG 都支持 expanding bindparam：list 形式 + IN (:providers)
-                provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id IN :providers)"
-                params["providers"] = tuple(has_room_providers)
-            else:
-                provider_filter = "AND tasks.provider_id IS NULL"
+        if pool_full_providers:
+            # SQLite/PG 都支持 expanding bindparam：list 形式 + NOT IN (:providers)
+            provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
+            params["providers"] = tuple(pool_full_providers)
 
         # Use raw SQL for the dependency join (clearer than ORM for self-join)
         raw_stmt = text(f"""

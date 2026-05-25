@@ -233,8 +233,8 @@ class TestRepoStateMachineGuards:
         statuses = {o["task_id"]: o["status"] for o in orphans}
         assert statuses == {t1["task_id"]: "running", t2["task_id"]: "cancelling"}
 
-    async def test_claim_next_filters_by_has_room_providers(self, db_session):
-        """claim_next 接 has_room_providers 时按集合过滤；空集合只领 IS NULL 数据。"""
+    async def test_claim_next_excludes_pool_full_providers(self, db_session):
+        """claim_next 用 pool_full_providers 黑名单：排除池满 provider；NULL 和未知 provider 不受影响。"""
         repo = TaskRepository(db_session)
         # provider_id 显式 set 为 'gemini-aistudio'
         t1 = await repo.enqueue(
@@ -255,13 +255,29 @@ class TestRepoStateMachineGuards:
             payload={},
             script_file="ep1.json",
         )
-        # has_room_providers 不含 gemini → 应只领到 t2（IS NULL）
-        first = await repo.claim_next("image", has_room_providers=frozenset())
+        # 未知 provider（例如自定义 provider 已被删除，DB 仍留有 provider_id）
+        t3 = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="r3",
+            payload={},
+            script_file="ep1.json",
+            provider_id="custom-deleted",
+        )
+        # gemini 池满 → 黑名单含 gemini-aistudio，应跳过 t1，FIFO 领 t2（NULL）
+        first = await repo.claim_next("image", pool_full_providers=frozenset({"gemini-aistudio"}))
         assert first is not None
         assert first["task_id"] == t2["task_id"]
 
-        # 同 None 不过滤 → 应能领到剩下 t1
+        # 继续：仍然只 gemini 池满，t1 不能领，t3（custom-deleted 不在黑名单）应被领
         await repo.mark_succeeded(t2["task_id"], {})
-        second = await repo.claim_next("image", has_room_providers=None)
+        second = await repo.claim_next("image", pool_full_providers=frozenset({"gemini-aistudio"}))
         assert second is not None
-        assert second["task_id"] == t1["task_id"]
+        assert second["task_id"] == t3["task_id"], "未知 provider（已删除的自定义 provider）不应被白名单/黑名单误过滤"
+
+        # 黑名单清空 → t1 可领
+        await repo.mark_succeeded(t3["task_id"], {})
+        third = await repo.claim_next("image", pool_full_providers=None)
+        assert third is not None
+        assert third["task_id"] == t1["task_id"]

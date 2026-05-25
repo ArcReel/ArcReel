@@ -119,8 +119,12 @@ class GeminiVideoBackend:
 
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
-        if op_name:
-            await persist_job_id_if_in_task_context(op_name)
+        if not op_name:
+            # fail-fast：缺 operation.name 意味着 submit 成功但无法持久化 provider_job_id，
+            # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是 ADR 0007
+            # 要避免的重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
+            raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
+        await persist_job_id_if_in_task_context(op_name)
         return await self._poll_until_done(operation, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

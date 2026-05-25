@@ -30,6 +30,21 @@ from lib.generation_queue import (
 DEFAULT_PROVIDER = "gemini-aistudio"
 
 
+def _non_resumable_video_providers() -> frozenset[str]:
+    """不实现 VideoBackend.resume_video 的视频 provider 集合。
+
+    orphan handler 据此把这些 provider 的 running 孤儿回队重跑而非走 resume 路径
+    （Grok 同步型无 job_id；Vidu 因 generate 内联 poll 未抽出独立 resume，列为
+    follow-up）。新增不支持 resume 的 backend 时同步在这里登记。
+    """
+    from lib.providers import PROVIDER_GROK, PROVIDER_VIDU
+
+    return frozenset({PROVIDER_GROK, PROVIDER_VIDU})
+
+
+NON_RESUMABLE_VIDEO_PROVIDERS = _non_resumable_video_providers()
+
+
 def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     raw = os.environ.get(name)
     if raw is None:
@@ -372,32 +387,34 @@ class GenerationWorker:
                 await self.queue.release_worker_lease(name=self.lease_name, owner_id=self.owner_id)
             self._owns_lease = False
 
-    def _has_room_providers(self, media_type: str) -> frozenset[str]:
-        """返回当前 cycle 仍有 ``media_type`` 池容量的 provider_id 集合（用于 claim SQL 过滤）。"""
+    def _pool_full_providers(self, media_type: str) -> frozenset[str]:
+        """返回当前 cycle ``media_type`` 池已满的 provider_id 集合（黑名单，用于 claim SQL）。
+
+        黑名单语义而非白名单：白名单会把"DB 里有 provider_id 但不在已知 pool 集合"
+        的任务（例如自定义 provider 已删除）永久过滤掉、静默堆积；黑名单只排除已知
+        池满，未知 provider 任务正常 claim 走 worker 二次解析。
+        """
         if media_type == "image":
-            return frozenset(pid for pid, p in self._pools.items() if p.has_image_room())
-        return frozenset(pid for pid, p in self._pools.items() if p.has_video_room())
+            return frozenset(pid for pid, p in self._pools.items() if not p.has_image_room())
+        return frozenset(pid for pid, p in self._pools.items() if not p.has_video_room())
 
     async def _claim_tasks(self) -> bool:
         """Claim tasks from queue and route to per-provider pools.
 
-        池满 task 不再 claim → requeue 反复刷屏（事故 #640 现场 684MB 日志）；
-        改为在 SQL 层按 ``has_room_providers`` 过滤，池满 task 始终保持 ``queued``。
-        老数据 ``provider_id IS NULL`` 走兜底路径，claim 后由 ``_extract_provider``
-        派生 provider 二次校验池容量（若仍满 → mark_failed，不回队不刷屏）。
+        池满 task 不再 claim → requeue 反复刷屏；改为在 SQL 层按
+        ``pool_full_providers`` 黑名单过滤，池满 task 始终保持 ``queued``。
+        ``provider_id IS NULL`` 老数据和未知 provider 任务不被过滤，claim 后由
+        worker 二次 ``_extract_provider`` 派生 provider 再校验池容量。
         """
         claimed_any = False
 
         for media_type in ("image", "video"):
-            has_room_providers = self._has_room_providers(media_type)
-            # 若所有已知 provider 池都满，且没有 provider_id IS NULL 的老数据可领取，则跳过
-            if not has_room_providers and not self._any_pool_has_room(media_type):
-                continue
-
             while True:
+                # 每轮重算池满集合：刚 claim 的任务可能让某 pool 进入满状态
+                pool_full = self._pool_full_providers(media_type)
                 task = await self.queue.claim_next_task(
                     media_type=media_type,
-                    has_room_providers=has_room_providers,
+                    pool_full_providers=pool_full,
                 )
                 if not task:
                     break
@@ -428,17 +445,19 @@ class GenerationWorker:
                     continue
 
                 if not has_room:
-                    # 老数据 (provider_id IS NULL) 通过 SQL 兜底走到这里：二次校验仍满 →
-                    # 回队让下次 cycle 再试（FIFO 顺序由 queued_at 维持）。绝不能 mark_failed:
-                    # 入队后 provider_id 才被派生，资料完整的任务也可能因为部署窗口 / 解析失败
-                    # 而 NULL，这条路径必须保持可重试。break 该 media_type 避免反复 claim 同 task。
+                    # NULL 老数据 / 未知 provider 通过 SQL 兜底走到这里：二次校验仍满
+                    # → 回队让下次 cycle 再试（FIFO 顺序由 queued_at 维持）。绝不能
+                    # mark_failed：入队后 provider_id 才被派生，资料完整的任务也可能
+                    # 因部署窗口 / 解析失败而 NULL，这条路径必须保持可重试。
                     logger.info(
-                        "老数据兜底：供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
+                        "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
                         provider_id,
                         media_type,
                         task["task_id"],
                     )
                     await self._requeue_single_task(task["task_id"])
+                    # break 当前 media_type 循环：下一轮 SQL 会按重算的 pool_full
+                    # 过滤掉这个 provider，避免反复 claim 同一 task
                     break
 
                 # Dispatch to pool
@@ -449,17 +468,12 @@ class GenerationWorker:
                     name=f"generation-{media_type}-{task['task_id']}",
                 )
 
-                # 重算 has_room_providers，并检查 media_type 是否还有空位
-                has_room_providers = self._has_room_providers(media_type)
-                if not has_room_providers and not self._any_pool_has_room(media_type):
-                    break
-
         return claimed_any
 
     async def _requeue_single_task(self, task_id: str) -> None:
         """Put a claimed (running) task back to queued status.
 
-        正常路径下大多数池满任务通过 ``has_room_providers`` SQL 过滤在 claim 阶段被
+        正常路径下大多数池满任务通过 ``pool_full_providers`` SQL 过滤在 claim 阶段被
         排除；当 ``provider_id IS NULL`` 走 IS NULL 兜底而 worker 二次校验发现池满时，
         本方法把任务放回 queued 等下次 cycle 重试（不可 mark_failed——派生 provider 在
         入队后才发生，NULL 不等于"无效任务"）。
@@ -562,9 +576,31 @@ class GenerationWorker:
 
         与 ``_process_task`` 共用 finally 协议；backend.generate 内部检测 _RESUME_JOB_ID
         会跳过 submit 直接走 resume_video 接续轮询（ADR 0007）。
+
+        provider 锁定：把持久化的 ``task["provider_id"]`` 注入 payload 的
+        ``video_provider`` / ``image_provider``，让 ``ConfigResolver`` 按持久化 provider
+        而非当前项目配置解析 backend。否则任务提交后到重启前若项目 provider 配置切换，
+        会拿旧 ``provider_job_id`` 去新 provider 轮询，导致可恢复任务被误判失败。
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
+
+        # 锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
+        # _trusted_payload_provider 会拒绝不在 registry/custom 里的值，不可信时 resolver
+        # 回退默认，resume_video 大概率拿不到匹配的 job_id → 走 [resume_expired]，
+        # 比静默漂移好。
+        persisted_provider_id = task.get("provider_id")
+        if persisted_provider_id:
+            payload = task.get("payload")
+            if payload is None:
+                payload = {}
+                task["payload"] = payload
+            is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
+            if is_video:
+                payload["video_provider"] = persisted_provider_id
+            else:
+                payload["image_provider"] = persisted_provider_id
+
         provider_id = await _extract_provider(task)
         job_id = task.get("provider_job_id") or ""
         logger.info(
@@ -659,11 +695,6 @@ class GenerationWorker:
         resume 阶段绕过 pool has_room 校验：把 resume task 一次性插入 pool inflight 字典，
         期间 _claim_tasks 不接新 queued 任务（has_video_room() 返回 False）。
         """
-        from lib.providers import PROVIDER_GROK, PROVIDER_VIDU
-
-        # 不支持 resume_video 的 video backend：orphan 直接回队重跑（无 job_id 累计风险）
-        non_resumable_video_providers = {PROVIDER_GROK, PROVIDER_VIDU}
-
         orphans = await self.queue.list_orphan_tasks_on_start()
         if not orphans:
             return
@@ -694,7 +725,7 @@ class GenerationWorker:
 
             # video 路径：判断 provider 是否支持 resume
             provider_id = await _extract_provider(task)
-            if provider_id in non_resumable_video_providers:
+            if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
                 # Grok/Vidu 当前不实现 resume_video，没 job_id 可接续 → 回队重跑
                 logger.info(
                     "孤儿 video running (provider=%s 不支持 resume) → requeue: %s",

@@ -212,7 +212,7 @@ class ArkVideoBackend:
             poll_fn=lambda: asyncio.to_thread(self._client.content_generation.tasks.get, task_id=task_id),
             is_done=lambda r: r.status == "succeeded",
             is_failed=lambda r: (
-                f"Ark 视频生成失败: {getattr(r, 'error', None) or 'Unknown error'}"
+                f"Ark 视频生成失败(status={r.status}): {getattr(r, 'error', None) or 'Unknown error'}"
                 if r.status in ("failed", "expired")
                 else None
             ),

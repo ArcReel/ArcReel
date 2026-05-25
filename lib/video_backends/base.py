@@ -263,4 +263,4 @@ class VideoBackend(Protocol):
         ``[resume_unsupported]``。provider 端 job 过期/未找到抛 ``ResumeExpiredError``
         走 ``[resume_expired]``。
         """
-        ...
+        raise NotImplementedError
