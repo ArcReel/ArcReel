@@ -58,7 +58,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/poll.sh <PR_NUMBER>
 
 JSON 解析后**只放在对话上下文里**,不要落盘。下面三个状态字段的更新触发条件**各不相同**,分别描述:
 - `round_count` —— **只在本轮 `last_push_at` / HEAD SHA 与上一轮记录的不同时 +1**(初次进入算第 1 轮);HEAD 没变、仅仅是 wakeup 回来继续等 reviewer 出意见的 poll **不计**(一轮 = 一次"修复 → push → reviewer 回意见"周期,不是"poll 了多少次")
-- `topic_history` —— **每次 poll 拉到 reviewer 新意见时都追加**(不绑定 HEAD 切换);entry 形式建议 `{reviewer, round_count, 主题摘要}` —— reviewer 用于 line 26 的"同一家连提"判定,round_count 用于 line 152 收敛兜底 #3 的"≥ 3 轮"计数。**跨 HEAD 累积、不清空**:收敛兜底 #3 的"同一主题指纹连提 ≥ 3 轮"靠它跨 HEAD 比对(line 32 的语义相似度判同主题),清空就破坏了这个判定。同 HEAD 内多次 poll 拉到的同一条 reviewer comment 只入一次,避免噪声;初次进入或主题未出现过时直接追加,不用做相似度比对
+- `topic_history` —— **每次 poll 拉到 reviewer 新意见时都追加**(不绑定 HEAD 切换);entry 形式建议 `{reviewer, round_count, 主题摘要}`。其中 `reviewer` 用于「运行模式」B 节第一条的"同一家连提"判定,`round_count` 用于「收敛兜底」#3 的"≥ 3 轮"计数。**跨 HEAD 累积、不清空**:收敛兜底 #3 依赖跨 HEAD 的主题指纹比对(靠语义相似度判同主题),清空会破坏判定。同 HEAD 内多次 poll 拉到的同一条 reviewer comment 只入一次,避免噪声;初次进入或主题未出现过时直接追加,无需做相似度比对
 - `last_commit_shapes` —— **只在本轮 `last_push_at` / HEAD SHA 与上一轮记录的不同时追加**一条 Claude 看 `classify_commits.sh` 输出后概括的简短标签(如 `all_nit/format` / `contains_functional`),供收敛兜底 #2 判定;长度 ≤ 3 的滑窗
 
 ### 2. 对每家启用的 reviewer 决定动作
