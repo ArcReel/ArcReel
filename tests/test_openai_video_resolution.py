@@ -1,4 +1,4 @@
-"""测试 OpenAIVideoBackend resolution=None 时不传 size。"""
+"""测试 OpenAIVideoBackend 的 resolution → size 解析。"""
 
 from unittest.mock import MagicMock
 
@@ -17,7 +17,12 @@ def _make_backend():
 
 
 @pytest.mark.asyncio
-async def test_resolution_none_omits_size(tmp_path):
+@pytest.mark.parametrize(
+    "aspect,expected_size",
+    [("9:16", "720x1280"), ("16:9", "1280x720")],
+)
+async def test_resolution_none_falls_back_by_aspect(tmp_path, aspect, expected_size):
+    """resolution 未配置时按 aspect_ratio 兜底 720p size，保证比例不丢。"""
     backend = _make_backend()
     captured: dict = {}
 
@@ -30,7 +35,32 @@ async def test_resolution_none_omits_size(tmp_path):
     req = VideoGenerationRequest(
         prompt="x",
         output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16",
+        aspect_ratio=aspect,
+        duration_seconds=4,
+        resolution=None,
+    )
+    with pytest.raises(RuntimeError):
+        await backend.generate(req)
+
+    assert captured["size"] == expected_size
+
+
+@pytest.mark.asyncio
+async def test_resolution_none_unknown_aspect_omits_size(tmp_path):
+    """非 9:16 / 16:9 的 aspect_ratio 无兜底时仍不传 size（保留旧行为）。"""
+    backend = _make_backend()
+    captured: dict = {}
+
+    async def fake_create(**kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("stop")
+
+    backend._client.videos.create = fake_create
+
+    req = VideoGenerationRequest(
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="1:1",
         duration_seconds=4,
         resolution=None,
     )

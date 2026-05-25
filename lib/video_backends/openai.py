@@ -36,11 +36,26 @@ _SIZE_MAP: dict[tuple[str, str], str] = {
     ("1024p", "16:9"): "1792x1024",
 }
 
+# resolution=None 时按 aspect_ratio 兜底的最小 size。OpenAI 官方协议下 size 是唯一
+# 传比例的通道，不传则中转聚合（NewAPI / huitongkeji 等）会让各家上游用自己的默认
+# 比例，导致同一项目里输出比例横/方/竖随模型而变。720p 与 NewAPIVideoBackend 的
+# _DEFAULT_SIZE 一致，被所有上游模型接受。
+_FALLBACK_SIZE_BY_ASPECT: dict[str, str] = {
+    "9:16": "720x1280",
+    "16:9": "1280x720",
+}
+
 
 def _resolve_size(resolution: str | None, aspect_ratio: str) -> str | None:
-    """解析 size：None 不传；已知复合 key 映射；未知 → warning 后透传作为 size。"""
+    """解析 size：None → 按 aspect 兜底；已知复合 key 映射；未知 → warning 后透传。"""
     if resolution is None:
-        return None
+        fallback = _FALLBACK_SIZE_BY_ASPECT.get(aspect_ratio)
+        if fallback is None:
+            logger.warning(
+                "OpenAI video: resolution 未配置且 aspect=%r 无兜底，size 字段不传，比例由上游默认决定",
+                aspect_ratio,
+            )
+        return fallback
     mapped = _SIZE_MAP.get((resolution, aspect_ratio))
     if mapped is not None:
         return mapped
