@@ -17,7 +17,6 @@ from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
-    get_resume_job_id,
     persist_provider_job_id,
     poll_with_retry,
 )
@@ -98,12 +97,6 @@ class OpenAIVideoBackend:
         return VideoCapabilities(reference_images=True, max_reference_images=3)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # Resume 短路（共存阶段）：worker _process_resume_task 入口仍 set _RESUME_JOB_ID；
-        # 后续 commit 将 worker 改为直接调 backend.resume_video 后，此分支删除。
-        resume_id = get_resume_job_id()
-        if resume_id is not None:
-            return await self.resume_video(resume_id, request)
-
         kwargs: dict = {
             "prompt": request.prompt,
             "model": self._model,

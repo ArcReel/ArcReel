@@ -28,7 +28,6 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    get_resume_job_id,
     persist_provider_job_id,
     poll_with_retry,
 )
@@ -112,11 +111,6 @@ class NewAPIVideoBackend:
         return VideoCapabilities(reference_images=False, max_reference_images=0)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # Resume 短路（共存阶段，commit 3 切 worker 后删除）
-        resume_id = get_resume_job_id()
-        if resume_id is not None:
-            return await self.resume_video(resume_id, request)
-
         width, height = _resolve_size(request.resolution, request.aspect_ratio)
         payload: dict = {
             "model": self._model,

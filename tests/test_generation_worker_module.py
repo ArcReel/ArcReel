@@ -833,13 +833,15 @@ class TestGenerationWorker:
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
         captured_task: dict | None = None
+        captured_job_id: str | None = None
 
-        async def _fake_execute(task):
-            nonlocal captured_task
+        async def _fake_resume(task, *, job_id):
+            nonlocal captured_task, captured_job_id
             captured_task = task
+            captured_job_id = job_id
             return {"ok": True}
 
-        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _fake_execute)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _fake_resume)
 
         task = {
             "task_id": "resume-locked",
@@ -854,6 +856,7 @@ class TestGenerationWorker:
         assert captured_task is not None
         # _process_resume_task 应覆写为持久化 provider_id (openai)
         assert captured_task["payload"]["video_provider"] == "openai"
+        assert captured_job_id == "openai-job"
         assert queue.succeeded == [("resume-locked", {"ok": True})]
 
     @pytest.mark.asyncio
@@ -864,10 +867,10 @@ class TestGenerationWorker:
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
-        async def _expire(_task):
-            raise ResumeExpiredError(job_id="x", provider="ark")
+        async def _expire(_task, *, job_id):
+            raise ResumeExpiredError(job_id=job_id, provider="ark")
 
-        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _expire)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _expire)
         task = {
             "task_id": "exp",
             "task_type": "video",
@@ -887,10 +890,10 @@ class TestGenerationWorker:
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
-        async def _unsup(_task):
+        async def _unsup(_task, *, job_id):
             raise NotImplementedError("no resume_video")
 
-        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _unsup)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _unsup)
         task = {
             "task_id": "uns",
             "task_type": "video",
@@ -910,10 +913,10 @@ class TestGenerationWorker:
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
-        async def _boom(_task):
+        async def _boom(_task, *, job_id):
             raise RuntimeError("transient backend error")
 
-        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _boom)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _boom)
         task = {
             "task_id": "boom",
             "task_type": "video",
@@ -934,10 +937,10 @@ class TestGenerationWorker:
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
-        async def _cancel(_task):
+        async def _cancel(_task, *, job_id):
             raise asyncio.CancelledError
 
-        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _cancel)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _cancel)
         task = {
             "task_id": "rc",
             "task_type": "video",
@@ -950,3 +953,20 @@ class TestGenerationWorker:
         with pytest.raises(asyncio.CancelledError):
             await worker._process_resume_task(task)
         assert queue.cancelled and queue.cancelled[0][0] == "rc"
+
+    @pytest.mark.asyncio
+    async def test_process_resume_task_no_job_id_fails_fast(self):
+        """无 provider_job_id 的 task 被派发到 _process_resume_task 时直接 mark_failed。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+        task = {
+            "task_id": "no-job",
+            "task_type": "video",
+            "media_type": "video",
+            "provider_job_id": "",
+            "payload": {},
+            "project_name": "demo",
+        }
+        await worker._process_resume_task(task)
+        assert queue.failed and queue.failed[0][0] == "no-job"
+        assert "[restart_lost]" in queue.failed[0][1]

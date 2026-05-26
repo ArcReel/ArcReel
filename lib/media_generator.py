@@ -481,3 +481,118 @@ class MediaGenerator:
         )
 
         return output_path, new_version, video_ref, video_uri
+
+    async def resume_video_async(
+        self,
+        *,
+        job_id: str,
+        resource_type: str,
+        resource_id: str,
+        prompt: str = "",
+        aspect_ratio: str = "9:16",
+        duration_seconds: str | int = "8",
+        resolution: str | None = None,
+        task_id: str | None = None,
+        **version_metadata,
+    ) -> tuple[Path, int, Any, str | None]:
+        """接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。
+
+        与 generate_video_async 共享版本管理 + 用量统计骨架；区别在于：
+        - 不读 start_image / reference_images（resume 路径不需要重传输入资产）
+        - 调 backend.resume_video(job_id, request) 而非 backend.generate(request)
+        - prompt 仅用于日志/版本元数据，不影响 provider 端结果
+
+        Returns: (output_path, version_number, video_ref, video_uri) 四元组。
+        """
+        output_path = self._get_output_path(resource_type, resource_id)
+        self._ensure_parent_dir(output_path)
+
+        if output_path.exists():
+            self.versions.ensure_current_tracked(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                current_file=output_path,
+                prompt=prompt,
+                duration_seconds=duration_seconds,
+                **version_metadata,
+            )
+
+        try:
+            duration_int = int(duration_seconds) if duration_seconds else 8
+        except (ValueError, TypeError):
+            duration_int = 8
+
+        if self._video_backend is None:
+            raise RuntimeError("video_backend not configured")
+
+        model_name = self._video_backend.model
+        provider_name = self._video_backend.name
+        if self._config is not None:
+            configured_generate_audio = await self._config.video_generate_audio(self.project_name)
+        else:
+            from lib.config.resolver import ConfigResolver
+
+            configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
+        effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
+
+        call_id = await self.usage_tracker.start_call(
+            project_name=self.project_name,
+            call_type="video",
+            model=model_name,
+            prompt=prompt,
+            resolution=resolution,
+            duration_seconds=duration_int,
+            aspect_ratio=aspect_ratio,
+            generate_audio=effective_generate_audio,
+            provider=provider_name,
+            user_id=self._user_id,
+            segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
+        )
+
+        try:
+            from lib.video_backends.base import VideoGenerationRequest
+
+            request = VideoGenerationRequest(
+                prompt=prompt,
+                output_path=output_path,
+                aspect_ratio=aspect_ratio,
+                duration_seconds=duration_int,
+                resolution=resolution,
+                generate_audio=effective_generate_audio,
+                project_name=self.project_name,
+                task_id=task_id,
+                service_tier=version_metadata.get("service_tier", "default"),
+                seed=version_metadata.get("seed"),
+            )
+
+            result = await self._video_backend.resume_video(job_id, request)
+            video_ref = None
+            video_uri = result.video_uri
+
+            await self.usage_tracker.finish_call(
+                call_id=call_id,
+                status="success",
+                output_path=str(output_path),
+                usage_tokens=result.usage_tokens,
+                service_tier=version_metadata.get("service_tier", "default"),
+                generate_audio=result.generate_audio,
+            )
+        except Exception as e:
+            logger.exception("resume 失败 (%s)", "video")
+            await self.usage_tracker.finish_call(
+                call_id=call_id,
+                status="failed",
+                error_message=str(e),
+            )
+            raise
+
+        new_version = self.versions.add_version(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            source_file=output_path,
+            duration_seconds=duration_seconds,
+            **version_metadata,
+        )
+
+        return output_path, new_version, video_ref, video_uri

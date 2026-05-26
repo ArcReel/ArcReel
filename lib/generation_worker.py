@@ -542,59 +542,57 @@ class GenerationWorker:
         provider_id = await _extract_provider(task)
         logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
-        from lib.video_backends.base import reset_current_task_id, set_current_task_id
+        from server.services.generation_tasks import execute_generation_task
 
-        token = set_current_task_id(task_id)
         try:
-            from server.services.generation_tasks import execute_generation_task
-
-            try:
-                result = await execute_generation_task(task)
-            except asyncio.CancelledError:
-                # 用户/级联取消：worker.request_cancel 触发 asyncio.Task.cancel()
-                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                raise
-            except Exception as exc:
-                logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-                rows = await asyncio.shield(self.queue.mark_task_failed(task_id, str(exc)))
-                if rows == 0:
-                    # 外部已抢先翻 cancelling → 落地 cancelled 终态
-                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                return
-
-            try:
-                rows = await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
-            except asyncio.CancelledError:
-                # mark_succeeded 期间被取消：shield 让 inner 跑完了；inner 完成情况由
-                # rowcount 决定——拿不到了，按"被外部取消"语义兜底。
-                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                raise
+            result = await execute_generation_task(task)
+        except asyncio.CancelledError:
+            # 用户/级联取消：worker.request_cancel 触发 asyncio.Task.cancel()
+            await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            raise
+        except Exception as exc:
+            logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, str(exc)))
             if rows == 0:
-                # 0-rows-cancelled 协议：execute 跑赢但 DB 已被外部翻 cancelling
+                # 外部已抢先翻 cancelling → 落地 cancelled 终态
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            else:
-                logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-        finally:
-            reset_current_task_id(token)
+            return
+
+        try:
+            rows = await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
+        except asyncio.CancelledError:
+            # mark_succeeded 期间被取消：shield 让 inner 跑完了；inner 完成情况由
+            # rowcount 决定——拿不到了，按"被外部取消"语义兜底。
+            await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            raise
+        if rows == 0:
+            # 0-rows-cancelled 协议：execute 跑赢但 DB 已被外部翻 cancelling
+            await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+        else:
+            logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
-        """重启自愈入口：set _RESUME_JOB_ID + _CURRENT_TASK_ID 后调 execute_generation_task。
-
-        与 ``_process_task`` 共用 finally 协议；backend.generate 内部检测 _RESUME_JOB_ID
-        会跳过 submit 直接走 resume_video 接续轮询（ADR 0007）。
+        """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
         provider 锁定：把持久化的 ``task["provider_id"]`` 注入 payload 的
-        ``video_provider`` / ``image_provider``，让 ``ConfigResolver`` 按持久化 provider
-        而非当前项目配置解析 backend。否则任务提交后到重启前若项目 provider 配置切换，
+        ``video_provider`` 字段，让 ``ConfigResolver`` 按持久化 provider 而非当前
+        项目配置解析 backend。否则任务提交后到重启前若项目 provider 配置切换，
         会拿旧 ``provider_job_id`` 去新 provider 轮询，导致可恢复任务被误判失败。
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
 
+        job_id = task.get("provider_job_id") or ""
+        if not job_id:
+            # 防御：本不该被派发到这里（_handle_orphan_tasks_on_start 已 mark_failed [restart_lost]）
+            rows = await asyncio.shield(
+                self.queue.mark_task_failed(task_id, "[restart_lost] 无 provider_job_id 但被派发到 resume")
+            )
+            if rows == 0:
+                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            return
+
         # 锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # _trusted_payload_provider 会拒绝不在 registry/custom 里的值，不可信时 resolver
-        # 回退默认，resume_video 大概率拿不到匹配的 job_id → 走 [resume_expired]，
-        # 比静默漂移好。
         persisted_provider_id = task.get("provider_id")
         if persisted_provider_id:
             payload = task.get("payload")
@@ -608,7 +606,6 @@ class GenerationWorker:
                 payload["image_provider"] = persisted_provider_id
 
         provider_id = await _extract_provider(task)
-        job_id = task.get("provider_job_id") or ""
         logger.info(
             "重启自愈处理任务 %s (type=%s, provider=%s, job=%s)",
             task_id,
@@ -617,55 +614,42 @@ class GenerationWorker:
             job_id,
         )
 
-        from lib.video_backends.base import (
-            ResumeExpiredError,
-            reset_current_task_id,
-            reset_resume_job_id,
-            set_current_task_id,
-            set_resume_job_id,
-        )
+        from lib.video_backends.base import ResumeExpiredError
+        from server.services.resume_executor import execute_resume_video_task
 
-        token_task = set_current_task_id(task_id)
-        token_resume = set_resume_job_id(job_id)
         try:
-            from server.services.generation_tasks import execute_generation_task
-
-            try:
-                result = await execute_generation_task(task)
-            except asyncio.CancelledError:
-                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                raise
-            except NotImplementedError as exc:
-                logger.warning("resume 不支持 task %s: %s", task_id, exc)
-                rows = await asyncio.shield(self.queue.mark_task_failed(task_id, f"[resume_unsupported] {exc}"))
-                if rows == 0:
-                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                return
-            except ResumeExpiredError as exc:
-                logger.warning("resume 已过期 task %s: %s", task_id, exc)
-                rows = await asyncio.shield(self.queue.mark_task_failed(task_id, f"[resume_expired] {exc}"))
-                if rows == 0:
-                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                return
-            except Exception as exc:
-                logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-                rows = await asyncio.shield(self.queue.mark_task_failed(task_id, str(exc)))
-                if rows == 0:
-                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                return
-
-            try:
-                rows = await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
-            except asyncio.CancelledError:
-                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                raise
+            result = await execute_resume_video_task(task, job_id=job_id)
+        except asyncio.CancelledError:
+            await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            raise
+        except NotImplementedError as exc:
+            logger.warning("resume 不支持 task %s: %s", task_id, exc)
+            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, f"[resume_unsupported] {exc}"))
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-            else:
-                logger.info("重启自愈完成 %s", task_id)
-        finally:
-            reset_resume_job_id(token_resume)
-            reset_current_task_id(token_task)
+            return
+        except ResumeExpiredError as exc:
+            logger.warning("resume 已过期 task %s: %s", task_id, exc)
+            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, f"[resume_expired] {exc}"))
+            if rows == 0:
+                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            return
+        except Exception as exc:
+            logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, str(exc)))
+            if rows == 0:
+                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            return
+
+        try:
+            rows = await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
+        except asyncio.CancelledError:
+            await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            raise
+        if rows == 0:
+            await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+        else:
+            logger.info("重启自愈完成 %s", task_id)
 
     # ------------------------------------------------------------------
     # Cancel & orphan recovery

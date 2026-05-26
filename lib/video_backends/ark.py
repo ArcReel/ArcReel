@@ -20,7 +20,6 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    get_resume_job_id,
     persist_provider_job_id,
     poll_with_retry,
 )
@@ -90,11 +89,6 @@ class ArkVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        # Resume 短路（共存阶段，commit 3 切 worker 后删除）
-        resume_id = get_resume_job_id()
-        if resume_id is not None:
-            return await self.resume_video(resume_id, request)
-
         provider_task_id = await self._create_task(request)
         if request.task_id is not None:
             await persist_provider_job_id(request.task_id, provider_task_id, provider=PROVIDER_ARK)

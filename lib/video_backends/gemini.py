@@ -22,7 +22,6 @@ from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
-    get_resume_job_id,
     persist_provider_job_id,
     poll_with_retry,
 )
@@ -112,11 +111,6 @@ class GeminiVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        # Resume 短路（共存阶段，commit 3 切 worker 后删除）
-        resume_id = get_resume_job_id()
-        if resume_id is not None:
-            return await self.resume_video(resume_id, request)
-
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
         if not op_name:

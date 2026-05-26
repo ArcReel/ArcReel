@@ -794,15 +794,6 @@ async def execute_video_task(
     if prompt is None:
         raise ValueError("prompt is required for video task")
 
-    # Resume 路径短路：worker _process_resume_task 入口 set 了 _RESUME_JOB_ID。
-    # 跳过 storyboard 文件存在性校验——provider 端 job 已在跑/已 ready，resume_video
-    # 只需 job_id 接续 poll + 下载，本地 storyboard 即使被用户删除也不该让 task fail
-    # 而把 provider 端 job 变成幽灵任务（issue #647 fix #2）。
-    from lib.video_backends.base import get_resume_job_id
-
-    if get_resume_job_id() is not None:
-        return await _execute_video_resume(project_name, resource_id, payload, user_id=user_id)
-
     def _load():
         _pm = get_project_manager()
         _project = _pm.load_project(project_name)
@@ -962,92 +953,6 @@ async def _finalize_video_task(
         "resource_id": resource_id,
         "video_uri": video_uri,
     }
-
-
-async def _execute_video_resume(
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    *,
-    user_id: str = DEFAULT_USER_ID,
-    task_id: str | None = None,
-) -> dict[str, Any]:
-    """Resume 短路：跳过 load_script + storyboard 文件存在性校验，仅复用 ConfigResolver 解析。
-
-    backend.generate 内部检测 ``_RESUME_JOB_ID`` 会跳过 submit 直接走 resume_video，
-    `start_image=None` 由 generate_video_async 的 isinstance 守卫透传到 VideoGenerationRequest，
-    不会先于 backend 抛错。issue #647 fix #2。
-    """
-    script_file = payload["script_file"]
-    prompt = payload["prompt"]
-
-    def _load_project_only():
-        _pm = get_project_manager()
-        _project = _pm.load_project(project_name)
-        _project_path = _pm.get_project_path(project_name)
-        return _project, _project_path
-
-    project, project_path = await asyncio.to_thread(_load_project_only)
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
-
-    prompt_text = _normalize_video_prompt(prompt)
-    aspect_ratio = get_aspect_ratio(project, "videos")
-    seed = payload.get("seed")
-    service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
-
-    from lib.config.resolver import ConfigResolver
-    from lib.db import async_session_factory
-
-    _resolver = ConfigResolver(async_session_factory)
-    try:
-        resolved_video = await _resolver.resolve_video_backend(project, payload)
-        registry_provider_id = resolved_video.provider_id
-        model_name = resolved_video.model_id or None
-    except Exception:
-        registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
-
-    supported_durations: list[int] = []
-    try:
-        caps = await _resolver.video_capabilities_for_model(registry_provider_id, model_name or "", project)
-        supported_durations = [int(d) for d in caps.get("supported_durations") or []]
-    except Exception:
-        supported_durations = []
-
-    resolution = await resolve_resolution(project, registry_provider_id, model_name or "")
-
-    duration_seconds = payload.get("duration_seconds")
-    if duration_seconds is None:
-        duration_seconds = project.get("default_duration")
-    if not duration_seconds:
-        duration_seconds = (
-            supported_durations[0]
-            if supported_durations
-            else _get_model_default_duration(registry_provider_id, model_name)
-        )
-    assert_duration_supported(duration_seconds, supported_durations)
-
-    _, version, _, video_uri = await generator.generate_video_async(
-        prompt=prompt_text,
-        resource_type="videos",
-        resource_id=resource_id,
-        start_image=None,
-        end_image=None,
-        aspect_ratio=aspect_ratio,
-        duration_seconds=duration_seconds,
-        resolution=resolution,
-        seed=seed,
-        service_tier=service_tier,
-    )
-
-    return await _finalize_video_task(
-        project_name=project_name,
-        script_file=script_file,
-        project_path=project_path,
-        resource_id=resource_id,
-        version=version,
-        video_uri=video_uri,
-        generator=generator,
-    )
 
 
 async def execute_character_task(
