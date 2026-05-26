@@ -256,6 +256,27 @@ class TestBuildRequest:
         assert body["prompt"] == "[图1] runs"
 
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    def test_reference2video_subject_prompt_is_retrimmed_after_rendering(self, _mock, tmp_path: Path, output_path: Path):
+        refs = [tmp_path / f"r{i}.png" for i in range(1, 8)]
+        for ref in refs:
+            ref.write_bytes(b"x")
+
+        prompt = " ".join(f"[图{i}]" for i in range(1, 8)) + " " + ("x" * 4965)
+
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
+        req = VideoGenerationRequest(
+            prompt=prompt,
+            output_path=output_path,
+            reference_images=refs,
+            duration_seconds=5,
+        )
+        _, body = backend._build_request(req)
+
+        assert len(body["prompt"]) == 5000
+        assert body["prompt"].startswith("@subject1 @subject2 @subject3")
+        assert body["prompt"].count("@subject") == 7
+
+    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
     def test_reference2video_q2_pro_keeps_images_path(self, _mock, tmp_path: Path, output_path: Path):
         refs = [tmp_path / f"r{i}.png" for i in range(5)]
         for ref in refs:

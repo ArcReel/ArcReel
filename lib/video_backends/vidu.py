@@ -266,9 +266,7 @@ class ViduVideoBackend:
         # 3) prompt 截断（reference2video 主体调用上限 5000，非主体调用上限 2000）
         prompt = request.prompt or ""
         prompt_max = _prompt_max_length(endpoint, self._model)
-        if len(prompt) > prompt_max:
-            logger.warning("Vidu prompt 长度 %d 超限 %d，截断", len(prompt), prompt_max)
-            prompt = prompt[:prompt_max]
+        prompt = _truncate_prompt(prompt, prompt_max)
 
         body: dict = {
             "model": self._model,
@@ -301,7 +299,7 @@ class ViduVideoBackend:
                 refs = refs[:_MAX_REFERENCE_IMAGES]
             if self._model in _REFERENCE_SUBJECT_MODELS:
                 body["subjects"] = _build_subjects(refs)
-                body["prompt"] = _render_subject_prompt(prompt, len(refs))
+                body["prompt"] = _truncate_prompt(_render_subject_prompt(prompt, len(refs)), prompt_max)
             else:
                 body["images"] = [image_to_data_uri(p) for p in refs]
         elif endpoint == "/start-end2video":
@@ -399,6 +397,13 @@ def _coerce_resolution(model: str, requested: str | None) -> str | None:
         )
     fallback = _DEFAULT_RESOLUTION if _DEFAULT_RESOLUTION in whitelist else whitelist[0]
     return fallback
+
+
+def _truncate_prompt(prompt: str, prompt_max: int) -> str:
+    if len(prompt) <= prompt_max:
+        return prompt
+    logger.warning("Vidu prompt 长度 %d 超限 %d，截断", len(prompt), prompt_max)
+    return prompt[:prompt_max]
 
 
 def _prompt_max_length(endpoint: str, model: str) -> int:
