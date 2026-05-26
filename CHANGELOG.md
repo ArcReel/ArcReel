@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.15.2](https://github.com/ArcReel/ArcReel/compare/v0.15.1...v0.15.2) (2026-05-26)
+
+
+### 🐛 Bug 修复
+
+* **assistant:** "/" 唤起 skills 列表识别 content_mode 变体文件 ([#625](https://github.com/ArcReel/ArcReel/issues/625)) ([4c541f0](https://github.com/ArcReel/ArcReel/commit/4c541f0ffa69cfa88edeb0e55f741ab07a6a5687))
+* **project:** 中文标题不再塌成 slug 作为项目显示名 ([#641](https://github.com/ArcReel/ArcReel/issues/641)) ([5936c44](https://github.com/ArcReel/ArcReel/commit/5936c448b65fc64eb92c711c6c78162dab7a3888))
+* **reference-video:** support wrapped asset mentions ([#596](https://github.com/ArcReel/ArcReel/issues/596)) ([48b2484](https://github.com/ArcReel/ArcReel/commit/48b24847ebda11d6f3d53eb65b910a8c4941aed5))
+* **script:** 清理 schema 冗余字段,修复 novel 注入与 ShotList null 崩溃 ([#644](https://github.com/ArcReel/ArcReel/issues/644)) ([6662c75](https://github.com/ArcReel/ArcReel/commit/6662c75e59ebd5741fc1268e2c881db63e092509))
+* **skill:** pr-ai-review-loop round_count 只在 HEAD 切换时计数 ([#627](https://github.com/ArcReel/ArcReel/issues/627)) ([2cf9173](https://github.com/ArcReel/ArcReel/commit/2cf9173ecbd95cd52ccb2f9f209c67d9bbc049c9))
+* **tasks:** 任务队列死锁修复 ([#640](https://github.com/ArcReel/ArcReel/issues/640)) + 代码审查 8 处缺陷收敛 ([#646](https://github.com/ArcReel/ArcReel/issues/646)) ([387456a](https://github.com/ArcReel/ArcReel/commit/387456afbebb37503a0137067ea43a8e06ff667e))
+* **video:** OpenAI 后端 resolution=None 时按 aspect_ratio 兜底 size ([#645](https://github.com/ArcReel/ArcReel/issues/645)) ([6926f59](https://github.com/ArcReel/ArcReel/commit/6926f59fc6d792530487095afc1b4e2d0c3d1b43))
+
+
+### 📚 文档
+
+* **adr:** 队列卡死与取消语义的设计决策（0006 + 0007） ([#628](https://github.com/ArcReel/ArcReel/issues/628)) ([f9455b1](https://github.com/ArcReel/ArcReel/commit/f9455b1227de3cc364cf7c52a44a821d69e04dc2))
+
 ## [0.15.1](https://github.com/ArcReel/ArcReel/compare/v0.15.0...v0.15.1) (2026-05-23)
 
 
