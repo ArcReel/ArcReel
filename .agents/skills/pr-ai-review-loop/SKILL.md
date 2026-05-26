@@ -55,7 +55,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 | 字段 | 更新时机 | 跨 HEAD 行为 | 用途 |
 |---|---|---|---|
 | `round_count` | HEAD SHA 或 `last_push_at` 与上一轮记录不同时 +1 | 累加,不重置 | 收敛兜底 #1 |
-| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `head_sha` 与内容指纹 | 累积不清空,按 `(comment id, head_sha)` + 内容指纹去重(详见下) | 主题指纹比对 |
+| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `comment id`、`head_sha` 与内容指纹 | 累积不清空,按 `(comment id, head_sha)` + 内容指纹去重(详见下) | 主题指纹比对 |
 | `last_commit_shapes` | HEAD SHA 或 `last_push_at` 变化时追加形状标签 | 长度 ≤ 3 的滑窗 | 收敛兜底 #2 |
 
 **`topic_history` 同记录判定**:
