@@ -118,8 +118,8 @@ bash .agents/skills/pr-ai-review-loop/scripts/classify_commits.sh <PR_NUMBER> <p
 
 当前 HEAD 下,每家启用的 reviewer 满足以下之一:
 
-- **CodeRabbit**:`walkthrough.is_ok == true`(或 `actionable_count == "0"`),或本轮 inline 均为 `is_ack == true`,且 `updated_at > last_push_at`,且 `is_in_progress == false`(仍在 in-progress 时返回 poll)
-- **Gemini**:本轮无新 inline(`created_at > last_push_at` 列表为空),或本轮新 inline 全部为 `low/nit/style`,或本轮新 inline 全部为 `is_ack`;**且** summary 最新一条 `gemini.reviews` 的 body 含明确通过标记(非空不等于通过)
+- **CodeRabbit**:`updated_at > last_push_at` **且** `is_in_progress == false`(前置条件:CR 已审过当前 HEAD 且不在 in-progress);在该前置之上,满足任一即通过 —— `walkthrough.is_ok == true` / `actionable_count == "0"` / 本轮 inline 均为 `is_ack == true`
+- **Gemini**:`gemini.reviews[*].submittedAt > last_push_at` 至少一条(前置条件:Gemini 已审过当前 HEAD,避免误用上一轮的通过标记);在该前置之上,需**同时**满足:(1) 本轮无新 inline 或本轮新 inline 全部为 `low/nit/style` 或全部为 `is_ack`;(2) summary 最新一条 `gemini.reviews` 的 body 含明确通过标记(非空不等于通过)
 - **Codex**:满足 references/reviewers.md 中三种 ack 模式之一,且本轮无 ack 以外的 inline
 - 或该 reviewer 已被用户临时停用
 
