@@ -239,7 +239,9 @@ class TestArkImageBackendGenerate:
                 image_size="4K",
             )
             await backend.generate(request)
-            assert client.images.generate.call_args.kwargs["size"] == expected, f"4K + aspect_ratio={ar} 应映射到 {expected}"
+            assert client.images.generate.call_args.kwargs["size"] == expected, (
+                f"4K + aspect_ratio={ar} 应映射到 {expected}"
+            )
 
     async def test_i2i_single_ref(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client
