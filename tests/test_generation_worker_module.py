@@ -488,8 +488,8 @@ class TestGenerationWorker:
     # _handle_orphan_tasks_on_start：分流补全
     # ------------------------------------------------------------------
     @pytest.mark.asyncio
-    async def test_handle_orphan_image_running_requeues(self, monkeypatch):
-        """image 孤儿一律 requeue（不持久化 job_id，重做成本可接受）。"""
+    async def test_handle_orphan_image_running_marks_restart_lost(self, monkeypatch):
+        """image 孤儿无 resume 入口 → [restart_lost]，绝不主动 requeue（避免重复扣费）。"""
         queue = _FakeQueue()
         queue._orphans = [
             {
@@ -511,12 +511,13 @@ class TestGenerationWorker:
 
         monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         await worker._handle_orphan_tasks_on_start()
-        assert requeued == ["img-orphan"]
-        assert queue.failed == []
+        assert requeued == []
+        assert queue.failed and queue.failed[0][0] == "img-orphan"
+        assert "[restart_lost]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_non_resumable_video_requeues(self, monkeypatch):
-        """Grok/Vidu video 孤儿 → requeue（不实现 resume_video）。"""
+    async def test_handle_orphan_non_resumable_video_marks_resume_unsupported(self, monkeypatch):
+        """Grok/Vidu video 孤儿 → [resume_unsupported]（backend 无 resume，绝不重跑）。"""
         from lib.providers import PROVIDER_GROK
 
         queue = _FakeQueue()
@@ -540,15 +541,54 @@ class TestGenerationWorker:
 
         monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         await worker._handle_orphan_tasks_on_start()
-        assert requeued == ["grok-orphan"]
-        assert queue.failed == []
+        assert requeued == []
+        assert queue.failed and queue.failed[0][0] == "grok-orphan"
+        assert "[resume_unsupported]" in queue.failed[0][1]
+        assert PROVIDER_GROK in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_discard_paths_fallback_to_cancelled_on_zero_rows(self, monkeypatch):
+        """非 resumable 路径 mark_failed 返 0 rows（race：被外部 cancel）→ 兜底 mark_cancelled。
+
+        image / Grok / Vidu 三个丢弃路径都共用「mark_failed → 0 rows 时 mark_cancelled 兜底」协议；
+        覆盖 image 一条即可代表（其它两路同源代码块）。
+        """
+        from lib.providers import PROVIDER_GROK
+
+        queue = _FakeQueue(failed_rows=0)  # 模拟 SQL guard 拒绝（task 已被 cancel）
+        queue._orphans = [
+            {
+                "task_id": "img-raced",
+                "status": "running",
+                "provider_id": "gemini-aistudio",
+                "provider_job_id": None,
+                "media_type": "image",
+                "task_type": "storyboard",
+                "payload": {},
+                "project_name": "demo",
+            },
+            {
+                "task_id": "grok-raced",
+                "status": "running",
+                "provider_id": PROVIDER_GROK,
+                "provider_job_id": "job",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            },
+        ]
+        worker = GenerationWorker(queue=queue)
+        await worker._handle_orphan_tasks_on_start()
+        cancelled_ids = {tid for tid, _by in queue.cancelled}
+        assert cancelled_ids == {"img-raced", "grok-raced"}
 
     @pytest.mark.asyncio
     async def test_handle_orphan_uses_persisted_provider_id(self, monkeypatch):
         """task.provider_id 优先于 _extract_provider 的当前项目解析（CR round-2 N2 回归）。
 
         如果 task 持久化的 provider_id 是 Grok（不支持 resume），即便当前项目配置
-        已切换成 Ark（支持 resume），孤儿仍应被识别为 non_resumable → requeue，
+        已切换成 Ark（支持 resume），孤儿仍应被识别为 non_resumable → [resume_unsupported]，
         而不是去派发 _process_resume_task 拿旧 job_id 给新 backend 轮询。
         """
         from lib.providers import PROVIDER_GROK
@@ -580,9 +620,11 @@ class TestGenerationWorker:
         monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
         await worker._handle_orphan_tasks_on_start()
-        # 用持久化的 Grok → requeue（不可 resume）；若误用了 payload 里的 ark → 会派发 _process_resume_task
-        assert requeued == ["ghost-orphan"]
+        # 用持久化的 Grok → [resume_unsupported]；若误用 payload 里的 ark → 会派发 _process_resume_task
+        assert requeued == []
         assert resume_dispatched == []
+        assert queue.failed and queue.failed[0][0] == "ghost-orphan"
+        assert "[resume_unsupported]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
     async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch):

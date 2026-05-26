@@ -33,7 +33,8 @@ DEFAULT_PROVIDER = "gemini-aistudio"
 def _non_resumable_video_providers() -> frozenset[str]:
     """不实现 VideoBackend.resume_video 的视频 provider 集合。
 
-    orphan handler 据此把这些 provider 的 running 孤儿回队重跑而非走 resume 路径
+    orphan handler 据此把这些 provider 的 running 孤儿标记为 [resume_unsupported]
+    失败，而非主动 requeue 重跑——避免对已经提交给供应商的请求二次扣费
     （Grok 同步型无 job_id；Vidu 因 generate 内联 poll 未抽出独立 resume，列为
     follow-up）。新增不支持 resume 的 backend 时同步在这里登记。
     """
@@ -688,12 +689,17 @@ class GenerationWorker:
         return False
 
     async def _handle_orphan_tasks_on_start(self) -> None:
-        """重启自愈：扫 running + cancelling 孤儿，按"是否可 resume"分流处理。
+        """重启自愈：扫 running + cancelling 孤儿，按"是否可安全 resume"分流。
+
+        原则——**不主动产生额外扣费**：只要 worker 不能确认能接续供应商已收单的 job，
+        就把孤儿标记为失败丢弃，绝不重新提交。
 
         - cancelling → mark_cancelled
-        - image 任务 / Grok / Vidu 视频（不实现 resume_video）→ requeue 回 queued 重新跑
-          （没有计费风险——这些 backend 要么是无 job_id 同步型，要么是图片这种重做成本低）
-        - 可 resume 的视频 backend (ark/gemini/openai/newapi):
+        - image running → [restart_lost]（image 任务不持久化 job_id，无法接续；
+          且 image 提交本身已计费，重跑等于双重扣费）
+        - video running，provider ∈ NON_RESUMABLE_VIDEO_PROVIDERS（Grok/Vidu）
+          → [resume_unsupported]（backend 不实现 resume_video，原 job 无接续手段）
+        - video running，可 resume backend (ark/gemini/openai/newapi)：
           - 无 provider_job_id → [restart_lost]
           - 有 job_id → 派发 _process_resume_task，由 backend.resume_video 决定后续走向
 
@@ -722,10 +728,16 @@ class GenerationWorker:
                 "video" if task.get("task_type") in ("video", "reference_video") else "image"
             )
 
-            # image 任务不持久化 job_id，重启回队重跑（生成成本远低于供应商视频订单，不冒计费风险）
+            # image 任务不持久化 job_id 也无 resume 入口——已提交给供应商的请求无法回收，
+            # 主动 requeue 会双重扣费。直接丢弃，等用户决定是否手动重试。
             if media_type == "image":
-                logger.info("孤儿 image running → requeue: %s", task_id)
-                await self._requeue_single_task(task_id)
+                logger.warning("孤儿 image running → [restart_lost]: %s", task_id)
+                rows = await self.queue.mark_task_failed(
+                    task_id,
+                    "[restart_lost] image 任务无法接续，需手动重试以避免重复计费",
+                )
+                if rows == 0:
+                    await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
                 continue
 
             # video 路径：判断 provider 是否支持 resume。优先用持久化的 provider_id：
@@ -734,13 +746,19 @@ class GenerationWorker:
             # 与 _process_resume_task 的 provider 锁定策略保持一致。
             provider_id = task.get("provider_id") or await _extract_provider(task)
             if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
-                # Grok/Vidu 当前不实现 resume_video，没 job_id 可接续 → 回队重跑
-                logger.info(
-                    "孤儿 video running (provider=%s 不支持 resume) → requeue: %s",
+                # Grok/Vidu 当前不实现 resume_video——原 job 已发给供应商无接续手段，
+                # 重跑会重复扣费。丢弃，由用户手动决定是否重试。
+                logger.warning(
+                    "孤儿 video running (provider=%s 不支持 resume) → [resume_unsupported]: %s",
                     provider_id,
                     task_id,
                 )
-                await self._requeue_single_task(task_id)
+                rows = await self.queue.mark_task_failed(
+                    task_id,
+                    f"[resume_unsupported] provider={provider_id} 不支持接续，需手动重试以避免重复计费",
+                )
+                if rows == 0:
+                    await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
                 continue
 
             job_id = task.get("provider_job_id")
