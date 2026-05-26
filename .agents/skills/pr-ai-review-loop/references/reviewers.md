@@ -20,7 +20,7 @@ Gemini Code Assist 是事件驱动的 review bot,两种事件下行为不同,本
 判别方法(按 `poll.sh` 输出的 `pr_created_at` 与 `gemini.reviews`):
 
 - `gemini.reviews` 完全为空且 `pr_created_at` 距今不足 5 分钟 → cold-start 窗口内,等待即可
-- `gemini.reviews` 完全为空且 `pr_created_at` 距今已超过 5 分钟 → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),手动发送 `/gemini review`
+- `gemini.reviews` 完全为空且 `pr_created_at` 距今已超过 5 分钟,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`)→ cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),手动发送 `/gemini review`
 - `gemini.reviews` 非空但最新一条 `submittedAt < last_push_at`,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`)→ synchronize 场景,手动发送 `/gemini review`
 
 ## Codex 三种 ack 模式

@@ -55,7 +55,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 | 字段 | 更新时机 | 跨 HEAD 行为 | 用途 |
 |---|---|---|---|
 | `round_count` | HEAD SHA 或 `last_push_at` 与上一轮记录不同时 +1 | 累加,不重置 | 收敛兜底 #1 |
-| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `head_sha` 与意见的内容指纹(walkthrough 用 `updated_at`,其它用 `body_head` 哈希或前 N 字符) | 累积,不清空。同记录判定:`(comment id, head_sha)` 命中且**内容指纹未变**视为已记录,跳过;`(comment id, head_sha)` 命中但内容指纹变了 → 更新已记录条目(覆盖,不重复追加),用于 CodeRabbit walkthrough 在同 HEAD 内由 in-progress 改写为 final 的情况;跨 HEAD 同 id 一律视为新一轮 | 主题指纹比对 |
+| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `head_sha` 与意见的内容指纹:walkthrough 取 `updated_at`;其它评论取 `body_head` 的前 N 字符或哈希值 | 累积,不清空。同记录判定:`(comment id, head_sha)` 命中且**内容指纹未变**视为已记录,跳过;`(comment id, head_sha)` 命中但内容指纹变了 → 更新已记录条目(覆盖,不重复追加),用于 CodeRabbit walkthrough 在同 HEAD 内由 in-progress 改写为 final 的情况;跨 HEAD 同 id 一律视为新一轮 | 主题指纹比对 |
 | `last_commit_shapes` | HEAD SHA 或 `last_push_at` 变化时追加形状标签 | 长度 ≤ 3 的滑窗 | 收敛兜底 #2 |
 
 ### 步骤 2:对每家启用的 reviewer 决定动作
@@ -74,7 +74,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/classify_commits.sh <PR_NUMBER> <p
 |---|---|
 | `coderabbit.walkthrough.is_paused == true`,且 `updated_at` 之后未发送过 `@coderabbitai resume`(从 `own_trigger_comments` 中筛,最新一条 `createdAt` 早于 walkthrough 的 `updated_at`,为空时视为未发送) | 发送 `@coderabbitai resume` |
 | Gemini 启用,`gemini.reviews` **完全为空**,且 `pr_created_at` 距今不足 5 分钟 | 等待 Gemini 自动 review(PR opened 触发,见 references/reviewers.md);不手动触发 |
-| Gemini 启用,`gemini.reviews` **完全为空**,`pr_created_at` 距今已超过 5 分钟,且 `own_trigger_comments` 中 `/gemini review` 不存在 | 发送 `/gemini review`(cold-start fallback:PR opened 自动 review 未在窗口内出现,可能失败或被跳过) |
+| Gemini 启用,`gemini.reviews` **完全为空**,`pr_created_at` 距今已超过 5 分钟,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`)| 发送 `/gemini review`(cold-start fallback:PR opened 自动 review 未在窗口内出现,可能失败或被跳过) |
 | Gemini 启用,`gemini.reviews` **非空**但最新一条 `submittedAt < last_push_at`,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`),且**前述跳过触发未命中** | 发送 `/gemini review`(synchronize 场景,Gemini 不自动跟新 commit) |
 | Codex 启用,按下方「Codex 触发决策」判断需要触发,且**前述跳过触发未命中** | 发送 `@codex review` |
 
@@ -118,7 +118,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/classify_commits.sh <PR_NUMBER> <p
 
 当前 HEAD 下,每家启用的 reviewer 满足以下之一:
 
-- **CodeRabbit**:`updated_at > last_push_at` **且** `is_in_progress == false`(前置条件:CR 已审过当前 HEAD 且不在 in-progress);在该前置之上,满足任一即通过 —— `walkthrough.is_ok == true` / `actionable_count == "0"` / 本轮 inline 均为 `is_ack == true`
+- **CodeRabbit**:`updated_at > last_push_at` **且** `is_in_progress == false`(前置条件:CR 已审过当前 HEAD 且不在 in-progress);在该前置之上,满足任一即通过 —— `walkthrough.is_ok == true` / `actionable_count == "0"` / 本轮 inline 均为 `is_ack == true` / 本轮 inline 均为 nit 级(body 含 `_🧹 Nitpick_` / `_🔵 Trivial_` / `_💤 Low value_` 标签,不含 `_⚠️ Potential issue_` / `_🟠 Major_` / `_🛠️ Refactor suggestion_` / `_💡 Verification agent_`)
 - **Gemini**:`gemini.reviews[*].submittedAt > last_push_at` 至少一条(前置条件:Gemini 已审过当前 HEAD,避免误用上一轮的通过标记);在该前置之上,需**同时**满足:(1) 本轮无新 inline 或本轮新 inline 全部为 `low/nit/style` 或全部为 `is_ack`;(2) summary 最新一条 `gemini.reviews` 的 body 含明确通过标记(非空不等于通过)
 - **Codex**:满足 references/reviewers.md 中三种 ack 模式之一,且本轮无 ack 以外的 inline
 - 或该 reviewer 已被用户临时停用
