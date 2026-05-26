@@ -10,14 +10,11 @@ from typing import Any
 
 import httpx
 
-from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_KLING
 from lib.retry import (
     BASE_RETRYABLE_ERRORS,
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
 )
 from lib.video_backends.base import (
@@ -48,6 +45,7 @@ _POLL_INTERVAL_SECONDS = 5.0
 _MIN_POLL_TIMEOUT_SECONDS = 600.0
 _POLL_TIMEOUT_PER_SECOND = 30.0
 _MAX_REFERENCE_IMAGES = 7
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 _KLING_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.RequestError, httpx.HTTPStatusError)
 _IMAGE_TOKEN_RE = re.compile(r"\[图(\d+)]")
@@ -100,7 +98,17 @@ class KlingOmniVideoBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         payload = self._build_payload(request)
         logger.info("Kling Omni 视频生成开始: model=%s", self._model)
-        logger.info("调用 %s 视频 API payload=%s", self.name, format_kwargs_for_log(payload))
+        logger.info(
+            "调用 %s 视频 API model=%s mode=%s aspect_ratio=%s duration=%s image_count=%d video_count=%d multi_shot=%s",
+            self.name,
+            payload.get("model_name"),
+            payload.get("mode"),
+            payload.get("aspect_ratio"),
+            payload.get("duration"),
+            len(payload.get("image_list") or []),
+            len(payload.get("video_list") or []),
+            payload.get("multi_shot") is True,
+        )
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload)
@@ -117,7 +125,7 @@ class KlingOmniVideoBackend:
             )
             video_url = _extract_video_url(final)
 
-        await self._download_with_retry(video_url, request.output_path)
+        await download_video(video_url, request.output_path)
 
         return VideoGenerationResult(
             video_path=request.output_path,
@@ -168,7 +176,9 @@ class KlingOmniVideoBackend:
             if options.shot_type == KlingOmniShotType.CUSTOMIZE:
                 total_duration = sum(shot.duration_seconds for shot in options.shots)
                 if self._supports_duration(options) and total_duration != request.duration_seconds:
-                    raise ValueError("Kling Omni customize multi-shot 的 shots 时长之和必须等于 request.duration_seconds")
+                    raise ValueError(
+                        "Kling Omni customize multi-shot 的 shots 时长之和必须等于 request.duration_seconds"
+                    )
                 payload["prompt"] = ""
                 payload["multi_prompt"] = [
                     {
@@ -195,9 +205,13 @@ class KlingOmniVideoBackend:
 
         images: list[KlingOmniImageInput] = []
         if request.start_image is not None:
-            images.append(KlingOmniImageInput(image_path=Path(request.start_image), frame_type=KlingOmniFrameType.FIRST_FRAME))
+            images.append(
+                KlingOmniImageInput(image_path=Path(request.start_image), frame_type=KlingOmniFrameType.FIRST_FRAME)
+            )
         if request.end_image is not None:
-            images.append(KlingOmniImageInput(image_path=Path(request.end_image), frame_type=KlingOmniFrameType.END_FRAME))
+            images.append(
+                KlingOmniImageInput(image_path=Path(request.end_image), frame_type=KlingOmniFrameType.END_FRAME)
+            )
         if request.reference_images:
             images.extend(KlingOmniImageInput(image_path=Path(path)) for path in request.reference_images)
 
@@ -233,9 +247,11 @@ class KlingOmniVideoBackend:
         for video in options.videos:
             if video.video_path is not None:
                 raise ValueError("Kling Omni 当前仅支持 video_url；本地 video_path 需先上传成可访问 URL")
+            if not video.video_url:
+                raise ValueError("Kling Omni 当前仅支持可访问的 video_url")
             video_list.append(
                 {
-                    "video_url": video.video_url or "",
+                    "video_url": video.video_url,
                     "refer_type": video.refer_type.value,
                     "keep_original_sound": "yes" if video.keep_original_sound else "no",
                 }
@@ -262,7 +278,7 @@ class KlingOmniVideoBackend:
             json=payload,
             headers=self._headers(),
         )
-        resp.raise_for_status()
+        _raise_for_status(resp, operation="创建任务")
         body = resp.json()
         data = _unwrap_kling_body(body)
         task_id = data.get("task_id")
@@ -275,17 +291,8 @@ class KlingOmniVideoBackend:
             f"{self._base_url}{_CREATE_PATH}/{task_id}",
             headers=self._headers(),
         )
-        resp.raise_for_status()
+        _raise_for_status(resp, operation="轮询任务")
         return _unwrap_kling_body(resp.json())
-
-    @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=_KLING_RETRYABLE_ERRORS,
-    )
-    async def _download_with_retry(video_url: str, output_path: Path) -> None:
-        await download_video(video_url, output_path)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
@@ -315,7 +322,34 @@ def _resolve_sound_mode(
     return KlingOmniSoundMode.ON if request.generate_audio else KlingOmniSoundMode.OFF
 
 
-def _unwrap_kling_body(body: dict[str, Any]) -> dict[str, Any]:
+def _raise_for_status(resp: httpx.Response, *, operation: str) -> None:
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        if status_code in _RETRYABLE_STATUS_CODES:
+            raise
+        detail = _response_preview(exc.response)
+        message = f"Kling Omni {operation} HTTP {status_code}"
+        if detail:
+            message = f"{message}: {detail}"
+        raise RuntimeError(message) from exc
+
+
+def _response_preview(response: httpx.Response) -> str | None:
+    text = getattr(response, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text[:300]
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    return str(body)[:300]
+
+
+def _unwrap_kling_body(body: Any) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        raise RuntimeError(f"Kling Omni API 返回格式错误 (非 dict): {body}")
     code = body.get("code", 0)
     if code != 0:
         raise RuntimeError(f"Kling Omni API 错误: {body.get('message') or body}")
@@ -332,20 +366,38 @@ def _extract_failure(state: dict[str, Any]) -> str | None:
 
 
 def _extract_video_url(state: dict[str, Any]) -> str:
-    videos = ((state.get("task_result") or {}).get("videos") or [])
-    if not videos or not videos[0].get("url"):
+    task_result = state.get("task_result") or {}
+    if not isinstance(task_result, dict):
+        raise RuntimeError(f"Kling Omni 任务结果格式错误: {state}")
+    videos = task_result.get("videos") or []
+    if not isinstance(videos, list) or not videos:
         raise RuntimeError(f"Kling Omni 任务完成但缺少视频 URL: {state}")
-    return videos[0]["url"]
+    first_video = videos[0]
+    if not isinstance(first_video, dict):
+        raise RuntimeError(f"Kling Omni 任务完成但缺少视频 URL: {state}")
+    video_url = first_video.get("url")
+    if not isinstance(video_url, str) or not video_url:
+        raise RuntimeError(f"Kling Omni 任务完成但缺少视频 URL: {state}")
+    return video_url
 
 
 def _extract_duration(state: dict[str, Any]) -> int | None:
-    videos = ((state.get("task_result") or {}).get("videos") or [])
-    if not videos:
+    task_result = state.get("task_result") or {}
+    if not isinstance(task_result, dict):
         return None
-    raw = videos[0].get("duration")
+    videos = task_result.get("videos") or []
+    if not isinstance(videos, list) or not videos:
+        return None
+    first_video = videos[0]
+    if not isinstance(first_video, dict):
+        return None
+    raw = first_video.get("duration")
     if raw is None:
         return None
-    return int(float(raw))
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
 
 
 def _render_kling_prompt(prompt: str) -> str:

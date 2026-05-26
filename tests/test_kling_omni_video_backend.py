@@ -6,6 +6,7 @@ import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from lib.providers import PROVIDER_KLING
@@ -36,6 +37,11 @@ def _fake_download_factory(payload: bytes = b"mp4-bytes"):
         output_path.write_bytes(payload)
 
     return _fake
+
+
+def _make_httpx_response(method: str, url: str, status_code: int, json_body: dict) -> httpx.Response:
+    request = httpx.Request(method, url)
+    return httpx.Response(status_code, json=json_body, request=request)
 
 
 class TestKlingOmniVideoBackend:
@@ -260,3 +266,87 @@ class TestKlingOmniVideoBackend:
         assert post_call.kwargs["json"]["aspect_ratio"] == "1:1"
         assert post_call.kwargs["json"]["duration"] == "5"
         assert post_call.kwargs["headers"]["Authorization"] == "Bearer sk-test"
+
+    async def test_generate_fails_fast_on_non_retryable_create_status(self, tmp_path: Path):
+        create_resp = _make_httpx_response(
+            "POST",
+            "https://api-beijing.klingai.com/v1/videos/omni-video",
+            400,
+            {"code": 40001, "message": "bad request"},
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_resp)
+        mock_client.get = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            from lib.video_backends.kling_omni import KlingOmniVideoBackend
+
+            backend = KlingOmniVideoBackend(api_key="sk-test")
+            with pytest.raises(RuntimeError, match="Kling Omni 创建任务 HTTP 400"):
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="视频中的人跳舞",
+                        output_path=tmp_path / "out.mp4",
+                    )
+                )
+
+        assert mock_client.post.await_count == 1
+        mock_client.get.assert_not_awaited()
+
+    async def test_generate_fails_fast_on_non_retryable_poll_status(self, tmp_path: Path):
+        create_resp = _make_response(
+            200,
+            {
+                "code": 0,
+                "message": "ok",
+                "data": {
+                    "task_id": "task-42",
+                    "task_status": "submitted",
+                },
+            },
+        )
+        poll_resp = _make_httpx_response(
+            "GET",
+            "https://api-beijing.klingai.com/v1/videos/omni-video/task-42",
+            404,
+            {"code": 40401, "message": "not found"},
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_resp)
+        mock_client.get = AsyncMock(return_value=poll_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.kling_omni._POLL_INTERVAL_SECONDS", 0.0),
+        ):
+            from lib.video_backends.kling_omni import KlingOmniVideoBackend
+
+            backend = KlingOmniVideoBackend(api_key="sk-test")
+            with pytest.raises(RuntimeError, match="Kling Omni 轮询任务 HTTP 404"):
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="视频中的人跳舞",
+                        output_path=tmp_path / "out.mp4",
+                    )
+                )
+
+        assert mock_client.post.await_count == 1
+        assert mock_client.get.await_count == 1
+
+    def test_extract_helpers_are_defensive(self):
+        from lib.video_backends.kling_omni import _extract_duration, _extract_video_url, _unwrap_kling_body
+
+        with pytest.raises(RuntimeError, match="非 dict"):
+            _unwrap_kling_body(["bad-body"])
+
+        with pytest.raises(RuntimeError, match="缺少视频 URL"):
+            _extract_video_url({"task_result": {"videos": ["bad-video-item"]}})
+
+        assert _extract_duration({"task_result": {"videos": ["bad-video-item"]}}) is None
+        assert _extract_duration({"task_result": {"videos": [{"duration": "bad"}]}}) is None

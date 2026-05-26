@@ -310,6 +310,9 @@ async def execute_reference_video_task(
                 p.unlink(missing_ok=True)
 
     # 8. 首帧缩略图
+    if output_path is None:
+        raise RuntimeError("generate_video_async returned None output_path")
+
     thumb_dir = project_path / "reference_videos" / "thumbnails"
     thumb_dir.mkdir(parents=True, exist_ok=True)
     thumb_path = thumb_dir / f"{resource_id}.jpg"

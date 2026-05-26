@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -20,6 +21,8 @@ from lib.video_backends.kling_omni_types import (
     KlingOmniVideoReferType,
 )
 
+_TMP_DIR = Path(tempfile.gettempdir())
+
 
 class TestVideoCapability:
     def test_enum_values(self):
@@ -37,7 +40,7 @@ class TestVideoCapability:
 
 class TestVideoGenerationRequest:
     def test_defaults(self):
-        req = VideoGenerationRequest(prompt="test", output_path=Path("/tmp/out.mp4"))
+        req = VideoGenerationRequest(prompt="test", output_path=_TMP_DIR / "out.mp4")
         assert req.aspect_ratio == "9:16"
         assert req.duration_seconds == 5
         assert req.resolution is None
@@ -50,11 +53,11 @@ class TestVideoGenerationRequest:
     def test_all_fields(self):
         req = VideoGenerationRequest(
             prompt="action",
-            output_path=Path("/tmp/out.mp4"),
+            output_path=_TMP_DIR / "out.mp4",
             aspect_ratio="16:9",
             duration_seconds=8,
             resolution="720p",
-            start_image=Path("/tmp/frame.png"),
+            start_image=_TMP_DIR / "frame.png",
             generate_audio=False,
             service_tier="flex",
             seed=42,
@@ -66,10 +69,10 @@ class TestVideoGenerationRequest:
     def test_with_kling_omni_options(self):
         req = VideoGenerationRequest(
             prompt="让<<<image_1>>>与<<<element_1>>>相遇",
-            output_path=Path("/tmp/out.mp4"),
+            output_path=_TMP_DIR / "out.mp4",
             kling_omni=KlingOmniRequestOptions(
                 images=(
-                    KlingOmniImageInput(image_path=Path("/tmp/hero.png")),
+                    KlingOmniImageInput(image_path=_TMP_DIR / "hero.png"),
                     KlingOmniImageInput(image_url="https://example.com/style.png"),
                 ),
                 elements=(KlingOmniElementInput(element_id=42),),
@@ -84,7 +87,7 @@ class TestVideoGenerationRequest:
         )
 
         assert req.kling_omni is not None
-        assert req.kling_omni.images[0].image_path == Path("/tmp/hero.png")
+        assert req.kling_omni.images[0].image_path == _TMP_DIR / "hero.png"
         assert req.kling_omni.images[1].image_url == "https://example.com/style.png"
         assert req.kling_omni.elements[0].element_id == 42
         assert req.kling_omni.videos[0].refer_type == KlingOmniVideoReferType.FEATURE
@@ -96,7 +99,7 @@ class TestKlingOmniRequestOptions:
             KlingOmniImageInput()
 
         with pytest.raises(ValueError, match="必须且只能提供"):
-            KlingOmniImageInput(image_path=Path("/tmp/a.png"), image_url="https://example.com/a.png")
+            KlingOmniImageInput(image_path=_TMP_DIR / "a.png", image_url="https://example.com/a.png")
 
     def test_video_input_requires_exactly_one_source(self):
         with pytest.raises(ValueError, match="必须且只能提供"):
@@ -116,7 +119,7 @@ class TestKlingOmniRequestOptions:
 
     def test_customize_multishot_accepts_structured_shots(self):
         options = KlingOmniRequestOptions(
-            images=(KlingOmniImageInput(image_path=Path("/tmp/start.png"), frame_type=KlingOmniFrameType.FIRST_FRAME),),
+            images=(KlingOmniImageInput(image_path=_TMP_DIR / "start.png", frame_type=KlingOmniFrameType.FIRST_FRAME),),
             multi_shot=True,
             shot_type=KlingOmniShotType.CUSTOMIZE,
             shots=(
@@ -134,7 +137,7 @@ class TestKlingOmniRequestOptions:
 class TestVideoGenerationResult:
     def test_required_fields(self):
         result = VideoGenerationResult(
-            video_path=Path("/tmp/out.mp4"),
+            video_path=_TMP_DIR / "out.mp4",
             provider="gemini",
             model="veo-3.1-generate-001",
             duration_seconds=8,
@@ -146,7 +149,7 @@ class TestVideoGenerationResult:
 
     def test_optional_fields(self):
         result = VideoGenerationResult(
-            video_path=Path("/tmp/out.mp4"),
+            video_path=_TMP_DIR / "out.mp4",
             provider="ark",
             model="doubao-seedance-1-5-pro-251215",
             duration_seconds=5,

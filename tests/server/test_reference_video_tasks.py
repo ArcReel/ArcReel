@@ -1021,6 +1021,50 @@ async def test_gemini_model_settings_read_via_composite_key(
 
 
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_requires_output_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(return_value=(None, 1, None, None))
+    fake_generator.versions.get_versions.return_value = {"versions": []}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "grok"
+    fake_video_backend.model = "grok-imagine-video"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    fake_extract = AsyncMock(return_value=True)
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", fake_extract)
+
+    with pytest.raises(RuntimeError, match="returned None output_path"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+
+    fake_extract.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_skips_clamp_when_backend_model_diverges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
