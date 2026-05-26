@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from lib.logging_utils import format_kwargs_for_log
@@ -43,7 +44,9 @@ _MIN_POLL_TIMEOUT_SECONDS = 900.0
 _POLL_TIMEOUT_PER_SECOND = 90.0
 _MAX_REFERENCE_IMAGES = 7
 _PROMPT_MAX_TEXT2VIDEO = 5000
-_PROMPT_MAX_REFERENCE2VIDEO = 2000
+_PROMPT_MAX_REFERENCE_SUBJECTS = 5000
+_PROMPT_MAX_REFERENCE_IMAGES = 2000
+_SUBJECT_TOKEN_RE = re.compile(r"\[图(\d+)]")
 
 # q3 系列模型默认开启音视频直出，q2/q1/2.0 默认静音；audio 仅传 q3 时才生效
 _Q3_MODELS = frozenset(
@@ -55,6 +58,7 @@ _Q3_MODELS = frozenset(
         "viduq3-mix",
     }
 )
+_REFERENCE_SUBJECT_MODELS = frozenset({"viduq3-turbo", "viduq3", "viduq2-pro", "viduq2", "viduq1", "vidu2.0"})
 
 # 按 (model, endpoint) 列出合法 duration —— 文档逐端点列出，差异很大
 _DURATION_RULES: dict[tuple[str, str], list[int]] = {
@@ -82,7 +86,7 @@ _DURATION_RULES: dict[tuple[str, str], list[int]] = {
     ("viduq1", "/start-end2video"): [5],
     ("viduq1-classic", "/start-end2video"): [5],
     ("vidu2.0", "/start-end2video"): [4, 8],
-    # /reference2video (非主体)
+    # /reference2video
     ("viduq3-turbo", "/reference2video"): list(range(3, 17)),
     ("viduq3", "/reference2video"): list(range(3, 17)),
     ("viduq3-mix", "/reference2video"): list(range(3, 17)),
@@ -257,9 +261,9 @@ class ViduVideoBackend:
         # 2) duration 在合法集合内取最近值
         duration = _coerce_duration(self._model, endpoint, request.duration_seconds)
 
-        # 3) prompt 截断（reference2video 上限 2000，其他 5000）
+        # 3) prompt 截断（reference2video 主体调用上限 5000，非主体调用上限 2000）
         prompt = request.prompt or ""
-        prompt_max = _PROMPT_MAX_REFERENCE2VIDEO if endpoint == "/reference2video" else _PROMPT_MAX_TEXT2VIDEO
+        prompt_max = _prompt_max_length(endpoint, self._model)
         if len(prompt) > prompt_max:
             logger.warning("Vidu prompt 长度 %d 超限 %d，截断", len(prompt), prompt_max)
             prompt = prompt[:prompt_max]
@@ -287,13 +291,17 @@ class ViduVideoBackend:
         if endpoint in _ENDPOINTS_WITH_ASPECT_RATIO and request.aspect_ratio:
             body["aspect_ratio"] = request.aspect_ratio
 
-        # 8) images 按端点形态填充
+        # 8) images/subjects 按端点形态填充
         if endpoint == "/reference2video":
             refs = [Path(p) for p in (request.reference_images or []) if p]
             if len(refs) > _MAX_REFERENCE_IMAGES:
                 logger.warning("Vidu 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
                 refs = refs[:_MAX_REFERENCE_IMAGES]
-            body["images"] = [image_to_data_uri(p) for p in refs]
+            if self._model in _REFERENCE_SUBJECT_MODELS:
+                body["subjects"] = _build_subjects(refs)
+                body["prompt"] = _render_subject_prompt(prompt, len(refs))
+            else:
+                body["images"] = [image_to_data_uri(p) for p in refs]
         elif endpoint == "/start-end2video":
             assert request.start_image is not None and request.end_image is not None
             body["images"] = [
@@ -389,3 +397,35 @@ def _coerce_resolution(model: str, requested: str | None) -> str | None:
         )
     fallback = _DEFAULT_RESOLUTION if _DEFAULT_RESOLUTION in whitelist else whitelist[0]
     return fallback
+
+
+def _prompt_max_length(endpoint: str, model: str) -> int:
+    if endpoint != "/reference2video":
+        return _PROMPT_MAX_TEXT2VIDEO
+    if model in _REFERENCE_SUBJECT_MODELS:
+        return _PROMPT_MAX_REFERENCE_SUBJECTS
+    return _PROMPT_MAX_REFERENCE_IMAGES
+
+
+def _build_subjects(refs: list[Path]) -> list[dict[str, object]]:
+    return [
+        {
+            "name": _subject_name(index),
+            "images": [image_to_data_uri(ref)],
+        }
+        for index, ref in enumerate(refs, start=1)
+    ]
+
+
+def _render_subject_prompt(prompt: str, ref_count: int) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        index = int(match.group(1))
+        if 1 <= index <= ref_count:
+            return f"@{_subject_name(index)}"
+        return match.group(0)
+
+    return _SUBJECT_TOKEN_RE.sub(_replace, prompt)
+
+
+def _subject_name(index: int) -> str:
+    return f"subject{index}"
