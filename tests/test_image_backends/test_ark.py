@@ -222,6 +222,25 @@ class TestArkImageBackendGenerate:
         await backend.generate(request)
         assert client.images.generate.call_args.kwargs["size"] == "2K"
 
+    async def test_explicit_4k_size_maps_from_aspect_ratio(self, backend_and_client, tmp_path: Path):
+        """4.x/5.x 显式传 4K 时也必须按比例映射到明确像素宽高，避免直接透传 4K 丢掉构图约束。"""
+        backend, client = backend_and_client
+
+        cases = [
+            ("16:9", "5504x3040"),
+            ("9:16", "3040x5504"),
+            ("1:1", "4096x4096"),
+        ]
+        for i, (ar, expected) in enumerate(cases):
+            request = ImageGenerationRequest(
+                prompt="x",
+                output_path=tmp_path / f"4k-{i}.png",
+                aspect_ratio=ar,
+                image_size="4K",
+            )
+            await backend.generate(request)
+            assert client.images.generate.call_args.kwargs["size"] == expected, f"4K + aspect_ratio={ar} 应映射到 {expected}"
+
     async def test_i2i_single_ref(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client
 

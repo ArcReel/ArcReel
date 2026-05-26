@@ -37,6 +37,16 @@ _SEEDREAM_2K_SIZE_MAP: dict[str, str] = {
     "2:3": "1664x2496",
     "21:9": "3136x1344",
 }
+_SEEDREAM_4K_SIZE_MAP: dict[str, str] = {
+    "1:1": "4096x4096",
+    "4:3": "4704x3520",
+    "3:4": "3520x4704",
+    "16:9": "5504x3040",
+    "9:16": "3040x5504",
+    "3:2": "4992x3328",
+    "2:3": "3328x4992",
+    "21:9": "6240x2656",
+}
 _SEEDREAM_1K_SIZE_MAP: dict[str, str] = {
     "1:1": "1024x1024",
     "4:3": "1152x864",
@@ -49,13 +59,16 @@ _SEEDREAM_1K_SIZE_MAP: dict[str, str] = {
 }
 
 
-def _resolve_seedream_size(model_id: str, aspect_ratio: str) -> str:
-    """按模型族选尺寸表；未识别比例时回退到分辨率 keyword（方式 1，由模型按 prompt 自适应）。"""
+def _resolve_seedream_size(model_id: str, aspect_ratio: str, image_size: str | None = None) -> str:
+    """按模型族和期望分辨率选尺寸表；未识别比例时回退到 resolution keyword。"""
     mid = (model_id or "").lower()
     if "seedream-3" in mid:
         size = _SEEDREAM_1K_SIZE_MAP.get(aspect_ratio)
         return size or "1K"
     # 默认按 4.x/5.x 处理（含 lite 与未来兼容版本）
+    if image_size == "4K":
+        size = _SEEDREAM_4K_SIZE_MAP.get(aspect_ratio)
+        return size or "4K"
     size = _SEEDREAM_2K_SIZE_MAP.get(aspect_ratio)
     return size or "2K"
 
@@ -101,9 +114,13 @@ class ArkImageBackend:
         }
 
         # Seedream 不显式传 size 时默认输出 1:1（4.x/5.x: 2048x2048；3.0-t2i: 1024x1024），
-        # 项目设置的 aspect_ratio 会被静默忽略。优先使用 caller 显式传入的 image_size
-        # （如 grid 路径会传 "2K"/"4K"），否则按官方推荐表从 aspect_ratio 推导宽高。
-        kwargs["size"] = request.image_size or _resolve_seedream_size(self._model, request.aspect_ratio)
+        # 项目设置的 aspect_ratio 会被静默忽略。对 4.x/5.x 的 4K 请求也需要映射成显式宽高，
+        # 否则上游把 "4K" 原样透传时，模型会更倾向生成超宽拼板；其余显式 image_size 维持透传。
+        kwargs["size"] = (
+            _resolve_seedream_size(self._model, request.aspect_ratio, request.image_size)
+            if request.image_size == "4K"
+            else request.image_size or _resolve_seedream_size(self._model, request.aspect_ratio)
+        )
 
         # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:

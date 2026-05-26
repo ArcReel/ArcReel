@@ -193,21 +193,25 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
+                resolutions=["1K", "2K", "4K"],
             ),
             "doubao-seedream-5-0-260128": ModelInfo(
                 display_name="Seedream 5.0",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
+                resolutions=["1K", "2K", "4K"],
             ),
             "doubao-seedream-4-5-251128": ModelInfo(
                 display_name="Seedream 4.5",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
+                resolutions=["1K", "2K", "4K"],
             ),
             "doubao-seedream-4-0-250828": ModelInfo(
                 display_name="Seedream 4.0",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
+                resolutions=["1K", "2K", "4K"],
             ),
             # --- video ---
             "doubao-seedance-1-5-pro-251215": ModelInfo(
@@ -295,6 +299,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
+                resolutions=["1K", "2K", "4K"],
             ),
             # --- video ---
             "doubao-seedance-1.5-pro": ModelInfo(
