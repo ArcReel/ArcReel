@@ -131,7 +131,7 @@ class OpenAIVideoBackend:
 
         video = await self._create_video(**kwargs)
         # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed（ADR 0007）
-        await persist_job_id_if_in_task_context(video.id)
+        await persist_job_id_if_in_task_context(video.id, provider=PROVIDER_OPENAI)
         final = await self._poll_until_complete(video.id, request.duration_seconds)
 
         return await self._download_and_build_result(final, request, kwargs)
@@ -182,9 +182,21 @@ class OpenAIVideoBackend:
         """
         max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(duration_seconds) * _POLL_TIMEOUT_PER_SECOND)
 
+        def _is_done(v) -> bool:
+            # 在 is_done 内识别 expired——poll_with_retry 的 else 分支不在 except 块内，
+            # raise 自然冒泡；ResumeExpiredError 不在 OPENAI_RETRYABLE_ERRORS 内，
+            # 外层 except 不会重试。
+            if v.status == "expired":
+                raise ResumeExpiredError(
+                    job_id=v.id,
+                    provider=PROVIDER_OPENAI,
+                    message=f"OpenAI Sora job expired: {v.id}",
+                )
+            return v.status == "completed"
+
         return await poll_with_retry(
             poll_fn=lambda: self._client.videos.retrieve(video_id),
-            is_done=lambda v: v.status == "completed",
+            is_done=_is_done,
             is_failed=lambda v: f"Sora 视频生成失败: {getattr(v, 'error', None)}" if v.status == "failed" else None,
             poll_interval=_POLL_INTERVAL_SECONDS,
             max_wait=max_wait,
@@ -211,7 +223,12 @@ def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:
 
 
 def _is_openai_not_found(exc: BaseException) -> bool:
-    """识别 OpenAI/Sora 「job 不存在 / 已过期」响应（NotFoundError、HTTP 404、status=expired）。"""
+    """识别 OpenAI/Sora 「job 不存在」响应（NotFoundError / HTTP 404）。
+
+    不再做 ``"not found"`` / ``"expired"`` 子串兜底：``status='expired'`` 已在
+    ``_poll_until_complete`` 内直接抛 ``ResumeExpiredError`` 处理（fix #5），
+    宽泛字串会把诸如 ``"file not found in storage"`` 等业务错误误判为幽灵任务。
+    """
     try:
         from openai import NotFoundError  # pyright: ignore[reportMissingImports]
     except ImportError:
@@ -220,7 +237,4 @@ def _is_openai_not_found(exc: BaseException) -> bool:
     if NotFoundError is not None and isinstance(exc, NotFoundError):
         return True
     status_code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
-    if status_code == 404:
-        return True
-    msg = str(exc).lower()
-    return "not found" in msg or "expired" in msg
+    return status_code == 404

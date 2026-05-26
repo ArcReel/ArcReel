@@ -96,7 +96,7 @@ class ArkVideoBackend:
             return await self.resume_video(resume_id, request)
 
         task_id = await self._create_task(request)
-        await persist_job_id_if_in_task_context(task_id)
+        await persist_job_id_if_in_task_context(task_id, provider=PROVIDER_ARK)
         return await self._poll_until_done(task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -248,9 +248,15 @@ class ArkVideoBackend:
 
 
 def _is_ark_not_found(exc: BaseException) -> bool:
-    """识别 Ark 任务「不存在 / 已过期」响应。"""
+    """识别 Ark 任务「不存在 / 已过期」响应。
+
+    精确匹配官方稳定 ``task_not_found`` 错误码；移除宽泛的 ``"not found"`` 子串兜底，
+    避免业务侧错误（如 reference image not found）被误判为 provider 端任务过期。
+    ``expired`` 字串保留：Ark 自身 ``_poll_until_done`` 把 status in (failed, expired)
+    转成 ``RuntimeError("Ark 任务失败 ... status=expired")``，要靠该字串识别回 ResumeExpiredError。
+    """
     status_code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
     if status_code == 404:
         return True
     msg = str(exc).lower()
-    return "task_not_found" in msg or "tasknotfound" in msg or "expired" in msg or "not found" in msg
+    return "task_not_found" in msg or "tasknotfound" in msg or "expired" in msg

@@ -13,10 +13,22 @@ from pathlib import Path
 from typing import Protocol
 
 import httpx
+from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
 
 logger = logging.getLogger(__name__)
+
+# DB 瞬态错误集合：sqlite "database is locked"、pg "could not connect" / 连接已关闭。
+# 故意不收 DBAPIError 父类——会兜住 IntegrityError/DataError/ProgrammingError 等非瞬态
+# 错误（SQL 语法 / 约束违反），重试无意义且拖延 fail-fast。
+_PERSIST_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
+    OperationalError,
+    InterfaceError,
+    ConnectionError,
+    TimeoutError,
+)
+_PERSIST_BACKOFF_SECONDS: tuple[int, ...] = (1, 2, 4)
 
 
 # Worker 在 _process_task / _process_resume_task 入口 set 当前 task_id；
@@ -52,22 +64,37 @@ def get_resume_job_id() -> str | None:
     return _RESUME_JOB_ID.get(None)
 
 
-async def persist_job_id_if_in_task_context(job_id: str) -> None:
+@with_retry_async(
+    max_attempts=3,
+    backoff_seconds=_PERSIST_BACKOFF_SECONDS,
+    retryable_errors=_PERSIST_RETRYABLE_ERRORS,
+)
+async def _persist_with_retry(tid: str, job_id: str) -> None:
+    from lib.generation_queue import get_generation_queue
+
+    await get_generation_queue().persist_provider_job_id(tid, job_id)
+
+
+async def persist_job_id_if_in_task_context(job_id: str, *, provider: str) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    非 worker 路径 (contextvar 未 set) → no-op；worker 路径失败抛异常，
-    由 worker finally 兜底 mark_failed（ADR 0007 fail-fast）。
+    非 worker 路径 (contextvar 未 set) → no-op；DB 瞬态错误最多重试 3 次；
+    重试用尽抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast）。
     """
     tid = _CURRENT_TASK_ID.get(None)
     if tid is None:
         return
     try:
-        from lib.generation_queue import get_generation_queue
-
-        await get_generation_queue().persist_provider_job_id(tid, job_id)
-        logger.info("provider_job_id 已持久化 task_id=%s job_id=%s", tid, job_id)
-    except Exception:
-        logger.exception("provider_job_id 持久化失败 task_id=%s job_id=%s", tid, job_id)
+        await _persist_with_retry(tid, job_id)
+        logger.info("provider_job_id 已持久化 task_id=%s provider=%s job_id=%s", tid, provider, job_id)
+    except Exception as exc:
+        logger.error(
+            "provider_job_id_persist_failed task_id=%s provider=%s job_id=%s error=%s",
+            tid,
+            provider,
+            job_id,
+            exc,
+        )
         raise
 
 

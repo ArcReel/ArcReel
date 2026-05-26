@@ -124,7 +124,7 @@ class GeminiVideoBackend:
             # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是 ADR 0007
             # 要避免的重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
             raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
-        await persist_job_id_if_in_task_context(op_name)
+        await persist_job_id_if_in_task_context(op_name, provider=PROVIDER_GEMINI)
         return await self._poll_until_done(operation, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -317,7 +317,11 @@ class GeminiVideoBackend:
 
 
 def _is_gemini_not_found(exc: BaseException) -> bool:
-    """识别 Gemini operations.get 「operation 不存在 / 已过期」响应。"""
+    """识别 Gemini operations.get 「operation 不存在 / 已过期」响应。
+
+    INVALID_ARGUMENT 不归过期：Gemini 用它表达入参不合法（如非法 operation 格式），
+    与 NOT_FOUND（资源不存在）语义不同；归过期会把客户端 bug 当成幽灵任务静默吞掉。
+    """
     try:
         from google.genai import errors as _genai_errors  # pyright: ignore[reportMissingImports]
     except ImportError:
@@ -327,7 +331,7 @@ def _is_gemini_not_found(exc: BaseException) -> bool:
         not_found_cls = getattr(_genai_errors, "ClientError", None) or getattr(_genai_errors, "APIError", None)
         if not_found_cls is not None and isinstance(exc, not_found_cls):
             code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-            if code in (404, "404", "NOT_FOUND", "INVALID_ARGUMENT"):
+            if code in (404, "404", "NOT_FOUND"):
                 return True
     msg = str(exc).lower()
-    return "not found" in msg or "invalid_argument" in msg or "expired" in msg
+    return "not found" in msg or "expired" in msg

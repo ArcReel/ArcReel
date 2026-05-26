@@ -182,6 +182,15 @@ async def execute_reference_video_task(
     if not script_file:
         raise ValueError("script_file is required for reference_video task")
 
+    # Resume 路径短路：worker _process_resume_task 入口 set 了 _RESUME_JOB_ID。
+    # 跳过 load_script + unit 查找 + 参考资产文件存在性校验三段——provider 端 job 已
+    # 在跑/已 ready，resume_video 只需 job_id 接续 poll + 下载；本地资产即使被删也不该
+    # 让 task fail 而把 provider 端 job 变成幽灵任务（issue #647 fix #2）。
+    from lib.video_backends.base import get_resume_job_id
+
+    if get_resume_job_id() is not None:
+        return await _execute_reference_video_resume(project_name, resource_id, payload, user_id=user_id)
+
     # 1. 加载上下文（阻塞 IO，线程池）
     def _load():
         pm = get_project_manager()
@@ -362,4 +371,106 @@ async def execute_reference_video_task(
         "resource_id": resource_id,
         "video_uri": video_uri,
         "warnings": warnings,
+    }
+
+
+async def _execute_reference_video_resume(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+) -> dict[str, Any]:
+    """Resume 短路：跳过 load_script + unit 查找 + reference 资产存在性校验。
+
+    backend.generate 内部检测 ``_RESUME_JOB_ID`` 跳 submit 走 resume_video；
+    `reference_images=None` + 空提示词（执行期入参，对 resume 不重要）让 backend
+    用持久化 job_id 接续轮询。issue #647 fix #2。
+    """
+    script_file = payload["script_file"]
+
+    def _load_project_only():
+        pm = get_project_manager()
+        project = pm.load_project(project_name)
+        project_path = pm.get_project_path(project_name)
+        return project, project_path
+
+    project, project_path = await asyncio.to_thread(_load_project_only)
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
+    backend = getattr(generator, "_video_backend", None)
+    provider_name = getattr(backend, "name", "") if backend else ""
+    model_name = getattr(backend, "model", "") if backend else ""
+
+    from server.services.resolution_resolver import get_provider_fallback, resolve_resolution
+
+    video_backend_raw = project.get("video_backend") or ""
+    registry_provider_id = video_backend_raw.split("/", 1)[0] if "/" in video_backend_raw else provider_name
+    resolution = await resolve_resolution(project, registry_provider_id or provider_name, model_name or "")
+    if resolution is None:
+        resolution = get_provider_fallback(provider_name)
+
+    duration_seconds = int(payload.get("duration_seconds") or 8)
+
+    # resume 时 prompt 不影响结果（backend.resume_video 用 job_id 接续），但仍透传 payload 留底
+    rendered_prompt = append_video_negative_tail(str(payload.get("prompt") or ""))
+
+    output_path, version, _, video_uri = await generator.generate_video_async(
+        prompt=rendered_prompt,
+        resource_type="reference_videos",
+        resource_id=resource_id,
+        reference_images=None,
+        aspect_ratio=project.get("aspect_ratio", "9:16"),
+        duration_seconds=duration_seconds,
+        resolution=resolution,
+    )
+
+    if output_path is None:
+        raise RuntimeError("generate_video_async returned None output_path")
+
+    thumb_dir = project_path / "reference_videos" / "thumbnails"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    thumb_path = thumb_dir / f"{resource_id}.jpg"
+    if await extract_video_thumbnail(output_path, thumb_path):
+        thumb_rel: str | None = f"reference_videos/thumbnails/{resource_id}.jpg"
+    else:
+        thumb_path.unlink(missing_ok=True)
+        thumb_rel = None
+
+    def _update_unit_assets():
+        pm = get_project_manager()
+        with pm.locked_script(project_name, script_file, validate=False) as script:
+            for u in script.get("video_units") or []:
+                if u.get("unit_id") == resource_id:
+                    ga = u.setdefault("generated_assets", {})
+                    ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+                    if video_uri:
+                        ga["video_uri"] = video_uri
+                    else:
+                        ga.pop("video_uri", None)
+                    if thumb_rel:
+                        ga["video_thumbnail"] = thumb_rel
+                    else:
+                        ga.pop("video_thumbnail", None)
+                    ga["status"] = "completed"
+                    break
+
+    await asyncio.to_thread(_update_unit_assets)
+
+    def _latest_created_at() -> str | None:
+        history = generator.versions.get_versions("reference_videos", resource_id) or {}
+        versions = history.get("versions") or []
+        if not versions:
+            return None
+        return versions[-1].get("created_at")
+
+    created_at = await asyncio.to_thread(_latest_created_at)
+
+    return {
+        "version": version,
+        "file_path": f"reference_videos/{resource_id}.mp4",
+        "created_at": created_at,
+        "resource_type": "reference_videos",
+        "resource_id": resource_id,
+        "video_uri": video_uri,
+        "warnings": [],
     }

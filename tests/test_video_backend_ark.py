@@ -489,3 +489,31 @@ class TestArkVideoBackendBaseUrl:
         with patch("lib.video_backends.ark.create_ark_client") as mock_create:
             ArkVideoBackend(api_key="k")
             mock_create.assert_called_once_with(api_key="k", base_url=None)
+
+
+class TestIsArkNotFound:
+    """fix #647 #6：用 task_not_found / tasknotfound 精确匹配，剔除宽泛 "not found" 兜底；
+    保留 "expired" 字串识别（_poll_until_done 把 status=expired 转 RuntimeError）。"""
+
+    def test_excludes_business_not_found(self):
+        from lib.video_backends.ark import _is_ark_not_found
+
+        exc = RuntimeError("reference image not found in storage")
+        assert _is_ark_not_found(exc) is False
+
+    def test_recognizes_task_not_found(self):
+        from lib.video_backends.ark import _is_ark_not_found
+
+        assert _is_ark_not_found(RuntimeError("task_not_found: invalid id")) is True
+
+    def test_recognizes_expired_status(self):
+        from lib.video_backends.ark import _is_ark_not_found
+
+        assert _is_ark_not_found(RuntimeError("Ark 任务失败 ... status=expired")) is True
+
+    def test_recognizes_404(self):
+        from lib.video_backends.ark import _is_ark_not_found
+
+        exc = RuntimeError("any")
+        exc.status_code = 404  # type: ignore[attr-defined]
+        assert _is_ark_not_found(exc) is True

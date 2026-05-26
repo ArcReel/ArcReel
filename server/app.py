@@ -425,8 +425,12 @@ async def lifespan(app: FastAPI):
         logger.info("正在停止 GenerationWorker...")
         from lib.generation_queue import get_generation_queue
 
-        get_generation_queue().set_worker_cancel_callback(None)
+        # 先 stop（内部 drain inflight + 退出主循环）：期间 cancel API 仍可发起，
+        # callback 仍可用，避免重新部署窗口期 cancel 信号被丢弃。
+        # 依赖 worker.stop() 内部已 await _wait_inflight_completion——若后续重构
+        # stop 拆掉 drain 步骤，需同时回访这里的顺序假设。
         await worker.stop()
+        get_generation_queue().set_worker_cancel_callback(None)
         logger.info("GenerationWorker 已停止")
     await shutdown_http_client()
     await close_db()

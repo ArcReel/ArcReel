@@ -355,3 +355,28 @@ class TestDownloadVideo:
 
         with pytest.raises(RuntimeError, match="无法获取视频数据"):
             backend._download_video(mock_ref, output)
+
+
+class TestIsGeminiNotFound:
+    """fix #647 #6：INVALID_ARGUMENT 不归过期，只保留 404 / NOT_FOUND / "not found" / "expired"。"""
+
+    def test_excludes_invalid_argument(self):
+        from lib.video_backends.gemini import _is_gemini_not_found
+
+        exc = RuntimeError("INVALID_ARGUMENT: malformed operation name")
+        assert _is_gemini_not_found(exc) is False
+
+    def test_not_found_string_matches(self):
+        from lib.video_backends.gemini import _is_gemini_not_found
+
+        assert _is_gemini_not_found(RuntimeError("operation not found"))
+
+    def test_expired_string_matches(self):
+        from lib.video_backends.gemini import _is_gemini_not_found
+
+        assert _is_gemini_not_found(RuntimeError("resource expired after 24h"))
+
+    def test_unrelated_runtime_error_returns_false(self):
+        from lib.video_backends.gemini import _is_gemini_not_found
+
+        assert _is_gemini_not_found(RuntimeError("rate limit exceeded")) is False

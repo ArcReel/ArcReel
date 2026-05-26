@@ -1,13 +1,18 @@
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    persist_job_id_if_in_task_context,
     poll_with_retry,
+    reset_current_task_id,
+    set_current_task_id,
 )
 
 
@@ -198,3 +203,107 @@ class TestPollWithRetry:
             )
 
         assert progress_calls == ["pending"]
+
+
+def _make_operational_error(msg: str) -> OperationalError:
+    """构造 sqlalchemy OperationalError（params/orig/connection 仅签名形式占位）。"""
+    return OperationalError(msg, params=None, orig=Exception(msg))
+
+
+class TestPersistJobIdRetry:
+    """fix #647 #3：persist_provider_job_id 在 DB 瞬态错误下重试 + 结构化日志。"""
+
+    async def test_no_op_outside_worker_context(self):
+        """非 worker 路径（contextvar 未 set）→ no-op，不访问 queue。"""
+        with patch("lib.generation_queue.get_generation_queue") as fake_get:
+            await persist_job_id_if_in_task_context("job-1", provider="openai")
+            fake_get.assert_not_called()
+
+    async def test_retries_on_sqlite_locked(self, caplog):
+        """前 2 次 OperationalError → 第 3 次成功；retry 实际执行 3 次。"""
+        attempts = 0
+
+        async def _flaky_persist(_tid: str, _job: str) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise _make_operational_error("database is locked")
+
+        class _FakeQueue:
+            async def persist_provider_job_id(self, tid: str, job_id: str) -> None:
+                await _flaky_persist(tid, job_id)
+
+        fake_queue = _FakeQueue()
+
+        token = set_current_task_id("task-1")
+        try:
+            with (
+                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+                caplog.at_level(logging.INFO, logger="lib.video_backends.base"),
+            ):
+                await persist_job_id_if_in_task_context("job-1", provider="openai")
+        finally:
+            reset_current_task_id(token)
+
+        assert attempts == 3
+        assert any("provider_job_id 已持久化" in r.message for r in caplog.records)
+
+    async def test_terminal_failure_logs_structured(self, caplog):
+        """全部重试失败 → logger.error 记录 task_id / provider / job_id 三键 + 重抛。"""
+
+        async def _always_fail(_tid: str, _job: str) -> None:
+            raise _make_operational_error("database is locked")
+
+        class _FailingQueue:
+            async def persist_provider_job_id(self, tid: str, job_id: str) -> None:
+                await _always_fail(tid, job_id)
+
+        fake_queue = _FailingQueue()
+
+        token = set_current_task_id("task-X")
+        try:
+            with (
+                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+                caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
+            ):
+                with pytest.raises(OperationalError):
+                    await persist_job_id_if_in_task_context("job-X", provider="ark")
+        finally:
+            reset_current_task_id(token)
+
+        terminal = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert terminal, "expected logger.error call"
+        msg = terminal[-1].message
+        assert "task_id=task-X" in msg
+        assert "provider=ark" in msg
+        assert "job_id=job-X" in msg
+
+    async def test_no_retry_for_value_error(self):
+        """ValueError 不在 retryable_errors 内 → 立即抛出，retry 仅尝试 1 次。"""
+        attempts = 0
+
+        async def _bad(_tid: str, _job: str) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise ValueError("not retryable")
+
+        class _BadQueue:
+            async def persist_provider_job_id(self, tid: str, job_id: str) -> None:
+                await _bad(tid, job_id)
+
+        fake_queue = _BadQueue()
+
+        token = set_current_task_id("task-V")
+        try:
+            with (
+                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            ):
+                with pytest.raises(ValueError, match="not retryable"):
+                    await persist_job_id_if_in_task_context("job-V", provider="newapi")
+        finally:
+            reset_current_task_id(token)
+
+        assert attempts == 1

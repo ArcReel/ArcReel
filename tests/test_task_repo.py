@@ -371,3 +371,113 @@ class TestTaskRepository:
         stats = await repo.get_stats()
         assert stats["cancelled"] == 1
         assert stats["queued"] == 0
+
+
+class TestCancelCascadeAcrossCancelling:
+    """fix #647 #4：cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)
+    在 A 落 cancelled 时通过 finalize_cancelled 自动级联到 B/C。"""
+
+    async def _chain_3(self, repo: TaskRepository) -> tuple[str, str, str]:
+        a = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+        b = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=a["task_id"],
+        )
+        c = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=b["task_id"],
+        )
+        return a["task_id"], b["task_id"], c["task_id"]
+
+    async def test_cancel_running_task_returns_only_cancelling(self, db_session):
+        """A running → cancel_task 响应体 cancelled=[]、cancelling=[A]、下游变动靠后续 SSE/finalize。"""
+        repo = TaskRepository(db_session)
+        a, b, c = await self._chain_3(repo)
+        await repo.claim_next("image")  # A 拉成 running
+
+        result = await repo.cancel_task(a)
+        assert result["cancelled"] == []
+        assert result["cancelling"] == [a]
+        assert result["skipped_terminal"] == []
+
+        # B/C 当前仍 queued，因为父 A 还没落 cancelled
+        assert (await repo.get(b))["status"] == "queued"
+        assert (await repo.get(c))["status"] == "queued"
+
+    async def test_cancel_link_running_to_queued(self, db_session):
+        """A(running)→B(queued)→C(queued)：finalize_cancelled(A) → A/B/C 全 cancelled，
+        B/C 的 cancelled_by="cascade"。"""
+        repo = TaskRepository(db_session)
+        a, b, c = await self._chain_3(repo)
+        await repo.claim_next("image")
+        await repo.cancel_task(a)  # A → cancelling
+
+        await repo.finalize_cancelled(a)
+
+        for tid, expected in [(a, "user"), (b, "cascade"), (c, "cascade")]:
+            t = await repo.get(tid)
+            assert t["status"] == "cancelled", f"{tid} expected cancelled, got {t['status']}"
+            assert t["cancelled_by"] == expected
+
+    async def test_cancel_link_running_running_queued(self, db_session):
+        """A(running)→B(running)→C(queued)：finalize(A) → A cancelled、B cancelling、C queued；
+        finalize(B) → B cancelled、C cancelled。"""
+        repo = TaskRepository(db_session)
+        a, b, c = await self._chain_3(repo)
+        # A、B 都拉到 running（B 实际还卡 dep，但模拟单元；用 mark 跳过 claim 守卫）
+        await repo.claim_next("image")
+        # 直接把 B set 成 running 绕开依赖守卫
+        from sqlalchemy import update
+
+        from lib.db.models.task import Task
+
+        await db_session.execute(update(Task).where(Task.task_id == b).values(status="running"))
+        await db_session.commit()
+
+        await repo.cancel_task(a)
+        await repo.cancel_task(b)
+        await repo.finalize_cancelled(a)
+
+        assert (await repo.get(a))["status"] == "cancelled"
+        assert (await repo.get(b))["status"] == "cancelling"
+        assert (await repo.get(c))["status"] == "queued"
+
+        await repo.finalize_cancelled(b)
+        assert (await repo.get(b))["status"] == "cancelled"
+        assert (await repo.get(c))["status"] == "cancelled"
+        assert (await repo.get(c))["cancelled_by"] == "cascade"
+
+    async def test_cancel_emits_each_event_at_most_twice(self, db_session):
+        """每个 task 的 cancelling/cancelled 事件不超过 1 次/各 1 次（不重复 emit）。"""
+        repo = TaskRepository(db_session)
+        a, b, c = await self._chain_3(repo)
+        await repo.claim_next("image")
+        await repo.cancel_task(a)
+        await repo.finalize_cancelled(a)
+
+        events = await repo.get_events_since(last_event_id=0)
+        cancel_events = [e for e in events if e["event_type"] in ("cancelling", "cancelled")]
+        # 计数每个 task 的 cancel-related events
+        by_task: dict[str, int] = {}
+        for e in cancel_events:
+            tid = e["task_id"]
+            by_task[tid] = by_task.get(tid, 0) + 1
+        for tid in (a, b, c):
+            assert by_task.get(tid, 0) <= 2, f"{tid} 有重复 cancel 事件: {by_task.get(tid)}"

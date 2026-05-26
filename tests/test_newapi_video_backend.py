@@ -450,3 +450,30 @@ class TestNewAPIVideoBackend:
         assert mock_client.get.call_args.args[0].endswith("/task-resume")
         assert result.task_id == "task-resume"
         assert (tmp_path / "out.mp4").read_bytes() == b"resumed"
+
+    async def test_poll_recognizes_expired_status(self, tmp_path: Path):
+        """fix #647 #5：poll 返回 status='expired' → 抛 ResumeExpiredError。"""
+        from lib.video_backends.base import ResumeExpiredError
+
+        expired_resp = _make_response(200, {"task_id": "task-x", "status": "expired"})
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=expired_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            with pytest.raises(ResumeExpiredError) as ei:
+                await backend.resume_video(
+                    "task-x",
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+                    ),
+                )
+            assert ei.value.job_id == "task-x"
+            assert ei.value.provider == PROVIDER_NEWAPI

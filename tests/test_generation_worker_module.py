@@ -628,7 +628,11 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch):
-        """video resumable provider + 有 job_id → 派发 _process_resume_task。"""
+        """video resumable provider + 有 job_id → 后台 dispatcher 派发 _process_resume_task。
+
+        fast path 只分桶 + 派 background dispatcher（fix #647 第 1 项），inflight 字典
+        由 dispatcher 异步填入；用 gather 等待 dispatcher 完成后再断言。
+        """
         queue = _FakeQueue()
         queue._orphans = [
             {
@@ -650,13 +654,175 @@ class TestGenerationWorker:
 
         monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
         await worker._handle_orphan_tasks_on_start()
-        # 任务应进入 ark pool 的 video_inflight,等异步 task 调度
+        # 等所有 pending background task 完成（含 orphan-dispatcher + provider 桶 sub-task
+        # + 实际 inflight resume task）
         pool = worker._get_or_create_pool("ark")
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if "ark-orphan" in pool.video_inflight:
+                break
         assert "ark-orphan" in pool.video_inflight
-        # 等 inflight 任务执行（_capture_resume 被 asyncio.create_task 包了）
         await asyncio.gather(*pool.video_inflight.values(), return_exceptions=True)
         assert len(dispatched) == 1
         assert dispatched[0]["task_id"] == "ark-orphan"
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_fast_path_returns_immediately(self, monkeypatch):
+        """fix #647 #1：fast path 不阻塞——5 个可 resume orphan + video_max=2，
+        `_handle_orphan_tasks_on_start` 应几乎立刻返回（< 100ms），
+        实际 dispatch 由后台 dispatcher 处理。"""
+        import time
+
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": f"orphan-{i}",
+                "status": "running",
+                "provider_id": "ark",
+                "provider_job_id": f"job-{i}",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+            for i in range(5)
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=2)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        # 让 _process_resume_task block 住——验证 fast path 不等它完成
+        async def _block_forever(self, task):
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _block_forever)
+
+        start = time.monotonic()
+        await worker._handle_orphan_tasks_on_start()
+        elapsed = time.monotonic() - start
+        assert elapsed < 0.1, f"fast path 阻塞了 {elapsed:.3f}s（应 < 100ms）"
+
+        # 清理后台 dispatcher，避免 unawaited task 警告
+        for t in list(asyncio.all_tasks()):
+            if t.get_name() in ("orphan-dispatcher", "orphan-dispatch-ark"):
+                t.cancel()
+            if t.get_name().startswith("resume-video-"):
+                t.cancel()
+        await asyncio.sleep(0)
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_dispatcher_respects_pool_capacity(self, monkeypatch):
+        """fix #647 #1：后台 dispatcher 受 pool video_max 容量约束分批入 inflight，
+        任一时刻 `len(pool.video_inflight) ≤ video_max`。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": f"orphan-{i}",
+                "status": "running",
+                "provider_id": "ark",
+                "provider_job_id": f"job-{i}",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+            for i in range(4)
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=2)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        # 用 controlled future 让 resume 任务可控完成；同时记录每次 dispatch 时的池占用
+        snapshots: list[int] = []
+        gates: dict[str, asyncio.Event] = {f"orphan-{i}": asyncio.Event() for i in range(4)}
+
+        async def _gated(self, task):
+            snapshots.append(len(pool.video_inflight))
+            await gates[task["task_id"]].wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+
+        await worker._handle_orphan_tasks_on_start()
+        # 让 dispatcher 把前 2 个 dispatch 进 inflight
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if len(pool.video_inflight) >= 2:
+                break
+        assert len(pool.video_inflight) == 2, f"应只有 2 个 inflight，实际 {len(pool.video_inflight)}"
+
+        # 释放第一个，让 dispatcher 继续派发——主循环在生产中负责 drain，这里手动模拟
+        first_done = next(iter(pool.video_inflight))
+        gates[first_done].set()
+        await asyncio.sleep(0)
+        # 模拟主循环 _drain_finished_tasks
+        for tid in list(pool.video_inflight):
+            if pool.video_inflight[tid].done():
+                pool.video_inflight.pop(tid)
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if len(pool.video_inflight) >= 2:
+                break
+        # 此时 dispatcher 应已把第 3 个推进 inflight
+        assert len(pool.video_inflight) <= 2
+
+        # 收尾：释放所有 gate，等 dispatcher 结束
+        for gate in gates.values():
+            gate.set()
+        for _ in range(50):
+            await asyncio.sleep(0)
+        # 清理可能的残余
+        for t in list(asyncio.all_tasks()):
+            name = t.get_name()
+            if name.startswith("orphan-") or name.startswith("resume-video-"):
+                if not t.done():
+                    t.cancel()
+        await asyncio.sleep(0)
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_dispatcher_exits_on_stop_event(self, monkeypatch):
+        """fix #647 #1：`_stop_event` 触发时 dispatcher 干净退出，不再 dispatch 剩余 orphan。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": f"orphan-{i}",
+                "status": "running",
+                "provider_id": "ark",
+                "provider_job_id": f"job-{i}",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+            for i in range(3)
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        dispatched_count = 0
+        first_dispatched = asyncio.Event()
+        block_gate = asyncio.Event()
+
+        async def _maybe_block(self, task):
+            nonlocal dispatched_count
+            dispatched_count += 1
+            first_dispatched.set()
+            await block_gate.wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _maybe_block)
+
+        await worker._handle_orphan_tasks_on_start()
+        # 等第一个 orphan 进 inflight
+        await asyncio.wait_for(first_dispatched.wait(), timeout=1.0)
+        assert dispatched_count == 1
+        # 触发停机
+        worker._stop_event.set()
+        block_gate.set()
+        # 让 dispatcher 看到 stop_event 退出（不再 dispatch 剩余 2 个）
+        for _ in range(50):
+            await asyncio.sleep(0)
+            if dispatched_count == 1 and not any(
+                t.get_name() == "orphan-dispatcher" and not t.done() for t in asyncio.all_tasks()
+            ):
+                break
+        assert dispatched_count == 1, f"stop_event 后不应再 dispatch，实际 dispatched={dispatched_count}"
 
     # ------------------------------------------------------------------
     # _process_resume_task：分流 + provider 锁定

@@ -642,6 +642,40 @@ class TestGenerationTasks:
         with pytest.raises(ValueError):
             await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
 
+    async def test_execute_video_resume_skips_storyboard_check(self, tmp_path, monkeypatch):
+        """fix #647 #2：resume 路径（_RESUME_JOB_ID 已 set）跳过 storyboard 存在性校验，
+        即使 storyboard 文件被删依然能调到 backend.resume_video。"""
+        from lib.video_backends.base import reset_resume_job_id, set_resume_job_id
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+
+        # 故意删除 storyboard——normal path 会 ValueError，resume path 不该看
+        (project_path / "storyboards" / "scene_E1S01.png").unlink()
+
+        token = set_resume_job_id("resume-job-123")
+        try:
+            result = await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json", "prompt": "p", "duration_seconds": 8},
+            )
+        finally:
+            reset_resume_job_id(token)
+
+        # backend.generate_video_async 被调 → start_image=None（resume 路径）
+        assert len(fake_generator.video_calls) == 1
+        assert fake_generator.video_calls[0]["start_image"] is None
+        # finalize 跑通：scene asset 被写、返回结果含 file_path
+        assert result["resource_type"] == "videos"
+        assert result["file_path"] == "videos/scene_E1S01.mp4"
+        # update_scene_asset 至少被调一次（video_clip）
+        assert any(a.get("asset_type") == "video_clip" for a in fake_pm.updated_assets)
+
 
 from server.services.generation_tasks import _resolve_effective_image_backend
 

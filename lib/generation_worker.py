@@ -701,10 +701,13 @@ class GenerationWorker:
           → [resume_unsupported]（backend 不实现 resume_video，原 job 无接续手段）
         - video running，可 resume backend (ark/gemini/openai/newapi)：
           - 无 provider_job_id → [restart_lost]
-          - 有 job_id → 派发 _process_resume_task，由 backend.resume_video 决定后续走向
+          - 有 job_id → 收集到 `resumable_by_provider` 桶，后台 dispatcher 受
+            pool video_max 容量约束分批 dispatch（fix #647 第 1 项）
 
-        resume 阶段绕过 pool has_room 校验：把 resume task 一次性插入 pool inflight 字典，
-        期间 _claim_tasks 不接新 queued 任务（has_video_room() 返回 False）。
+        启动期 fast path（本函数）**只做终结类处理**，立刻返回；可 resume 的视频孤儿
+        派发给后台 dispatcher 处理，避免 N 个 Sora orphan × 每个 5min poll 把启动期
+        阻塞数十分钟。Dispatcher 不调 `_drain_finished_tasks`，完全依赖主循环每 cycle
+        清理 inflight 字典；`_stop_event` 触发时 dispatcher 自然退出。
         """
         orphans = await self.queue.list_orphan_tasks_on_start()
         if not orphans:
@@ -714,6 +717,8 @@ class GenerationWorker:
             len(orphans),
             self.lease_ttl,
         )
+
+        resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
 
         for task in orphans:
             task_id = task["task_id"]
@@ -771,11 +776,77 @@ class GenerationWorker:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
                 continue
 
-            # 把 resume task 插入对应 pool inflight，让 cancel running 也能命中
-            pool = self._get_or_create_pool(provider_id)
-            inflight = pool.video_inflight if media_type == "video" else pool.image_inflight
-            inflight[task_id] = asyncio.create_task(
-                self._process_resume_task(task),
-                name=f"resume-{media_type}-{task_id}",
+            # 收集到 provider 桶，交给后台 dispatcher 受 pool 容量约束分批处理。
+            # 顺便把 resolve 出的 provider_id 写回 task dict，dispatcher 路由用。
+            task["provider_id"] = provider_id
+            resumable_by_provider.setdefault(provider_id, []).append(task)
+
+        if resumable_by_provider:
+            total = sum(len(v) for v in resumable_by_provider.values())
+            logger.info(
+                "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
+                total,
             )
-        logger.info("孤儿扫描完成，已派发 resume 任务")
+            asyncio.create_task(  # noqa: RUF006  # dispatcher 生命周期由 _stop_event 控制
+                self._dispatch_resume_orphans_background(resumable_by_provider),
+                name="orphan-dispatcher",
+            )
+        else:
+            logger.info("孤儿扫描完成，无可 resume 任务")
+
+    async def _dispatch_resume_orphans_background(
+        self,
+        resumable_by_provider: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        """后台 dispatcher：按 provider 分桶并发，受 pool video_max 容量约束分批入 inflight。
+
+        - 不同 provider 之间无容量耦合 → 并发跑独立 sub-task；
+        - 同 provider 内顺序入队：满则 `asyncio.wait(inflight, FIRST_COMPLETED)` 等任一
+          完成（精确感知，不 sleep 轮询）；
+        - 主循环每 cycle 调 `_drain_finished_tasks` 自动 pop 已 done 的 task → dispatcher
+          下次 has_room 判定就有空位（解耦关键假设）；
+        - `_stop_event` 触发时 dispatcher 自然退出，不持有 lease 资源。
+        """
+        if self._stop_event.is_set():
+            return
+        sub_tasks = [
+            asyncio.create_task(
+                self._dispatch_provider_bucket(provider_id, tasks),
+                name=f"orphan-dispatch-{provider_id}",
+            )
+            for provider_id, tasks in resumable_by_provider.items()
+        ]
+        await asyncio.gather(*sub_tasks, return_exceptions=True)
+        logger.info("孤儿后台 dispatcher 完成")
+
+    async def _dispatch_provider_bucket(
+        self,
+        provider_id: str,
+        tasks: list[dict[str, Any]],
+    ) -> None:
+        """同 provider 桶内顺序入 inflight，pool 容量满则等任一 inflight 完成。"""
+        pool = self._get_or_create_pool(provider_id)
+        for task in tasks:
+            if self._stop_event.is_set():
+                logger.info(
+                    "stop_event 已触发，剩余 %d 个 %s 孤儿不再 dispatch",
+                    len(tasks) - tasks.index(task),
+                    provider_id,
+                )
+                return
+            while not pool.has_video_room():
+                if self._stop_event.is_set():
+                    return
+                # snapshot：race 防御。inflight 可能被主循环 _drain_finished_tasks
+                # 同步 pop 到空（罕见但可能）；空时让出一拍重新判断 has_room。
+                inflight_list = list(pool.video_inflight.values())
+                if not inflight_list:
+                    await asyncio.sleep(0)
+                    continue
+                await asyncio.wait(inflight_list, return_when=asyncio.FIRST_COMPLETED)
+            task_id = task["task_id"]
+            pool.video_inflight[task_id] = asyncio.create_task(
+                self._process_resume_task(task),
+                name=f"resume-video-{task_id}",
+            )
+            logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
