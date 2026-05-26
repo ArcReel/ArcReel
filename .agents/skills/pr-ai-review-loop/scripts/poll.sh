@@ -14,6 +14,7 @@
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
 #   "coderabbit": {
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
+#       "id":                 <int>,                    # REST issue comment id — stable across walkthrough rewrites
 #       "created_at", "updated_at",                     # updated_at > last_push_at => CR has reviewed current HEAD
 #       "is_ok":              <bool>,                   # CR explicit pass marker
 #       "is_paused":          <bool>,                   # CR paused for this PR
@@ -24,16 +25,16 @@
 #     "reviews":              [...]                     # CR's review-level submissions
 #   },
 #   "gemini": {
-#     "reviews":  [{submittedAt, state, body}],         # body = review SUMMARY (## Code Review ...) — can contain actionable text not in inline
+#     "reviews":  [{id, submittedAt, state, body}],     # body = review SUMMARY (## Code Review ...) — can contain actionable text not in inline; id = GraphQL node id
 #     "comments": [...]
 #   },
 #   "codex": {
-#     "reviews":   [{submittedAt, state, body}],        # body contains "Reviewed commit: <SHA>" when present
+#     "reviews":   [{id, submittedAt, state, body}],    # body contains "Reviewed commit: <SHA>" when present; id = GraphQL node id
 #     "comments":  [...],
 #     "reactions": [{content, created_at}]              # +1 reaction on PR = silent ack — see PITFALL 4
 #   },
 #   "inline_comments_by_user": {                        # PR-level inline review comments grouped by bot
-#     "<bot[bot]>": [{path, commit_id, created_at, severity_alt, is_ack, body_head}]
+#     "<bot[bot]>": [{id, path, commit_id, created_at, severity_alt, is_ack, body_head}]  # id = REST PR review comment id
 #   },
 #   "quota_alerts": [...],                              # PR-level issue comments matching quota keywords (bots emit quota errors as plain comments, not reviews)
 #   "own_trigger_comments": [...]                       # human-authored /gemini review / @codex review / @coderabbitai resume
@@ -144,6 +145,7 @@ jq -n \
     | first
     | if . == null then null else
         {
+          id,
           created_at,
           updated_at,
           is_ok:          (.body | test("No actionable comments were generated in the recent review")),
@@ -165,6 +167,7 @@ jq -n \
     | map({
         key:   .[0].user.login,
         value: map({
+          id,
           path,
           commit_id,
           created_at,
@@ -205,12 +208,12 @@ jq -n \
     },
 
     gemini: {
-      reviews:  [$main.reviews[]  | select(.author.login == "gemini-code-assist") | {submittedAt, state, body}],
+      reviews:  [$main.reviews[]  | select(.author.login == "gemini-code-assist") | {id, submittedAt, state, body}],
       comments: [$main.comments[] | select(.author.login == "gemini-code-assist")]
     },
 
     codex: {
-      reviews:   [$main.reviews[]  | select(.author.login == "chatgpt-codex-connector") | {submittedAt, state, body}],
+      reviews:   [$main.reviews[]  | select(.author.login == "chatgpt-codex-connector") | {id, submittedAt, state, body}],
       comments:  [$main.comments[] | select(.author.login == "chatgpt-codex-connector")],
       reactions: [$sub_b[] | select(.user.login == "chatgpt-codex-connector[bot]") | {content, created_at}]
     },
