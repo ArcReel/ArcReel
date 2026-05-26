@@ -99,8 +99,8 @@ def _compress_references_to_tempfiles(
     return temp_paths
 
 
-def _render_unit_prompt(unit: dict) -> str:
-    """从 unit.shots[*].text 拼接 prompt，用 shot_parser 把 @X 替成 [图N]，再追加反向尾词。
+def _render_unit_prompt(unit: dict, *, provider_name: str | None = None) -> str:
+    """从 unit.shots[*].text 拼接 prompt，并按 backend 期望渲染引用占位符后追加反向尾词。
 
     空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
     （WebUI / SDK）在入队时即拒绝空提示词。此处保留一道防御性空检查，因为参考生视频的
@@ -110,7 +110,7 @@ def _render_unit_prompt(unit: dict) -> str:
     """
     raw = assemble_shots_text(unit.get("shots") or [])
     references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
-    rendered = render_prompt_for_backend(raw, references)
+    rendered = render_prompt_for_backend(raw, references, provider=provider_name)
     if not rendered.strip():
         raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
     return append_video_negative_tail(rendered)
@@ -266,7 +266,7 @@ async def execute_reference_video_task(
     unit_refs = unit.get("references") or []
     if len(constrained_refs) < len(unit_refs):
         unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
-    rendered_prompt = _render_unit_prompt(unit_for_prompt)
+    rendered_prompt = _render_unit_prompt(unit_for_prompt, provider_name=provider_name)
 
     # 7. 压缩到临时文件（2048px/q=85）→ 首次调用
     tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)
@@ -310,8 +310,6 @@ async def execute_reference_video_task(
                 p.unlink(missing_ok=True)
 
     # 8. 首帧缩略图
-    if output_path is None:
-        raise RuntimeError("generate_video_async returned None output_path")
     thumb_dir = project_path / "reference_videos" / "thumbnails"
     thumb_dir.mkdir(parents=True, exist_ok=True)
     thumb_path = thumb_dir / f"{resource_id}.jpg"

@@ -173,6 +173,22 @@ def test_render_unit_prompt_replaces_mentions_in_order():
     assert "Shot 2 (5s):" in rendered
 
 
+def test_render_unit_prompt_uses_kling_image_tokens():
+    unit = {
+        "shots": [
+            {"duration": 3, "text": "Shot 1 (3s): @张三 推门，走进 @酒馆"},
+        ],
+        "references": [
+            {"type": "character", "name": "张三"},
+            {"type": "scene", "name": "酒馆"},
+        ],
+    }
+    rendered = _render_unit_prompt(unit, provider_name="kling")
+    assert "<<<image_1>>>" in rendered
+    assert "<<<image_2>>>" in rendered
+    assert "[图1]" not in rendered
+
+
 def test_apply_provider_constraints_veo_clamps_duration_and_refs():
     # caps 由调用方从 ConfigResolver.video_capabilities_for_project 取得；
     # 这里直接提供 model 级上限模拟已 resolve 的结果。
@@ -309,6 +325,61 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     assert result["resource_type"] == "reference_videos"
     assert result["resource_id"] == "E1U1"
     assert result["file_path"].endswith("E1U1.mp4")
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_renders_kling_prompt_for_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "kling"
+    fake_video_backend.model = "kling-video-o1"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_args, **_kwargs):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    assert "<<<image_1>>>" in captured["prompt"]
+    assert "[图1]" not in captured["prompt"]
 
 
 @pytest.mark.asyncio

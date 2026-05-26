@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY
+from lib.providers import PROVIDER_KLING
 from lib.script_models import ReferenceResource, Shot
 
 _SHOT_HEADER_RE = re.compile(
@@ -133,8 +134,17 @@ def _extract_mentions(text: str) -> list[str]:
     return result
 
 
-def render_prompt_for_backend(text: str, references: list[ReferenceResource]) -> str:
-    """把 prompt 中的 @mention 替换为 [图N]，其中 N 是 references 列表中 1-based 序号。"""
+def render_prompt_for_backend(
+    text: str,
+    references: list[ReferenceResource],
+    *,
+    provider: str | None = None,
+) -> str:
+    """把 prompt 中的 @名称 替换为 backend 期望的引用占位符。
+
+    - 默认 / 通用：`[图N]`
+    - Kling Omni：`<<<image_N>>>`
+    """
     index_by_name: dict[str, int] = {}
     for i, ref in enumerate(references, start=1):
         index_by_name[ref.name] = i
@@ -144,7 +154,12 @@ def render_prompt_for_backend(text: str, references: list[ReferenceResource]) ->
     for start, end, name in _iter_mentions(text):
         idx = index_by_name.get(name)
         parts.append(text[last:start])
-        parts.append(f"[图{idx}]" if idx else text[start:end])  # 未注册 → 保留原样
+        if idx is None:
+            parts.append(text[start:end])
+        elif provider == PROVIDER_KLING:
+            parts.append(f"<<<image_{idx}>>>")
+        else:
+            parts.append(f"[图{idx}]")
         last = end
 
     parts.append(text[last:])

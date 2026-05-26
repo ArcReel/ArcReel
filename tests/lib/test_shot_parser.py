@@ -1,3 +1,4 @@
+from lib.providers import PROVIDER_KLING
 from lib.reference_video.shot_parser import (
     compute_duration_from_shots,
     parse_prompt,
@@ -114,6 +115,17 @@ def test_render_prompt_multi_shot_text():
     rendered = render_prompt_for_backend(text, refs)
     assert rendered.count("[图1]") == 2
     assert "Shot 1 (3s):" in rendered  # header 保留
+
+
+def test_render_prompt_kling_omni_uses_image_tokens():
+    text = "中景，@张三 走进 @酒馆 找 @长剑。"
+    refs = [
+        ReferenceResource(type="character", name="张三"),
+        ReferenceResource(type="scene", name="酒馆"),
+        ReferenceResource(type="prop", name="长剑"),
+    ]
+    rendered = render_prompt_for_backend(text, refs, provider=PROVIDER_KLING)
+    assert rendered == "中景，<<<image_1>>> 走进 <<<image_2>>> 找 <<<image_3>>>。"
 
 
 def test_compute_duration_sums_shots():
