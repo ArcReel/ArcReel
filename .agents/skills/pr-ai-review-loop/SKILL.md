@@ -55,8 +55,15 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 | 字段 | 更新时机 | 跨 HEAD 行为 | 用途 |
 |---|---|---|---|
 | `round_count` | HEAD SHA 或 `last_push_at` 与上一轮记录不同时 +1 | 累加,不重置 | 收敛兜底 #1 |
-| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `head_sha` 与意见的内容指纹:walkthrough 取 `updated_at`;其它评论取 `body_head` 的前 N 字符或哈希值 | 累积,不清空。同记录判定:`(comment id, head_sha)` 命中且**内容指纹未变**视为已记录,跳过;`(comment id, head_sha)` 命中但内容指纹变了 → 更新已记录条目(覆盖,不重复追加),用于 CodeRabbit walkthrough 在同 HEAD 内由 in-progress 改写为 final 的情况;跨 HEAD 同 id 一律视为新一轮 | 主题指纹比对 |
+| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `head_sha` 与内容指纹 | 累积不清空,按 `(comment id, head_sha)` + 内容指纹去重(详见下) | 主题指纹比对 |
 | `last_commit_shapes` | HEAD SHA 或 `last_push_at` 变化时追加形状标签 | 长度 ≤ 3 的滑窗 | 收敛兜底 #2 |
+
+**`topic_history` 同记录判定**:
+
+- **内容指纹**:walkthrough 取 `updated_at`;其它评论取 `body_head` 的前 N 字符或哈希值
+- `(comment id, head_sha)` 命中且**内容指纹未变** → 视为已记录,跳过
+- `(comment id, head_sha)` 命中但**内容指纹变了** → 更新已记录条目(覆盖,不重复追加);覆盖 CodeRabbit walkthrough 在同 HEAD 内由 in-progress 改写为 final 的情况
+- 跨 HEAD 同 id → 一律视为新一轮
 
 ### 步骤 2:对每家启用的 reviewer 决定动作
 
@@ -66,7 +73,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 bash .agents/skills/pr-ai-review-loop/scripts/classify_commits.sh <PR_NUMBER> <previous_round_head_sha>
 ```
 
-若本轮 push 的所有 commit 均属 fix-up(nit、format、typo、单字段调整、小 bug 修复),本轮**跳过**手动触发 Gemini 与 Codex,等 CodeRabbit 自动跟即可。
+若本轮 push 的所有 commit 均属 fix-up(nit、format、typo、单字段调整、小 bug 修复),本轮**跳过**手动触发 Gemini 与 Codex,等 CodeRabbit 自动跟即可。**例外**:下文 Gemini cold-start fallback 行不受此跳过限制 —— 该场景下 `gemini.reviews` 完全为空,整个 PR 还没经过任何 Gemini review,无论 commit 性质都需补发触发,否则 Gemini 将永远不会审本 PR。
 
 否则按下表执行,命中即执行,同一轮可并行处理多家 reviewer:
 
@@ -74,7 +81,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/classify_commits.sh <PR_NUMBER> <p
 |---|---|
 | `coderabbit.walkthrough.is_paused == true`,且 `updated_at` 之后未发送过 `@coderabbitai resume`(从 `own_trigger_comments` 中筛,最新一条 `createdAt` 早于 walkthrough 的 `updated_at`,为空时视为未发送) | 发送 `@coderabbitai resume` |
 | Gemini 启用,`gemini.reviews` **完全为空**,且 `pr_created_at` 距今不足 5 分钟 | 等待 Gemini 自动 review(PR opened 触发,见 references/reviewers.md);不手动触发 |
-| Gemini 启用,`gemini.reviews` **完全为空**,`pr_created_at` 距今已超过 5 分钟,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`)| 发送 `/gemini review`(cold-start fallback:PR opened 自动 review 未在窗口内出现,可能失败或被跳过) |
+| Gemini 启用,`gemini.reviews` **完全为空**,`pr_created_at` 距今已超过 5 分钟,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`)| 发送 `/gemini review`(cold-start fallback:PR opened 自动 review 未在窗口内出现,可能失败或被跳过;**不受 fix-up 跳过限制**,见上文说明) |
 | Gemini 启用,`gemini.reviews` **非空**但最新一条 `submittedAt < last_push_at`,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`),且**前述跳过触发未命中** | 发送 `/gemini review`(synchronize 场景,Gemini 不自动跟新 commit) |
 | Codex 启用,按下方「Codex 触发决策」判断需要触发,且**前述跳过触发未命中** | 发送 `@codex review` |
 
