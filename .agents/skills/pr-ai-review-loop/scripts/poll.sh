@@ -86,20 +86,24 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || {
-  echo "POLL_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
-  exit 4
-}
-
 # Stage gh output into temp files. Large PRs (dozens of comments) make --argjson
 # overflow ARG_MAX; --slurpfile reads from disk and is unbounded. Each gh call paginates,
-# so PRs with hundreds of comments work too.
+# so PRs with hundreds of comments work too. TMPDIR is created up-front so every gh
+# invocation can route its stderr here — the skill's troubleshooting section promises
+# stderr on failure, so silently dropping it via `2>/dev/null` defeats that contract.
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$TMPDIR/gh_repo_view.err") || {
+  echo "POLL_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
+  cat "$TMPDIR/gh_repo_view.err" >&2
+  exit 4
+}
+
 # Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
-gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$TMPDIR/main.json" 2>/dev/null || {
+gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$TMPDIR/main.json" 2>"$TMPDIR/gh_pr_view.err" || {
   echo "POLL_ERROR: gh pr view $PR failed" >&2
+  cat "$TMPDIR/gh_pr_view.err" >&2
   exit 5
 }
 
@@ -109,20 +113,23 @@ gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "
 
 # Sub-query A — REST issue comments. Used to get CodeRabbit walkthrough's updated_at
 # (GraphQL doesn't expose updated_at on PR comments).
-gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$TMPDIR/sub_a.json" 2>/dev/null || {
+gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$TMPDIR/sub_a.json" 2>"$TMPDIR/gh_issue_comments.err" || {
   echo "POLL_ERROR: REST issue comments fetch failed" >&2
+  cat "$TMPDIR/gh_issue_comments.err" >&2
   exit 5
 }
 
 # Sub-query B — PR-level reactions (Codex silent +1 ack path).
-gh api "repos/${OWNER_REPO}/issues/${PR}/reactions" --paginate > "$TMPDIR/sub_b.json" 2>/dev/null || {
+gh api "repos/${OWNER_REPO}/issues/${PR}/reactions" --paginate > "$TMPDIR/sub_b.json" 2>"$TMPDIR/gh_reactions.err" || {
   echo "POLL_ERROR: REST reactions fetch failed" >&2
+  cat "$TMPDIR/gh_reactions.err" >&2
   exit 5
 }
 
 # Sub-query C — REST inline review comments on the PR diff (severity tags live here).
-gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$TMPDIR/sub_c.json" 2>/dev/null || {
+gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$TMPDIR/sub_c.json" 2>"$TMPDIR/gh_pr_comments.err" || {
   echo "POLL_ERROR: REST PR review comments fetch failed" >&2
+  cat "$TMPDIR/gh_pr_comments.err" >&2
   exit 5
 }
 

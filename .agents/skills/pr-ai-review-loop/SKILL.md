@@ -55,7 +55,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 | 字段 | 更新时机 | 跨 HEAD 行为 | 用途 |
 |---|---|---|---|
 | `round_count` | HEAD SHA 或 `last_push_at` 与上一轮记录不同时 +1 | 累加,不重置 | 收敛兜底 #1 |
-| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `head_sha` | 累积,不清空。去重 key 为 `(comment id, head_sha)` —— `comment id` 取自 `poll.sh` 输出对应来源的 `id` 字段(`inline_comments_by_user.*[].id` / `coderabbit.walkthrough.id` / `gemini.reviews[].id` / `codex.reviews[].id`);跨 HEAD 同 id 视为新一轮,覆盖 CodeRabbit walkthrough 原地改写(id 不变但 body 变化)的情况 | 主题指纹比对 |
+| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `head_sha` 与意见的内容指纹(walkthrough 用 `updated_at`,其它用 `body_head` 哈希或前 N 字符) | 累积,不清空。同记录判定:`(comment id, head_sha)` 命中且**内容指纹未变**视为已记录,跳过;`(comment id, head_sha)` 命中但内容指纹变了 → 更新已记录条目(覆盖,不重复追加),用于 CodeRabbit walkthrough 在同 HEAD 内由 in-progress 改写为 final 的情况;跨 HEAD 同 id 一律视为新一轮 | 主题指纹比对 |
 | `last_commit_shapes` | HEAD SHA 或 `last_push_at` 变化时追加形状标签 | 长度 ≤ 3 的滑窗 | 收敛兜底 #2 |
 
 ### 步骤 2:对每家启用的 reviewer 决定动作
@@ -119,7 +119,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/classify_commits.sh <PR_NUMBER> <p
 当前 HEAD 下,每家启用的 reviewer 满足以下之一:
 
 - **CodeRabbit**:`walkthrough.is_ok == true`(或 `actionable_count == "0"`),或本轮 inline 均为 `is_ack == true`,且 `updated_at > last_push_at`,且 `is_in_progress == false`(仍在 in-progress 时返回 poll)
-- **Gemini**:本轮 inline(`created_at > last_push_at`)全部为 `low/nit/style` 或全部为 `is_ack`,**且** summary 最新一条 `gemini.reviews` 的 body 含明确通过标记(非空不等于通过)
+- **Gemini**:本轮无新 inline(`created_at > last_push_at` 列表为空),或本轮新 inline 全部为 `low/nit/style`,或本轮新 inline 全部为 `is_ack`;**且** summary 最新一条 `gemini.reviews` 的 body 含明确通过标记(非空不等于通过)
 - **Codex**:满足 references/reviewers.md 中三种 ack 模式之一,且本轮无 ack 以外的 inline
 - 或该 reviewer 已被用户临时停用
 
