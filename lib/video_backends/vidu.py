@@ -58,7 +58,9 @@ _Q3_MODELS = frozenset(
         "viduq3-mix",
     }
 )
-_REFERENCE_SUBJECT_MODELS = frozenset({"viduq3-turbo", "viduq3", "viduq2-pro", "viduq2", "viduq1", "vidu2.0"})
+# q2-pro 的主体模式有单独的 4 主体 / 视频主体约束；当前 reference_images 兼容层
+# 只承载扁平图片列表，因此继续走原始 images 路径。
+_REFERENCE_SUBJECT_MODELS = frozenset({"viduq3-turbo", "viduq3", "viduq2", "viduq1", "vidu2.0"})
 
 # 按 (model, endpoint) 列出合法 duration —— 文档逐端点列出，差异很大
 _DURATION_RULES: dict[tuple[str, str], list[int]] = {

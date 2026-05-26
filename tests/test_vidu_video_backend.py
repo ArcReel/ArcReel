@@ -256,6 +256,26 @@ class TestBuildRequest:
         assert body["prompt"] == "[图1] runs"
 
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    def test_reference2video_q2_pro_keeps_images_path(self, _mock, tmp_path: Path, output_path: Path):
+        refs = [tmp_path / f"r{i}.png" for i in range(5)]
+        for ref in refs:
+            ref.write_bytes(b"x")
+
+        backend = ViduVideoBackend(api_key="test-key", model="viduq2-pro")
+        req = VideoGenerationRequest(
+            prompt=" ".join(f"[图{i}]" for i in range(1, 6)),
+            output_path=output_path,
+            reference_images=refs,
+            duration_seconds=5,
+        )
+        endpoint, body = backend._build_request(req)
+
+        assert endpoint == "/reference2video"
+        assert body["images"] == ["data:image/png;base64,XX"] * 5
+        assert "subjects" not in body
+        assert body["prompt"] == "[图1] [图2] [图3] [图4] [图5]"
+
+    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
     def test_reference2video_q3_mix_keeps_non_subject_prompt_limit(self, _mock, tmp_path: Path, output_path: Path):
         ref = tmp_path / "r.png"
         ref.write_bytes(b"x")
