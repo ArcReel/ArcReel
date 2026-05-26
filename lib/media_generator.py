@@ -339,6 +339,7 @@ class MediaGenerator:
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
+        task_id: str | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -441,6 +442,7 @@ class MediaGenerator:
                 reference_images=actual_reference_images,
                 generate_audio=effective_generate_audio,
                 project_name=self.project_name,
+                task_id=task_id,
                 service_tier=version_metadata.get("service_tier", "default"),
                 seed=version_metadata.get("seed"),
             )

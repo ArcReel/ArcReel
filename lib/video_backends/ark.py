@@ -21,7 +21,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     get_resume_job_id,
-    persist_job_id_if_in_task_context,
+    persist_provider_job_id,
     poll_with_retry,
 )
 
@@ -90,14 +90,15 @@ class ArkVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
+        # Resume 短路（共存阶段，commit 3 切 worker 后删除）
         resume_id = get_resume_job_id()
         if resume_id is not None:
             return await self.resume_video(resume_id, request)
 
-        task_id = await self._create_task(request)
-        await persist_job_id_if_in_task_context(task_id, provider=PROVIDER_ARK)
-        return await self._poll_until_done(task_id, request)
+        provider_task_id = await self._create_task(request)
+        if request.task_id is not None:
+            await persist_provider_job_id(request.task_id, provider_task_id, provider=PROVIDER_ARK)
+        return await self._poll_until_done(provider_task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 Ark task：仅 poll + 下载。

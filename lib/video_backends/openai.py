@@ -18,7 +18,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     get_resume_job_id,
-    persist_job_id_if_in_task_context,
+    persist_provider_job_id,
     poll_with_retry,
 )
 
@@ -98,8 +98,8 @@ class OpenAIVideoBackend:
         return VideoCapabilities(reference_images=True, max_reference_images=3)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
-        # 直接 resume_video，避免重复扣费（ADR 0007）。
+        # Resume 短路（共存阶段）：worker _process_resume_task 入口仍 set _RESUME_JOB_ID；
+        # 后续 commit 将 worker 改为直接调 backend.resume_video 后，此分支删除。
         resume_id = get_resume_job_id()
         if resume_id is not None:
             return await self.resume_video(resume_id, request)
@@ -130,8 +130,10 @@ class OpenAIVideoBackend:
         logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
 
         video = await self._create_video(**kwargs)
-        # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed（ADR 0007）
-        await persist_job_id_if_in_task_context(video.id, provider=PROVIDER_OPENAI)
+        # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed。
+        # 非 worker 路径（grid / 直生 / 测试）request.task_id 为 None，跳过持久化。
+        if request.task_id is not None:
+            await persist_provider_job_id(request.task_id, video.id, provider=PROVIDER_OPENAI)
         final = await self._poll_until_complete(video.id, request.duration_seconds)
 
         return await self._download_and_build_result(final, request, kwargs)

@@ -29,7 +29,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     get_resume_job_id,
-    persist_job_id_if_in_task_context,
+    persist_provider_job_id,
     poll_with_retry,
 )
 
@@ -112,7 +112,7 @@ class NewAPIVideoBackend:
         return VideoCapabilities(reference_images=False, max_reference_images=0)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
+        # Resume 短路（共存阶段，commit 3 切 worker 后删除）
         resume_id = get_resume_job_id()
         if resume_id is not None:
             return await self.resume_video(resume_id, request)
@@ -153,10 +153,11 @@ class NewAPIVideoBackend:
         logger.info("调用 %s 视频 SDK payload=%s", self.name, format_kwargs_for_log(payload))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            task_id = await self._create_task(client, payload)
-            logger.info("NewAPI 任务创建: task_id=%s", task_id)
-            await persist_job_id_if_in_task_context(task_id, provider=PROVIDER_NEWAPI)
-            return await self._poll_and_build(client, task_id, request)
+            provider_task_id = await self._create_task(client, payload)
+            logger.info("NewAPI 任务创建: task_id=%s", provider_task_id)
+            if request.task_id is not None:
+                await persist_provider_job_id(request.task_id, provider_task_id, provider=PROVIDER_NEWAPI)
+            return await self._poll_and_build(client, provider_task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 NewAPI task：仅 poll + 下载。"""

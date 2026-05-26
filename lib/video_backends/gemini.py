@@ -23,7 +23,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     get_resume_job_id,
-    persist_job_id_if_in_task_context,
+    persist_provider_job_id,
     poll_with_retry,
 )
 
@@ -112,7 +112,7 @@ class GeminiVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
+        # Resume 短路（共存阶段，commit 3 切 worker 后删除）
         resume_id = get_resume_job_id()
         if resume_id is not None:
             return await self.resume_video(resume_id, request)
@@ -121,10 +121,11 @@ class GeminiVideoBackend:
         op_name = getattr(operation, "name", None)
         if not op_name:
             # fail-fast：缺 operation.name 意味着 submit 成功但无法持久化 provider_job_id，
-            # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是 ADR 0007
-            # 要避免的重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
+            # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是要避免的
+            # 重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
             raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
-        await persist_job_id_if_in_task_context(op_name, provider=PROVIDER_GEMINI)
+        if request.task_id is not None:
+            await persist_provider_job_id(request.task_id, op_name, provider=PROVIDER_GEMINI)
         return await self._poll_until_done(operation, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

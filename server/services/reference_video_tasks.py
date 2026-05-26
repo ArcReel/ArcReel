@@ -173,6 +173,7 @@ async def execute_reference_video_task(
     payload: dict[str, Any],
     *,
     user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """处理一个 reference_video unit 的生成。
 
@@ -292,6 +293,7 @@ async def execute_reference_video_task(
                 aspect_ratio=project.get("aspect_ratio", "9:16"),
                 duration_seconds=effective_duration,
                 resolution=resolution,
+                task_id=task_id,
             )
         except RequestPayloadTooLargeError:
             # 二次压缩重试（1024px/q=70）
@@ -312,6 +314,7 @@ async def execute_reference_video_task(
                 aspect_ratio=project.get("aspect_ratio", "9:16"),
                 duration_seconds=effective_duration,
                 resolution=resolution,
+                task_id=task_id,
             )
     finally:
         for p in tmp_refs:

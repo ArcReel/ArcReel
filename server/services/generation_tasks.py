@@ -694,7 +694,12 @@ def _emit_generation_success_batch(
 
 
 async def execute_storyboard_task(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
@@ -774,7 +779,12 @@ async def execute_storyboard_task(
 
 
 async def execute_video_task(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
@@ -879,6 +889,7 @@ async def execute_video_task(
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
         resolution=resolution,
+        task_id=task_id,
         seed=seed,
         service_tier=service_tier,
     )
@@ -954,7 +965,12 @@ async def _finalize_video_task(
 
 
 async def _execute_video_resume(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Resume 短路：跳过 load_script + storyboard 文件存在性校验，仅复用 ConfigResolver 解析。
 
@@ -1035,7 +1051,12 @@ async def _execute_video_resume(
 
 
 async def execute_character_task(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
@@ -1164,13 +1185,23 @@ async def execute_design_task(
 
 
 async def execute_scene_task(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     return await execute_design_task("scene", project_name, resource_id, payload, user_id=user_id)
 
 
 async def execute_prop_task(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     return await execute_design_task("prop", project_name, resource_id, payload, user_id=user_id)
 
@@ -1259,7 +1290,12 @@ def _collect_grid_reference_images(
 
 
 async def execute_grid_task(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute a grid image generation task.
 
@@ -1403,12 +1439,17 @@ async def execute_grid_task(
 
 
 async def _execute_reference_video_task_proxy(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
     from server.services.reference_video_tasks import execute_reference_video_task
 
-    return await execute_reference_video_task(project_name, resource_id, payload, user_id=user_id)
+    return await execute_reference_video_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
 _TASK_EXECUTORS = {
@@ -1428,6 +1469,7 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
     resource_id = str(task.get("resource_id"))
     payload = task.get("payload") or {}
     user_id = task.get("user_id", DEFAULT_USER_ID)
+    queue_task_id = task.get("task_id")
 
     if not project_name:
         raise ValueError("task.project_name is required")
@@ -1440,7 +1482,7 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
 
     with project_change_source("worker"):
         try:
-            result = await executor(project_name, resource_id, payload, user_id=user_id)
+            result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
         except (ImageCapabilityError, VideoCapabilityError) as err:
             # Worker 后台无 request 上下文，按 DEFAULT_LOCALE 渲染稳定的 i18n 文案
             # 落到 task.error_message，前端轮询时即可看到本地化提示
