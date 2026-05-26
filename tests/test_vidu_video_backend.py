@@ -256,7 +256,9 @@ class TestBuildRequest:
         assert body["prompt"] == "[图1] runs"
 
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
-    def test_reference2video_subject_prompt_is_retrimmed_after_rendering(self, _mock, tmp_path: Path, output_path: Path):
+    def test_reference2video_subject_prompt_is_retrimmed_after_rendering(
+        self, _mock, tmp_path: Path, output_path: Path
+    ):
         refs = [tmp_path / f"r{i}.png" for i in range(1, 8)]
         for ref in refs:
             ref.write_bytes(b"x")
