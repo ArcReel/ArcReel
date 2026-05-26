@@ -281,3 +281,31 @@ class TestRepoStateMachineGuards:
         third = await repo.claim_next("image", pool_full_providers=None)
         assert third is not None
         assert third["task_id"] == t1["task_id"]
+
+    async def test_finalize_cancelled_from_running(self, db_session):
+        """finalize_cancelled 也能从 running 直接落 cancelled。
+
+        进程级 cancel（SIGTERM / asyncio.Task.cancel 直接打到 running）跳过 cancelling
+        中间态，靠 finalize_cancelled 的 SQL 守卫 IN ('queued','cancelling','running') 兜底。
+        守卫被改动时这条用例先红。
+        """
+        repo = TaskRepository(db_session)
+        t = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="r1",
+            payload={},
+            script_file="ep1.json",
+        )
+        # 状态推到 running
+        claimed = await repo.claim_next("image")
+        assert claimed is not None
+        assert claimed["task_id"] == t["task_id"]
+
+        # running → finalize_cancelled 直接落 cancelled，不需要走 cancelling
+        rows = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
+        assert rows == 1
+        final = await repo.get(t["task_id"])
+        assert final["status"] == "cancelled"
+        assert final["cancelled_by"] == "user"

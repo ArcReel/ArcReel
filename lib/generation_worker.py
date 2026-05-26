@@ -393,10 +393,15 @@ class GenerationWorker:
         黑名单语义而非白名单：白名单会把"DB 里有 provider_id 但不在已知 pool 集合"
         的任务（例如自定义 provider 已删除）永久过滤掉、静默堆积；黑名单只排除已知
         池满，未知 provider 任务正常 claim 走 worker 二次解析。
+
+        注意守卫 ``*_max > 0``：``has_image_room()/has_video_room()`` 在 ``*_max == 0``
+        时同样返回 ``False``，若不加守卫会把"不支持该 lane 的 provider"也归入黑名单，
+        让 SQL 把这些 task 静默 drop，而不是走 worker 二次校验的 ``max_capacity == 0``
+        fail-fast mark_failed 路径。
         """
         if media_type == "image":
-            return frozenset(pid for pid, p in self._pools.items() if not p.has_image_room())
-        return frozenset(pid for pid, p in self._pools.items() if not p.has_video_room())
+            return frozenset(pid for pid, p in self._pools.items() if p.image_max > 0 and not p.has_image_room())
+        return frozenset(pid for pid, p in self._pools.items() if p.video_max > 0 and not p.has_video_room())
 
     async def _claim_tasks(self) -> bool:
         """Claim tasks from queue and route to per-provider pools.
@@ -723,8 +728,11 @@ class GenerationWorker:
                 await self._requeue_single_task(task_id)
                 continue
 
-            # video 路径：判断 provider 是否支持 resume
-            provider_id = await _extract_provider(task)
+            # video 路径：判断 provider 是否支持 resume。优先用持久化的 provider_id：
+            # 否则项目配置在重启前后切换时，_extract_provider 会按当前项目重新解析，
+            # 可能把原本 Grok/Vidu 孤儿误判成可 resume，或把可 resume 任务路由到错池。
+            # 与 _process_resume_task 的 provider 锁定策略保持一致。
+            provider_id = task.get("provider_id") or await _extract_provider(task)
             if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
                 # Grok/Vidu 当前不实现 resume_video，没 job_id 可接续 → 回队重跑
                 logger.info(
