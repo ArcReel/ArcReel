@@ -808,29 +808,32 @@ class GenerationWorker:
         provider_id: str,
         tasks: list[dict[str, Any]],
     ) -> None:
-        """同 provider 桶内顺序入 inflight，pool 容量满则等任一 inflight 完成。"""
+        """同 provider 桶并发跑 resume task，受 pool video_max 容量约束。
+
+        Semaphore 直接表达"并发数 ≤ video_max"语义；每个子 task 自己管 inflight
+        字典生命周期，与 normal path `_process_task` 对称。
+        """
         pool = self._get_or_create_pool(provider_id)
-        for task in tasks:
-            if self._stop_event.is_set():
-                logger.info(
-                    "stop_event 已触发，剩余 %d 个 %s 孤儿不再 dispatch",
-                    len(tasks) - tasks.index(task),
-                    provider_id,
-                )
-                return
-            while not pool.has_video_room():
+        sem = asyncio.Semaphore(pool.video_max)
+
+        async def _run_one(t: dict[str, Any]) -> None:
+            async with sem:
                 if self._stop_event.is_set():
                     return
-                # snapshot：race 防御。inflight 可能被主循环 _drain_finished_tasks
-                # 同步 pop 到空（罕见但可能）；空时让出一拍重新判断 has_room。
-                inflight_list = list(pool.video_inflight.values())
-                if not inflight_list:
-                    await asyncio.sleep(0)
-                    continue
-                await asyncio.wait(inflight_list, return_when=asyncio.FIRST_COMPLETED)
-            task_id = task["task_id"]
-            pool.video_inflight[task_id] = asyncio.create_task(
-                self._process_resume_task(task),
-                name=f"resume-video-{task_id}",
-            )
-            logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
+                task_id = t["task_id"]
+                current = asyncio.current_task()
+                if current is not None:
+                    pool.video_inflight[task_id] = current
+                try:
+                    logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
+                    await self._process_resume_task(t)
+                finally:
+                    pool.video_inflight.pop(task_id, None)
+
+        sub = [
+            asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
+            for t in tasks
+            if not self._stop_event.is_set()
+        ]
+        if sub:
+            await asyncio.gather(*sub, return_exceptions=True)

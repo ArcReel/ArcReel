@@ -630,8 +630,8 @@ class TestGenerationWorker:
     async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch):
         """video resumable provider + 有 job_id → 后台 dispatcher 派发 _process_resume_task。
 
-        fast path 只分桶 + 派 background dispatcher（fix #647 第 1 项），inflight 字典
-        由 dispatcher 异步填入；用 gather 等待 dispatcher 完成后再断言。
+        Semaphore-based dispatcher 在 sub-task 内填 inflight、finally pop；本测验证
+        dispatched 列表收到目标 task 即可（dispatcher 完成时 inflight 已被清理）。
         """
         queue = _FakeQueue()
         queue._orphans = [
@@ -654,15 +654,23 @@ class TestGenerationWorker:
 
         monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
         await worker._handle_orphan_tasks_on_start()
-        # 等所有 pending background task 完成（含 orphan-dispatcher + provider 桶 sub-task
-        # + 实际 inflight resume task）
-        pool = worker._get_or_create_pool("ark")
-        for _ in range(20):
+        # 等后台 dispatcher（含 orphan-dispatcher + provider 桶 sub-task）完成
+        for _ in range(50):
             await asyncio.sleep(0)
-            if "ark-orphan" in pool.video_inflight:
+            if dispatched:
                 break
-        assert "ark-orphan" in pool.video_inflight
-        await asyncio.gather(*pool.video_inflight.values(), return_exceptions=True)
+        # 让 dispatcher 自身的 task 跑完（避免 unawaited task 警告）
+        for t in list(asyncio.all_tasks()):
+            name = t.get_name()
+            if (
+                name in ("orphan-dispatcher",)
+                or name.startswith("orphan-dispatch-")
+                or name.startswith("resume-video-")
+            ):
+                try:
+                    await t
+                except Exception:
+                    pass
         assert len(dispatched) == 1
         assert dispatched[0]["task_id"] == "ark-orphan"
 

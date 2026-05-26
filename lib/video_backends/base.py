@@ -6,7 +6,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -34,39 +33,6 @@ _PERSIST_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     TimeoutError,
 )
 _PERSIST_BACKOFF_SECONDS: tuple[int, ...] = (1, 2, 4)
-
-
-# Worker 在 _process_task / _process_resume_task 入口 set 当前 task_id；
-# backend.generate 拿到 job_id 后调 persist_provider_job_id 让 ADR 0007
-# 「重启接续轮询不重 submit」可达。非 worker 路径（测试 / grid / 直生）
-# get(None) 默认返回 None，helper 自然 no-op。
-_CURRENT_TASK_ID: ContextVar[str | None] = ContextVar("arcreel_current_task_id", default=None)
-
-# 重启自愈：worker _process_resume_task 入口 set 上轮已持久化的 job_id；
-# backend.generate 检测到该 var 时跳过 submit、直接 resume_video（接续轮询）。
-# 走完后 worker 清空 var。
-_RESUME_JOB_ID: ContextVar[str | None] = ContextVar("arcreel_resume_job_id", default=None)
-
-
-def set_current_task_id(task_id: str | None) -> object:
-    """Worker 入口 set 当前 task_id；返回 token，由 caller reset。"""
-    return _CURRENT_TASK_ID.set(task_id)
-
-
-def reset_current_task_id(token: object) -> None:
-    _CURRENT_TASK_ID.reset(token)  # pyright: ignore[reportArgumentType]
-
-
-def set_resume_job_id(job_id: str | None) -> object:
-    return _RESUME_JOB_ID.set(job_id)
-
-
-def reset_resume_job_id(token: object) -> None:
-    _RESUME_JOB_ID.reset(token)  # pyright: ignore[reportArgumentType]
-
-
-def get_resume_job_id() -> str | None:
-    return _RESUME_JOB_ID.get(None)
 
 
 @with_retry_async(
@@ -98,14 +64,6 @@ async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str) -
             exc,
         )
         raise
-
-
-async def persist_job_id_if_in_task_context(job_id: str, *, provider: str) -> None:
-    """Deprecated: 旧 ContextVar 入口，保留作为兼容垫片直到 4 backend 都切到显式 caller。"""
-    task_id = _CURRENT_TASK_ID.get(None)
-    if task_id is None:
-        return
-    await persist_provider_job_id(task_id, job_id, provider=provider)
 
 
 class ResumeExpiredError(RuntimeError):

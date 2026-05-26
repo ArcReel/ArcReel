@@ -9,10 +9,8 @@ from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
-    persist_job_id_if_in_task_context,
+    persist_provider_job_id,
     poll_with_retry,
-    reset_current_task_id,
-    set_current_task_id,
 )
 
 
@@ -211,13 +209,7 @@ def _make_operational_error(msg: str) -> OperationalError:
 
 
 class TestPersistJobIdRetry:
-    """fix #647 #3：persist_provider_job_id 在 DB 瞬态错误下重试 + 结构化日志。"""
-
-    async def test_no_op_outside_worker_context(self):
-        """非 worker 路径（contextvar 未 set）→ no-op，不访问 queue。"""
-        with patch("lib.generation_queue.get_generation_queue") as fake_get:
-            await persist_job_id_if_in_task_context("job-1", provider="openai")
-            fake_get.assert_not_called()
+    """persist_provider_job_id 在 DB 瞬态错误下重试 + 结构化日志。"""
 
     async def test_retries_on_sqlite_locked(self, caplog):
         """前 2 次 OperationalError → 第 3 次成功；retry 实际执行 3 次。"""
@@ -235,16 +227,12 @@ class TestPersistJobIdRetry:
 
         fake_queue = _FakeQueue()
 
-        token = set_current_task_id("task-1")
-        try:
-            with (
-                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
-                caplog.at_level(logging.INFO, logger="lib.video_backends.base"),
-            ):
-                await persist_job_id_if_in_task_context("job-1", provider="openai")
-        finally:
-            reset_current_task_id(token)
+        with (
+            patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            caplog.at_level(logging.INFO, logger="lib.video_backends.base"),
+        ):
+            await persist_provider_job_id("task-1", "job-1", provider="openai")
 
         assert attempts == 3
         assert any("provider_job_id 已持久化" in r.message for r in caplog.records)
@@ -261,17 +249,13 @@ class TestPersistJobIdRetry:
 
         fake_queue = _FailingQueue()
 
-        token = set_current_task_id("task-X")
-        try:
-            with (
-                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
-                caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
-            ):
-                with pytest.raises(OperationalError):
-                    await persist_job_id_if_in_task_context("job-X", provider="ark")
-        finally:
-            reset_current_task_id(token)
+        with (
+            patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
+        ):
+            with pytest.raises(OperationalError):
+                await persist_provider_job_id("task-X", "job-X", provider="ark")
 
         terminal = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert terminal, "expected logger.error call"
@@ -295,16 +279,12 @@ class TestPersistJobIdRetry:
 
         fake_queue = _BadQueue()
 
-        token = set_current_task_id("task-V")
-        try:
-            with (
-                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
-            ):
-                with pytest.raises(ValueError, match="not retryable"):
-                    await persist_job_id_if_in_task_context("job-V", provider="newapi")
-        finally:
-            reset_current_task_id(token)
+        with (
+            patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            with pytest.raises(ValueError, match="not retryable"):
+                await persist_provider_job_id("task-V", "job-V", provider="newapi")
 
         assert attempts == 1
 
@@ -328,15 +308,11 @@ class TestPersistJobIdRetry:
 
         fake_queue = _BadQueue()
 
-        token = set_current_task_id("task-T")
-        try:
-            with (
-                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
-            ):
-                with pytest.raises(ValueError, match="timed out"):
-                    await persist_job_id_if_in_task_context("job-T", provider="gemini")
-        finally:
-            reset_current_task_id(token)
+        with (
+            patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            with pytest.raises(ValueError, match="timed out"):
+                await persist_provider_job_id("task-T", "job-T", provider="gemini")
 
         assert attempts == 1, "expects no string-fallback retry for ValueError"
