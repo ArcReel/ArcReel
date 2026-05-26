@@ -4,10 +4,20 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from lib.video_backends.base import (
+    KlingOmniRequestOptions,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
+)
+from lib.video_backends.kling_omni_types import (
+    KlingOmniElementInput,
+    KlingOmniFrameType,
+    KlingOmniImageInput,
+    KlingOmniShot,
+    KlingOmniShotType,
+    KlingOmniVideoInput,
+    KlingOmniVideoReferType,
 )
 
 
@@ -32,6 +42,7 @@ class TestVideoGenerationRequest:
         assert req.duration_seconds == 5
         assert req.resolution is None
         assert req.start_image is None
+        assert req.kling_omni is None
         assert req.generate_audio is True
         assert req.service_tier == "default"
         assert req.seed is None
@@ -51,6 +62,73 @@ class TestVideoGenerationRequest:
         assert req.duration_seconds == 8
         assert req.seed == 42
         assert req.service_tier == "flex"
+
+    def test_with_kling_omni_options(self):
+        req = VideoGenerationRequest(
+            prompt="让<<<image_1>>>与<<<element_1>>>相遇",
+            output_path=Path("/tmp/out.mp4"),
+            kling_omni=KlingOmniRequestOptions(
+                images=(
+                    KlingOmniImageInput(image_path=Path("/tmp/hero.png")),
+                    KlingOmniImageInput(image_url="https://example.com/style.png"),
+                ),
+                elements=(KlingOmniElementInput(element_id=42),),
+                videos=(
+                    KlingOmniVideoInput(
+                        video_url="https://example.com/ref.mp4",
+                        refer_type=KlingOmniVideoReferType.FEATURE,
+                        keep_original_sound=False,
+                    ),
+                ),
+            ),
+        )
+
+        assert req.kling_omni is not None
+        assert req.kling_omni.images[0].image_path == Path("/tmp/hero.png")
+        assert req.kling_omni.images[1].image_url == "https://example.com/style.png"
+        assert req.kling_omni.elements[0].element_id == 42
+        assert req.kling_omni.videos[0].refer_type == KlingOmniVideoReferType.FEATURE
+
+
+class TestKlingOmniRequestOptions:
+    def test_image_input_requires_exactly_one_source(self):
+        with pytest.raises(ValueError, match="必须且只能提供"):
+            KlingOmniImageInput()
+
+        with pytest.raises(ValueError, match="必须且只能提供"):
+            KlingOmniImageInput(image_path=Path("/tmp/a.png"), image_url="https://example.com/a.png")
+
+    def test_video_input_requires_exactly_one_source(self):
+        with pytest.raises(ValueError, match="必须且只能提供"):
+            KlingOmniVideoInput()
+
+    def test_customize_multishot_requires_shots(self):
+        with pytest.raises(ValueError, match="必须提供 shots"):
+            KlingOmniRequestOptions(multi_shot=True, shot_type=KlingOmniShotType.CUSTOMIZE)
+
+    def test_non_customize_disallows_shots(self):
+        with pytest.raises(ValueError, match="仅在 shot_type=customize 时允许提供 shots"):
+            KlingOmniRequestOptions(
+                multi_shot=True,
+                shot_type=KlingOmniShotType.INTELLIGENCE,
+                shots=(KlingOmniShot(index=1, prompt="镜头一", duration_seconds=5),),
+            )
+
+    def test_customize_multishot_accepts_structured_shots(self):
+        options = KlingOmniRequestOptions(
+            images=(KlingOmniImageInput(image_path=Path("/tmp/start.png"), frame_type=KlingOmniFrameType.FIRST_FRAME),),
+            multi_shot=True,
+            shot_type=KlingOmniShotType.CUSTOMIZE,
+            shots=(
+                KlingOmniShot(index=1, prompt="<<<image_1>>>走进画面", duration_seconds=2),
+                KlingOmniShot(index=2, prompt="角色转头看向镜头", duration_seconds=3),
+            ),
+        )
+
+        assert options.multi_shot is True
+        assert options.shot_type == KlingOmniShotType.CUSTOMIZE
+        assert options.images[0].frame_type == KlingOmniFrameType.FIRST_FRAME
+        assert sum(shot.duration_seconds for shot in options.shots) == 5
 
 
 class TestVideoGenerationResult:

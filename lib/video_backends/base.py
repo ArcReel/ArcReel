@@ -15,6 +15,7 @@ from typing import Protocol
 import httpx
 
 from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
+from lib.video_backends.kling_omni_types import KlingOmniRequestOptions
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,9 @@ class VideoGenerationRequest:
 
     # 项目上下文（用于构建文件服务 URL 等）
     project_name: str | None = None
+
+    # Kling Omni 原生多模态控制。设置后，backend 可优先使用 provider-specific 字段。
+    kling_omni: KlingOmniRequestOptions | None = None
 
     # Seedance 特有
     service_tier: str = "default"

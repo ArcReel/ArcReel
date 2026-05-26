@@ -5,6 +5,7 @@ from lib.providers import (
     PROVIDER_ARK_AGENT_PLAN,
     PROVIDER_GEMINI,
     PROVIDER_GROK,
+    PROVIDER_KLING,
     PROVIDER_NEWAPI,
     PROVIDER_OPENAI,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "PROVIDER_ARK",
     "PROVIDER_GEMINI",
     "PROVIDER_GROK",
+    "PROVIDER_KLING",
     "PROVIDER_NEWAPI",
     "PROVIDER_OPENAI",
     "VideoBackend",
@@ -57,6 +59,11 @@ register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
 from lib.video_backends.newapi import NewAPIVideoBackend
 
 register_backend(PROVIDER_NEWAPI, NewAPIVideoBackend)
+
+# Kling Omni 官方直连
+from lib.video_backends.kling_omni import KlingOmniVideoBackend
+
+register_backend(PROVIDER_KLING, KlingOmniVideoBackend)
 
 # fork: Vidu — 单独 import 以避免与上游聚合 import 冲突
 from lib.providers import PROVIDER_VIDU  # noqa: E402
