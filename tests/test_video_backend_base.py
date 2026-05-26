@@ -307,3 +307,36 @@ class TestPersistJobIdRetry:
             reset_current_task_id(token)
 
         assert attempts == 1
+
+    async def test_no_retry_for_value_error_with_transient_string(self):
+        """业务异常即使消息含 ``timed out`` / ``503`` 等串，也不该被字符串兜底吞掉重试。
+
+        默认 `_should_retry` 在 isinstance 不匹配时做 RETRYABLE_STATUS_PATTERNS 字符串
+        子串兜底，会把 `ValueError("Connection timed out: rate")` 当瞬态错误重试；
+        改用 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 后严格 isinstance。
+        """
+        attempts = 0
+
+        async def _bad(_tid: str, _job: str) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise ValueError("Connection timed out: rate limited at upstream")
+
+        class _BadQueue:
+            async def persist_provider_job_id(self, tid: str, job_id: str) -> None:
+                await _bad(tid, job_id)
+
+        fake_queue = _BadQueue()
+
+        token = set_current_task_id("task-T")
+        try:
+            with (
+                patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            ):
+                with pytest.raises(ValueError, match="timed out"):
+                    await persist_job_id_if_in_task_context("job-T", provider="gemini")
+        finally:
+            reset_current_task_id(token)
+
+        assert attempts == 1, "expects no string-fallback retry for ValueError"

@@ -17,6 +17,11 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
 
+# `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
+# 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
+# `ValueError("Connection timed out: rate")`）不该被字符串子串吞掉。
+# 显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 关掉兜底。
+
 logger = logging.getLogger(__name__)
 
 # DB 瞬态错误集合：sqlite "database is locked"、pg "could not connect" / 连接已关闭。
@@ -67,35 +72,40 @@ def get_resume_job_id() -> str | None:
 @with_retry_async(
     max_attempts=3,
     backoff_seconds=_PERSIST_BACKOFF_SECONDS,
-    retryable_errors=_PERSIST_RETRYABLE_ERRORS,
+    retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS),
 )
-async def _persist_with_retry(tid: str, job_id: str) -> None:
+async def _persist_with_retry(task_id: str, job_id: str) -> None:
     from lib.generation_queue import get_generation_queue
 
-    await get_generation_queue().persist_provider_job_id(tid, job_id)
+    await get_generation_queue().persist_provider_job_id(task_id, job_id)
 
 
-async def persist_job_id_if_in_task_context(job_id: str, *, provider: str) -> None:
+async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    非 worker 路径 (contextvar 未 set) → no-op；DB 瞬态错误最多重试 3 次；
-    重试用尽抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast）。
+    Caller 显式传 task_id；DB 瞬态错误最多重试 3 次，业务异常立即抛。
+    重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
     """
-    tid = _CURRENT_TASK_ID.get(None)
-    if tid is None:
-        return
     try:
-        await _persist_with_retry(tid, job_id)
-        logger.info("provider_job_id 已持久化 task_id=%s provider=%s job_id=%s", tid, provider, job_id)
+        await _persist_with_retry(task_id, job_id)
+        logger.info("provider_job_id 已持久化 task_id=%s provider=%s job_id=%s", task_id, provider, job_id)
     except Exception as exc:
         logger.error(
             "provider_job_id_persist_failed task_id=%s provider=%s job_id=%s error=%s",
-            tid,
+            task_id,
             provider,
             job_id,
             exc,
         )
         raise
+
+
+async def persist_job_id_if_in_task_context(job_id: str, *, provider: str) -> None:
+    """Deprecated: 旧 ContextVar 入口，保留作为兼容垫片直到 4 backend 都切到显式 caller。"""
+    task_id = _CURRENT_TASK_ID.get(None)
+    if task_id is None:
+        return
+    await persist_provider_job_id(task_id, job_id, provider=provider)
 
 
 class ResumeExpiredError(RuntimeError):
@@ -244,6 +254,11 @@ class VideoGenerationRequest:
 
     # 项目上下文（用于构建文件服务 URL 等）
     project_name: str | None = None
+
+    # Worker 路径下从 task["task_id"] 传入，让 backend submit 后能直接调
+    # `persist_provider_job_id(task_id, job_id)` 持久化。
+    # 非 worker 路径（grid / 直生 / 测试）保持 None，backend 跳过持久化。
+    task_id: str | None = None
 
     # Seedance 特有
     service_tier: str = "default"
