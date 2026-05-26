@@ -243,6 +243,21 @@ class TestArkImageBackendGenerate:
                 f"4K + aspect_ratio={ar} 应映射到 {expected}"
             )
 
+    async def test_explicit_4k_size_falls_back_to_4k_for_unknown_aspect_ratio(self, backend_and_client, tmp_path: Path):
+        """4.x/5.x 的 4K 请求遇到未识别比例时必须回退到 '4K'，不能错误降级到 '2K'。"""
+        backend, client = backend_and_client
+
+        request = ImageGenerationRequest(
+            prompt="x",
+            output_path=tmp_path / "4k-unknown.png",
+            aspect_ratio="weird",
+            image_size="4K",
+        )
+
+        await backend.generate(request)
+
+        assert client.images.generate.call_args.kwargs["size"] == "4K"
+
     async def test_i2i_single_ref(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client
 
