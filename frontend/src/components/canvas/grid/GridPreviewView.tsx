@@ -104,7 +104,7 @@ export function GridPreviewView({
         if (g.status !== "completed") return false;
         for (const id of g.scene_ids) covered.add(id);
       }
-      return covered.size === sceneIds.length;
+      return sceneIds.every((id) => covered.has(id));
     }).length;
     const percent = batches > 0 ? Math.round((readyBatches / batches) * 100) : 0;
     return { batches, cells, percent };
