@@ -226,6 +226,55 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=99999)
         assert affected == 0
 
+    async def test_writes_duration_ms(self, db_session):
+        """resume 完成的调用必须回写 duration_ms，否则 get_stats_grouped_by_provider 的
+        provider 级时长统计会因 NULL 系统性压低。"""
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, cost_amount=0.0)
+        assert affected == 1
+
+        calls = await repo.get_calls(project_name="demo")
+        item = calls["items"][0]
+        # started_at 与 finished_at 同瞬间内完成；duration_ms 必须是已写入的非 None 整数
+        assert item["duration_ms"] is not None
+        assert item["duration_ms"] >= 0
+
+    async def test_generate_audio_override_passed_to_cost_calculator(self, db_session, monkeypatch):
+        """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
+        覆盖 ApiCall 行上 start_call 时的请求值（与 finish_call 同语义），cost_calculator 也应收到
+        覆盖后的值，避免按请求值误计费。"""
+        from lib import cost_calculator as cc_module
+
+        captured: dict[str, object] = {}
+
+        def _spy_calculate_cost(**kwargs):
+            captured["generate_audio"] = kwargs.get("generate_audio", "MISSING")
+            return (1.5, "USD")
+
+        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
+
+        repo = UsageRepository(db_session)
+        # start_call 时请求 generate_audio=True
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.0-fast-generate-001",
+            duration_seconds=8,
+            generate_audio=True,
+            provider="gemini",
+        )
+
+        # provider 实际降级到关闭音频
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, generate_audio=False)
+        assert affected == 1
+        assert captured["generate_audio"] is False, "generate_audio 透传必须覆盖到 cost_calculator"
+
+        # 并且 ApiCall.generate_audio 也回写为降级后的实际值
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["generate_audio"] is False
+
 
 class TestMultiProviderUsage:
     async def test_ark_call_records_provider_and_tokens(self, db_session):

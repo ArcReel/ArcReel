@@ -370,3 +370,103 @@ async def test_resume_missing_api_call_id_warns_does_not_crash(tmp_path, caplog)
     assert output_path.exists()
     assert version == 1
     assert gen.usage_tracker.finalized == [], "无 api_call_id 时不应 finalize"
+
+
+class _FailingFinalizeUsage(_FakeUsage):
+    """模拟 finalize_pending_by_call_id 自身失败的场景。"""
+
+    def __init__(self, *, exc: Exception) -> None:
+        super().__init__()
+        self._exc = exc
+
+    async def finalize_pending_by_call_id(self, **kwargs):
+        self.finalized.append(kwargs)
+        raise self._exc
+
+
+@pytest.mark.asyncio
+async def test_resume_success_propagates_finalize_exception(tmp_path):
+    """finalize_pending_by_call_id(success) 异常必须冒泡，不能被吞掉。
+
+    吞掉会让对应的 ApiCall 永远卡在 pending（success 分支无后续重试，
+    expired 分支又是终态），usage 报表和补账会出现永久缺口。fail-fast
+    交给 worker finally 的 mark_failed 兜底。"""
+    gen = _build_generator(tmp_path)
+    gen.usage_tracker = _FailingFinalizeUsage(exc=RuntimeError("db down"))
+
+    with pytest.raises(RuntimeError, match="db down"):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="videos",
+            resource_id="E1S01",
+            task_id="T-1",
+            api_call_id=42,
+        )
+
+    # finalize 被调过一次（看到异常上抛前的入参）
+    assert len(gen.usage_tracker.finalized) == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_expired_propagates_finalize_exception(tmp_path):
+    """ResumeExpiredError 分支同样不能吞 finalize 异常：让 worker finally 兜底标记
+    失败，避免 ApiCall 永远卡 pending。"""
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _FakeVideoBackend(raises=ResumeExpiredError(job_id="provider-job-1", provider="openai"))
+    gen.usage_tracker = _FailingFinalizeUsage(exc=RuntimeError("db down"))
+
+    # finalize 抛 RuntimeError 应该覆盖原本要抛的 ResumeExpiredError 上抛
+    with pytest.raises(RuntimeError, match="db down"):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="videos",
+            resource_id="E1S01",
+            task_id="T-1",
+            api_call_id=42,
+        )
+
+    assert len(gen.usage_tracker.finalized) == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_passes_generate_audio_to_finalize(tmp_path):
+    """provider 在 submit 后可能降级/关闭音频；resume 必须把 backend 返回的
+    generate_audio 透传到 finalize_pending_by_call_id，避免 cost 沿用请求值误计费
+    （与 generate 路径 finish_call(generate_audio=result.generate_audio) 等价）。"""
+
+    class _AudioDowngradeResult:
+        def __init__(self) -> None:
+            self.video_uri = "video-uri-resume"
+            self.usage_tokens = 1234
+            self.generate_audio = False  # provider 实际降级到无音频
+
+    class _AudioDowngradeBackend:
+        name = "fake"
+        model = "video-model"
+
+        def __init__(self) -> None:
+            self.calls: list[Any] = []
+
+        async def generate(self, request):
+            raise AssertionError("generate 不应被 resume 路径调用")
+
+        async def resume_video(self, job_id, request):
+            self.calls.append((job_id, request))
+            request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            request.output_path.write_bytes(b"fake-resume-video")
+            return _AudioDowngradeResult()
+
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _AudioDowngradeBackend()
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        task_id="T-1",
+        api_call_id=42,
+    )
+
+    assert len(gen.usage_tracker.finalized) == 1
+    call = gen.usage_tracker.finalized[0]
+    assert call["generate_audio"] is False, "generate_audio 必须透传 backend 返回的实际值"

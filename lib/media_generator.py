@@ -566,19 +566,14 @@ class MediaGenerator:
         except ResumeExpiredError:
             # Pending ApiCall 翻 failed 而不是留 pending：让 /api/v1/usage 报表不堆积无终态行；
             # cost_amount=0 不增加计费（resume 不重扣，符合 "不主动扣费" 红线）。
+            # finalize 失败时不吞异常，让 worker finally 走 mark_failed 兜底，避免 ApiCall
+            # 永久卡 pending 导致 usage 报表/补账缺口（与 persist_api_call_id 的 fail-fast 一致）。
             if api_call_id is not None:
-                try:
-                    await self.usage_tracker.finalize_pending_by_call_id(
-                        call_id=api_call_id,
-                        cost_amount=0.0,
-                        status="failed",
-                    )
-                except Exception:
-                    logger.warning(
-                        "finalize_pending_by_call_id(failed) 失败 call_id=%d task_id=%s",
-                        api_call_id,
-                        task_id,
-                    )
+                await self.usage_tracker.finalize_pending_by_call_id(
+                    call_id=api_call_id,
+                    cost_amount=0.0,
+                    status="failed",
+                )
             raise
         except Exception:
             logger.exception("resume 失败 (video) task_id=%s job_id=%s", task_id, job_id)
@@ -592,27 +587,19 @@ class MediaGenerator:
         # 与 generate 路径 finish_call 自动算 cost 等价——避免视频已生成但账本永久漏记。
         # service_tier 由 caller 透传（ApiCall 模型无该列），让非 default 档位按真实档计费。
         # usage_tokens 同样透传：Ark video 按 token 计费，缺省 0 时 cost 永远为 0。
+        # generate_audio 从 backend 返回值透传：provider 在 submit 后可能降级/关闭音频，
+        # 与 generate 路径 finish_call(generate_audio=result.generate_audio) 等价，
+        # 避免按请求值误计费。
+        # finalize 失败时不吞异常，让 worker finally 兜底处理（与 ResumeExpired 分支一致）。
         # WHERE status='pending' 仍保护幂等性，已 success 行不会被 touch。
         if api_call_id is not None:
-            try:
-                affected = await self.usage_tracker.finalize_pending_by_call_id(
-                    call_id=api_call_id,
-                    status="success",
-                    service_tier=version_metadata.get("service_tier", "default"),
-                    usage_tokens=result.usage_tokens,
-                )
-                if affected == 0:
-                    logger.info(
-                        "finalize_pending_by_call_id 0 rows call_id=%d task_id=%s （已 success 或不存在）",
-                        api_call_id,
-                        task_id,
-                    )
-            except Exception:
-                logger.warning(
-                    "finalize_pending_by_call_id(success) 失败 call_id=%d task_id=%s",
-                    api_call_id,
-                    task_id,
-                )
+            await self.usage_tracker.finalize_pending_by_call_id(
+                call_id=api_call_id,
+                status="success",
+                service_tier=version_metadata.get("service_tier", "default"),
+                usage_tokens=result.usage_tokens,
+                generate_audio=result.generate_audio,
+            )
         else:
             logger.warning(
                 "resume 缺 api_call_id task_id=%s job_id=%s (旧任务未持久化 payload)",

@@ -114,6 +114,7 @@ class UsageRepository(BaseRepository):
         status: str = "success",
         service_tier: str = "default",
         usage_tokens: int | None = None,
+        generate_audio: bool | None = None,
     ) -> int:
         """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
 
@@ -128,10 +129,32 @@ class UsageRepository(BaseRepository):
         与 finish_call 同 caller-passed 模式），非 default 档位才能按真实档计费。
         usage_tokens 同样由 caller 从 resume_video 返回的 VideoGenerationResult.usage_tokens
         透传：Ark video 按 usage_tokens 计费，未传则 cost 永远为 0；其它 provider 不依赖该字段。
+        generate_audio 由 caller 从 backend 返回值透传：provider 在 submit 后可能降级/关闭音频，
+        与 finish_call 的 ``generate_audio is not None`` 覆盖语义对齐，避免按请求值误计费。
+        duration_ms 按 (finished_at - started_at) 回写，让 get_stats_grouped_by_provider
+        的时长汇总不会因 resume 完成的调用 duration_ms=NULL 而系统性压低。
         provider 端已扣费的事实通过 status='pending' WHERE 保护——绝不触发再次扣费。
         返回受影响行数（0=幂等无操作；1=正常翻一行）。
         """
         finished_at = utc_now()
+
+        # 无条件 fetch row：既用于 auto-calc cost 路径，也用于 duration_ms 回写
+        # （即便 caller 显式传 cost_amount，duration_ms 计算仍需要 started_at）。
+        # row.status='pending' 守卫继续由下面的 UPDATE WHERE 子句保证幂等性。
+        select_result = await self.session.execute(select(ApiCall).where(ApiCall.id == call_id))
+        row = select_result.scalar_one_or_none()
+        if row is None:
+            return 0
+
+        duration_ms = 0
+        try:
+            duration_ms = int((finished_at - row.started_at).total_seconds() * 1000)
+        except (ValueError, TypeError):
+            duration_ms = 0
+
+        # backend 回写的实际 generate_audio 覆盖 start_call 时的请求值
+        # （与 finish_call 同语义；用于 cost_calculator 输入及 UPDATE 回写）
+        effective_generate_audio = generate_audio if generate_audio is not None else row.generate_audio
 
         final_cost_amount = 0.0
         final_currency = currency or "USD"
@@ -139,38 +162,35 @@ class UsageRepository(BaseRepository):
         if cost_amount is not None:
             final_cost_amount = cost_amount
             final_currency = currency or "USD"
-        elif status == "success":
-            select_result = await self.session.execute(select(ApiCall).where(ApiCall.id == call_id))
-            row = select_result.scalar_one_or_none()
-            if row is not None and row.status == "pending":
-                effective_provider = row.provider or PROVIDER_GEMINI
-                custom_price_input: float | None = None
-                custom_price_output: float | None = None
-                custom_currency: str | None = None
-                if is_custom_provider(effective_provider):
-                    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+        elif status == "success" and row.status == "pending":
+            effective_provider = row.provider or PROVIDER_GEMINI
+            custom_price_input: float | None = None
+            custom_price_output: float | None = None
+            custom_currency: str | None = None
+            if is_custom_provider(effective_provider):
+                from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
-                    repo = CustomProviderRepository(self.session)
-                    price_model = await repo.get_model_by_ids(parse_provider_id(effective_provider), row.model or "")
-                    if price_model:
-                        custom_price_input = price_model.price_input
-                        custom_price_output = price_model.price_output
-                        custom_currency = price_model.currency
+                repo = CustomProviderRepository(self.session)
+                price_model = await repo.get_model_by_ids(parse_provider_id(effective_provider), row.model or "")
+                if price_model:
+                    custom_price_input = price_model.price_input
+                    custom_price_output = price_model.price_output
+                    custom_currency = price_model.currency
 
-                final_cost_amount, final_currency = cost_calculator.calculate_cost(
-                    provider=effective_provider,
-                    call_type=row.call_type,  # type: ignore[arg-type]
-                    model=row.model,
-                    resolution=row.resolution,
-                    aspect_ratio=row.aspect_ratio,
-                    duration_seconds=row.duration_seconds,
-                    generate_audio=bool(row.generate_audio),
-                    service_tier=service_tier,
-                    usage_tokens=usage_tokens,
-                    custom_price_input=custom_price_input,
-                    custom_price_output=custom_price_output,
-                    custom_currency=custom_currency,
-                )
+            final_cost_amount, final_currency = cost_calculator.calculate_cost(
+                provider=effective_provider,
+                call_type=row.call_type,  # type: ignore[arg-type]
+                model=row.model,
+                resolution=row.resolution,
+                aspect_ratio=row.aspect_ratio,
+                duration_seconds=row.duration_seconds,
+                generate_audio=bool(effective_generate_audio),
+                service_tier=service_tier,
+                usage_tokens=usage_tokens,
+                custom_price_input=custom_price_input,
+                custom_price_output=custom_price_output,
+                custom_currency=custom_currency,
+            )
 
         result = await self.session.execute(
             update(ApiCall)
@@ -178,9 +198,11 @@ class UsageRepository(BaseRepository):
             .values(
                 status=status,
                 finished_at=finished_at,
+                duration_ms=duration_ms,
                 cost_amount=final_cost_amount,
                 currency=final_currency,
                 usage_tokens=usage_tokens,
+                generate_audio=effective_generate_audio,
             )
         )
         affected = rowcount(result)
