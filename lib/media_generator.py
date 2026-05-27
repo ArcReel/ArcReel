@@ -407,6 +407,15 @@ class MediaGenerator:
             segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
         )
 
+        # start_call 拿到 call_id 后立即写入 task.payload["api_call_id"]，
+        # 让 worker 崩溃重启后 resume 路径能精准翻这条 pending ApiCall 行
+        # （而不是按 segment_id+LIMIT 1 模糊匹配）。失败仅 warning 不阻断主流程，
+        # generate 自身的 finish_call 仍按正常路径走。
+        if task_id is not None:
+            from lib.video_backends.base import persist_api_call_id
+
+            await persist_api_call_id(task_id, call_id)
+
         try:
             from lib.video_backends.base import VideoGenerationRequest
 
@@ -493,20 +502,26 @@ class MediaGenerator:
         duration_seconds: str | int = "8",
         resolution: str | None = None,
         task_id: str | None = None,
+        api_call_id: int | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。
 
-        与 generate_video_async 共享版本管理 + 用量统计骨架；区别在于：
-        - 不读 start_image / reference_images（resume 路径不需要重传输入资产）
-        - 调 backend.resume_video(job_id, request) 而非 backend.generate(request)
-        - prompt 仅用于日志/版本元数据，不影响 provider 端结果
+        与 generate_video_async 的差异：
+        - 不调 usage_tracker.start_call/finish_call —— 首次 submit 已记账；ResumeExpired
+          / crash window 都不应再写 ApiCall（防双重扣费）。caller 透传 ``api_call_id``
+          时按 call_id 精准翻 pending → success/failed；不透传则 logger.warning 不阻断。
+        - 用 ensure_current_tracked 取代 add_version：已有版本则跳过补登记，
+          submit→poll 中崩的边界场景才补登记 v1 避免 finalize 处 IndexError。
+        - prompt / start_image / reference_images 仅用于日志/版本元数据，不影响 provider 端结果。
 
         Returns: (output_path, version_number, video_ref, video_uri) 四元组。
         """
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
 
+        # 开头的 ensure_current_tracked 覆盖「output_path 残留」场景（重试时旧文件还在）。
+        # 末尾还会再调一次 ensure —— 两次幂等（get_current_version > 0 时 short-circuit）。
         if output_path.exists():
             self.versions.ensure_current_tracked(
                 resource_type=resource_type,
@@ -525,8 +540,6 @@ class MediaGenerator:
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
 
-        model_name = self._video_backend.model
-        provider_name = self._video_backend.name
         if self._config is not None:
             configured_generate_audio = await self._config.video_generate_audio(self.project_name)
         else:
@@ -535,64 +548,84 @@ class MediaGenerator:
             configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
-        call_id = await self.usage_tracker.start_call(
-            project_name=self.project_name,
-            call_type="video",
-            model=model_name,
+        from lib.video_backends.base import ResumeExpiredError, VideoGenerationRequest
+
+        request = VideoGenerationRequest(
             prompt=prompt,
-            resolution=resolution,
-            duration_seconds=duration_int,
+            output_path=output_path,
             aspect_ratio=aspect_ratio,
+            duration_seconds=duration_int,
+            resolution=resolution,
             generate_audio=effective_generate_audio,
-            provider=provider_name,
-            user_id=self._user_id,
-            segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
+            project_name=self.project_name,
+            task_id=task_id,
+            service_tier=version_metadata.get("service_tier", "default"),
+            seed=version_metadata.get("seed"),
         )
 
         try:
-            from lib.video_backends.base import VideoGenerationRequest
-
-            request = VideoGenerationRequest(
-                prompt=prompt,
-                output_path=output_path,
-                aspect_ratio=aspect_ratio,
-                duration_seconds=duration_int,
-                resolution=resolution,
-                generate_audio=effective_generate_audio,
-                project_name=self.project_name,
-                task_id=task_id,
-                service_tier=version_metadata.get("service_tier", "default"),
-                seed=version_metadata.get("seed"),
-            )
-
             result = await self._video_backend.resume_video(job_id, request)
-            video_ref = None
-            video_uri = result.video_uri
-
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path),
-                usage_tokens=result.usage_tokens,
-                service_tier=version_metadata.get("service_tier", "default"),
-                generate_audio=result.generate_audio,
-            )
-        except Exception as e:
-            logger.exception("resume 失败 (%s)", "video")
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="failed",
-                error_message=str(e),
-            )
+        except ResumeExpiredError:
+            # Pending ApiCall 翻 failed 而不是留 pending：让 /api/v1/usage 报表不堆积无终态行；
+            # cost_amount=0 不增加计费（resume 不重扣，符合 "不主动扣费" 红线）。
+            if api_call_id is not None:
+                try:
+                    await self.usage_tracker.finalize_pending_by_call_id(
+                        call_id=api_call_id,
+                        cost_amount=0.0,
+                        status="failed",
+                    )
+                except Exception:
+                    logger.warning(
+                        "finalize_pending_by_call_id(failed) 失败 call_id=%d task_id=%s",
+                        api_call_id,
+                        task_id,
+                    )
+            raise
+        except Exception:
+            logger.exception("resume 失败 (video) task_id=%s job_id=%s", task_id, job_id)
             raise
 
-        new_version = self.versions.add_version(
+        video_ref = None
+        video_uri = result.video_uri
+
+        # Resume 成功：精准翻 pending → success，cost_amount=0 保持单次计费语义。
+        if api_call_id is not None:
+            try:
+                affected = await self.usage_tracker.finalize_pending_by_call_id(
+                    call_id=api_call_id,
+                    cost_amount=0.0,
+                    status="success",
+                )
+                if affected == 0:
+                    logger.info(
+                        "finalize_pending_by_call_id 0 rows call_id=%d task_id=%s （已 success 或不存在）",
+                        api_call_id,
+                        task_id,
+                    )
+            except Exception:
+                logger.warning(
+                    "finalize_pending_by_call_id(success) 失败 call_id=%d task_id=%s",
+                    api_call_id,
+                    task_id,
+                )
+        else:
+            logger.warning(
+                "resume 缺 api_call_id task_id=%s job_id=%s (旧任务未持久化 payload)",
+                task_id,
+                job_id,
+            )
+
+        # versions.json 已有 v1 → ensure 跳过；submit→poll 中崩导致 versions.json 无记录
+        # 的边界场景，ensure 补登记 v1 以避开下游 _finalize_video_task 的 versions[-1] IndexError。
+        self.versions.ensure_current_tracked(
             resource_type=resource_type,
             resource_id=resource_id,
+            current_file=output_path,
             prompt=prompt,
-            source_file=output_path,
             duration_seconds=duration_seconds,
             **version_metadata,
         )
+        new_version = self.versions.get_current_version(resource_type, resource_id)
 
         return output_path, new_version, video_ref, video_uri

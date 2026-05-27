@@ -663,6 +663,26 @@ class TaskRepository(BaseRepository):
         )
         await self.session.commit()
 
+    async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
+        """将 ApiCall.id 写入 task.payload["api_call_id"]，供 resume 路径精准翻 pending。
+
+        Task.payload_json 是 TEXT 列存 JSON 字符串（非 native JSONB），用 read-modify-write
+        模式更新；并发安全前提：本方法**仅**由 media_generator 在 start_call 拿到 call_id
+        后立即调一次（与 ``persist_provider_job_id`` 同一时序），不与其它路径竞争写 payload。
+        如果未来引入并发写 payload 的路径，需要外层加 ``SELECT ... FOR UPDATE`` 或单事务串行化。
+        """
+        now = utc_now()
+        row = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
+        raw = row.scalar_one_or_none()
+        data = _json_loads(raw, {})
+        if not isinstance(data, dict):
+            data = {}
+        data["api_call_id"] = call_id
+        await self.session.execute(
+            update(Task).where(Task.task_id == task_id).values(payload_json=_json_dumps(data), updated_at=now)
+        )
+        await self.session.commit()
+
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
         """返回 running + cancelling 状态任务用于重启自愈（ADR 0007）。"""
         result = await self.session.execute(

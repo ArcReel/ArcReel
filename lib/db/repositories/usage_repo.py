@@ -11,7 +11,7 @@ from lib.cost_calculator import cost_calculator
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
-from lib.db.repositories.base import BaseRepository
+from lib.db.repositories.base import BaseRepository, rowcount
 from lib.providers import PROVIDER_GEMINI, CallType
 
 
@@ -104,6 +104,38 @@ class UsageRepository(BaseRepository):
         await self.session.commit()
         await self.session.refresh(row)
         return row.id
+
+    async def finalize_pending_by_call_id(
+        self,
+        *,
+        call_id: int,
+        cost_amount: float = 0.0,
+        currency: str = "USD",
+        status: str = "success",
+    ) -> int:
+        """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
+
+        Repo WHERE 子句包含 ``status='pending'`` —— 已 success 行不 touch
+        （防止 generate 已 finish_call 后崩、resume 反向把 success 行覆写）。
+        cost_amount=0 / currency=USD 默认：计费已在 submit 时由 provider 定型，
+        resume 仅接续，不应再触发计费。返回受影响行数（0=幂等无操作；1=正常翻一行）。
+        """
+        finished_at = utc_now()
+
+        result = await self.session.execute(
+            update(ApiCall)
+            .where(ApiCall.id == call_id, ApiCall.status == "pending")
+            .values(
+                status=status,
+                finished_at=finished_at,
+                cost_amount=cost_amount,
+                currency=currency,
+            )
+        )
+        affected = rowcount(result)
+        if affected > 0:
+            await self.session.commit()
+        return affected
 
     async def finish_call(
         self,

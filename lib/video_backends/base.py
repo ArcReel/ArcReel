@@ -66,6 +66,39 @@ async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str) -
         raise
 
 
+@with_retry_async(
+    max_attempts=3,
+    backoff_seconds=_PERSIST_BACKOFF_SECONDS,
+    retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS),
+)
+async def _persist_api_call_id_with_retry(task_id: str, call_id: int) -> None:
+    from lib.generation_queue import get_generation_queue
+
+    await get_generation_queue().persist_api_call_id(task_id, call_id)
+
+
+async def persist_api_call_id(task_id: str, call_id: int) -> None:
+    """Start_call 拿到 call_id 后立即调：把 ApiCall.id 写入 task.payload。
+
+    Resume 路径据此精准翻 pending ApiCall 行而不是按 segment_id+LIMIT 1 模糊匹配。
+    与 ``persist_provider_job_id`` 同样走 DB 瞬态错误重试；持久化失败不阻断 generate
+    主流程——日志 ``logger.warning`` 记录后吞掉。理由：api_call 行已在 DB 上（status=
+    pending），resume 时即便无 task.payload 锚定，generate 路径自身的 finish_call
+    仍会照常 success 化；只是 resume 路径无法精准翻这条 pending 行（其降级是 warning
+    日志而不是 crash，避免连带 task 失败）。
+    """
+    try:
+        await _persist_api_call_id_with_retry(task_id, call_id)
+        logger.info("api_call_id 已持久化 task_id=%s call_id=%d", task_id, call_id)
+    except Exception as exc:
+        logger.warning(
+            "api_call_id_persist_failed task_id=%s call_id=%d error=%s (resume 路径将走旧任务降级)",
+            task_id,
+            call_id,
+            exc,
+        )
+
+
 class ResumeExpiredError(RuntimeError):
     """Provider 端 job 已过期或未找到——重启自愈无法接续，须走 mark_failed。
 

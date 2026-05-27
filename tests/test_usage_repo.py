@@ -92,6 +92,62 @@ class TestUsageRepository:
         assert len(page2["items"]) == 2
 
 
+class TestFinalizePendingByCallId:
+    """Resume 路径专用：按 call_id 精准翻 pending → success/failed。"""
+
+    async def test_flips_pending_to_success(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id)
+        assert affected == 1
+
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["status"] == "success"
+        assert calls["items"][0]["cost_amount"] == 0.0
+
+    async def test_does_not_touch_other_pending_call(self, db_session):
+        repo = UsageRepository(db_session)
+        cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
+        cid_b = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
+
+        affected = await repo.finalize_pending_by_call_id(call_id=cid_a)
+        assert affected == 1
+
+        # 全量查询
+        calls = await repo.get_calls(project_name="demo", page_size=100)
+        by_id = {c["id"]: c for c in calls["items"]}
+        assert by_id[cid_a]["status"] == "success"
+        assert by_id[cid_b]["status"] == "pending", "另一条 pending 不应被 touch"
+
+    async def test_idempotent_when_already_success(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        await repo.finish_call(call_id, status="success", cost_amount=5.0, currency="USD")
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, cost_amount=999.0)
+        assert affected == 0, "已 success 行应保持不变"
+
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["cost_amount"] == 5.0, "cost 未被覆写"
+
+    async def test_finalize_failed_status(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, status="failed")
+        assert affected == 1
+
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["status"] == "failed"
+        assert calls["items"][0]["cost_amount"] == 0.0
+
+    async def test_unknown_call_id_returns_zero(self, db_session):
+        repo = UsageRepository(db_session)
+        affected = await repo.finalize_pending_by_call_id(call_id=99999)
+        assert affected == 0
+
+
 class TestMultiProviderUsage:
     async def test_ark_call_records_provider_and_tokens(self, db_session):
         repo = UsageRepository(db_session)

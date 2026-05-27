@@ -162,6 +162,11 @@ class GenerationQueue:
             repo = TaskRepository(session)
             await repo.persist_provider_job_id(task_id, job_id)
 
+    async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
+        async with self._session_factory() as session:
+            repo = TaskRepository(session)
+            await repo.persist_api_call_id(task_id, call_id)
+
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
         """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""
         async with self._session_factory() as session:

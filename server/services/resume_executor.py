@@ -66,6 +66,13 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         resource_type = "videos"
         script_file = payload["script_file"]
 
+    api_call_id = payload.get("api_call_id")
+    if api_call_id is not None and not isinstance(api_call_id, int):
+        try:
+            api_call_id = int(api_call_id)
+        except (ValueError, TypeError):
+            api_call_id = None
+
     output_path, version, _, video_uri = await generator.resume_video_async(
         job_id=job_id,
         resource_type=resource_type,
@@ -74,6 +81,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
         task_id=task_id,
+        api_call_id=api_call_id,
         seed=seed,
         service_tier=service_tier,
     )

@@ -373,6 +373,58 @@ class TestTaskRepository:
         assert stats["queued"] == 0
 
 
+class TestPersistApiCallId:
+    """persist_api_call_id：read-modify-write 写入 task.payload["api_call_id"]。"""
+
+    async def _enqueue(self, repo: TaskRepository, *, payload=None) -> str:
+        # 不用 `payload or {...}`——空 dict {} 会被 falsy 回退为默认值
+        if payload is None:
+            payload = {"prompt": "p"}
+        result = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload=payload,
+            script_file="ep1.json",
+        )
+        return result["task_id"]
+
+    async def test_persist_writes_api_call_id_into_payload(self, db_session):
+        repo = TaskRepository(db_session)
+        task_id = await self._enqueue(repo, payload={"prompt": "p"})
+
+        await repo.persist_api_call_id(task_id, 42)
+
+        task = await repo.get(task_id)
+        assert task is not None
+        assert task["payload"]["api_call_id"] == 42
+        assert task["payload"]["prompt"] == "p", "其它 payload 字段不应被覆盖"
+
+    async def test_persist_overwrites_existing_api_call_id(self, db_session):
+        """重试场景：同一 task 第二次走 generate 写新 call_id 应覆盖。"""
+        repo = TaskRepository(db_session)
+        task_id = await self._enqueue(repo)
+
+        await repo.persist_api_call_id(task_id, 10)
+        await repo.persist_api_call_id(task_id, 20)
+
+        task = await repo.get(task_id)
+        assert task is not None
+        assert task["payload"]["api_call_id"] == 20
+
+    async def test_persist_handles_empty_payload(self, db_session):
+        """Payload 为空 JSON 也能正常写。"""
+        repo = TaskRepository(db_session)
+        task_id = await self._enqueue(repo, payload={})
+
+        await repo.persist_api_call_id(task_id, 7)
+
+        task = await repo.get(task_id)
+        assert task is not None
+        assert task["payload"] == {"api_call_id": 7}
+
+
 class TestCancelCascadeAcrossCancelling:
     """fix #647 #4：cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)
     在 A 落 cancelled 时通过 finalize_cancelled 自动级联到 B/C。"""
