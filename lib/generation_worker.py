@@ -59,19 +59,27 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 @dataclass
 class ProviderPool:
-    """Per-provider concurrency pool with independent image/video lanes."""
+    """Per-provider concurrency pool with independent image/video lanes.
+
+    Video lane 还有一个 ``video_pending`` 字典：dispatcher 父协程 ``create_task`` 后
+    sub-task 还在 sem 排队的瞬态。``has_video_room`` 计入 pending + inflight 严格
+    限制总并发；``request_cancel`` 也查 pending，让排队中的孤儿可被秒级取消。
+    Image lane 不引入 ``image_pending``——image 没有 sem-throttled dispatcher。
+    """
 
     provider_id: str
     image_max: int  # 0 = this provider doesn't support image
     video_max: int  # 0 = this provider doesn't support video
     image_inflight: dict[str, asyncio.Task] = field(default_factory=dict)
     video_inflight: dict[str, asyncio.Task] = field(default_factory=dict)
+    video_pending: dict[str, asyncio.Task] = field(default_factory=dict)
 
     def has_image_room(self) -> bool:
         return self.image_max > 0 and len(self.image_inflight) < self.image_max
 
     def has_video_room(self) -> bool:
-        return self.video_max > 0 and len(self.video_inflight) < self.video_max
+        # 计入 pending：sem 排队期 sub-task 同样占名额，避免主循环超额 claim
+        return self.video_max > 0 and len(self.video_inflight) + len(self.video_pending) < self.video_max
 
     def drain_finished(self) -> list[asyncio.Task]:
         """Remove finished tasks from inflight dicts. Return them for await."""
@@ -83,7 +91,12 @@ class ProviderPool:
         return finished
 
     def all_inflight(self) -> list[asyncio.Task]:
+        """实际在跑的 task（不含 sem 排队中的 pending）。用于 metrics/真实并发统计。"""
         return [*self.image_inflight.values(), *self.video_inflight.values()]
+
+    def all_active(self) -> list[asyncio.Task]:
+        """In-flight + 排队中的 pending：用于 reload keep-alive 判定 / shutdown wait。"""
+        return [*self.image_inflight.values(), *self.video_inflight.values(), *self.video_pending.values()]
 
 
 async def _extract_provider(task: dict[str, Any]) -> str:
@@ -215,6 +228,9 @@ class GenerationWorker:
         self._main_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._owns_lease = False
+        # Orphan dispatcher 句柄持久化：shutdown 时 await 它跑完；lease 切换重夺时
+        # 第二次进 _handle_orphan_tasks_on_start，旧句柄未 done 不能直接覆盖。
+        self._orphan_dispatcher_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # Backward compatibility shims
@@ -288,17 +304,20 @@ class GenerationWorker:
             logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
             return
 
-        # Migrate inflight tasks to new pool objects
+        # Migrate inflight + pending tasks to new pool objects；漏迁 video_pending
+        # 会让 sem 排队中的 sub-task 引用旧 pool 字典，新 pool 看不见，cancel 失配
+        # 且 keep-alive 判定漏掉这些 task。
         for pid, new_pool in new_pools.items():
             old_pool = self._pools.get(pid)
             if old_pool:
                 new_pool.image_inflight = old_pool.image_inflight
                 new_pool.video_inflight = old_pool.video_inflight
+                new_pool.video_pending = old_pool.video_pending
 
         # Pools that existed before but are no longer registered:
-        # keep them alive until their inflight tasks drain
+        # 仍有 pending / inflight 的旧 pool 保留到耗尽——用 all_active 判定（含 pending）。
         for pid, old_pool in self._pools.items():
-            if pid not in new_pools and old_pool.all_inflight():
+            if pid not in new_pools and old_pool.all_active():
                 new_pools[pid] = old_pool
                 new_pools[pid].image_max = 0
                 new_pools[pid].video_max = 0
@@ -520,15 +539,24 @@ class GenerationWorker:
                     logger.debug("已处理的任务异常已在 _process_task 中记录")
 
     async def _wait_inflight_completion(self) -> None:
-        pending_tasks = []
+        # shutdown：先等 dispatcher 派完最后一批 sub-task（否则 sub-task 可能在 dispatcher
+        # 退出后才创建），再等所有 active task。dispatcher 异常不能断 shutdown 链。
+        if self._orphan_dispatcher_task is not None and not self._orphan_dispatcher_task.done():
+            try:
+                await self._orphan_dispatcher_task
+            except Exception:
+                logger.exception("orphan dispatcher 在 shutdown 等待时异常")
+
+        active_tasks = []
         for pool in self._pools.values():
-            pending_tasks.extend(pool.all_inflight())
-        if not pending_tasks:
+            active_tasks.extend(pool.all_active())
+        if not active_tasks:
             return
-        await asyncio.gather(*pending_tasks, return_exceptions=True)
+        await asyncio.gather(*active_tasks, return_exceptions=True)
         for pool in self._pools.values():
             pool.image_inflight.clear()
             pool.video_inflight.clear()
+            pool.video_pending.clear()
 
     async def _process_task(self, task: dict[str, Any]) -> None:
         """Run a generation task with 0-rows-cancelled finally protocol (ADR 0006).
@@ -658,12 +686,13 @@ class GenerationWorker:
     def request_cancel(self, task_id: str) -> bool:
         """In-process cancel 信号：把 task 对应 asyncio.Task cancel()，返回是否找到。
 
-        由 GenerationQueue.cancel_task 同步调用（ADR 0006 秒级响应）。callback 不命中
-        （task 已 finally 阶段 pop）是 best-effort 失败——DB 已是 cancelling，
-        worker finally 走 mark_cancelled 兜底（SQL 守卫 IN queued|cancelling 接住）。
+        由 GenerationQueue.cancel_task 同步调用（ADR 0006 秒级响应）。也查 video_pending：
+        sem 排队中的 sub-task cancel 会让 sem.acquire 抛 CancelledError 让 sub-task
+        直接退出。callback 不命中是 best-effort 失败——worker finally 走 mark_cancelled
+        兜底（SQL 守卫 IN queued|cancelling|running 接住）。
         """
         for pool in self._pools.values():
-            for inflight in (pool.image_inflight, pool.video_inflight):
+            for inflight in (pool.image_inflight, pool.video_inflight, pool.video_pending):
                 t = inflight.get(task_id)
                 if t is not None and not t.done():
                     t.cancel()
@@ -771,7 +800,15 @@ class GenerationWorker:
                 "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
                 total,
             )
-            asyncio.create_task(  # noqa: RUF006  # dispatcher 生命周期由 _stop_event 控制
+            # 覆盖前 done 检查：lease 切换重夺时第二次进 _handle_orphan_tasks_on_start，
+            # 旧 dispatcher 可能还在跑；不能直接覆盖句柄（旧 task 会泄露成 detached）。
+            if self._orphan_dispatcher_task is not None and not self._orphan_dispatcher_task.done():
+                logger.warning("旧 orphan dispatcher 仍在运行，等待完成后再启动新一轮")
+                try:
+                    await self._orphan_dispatcher_task
+                except Exception:
+                    logger.exception("旧 orphan dispatcher 异常")
+            self._orphan_dispatcher_task = asyncio.create_task(
                 self._dispatch_resume_orphans_background(resumable_by_provider),
                 name="orphan-dispatcher",
             )
@@ -808,32 +845,67 @@ class GenerationWorker:
         provider_id: str,
         tasks: list[dict[str, Any]],
     ) -> None:
-        """同 provider 桶并发跑 resume task，受 pool video_max 容量约束。
+        """同 provider 桶并发跑 resume task，pending/inflight 分集合精确容量与 cancel 跟踪。
 
-        Semaphore 直接表达"并发数 ≤ video_max"语义；每个子 task 自己管 inflight
-        字典生命周期，与 normal path `_process_task` 对称。
+        - ``pool.video_max <= 0``：fail-fast mark_failed[resume_unsupported]，不进
+          ``Semaphore(0)`` 死锁；reload 一次兜底，避免启动期 capability 抖动误判。
+        - sub-task 由父协程同步预先注册到 ``pool.video_pending``——避免 ``create_task``
+          异步调度还未触发时主循环 ``has_video_room`` 看 inflight={} 误判可有容量。
+        - sem acquire 成功后从 pending 移到 inflight；finally 两个 dict 都 pop。
+        - sem 闭包旧 pool 限制：本 sem = Semaphore(pool.video_max) 在 dispatch 顶部
+          捕获 pool 时定型；reload 期间替换的新 pool 不会影响 sem。这是本批 dispatch
+          内并发上限维持 reload 前值的已知设计选择，非 bug。
         """
         pool = self._get_or_create_pool(provider_id)
+        if pool.video_max <= 0:
+            # 启动期 reload 兜底：DB 加载可能晚于第一次 orphan 扫描。
+            try:
+                await self.reload_limits()
+            except Exception:
+                logger.warning("reload_limits 兜底失败", exc_info=True)
+            pool = self._get_or_create_pool(provider_id)
+        if pool.video_max <= 0:
+            for t in tasks:
+                rows = await self.queue.mark_task_failed(
+                    t["task_id"],
+                    f"[resume_unsupported] provider {provider_id} video_max=0",
+                )
+                if rows == 0:
+                    await self.queue.mark_task_cancelled(t["task_id"], cancelled_by="user")
+            return
+
         sem = asyncio.Semaphore(pool.video_max)
 
         async def _run_one(t: dict[str, Any]) -> None:
-            async with sem:
-                if self._stop_event.is_set():
-                    return
-                task_id = t["task_id"]
-                current = asyncio.current_task()
-                if current is not None:
-                    pool.video_inflight[task_id] = current
-                try:
+            task_id = t["task_id"]
+            try:
+                async with sem:
+                    if self._stop_event.is_set():
+                        return
+                    # acquire 后 pool 可能在 reload_limits 期间被换新引用；
+                    # 务必从 self._pools 重读，保证 inflight 字典写入新 pool
+                    pool_now = self._get_or_create_pool(provider_id)
+                    pool_now.video_pending.pop(task_id, None)
+                    current = asyncio.current_task()
+                    if current is not None:
+                        pool_now.video_inflight[task_id] = current
                     logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
                     await self._process_resume_task(t)
-                finally:
-                    pool.video_inflight.pop(task_id, None)
+            finally:
+                # 同样重读以应对 reload race
+                pool_now = self._get_or_create_pool(provider_id)
+                pool_now.video_pending.pop(task_id, None)
+                pool_now.video_inflight.pop(task_id, None)
 
-        sub = [
-            asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
-            for t in tasks
-            if not self._stop_event.is_set()
-        ]
+        sub: list[asyncio.Task] = []
+        for t in tasks:
+            if self._stop_event.is_set():
+                break
+            # 父协程同步：先 create_task、再立即写入 pending dict——避免「create_task
+            # 是异步调度，has_video_room 在调度未发生前看 inflight={} 误判可有容量」
+            # 的瞬时 race。
+            sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
+            pool.video_pending[t["task_id"]] = sub_task
+            sub.append(sub_task)
         if sub:
             await asyncio.gather(*sub, return_exceptions=True)

@@ -978,3 +978,124 @@ class TestGenerationWorker:
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "no-job"
         assert "[restart_lost]" in queue.failed[0][1]
+
+
+class TestDispatcherFailFastAndPendingTracking:
+    """dispatcher fail-fast + pending/inflight 分集合精确容量与 cancel 跟踪。"""
+
+    @pytest.mark.asyncio
+    async def test_dispatch_provider_bucket_fail_fast_when_video_max_zero(self, monkeypatch):
+        """pool.video_max=0 → 直接 mark_failed[resume_unsupported]，不进 Semaphore(0) 死锁。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=0)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        async def _no_reload(self):
+            return None
+
+        monkeypatch.setattr(GenerationWorker, "reload_limits", _no_reload)
+
+        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(3)]
+        await worker._dispatch_provider_bucket("ark", tasks)
+
+        assert {tid for tid, _ in queue.failed} == {"orphan-0", "orphan-1", "orphan-2"}
+        assert all("[resume_unsupported]" in msg for _, msg in queue.failed)
+
+    @pytest.mark.asyncio
+    async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch):
+        """sem=1 + 2 task：第 2 个 sub-task sem 排队期间应在 pool.video_pending。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        gate = asyncio.Event()
+
+        async def _gated(self, task):
+            await gate.wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+
+        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(2)]
+        dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
+
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if len(pool.video_inflight) == 1:
+                break
+        assert len(pool.video_inflight) == 1
+        assert len(pool.video_pending) == 1
+        assert pool.has_video_room() is False
+
+        gate.set()
+        await dispatcher
+
+    @pytest.mark.asyncio
+    async def test_has_video_room_counts_pending_plus_inflight(self):
+        """pending=1, inflight=0, max=1 → has_video_room False，主循环不会超额 claim。"""
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        loop = asyncio.get_running_loop()
+        dummy = loop.create_future()
+        dummy.set_result(None)
+        pool.video_pending["orphan-1"] = dummy
+        assert pool.has_video_room() is False
+
+    @pytest.mark.asyncio
+    async def test_request_cancel_finds_sem_queued_task_in_pending(self, monkeypatch):
+        """cancel sem 排队中的 task → request_cancel 命中并触发 cancel。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        gate = asyncio.Event()
+        process_started: asyncio.Event = asyncio.Event()
+
+        async def _gated(self, task):
+            process_started.set()
+            await gate.wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+
+        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(2)]
+        dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
+
+        await asyncio.wait_for(process_started.wait(), timeout=1.0)
+        assert "orphan-1" in pool.video_pending
+
+        ok = worker.request_cancel("orphan-1")
+        assert ok is True
+
+        gate.set()
+        await dispatcher
+
+    @pytest.mark.asyncio
+    async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch):
+        """_handle_orphan_tasks_on_start 后 self._orphan_dispatcher_task 应被设置。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "orphan-x",
+                "status": "running",
+                "provider_id": "ark",
+                "provider_job_id": "job-x",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        block = asyncio.Event()
+
+        async def _gated(self, task):
+            await block.wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+
+        await worker._handle_orphan_tasks_on_start()
+        assert worker._orphan_dispatcher_task is not None
+        assert not worker._orphan_dispatcher_task.done()
+
+        block.set()
+        await worker._orphan_dispatcher_task
