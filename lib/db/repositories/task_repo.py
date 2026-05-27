@@ -670,17 +670,25 @@ class TaskRepository(BaseRepository):
         模式更新；并发安全前提：本方法**仅**由 media_generator 在 start_call 拿到 call_id
         后立即调一次（与 ``persist_provider_job_id`` 同一时序），不与其它路径竞争写 payload。
         如果未来引入并发写 payload 的路径，需要外层加 ``SELECT ... FOR UPDATE`` 或单事务串行化。
+
+        Raises:
+            ValueError: task_id 不存在或 UPDATE 命中 0 行——避免静默 commit 让上层
+                以为"已持久化"但 payload["api_call_id"] 实际未写入，resume 时只能退回兜底。
         """
         now = utc_now()
         row = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
         raw = row.scalar_one_or_none()
+        if raw is None:
+            raise ValueError(f"task not found: {task_id}")
         data = _json_loads(raw, {})
         if not isinstance(data, dict):
             data = {}
         data["api_call_id"] = call_id
-        await self.session.execute(
+        update_result = await self.session.execute(
             update(Task).where(Task.task_id == task_id).values(payload_json=_json_dumps(data), updated_at=now)
         )
+        if rowcount(update_result) == 0:
+            raise ValueError(f"task not found: {task_id}")
         await self.session.commit()
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:

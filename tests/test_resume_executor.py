@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -46,7 +47,7 @@ class _FakeGenerator:
         self.resume_calls.append(kwargs)
         if self.raises is not None:
             raise self.raises
-        output_path = kwargs["output_path"] if "output_path" in kwargs else Path("/tmp/video.mp4")
+        output_path = kwargs["output_path"] if "output_path" in kwargs else Path(tempfile.gettempdir()) / "video.mp4"
         return output_path, 3, None, "video-uri-xyz"
 
     def get_versions(self, _resource_type: str, _resource_id: str) -> dict[str, Any]:

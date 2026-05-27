@@ -424,6 +424,12 @@ class TestPersistApiCallId:
         assert task is not None
         assert task["payload"] == {"api_call_id": 7}
 
+    async def test_persist_raises_when_task_not_found(self, db_session):
+        """task_id 不存在 → 显式 ValueError，避免静默 commit 让上层以为已持久化。"""
+        repo = TaskRepository(db_session)
+        with pytest.raises(ValueError, match="task not found"):
+            await repo.persist_api_call_id("nonexistent-task-id", 42)
+
 
 class TestCancelCascadeAcrossCancelling:
     """fix #647 #4：cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)

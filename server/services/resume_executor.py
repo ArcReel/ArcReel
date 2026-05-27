@@ -65,7 +65,10 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
     aspect_ratio = get_aspect_ratio(project, "videos") if task_type == "video" else project.get("aspect_ratio", "9:16")
     duration_seconds = int(payload.get("duration_seconds") or project.get("default_duration") or 8)
     seed = payload.get("seed")
-    service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
+    # 旧任务 / 脏数据可能把 video_provider_settings 存成 None / str / list，全部归一化成 dict
+    raw_vp_settings = payload.get("video_provider_settings")
+    vp_settings = raw_vp_settings if isinstance(raw_vp_settings, dict) else {}
+    service_tier = vp_settings.get("service_tier", "default")
     raw_prompt = payload.get("prompt")
     prompt_text = raw_prompt if isinstance(raw_prompt, str) else ""
     raw_resolution = payload.get("resolution")
