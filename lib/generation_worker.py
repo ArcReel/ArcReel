@@ -761,10 +761,26 @@ class GenerationWorker:
             self.lease_ttl,
         )
 
+        # self-active 防 self-preemption：lease flap > 3×TTL 后 _orphan_handled_once
+        # 重置，再扫 DB running 会包含本进程仍 inflight 的 task。若不排除：
+        # - image 任务 → 错误标 [restart_lost]（任务还在跑就被标失败）
+        # - video 任务 → 启动重复 resume 流，同一 provider job 被并发 poll/finalize，
+        #   崩溃窗口可能导致 provider 端双重扣费（违反 ADR 0007 红线）
+        # 收集本进程当前在跑的 task_id（image_inflight + video_inflight + video_pending），
+        # DB 扫到的同 id task 视为本进程的活，跳过孤儿处理。
+        self_active_task_ids: set[str] = set()
+        for pool in self._pools.values():
+            self_active_task_ids.update(pool.image_inflight.keys())
+            self_active_task_ids.update(pool.video_inflight.keys())
+            self_active_task_ids.update(pool.video_pending.keys())
+
         resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
 
         for task in orphans:
             task_id = task["task_id"]
+            if task_id in self_active_task_ids:
+                logger.info("孤儿扫到本进程仍 active 的 task %s，跳过避免 self-preemption", task_id)
+                continue
             status = task.get("status")
             if status == "cancelling":
                 await self.queue.mark_task_cancelled(task_id, cancelled_by="user")

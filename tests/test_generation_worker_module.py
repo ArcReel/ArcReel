@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -1174,6 +1175,102 @@ class TestDispatcherFailFastAndPendingTracking:
 
         block.set()
         await worker._orphan_dispatcher_task
+
+
+class TestOrphanScanSelfPreemption:
+    """lease flap > 3×TTL 重夺时，本进程仍 inflight 的 task 不应被当孤儿处理。"""
+
+    @pytest.mark.asyncio
+    async def test_image_inflight_not_marked_restart_lost(self, monkeypatch):
+        """本进程 image_inflight 含 task → 孤儿扫描应跳过，不标 [restart_lost]。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "img-active",
+                "status": "running",
+                "media_type": "image",
+                "task_type": "storyboard",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=1, video_max=0)
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        pool.image_inflight["img-active"] = fut  # type: ignore[assignment]
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        await worker._handle_orphan_tasks_on_start()
+
+        # 不应被标 [restart_lost] —— 本进程还在跑
+        assert "img-active" not in {tid for tid, _ in queue.failed}
+        # 清理
+        fut.set_result(None)
+
+    @pytest.mark.asyncio
+    async def test_video_inflight_not_dispatched_to_resume(self, monkeypatch):
+        """本进程 video_inflight 含 task → 孤儿扫描应跳过，不启动重复 resume 流。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "vid-active",
+                "status": "running",
+                "media_type": "video",
+                "task_type": "video",
+                "provider_id": "ark",
+                "provider_job_id": "ark-job-1",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        pool.video_inflight["vid-active"] = fut  # type: ignore[assignment]
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        captured: list[dict[str, Any]] = []
+
+        async def _spy_dispatch(self, mapping):
+            captured.append(dict(mapping))
+
+        monkeypatch.setattr(GenerationWorker, "_dispatch_resume_orphans_background", _spy_dispatch)
+
+        await worker._handle_orphan_tasks_on_start()
+
+        # 不应启动 dispatcher，因为本进程仍在跑该 task
+        assert captured == [], f"本进程 inflight 的 task 不应被重复 dispatch: {captured}"
+        assert "vid-active" not in {tid for tid, _ in queue.failed}
+        fut.set_result(None)
+
+    @pytest.mark.asyncio
+    async def test_video_pending_also_skipped(self):
+        """本进程 video_pending（sem 排队中）含 task → 孤儿扫描应跳过。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "vid-pending",
+                "status": "running",
+                "media_type": "video",
+                "task_type": "video",
+                "provider_id": "ark",
+                "provider_job_id": "ark-job-2",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        pool.video_pending["vid-pending"] = fut  # type: ignore[assignment]
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        await worker._handle_orphan_tasks_on_start()
+
+        assert "vid-pending" not in {tid for tid, _ in queue.failed}
+        # dispatcher 句柄不应被设置（无 resumable 任务进 dispatcher）
+        assert worker._orphan_dispatcher_task is None
+        fut.set_result(None)
 
 
 class TestOrphanDispatcherNonBlockingOverride:
