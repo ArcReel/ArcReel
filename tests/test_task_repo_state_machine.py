@@ -102,12 +102,13 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
         )
         # queued → cancelled
-        rows = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert rows == 1
+        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
+        assert result["rows"] == 1
+        assert result["cancelling"] == []
         assert (await repo.get(t["task_id"]))["status"] == "cancelled"
         # 重复调 → 0 rows
-        rows = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert rows == 0
+        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
+        assert result["rows"] == 0
 
     async def test_finalize_cancelled_from_cancelling(self, db_session):
         repo = TaskRepository(db_session)
@@ -121,8 +122,8 @@ class TestRepoStateMachineGuards:
         )
         await repo.claim_next("image")
         await repo._mark_cancelling(t["task_id"])
-        rows = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert rows == 1
+        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
+        assert result["rows"] == 1
         assert (await repo.get(t["task_id"]))["status"] == "cancelled"
 
     async def test_finalize_cancelled_rejects_terminal(self, db_session):
@@ -138,8 +139,8 @@ class TestRepoStateMachineGuards:
         )
         await repo.claim_next("image")
         await repo.mark_succeeded(t["task_id"], {"x": 1})
-        rows = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert rows == 0
+        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
+        assert result["rows"] == 0
         assert (await repo.get(t["task_id"]))["status"] == "succeeded"
 
     async def test_cancel_task_running_returns_cancelling_intent(self, db_session):
@@ -304,8 +305,8 @@ class TestRepoStateMachineGuards:
         assert claimed["task_id"] == t["task_id"]
 
         # running → finalize_cancelled 直接落 cancelled，不需要走 cancelling
-        rows = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert rows == 1
+        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
+        assert result["rows"] == 1
         final = await repo.get(t["task_id"])
         assert final["status"] == "cancelled"
         assert final["cancelled_by"] == "user"
