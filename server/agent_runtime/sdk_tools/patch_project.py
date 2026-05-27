@@ -1,9 +1,12 @@
-"""SDK MCP tool for editing project.json assets by table + name.
+"""SDK MCP tool for editing project.json assets by table + name 或顶层 settings 字段。
 
 把 agent 对 ``project.json`` 角色/场景/道具的写入收归 ``patch_project``：按 table
 （characters/scenes/props）+ name **upsert**（不存在则加、存在则改字段），经
 ``ProjectManager.upsert_assets`` 在单一文件锁内 read-modify-write，apply 后落盘前做结构
 校验，非法则不写。取代脆弱的单行 CLI-JSON 脚本 ``add_assets.py``（且把「只能加」扩为「可改」）。
+
+同一工具同时承担顶层 ``settings`` 字段写入（白名单驱动），首期支持 ``episode_target_units``。
+``table + entries`` 与 ``settings`` 二选一,在 ``update_project`` 锁内 RMW 与 upsert 同源。
 """
 
 from __future__ import annotations
@@ -16,30 +19,58 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
 _TABLES = ("characters", "scenes", "props")
 
+# 顶层 settings 白名单。source_language 不在内 — 由 generate_overview LLM 判定得出,
+# 不开放给 agent 直改,避免 agent 误判后污染所有后续度量。新增项 append 到 tuple。
+_SETTINGS_WHITELIST = ("episode_target_units",)
+
 
 def patch_project_tool(ctx: ToolContext):
     @tool(
         "patch_project",
-        "新增或修改 project.json 里的角色/场景/道具（按 table + name upsert）。name 不存在则新增、"
-        "存在则合并改字段（如改 description / voice_style）。可一次提交多条。结构非法时不落盘并报错。",
+        "新增或修改 project.json:(1) 资产 upsert(传 table+entries),按 table+name upsert "
+        "(name 不存在则新增、存在则合并改字段);(2) 顶层 settings 写入(传 settings),"
+        f"白名单字段 {list(_SETTINGS_WHITELIST)},值为 null 时清除。两种形态二选一,"
+        "同时给出或都不给会被拒。结构非法时不落盘并报错。",
         {
             "type": "object",
             "properties": {
                 "table": {
                     "type": "string",
                     "enum": list(_TABLES),
-                    "description": "资产表：characters / scenes / props",
+                    "description": "(资产 upsert 分支)资产表:characters / scenes / props",
                 },
                 "entries": {
                     "type": "object",
-                    "description": "{ 名称: { description, voice_style 等字段 } } 映射；至少一条",
+                    "description": "(资产 upsert 分支){ 名称: { description, voice_style 等字段 } } 映射;至少一条",
+                },
+                "settings": {
+                    "type": "object",
+                    "description": (
+                        "(settings 写入分支)顶层字段映射,key 必须在白名单内 "
+                        f"{list(_SETTINGS_WHITELIST)},值为 null 时清除该字段"
+                    ),
                 },
             },
-            "required": ["table", "entries"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            has_upsert = "table" in args or "entries" in args
+            has_settings = "settings" in args
+            if has_upsert and has_settings:
+                raise ValueError("table/entries 与 settings 二选一,不能同时给出")
+            if not has_upsert and not has_settings:
+                raise ValueError("必须提供 table+entries(资产 upsert)或 settings(顶层字段)之一")
+
+            if has_settings:
+                settings = args["settings"]
+                if not isinstance(settings, dict) or not settings:
+                    raise ValueError("settings 必须是非空 { 字段名: 值 } 映射")
+                updated = _apply_settings(ctx, settings)
+                return {"content": [{"type": "text", "text": _format_settings_result(updated)}]}
+
+            if "table" not in args or "entries" not in args:
+                raise ValueError("资产 upsert 分支必须同时提供 table 和 entries")
             table = str(args["table"])
             entries = args["entries"]
             if not isinstance(entries, dict) or not entries:
@@ -50,6 +81,69 @@ def patch_project_tool(ctx: ToolContext):
             return tool_error("patch_project", exc)
 
     return _handler
+
+
+def _apply_settings(ctx: ToolContext, settings: dict[str, Any]) -> dict[str, Any]:
+    """在 update_project 锁内 RMW 顶层 settings 字段。
+
+    返回 { field: ('set', new_value) | ('clear', None) | ('noop', current_value) } 诊断 dict,
+    供 _format_settings_result 渲染。整体在校验失败时不落盘(ValueError 冒到 handler 走 tool_error)。
+    """
+    for key, value in settings.items():
+        if key not in _SETTINGS_WHITELIST:
+            raise ValueError(f"settings 字段 {key!r} 不在白名单 {list(_SETTINGS_WHITELIST)} 内")
+        _validate_setting_value(key, value)
+
+    diagnostics: dict[str, tuple[str, Any]] = {}
+
+    def _mutate(project: dict[str, Any]) -> None:
+        for key, value in settings.items():
+            current = project.get(key)
+            if value is None:
+                if key in project:
+                    del project[key]
+                    diagnostics[key] = ("clear", None)
+                else:
+                    diagnostics[key] = ("noop", None)
+            elif current == value:
+                diagnostics[key] = ("noop", current)
+            else:
+                project[key] = value
+                diagnostics[key] = ("set", value)
+
+    ctx.pm.update_project(ctx.project_name, _mutate)
+    return diagnostics
+
+
+def _validate_setting_value(key: str, value: Any) -> None:
+    """settings 字段值类型校验。新增白名单字段时在此 dispatch。"""
+    if key == "episode_target_units":
+        if value is None:
+            return
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"episode_target_units 必须是正整数或 null,收到 {value!r}")
+        return
+    # 不应到这,白名单校验在调用前
+    raise ValueError(f"settings 字段 {key!r} 缺类型校验")
+
+
+def _format_settings_result(updated: dict[str, tuple[str, Any]]) -> str:
+    """settings 分支结果文本,风格对齐 _format_upsert_result。"""
+    set_items = [(k, v) for k, (op, v) in updated.items() if op == "set"]
+    clear_items = [k for k, (op, _) in updated.items() if op == "clear"]
+    noop_items = [k for k, (op, _) in updated.items() if op == "noop"]
+
+    parts: list[str] = []
+    if set_items:
+        parts.append("已更新 " + ", ".join(f"{k}={v}" for k, v in set_items))
+    if clear_items:
+        parts.append("已清除 " + ", ".join(clear_items))
+    if noop_items:
+        parts.append("无变更 " + ", ".join(noop_items))
+
+    icon = "ℹ️" if (not set_items and not clear_items) else "✅"
+    summary = "; ".join(parts) if parts else "无变更"
+    return f"{icon} settings: {summary}"
 
 
 def _format_upsert_result(table: str, result: dict[str, Any]) -> str:

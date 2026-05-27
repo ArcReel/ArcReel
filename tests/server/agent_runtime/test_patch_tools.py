@@ -453,3 +453,66 @@ class TestPatchProject:
         assert "type" in text
         assert "importance" in text
         assert "历史字段" in text or "已废弃" in text
+
+
+class TestPatchProjectSettings:
+    """patch_project 顶层 settings 分支:首期支持 episode_target_units 写入/清除/校验."""
+
+    async def test_set_episode_target_units(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 1000}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["episode_target_units"] == 1000
+        assert "已更新" in _text(out)
+
+    async def test_clear_episode_target_units(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 1000}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": None}})
+        assert out.get("is_error") is not True
+        assert "episode_target_units" not in ctx.pm.load_project("demo")
+        assert "已清除" in _text(out)
+
+    async def test_noop_when_same_value(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 800}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 800}})
+        assert out.get("is_error") is not True
+        assert "无变更" in _text(out)
+
+    async def test_non_whitelist_field_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"arbitrary_field": 1}})
+        assert out.get("is_error") is True
+        assert "arbitrary_field" not in ctx.pm.load_project("demo")
+
+    async def test_source_language_not_whitelisted(self, ctx: ToolContext) -> None:
+        """source_language 由 generate_overview LLM 判定,agent 不开放直改."""
+        out = await _call(patch_project_tool(ctx), {"settings": {"source_language": "en"}})
+        assert out.get("is_error") is True
+
+    @pytest.mark.parametrize("bad_value", ["1000", 0, -5, 1.5, True])
+    async def test_invalid_value_rejected(self, ctx: ToolContext, bad_value: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": bad_value}})
+        assert out.get("is_error") is True
+        assert "episode_target_units" not in ctx.pm.load_project("demo")
+
+    async def test_table_and_settings_together_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"x": {"description": "y"}}, "settings": {"episode_target_units": 1}},
+        )
+        assert out.get("is_error") is True
+
+    async def test_neither_table_nor_settings_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {})
+        assert out.get("is_error") is True
+
+    async def test_empty_settings_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {}})
+        assert out.get("is_error") is True
+
+    async def test_legacy_upsert_path_still_works(self, ctx: ToolContext) -> None:
+        """老 schema 回归:只传 table/entries 仍走 upsert 分支(向后兼容 8 处既有调用)."""
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
+        )
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "白衣剑客"
