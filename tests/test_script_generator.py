@@ -280,6 +280,7 @@ class TestScriptGenerator:
             "../etc/passwd",  # path traversal
             "/tmp/abs.json",  # 绝对路径
             "a\\b.json",  # Windows 分隔符
+            "",  # 空字符串:Path("").name == "" 会过前两条校验,带空 filename 到写盘才崩
         ],
     )
     async def test_generate_rejects_non_basename_output_filename(self, tmp_path, bad_filename):

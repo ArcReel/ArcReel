@@ -126,7 +126,11 @@ class ScriptGenerator:
         # 内,会让剧本写到 scripts/subdir/x.json,偏离扁平布局)。在公开 API 入口 fail-fast 拒,
         # 既兑现契约也避免跑完整套生成流程才撞到错。
         # 显式拒 `\\`:POSIX 上 Path 不当其为分隔符,但 Windows 上是;按跨平台兼容做防御。
-        if output_filename is not None and (Path(output_filename).name != output_filename or "\\" in output_filename):
+        # 空字符串 "" 也显式拒:Path("").name == "" 等于 output_filename 会过前两条,
+        # 带空 filename 流到 save_script 在写盘阶段才崩;入口 fail-fast 才不撕裂时机。
+        if output_filename is not None and (
+            not output_filename or Path(output_filename).name != output_filename or "\\" in output_filename
+        ):
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
         gen_mode = self._effective_generation_mode(episode)
