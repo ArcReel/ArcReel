@@ -830,14 +830,20 @@ class GenerationWorker:
                 "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
                 total,
             )
-            # 覆盖前 done 检查：lease 切换重夺时第二次进 _handle_orphan_tasks_on_start，
-            # 旧 dispatcher 可能还在跑；不能直接覆盖句柄（旧 task 会泄露成 detached）。
+            # lease 重夺时旧 dispatcher 可能还在跑（典型场景：resume_video 内 poll provider
+            # 需要几分钟到 10+ 分钟）。本轮**不 await 不 cancel** 直接覆盖句柄：
+            # - 不 await：避免阻塞主循环 → liveness 问题（无法续 lease 心跳/无法响应 cancel API）
+            # - 不 cancel：cancel 会让旧 dispatcher 的 _run_one 抛 CancelledError，进入
+            #   兜底 mark_task_cancelled 路径，把用户**未主动取消**的 in-flight resume 错误
+            #   标为 cancelled，且让 provider 端已扣费 job 失去归属
+            # - 直接覆盖：旧 dispatcher_task 的 sub-task 仍由 pool.video_pending/video_inflight
+            #   持有引用 + asyncio.gather 内部 callback 链持有，旧 task 不会被 GC detached
+            # - shutdown 仍能感知：_wait_inflight_completion 经 pool.all_active() 等到旧 sub-task
             if self._orphan_dispatcher_task is not None and not self._orphan_dispatcher_task.done():
-                logger.warning("旧 orphan dispatcher 仍在运行，等待完成后再启动新一轮")
-                try:
-                    await self._orphan_dispatcher_task
-                except Exception:
-                    logger.exception("旧 orphan dispatcher 异常")
+                logger.warning(
+                    "旧 orphan dispatcher 仍在运行，本轮直接覆盖句柄不等待——"
+                    "旧 sub-task 由 pool 跟踪，shutdown 时经 pool.all_active 兜底"
+                )
             self._orphan_dispatcher_task = asyncio.create_task(
                 self._dispatch_resume_orphans_background(resumable_by_provider),
                 name="orphan-dispatcher",

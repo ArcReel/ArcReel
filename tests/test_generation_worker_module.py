@@ -1176,6 +1176,58 @@ class TestDispatcherFailFastAndPendingTracking:
         await worker._orphan_dispatcher_task
 
 
+class TestOrphanDispatcherNonBlockingOverride:
+    """lease 重夺时旧 dispatcher 仍在跑：本轮直接覆盖句柄，不 await（liveness）也不 cancel
+    （避免错误中断 in-flight resume）。"""
+
+    @pytest.mark.asyncio
+    async def test_old_dispatcher_not_awaited_on_re_scan(self, monkeypatch):
+        """旧 dispatcher 跑 5s 时，再次进 _handle_orphan_tasks_on_start 应秒级返回（不阻塞）。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "orphan-x",
+                "status": "running",
+                "provider_id": "ark",
+                "provider_job_id": "job-x",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        block = asyncio.Event()
+
+        async def _gated(self, task):
+            await block.wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+
+        # 第 1 次扫描：启动旧 dispatcher
+        await worker._handle_orphan_tasks_on_start()
+        old_dispatcher = worker._orphan_dispatcher_task
+        assert old_dispatcher is not None
+        assert not old_dispatcher.done()
+
+        # 第 2 次扫描（模拟 lease flap 超阈值后重夺）：应直接覆盖句柄、不阻塞
+        start = asyncio.get_event_loop().time()
+        await worker._handle_orphan_tasks_on_start()
+        elapsed = asyncio.get_event_loop().time() - start
+        # 应在 1s 内完成；旧 dispatcher 仍未 done 但句柄已被新的覆盖
+        assert elapsed < 1.0, f"重夺时不应阻塞：elapsed={elapsed:.3f}s"
+        assert worker._orphan_dispatcher_task is not old_dispatcher
+        # 旧 dispatcher 未被 cancel——in-flight resume 不应被错误中断
+        assert not old_dispatcher.cancelled()
+        assert not old_dispatcher.done()
+
+        # 清理：放开 gate 让 dispatcher 完成
+        block.set()
+        await asyncio.gather(old_dispatcher, worker._orphan_dispatcher_task, return_exceptions=True)
+
+
 class TestOrphanOnceAndLeaseFlap:
     """orphan 一次性扫描 + lease flap 阈值。"""
 
