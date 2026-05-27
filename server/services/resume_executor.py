@@ -12,9 +12,11 @@ import logging
 from typing import Any
 
 from lib.media_generator import MediaGenerator
+from lib.project_change_hints import project_change_source
 from server.services.generation_tasks import (
     DEFAULT_USER_ID,
     _finalize_video_task,
+    emit_generation_success_batch,
     get_aspect_ratio,
     get_media_generator,
     get_project_manager,
@@ -51,7 +53,14 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         )
     )
 
-    generator: MediaGenerator = await get_media_generator(project_name, payload=payload, user_id=user_id)
+    # require_image_backend=False：resume 路径用不到 image backend；若 image 配置在
+    # submit→重启之间被破坏，整段 resume 不该被无关检查弄失败（provider job 仍在跑）。
+    generator: MediaGenerator = await get_media_generator(
+        project_name,
+        payload=payload,
+        user_id=user_id,
+        require_image_backend=False,
+    )
 
     aspect_ratio = get_aspect_ratio(project, "videos") if task_type == "video" else project.get("aspect_ratio", "9:16")
     duration_seconds = int(payload.get("duration_seconds") or project.get("default_duration") or 8)
@@ -73,37 +82,50 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         except (ValueError, TypeError):
             api_call_id = None
 
-    output_path, version, _, video_uri = await generator.resume_video_async(
-        job_id=job_id,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        prompt=prompt_text,
-        aspect_ratio=aspect_ratio,
-        duration_seconds=duration_seconds,
-        task_id=task_id,
-        api_call_id=api_call_id,
-        seed=seed,
-        service_tier=service_tier,
-    )
-
-    if task_type == "reference_video":
-        return await _finalize_reference_video_unit(
-            project_name=project_name,
-            script_file=script_file,
-            project_path=project_path,
+    # 与 execute_generation_task 对齐：包 project_change_source('worker') 让下游
+    # asset 写入挂在 worker 来源；finalize 完成后同步触发 emit_generation_success_batch
+    # 推 SSE batch（带 asset_fingerprints），前端能即时刷缩略图缓存。
+    with project_change_source("worker"):
+        output_path, version, _, video_uri = await generator.resume_video_async(
+            job_id=job_id,
+            resource_type=resource_type,
             resource_id=resource_id,
-            output_path=output_path,
-            version=version,
-            video_uri=video_uri,
-            generator=generator,
+            prompt=prompt_text,
+            aspect_ratio=aspect_ratio,
+            duration_seconds=duration_seconds,
+            task_id=task_id,
+            api_call_id=api_call_id,
+            seed=seed,
+            service_tier=service_tier,
         )
 
-    return await _finalize_video_task(
-        project_name=project_name,
-        script_file=script_file,
-        project_path=project_path,
-        resource_id=resource_id,
-        version=version,
-        video_uri=video_uri,
-        generator=generator,
-    )
+        if task_type == "reference_video":
+            result = await _finalize_reference_video_unit(
+                project_name=project_name,
+                script_file=script_file,
+                project_path=project_path,
+                resource_id=resource_id,
+                output_path=output_path,
+                version=version,
+                video_uri=video_uri,
+                generator=generator,
+            )
+        else:
+            result = await _finalize_video_task(
+                project_name=project_name,
+                script_file=script_file,
+                project_path=project_path,
+                resource_id=resource_id,
+                version=version,
+                video_uri=video_uri,
+                generator=generator,
+            )
+
+        # emit_generation_success_batch 是同步函数，async caller 同步调用（不 await）
+        emit_generation_success_batch(
+            task_type=task_type,
+            project_name=project_name,
+            resource_id=resource_id,
+            payload=payload,
+        )
+        return result

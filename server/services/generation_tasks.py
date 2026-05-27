@@ -654,7 +654,7 @@ _TASK_CHANGE_SPECS: dict[str, tuple] = {
 }
 
 
-def _emit_generation_success_batch(
+def emit_generation_success_batch(
     *,
     task_type: str,
     project_name: str,
@@ -1393,7 +1393,7 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
             # 落到 task.error_message，前端轮询时即可看到本地化提示
             message = i18n_translate(err.code, locale=DEFAULT_LOCALE, **err.params)
             raise RuntimeError(message) from err
-        _emit_generation_success_batch(
+        emit_generation_success_batch(
             task_type=task_type,
             project_name=project_name,
             resource_id=resource_id,

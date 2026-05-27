@@ -164,6 +164,79 @@ async def test_execute_resume_expired_propagates(monkeypatch, fake_pm, video_tas
 
 
 @pytest.mark.asyncio
+async def test_execute_resume_passes_require_image_backend_false(monkeypatch, fake_pm, video_task):
+    """resume_executor 应显式 require_image_backend=False —— image 配置坏不影响接续。"""
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
+    monkeypatch.setattr("server.services.generation_tasks.get_project_manager", lambda: fake_pm)
+    monkeypatch.setattr("server.services.reference_video_tasks.get_project_manager", lambda: fake_pm)
+
+    async def _fake_thumb(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("server.services.generation_tasks.extract_video_thumbnail", _fake_thumb)
+    monkeypatch.setattr("server.services.reference_video_tasks.extract_video_thumbnail", _fake_thumb)
+
+    captured: dict[str, Any] = {}
+
+    async def _capturing_get_media_generator(*args: Any, **kwargs: Any) -> Any:
+        captured["kwargs"] = kwargs
+        return fake_gen
+
+    monkeypatch.setattr(resume_executor, "get_media_generator", _capturing_get_media_generator)
+
+    await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert captured["kwargs"].get("require_image_backend") is False
+
+
+@pytest.mark.asyncio
+async def test_execute_resume_emits_project_change_batch(monkeypatch, fake_pm, video_task):
+    """resume 成功后同步触发 emit_generation_success_batch（推 SSE 给前端）。"""
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
+
+    calls: list[dict[str, Any]] = []
+
+    def _capture(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(resume_executor, "emit_generation_success_batch", _capture)
+
+    await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["task_type"] == "video"
+    assert call["project_name"] == "demo"
+    assert call["resource_id"] == "E1S01"
+
+
+@pytest.mark.asyncio
+async def test_execute_resume_failure_does_not_emit(monkeypatch, fake_pm, video_task):
+    """resume 抛错时不应 emit batch（finalize 未跑成功）。"""
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator(raises=RuntimeError("backend boom"))
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
+
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **kwargs: calls.append(kwargs))
+
+    with pytest.raises(RuntimeError):
+        await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
     """非 video / reference_video 任务（如 storyboard）不应被派发到 resume—— image 类无 resume 路径。"""
     from server.services.resume_executor import execute_resume_video_task

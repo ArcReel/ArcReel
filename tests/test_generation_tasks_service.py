@@ -604,7 +604,7 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
 
-        generation_tasks._emit_generation_success_batch(
+        generation_tasks.emit_generation_success_batch(
             task_type="storyboard",
             project_name="demo",
             resource_id="E1S01",
