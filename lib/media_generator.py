@@ -516,8 +516,9 @@ class MediaGenerator:
         - 不调 usage_tracker.start_call/finish_call —— 首次 submit 已记账；ResumeExpired
           / crash window 都不应再写 ApiCall（防双重扣费）。caller 透传 ``api_call_id``
           时按 call_id 精准翻 pending → success/failed；不透传则 logger.warning 不阻断。
-        - 用 ensure_current_tracked 取代 add_version：已有版本则跳过补登记，
-          submit→poll 中崩的边界场景才补登记 v1 避免 finalize 处 IndexError。
+        - resume 成功后总是 add_version 记录新版本：无论 versions.json 是否已有历史版本，
+          backend.resume_video 都会下载新视频并覆盖 output_path，必须 bump 一个新版本号
+          让 versions.json 与磁盘文件一致；否则会漏记本次重新生成的视频，回滚记录失真。
         - prompt / start_image / reference_images 仅用于日志/版本元数据，不影响 provider 端结果。
 
         Returns: (output_path, version_number, video_ref, video_uri) 四元组。
@@ -527,24 +528,12 @@ class MediaGenerator:
 
         # 先把 duration 归一为 int：上游可能传 "8.0" 浮点字符串，直接 int("8.0") 会 ValueError
         # 走兜底分支静默掉真实值（"10.0" 会被吞成 8）。先 float() 再 int() 保留语义。
-        # 提前到所有 ensure_current_tracked / VideoGenerationRequest 之前，让版本元数据
+        # 提前到 VideoGenerationRequest / add_version 之前，让版本元数据
         # 与 provider 请求里的 duration_seconds 类型一致（都是 int，避免 versions.json 落字符串）。
         try:
             duration_int = int(float(duration_seconds)) if duration_seconds else 8
         except (ValueError, TypeError):
             duration_int = 8
-
-        # 开头的 ensure_current_tracked 覆盖「output_path 残留」场景（重试时旧文件还在）。
-        # 末尾还会再调一次 ensure —— 两次幂等（get_current_version > 0 时 short-circuit）。
-        if output_path.exists():
-            self.versions.ensure_current_tracked(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                current_file=output_path,
-                prompt=prompt,
-                duration_seconds=duration_int,
-                **version_metadata,
-            )
 
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
@@ -631,16 +620,17 @@ class MediaGenerator:
                 job_id,
             )
 
-        # versions.json 已有 v1 → ensure 跳过；submit→poll 中崩导致 versions.json 无记录
-        # 的边界场景，ensure 补登记 v1 以避开下游 _finalize_video_task 的 versions[-1] IndexError。
-        self.versions.ensure_current_tracked(
+        # backend.resume_video 已下载新视频并覆盖 output_path，必须 bump 一个新版本号：
+        # - versions.json 空时（submit→poll 中崩）add_version 直接登记 v1，避免下游 versions[-1] IndexError；
+        # - versions.json 已有 v_n（覆盖式重新生成）时 add_version 登记 v_(n+1)，避免 output_path
+        #   被新内容覆盖却仍报旧版本号导致 versions.json 与磁盘文件错位。
+        new_version = self.versions.add_version(
             resource_type=resource_type,
             resource_id=resource_id,
-            current_file=output_path,
             prompt=prompt,
+            source_file=output_path,
             duration_seconds=duration_int,
             **version_metadata,
         )
-        new_version = self.versions.get_current_version(resource_type, resource_id)
 
         return output_path, new_version, video_ref, video_uri

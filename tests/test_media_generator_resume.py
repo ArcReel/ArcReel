@@ -3,7 +3,8 @@
 关注点：
 - resume 路径不写 ApiCall（不调 start_call / finish_call）
 - finalize_pending_by_call_id 按 api_call_id 精准翻 pending → success/failed
-- 版本管理用 ensure_current_tracked（重启崩溃边界场景补登记 v1，已有版本时跳过）
+- 版本管理用 add_version：resume 成功后总是 bump 新版本，让 versions.json 与磁盘文件一致
+  （submit→poll 崩 → 登记 v1；已有 v_n 的覆盖式重新生成 → 登记 v_(n+1)）
 - ResumeExpiredError 沿调用链上抛，pending 翻 failed
 """
 
@@ -68,6 +69,19 @@ class _FakeVersions:
 
     def get_current_version(self, _resource_type, _resource_id):
         return self._version
+
+
+class _ProbeVideoBackend(_FakeVideoBackend):
+    """resume_video 触发时记录当时 add_calls 的快照，用来断言 add_version 在下载之后才发生。"""
+
+    def __init__(self, versions: _FakeVersions) -> None:
+        super().__init__()
+        self._versions = versions
+        self.add_calls_at_resume: int | None = None
+
+    async def resume_video(self, job_id, request):
+        self.add_calls_at_resume = len(self._versions.add_calls)
+        return await super().resume_video(job_id, request)
 
 
 class _FakeUsage:
@@ -205,9 +219,12 @@ async def test_resume_other_exception_does_not_finalize(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_resume_uses_ensure_current_tracked(tmp_path):
-    """resume 用 ensure_current_tracked，不调 add_version。"""
+async def test_resume_calls_add_version_after_download(tmp_path):
+    """resume 成功后必须 add_version 记录新版本，且 add_version 发生在 backend.resume_video 之后
+    （否则会把残留/旧文件错登记到 versions 表）。同时不应在开头预登记 ensure_current_tracked。"""
     gen = _build_generator(tmp_path)
+    probe = _ProbeVideoBackend(gen.versions)
+    gen._video_backend = probe
 
     await gen.resume_video_async(
         job_id="provider-job-1",
@@ -217,13 +234,17 @@ async def test_resume_uses_ensure_current_tracked(tmp_path):
         api_call_id=42,
     )
 
-    # ensure_current_tracked 至少被调一次（末尾必调；开头 output_path.exists() 时也会调）
-    assert len(gen.versions.ensure_calls) >= 1
+    # add_version 必须发生在下载之后：进入 resume_video 时 add_calls 还是 0
+    assert probe.add_calls_at_resume == 0
+    assert len(gen.versions.add_calls) == 1
+    # 不再在开头/末尾调 ensure_current_tracked（避免错位登记残留文件）
+    assert gen.versions.ensure_calls == []
 
 
 @pytest.mark.asyncio
 async def test_resume_after_pre_version_crash_creates_v1(tmp_path):
-    """submit→poll 中崩 → versions.json 空 → resume 后补登记 v1 避免 finalize IndexError。"""
+    """submit→poll 中崩 → versions.json 空 → resume 下载新视频后 add_version 登记 v1，
+    避免下游 _finalize_video_task 在 versions[-1] 上 IndexError。"""
     gen = _build_generator(tmp_path, initial_version=0)
 
     _, version, _, _ = await gen.resume_video_async(
@@ -235,12 +256,14 @@ async def test_resume_after_pre_version_crash_creates_v1(tmp_path):
     )
 
     assert version == 1
-    assert len(gen.versions.add_calls) >= 1
+    assert len(gen.versions.add_calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_resume_after_post_version_crash_does_not_bump(tmp_path):
-    """poll 成功→mark_succeeded 前崩 → versions 已有 v1 → resume 不重复 bump。"""
+async def test_resume_after_version_v1_crash_bumps_to_v2(tmp_path):
+    """覆盖式重新生成：versions.json 已有 v1，generate 在 add_version 之前崩。
+    resume 下载新视频覆盖 output_path 后必须 bump 到 v2，让 versions.json 与磁盘内容一致；
+    否则 versions={v1} 仍指向旧记录而 output_path 已是 v2 内容，回滚/历史会失真。"""
     gen = _build_generator(tmp_path, initial_version=1)
 
     _, version, _, _ = await gen.resume_video_async(
@@ -251,22 +274,16 @@ async def test_resume_after_post_version_crash_does_not_bump(tmp_path):
         api_call_id=42,
     )
 
-    assert version == 1, "已有 v1 时 ensure 应跳过，不重复 bump"
-    # ensure_current_tracked 仍被调（但内部 short-circuit），add_calls 不增
-    assert len(gen.versions.add_calls) == 0
+    assert version == 2, "已有 v1 + 覆盖式重新生成 → 必须登记 v2"
+    assert len(gen.versions.add_calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_resume_handles_float_string_duration(tmp_path):
     """duration_seconds 传浮点字符串（如 "10.0"）时应解析为 int(10)，
     不能被 try/except 静默吞成兜底值 8（int("10.0") 会 ValueError）。
-    两次 ensure_current_tracked 与 VideoGenerationRequest 都应收到归一后的 int。"""
-    gen = _build_generator(tmp_path, initial_version=1)  # 已有 v1：开头 ensure 也会触发
-
-    # 预先放文件让开头 output_path.exists() 分支也走 ensure；用真实 _get_output_path
-    pre_path = gen._get_output_path("videos", "E1S01")
-    pre_path.parent.mkdir(parents=True, exist_ok=True)
-    pre_path.write_bytes(b"pre-existing")
+    add_version 与 VideoGenerationRequest 都应收到归一后的 int。"""
+    gen = _build_generator(tmp_path, initial_version=1)
 
     await gen.resume_video_async(
         job_id="provider-job-1",
@@ -277,11 +294,11 @@ async def test_resume_handles_float_string_duration(tmp_path):
         api_call_id=42,
     )
 
-    # 两次 ensure_current_tracked 都应该收到 duration_seconds=10（int），不是 "10.0" 也不是 8
-    assert len(gen.versions.ensure_calls) == 2
-    for call in gen.versions.ensure_calls:
-        assert call["duration_seconds"] == 10
-        assert isinstance(call["duration_seconds"], int)
+    # add_version 应该收到 duration_seconds=10（int），不是 "10.0" 也不是 8
+    assert len(gen.versions.add_calls) == 1
+    add_call = gen.versions.add_calls[0]
+    assert add_call["duration_seconds"] == 10
+    assert isinstance(add_call["duration_seconds"], int)
 
     # provider 请求里的 duration_seconds 也应是 int(10)
     backend = gen._video_backend
