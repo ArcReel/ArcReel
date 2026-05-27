@@ -257,6 +257,40 @@ async def test_resume_after_post_version_crash_does_not_bump(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_resume_handles_float_string_duration(tmp_path):
+    """duration_seconds 传浮点字符串（如 "10.0"）时应解析为 int(10)，
+    不能被 try/except 静默吞成兜底值 8（int("10.0") 会 ValueError）。
+    两次 ensure_current_tracked 与 VideoGenerationRequest 都应收到归一后的 int。"""
+    gen = _build_generator(tmp_path, initial_version=1)  # 已有 v1：开头 ensure 也会触发
+
+    # 预先放文件让开头 output_path.exists() 分支也走 ensure；用真实 _get_output_path
+    pre_path = gen._get_output_path("videos", "E1S01")
+    pre_path.parent.mkdir(parents=True, exist_ok=True)
+    pre_path.write_bytes(b"pre-existing")
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        duration_seconds="10.0",
+        task_id="T-1",
+        api_call_id=42,
+    )
+
+    # 两次 ensure_current_tracked 都应该收到 duration_seconds=10（int），不是 "10.0" 也不是 8
+    assert len(gen.versions.ensure_calls) == 2
+    for call in gen.versions.ensure_calls:
+        assert call["duration_seconds"] == 10
+        assert isinstance(call["duration_seconds"], int)
+
+    # provider 请求里的 duration_seconds 也应是 int(10)
+    backend = gen._video_backend
+    assert len(backend.calls) == 1
+    _, request = backend.calls[0]
+    assert request.duration_seconds == 10
+
+
+@pytest.mark.asyncio
 async def test_resume_missing_api_call_id_warns_does_not_crash(tmp_path, caplog):
     """旧任务 task.payload 无 api_call_id → resume 仍成功，仅 warning。"""
     gen = _build_generator(tmp_path)

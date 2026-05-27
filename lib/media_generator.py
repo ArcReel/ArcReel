@@ -520,6 +520,15 @@ class MediaGenerator:
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
 
+        # 先把 duration 归一为 int：上游可能传 "8.0" 浮点字符串，直接 int("8.0") 会 ValueError
+        # 走兜底分支静默掉真实值（"10.0" 会被吞成 8）。先 float() 再 int() 保留语义。
+        # 提前到所有 ensure_current_tracked / VideoGenerationRequest 之前，让版本元数据
+        # 与 provider 请求里的 duration_seconds 类型一致（都是 int，避免 versions.json 落字符串）。
+        try:
+            duration_int = int(float(duration_seconds)) if duration_seconds else 8
+        except (ValueError, TypeError):
+            duration_int = 8
+
         # 开头的 ensure_current_tracked 覆盖「output_path 残留」场景（重试时旧文件还在）。
         # 末尾还会再调一次 ensure —— 两次幂等（get_current_version > 0 时 short-circuit）。
         if output_path.exists():
@@ -528,14 +537,9 @@ class MediaGenerator:
                 resource_id=resource_id,
                 current_file=output_path,
                 prompt=prompt,
-                duration_seconds=duration_seconds,
+                duration_seconds=duration_int,
                 **version_metadata,
             )
-
-        try:
-            duration_int = int(duration_seconds) if duration_seconds else 8
-        except (ValueError, TypeError):
-            duration_int = 8
 
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
@@ -627,7 +631,7 @@ class MediaGenerator:
             resource_id=resource_id,
             current_file=output_path,
             prompt=prompt,
-            duration_seconds=duration_seconds,
+            duration_seconds=duration_int,
             **version_metadata,
         )
         new_version = self.versions.get_current_version(resource_type, resource_id)
