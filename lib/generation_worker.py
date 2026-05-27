@@ -924,14 +924,17 @@ class GenerationWorker:
                 logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
                 await self._process_resume_task(t)
             except asyncio.CancelledError:
-                # sem 等待期被取消时 _process_resume_task 还没跑，DB 仍在 cancelling，
-                # 须显式落 cancelled 终态；acquire 之后的取消由 _process_resume_task 内部
-                # 自己处理（execute_resume_video_task → CancelledError → mark_task_cancelled）
-                if not acquired:
-                    try:
-                        await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
-                    except Exception:
-                        logger.exception("sem 排队期 cancel 落终态失败 task_id=%s", task_id)
+                # 三种 cancel 路径都在这里兜底 mark_task_cancelled——SQL WHERE
+                # status IN (queued, cancelling, running) 保证幂等：
+                # 1) sem.acquire 等待期 cancel → _process_resume_task 还没跑，必须由此落终态
+                # 2) acquired=True 后但 _process_resume_task 内 try 块外（如 _extract_provider
+                #    的 await）cancel → 内部 mark 路径不会触发，必须由此落终态（CR round 2 #6）
+                # 3) _process_resume_task 内部 cancel → 内部已 mark，此处再调 SQL 命中
+                #    cancelled 行返回 0 rows，无副作用
+                try:
+                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+                except Exception:
+                    logger.exception("sem dispatch cancel 落终态失败 task_id=%s", task_id)
                 raise
             finally:
                 if acquired:

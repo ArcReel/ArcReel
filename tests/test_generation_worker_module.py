@@ -1104,6 +1104,45 @@ class TestDispatcherFailFastAndPendingTracking:
         assert "orphan-1" in cancelled_ids
 
     @pytest.mark.asyncio
+    async def test_acquired_pre_process_cancel_marks_task_cancelled(self, monkeypatch):
+        """acquire 后、_process_resume_task 入 try 之前 cancel：_run_one 应兜底 mark cancelled。
+
+        模拟场景：_process_resume_task 内部 try 块之前还有 await（如 _extract_provider），
+        cancel 在那段 await 抛 CancelledError，内部不会调 mark，必须由 _run_one 兜底。
+        """
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        acquired_event = asyncio.Event()
+        pre_try_gate = asyncio.Event()
+
+        async def _fake_resume_task(self, task):
+            # 模拟 acquired=True 后、try 块之前的 await（即漏窗）
+            acquired_event.set()
+            await pre_try_gate.wait()
+            # 一般不会走到这里——测试通过 cancel queued_task 中断
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _fake_resume_task)
+
+        tasks = [{"task_id": "orphan-pre-try", "provider_id": "ark"}]
+        dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
+
+        # 等 _process_resume_task 进入空窗（await pre_try_gate.wait() 期间）
+        await asyncio.wait_for(acquired_event.wait(), timeout=1.0)
+
+        # 现在 task 在 acquired=True 状态，但 _process_resume_task 还没接管终态
+        sub_task = next(iter(pool.video_inflight.values()))
+        sub_task.cancel()
+
+        # gate 放开（CancelledError 已经在路上）
+        pre_try_gate.set()
+        await dispatcher
+
+        # 必须落 cancelled 终态，不能停在 cancelling
+        assert "orphan-pre-try" in {tid for tid, _ in queue.cancelled}
+
+    @pytest.mark.asyncio
     async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch):
         """_handle_orphan_tasks_on_start 后 self._orphan_dispatcher_task 应被设置。"""
         queue = _FakeQueue()
