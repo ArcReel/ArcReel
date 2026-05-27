@@ -16,7 +16,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import portalocker
 from pydantic import BaseModel, Field
@@ -105,6 +105,10 @@ class ProjectOverview(BaseModel):
     genre: str = Field(description="题材类型，如：古装宫斗、现代悬疑、玄幻修仙")
     theme: str = Field(description="核心主题，如：复仇与救赎、成长与蜕变")
     world_setting: str = Field(description="时代背景和世界观设定，100-200字")
+    # language 是 LLM 输出存档字段；唯一真相源是顶层 project["source_language"]，
+    # 由 generate_overview 在落盘时同步写入。所有度量/切分调用方一律读顶层字段，
+    # 不要直接读 overview.language。
+    language: Literal["zh", "en", "vi"] = Field(description="小说源语言代码")
 
 
 class ProjectManager:
@@ -2091,6 +2095,7 @@ class ProjectManager:
         # 保存到 project.json（RMW 在单一 _project_lock 内完成，避免并发覆盖其它字段）
         def _mutate(project: dict) -> None:
             project["overview"] = overview_dict
+            project["source_language"] = overview_dict["language"]
 
         self.update_project(project_name, _mutate)
 
