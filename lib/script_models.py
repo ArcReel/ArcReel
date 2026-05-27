@@ -124,6 +124,21 @@ class NarrationSegment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
+    # 已废弃但存量 JSON 里可能残留的字段:在 extra="forbid" 拒绝之前显式 pop 掉。
+    # clues_in_segment 是 v0→v1 migration 删除的字段(lib/project_migrations/
+    # v0_to_v1_clues_to_scenes_props.py),archive 流程通过 project_archive.py 已 pop,
+    # 但若直接 NarrationSegment.model_validate(legacy_dict) 调用(_guard_no_worse lenient
+    # 包装外)需要这里兜底,与 DramaScene.LEGACY_DROPPED_FIELDS 同模式。
+    LEGACY_DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"clues_in_segment"})
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_legacy_fields(cls, data: object) -> object:
+        if isinstance(data, dict):
+            for k in cls.LEGACY_DROPPED_FIELDS:
+                data.pop(k, None)
+        return data
+
     segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -192,7 +207,9 @@ class DramaScene(BaseModel):
     # 已废弃但存量 JSON 里可能残留的字段:在 extra="forbid" 拒绝之前显式 pop 掉,
     # 与「未知字段(typo / hallucination)一律拒」并存——前者是已知 deprecated,
     # 后者才是 forbid 想挡的真问题。新增 deprecate 字段时把名字加到这个集合。
-    LEGACY_DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"scene_type"})
+    # - scene_type:main #644 删的场景类型字段
+    # - clues_in_scene:v0→v1 migration 删的线索字段(同 NarrationSegment.clues_in_segment)
+    LEGACY_DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"scene_type", "clues_in_scene"})
 
     @model_validator(mode="before")
     @classmethod

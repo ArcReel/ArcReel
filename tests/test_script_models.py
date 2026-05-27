@@ -259,6 +259,43 @@ class TestRuntimeBackwardCompat:
         assert scene.scene_id == "E1S01"
         assert not hasattr(scene, "scene_type")
 
+    def test_narration_segment_accepts_legacy_clues_in_segment_field(self):
+        """v0→v1 migration 删的 clues_in_segment 残留时 model_validate 不该炸。"""
+        segment = NarrationSegment.model_validate(
+            {
+                "segment_id": "E1S01",
+                "duration_seconds": 4,
+                "novel_text": "原文",
+                "characters_in_segment": ["王"],
+                "image_prompt": {
+                    "scene": "s",
+                    "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                },
+                "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                "clues_in_segment": ["玉佩"],
+            }
+        )
+        assert segment.segment_id == "E1S01"
+        assert not hasattr(segment, "clues_in_segment")
+
+    def test_drama_scene_accepts_legacy_clues_in_scene_field(self):
+        """v0→v1 migration 删的 clues_in_scene 残留时 model_validate 不该炸。"""
+        scene = DramaScene.model_validate(
+            {
+                "scene_id": "E1S01",
+                "duration_seconds": 8,
+                "characters_in_scene": ["王"],
+                "image_prompt": {
+                    "scene": "s",
+                    "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                },
+                "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                "clues_in_scene": ["玉佩"],
+            }
+        )
+        assert scene.scene_id == "E1S01"
+        assert not hasattr(scene, "clues_in_scene")
+
     def test_episode_models_validate_without_optional_fields(self):
         """LLM 不写 content_mode / novel / summary 时,model_validate 仍应成功并用 default 兜底。"""
         drama = DramaEpisodeScript.model_validate(
