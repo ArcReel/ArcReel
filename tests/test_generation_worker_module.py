@@ -1069,6 +1069,41 @@ class TestDispatcherFailFastAndPendingTracking:
         await dispatcher
 
     @pytest.mark.asyncio
+    async def test_sem_queued_cancel_marks_task_cancelled(self, monkeypatch):
+        """sem 排队期被 cancel：_run_one 应显式 mark_task_cancelled，DB 不留 cancelling。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+
+        gate = asyncio.Event()
+        first_started = asyncio.Event()
+
+        async def _gated(self, task):
+            first_started.set()
+            await gate.wait()
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+
+        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(2)]
+        dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
+
+        # 等第 1 个 task 进入 _process_resume_task（占住 sem），第 2 个还在 sem 排队
+        await asyncio.wait_for(first_started.wait(), timeout=1.0)
+        assert "orphan-1" in pool.video_pending
+
+        # 取消 sem 排队中的 orphan-1
+        queued_task = pool.video_pending["orphan-1"]
+        queued_task.cancel()
+
+        # 让 dispatcher 跑完
+        gate.set()
+        await dispatcher
+
+        # orphan-1 应被显式 mark_task_cancelled（sem 排队期 cancel 路径），不能停在 cancelling
+        cancelled_ids = {tid for tid, _ in queue.cancelled}
+        assert "orphan-1" in cancelled_ids
+
+    @pytest.mark.asyncio
     async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch):
         """_handle_orphan_tasks_on_start 后 self._orphan_dispatcher_task 应被设置。"""
         queue = _FakeQueue()

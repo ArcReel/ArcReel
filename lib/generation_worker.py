@@ -908,20 +908,34 @@ class GenerationWorker:
 
         async def _run_one(t: dict[str, Any]) -> None:
             task_id = t["task_id"]
+            acquired = False
             try:
-                async with sem:
-                    if self._stop_event.is_set():
-                        return
-                    # acquire 后 pool 可能在 reload_limits 期间被换新引用；
-                    # 务必从 self._pools 重读，保证 inflight 字典写入新 pool
-                    pool_now = self._get_or_create_pool(provider_id)
-                    pool_now.video_pending.pop(task_id, None)
-                    current = asyncio.current_task()
-                    if current is not None:
-                        pool_now.video_inflight[task_id] = current
-                    logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
-                    await self._process_resume_task(t)
+                await sem.acquire()
+                acquired = True
+                if self._stop_event.is_set():
+                    return
+                # acquire 后 pool 可能在 reload_limits 期间被换新引用；
+                # 务必从 self._pools 重读，保证 inflight 字典写入新 pool
+                pool_now = self._get_or_create_pool(provider_id)
+                pool_now.video_pending.pop(task_id, None)
+                current = asyncio.current_task()
+                if current is not None:
+                    pool_now.video_inflight[task_id] = current
+                logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
+                await self._process_resume_task(t)
+            except asyncio.CancelledError:
+                # sem 等待期被取消时 _process_resume_task 还没跑，DB 仍在 cancelling，
+                # 须显式落 cancelled 终态；acquire 之后的取消由 _process_resume_task 内部
+                # 自己处理（execute_resume_video_task → CancelledError → mark_task_cancelled）
+                if not acquired:
+                    try:
+                        await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+                    except Exception:
+                        logger.exception("sem 排队期 cancel 落终态失败 task_id=%s", task_id)
+                raise
             finally:
+                if acquired:
+                    sem.release()
                 # 同样重读以应对 reload race
                 pool_now = self._get_or_create_pool(provider_id)
                 pool_now.video_pending.pop(task_id, None)
