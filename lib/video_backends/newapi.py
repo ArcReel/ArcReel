@@ -155,13 +155,8 @@ class NewAPIVideoBackend:
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 NewAPI task：仅 poll + 下载。"""
-        try:
-            async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-                return await self._poll_and_build(client, job_id, request, is_resume=True)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_NEWAPI) from exc
-            raise
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+            return await self._poll_and_build(client, job_id, request, is_resume=True)
 
     async def _poll_and_build(
         self,
@@ -173,8 +168,20 @@ class NewAPIVideoBackend:
     ) -> VideoGenerationResult:
         # _is_done 纯谓词：completed / failed / expired 均视为终态；caller 按 is_resume
         # flag 决定 expired 抛 RuntimeError（generate）还是 ResumeExpiredError（resume）。
+        # resume 路径下 4xx（特别 404）由 _gated_poll 直接抛 ResumeExpiredError 而不
+        # 走 poll_with_retry 的 HTTPStatusError 重试：原 retryable_errors 包含
+        # HTTPStatusError 会让 404 被无限重试到 max_wait 超时，过期任务永远不会落
+        # [resume_expired]，对应 pending ApiCall 也不走 failed/cost=0 路径。
+        async def _gated_poll() -> dict:
+            try:
+                return await self._poll_once(client, task_id)
+            except httpx.HTTPStatusError as exc:
+                if is_resume and exc.response.status_code == 404:
+                    raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_NEWAPI) from exc
+                raise
+
         final = await poll_with_retry(
-            poll_fn=lambda: self._poll_once(client, task_id),
+            poll_fn=_gated_poll,
             is_done=lambda state: state.get("status") in ("completed", "failed", "expired"),
             is_failed=_extract_failure,
             poll_interval=_POLL_INTERVAL_SECONDS,

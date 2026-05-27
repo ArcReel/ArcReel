@@ -478,6 +478,37 @@ class TestNewAPIVideoBackend:
             assert ei.value.job_id == "task-x"
             assert ei.value.provider == PROVIDER_NEWAPI
 
+    async def test_resume_404_raises_resume_expired_without_retry(self, tmp_path: Path):
+        """resume 路径下 GET 返 404 应立即转 ResumeExpiredError，不被 retryable 框架重试到超时。"""
+        from lib.video_backends.base import ResumeExpiredError
+
+        # 构造 404 response 让 raise_for_status 真抛 HTTPStatusError（_make_response 默认 mock 空，需手工设）
+        not_found_resp = _make_response(404, {"error": "task not found"})
+        not_found_resp.raise_for_status = MagicMock(side_effect=_make_http_error(404, "task not found"))
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=not_found_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            with pytest.raises(ResumeExpiredError) as ei:
+                await backend.resume_video(
+                    "task-404",
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+                    ),
+                )
+            assert ei.value.job_id == "task-404"
+            assert ei.value.provider == PROVIDER_NEWAPI
+            # 不应被 retry 框架重试多次（应仅 1 次 GET 调用立即抛错）
+            assert mock_client.get.call_count == 1, "404 应一击转 ResumeExpiredError，不该被 retry"
+
     async def test_generate_expired_status_raises_runtime_error_not_resume_expired(self, tmp_path: Path):
         """generate 路径下 status='expired' 抛 RuntimeError，不带 [resume_expired] 语义。"""
         from lib.video_backends.base import ResumeExpiredError
