@@ -22,14 +22,20 @@ function HostedTaskHud() {
 
 function resetStores() {
   useAppStore.setState({ taskHudOpen: true });
-  useTasksStore.setState({ tasks: [], stats: { total: 0 } });
+  useTasksStore.setState({
+    tasks: [],
+    stats: { queued: 0, running: 0, cancelling: 0, succeeded: 0, failed: 0, cancelled: 0, total: 0 },
+  });
 }
 
 describe("TaskHud cascade label", () => {
   afterEach(() => {
     cleanup();
     useAppStore.setState({ taskHudOpen: false });
-    useTasksStore.setState({ tasks: [], stats: { total: 0 } });
+    useTasksStore.setState({
+    tasks: [],
+    stats: { queued: 0, running: 0, cancelling: 0, succeeded: 0, failed: 0, cancelled: 0, total: 0 },
+  });
   });
 
   it("renders cascade label when cancelled_by === 'cascade'", async () => {
