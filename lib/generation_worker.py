@@ -618,6 +618,11 @@ class GenerationWorker:
             # rowcount 决定——拿不到了，按"被外部取消"语义兜底。
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             raise
+        except Exception:
+            # mark_succeeded 自身抛错（DB 超时 / OperationalError）：上层 _drain_finished_tasks
+            # 只吞掉异常 debug 日志，stack trace 会丢失，因此在这里显式 logger.exception 保留现场。
+            logger.exception("标记任务成功失败 %s", task_id)
+            raise
         if rows == 0:
             # 0-rows-cancelled 协议：execute 跑赢但 DB 已被外部翻 cancelling
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))

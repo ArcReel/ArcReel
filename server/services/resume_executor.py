@@ -66,7 +66,16 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
     duration_seconds = int(payload.get("duration_seconds") or project.get("default_duration") or 8)
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
-    prompt_text = str(payload.get("prompt") or "")
+    raw_prompt = payload.get("prompt")
+    prompt_text = raw_prompt if isinstance(raw_prompt, str) else ""
+    raw_resolution = payload.get("resolution")
+    resolution = raw_resolution if isinstance(raw_resolution, str) else None
+    raw_generate_audio = payload.get("generate_audio")
+    # generate_audio 仅在 payload 显式提供 bool 时透传；缺省让 resume_video_async 走 config 默认，
+    # 不传 None 是因为 version_metadata.get("generate_audio", default) 会把显式 None 当作"用户选择 None"
+    optional_kwargs: dict[str, Any] = {}
+    if isinstance(raw_generate_audio, bool):
+        optional_kwargs["generate_audio"] = raw_generate_audio
 
     if task_type == "reference_video":
         resource_type = "reference_videos"
@@ -93,10 +102,12 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
             prompt=prompt_text,
             aspect_ratio=aspect_ratio,
             duration_seconds=duration_seconds,
+            resolution=resolution,
             task_id=task_id,
             api_call_id=api_call_id,
             seed=seed,
             service_tier=service_tier,
+            **optional_kwargs,
         )
 
         if task_type == "reference_video":
