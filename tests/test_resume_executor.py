@@ -238,6 +238,30 @@ async def test_execute_resume_failure_does_not_emit(monkeypatch, fake_pm, video_
 
 
 @pytest.mark.asyncio
+async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm):
+    """payload.duration_seconds = \"8.0\"（浮点字符串）应被 int(float()) 兜底转 8，不应 ValueError。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
+
+    task = {
+        "task_id": "T-float",
+        "task_type": "video",
+        "media_type": "video",
+        "project_name": "demo",
+        "resource_id": "E1S01",
+        "provider_id": "openai",
+        "provider_job_id": "openai-job-1",
+        "payload": {"script_file": "episode_1.json", "prompt": "p", "duration_seconds": "8.0"},
+    }
+    # 不应抛 ValueError
+    result = await execute_resume_video_task(task, job_id="openai-job-1")
+    assert result["resource_type"] == "videos"
+    assert fake_gen.resume_calls[0]["duration_seconds"] == 8
+
+
+@pytest.mark.asyncio
 async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
     """非 video / reference_video 任务（如 storyboard）不应被派发到 resume—— image 类无 resume 路径。"""
     from server.services.resume_executor import execute_resume_video_task

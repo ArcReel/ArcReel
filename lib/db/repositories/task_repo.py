@@ -676,10 +676,14 @@ class TaskRepository(BaseRepository):
                 以为"已持久化"但 payload["api_call_id"] 实际未写入，resume 时只能退回兜底。
         """
         now = utc_now()
-        row = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
-        raw = row.scalar_one_or_none()
-        if raw is None:
+        # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移历史/
+        # 旧任务存在 payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
+        # payload_json=NULL"误判成"无行"。Row 解构 row[0] 后 None 由 _json_loads 兜底为 {}。
+        result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
+        row = result.first()
+        if row is None:
             raise ValueError(f"task not found: {task_id}")
+        raw = row[0]
         data = _json_loads(raw, {})
         if not isinstance(data, dict):
             data = {}

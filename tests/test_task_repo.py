@@ -430,6 +430,25 @@ class TestPersistApiCallId:
         with pytest.raises(ValueError, match="task not found"):
             await repo.persist_api_call_id("nonexistent-task-id", 42)
 
+    async def test_persist_handles_null_payload_json_row(self, db_session):
+        """task 存在但 payload_json IS NULL（迁移历史/旧任务）→ 走 first() 判存在性，不应误判 task not found。"""
+        from sqlalchemy import update as sql_update
+
+        from lib.db.models.task import Task
+
+        repo = TaskRepository(db_session)
+        task_id = await self._enqueue(repo, payload={"prompt": "p"})
+        # 模拟历史/迁移数据 payload_json IS NULL（Task.payload_json 是 Mapped[str | None]）
+        await db_session.execute(sql_update(Task).where(Task.task_id == task_id).values(payload_json=None))
+        await db_session.commit()
+
+        # 不应抛 ValueError——行存在
+        await repo.persist_api_call_id(task_id, 99)
+
+        task = await repo.get(task_id)
+        assert task is not None
+        assert task["payload"] == {"api_call_id": 99}
+
 
 class TestCancelCascadeAcrossCancelling:
     """fix #647 #4：cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)
