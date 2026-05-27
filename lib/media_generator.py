@@ -411,16 +411,17 @@ class MediaGenerator:
             segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
         )
 
-        # start_call 拿到 call_id 后立即写入 task.payload["api_call_id"]，
-        # 让 worker 崩溃重启后 resume 路径能精准翻这条 pending ApiCall 行
-        # （而不是按 segment_id+LIMIT 1 模糊匹配）。失败仅 warning 不阻断主流程，
-        # generate 自身的 finish_call 仍按正常路径走。
-        if task_id is not None:
-            from lib.video_backends.base import persist_api_call_id
-
-            await persist_api_call_id(task_id, call_id)
-
         try:
+            # start_call 拿到 call_id 后立即写入 task.payload["api_call_id"]，让 worker
+            # 崩溃重启后 resume 路径能精准翻这条 pending ApiCall 行（而不是按
+            # segment_id+LIMIT 1 模糊匹配）。fail-fast 抛异常会被本块 except 捕获，
+            # 走 finish_call(status="failed") 翻 pending → failed 后再 raise，避免
+            # 留下永久 pending 账目（ADR 0007）；放在 try 块内是必须的。
+            if task_id is not None:
+                from lib.video_backends.base import persist_api_call_id
+
+                await persist_api_call_id(task_id, call_id)
+
             from lib.video_backends.base import VideoGenerationRequest
 
             # Three-level fallback based on backend video capabilities

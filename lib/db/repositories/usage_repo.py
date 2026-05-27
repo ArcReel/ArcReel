@@ -180,6 +180,7 @@ class UsageRepository(BaseRepository):
                 finished_at=finished_at,
                 cost_amount=final_cost_amount,
                 currency=final_currency,
+                usage_tokens=usage_tokens,
             )
         )
         affected = rowcount(result)

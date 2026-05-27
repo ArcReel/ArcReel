@@ -180,6 +180,11 @@ class TestFinalizePendingByCallId:
         assert affected == 1
         assert captured["usage_tokens"] == 12345, "usage_tokens 必须从 caller 透传到 cost_calculator"
 
+        # 同时必须写回 ApiCall.usage_tokens 列，否则用量明细/抽屉里这条记录的
+        # tokens 字段永远为 null（resume 路径与正常 finish_call 路径行为不一致）。
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["usage_tokens"] == 12345, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
+
     async def test_does_not_touch_other_pending_call(self, db_session):
         repo = UsageRepository(db_session)
         cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")

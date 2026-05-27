@@ -9,6 +9,7 @@ from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    persist_api_call_id,
     persist_provider_job_id,
     poll_with_retry,
 )
@@ -316,3 +317,89 @@ class TestPersistJobIdRetry:
                 await persist_provider_job_id("task-T", "job-T", provider="gemini")
 
         assert attempts == 1, "expects no string-fallback retry for ValueError"
+
+
+class TestPersistApiCallIdRetry:
+    """persist_api_call_id 与 persist_provider_job_id 对齐：DB 瞬态错误重试 + fail-fast 抛异常。
+
+    Fail-fast 理由：submit 已经把 provider 端任务排队（cost 已扣），caller media_generator
+    在 try 块内捕获到本异常会 finish_call(failed) 把 pending ApiCall 翻 failed 再 raise，
+    异常冒泡到 worker finally 兜底 mark_failed；若这里吞掉异常，crash window 内 resume
+    路径无 api_call_id 锚定将永远留 pending 账目。
+    """
+
+    async def test_retries_on_sqlite_locked(self, caplog):
+        """前 2 次 OperationalError → 第 3 次成功；retry 实际执行 3 次。"""
+        attempts = 0
+
+        async def _flaky_persist(_tid: str, _call_id: int) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise _make_operational_error("database is locked")
+
+        class _FakeQueue:
+            async def persist_api_call_id(self, tid: str, call_id: int) -> None:
+                await _flaky_persist(tid, call_id)
+
+        fake_queue = _FakeQueue()
+
+        with (
+            patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            caplog.at_level(logging.INFO, logger="lib.video_backends.base"),
+        ):
+            await persist_api_call_id("task-1", 42)
+
+        assert attempts == 3
+        assert any("api_call_id 已持久化" in r.message for r in caplog.records)
+
+    async def test_terminal_failure_raises_and_logs(self, caplog):
+        """全部重试失败 → logger.error 记录 + 重抛（fail-fast，对齐 persist_provider_job_id）。"""
+
+        async def _always_fail(_tid: str, _call_id: int) -> None:
+            raise _make_operational_error("database is locked")
+
+        class _FailingQueue:
+            async def persist_api_call_id(self, tid: str, call_id: int) -> None:
+                await _always_fail(tid, call_id)
+
+        fake_queue = _FailingQueue()
+
+        with (
+            patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
+        ):
+            with pytest.raises(OperationalError):
+                await persist_api_call_id("task-X", 99)
+
+        terminal = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert terminal, "expected logger.error call"
+        msg = terminal[-1].message
+        assert "task_id=task-X" in msg
+        assert "call_id=99" in msg
+
+    async def test_no_retry_for_value_error(self):
+        """ValueError 不在 retryable_errors 内 → 立即抛出，retry 仅尝试 1 次。"""
+        attempts = 0
+
+        async def _bad(_tid: str, _call_id: int) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise ValueError("not retryable")
+
+        class _BadQueue:
+            async def persist_api_call_id(self, tid: str, call_id: int) -> None:
+                await _bad(tid, call_id)
+
+        fake_queue = _BadQueue()
+
+        with (
+            patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            with pytest.raises(ValueError, match="not retryable"):
+                await persist_api_call_id("task-V", 7)
+
+        assert attempts == 1
