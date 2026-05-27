@@ -1202,6 +1202,8 @@ class TestOrphanScanSelfPreemption:
 
         await worker._handle_orphan_tasks_on_start()
 
+        # dispatcher 句柄不应被设置（本进程仍在跑，无 resumable 任务进 dispatcher）
+        assert worker._orphan_dispatcher_task is None
         # 不应被标 [restart_lost] —— 本进程还在跑
         assert "img-active" not in {tid for tid, _ in queue.failed}
         # 清理
@@ -1238,7 +1240,9 @@ class TestOrphanScanSelfPreemption:
 
         await worker._handle_orphan_tasks_on_start()
 
-        # 不应启动 dispatcher，因为本进程仍在跑该 task
+        # 主断言：dispatcher 句柄从未被创建（同步检查，不受 spy 调度时机影响）
+        assert worker._orphan_dispatcher_task is None
+        # 兜底：spy 也确认未被调用（dispatcher 即便创建也会因 mapping 为空跳过）
         assert captured == [], f"本进程 inflight 的 task 不应被重复 dispatch: {captured}"
         assert "vid-active" not in {tid for tid, _ in queue.failed}
         fut.set_result(None)
@@ -1322,7 +1326,9 @@ class TestOrphanDispatcherNonBlockingOverride:
 
         # 清理：放开 gate 让 dispatcher 完成
         block.set()
-        await asyncio.gather(old_dispatcher, worker._orphan_dispatcher_task, return_exceptions=True)
+        new_dispatcher = worker._orphan_dispatcher_task
+        assert new_dispatcher is not None
+        await asyncio.gather(old_dispatcher, new_dispatcher, return_exceptions=True)
 
 
 class TestOrphanOnceAndLeaseFlap:
