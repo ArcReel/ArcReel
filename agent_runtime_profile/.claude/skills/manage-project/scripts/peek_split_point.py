@@ -86,18 +86,39 @@ def _resolve_source_in_project(arg_source: str) -> Path:
     return source_path
 
 
+_SUPPORTED_LANGUAGES = ("zh", "en", "vi")
+
+
 def _resolve_language(cli_arg: str | None) -> str:
-    """优先 --language;否则读 cwd/project.json 的 source_language;缺则 zh。"""
+    """优先 --language;否则读 cwd/project.json 的 source_language;缺则 zh。
+
+    校验:必须是 {zh, en, vi} 之一,否则报错退出 —— 避免落到「输出 JSON 写错语言、
+    内部度量静默回落 zh」的误导路径。
+    """
+    raw: str | None
     if cli_arg:
-        return cli_arg
-    project_json = Path.cwd().resolve() / "project.json"
-    if project_json.is_file():
-        try:
-            data = json.loads(project_json.read_text(encoding="utf-8"))
-            return str(data.get("source_language") or "zh")
-        except (json.JSONDecodeError, OSError):
-            pass
-    return "zh"
+        raw = cli_arg
+    else:
+        raw = None
+        project_json = Path.cwd().resolve() / "project.json"
+        if project_json.is_file():
+            try:
+                data = json.loads(project_json.read_text(encoding="utf-8"))
+                stored = data.get("source_language")
+                raw = str(stored) if stored else None
+            except (json.JSONDecodeError, OSError):
+                pass
+    if raw is None:
+        return "zh"
+    normalized = raw.strip().lower()
+    if normalized not in _SUPPORTED_LANGUAGES:
+        print(
+            f"❌ 不支持的 language={raw!r}(可选: {list(_SUPPORTED_LANGUAGES)})。"
+            f"修正 --language 或 project.json 的 source_language 后重试。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return normalized
 
 
 def main():
@@ -133,6 +154,10 @@ def main():
     # 与阅读单位的度量口径不同。先按 total 比例把 target_units 换算回字符级
     # target_chars,再喂给字符级偏移定位器。这样切分点定位逻辑不动,展示
     # 给用户/agent 的所有「字数」统一是阅读单位口径。
+    # split_target_chars 同时回给 agent —— split_episode.py 的 --target 按
+    # 字符级 count_chars 解读,agent 须用这个值而非原始 target_units,否则
+    # 在 ASCII 占比高(zh 混排)或 word 语种(en/vi)场景会让 split 的锚点
+    # 搜索窗口偏离 peek 选定位置、可能落空或错选同名锚点。
     char_total = count_chars(text)
     target_chars = max(1, int(args.target * char_total / total_units))
     target_offset = find_char_offset(text, target_chars)
@@ -151,6 +176,7 @@ def main():
         "language": language,
         "total_units": total_units,
         "target_units": args.target,
+        "split_target_chars": target_chars,
         "target_offset": target_offset,
         "context_before": before_context,
         "context_after": after_context,
