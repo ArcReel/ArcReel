@@ -112,6 +112,7 @@ class UsageRepository(BaseRepository):
         cost_amount: float | None = None,
         currency: str | None = None,
         status: str = "success",
+        service_tier: str = "default",
     ) -> int:
         """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
 
@@ -122,6 +123,8 @@ class UsageRepository(BaseRepository):
           算实际 cost（与 generate 路径等价记账，避免视频已生成但 cost=0 永久漏记）
         - cost_amount=None + status='failed' → 走 0.0/USD（失败不计费）
         - 显式传 cost_amount → 直接用
+        service_tier 由 caller 从原 generate 上下文透传（ApiCall 模型无此列，
+        与 finish_call 同 caller-passed 模式），非 default 档位才能按真实档计费。
         provider 端已扣费的事实通过 status='pending' WHERE 保护——绝不触发再次扣费。
         返回受影响行数（0=幂等无操作；1=正常翻一行）。
         """
@@ -159,6 +162,7 @@ class UsageRepository(BaseRepository):
                     aspect_ratio=row.aspect_ratio,
                     duration_seconds=row.duration_seconds,
                     generate_audio=bool(row.generate_audio),
+                    service_tier=service_tier,
                     custom_price_input=custom_price_input,
                     custom_price_output=custom_price_output,
                     custom_currency=custom_currency,

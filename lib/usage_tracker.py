@@ -59,6 +59,7 @@ class UsageTracker:
         cost_amount: float | None = None,
         currency: str | None = None,
         status: str = "success",
+        service_tier: str = "default",
     ) -> int:
         async with self._session_factory() as session:
             repo = UsageRepository(session)
@@ -67,6 +68,7 @@ class UsageTracker:
                 cost_amount=cost_amount,
                 currency=currency,
                 status=status,
+                service_tier=service_tier,
             )
 
     async def finish_call(

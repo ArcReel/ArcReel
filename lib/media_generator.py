@@ -592,12 +592,14 @@ class MediaGenerator:
         # Resume 成功：精准翻 pending → success。cost_amount=None 让 repo 按 ApiCall 行
         # 字段（model/resolution/duration/generate_audio）调 cost_calculator 算实际 cost，
         # 与 generate 路径 finish_call 自动算 cost 等价——避免视频已生成但账本永久漏记。
+        # service_tier 由 caller 透传（ApiCall 模型无该列），让非 default 档位按真实档计费。
         # WHERE status='pending' 仍保护幂等性，已 success 行不会被 touch。
         if api_call_id is not None:
             try:
                 affected = await self.usage_tracker.finalize_pending_by_call_id(
                     call_id=api_call_id,
                     status="success",
+                    service_tier=version_metadata.get("service_tier", "default"),
                 )
                 if affected == 0:
                     logger.info(
