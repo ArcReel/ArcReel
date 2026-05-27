@@ -506,3 +506,93 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
 
     with pytest.raises(ValueError, match="supported_durations"):
         sg._resolve_supported_durations(None)
+
+
+def _make_probe_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
+    """构造一个只用于 _quality_probe 的 ScriptGenerator,跳过 backend 初始化."""
+    project_dir = tmp_path / "demo"
+    project_dir.mkdir()
+    sg = ScriptGenerator.__new__(ScriptGenerator)
+    sg.project_path = project_dir
+    sg.project_json = {"content_mode": "narration", **(project_extra or {})}
+    sg.content_mode = sg.project_json.get("content_mode", "narration")
+    return sg
+
+
+def _write_episode_source(sg: ScriptGenerator, episode: int, text: str) -> None:
+    src = sg.project_path / "source" / f"episode_{episode}.txt"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(text, encoding="utf-8")
+
+
+def _segment(novel_text: str) -> dict:
+    return {
+        "segment_id": "E1S01",
+        "novel_text": novel_text,
+        "image_prompt": {"scene": "x" * 60, "composition": {}},
+        "video_prompt": {"action": "x" * 40},
+    }
+
+
+class TestQualityProbeNovelTextDrift:
+    """narration 模式 novel_text 漂移 WARN — 不阻断/不重试/不推前端."""
+
+    def test_drift_within_threshold_no_warning(self, tmp_path, caplog, monkeypatch):
+        sg = _make_probe_generator(tmp_path, {"generation_mode": "storyboard"})
+        monkeypatch.setattr(sg, "_effective_generation_mode", lambda _ep: "storyboard")
+        _write_episode_source(sg, 1, "你好" * 50)  # 100 字
+        script_data = {"segments": [_segment("你好" * 48)]}  # 96 字,偏差 4% < 10%
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(script_data, episode=1)
+        assert not any("novel_text drift" in r.message for r in caplog.records)
+
+    def test_drift_above_threshold_warns(self, tmp_path, caplog, monkeypatch):
+        sg = _make_probe_generator(tmp_path, {"generation_mode": "storyboard"})
+        monkeypatch.setattr(sg, "_effective_generation_mode", lambda _ep: "storyboard")
+        _write_episode_source(sg, 2, "你好" * 50)  # 100 字
+        script_data = {"segments": [_segment("你好" * 30)]}  # 60 字,偏差 40% > 10%
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(script_data, episode=2)
+        drift_records = [r for r in caplog.records if "novel_text drift" in r.message]
+        assert len(drift_records) == 1
+        msg = drift_records[0].getMessage()
+        assert "episode 2" in msg
+        assert "expected=100" in msg
+        assert "actual=60" in msg
+        assert "40.0%" in msg
+
+    def test_skipped_when_source_missing(self, tmp_path, caplog, monkeypatch):
+        """老用户上传方式可能没切分,source/episode_N.txt 不存在 → 安静跳过."""
+        sg = _make_probe_generator(tmp_path, {"generation_mode": "storyboard"})
+        monkeypatch.setattr(sg, "_effective_generation_mode", lambda _ep: "storyboard")
+        # 不写 source 文件
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe({"segments": [_segment("a" * 5)]}, episode=1)
+        assert not any("novel_text drift" in r.message for r in caplog.records)
+
+    def test_skipped_for_drama_mode(self, tmp_path, caplog, monkeypatch):
+        """drama 是改编不是回填,跳过 novel_text 漂移检测."""
+        sg = _make_probe_generator(tmp_path, {"content_mode": "drama", "generation_mode": "storyboard"})
+        monkeypatch.setattr(sg, "_effective_generation_mode", lambda _ep: "storyboard")
+        _write_episode_source(sg, 1, "你好" * 100)
+        script_data = {
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "image_prompt": {"scene": "x" * 60, "composition": {}},
+                    "video_prompt": {"action": "x" * 40},
+                }
+            ]
+        }
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(script_data, episode=1)
+        assert not any("novel_text drift" in r.message for r in caplog.records)
+
+    def test_skipped_for_reference_video_mode(self, tmp_path, caplog, monkeypatch):
+        """reference_video 不走 narration 回填语义,跳过."""
+        sg = _make_probe_generator(tmp_path, {"generation_mode": "reference_video"})
+        monkeypatch.setattr(sg, "_effective_generation_mode", lambda _ep: "reference_video")
+        _write_episode_source(sg, 1, "你好" * 100)
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe({"video_units": []}, episode=1)
+        assert not any("novel_text drift" in r.message for r in caplog.records)
