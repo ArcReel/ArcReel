@@ -6,6 +6,43 @@ export interface GridLayout {
   batchCount: number;
 }
 
+interface GridMatchRecord {
+  id: string;
+  episode: number;
+  scene_ids: string[];
+  created_at: string;
+}
+
+/**
+ * 后端会把超过 layout.cell_count(最多 9)的 group 拆成多个 chunk,
+ * 每条 grid 记录的 scene_ids 是 group 的子集。匹配时按子集判断,
+ * 同一组 scene_ids 取 created_at 最新的一条,再按 created_at 升序返回。
+ */
+export function matchGridsForGroup<G extends GridMatchRecord>(
+  grids: G[],
+  groupSceneIds: Iterable<string>,
+  episode: number,
+): G[] {
+  const idSet = new Set(groupSceneIds);
+  const matched = grids.filter(
+    (g) =>
+      g.episode === episode &&
+      g.scene_ids.length > 0 &&
+      g.scene_ids.every((id) => idSet.has(id)),
+  );
+  const byKey = new Map<string, G>();
+  for (const g of matched) {
+    const key = [...g.scene_ids].sort().join(",");
+    const existing = byKey.get(key);
+    if (!existing || g.created_at > existing.created_at) {
+      byKey.set(key, g);
+    }
+  }
+  return Array.from(byKey.values()).sort((a, b) =>
+    a.created_at.localeCompare(b.created_at),
+  );
+}
+
 export function groupBySegmentBreak<S extends { segment_break?: boolean }>(
   segments: S[],
 ): S[][] {
