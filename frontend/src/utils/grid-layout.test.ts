@@ -76,4 +76,17 @@ describe("matchGridsForGroup", () => {
     const result = matchGridsForGroup(grids, ["s1", "s2"], 1);
     expect(result).toEqual([]);
   });
+
+  it("filters out obsolete overlapping grids covered by newer generations", () => {
+    // 用户调整 segment_break 后,旧 chunk 仍在表里但不再属于当前布局。
+    // 贪心覆盖按 created_at 降序,只保留贡献新 scene_id 的 grid。
+    const grids = [
+      grid("obsolete_subset", ["s1", "s2"], "2026-05-01T00:00:00Z"),
+      grid("obsolete_superset", ["s1", "s2", "s3", "s4", "s5"], "2026-05-01T00:00:01Z"),
+      grid("new_chunk_1", ["s1", "s2", "s3"], "2026-05-02T00:00:00Z"),
+      grid("new_chunk_2", ["s4", "s5"], "2026-05-02T00:00:01Z"),
+    ];
+    const result = matchGridsForGroup(grids, ["s1", "s2", "s3", "s4", "s5"], 1);
+    expect(result.map((g) => g.id)).toEqual(["new_chunk_1", "new_chunk_2"]);
+  });
 });
