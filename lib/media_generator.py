@@ -363,6 +363,16 @@ class MediaGenerator:
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
 
+        # 先把 duration 归一为 int：上游可能传 "8.0" 浮点字符串，直接 int("8.0") 会 ValueError
+        # 走兜底分支静默掉真实值（"10.0" 会被吞成 8）。先 float() 再 int() 保留语义。
+        # 提前到所有 ensure_current_tracked / add_version / VideoGenerationRequest 之前，
+        # 让版本元数据与 provider 请求里的 duration_seconds 类型一致（都是 int），
+        # 避免 versions.json 落字符串而 ApiCall 落 int 的类型漂移。
+        try:
+            duration_int = int(float(duration_seconds)) if duration_seconds else 8
+        except (ValueError, TypeError):
+            duration_int = 8
+
         # 1. 若已存在，确保旧文件被记录
         if output_path.exists():
             self.versions.ensure_current_tracked(
@@ -370,15 +380,9 @@ class MediaGenerator:
                 resource_id=resource_id,
                 current_file=output_path,
                 prompt=prompt,
-                duration_seconds=duration_seconds,
+                duration_seconds=duration_int,
                 **version_metadata,
             )
-
-        # 2. 记录 API 调用开始
-        try:
-            duration_int = int(duration_seconds) if duration_seconds else 8
-        except (ValueError, TypeError):
-            duration_int = 8
 
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
@@ -485,7 +489,7 @@ class MediaGenerator:
             resource_id=resource_id,
             prompt=prompt,
             source_file=output_path,
-            duration_seconds=duration_seconds,
+            duration_seconds=duration_int,
             **version_metadata,
         )
 
@@ -597,6 +601,7 @@ class MediaGenerator:
         # 字段（model/resolution/duration/generate_audio）调 cost_calculator 算实际 cost，
         # 与 generate 路径 finish_call 自动算 cost 等价——避免视频已生成但账本永久漏记。
         # service_tier 由 caller 透传（ApiCall 模型无该列），让非 default 档位按真实档计费。
+        # usage_tokens 同样透传：Ark video 按 token 计费，缺省 0 时 cost 永远为 0。
         # WHERE status='pending' 仍保护幂等性，已 success 行不会被 touch。
         if api_call_id is not None:
             try:
@@ -604,6 +609,7 @@ class MediaGenerator:
                     call_id=api_call_id,
                     status="success",
                     service_tier=version_metadata.get("service_tier", "default"),
+                    usage_tokens=result.usage_tokens,
                 )
                 if affected == 0:
                     logger.info(

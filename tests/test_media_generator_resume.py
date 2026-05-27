@@ -288,6 +288,53 @@ async def test_resume_handles_float_string_duration(tmp_path):
     assert len(backend.calls) == 1
     _, request = backend.calls[0]
     assert request.duration_seconds == 10
+    assert isinstance(request.duration_seconds, int), "归一后类型必须是 int 而非 str/float"
+
+
+@pytest.mark.asyncio
+async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
+    """Ark 视频按 usage_tokens 计费，缺省为 0 会导致 cost 永远为 0；
+    resume 路径必须把 backend.resume_video 返回的 usage_tokens 透传到 finalize_pending_by_call_id，
+    与 generate 路径 finish_call(..., usage_tokens=...) 等价记账。"""
+
+    class _ArkLikeResult:
+        def __init__(self) -> None:
+            self.video_uri = "video-uri-resume"
+            self.usage_tokens = 12345  # 模拟 Ark 返回的 completion_tokens
+            self.generate_audio = True
+
+    class _ArkLikeBackend:
+        name = "ark"
+        model = "doubao-seedance-1-0-pro"
+
+        def __init__(self) -> None:
+            self.calls: list[Any] = []
+
+        async def generate(self, request):
+            raise AssertionError("generate 不应被 resume 路径调用")
+
+        async def resume_video(self, job_id, request):
+            self.calls.append((job_id, request))
+            request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            request.output_path.write_bytes(b"fake-resume-video")
+            return _ArkLikeResult()
+
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _ArkLikeBackend()
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        task_id="T-1",
+        api_call_id=42,
+    )
+
+    assert len(gen.usage_tracker.finalized) == 1
+    call = gen.usage_tracker.finalized[0]
+    assert call["call_id"] == 42
+    assert call["status"] == "success"
+    assert call["usage_tokens"] == 12345, "usage_tokens 必须透传，否则 Ark cost 永远为 0"
 
 
 @pytest.mark.asyncio

@@ -113,6 +113,7 @@ class UsageRepository(BaseRepository):
         currency: str | None = None,
         status: str = "success",
         service_tier: str = "default",
+        usage_tokens: int | None = None,
     ) -> int:
         """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
 
@@ -125,6 +126,8 @@ class UsageRepository(BaseRepository):
         - 显式传 cost_amount → 直接用
         service_tier 由 caller 从原 generate 上下文透传（ApiCall 模型无此列，
         与 finish_call 同 caller-passed 模式），非 default 档位才能按真实档计费。
+        usage_tokens 同样由 caller 从 resume_video 返回的 VideoGenerationResult.usage_tokens
+        透传：Ark video 按 usage_tokens 计费，未传则 cost 永远为 0；其它 provider 不依赖该字段。
         provider 端已扣费的事实通过 status='pending' WHERE 保护——绝不触发再次扣费。
         返回受影响行数（0=幂等无操作；1=正常翻一行）。
         """
@@ -163,6 +166,7 @@ class UsageRepository(BaseRepository):
                     duration_seconds=row.duration_seconds,
                     generate_audio=bool(row.generate_audio),
                     service_tier=service_tier,
+                    usage_tokens=usage_tokens,
                     custom_price_input=custom_price_input,
                     custom_price_output=custom_price_output,
                     custom_currency=custom_currency,

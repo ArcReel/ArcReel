@@ -154,6 +154,32 @@ class TestFinalizePendingByCallId:
         assert affected == 1
         assert captured["service_tier"] == "priority", "service_tier 必须从 caller 透传到 cost_calculator"
 
+    async def test_usage_tokens_passed_to_cost_calculator(self, db_session, monkeypatch):
+        """Ark video 按 usage_tokens 计费，repo 必须把 caller 传入的 usage_tokens 透传到 cost_calculator，
+        否则 calculate_ark_video_cost 走 usage_tokens or 0 路径 → cost 永远为 0 CNY。"""
+        from lib import cost_calculator as cc_module
+
+        captured: dict[str, object] = {}
+
+        def _spy_calculate_cost(**kwargs):
+            captured["usage_tokens"] = kwargs.get("usage_tokens", "MISSING")
+            return (3.2, "CNY")
+
+        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
+
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="video",
+            model="doubao-seedance-1-0-pro",
+            duration_seconds=8,
+            provider="ark",
+        )
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, usage_tokens=12345)
+        assert affected == 1
+        assert captured["usage_tokens"] == 12345, "usage_tokens 必须从 caller 透传到 cost_calculator"
+
     async def test_does_not_touch_other_pending_call(self, db_session):
         repo = UsageRepository(db_session)
         cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
