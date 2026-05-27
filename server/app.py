@@ -398,6 +398,11 @@ async def lifespan(app: FastAPI):
     logger.info("启动 GenerationWorker...")
     worker = create_generation_worker()
     app.state.generation_worker = worker
+    # 注入 in-process cancel 回调必须在 worker.start() 之前，
+    # 否则有窗口期 callback 为 None、cancel running 信号丢失（违反 ADR 0006 秒级响应）。
+    from lib.generation_queue import get_generation_queue
+
+    get_generation_queue().set_worker_cancel_callback(worker.request_cancel)
     await worker.start()
     logger.info("GenerationWorker 已启动")
 
@@ -418,6 +423,9 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "generation_worker", None)
     if worker:
         logger.info("正在停止 GenerationWorker...")
+        from lib.generation_queue import get_generation_queue
+
+        get_generation_queue().set_worker_cancel_callback(None)
         await worker.stop()
         logger.info("GenerationWorker 已停止")
     await shutdown_http_client()

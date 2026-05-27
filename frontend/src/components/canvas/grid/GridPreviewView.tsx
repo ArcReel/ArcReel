@@ -3,7 +3,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { groupBySegmentBreak, computeGridSize } from "@/utils/grid-layout";
+import { groupBySegmentBreak, computeGridSize, matchGridsForGroup } from "@/utils/grid-layout";
 import { GridPreviewPanel } from "@/components/canvas/timeline/GridPreviewPanel";
 import type { GridGeneration } from "@/types/grid";
 import type { NarrationSegment, DramaScene } from "@/types";
@@ -62,26 +62,12 @@ export function GridPreviewView({
   }, [refreshGrids, gridsRevision]);
 
   const getGridIdsForGroup = useCallback(
-    (groupSegs: Segment[]): string[] => {
-      const idSet = new Set(groupSegs.map((s) => getSegmentId(s, contentMode)));
-      const matched = grids.filter(
-        (g) =>
-          g.episode === episode &&
-          g.scene_ids.length === idSet.size &&
-          g.scene_ids.every((id) => idSet.has(id)),
-      );
-      const byKey = new Map<string, (typeof matched)[number]>();
-      for (const g of matched) {
-        const key = [...g.scene_ids].sort().join(",");
-        const existing = byKey.get(key);
-        if (!existing || g.created_at > existing.created_at) {
-          byKey.set(key, g);
-        }
-      }
-      return Array.from(byKey.values())
-        .sort((a, b) => a.created_at.localeCompare(b.created_at))
-        .map((g) => g.id);
-    },
+    (groupSegs: Segment[]): string[] =>
+      matchGridsForGroup(
+        grids,
+        groupSegs.map((s) => getSegmentId(s, contentMode)),
+        episode,
+      ).map((g) => g.id),
     [grids, episode, contentMode],
   );
 
@@ -109,14 +95,16 @@ export function GridPreviewView({
     const batches = groups.length;
     const cells = segments.length;
     const readyBatches = groups.filter((group) => {
-      const ids = new Set(group.map((s) => getSegmentId(s, contentMode)));
-      return grids.some(
-        (g) =>
-          g.episode === episode &&
-          g.status === "completed" &&
-          g.scene_ids.length === ids.size &&
-          g.scene_ids.every((id) => ids.has(id)),
-      );
+      const sceneIds = group.map((s) => getSegmentId(s, contentMode));
+      // chunk 拆分后,group 内可能有多条 grid;全部 completed 且并集覆盖整组才算就绪。
+      const groupGrids = matchGridsForGroup(grids, sceneIds, episode);
+      if (groupGrids.length === 0) return false;
+      const covered = new Set<string>();
+      for (const g of groupGrids) {
+        if (g.status !== "completed") return false;
+        for (const id of g.scene_ids) covered.add(id);
+      }
+      return sceneIds.every((id) => covered.has(id));
     }).length;
     const percent = batches > 0 ? Math.round((readyBatches / batches) * 100) : 0;
     return { batches, cells, percent };

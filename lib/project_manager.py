@@ -140,10 +140,20 @@ class ProjectManager:
 
     @staticmethod
     def _slugify_project_title(title: str) -> str:
-        """Build a filesystem-safe slug prefix from the project title."""
+        """Build a filesystem-safe slug prefix from the project title.
+
+        CJK 标题经 NFKD + ascii ignore 后会丢光汉字;若结果不包含任何字母
+        （纯空 / 仅夹在标题里的孤立数字,如「第1集」→ "1"),退化为中性
+        前缀 ``proj``,避免产生 ``1-<hex>`` 这种看似有意义实则误导的 slug。
+
+        注意 truncate 必须在 letter 校验之前:像 ``"1-2345...23abc"``(>24 字符,
+        字母在尾部) 截前 24 后会只剩数字,这种结果同样应塌成 ``proj``。
+        """
         ascii_text = unicodedata.normalize("NFKD", str(title).strip()).encode("ascii", "ignore").decode("ascii")
-        slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()
-        return slug[:24] or "project"
+        slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()[:24]
+        if not slug or not any(c.isalpha() for c in slug):
+            return "proj"
+        return slug
 
     def generate_project_name(self, title: str | None = None) -> str:
         """Generate a unique internal project identifier."""
@@ -848,13 +858,12 @@ class ProjectManager:
         }
 
     @staticmethod
-    def create_scene_template(scene_id: str, episode: int = 1, duration_seconds: int = 8) -> dict:
+    def create_scene_template(scene_id: str, duration_seconds: int = 8) -> dict:
         """
         创建标准场景对象模板
 
         Args:
-            scene_id: 场景 ID（如 "E1S01"）
-            episode: 集数编号
+            scene_id: 场景 ID（如 "E1S01"），集号已编码在 ID 中
             duration_seconds: 场景时长（秒）
 
         Returns:
@@ -862,9 +871,6 @@ class ProjectManager:
         """
         return {
             "scene_id": scene_id,
-            "episode": episode,
-            "title": "",
-            "scene_type": "剧情",
             "duration_seconds": duration_seconds,
             "segment_break": False,
             "characters_in_scene": [],
@@ -880,24 +886,21 @@ class ProjectManager:
             "action": "",
             "dialogue": {"speaker": "", "text": "", "emotion": "neutral"},
             "audio": {"dialogue": [], "narration": "", "sound_effects": []},
-            "transition_to_next": "cut",
             "generated_assets": ProjectManager.create_generated_assets(),
         }
 
-    def normalize_scene(self, scene: dict, episode: int = 1) -> dict:
+    def normalize_scene(self, scene: dict) -> dict:
         """
         补全单个场景中缺失的字段
 
         Args:
             scene: 场景字典
-            episode: 集数编号（用于补全 episode 字段）
 
         Returns:
             补全后的场景字典
         """
         template = self.create_scene_template(
             scene_id=scene.get("scene_id", "000"),
-            episode=episode,
             duration_seconds=scene.get("duration_seconds", 8),
         )
 
@@ -928,16 +931,12 @@ class ProjectManager:
 
         # 补全其他顶层字段
         top_level_defaults = {
-            "episode": episode,
-            "title": "",
-            "scene_type": "剧情",
             "segment_break": False,
             "characters_in_scene": [],
             "scenes": [],
             "props": [],
             "action": "",
             "dialogue": template["dialogue"],
-            "transition_to_next": "cut",
         }
 
         for key, default_value in top_level_defaults.items():
@@ -1009,7 +1008,6 @@ class ProjectManager:
             "episode": episode,
             "title": script.get("novel", {}).get("chapter", ""),
             "duration_seconds": 0,
-            "summary": "",
         }
 
         for key, default_value in script_defaults.items():
@@ -1045,7 +1043,7 @@ class ProjectManager:
 
         # 规范化每个场景
         for scene in script["scenes"]:
-            self.normalize_scene(scene, episode)
+            self.normalize_scene(scene)
 
         # 更新统计信息
         script["metadata"]["total_scenes"] = len(script["scenes"])
@@ -1499,7 +1497,9 @@ class ProjectManager:
 
         project = {
             "schema_version": CURRENT_SCHEMA_VERSION,
-            "title": project_title or project_name,
+            # 允许空字符串:前端会以 i18n「未命名项目」兜底显示,避免把 slug
+            # 风格的 project_name 固化为用户可见的标题。
+            "title": project_title,
             "content_mode": content_mode or "narration",
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",

@@ -65,8 +65,8 @@ const PROJECT: ProjectData = {
   content_mode: "narration",
   style: "",
   episodes: [],
-  characters: { 主角: { description: "" }, 张三: { description: "" } },
-  scenes: { 酒馆: { description: "" } },
+  characters: { 主角: { description: "" }, 张三: { description: "" }, "角色甲（成年）": { description: "" } },
+  scenes: { 酒馆: { description: "" }, "地点甲·版本A": { description: "" } },
   props: { 长剑: { description: "" } },
 };
 
@@ -147,6 +147,24 @@ describe("ReferenceVideoCard", () => {
     expect(await screen.findByRole("listbox")).toBeInTheDocument();
   });
 
+  it("keeps the MentionPicker open while typing punctuation inside wrapped mentions", async () => {
+    render(<ControlledCard unit={mkUnit()} />);
+    const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
+    const value = "x @[角色甲（成年";
+    fireEvent.change(ta, { target: { value, selectionStart: value.length } });
+    expect(await screen.findByRole("option", { name: "角色甲（成年）" })).toBeInTheDocument();
+  });
+
+  it("does not treat curly-brace input as a wrapped mention query", async () => {
+    render(<ControlledCard unit={mkUnit()} />);
+    const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
+    const value = "x @{道具甲";
+    fireEvent.change(ta, { target: { value, selectionStart: value.length } });
+    await waitFor(() =>
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
+    );
+  });
+
   it("inserts selected mention into the prompt and closes picker", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -162,7 +180,7 @@ describe("ReferenceVideoCard", () => {
     fireEvent.click(await screen.findByRole("option", { name: /主角/ }));
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     const lastCall = onChange.mock.calls.at(-1)!;
-    expect(lastCall[0]).toMatch(/@主角\s$/);
+    expect(lastCall[0]).toMatch(/@\[主角\]\s$/);
   });
 
   it("closes the picker synchronously on textarea blur", async () => {

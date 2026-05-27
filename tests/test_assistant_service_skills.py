@@ -10,12 +10,18 @@ class TestListAvailableSkills:
         """Should scan agent_runtime_profile/.claude/skills/ instead of .claude/skills/."""
         skill_dir = tmp_path / "agent_runtime_profile" / ".claude" / "skills" / "test-skill"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text("---\nname: test-skill\ndescription: A test skill\n---\n")
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: test-skill\ndescription: A test skill\n---\n",
+            encoding="utf-8",
+        )
 
         # Create a dev-only skill in .claude/skills/ (should NOT appear)
         dev_skill = tmp_path / ".claude" / "skills" / "dev-tool"
         dev_skill.mkdir(parents=True)
-        (dev_skill / "SKILL.md").write_text("---\nname: dev-tool\ndescription: Dev only\n---\n")
+        (dev_skill / "SKILL.md").write_text(
+            "---\nname: dev-tool\ndescription: Dev only\n---\n",
+            encoding="utf-8",
+        )
 
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
@@ -40,3 +46,59 @@ class TestListAvailableSkills:
 
         skills = service.list_available_skills()
         assert skills == []
+
+    def test_lists_skill_with_only_content_mode_variants(self, tmp_path, monkeypatch):
+        """Variant-only skills (SKILL.<mode>.md without a plain SKILL.md) must appear."""
+        profile_root = tmp_path / "agent_runtime_profile"
+        skill_dir = profile_root / ".claude" / "skills" / "manga-workflow"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.narration.md").write_text(
+            "---\nname: manga-workflow\ndescription: Narration variant\n---\n",
+            encoding="utf-8",
+        )
+        (skill_dir / "SKILL.drama.md").write_text(
+            "---\nname: manga-workflow\ndescription: Drama variant\n---\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
+
+        with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
+            service = AssistantService.__new__(AssistantService)
+            service.project_root = tmp_path
+            from lib.project_manager import ProjectManager
+
+            service.pm = ProjectManager(tmp_path / "projects")
+
+        skills = service.list_available_skills()
+        names = [s["name"] for s in skills]
+        assert "manga-workflow" in names
+
+    def test_skips_variant_skill_when_user_invocable_disagrees(self, tmp_path, monkeypatch, caplog):
+        """Variants with conflicting user-invocable frontmatter should be skipped with a warning."""
+        import logging
+
+        profile_root = tmp_path / "agent_runtime_profile"
+        skill_dir = profile_root / ".claude" / "skills" / "drifted-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.narration.md").write_text(
+            "---\nname: drifted-skill\ndescription: Narration\nuser-invocable: true\n---\n",
+            encoding="utf-8",
+        )
+        (skill_dir / "SKILL.drama.md").write_text(
+            "---\nname: drifted-skill\ndescription: Drama\nuser-invocable: false\n---\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
+
+        with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
+            service = AssistantService.__new__(AssistantService)
+            service.project_root = tmp_path
+            from lib.project_manager import ProjectManager
+
+            service.pm = ProjectManager(tmp_path / "projects")
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.service"):
+            skills = service.list_available_skills()
+
+        assert all(s["name"] != "drifted-skill" for s in skills)
+        assert any("user-invocable" in record.message for record in caplog.records)

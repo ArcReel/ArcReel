@@ -16,6 +16,7 @@ import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass }
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
+import { getProjectDisplayName } from "@/utils/project-display";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
   const styleImage = project.style_image as string | undefined;
@@ -447,11 +448,11 @@ export function ProjectSettingsPage() {
                 letterSpacing: "-0.012em",
                 color: "var(--color-text)",
               }}
-              title={projectTitle || projectName}
+              title={getProjectDisplayName(projectTitle, t("untitled_project"))}
             >
               {t("project_settings")}
               <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-text-3">
-                {projectTitle || projectName}
+                {getProjectDisplayName(projectTitle, t("untitled_project"))}
               </span>
             </h1>
           </div>

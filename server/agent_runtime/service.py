@@ -33,6 +33,7 @@ from fastapi.sse import ServerSentEvent
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
+from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
@@ -946,8 +947,8 @@ class AssistantService:
             for skill_dir in directories:
                 if not skill_dir.is_dir():
                     continue
-                skill_file = skill_dir / "SKILL.md"
-                if not skill_file.exists():
+                skill_file = self._resolve_skill_entry_file(skill_dir)
+                if skill_file is None:
                     continue
 
                 try:
@@ -974,6 +975,36 @@ class AssistantService:
                 skills.append(skill_entry)
 
         return skills
+
+    @staticmethod
+    def _resolve_skill_entry_file(skill_dir: Path) -> Path | None:
+        # profile 端的 content_mode 变体（SKILL.narration.md / SKILL.drama.md）只在 sync
+        # 进项目目录时才会被物化为 SKILL.md；列表接口直接扫 profile 时必须自己识别变体，
+        # 否则 manga-workflow 这类 variant-only skill 永远拿不到。
+        #
+        # 查找契约与 tests/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
+        # 用 is_file 严格筛文件、按 sorted(VALID_CONTENT_MODES) 显式枚举有效模式、
+        # 校验所有变体的 user-invocable 状态一致。不一致时 warning 后返回 None
+        # 跳过该 skill——避免列表里随机选到某个 mode 的 frontmatter 导致行为漂移。
+        common = skill_dir / "SKILL.md"
+        if common.is_file():
+            return common
+        variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)]
+        existing = [v for v in variants if v.is_file()]
+        if not existing:
+            return None
+        try:
+            states = {AssistantService._load_skill_metadata(v, skill_dir.name)["user_invocable"] for v in existing}
+        except OSError:
+            return None
+        if len(states) > 1:
+            logger.warning(
+                "skill %s 各 content_mode 变体的 user-invocable 不一致，跳过；"
+                "请保证所有 SKILL.<mode>.md frontmatter 的 user-invocable 字段相同",
+                skill_dir.name,
+            )
+            return None
+        return existing[0]
 
     @staticmethod
     def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, Any]:

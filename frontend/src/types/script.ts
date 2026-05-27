@@ -113,7 +113,6 @@ export interface DramaScene {
   scene_id: string;
   duration_seconds: DurationSeconds;
   segment_break: boolean;
-  scene_type: string;
   characters_in_scene: string[];
   scenes?: string[];
   props?: string[];
@@ -135,7 +134,6 @@ export interface NarrationEpisodeScript {
   title: string;
   content_mode: "narration";
   duration_seconds: number;
-  summary: string;
   schema_version?: number;
   novel: NovelInfo;
   segments: NarrationSegment[];
@@ -146,7 +144,6 @@ export interface DramaEpisodeScript {
   title: string;
   content_mode: "drama";
   duration_seconds: number;
-  summary: string;
   schema_version?: number;
   novel: NovelInfo;
   scenes: DramaScene[];

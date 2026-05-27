@@ -22,11 +22,14 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
+    get_resume_job_id,
+    persist_job_id_if_in_task_context,
     poll_with_retry,
 )
 
@@ -109,6 +112,11 @@ class NewAPIVideoBackend:
         return VideoCapabilities(reference_images=False, max_reference_images=0)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
+        resume_id = get_resume_job_id()
+        if resume_id is not None:
+            return await self.resume_video(resume_id, request)
+
         width, height = _resolve_size(request.resolution, request.aspect_ratio)
         payload: dict = {
             "model": self._model,
@@ -147,25 +155,39 @@ class NewAPIVideoBackend:
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload)
             logger.info("NewAPI 任务创建: task_id=%s", task_id)
+            await persist_job_id_if_in_task_context(task_id)
+            return await self._poll_and_build(client, task_id, request)
 
-            final = await poll_with_retry(
-                poll_fn=lambda: self._poll_once(client, task_id),
-                is_done=lambda s: s.get("status") == "completed",
-                is_failed=_extract_failure,
-                poll_interval=_POLL_INTERVAL_SECONDS,
-                max_wait=self._max_wait(request.duration_seconds),
-                retryable_errors=_NEWAPI_RETRYABLE_ERRORS,
-                label="NewAPI",
-            )
-            video_url = final.get("url")
-            if not video_url:
-                raise RuntimeError(f"NewAPI 任务完成但缺少 url 字段: {final}")
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """接续已 submit 的 NewAPI task：仅 poll + 下载。"""
+        try:
+            async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+                return await self._poll_and_build(client, job_id, request)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_NEWAPI) from exc
+            raise
+
+    async def _poll_and_build(
+        self, client: httpx.AsyncClient, task_id: str, request: VideoGenerationRequest
+    ) -> VideoGenerationResult:
+        final = await poll_with_retry(
+            poll_fn=lambda: self._poll_once(client, task_id),
+            is_done=lambda s: s.get("status") == "completed",
+            is_failed=_extract_failure,
+            poll_interval=_POLL_INTERVAL_SECONDS,
+            max_wait=self._max_wait(request.duration_seconds),
+            retryable_errors=_NEWAPI_RETRYABLE_ERRORS,
+            label="NewAPI",
+        )
+        video_url = final.get("url")
+        if not video_url:
+            raise RuntimeError(f"NewAPI 任务完成但缺少 url 字段: {final}")
 
         # 流式下载，不携带 Authorization 头（视频 URL 常为 CDN/OSS，避免 API Key 泄露）
         await self._download_with_retry(video_url, request.output_path)
 
         meta = final.get("metadata") or {}
-        # 用 is None 显式判空，避免 API 返回 0 / 0.0 时被 `or` 误判为 falsy 而回退
         raw_duration = meta.get("duration")
         duration_seconds = int(float(raw_duration)) if raw_duration is not None else request.duration_seconds
         return VideoGenerationResult(

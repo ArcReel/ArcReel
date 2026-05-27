@@ -14,11 +14,14 @@ from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
+    ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
+    get_resume_job_id,
+    persist_job_id_if_in_task_context,
     poll_with_retry,
 )
 
@@ -87,8 +90,27 @@ class ArkVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
+        resume_id = get_resume_job_id()
+        if resume_id is not None:
+            return await self.resume_video(resume_id, request)
+
         task_id = await self._create_task(request)
+        await persist_job_id_if_in_task_context(task_id)
         return await self._poll_until_done(task_id, request)
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """接续已 submit 的 Ark task：仅 poll + 下载。
+
+        Ark 端 task 不存在/已过期通常表现为 SDK 抛 404 类异常或返回 status='expired'；
+        本接口在 _poll_until_done 内识别后者，前者由本方法拦截转 ResumeExpiredError。
+        """
+        try:
+            return await self._poll_until_done(job_id, request)
+        except Exception as exc:
+            if _is_ark_not_found(exc):
+                raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_ARK) from exc
+            raise
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> str:
@@ -190,7 +212,7 @@ class ArkVideoBackend:
             poll_fn=lambda: asyncio.to_thread(self._client.content_generation.tasks.get, task_id=task_id),
             is_done=lambda r: r.status == "succeeded",
             is_failed=lambda r: (
-                f"Ark 视频生成失败: {getattr(r, 'error', None) or 'Unknown error'}"
+                f"Ark 视频生成失败(status={r.status}): {getattr(r, 'error', None) or 'Unknown error'}"
                 if r.status in ("failed", "expired")
                 else None
             ),
@@ -223,3 +245,12 @@ class ArkVideoBackend:
             task_id=task_id,
             generate_audio=request.generate_audio,
         )
+
+
+def _is_ark_not_found(exc: BaseException) -> bool:
+    """识别 Ark 任务「不存在 / 已过期」响应。"""
+    status_code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code == 404:
+        return True
+    msg = str(exc).lower()
+    return "task_not_found" in msg or "tasknotfound" in msg or "expired" in msg or "not found" in msg

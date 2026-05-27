@@ -45,18 +45,19 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - reference_video → `ReferenceVideoScript`（含 `video_units[]`）
    - narration → `NarrationEpisodeScript`
    - drama → `DramaEpisodeScript`
-6. **补充元数据** — episode、content_mode、统计信息（片段 / 场景 / unit 数、总时长）、时间戳
+6. **补充元数据** — `episode`、`content_mode`、`generation_mode`、`novel`（项目 title + `第N集`）、统计信息（片段 / 场景 / unit 数、总时长）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
 
 ## 输出格式
 
 生成的 JSON 文件保存至 `scripts/episode_N.json`，核心结构：
 
-- `episode`、`content_mode`、`novel`（title、chapter、source_file）
-- narration 模式：`segments[]`（每个片段含 visual、novel_text、duration_seconds 等）
-- drama 模式：`scenes[]`（每个场景含 visual、dialogue、action、duration_seconds 等）
+- `title`：LLM 写入的剧集标题
+- `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
+- narration 模式：`segments[]`（每个片段含 image_prompt、video_prompt、novel_text、duration_seconds 等）
+- drama 模式：`scenes[]`（每个场景含 image_prompt、video_prompt、duration_seconds 等）
 - reference_video 模式：`video_units[]`（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等），`metadata.total_units`
 - `metadata`：total_segments / total_scenes、created_at、generator
-- `duration_seconds`：全集总时长（秒）
+- `duration_seconds`：全集总时长（秒），由后端按各分镜时长求和重算
 
 ## `--dry-run` 输出
 

@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
+import { getProjectDisplayName } from "@/utils/project-display";
 
 /**
  * 顶栏左上的项目切换菜单。
@@ -27,8 +28,10 @@ export function ProjectMenu() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const projectTitle =
-    currentProjectData?.title?.trim() || currentProjectName || t("no_project_selected");
+  const fallbackLabel = currentProjectName
+    ? t("dashboard:untitled_project")
+    : t("no_project_selected");
+  const projectTitle = getProjectDisplayName(currentProjectData?.title, fallbackLabel);
   const initial = (projectTitle || "?").slice(0, 1).toUpperCase();
   const contentMode = currentProjectData?.content_mode;
   const aspectRatio =

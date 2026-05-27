@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { MentionKind } from "@/components/canvas/reference/asset-colors";
-import { MENTION_RE } from "@/utils/reference-mentions";
+import { MENTION_RE, mentionNameFromMatch } from "@/utils/reference-mentions";
 
 /**
  * Shot/@mention tokenizer for the reference-video prompt editor.
@@ -55,7 +55,7 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
     if (idx > lastIdx) {
       out.push({ kind: "text", text: text.slice(lastIdx, idx) });
     }
-    const name = m[1];
+    const name = mentionNameFromMatch(m);
     const resolved = lookup[name];
     out.push({
       kind: "mention",

@@ -42,7 +42,7 @@ def test_build_reference_video_prompt_contains_required_sections():
     # step1 内容必须透传
     assert "E1U1" in prompt
     # 关键 prompt 指令
-    assert "@名称" in prompt
+    assert "@[名称]" in prompt
     assert "Shot" in prompt
     # schema 上下文
     assert "ReferenceVideoScript" in prompt
@@ -53,7 +53,7 @@ def test_build_reference_video_prompt_contains_required_sections():
 
 
 def test_build_reference_video_prompt_emphasizes_no_appearance_description():
-    """spec §7.3 规则 3：描述里用 @名称，不描述外貌。"""
+    """spec §7.3 规则 3：描述里用包裹 mention，不描述外貌。"""
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
         style="style",

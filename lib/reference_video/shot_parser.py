@@ -6,6 +6,7 @@ Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §4.3
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY
@@ -16,11 +17,66 @@ _SHOT_HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 
-# @名称：左侧必须不是 ASCII 词字符，否则视为 email/标识符残片而非 mention。
-# Python `re` 下 `\w` 默认 Unicode-aware（会匹配 CJK），因此这里用显式 ASCII 字符类，
-# 以保留 `你好@张三` 这类合法中文前缀场景。前后端共用约定，见
-# frontend/src/utils/reference-mentions.ts。
-_MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])@([\w\u4e00-\u9fff]+)")
+
+def _is_ascii_word_char(ch: str) -> bool:
+    return ch == "_" or (ch.isascii() and ch.isalnum())
+
+
+def _is_legacy_mention_char(ch: str) -> bool:
+    return ch == "_" or (ch.isascii() and ch.isalnum()) or ("\u4e00" <= ch <= "\u9fff")
+
+
+def _next_positions(text: str, targets: set[str]) -> list[int]:
+    next_pos = [len(text)] * (len(text) + 1)
+    for i in range(len(text) - 1, -1, -1):
+        next_pos[i] = i if text[i] in targets else next_pos[i + 1]
+    return next_pos
+
+
+def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
+    """Yield (start, end, name) for @名称 / @[名称] mentions.
+
+    The left side of `@` must not be an ASCII word character, otherwise the text
+    is treated as an email/id fragment. Wrapped mentions may contain punctuation
+    but cannot cross line breaks. Curly-brace wrapping is intentionally excluded
+    because the editor only writes `@[名称]` and the runtime contract stays on a
+    single wrapped form.
+    """
+    next_square = _next_positions(text, {"]"})
+    next_line_break = _next_positions(text, {"\r", "\n"})
+    i = 0
+    while i < len(text):
+        if text[i] != "@":
+            i += 1
+            continue
+
+        if i > 0 and _is_ascii_word_char(text[i - 1]):
+            i += 1
+            continue
+
+        if i + 1 >= len(text):
+            i += 1
+            continue
+
+        opener = text[i + 1]
+        if opener == "[":
+            start = i + 2
+            close = next_square[start]
+            if start < close < next_line_break[start]:
+                yield i, close + 1, text[start:close]
+                i = close + 1
+                continue
+            i += 1
+            continue
+
+        j = i + 1
+        while j < len(text) and _is_legacy_mention_char(text[j]):
+            j += 1
+        if j > i + 1:
+            yield i, j, text[i + 1 : j]
+            i = j
+            continue
+        i += 1
 
 
 def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
@@ -70,8 +126,7 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
 def _extract_mentions(text: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
-    for m in _MENTION_RE.finditer(text):
-        name = m.group(1)
+    for _start, _end, name in _iter_mentions(text):
         if name not in seen:
             seen.add(name)
             result.append(name)
@@ -79,17 +134,21 @@ def _extract_mentions(text: str) -> list[str]:
 
 
 def render_prompt_for_backend(text: str, references: list[ReferenceResource]) -> str:
-    """把 prompt 中的 @名称 替换为 [图N]，其中 N 是 references 列表中 1-based 序号。"""
+    """把 prompt 中的 @mention 替换为 [图N]，其中 N 是 references 列表中 1-based 序号。"""
     index_by_name: dict[str, int] = {}
     for i, ref in enumerate(references, start=1):
         index_by_name[ref.name] = i
 
-    def _repl(m: re.Match[str]) -> str:
-        name = m.group(1)
+    parts: list[str] = []
+    last = 0
+    for start, end, name in _iter_mentions(text):
         idx = index_by_name.get(name)
-        return f"[图{idx}]" if idx else m.group(0)  # 未注册 → 保留原样
+        parts.append(text[last:start])
+        parts.append(f"[图{idx}]" if idx else text[start:end])  # 未注册 → 保留原样
+        last = end
 
-    return _MENTION_RE.sub(_repl, text)
+    parts.append(text[last:])
+    return "".join(parts)
 
 
 def assemble_shots_text(shots: list[Any]) -> str:

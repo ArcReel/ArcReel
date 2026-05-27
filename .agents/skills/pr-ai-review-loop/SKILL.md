@@ -3,173 +3,179 @@ name: pr-ai-review-loop
 description: 无人值守驱动 CodeRabbit、Gemini Code Assist、OpenAI Codex 的 review → 修复 → push → 再 review 循环,直到全部通过或触发收敛退出。主动调用:用户刚 push PR 或跑完 /commit-push-pr;提到 review / coderabbit / gemini / codex / 审查 / AI review / 等 bot 回复;CodeRabbit paused 需 resume;reviewer 有 actionable comments。即使用户只说"PR 怎么样了""review 回了吗"也应触发。
 ---
 
-# AI Review Auto-Loop
+# AI Review 自动循环
 
-PR push 上去之后,CodeRabbit / Gemini / Codex 三家 AI reviewer 反复 review → 触发修复 → push → 再 review。本 skill 负责调度:盯状态、必要时手动催、把意见收拢后交给 `receiving-code-review` 处理。
+PR push 之后,CodeRabbit、Gemini、Codex 三家 AI reviewer 会反复进行 review → 修复 → push → 再 review 的循环。本 skill 负责调度该循环:监控状态、必要时触发 review、收集所有意见后转交 `receiving-code-review` 处理。
 
-## 运行模式:无人值守 + 两类停问
+## 运行模式:无人值守与两类暂停场景
 
-自动跑完整个循环,不要每轮停下来征求授权。该不该触发命令、要不要 push 修复、回不回 inline、什么时候下一轮 poll,按决策表自行决定。
+自动执行整个循环,无需每轮征求授权。触发命令、push 修复、回应 inline、下一轮 poll 的延迟均按下文决策表自行决定。下列场景需要暂停并询问用户。
 
-**驱动方式(重要):** 本 skill 自带 self-pace。每轮 poll + 决策做完后,直接调 `ScheduleWakeup` 排下一次唤醒,到点 harness 会自动重新进入本 skill。**不用**外层套 `/loop`,也**不用**等用户输入"继续"。`delaySeconds` 见下文「polling 节奏」表;`prompt` 字段按当前 PR 号和轮数自行组织,能让 harness 重新拉起本 skill 即可。
+### A. 故障类暂停
 
-### A. 故障停问
-
-- bot 报错("Internal error" / "Token limit exceeded" 这类)
-- 某家 reviewer 15 分钟以上没回
+- bot 报错(如 "Internal error"、"Token limit exceeded")
+- 某家 reviewer 超过 15 分钟未响应
 - `gh` 401/403 认证失败
-- `poll.sh` / `classify_commits.sh` 重试一次还报错
-- review 意见语义模糊,receiving-code-review 觉得要 pushback 但拿不准
+- `poll.sh` 或 `classify_commits.sh` 重试一次后仍报错
+- review 意见语义模糊,`receiving-code-review` 无法判定是否 pushback
 
-### B. 调度停问
+### B. 调度类暂停
 
-- **根本性分歧没定论** —— 同一个**主题指纹**(reviewer + 关键词,比如 "Pydantic `extra=ignore` vs `forbid`")同一家 reviewer 连提 ≥ 2 轮,而且没有 ADR / memory 兜底 → 停下来请用户裁决是否升级 ADR
-- **reviewer 之间打架** —— 同一件事 A 家说 X、B 家说不该 X → 停下来交给用户裁决,不自行选边
-- **业务取舍** —— 修复方案在前向兼容 / 性能 / 用户体验上有明显差别,可能踩到业务意图 → 停下来确认
+- **根本性分歧无定论**:同一主题指纹(reviewer + 关键词,例如 "Pydantic `extra=ignore` vs `forbid`")被同一家 reviewer 连续提出 ≥ 3 轮,且无 ADR / memory 兜底。暂停并请用户决定是否升级 ADR(与「收敛兜底」#3 同口径)
+- **reviewer 之间冲突**:同一议题,A 家主张 X、B 家反对 X。暂停并交用户裁决,不自行选边
+- **业务取舍**:修复方案在前向兼容、性能、用户体验上存在显著差异,可能影响业务意图。暂停并确认
 
-> 调度停问不等于违背无人值守。无人值守指**循环里能自行决定的动作**(poll / 触发 / 合并意见 / push)继续自行决定;只有**超出本 skill 调度范围的根本性争议**才升级到用户。
-
-主题指纹由 Claude 在对话上下文里维护 `topic_history`(每轮追加"reviewer + 一句话主题摘要"),靠语义相似度判同主题。不脚本化、不落盘。
-
-其它一切(cold-start 等多久、要不要发 `/gemini review`、ack 还是 actionable、要不要叫 Codex、新 HEAD 后什么时候回来 poll、commit / push 节奏)都自行决定。
+主题指纹由 Claude 在对话上下文中维护 `topic_history`,以语义相似度判定同主题。
 
 ## 前置条件
 
-- 分支上已经有对应 PR(`gh pr view` 能拿到 PR 号);没有就停下来,建议先跑 `/commit-commands:commit-push-pr`
-- `gh` 登录正常且有评论权限(`gh auth status` 通过)
-- 仓库已经接入 CodeRabbit、Gemini Code Assist、OpenAI Codex 三家 reviewer
-- `jq` 在 PATH 上(macOS / Linux 默认有,没有就 brew install jq;Windows 走 WSL)
+- 当前分支已有对应 PR(`gh pr view` 能读取到 PR 号)。若无,建议先运行 `/commit-commands:commit-push-pr`
+- `gh` 已登录且具备评论权限(`gh auth status` 通过)
+- 仓库已接入 CodeRabbit、Gemini Code Assist、OpenAI Codex 三家 reviewer
+- 已安装 `jq`(macOS:`brew install jq`;Debian/Ubuntu:`apt-get install jq`;Fedora:`dnf install jq`;Windows:WSL 内安装)
 
 ## 三家 reviewer 速查
 
-看 [references/reviewers.md](references/reviewers.md) —— bot 名(GraphQL vs REST)、状态表达方式、Codex 三种 ack 模式、bot 改名怎么查。
+参见 [references/reviewers.md](references/reviewers.md):bot 名(GraphQL 与 REST 命名差异)、状态表达方式、Codex 三种 ack 模式、bot 改名后的查询方法。
 
-## 每轮 poll 的步骤
+## 每轮 poll 流程
 
-每轮流程:拉数据 → 决策 → 动作。**不要**用单条长 sleep 把会话卡死。
+每轮分三步:拉数据 → 决策 → 动作。**不要**用单条长 sleep 阻塞会话,由 ScheduleWakeup 控制节奏。
 
-### 1. 拉当前状态
+### 步骤 1:拉取当前状态
 
 ```bash
 bash .agents/skills/pr-ai-review-loop/scripts/poll.sh <PR_NUMBER>
 ```
 
-脚本输出一个 JSON。字段 schema、设计意图、关键踩坑(比如为什么用 `created_at > last_push_at` 而不是 `commit_id == head`)都写在 `scripts/poll.sh` 头部注释里 —— 第一次进循环时 Read 一遍脚本注释,之后只看 JSON 输出。
+JSON 解析后仅保留在对话上下文中,不落盘。
 
-JSON 解析后**只放在对话上下文里**,不要落盘。同时更新:
-- `round_count`(+1)
-- `topic_history`(把本轮 reviewer 的意见提炼成一句话主题加进去)
-- `last_commit_shapes`(见下文「收敛兜底」)
+本 skill 维护的三个状态字段及其更新规则:
 
-### 2. 对每家启用的 reviewer 决定动作
+| 字段 | 更新时机 | 跨 HEAD 行为 | 用途 |
+|---|---|---|---|
+| `round_count` | HEAD SHA 或 `last_push_at` 与上一轮记录不同时 +1 | 累加,不重置 | 收敛兜底 #1 |
+| `topic_history` | 每次拉到 reviewer 新意见时追加一条,记录 `comment id`、`head_sha` 与内容指纹 | 累积不清空,按 `(comment id, head_sha)` + 内容指纹去重(详见下) | 主题指纹比对 |
+| `last_commit_shapes` | HEAD SHA 或 `last_push_at` 变化时追加形状标签 | 长度 ≤ 3 的滑窗 | 收敛兜底 #2 |
 
-**先做保守触发前置:** 看决策表之前,先跑 `classify_commits.sh` 看本轮 push 的 commit 性质:
+**`topic_history` 同记录判定**:
+
+- **内容指纹**:walkthrough 取 `updated_at`;其它评论取 `body_head` 的前 N 字符或哈希值
+- `(comment id, head_sha)` 命中且**内容指纹未变** → 视为已记录,跳过
+- `(comment id, head_sha)` 命中但**内容指纹变了** → 更新已记录条目(覆盖,不重复追加);覆盖 CodeRabbit walkthrough 在同 HEAD 内由 in-progress 改写为 final 的情况
+- 跨 HEAD 同 id → 一律视为新一轮
+
+### 步骤 2:对每家启用的 reviewer 决定动作
+
+进入决策表前,先运行 `classify_commits.sh` 判定 commit 性质:
 
 ```bash
 bash .agents/skills/pr-ai-review-loop/scripts/classify_commits.sh <PR_NUMBER> <previous_round_head_sha>
 ```
 
-每条 commit 输出 `{files_changed, lines_added, message_head, ...}`。如果本轮 push 的 commit **全部**是 fix-up(nit / format / typo / 改一个字段 / 小 bug),Claude 自行判断 → **本轮跳过手动 `/gemini review` / `@codex review` 触发**,等 CodeRabbit 自动跟即可(CR 跟新 commit 是自动的,不消耗 quota)。理由:Gemini / Codex 每次都是整个 PR 全审,quota 是稀缺资源。
+若本轮 push 的所有 commit 均属 fix-up(nit、format、typo、单字段调整、小 bug 修复),本轮**跳过**手动触发 Gemini 与 Codex,等 CodeRabbit 自动跟即可。**例外**:下文 Gemini cold-start fallback 行不受此跳过限制 —— 该场景下 `gemini.reviews` 完全为空,整个 PR 还没经过任何 Gemini review,无论 commit 性质都需补发触发,否则 Gemini 将永远不会审本 PR。
 
-否则按下表过一遍,命中就执行;同一轮可以并行处理多家 reviewer:
+否则按下表执行,命中即执行,同一轮可并行处理多家 reviewer:
 
-| 当前状态 | 动作 |
+| 条件 | 动作 |
 |---|---|
-| `coderabbit.walkthrough.is_paused == true`,且它 `updated_at` 之后还没发过 `@coderabbitai resume`(从 `own_trigger_comments` 里筛,看最新一条 `createdAt` 是不是早于 walkthrough 的 `updated_at`,空就当"没发过") | 发 `@coderabbitai resume` |
-| Gemini 启用,本轮 push 之后 `gemini.reviews` 里没有 `submittedAt > last_push_at` 的条目,且 `own_trigger_comments` 中 `/gemini review` 的最大 `createdAt ≤ last_push_at` —— 而且**上面保守跳过没命中** | 发 `/gemini review` |
-| Codex 启用,按下方「Codex 触发决策」判断该叫 —— 而且**上面保守跳过没命中** | 发 `@codex review` |
-| 还有 reviewer 没在最新 HEAD 上出结果 | 等下一轮(见下文「polling 节奏」) |
-| 至少一家 reviewer 给了新的 actionable 意见 | 进步骤 3 |
-| 所有启用的 reviewer 都对当前 HEAD 亮绿灯(见下文「怎么算已通过」) | 退出,简短汇报 |
+| `coderabbit.walkthrough.is_paused == true`,且 `updated_at` 之后未发送过 `@coderabbitai resume`(从 `own_trigger_comments` 中筛,最新一条 `createdAt` 早于 walkthrough 的 `updated_at`,为空时视为未发送) | 发送 `@coderabbitai resume` |
+| Gemini 启用,`gemini.reviews` **完全为空**,且 `pr_created_at` 距今不足 5 分钟 | 等待 Gemini 自动 review(PR opened 触发,见 references/reviewers.md);不手动触发 |
+| Gemini 启用,`gemini.reviews` **完全为空**,`pr_created_at` 距今已超过 5 分钟,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`)| 发送 `/gemini review`(cold-start fallback:PR opened 自动 review 未在窗口内出现,可能失败或被跳过;**不受 fix-up 跳过限制**,见上文说明) |
+| Gemini 启用,`gemini.reviews` **非空**但最新一条 `submittedAt < last_push_at`,且 `own_trigger_comments` 中不存在 `/gemini review`(或存在但最大 `createdAt ≤ last_push_at`),且**前述跳过触发未命中** | 发送 `/gemini review`(synchronize 场景,Gemini 不自动跟新 commit) |
+| Codex 启用,按下方「Codex 触发决策」判断需要触发,且**前述跳过触发未命中** | 发送 `@codex review` |
 
-**去重原则:** 同一 HEAD 上 `/gemini review` 和 `@codex review` 各只能发一次。每种命令在 `own_trigger_comments` 里取最大 `createdAt`,只要比 `last_push_at` 新,就当本轮已经触发过,跳过。
+执行完触发动作后,按下文「轮询节奏」表选择延迟,调用 `ScheduleWakeup`。
 
-### 3. 收意见 → 交给 receiving-code-review
+**去重原则**:同一 HEAD 上 `/gemini review` 与 `@codex review` 各只能发送一次。每种命令在 `own_trigger_comments` 中取最大 `createdAt`,若晚于 `last_push_at`,视为本轮已触发,跳过。
 
-把所有 reviewer 的新意见**合到一起一次性**通过 Skill 工具调 `receiving-code-review`,不要每家单独调一次。**重点:** 合的时候把 `gemini.reviews[*].body`(summary)整段贴出来,不要只贴 inline items —— Gemini 经常唯一一条建议就藏在 summary 里,inline 一条没有。receiving-code-review 跟本 skill 共享 context,只有把 summary body 摆到对话里它才看得到。
+判定循环走向:
 
-receiving-code-review 调完回步骤 1。它自己负责动手修、给 reviewer 回 inline、记 pushback —— 本 skill 只重新拉数据,看有没有新 HEAD 或新一轮 review。
+- 仍有 reviewer 未对最新 HEAD 出结果 → 等待下一轮
+- 至少一家 reviewer 提交了新的 actionable 意见 → 进入步骤 3
+- 所有启用的 reviewer 对当前 HEAD 均已通过 → 退出循环,简短汇报
 
-## 关键判断
+### 步骤 3:收集意见并转交 receiving-code-review
 
-### 怎么判"Reviewer 审过当前 HEAD 了"
+将所有 reviewer 的本轮新意见**合并为一次调用**,通过 Skill 工具调用 `receiving-code-review`,不要每家单独调用。
+
+合并时必须将 `gemini.reviews[*].body`(summary)整段贴入上下文。Gemini 的某些建议仅出现在 summary 中,inline 部分为空;只贴 inline 会丢失意见。`receiving-code-review` 与本 skill 共享 context,只有把 summary body 摆在对话中它才能读到。
+
+`receiving-code-review` 调用完成后回到步骤 1。该 skill 负责实施修复、回复 reviewer inline、记录 pushback;本 skill 仅重新拉取数据,判断是否产生新 HEAD 或新一轮 review。
+
+## 关键判定
+
+### Reviewer 是否已审查当前 HEAD
 
 - **CodeRabbit**:`coderabbit.walkthrough.updated_at > last_push_at`
 - **Gemini**:`gemini.reviews[*].submittedAt > last_push_at` 至少一条
-- **Codex**:满足 references/reviewers.md 里 Codex 三种 ack 模式任一
+- **Codex**:满足 references/reviewers.md 中 Codex 三种 ack 模式任一
 
-### 怎么算"actionable"
+### 是否为 actionable
 
-- **CodeRabbit** → `coderabbit.walkthrough.is_ok == true` 或 `actionable_count == "0"` 就**没有** actionable;否则看 `inline_comments_by_user["coderabbitai[bot]"]` 里 `created_at > last_push_at` 的条目,body 开头有没有 `_⚠️ Potential issue_` / `_🟠 Major_` / `_🛠️ Refactor suggestion_` / `_💡 Verification agent_` 这类标签 —— 只要不是 nit 级别都算 actionable
-- **Gemini** → **两条路径,任一命中即算**:
-  - **inline 路径**:`inline_comments_by_user["gemini-code-assist[bot]"]` 里 `created_at > last_push_at` 的 items,`severity_alt` 是 `high` / `medium` / `critical` 算 actionable;`low` / `nit` / `style` 不算
-  - **summary 路径**:`gemini.reviews` 里 `submittedAt > last_push_at` 的最新一条,body **不为空** 而且 **不含**明确的通过标记(`LGTM` / `No issues found` / `Approved` / 只有一个 `## Code Review` 标题后面没内容)→ 算 actionable
-- **Codex** → `inline_comments_by_user["chatgpt-codex-connector[bot]"]` 里 `severity_alt` 是 `Pn Badge` 形式(P0/P1 一般算 actionable,P2/P3 看情况)
+- **CodeRabbit**:`walkthrough.is_ok == true` 或 `actionable_count == "0"` 时无 actionable;否则查看 `inline_comments_by_user["coderabbitai[bot]"]` 中 `created_at > last_push_at` 的条目,body 开头若含 `_⚠️ Potential issue_`、`_🟠 Major_`、`_🛠️ Refactor suggestion_`、`_💡 Verification agent_` 等标签,均视为 actionable;nit 级别不算
+- **Gemini**(两条路径,任一命中即算):
+  - **inline 路径**:`inline_comments_by_user["gemini-code-assist[bot]"]` 中 `created_at > last_push_at` 的条目,`severity_alt` 为 `high`、`medium`、`critical` 算 actionable;`low`、`nit`、`style` 不算
+  - **summary 路径**:`gemini.reviews` 中 `submittedAt > last_push_at` 的最新一条,body 非空且不含明确通过标记(`LGTM`、`No issues found`、`Approved`、仅有 `## Code Review` 标题而无后续内容),算 actionable
+- **Codex**:`inline_comments_by_user["chatgpt-codex-connector[bot]"]` 中 `severity_alt` 为 `Pn Badge` 形式(P0/P1 通常视为 actionable;P2/P3 视情况)
 
-**Acknowledgment 例外:** `inline_comments_by_user.*` 里 `is_ack == true` 的条目是 reviewer 对上一次修复 / inline 回复的**确认回应**,**不算** actionable。
-review state == `APPROVED` 一律不算 actionable。
+**Acknowledgment 例外**:`inline_comments_by_user.*` 中 `is_ack == true` 的条目,是 reviewer 对上一次修复或 inline 回复的确认响应,**不算** actionable。review state 为 `APPROVED` 一律不算 actionable。
 
-### 怎么算"已通过"
+### 是否已通过
 
 当前 HEAD 下,每家启用的 reviewer 满足以下之一:
 
-- **CodeRabbit**:`walkthrough.is_ok == true`(或 `actionable_count == "0"`),**或**本轮 inline 全是 `is_ack == true`,而且 `updated_at > last_push_at`,而且 `is_in_progress == false`(还在 in-progress 就先回 poll)
-- **Gemini**:
-  - inline 部分本轮(`created_at > last_push_at`)全是 `low/nit/style` 或全是 `is_ack`,**而且**
-  - summary 部分最新一条 `gemini.reviews` 的 body 含明确通过标记(非空不等于通过)
-- **Codex**:满足 references/reviewers.md 三种 ack 模式之一,而且本轮没有 ack 以外的 inline
-- 或该 reviewer 被用户临时停用
+- **CodeRabbit**:`updated_at > last_push_at` **且** `is_in_progress == false` **且** `is_paused == false`(前置条件:CR 已审过当前 HEAD、不在 in-progress、未 paused;paused 时 `walkthrough` 中 `is_ok` 等字段可能是上一轮残留,需先经步骤 2 中的「CR resume」规则(`@coderabbitai resume`)恢复审查再判通过);在该前置之上,满足任一即通过 —— `walkthrough.is_ok == true` / `actionable_count == "0"` / 本轮 inline 均为 `is_ack == true` / 本轮 inline 均为 nit 级(body 含 `_🧹 Nitpick_` / `_🔵 Trivial_` / `_💤 Low value_` 标签,不含 `_⚠️ Potential issue_` / `_🟠 Major_` / `_🛠️ Refactor suggestion_` / `_💡 Verification agent_`)
+- **Gemini**:`gemini.reviews[*].submittedAt > last_push_at` 至少一条(前置条件:Gemini 已审过当前 HEAD,避免误用上一轮的通过标记);在该前置之上,需**同时**满足:(1) 本轮无新 inline 或本轮新 inline 全部为 `low/nit/style` 或全部为 `is_ack`;(2) summary 最新一条 `gemini.reviews` 的 body 含明确通过标记(非空不等于通过)
+- **Codex**:满足 references/reviewers.md 中三种 ack 模式之一,且本轮无 ack 以外的 inline
+- 或该 reviewer 已被用户临时停用
 
 ### Codex 触发决策
 
-Codex 跟不跟新 commit 看仓库配置(详见 references/reviewers.md)。仓库未开自动 review 时,是否手动 `@codex review` 自行判断:
+Codex 是否自动跟新 commit 取决于仓库配置(详见 references/reviewers.md)。仓库未开启自动 review 时,是否手动 `@codex review` 综合判断:
 
-- 用户的明确意图(提到 codex 基本就是要触发)
-- CodeRabbit 和 Gemini 意见冲突,是否需要第三方仲裁
-- PR 改动面是否值得多看一遍(敏感模块、跨模块影响、新加依赖这类)
-- 本 HEAD 上是否已经触发过(去重)
-- **保守跳过是否命中**(本轮全是 fix-up)
+- 用户明确意图(提到 codex 通常意味着需要触发)
+- CodeRabbit 与 Gemini 意见冲突,需要第三方仲裁
+- PR 改动面值得多看一遍(敏感模块、跨模块影响、新增依赖等)
+- 当前 HEAD 是否已触发过(去重)
+- 跳过触发是否命中(本轮全为 fix-up 则跳过)
 
-### polling 节奏
+### 轮询节奏
 
-每轮 poll + 决策做完就调 `ScheduleWakeup` 排下一次唤醒(见上文「驱动方式」)。`delaySeconds` 按下表:
+每轮 poll 与决策完成后,调用 `ScheduleWakeup` 安排下一次唤醒。延迟取值:
 
-| 场景 | delay | 备注 |
+| 场景 | 延迟 | 备注 |
 |---|---|---|
-| 新 HEAD 后第一次 poll | **180s** | reviewer cold-start;CR 一般 60-90s 跟新 HEAD,Gemini 不自动跟,Codex 看仓库配置 |
-| 发完 `/gemini review` / `@codex review` 之后 | **120s** | Gemini 响应通常 90-120s,60s 容易扑空 |
-| 常规 poll(等 reviewer 响应) | **60s** | 在 cache 窗口里(5min) |
-| 超过 15 分钟还没动静 | **停下来问用户**,不再 ScheduleWakeup | 跟故障停问一致 |
-
-所有 wakeup 间隔(60/120/180s)都在 prompt cache 5min 窗口里,context 缓存不会失效。只有故障停问会跨窗口。
+| 新 HEAD 后首次 poll | 180s | reviewer cold-start;CR 通常 60-90s 跟新 HEAD;Gemini 仅 PR opened 自动 review,synchronize 不跟;Codex 取决于仓库配置 |
+| 发送 `/gemini review` 或 `@codex review` 之后 | 120s | Gemini 响应通常 90-120s,60s 容易错过 |
+| 常规等待(reviewer 响应中) | 60s | 处于 prompt cache 5 分钟窗口内 |
+| 超过 15 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 与故障类暂停一致 |
 
 ## 收敛兜底
 
-下面任一条触发就退出:
+下列任一条件触发退出:
 
-1. **`round_count >= 8`** → 停下来问"已经 8 轮了,merge / 继续 / 放弃?"
-2. **连续 2 轮 `last_commit_shapes` 全是 nit/format**(`classify_commits.sh` 输出 + Claude 自行判断) → 停下来问"再改下去边际收益小了,是否结束?"
-3. **同一个 `topic_history` 主题指纹连提 ≥ 3 轮**(和上文「运行模式 B」联动) → 停下来询问是否升级 ADR
-4. **所有 reviewer 对当前 HEAD 都亮绿灯** → 正常退出
-
-`round_count` / `last_commit_shapes`(长度 ≤ 3 的滑窗)/ `topic_history` 都在对话上下文里维护,不落盘。
+1. `round_count >= 8` → 暂停询问"已 8 轮,merge / 继续 / 放弃?"
+2. 连续 2 轮 `last_commit_shapes` 全为 nit / format → 暂停询问"边际收益已降低,是否结束?"
+3. 同一主题指纹连续提出 ≥ 3 轮(与「运行模式」B 节联动)→ 暂停询问是否升级 ADR
+4. 所有 reviewer 对当前 HEAD 均通过 → 正常退出
 
 ## 故障处理
 
-- **某家 reviewer 一直不回**:bot 可能服务异常或配额已满。15 分钟没动静就停下来问用户(跟 polling 节奏的上限一致)
-- **bot 报错**("Internal error" / "Token limit exceeded"):把错误内容贴给用户,问要不要发 `@coderabbitai full review` / `/gemini review` 强制重跑
-- **`poll.quota_alerts` 不为空**:bot 在 PR 里留了 quota / rate limit 报错 —— 把 `body_head` 贴给用户,问要不要暂时停用该 reviewer 继续其他家,或等 quota 恢复再 push
-- **`gh` 401/403**:让用户跑 `gh auth refresh -s repo`
-- **`poll.sh` / `classify_commits.sh` 报 `POLL_ERROR:`**:重试一次(网络抖动常见),再失败就把 stderr 贴给用户
-- **CI 失败**:CodeRabbit 会等 GitHub Checks 跑完再继续;CI 红时 review 可能不会触发 —— 先帮用户修 CI
+- **某家 reviewer 长时间无响应**:bot 可能服务异常或配额已满。超过 15 分钟暂停并询问用户(与轮询节奏上限一致)
+- **bot 报错**(如 "Internal error"、"Token limit exceeded"):将错误内容贴给用户,询问是否强制重跑(`@coderabbitai full review` 或 `/gemini review`)
+- **`poll.quota_alerts` 非空**:bot 在 PR 中留下了 quota / rate limit 报错。将 `body_head` 贴给用户,询问是否暂时停用该 reviewer 继续其他家,或等 quota 恢复后再 push
+- **`gh` 401/403**:请用户运行 `gh auth refresh -s repo`
+- **脚本报 `POLL_ERROR:`**:重试一次(网络抖动常见),再失败则将 stderr 贴给用户
+- **CI 失败**:CodeRabbit 会等 GitHub Checks 完成后继续;CI 红时 review 可能不会触发,优先修复 CI
 
 ## 与其他 skill 的分工
 
-| 任务 | 用哪个 |
+| 任务 | 对应 skill |
 |---|---|
 | 创建 PR | `commit-commands:commit-push-pr` |
 | 回应 / 实施 / 反驳 review 意见 | `receiving-code-review` |
 | 验证修复是否真的解决问题 | `verify` |
-| **盯多家 AI reviewer 的循环节奏** | **本 skill** |
+| **监控多家 AI reviewer 的循环节奏** | **本 skill** |
 
-本 skill 只负责调度 —— 什么时候 poll、什么时候 resume / 触发、什么时候把活交给 receiving-code-review、什么时候结束循环。**不**负责"回应意见"和"验证修复"。
+本 skill 仅负责调度:何时 poll、何时 resume 或触发、何时转交 `receiving-code-review`、何时结束循环。**不**负责"回应意见"与"验证修复"。

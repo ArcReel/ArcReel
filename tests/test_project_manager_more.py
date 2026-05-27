@@ -93,7 +93,7 @@ class TestProjectManagerMore:
         )
         assert project["image_provider_t2i"] == "openai/gpt-image-1"
 
-    def test_project_identifier_validation_and_title_fallback(self, tmp_path):
+    def test_project_identifier_validation_and_empty_title(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
         with pytest.raises(ValueError):
@@ -104,19 +104,38 @@ class TestProjectManagerMore:
         pm.create_project("demo")
         project = pm.create_project_metadata("demo", "")
 
-        assert project["title"] == "demo"
+        # 空 title 直接保留为空字符串,由前端 i18n 兜底,不再 fallback 为 project_name(slug)
+        assert project["title"] == ""
+
+    def test_create_project_metadata_preserves_cjk_title(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_name = pm.generate_project_name("第1集")
+        pm.create_project(project_name)
+        project = pm.create_project_metadata(project_name, "第1集")
+        assert project["title"] == "第1集"
 
     def test_generate_project_name_is_unique_and_safe(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
         first = pm.generate_project_name("My Demo Project")
         second = pm.generate_project_name("我的项目")
+        third = pm.generate_project_name("第1集")
 
         assert first.startswith("my-demo-project-")
-        assert second.startswith("project-")
-        assert first != second
+        # CJK 标题 / 只剩孤立数字的标题统一塌成中性前缀 proj-,避免误导性 slug
+        assert second.startswith("proj-")
+        assert third.startswith("proj-")
+        assert first != second != third
         assert pm.normalize_project_name(first) == first
         assert pm.normalize_project_name(second) == second
+        assert pm.normalize_project_name(third) == third
+
+    def test_generate_project_name_truncates_before_letter_check(self, tmp_path):
+        # 长 ASCII 标题前 24 字符全是数字/连字符、字母被截掉时,应塌成 proj-,
+        # 而不是返回 "1234567890-1234567890-12" 这种纯数字 slug。
+        pm = ProjectManager(tmp_path / "projects")
+        candidate = pm.generate_project_name("1234567890-1234567890-1234-letters")
+        assert candidate.startswith("proj-")
 
     def test_script_operations_and_scene_updates(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -424,8 +443,8 @@ class TestProjectManagerMore:
         pm.create_project_metadata("demo", "Demo", "Anime", "drama")
 
         scene = {"scene_id": "S1", "generated_assets": {}}
-        normalized = pm.normalize_scene(scene, episode=3)
-        assert normalized["episode"] == 3
+        normalized = pm.normalize_scene(scene)
+        assert normalized["scene_id"] == "S1"
         assert normalized["generated_assets"]["status"] == "pending"
 
         assert pm.update_scene_status({"generated_assets": {"video_clip": "v.mp4"}}) == "completed"

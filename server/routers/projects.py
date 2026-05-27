@@ -394,10 +394,13 @@ async def list_projects(_user: CurrentUser):
                     # 使用 StatusCalculator 计算进度（读时计算）
                     status = calculator.calculate_project_status(name, project, preloaded_scripts=preloaded_scripts)
 
+                    raw_title = project.get("title")
                     projects.append(
                         {
                             "name": name,
-                            "title": project.get("title", name),
+                            # title 缺失/为 None/类型异常时统一归一为空串,前端 i18n
+                            # 兜底显示「未命名项目」,确保接口契约始终返回 str。
+                            "title": raw_title if isinstance(raw_title, str) else "",
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
                             "style_image": project.get("style_image"),
@@ -410,7 +413,7 @@ async def list_projects(_user: CurrentUser):
                     projects.append(
                         {
                             "name": name,
-                            "title": name,
+                            "title": "",
                             "style": "",
                             "thumbnail": None,
                             "status": {},
@@ -420,7 +423,7 @@ async def list_projects(_user: CurrentUser):
                 # 出错时返回基本信息
                 logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
                 projects.append(
-                    {"name": name, "title": name, "style": "", "thumbnail": None, "status": {}, "error": str(e)}
+                    {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "error": str(e)}
                 )
 
         return {"projects": projects}

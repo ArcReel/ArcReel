@@ -74,7 +74,7 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 **Step 3**: 验证输出
 
 使用 Read 工具读取生成的 `drafts/episode_{N}/step1_normalized_script.md`，
-确认格式正确（Markdown 表格，含场景 ID、场景描述、时长、场景类型、segment_break 列）。
+确认格式正确（Markdown 表格，含场景 ID、场景描述、时长、segment_break 列）。
 
 如果格式有问题，直接用 Edit 工具修复。
 
@@ -108,7 +108,6 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 | 总场景数 | XX 个 |
 | 预计总时长 | X 分 X 秒 |
 | segment_break 标记 | XX 个 |
-| 场景类型分布 | 剧情 X / 动作 X / 对话 X / 过渡 X / 空镜 X |
 
 **文件位置**:
 - `drafts/episode_{N}/step1_normalized_script.md`
@@ -121,10 +120,10 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 `step1_normalized_script.md` 的标准格式：
 
 ```markdown
-| 场景 ID | 场景描述 | 时长 | 场景类型 | segment_break |
-|---------|---------|------|---------|---------------|
-| E<集号>S01 | 竹林深处，晨雾弥漫。青年剑客李明手持长剑，缓缓踏入林间，目光坚定。 | <duration> | 剧情 | 是 |
-| E<集号>S02 | 李明凝视着竹林深处，若有所思。"师父，我回来了。" | <duration> | 对话 | 否 |
+| 场景 ID | 场景描述 | 时长 | segment_break |
+|---------|---------|------|---------------|
+| E<集号>S01 | 竹林深处，晨雾弥漫。青年剑客李明手持长剑，缓缓踏入林间，目光坚定。 | <duration> | 是 |
+| E<集号>S02 | 李明凝视着竹林深处，若有所思。"师父，我回来了。" | <duration> | 否 |
 ```
 
 > 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations`。

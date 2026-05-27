@@ -472,3 +472,57 @@ class TestOpenAIVideoBackend:
                 await backend.generate(request)
 
         mock_client.videos.download_content.assert_not_called()
+
+    async def test_resume_video_polls_existing_job(self, tmp_path: Path):
+        """resume_video 仅 poll + 下载,不调 videos.create (ADR 0007)。"""
+        video_data = b"resumed-content"
+        mock_client = AsyncMock()
+        # 不 stub create —— 调到就 fail
+        mock_client.videos.create = AsyncMock(side_effect=AssertionError("resume 不应调 create"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(video_data))
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "out.mp4"
+            request = VideoGenerationRequest(
+                prompt="resumed", output_path=output_path, aspect_ratio="9:16", duration_seconds=8
+            )
+            result = await backend.resume_video("vid_existing", request)
+
+        mock_client.videos.create.assert_not_called()
+        mock_client.videos.retrieve.assert_called_with("vid_existing")
+        assert result.video_path == output_path
+        assert output_path.read_bytes() == video_data
+
+    async def test_resume_video_not_found_raises_resume_expired(self, tmp_path: Path):
+        """job 不存在/已过期 → ResumeExpiredError(走 [resume_expired] 路径)。"""
+        from openai import NotFoundError
+
+        from lib.video_backends.base import ResumeExpiredError
+
+        mock_client = AsyncMock()
+        not_found = NotFoundError(
+            message="video not found", response=MagicMock(status_code=404), body={"error": "not_found"}
+        )
+        mock_client.videos.retrieve = AsyncMock(side_effect=not_found)
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(
+                prompt="x", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=8
+            )
+            with pytest.raises(ResumeExpiredError) as ei:
+                await backend.resume_video("vid_expired", request)
+            assert ei.value.job_id == "vid_expired"
+            assert ei.value.provider == PROVIDER_OPENAI

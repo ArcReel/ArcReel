@@ -3,6 +3,12 @@ name: Docker
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pull_request_template.md"
     tags: ["v*"]
   workflow_dispatch:
 

@@ -181,10 +181,8 @@ export function ReferenceVideoCard({
   }, [project?.characters, project?.scenes, project?.props]);
 
   const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
-    // 向左扫描寻找 @ 触发符；仅当 @ 到 cursor 之间全是 mention 合法字符（`\w` + CJK，
-    // 即 MENTION_RE 中 `[\w一-鿿]+` 的字符集）时才算"正在输入的 mention"。
-    // 之前用 `/\s/` 判 break 漏掉了中文标点——"眼@。|" 会被当成 @ 起点、query="。"，
-    // 打开一个永远无匹配的空 picker。
+    // 向左扫描寻找 @ 触发符。旧格式只允许 `\w` + CJK 作为正在输入的 query；
+    // 包裹格式 `@[query` 则允许标点参与过滤，直到遇到空白或闭合括号。
     let i = cursor - 1;
     while (i >= 0) {
       const ch = nextValue[i];
@@ -192,16 +190,17 @@ export function ReferenceVideoCard({
         const prev = nextValue[i - 1];
         // 与 MENTION_RE `(?<!\w)` 对齐：@ 左侧不能是 ASCII 词字符，否则视为 email/id 残片。
         if (i === 0 || !/\w/.test(prev ?? "")) {
+          const rawQuery = nextValue.slice(i + 1, cursor);
+          const isWrapped = rawQuery.startsWith("[");
+          if (!isWrapped && !/^[\w一-鿿]*$/.test(rawQuery)) break;
           setAtStart(i);
-          setPickerQuery(nextValue.slice(i + 1, cursor));
+          setPickerQuery(isWrapped ? rawQuery.slice(1) : rawQuery);
           setPickerOpen(true);
           return;
         }
         break;
       }
-      // 非 mention-valid 字符（含空白、中英标点）一律视作分隔符，立即 break。
-      // `一-鿿` 基本 CJK 区；与 MENTION_RE 的字符集保持一致。
-      if (!/[\w一-鿿]/.test(ch)) break;
+      if (ch === "]" || /\s/.test(ch)) break;
       i--;
     }
     setAtStart(null);
@@ -267,7 +266,7 @@ export function ReferenceVideoCard({
       const before = currentText.slice(0, start);
       const cursor = ta.selectionStart ?? currentText.length;
       const after = currentText.slice(cursor);
-      const insert = `@${ref.name} `;
+      const insert = `@[${ref.name}] `;
       const next = before + insert + after;
       onChange(next);
       setPickerOpen(false);

@@ -1114,13 +1114,20 @@ class API {
 
   static async cancelPreview(
     taskId: string
-  ): Promise<{ task: { task_id: string; task_type: string; resource_id: string }; cascaded: { task_id: string; task_type: string; resource_id: string }[] }> {
+  ): Promise<{
+    task: { task_id: string; task_type: string; resource_id: string; status: string };
+    cascaded: { task_id: string; task_type: string; resource_id: string }[];
+  }> {
     return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel-preview`);
   }
 
   static async cancelTask(
     taskId: string
-  ): Promise<{ cancelled: TaskItem[]; skipped_running: TaskItem[] }> {
+  ): Promise<{
+    cancelled: TaskItem[];
+    cancelling: string[];
+    skipped_terminal: TaskItem[];
+  }> {
     return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel`, {
       method: "POST",
     });

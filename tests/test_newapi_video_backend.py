@@ -411,3 +411,42 @@ class TestNewAPIVideoBackend:
 
         assert result.task_id == "t-retry"
         assert mock_client.post.call_count == 3
+
+    async def test_resume_video_polls_existing_job(self, tmp_path: Path):
+        """resume_video 仅 poll + 下载,不 POST create (ADR 0007)。"""
+        poll_resp = _make_response(
+            200,
+            {
+                "task_id": "task-resume",
+                "status": "completed",
+                "url": "https://cdn/resumed.mp4",
+                "metadata": {"duration": 5},
+            },
+        )
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=AssertionError("resume 不应 POST create"))
+        mock_client.get = AsyncMock(return_value=poll_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"resumed"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            result = await backend.resume_video(
+                "task-resume",
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+                ),
+            )
+
+        mock_client.post.assert_not_called()
+        # 应该 GET 到 .../video/generations/task-resume
+        assert mock_client.get.call_args.args[0].endswith("/task-resume")
+        assert result.task_id == "task-resume"
+        assert (tmp_path / "out.mp4").read_bytes() == b"resumed"

@@ -90,3 +90,8 @@ class CustomVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         return await self._delegate.generate(request)
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，
+        # 由 orphan handler 标 [resume_unsupported]
+        return await self._delegate.resume_video(job_id, request)

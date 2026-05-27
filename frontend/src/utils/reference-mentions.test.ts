@@ -9,9 +9,9 @@ import type { ReferenceResource } from "@/types/reference-video";
 
 function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props"> {
   return {
-    characters: { 主角: { description: "" }, 张三: { description: "" } },
-    scenes: { 酒馆: { description: "" } },
-    props: { 长剑: { description: "" } },
+    characters: { 主角: { description: "" }, 张三: { description: "" }, "角色甲（成年）": { description: "" }, 角色乙: { description: "" } },
+    scenes: { 酒馆: { description: "" }, "地点甲·版本A": { description: "" } },
+    props: { 长剑: { description: "" }, 载具甲: { description: "" }, 道具甲: { description: "" } },
   };
 }
 
@@ -26,6 +26,30 @@ describe("extractMentions", () => {
 
   it("matches CJK characters and underscores", () => {
     expect(extractMentions("@主角 and @张_三")).toEqual(["主角", "张_三"]);
+  });
+
+  it("matches wrapped names containing punctuation", () => {
+    expect(extractMentions("@[角色甲（成年）] 接近 @[地点甲·版本A]")).toEqual([
+      "角色甲（成年）",
+      "地点甲·版本A",
+    ]);
+  });
+
+  it("matches wrapped names adjacent to verbs", () => {
+    expect(extractMentions("@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作")).toEqual([
+      "角色甲（成年）",
+      "角色乙",
+      "载具甲",
+      "道具甲",
+    ]);
+  });
+
+  it("rejects non-ascii legacy mentions to stay aligned with backend", () => {
+    expect(extractMentions("@éclair @한글 @张三 @abc_123")).toEqual(["张三", "abc_123"]);
+  });
+
+  it("rejects curly-brace wrapped mentions", () => {
+    expect(extractMentions("@[角色甲（成年）] 与 @{道具甲}")).toEqual(["角色甲（成年）"]);
   });
 });
 
@@ -74,6 +98,15 @@ describe("mergeReferences", () => {
   it("deduplicates repeated mentions", () => {
     const merged = mergeReferences("Shot 1 (3s): @主角 @主角 @主角", [], project);
     expect(merged).toEqual([{ type: "character", name: "主角" }]);
+  });
+
+  it("merges wrapped references", () => {
+    const merged = mergeReferences("Shot 1 (8s): @[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域", [], project);
+    expect(merged).toEqual([
+      { type: "character", name: "角色甲（成年）" },
+      { type: "character", name: "角色乙" },
+      { type: "prop", name: "载具甲" },
+    ]);
   });
 
   it("returns empty list when prompt has no valid mentions", () => {

@@ -34,6 +34,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { WARM_TONE } from "@/utils/severity-tone";
+import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
@@ -171,6 +172,7 @@ interface PosterProps {
 }
 
 function Poster({ project, styleLabel, large = false }: PosterProps) {
+  const { t } = useTranslation("dashboard");
   const hue1 = useMemo(() => hashHue(project.name, 17), [project.name]);
   const aspect = large ? "2.39 / 1" : "2 / 1";
   const radius = large ? 8 : 6;
@@ -230,7 +232,7 @@ function Poster({ project, styleLabel, large = false }: PosterProps) {
             overflowWrap: "anywhere",
           }}
         >
-          {project.title || project.name}
+          {getProjectDisplayName(project.title, t("untitled_project"))}
         </div>
       </div>
     </div>
@@ -365,7 +367,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
   const propsStat = status?.props ?? { completed: 0, total: 0 };
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
-  const projectDisplayName = project.title || project.name;
+  const projectDisplayName = getProjectDisplayName(project.title, t("dashboard:untitled_project"));
 
   const { trackStyle, barStyle } = gradientProgressStyles(
     phase === "completed" ? "good" : "accent",
@@ -376,7 +378,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
       <Link
         href={`/app/projects/${project.name}`}
         className="block w-full text-left text-text no-underline outline-none"
-        aria-label={`${project.title || project.name} · ${styleLabel}${phaseLabel ? ` · ${phaseLabel}` : ""}`}
+        aria-label={`${projectDisplayName} · ${styleLabel}${phaseLabel ? ` · ${phaseLabel}` : ""}`}
       >
         <div className="p-2.5">
           <Poster project={project} styleLabel={styleLabel} />
@@ -385,7 +387,7 @@ function ProjectCard({ project, styleLabel, phaseLabels, t, onDelete }: ProjectC
         <div className="px-4 pt-1 pb-3.5">
           <div className="mb-1.5 flex items-baseline justify-between gap-2">
             <h3 className="truncate text-[17px] font-semibold tracking-tight text-text">
-              {project.title || project.name}
+              {projectDisplayName}
             </h3>
             <span
               className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-3"
@@ -578,7 +580,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
             color: "var(--color-text)",
           }}
         >
-          {project.title || project.name}
+          {getProjectDisplayName(project.title, t("dashboard:untitled_project"))}
         </h3>
         <div className="font-editorial relative italic text-text-3" style={{ fontSize: 15 }}>
           {styleLabel}
@@ -1212,11 +1214,17 @@ export function ProjectsPage() {
           .pushToast(
             autoFixedCount > 0
               ? t("dashboard:import_auto_fixed", {
-                  title: result.project.title || result.project_name,
+                  title: getProjectDisplayName(
+                    result.project.title,
+                    t("dashboard:untitled_project"),
+                  ),
                   count: autoFixedCount,
                 })
               : t("dashboard:import_success", {
-                  title: result.project.title || result.project_name,
+                  title: getProjectDisplayName(
+                    result.project.title,
+                    t("dashboard:untitled_project"),
+                  ),
                 }),
             "success",
           );

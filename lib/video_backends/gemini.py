@@ -17,10 +17,13 @@ from lib.providers import PROVIDER_GEMINI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
+    ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    get_resume_job_id,
+    persist_job_id_if_in_task_context,
     poll_with_retry,
 )
 
@@ -109,8 +112,36 @@ class GeminiVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        # 重启自愈：worker _process_resume_task 入口 set _RESUME_JOB_ID 时跳 submit
+        resume_id = get_resume_job_id()
+        if resume_id is not None:
+            return await self.resume_video(resume_id, request)
+
         operation = await self._create_task(request)
+        op_name = getattr(operation, "name", None)
+        if not op_name:
+            # fail-fast：缺 operation.name 意味着 submit 成功但无法持久化 provider_job_id，
+            # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是 ADR 0007
+            # 要避免的重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
+            raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
+        await persist_job_id_if_in_task_context(op_name)
         return await self._poll_until_done(operation, request)
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """接续已 submit 的 Gemini operation：用 name 重建 GenerateVideosOperation 走 poll + 下载。
+
+        Operation 是 ABC，不可实例化；具体 LRO 子类 GenerateVideosOperation 通过
+        Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的
+        字段推断不全，用 model_validate 绕开）。
+        """
+        op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
+        try:
+            refreshed = await self._client.aio.operations.get(op)
+        except Exception as exc:
+            if _is_gemini_not_found(exc):
+                raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_GEMINI) from exc
+            raise
+        return await self._poll_until_done(refreshed, request)
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
@@ -283,3 +314,20 @@ class GeminiVideoBackend:
             # AI Studio 模式：使用 files.download
             self._client.files.download(file=video_ref)
             video_ref.save(str(output_path))
+
+
+def _is_gemini_not_found(exc: BaseException) -> bool:
+    """识别 Gemini operations.get 「operation 不存在 / 已过期」响应。"""
+    try:
+        from google.genai import errors as _genai_errors  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        _genai_errors = None
+
+    if _genai_errors is not None:
+        not_found_cls = getattr(_genai_errors, "ClientError", None) or getattr(_genai_errors, "APIError", None)
+        if not_found_cls is not None and isinstance(exc, not_found_cls):
+            code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+            if code in (404, "404", "NOT_FOUND", "INVALID_ARGUMENT"):
+                return True
+    msg = str(exc).lower()
+    return "not found" in msg or "invalid_argument" in msg or "expired" in msg

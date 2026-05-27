@@ -67,11 +67,6 @@ function getNovelText(seg: Segment, mode: "narration" | "drama"): string {
   return "";
 }
 
-function getSceneType(seg: Segment, mode: "narration" | "drama"): string {
-  if (mode === "drama") return (seg as DramaScene).scene_type || "";
-  return "";
-}
-
 interface DraftState {
   image_prompt: ImagePromptValue;
   video_prompt: VideoPromptValue;
@@ -292,7 +287,6 @@ export function ShotDetail({
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
-  const sceneType = getSceneType(segment, contentMode);
   const novelText = getNovelText(segment, contentMode);
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
 
@@ -665,15 +659,6 @@ export function ShotDetail({
           onUpdatePrompt={onUpdatePrompt}
         />
         <StatusBadge status={status} />
-        {sceneType && (
-          <span
-            className="inline-flex items-center gap-1.5 truncate text-[11.5px]"
-            style={{ color: "var(--color-text-3)" }}
-          >
-            <span style={{ color: "var(--color-text-4)" }}>·</span>
-            <span className="truncate">{sceneType}</span>
-          </span>
-        )}
         <span className="flex-1" />
 
         <div className="flex items-center gap-1.5">

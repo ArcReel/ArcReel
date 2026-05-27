@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -16,6 +17,72 @@ import httpx
 from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
 
 logger = logging.getLogger(__name__)
+
+
+# Worker 在 _process_task / _process_resume_task 入口 set 当前 task_id；
+# backend.generate 拿到 job_id 后调 persist_provider_job_id 让 ADR 0007
+# 「重启接续轮询不重 submit」可达。非 worker 路径（测试 / grid / 直生）
+# get(None) 默认返回 None，helper 自然 no-op。
+_CURRENT_TASK_ID: ContextVar[str | None] = ContextVar("arcreel_current_task_id", default=None)
+
+# 重启自愈：worker _process_resume_task 入口 set 上轮已持久化的 job_id；
+# backend.generate 检测到该 var 时跳过 submit、直接 resume_video（接续轮询）。
+# 走完后 worker 清空 var。
+_RESUME_JOB_ID: ContextVar[str | None] = ContextVar("arcreel_resume_job_id", default=None)
+
+
+def set_current_task_id(task_id: str | None) -> object:
+    """Worker 入口 set 当前 task_id；返回 token，由 caller reset。"""
+    return _CURRENT_TASK_ID.set(task_id)
+
+
+def reset_current_task_id(token: object) -> None:
+    _CURRENT_TASK_ID.reset(token)  # pyright: ignore[reportArgumentType]
+
+
+def set_resume_job_id(job_id: str | None) -> object:
+    return _RESUME_JOB_ID.set(job_id)
+
+
+def reset_resume_job_id(token: object) -> None:
+    _RESUME_JOB_ID.reset(token)  # pyright: ignore[reportArgumentType]
+
+
+def get_resume_job_id() -> str | None:
+    return _RESUME_JOB_ID.get(None)
+
+
+async def persist_job_id_if_in_task_context(job_id: str) -> None:
+    """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
+
+    非 worker 路径 (contextvar 未 set) → no-op；worker 路径失败抛异常，
+    由 worker finally 兜底 mark_failed（ADR 0007 fail-fast）。
+    """
+    tid = _CURRENT_TASK_ID.get(None)
+    if tid is None:
+        return
+    try:
+        from lib.generation_queue import get_generation_queue
+
+        await get_generation_queue().persist_provider_job_id(tid, job_id)
+        logger.info("provider_job_id 已持久化 task_id=%s job_id=%s", tid, job_id)
+    except Exception:
+        logger.exception("provider_job_id 持久化失败 task_id=%s job_id=%s", tid, job_id)
+        raise
+
+
+class ResumeExpiredError(RuntimeError):
+    """Provider 端 job 已过期或未找到——重启自愈无法接续，须走 mark_failed。
+
+    Worker finally 据 ``isinstance(exc, ResumeExpiredError)`` 给 error_message
+    加 ``[resume_expired]`` 前缀（agent-facing，i18n 豁免），运维分析可见。
+    """
+
+    def __init__(self, *, job_id: str, provider: str, message: str = "") -> None:
+        self.job_id = job_id
+        self.provider = provider
+        super().__init__(message or f"resume job {job_id} expired or not found on provider {provider}")
+
 
 # 图片后缀 → MIME 类型映射（多个后端共用）
 IMAGE_MIME_TYPES: dict[str, str] = {
@@ -188,3 +255,12 @@ class VideoBackend(Protocol):
     def video_capabilities(self) -> VideoCapabilities: ...
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult: ...
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """接续 provider 上已发起的 job：轮询 + 下载，不重新 submit（ADR 0007）。
+
+        未实现的 backend 抛 ``NotImplementedError``；orphan handler 据此走
+        ``[resume_unsupported]``。provider 端 job 过期/未找到抛 ``ResumeExpiredError``
+        走 ``[resume_expired]``。
+        """
+        raise NotImplementedError

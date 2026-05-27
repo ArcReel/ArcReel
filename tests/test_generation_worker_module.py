@@ -13,11 +13,15 @@ from lib.generation_worker import (
 
 
 class _FakeQueue:
-    def __init__(self):
+    def __init__(self, *, succeeded_rows: int = 1, failed_rows: int = 1):
         self.released = False
         self.succeeded = []
         self.failed = []
+        self.cancelled = []
         self._lease_calls = 0
+        self._succeeded_rows = succeeded_rows
+        self._failed_rows = failed_rows
+        self._orphans: list[dict] = []
 
     async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
         self._lease_calls += 1
@@ -29,14 +33,23 @@ class _FakeQueue:
     async def requeue_running_tasks(self):
         return 0
 
-    async def claim_next_task(self, media_type):
+    async def list_orphan_tasks_on_start(self):
+        return self._orphans
+
+    async def claim_next_task(self, media_type, **_kwargs):
         return None
 
     async def mark_task_succeeded(self, task_id, result):
         self.succeeded.append((task_id, result))
+        return self._succeeded_rows
 
     async def mark_task_failed(self, task_id, error):
         self.failed.append((task_id, error))
+        return self._failed_rows
+
+    async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):
+        self.cancelled.append((task_id, cancelled_by))
+        return 1
 
 
 class TestReadIntEnv:
@@ -239,6 +252,96 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0][0] == "t2"
 
     @pytest.mark.asyncio
+    async def test_process_task_cancelled_error_marks_cancelled(self, monkeypatch):
+        """ADR 0006: asyncio.CancelledError 走 finally → mark_cancelled。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _cancelled(_task):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _cancelled)
+        with pytest.raises(asyncio.CancelledError):
+            await worker._process_task({"task_id": "tc"})
+        assert queue.cancelled and queue.cancelled[0][0] == "tc"
+
+    @pytest.mark.asyncio
+    async def test_process_task_zero_rows_succeeded_falls_through_to_cancelled(self, monkeypatch):
+        """ADR 0006 0-rows-cancelled 协议：mark_succeeded 返回 0 时 finally 调 mark_cancelled。"""
+        queue = _FakeQueue(succeeded_rows=0)
+        worker = GenerationWorker(queue=queue)
+
+        async def _ok(_task):
+            return {"result": "ok"}
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _ok)
+        await worker._process_task({"task_id": "t0rows"})
+        # mark_succeeded 调过但返回 0 rows → mark_cancelled 兜底
+        assert queue.succeeded == [("t0rows", {"result": "ok"})]
+        assert queue.cancelled and queue.cancelled[0][0] == "t0rows"
+
+    @pytest.mark.asyncio
+    async def test_request_cancel_signals_inflight_task(self):
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+
+        async def _long():
+            await asyncio.sleep(10)
+
+        t = asyncio.create_task(_long())
+        pool.video_inflight["tid"] = t
+
+        assert worker.request_cancel("tid") is True
+        # asyncio 会在下次调度时 cancel
+        await asyncio.sleep(0)
+        assert t.cancelled() or t.done()
+
+        # 不在 inflight → False
+        assert worker.request_cancel("ghost") is False
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_cancelling_marks_cancelled(self, monkeypatch):
+        """ADR 0007：orphan cancelling 状态 → mark_cancelled。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "orphan-cancelling",
+                "status": "cancelling",
+                "provider_id": None,
+                "provider_job_id": None,
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        await worker._handle_orphan_tasks_on_start()
+        assert queue.cancelled and queue.cancelled[0][0] == "orphan-cancelling"
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_running_no_job_id_marks_restart_lost(self, monkeypatch):
+        """ADR 0007：running 但无 provider_job_id → [restart_lost]。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "orphan-lost",
+                "status": "running",
+                "provider_id": None,
+                "provider_job_id": None,
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        await worker._handle_orphan_tasks_on_start()
+        assert queue.failed and queue.failed[0][0] == "orphan-lost"
+        assert "[restart_lost]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
     async def test_start_stop_run_loop_releases_lease(self):
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
@@ -315,7 +418,7 @@ class TestGenerationWorker:
                     },
                 ]
 
-            async def claim_next_task(self, media_type):  # type: ignore[override]
+            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
                 for i, t in enumerate(self._tasks):
                     if t["media_type"] == media_type:
                         return self._tasks.pop(i)
@@ -349,3 +452,335 @@ class TestGenerationWorker:
             ],
             return_exceptions=True,
         )
+
+    # ------------------------------------------------------------------
+    # _pool_full_providers
+    # ------------------------------------------------------------------
+    def test_pool_full_providers_excludes_max_zero(self):
+        """max=0 lane 不应被归入'池满'黑名单。
+
+        has_image_room/has_video_room 在 *_max == 0 时也返回 False，若不加守卫
+        SQL filter 会把'不支持该 lane 的 provider'与池满 provider 一起排除，
+        让任务被无声 drop 而非走 worker 二次校验的 max_capacity == 0 fail-fast。
+        """
+        pools = {
+            # 不支持 image (image_max=0)，但 video 支持 + 有空
+            "video-only": ProviderPool(provider_id="video-only", image_max=0, video_max=2),
+            # 支持 image + 池满
+            "img-full": ProviderPool(provider_id="img-full", image_max=1, video_max=0),
+        }
+        loop = asyncio.new_event_loop()
+        dummy = loop.create_future()
+        dummy.set_result(None)
+        pools["img-full"].image_inflight["t1"] = dummy
+
+        worker = GenerationWorker(queue=_FakeQueue(), pools=pools)
+        full_image = worker._pool_full_providers("image")
+        assert "img-full" in full_image, "image 池满应被归入黑名单"
+        assert "video-only" not in full_image, "image_max=0 的 provider 不应归入 image 黑名单"
+
+        full_video = worker._pool_full_providers("video")
+        assert "img-full" not in full_video, "video_max=0 的 provider 不应归入 video 黑名单"
+        assert "video-only" not in full_video, "video 池有空不归入黑名单"
+        loop.close()
+
+    # ------------------------------------------------------------------
+    # _handle_orphan_tasks_on_start：分流补全
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_handle_orphan_image_running_marks_restart_lost(self, monkeypatch):
+        """image 孤儿无 resume 入口 → [restart_lost]，绝不主动 requeue（避免重复扣费）。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "img-orphan",
+                "status": "running",
+                "provider_id": "gemini-aistudio",
+                "provider_job_id": "should-not-be-used",
+                "media_type": "image",
+                "task_type": "storyboard",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        requeued: list[str] = []
+
+        async def _capture_requeue(self, task_id):
+            requeued.append(task_id)
+
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+        await worker._handle_orphan_tasks_on_start()
+        assert requeued == []
+        assert queue.failed and queue.failed[0][0] == "img-orphan"
+        assert "[restart_lost]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_non_resumable_video_marks_resume_unsupported(self, monkeypatch):
+        """Grok/Vidu video 孤儿 → [resume_unsupported]（backend 无 resume，绝不重跑）。"""
+        from lib.providers import PROVIDER_GROK
+
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "grok-orphan",
+                "status": "running",
+                "provider_id": PROVIDER_GROK,
+                "provider_job_id": "some-job",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        requeued: list[str] = []
+
+        async def _capture_requeue(self, task_id):
+            requeued.append(task_id)
+
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+        await worker._handle_orphan_tasks_on_start()
+        assert requeued == []
+        assert queue.failed and queue.failed[0][0] == "grok-orphan"
+        assert "[resume_unsupported]" in queue.failed[0][1]
+        assert PROVIDER_GROK in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_discard_paths_fallback_to_cancelled_on_zero_rows(self, monkeypatch):
+        """非 resumable 路径 mark_failed 返 0 rows（race：被外部 cancel）→ 兜底 mark_cancelled。
+
+        image / Grok / Vidu 三个丢弃路径都共用「mark_failed → 0 rows 时 mark_cancelled 兜底」协议；
+        覆盖 image 一条即可代表（其它两路同源代码块）。
+        """
+        from lib.providers import PROVIDER_GROK
+
+        queue = _FakeQueue(failed_rows=0)  # 模拟 SQL guard 拒绝（task 已被 cancel）
+        queue._orphans = [
+            {
+                "task_id": "img-raced",
+                "status": "running",
+                "provider_id": "gemini-aistudio",
+                "provider_job_id": None,
+                "media_type": "image",
+                "task_type": "storyboard",
+                "payload": {},
+                "project_name": "demo",
+            },
+            {
+                "task_id": "grok-raced",
+                "status": "running",
+                "provider_id": PROVIDER_GROK,
+                "provider_job_id": "job",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            },
+        ]
+        worker = GenerationWorker(queue=queue)
+        await worker._handle_orphan_tasks_on_start()
+        cancelled_ids = {tid for tid, _by in queue.cancelled}
+        assert cancelled_ids == {"img-raced", "grok-raced"}
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_uses_persisted_provider_id(self, monkeypatch):
+        """task.provider_id 优先于 _extract_provider 的当前项目解析（CR round-2 N2 回归）。
+
+        如果 task 持久化的 provider_id 是 Grok（不支持 resume），即便当前项目配置
+        已切换成 Ark（支持 resume），孤儿仍应被识别为 non_resumable → [resume_unsupported]，
+        而不是去派发 _process_resume_task 拿旧 job_id 给新 backend 轮询。
+        """
+        from lib.providers import PROVIDER_GROK
+
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "ghost-orphan",
+                "status": "running",
+                "provider_id": PROVIDER_GROK,  # 持久化的是 Grok
+                "provider_job_id": "stale-job",
+                "media_type": "video",
+                "task_type": "video",
+                # payload 显式写 video_provider=ark，模拟"项目已切换" → _extract_provider 会解析成 ark
+                "payload": {"video_provider": "ark"},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        requeued: list[str] = []
+        resume_dispatched: list[str] = []
+
+        async def _capture_requeue(self, task_id):
+            requeued.append(task_id)
+
+        async def _capture_resume(self, task):
+            resume_dispatched.append(task["task_id"])
+
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
+        await worker._handle_orphan_tasks_on_start()
+        # 用持久化的 Grok → [resume_unsupported]；若误用 payload 里的 ark → 会派发 _process_resume_task
+        assert requeued == []
+        assert resume_dispatched == []
+        assert queue.failed and queue.failed[0][0] == "ghost-orphan"
+        assert "[resume_unsupported]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch):
+        """video resumable provider + 有 job_id → 派发 _process_resume_task。"""
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "ark-orphan",
+                "status": "running",
+                "provider_id": "ark",
+                "provider_job_id": "ark-job-1",
+                "media_type": "video",
+                "task_type": "video",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(queue=queue)
+        dispatched: list[dict] = []
+
+        async def _capture_resume(self, task):
+            dispatched.append(task)
+
+        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
+        await worker._handle_orphan_tasks_on_start()
+        # 任务应进入 ark pool 的 video_inflight,等异步 task 调度
+        pool = worker._get_or_create_pool("ark")
+        assert "ark-orphan" in pool.video_inflight
+        # 等 inflight 任务执行（_capture_resume 被 asyncio.create_task 包了）
+        await asyncio.gather(*pool.video_inflight.values(), return_exceptions=True)
+        assert len(dispatched) == 1
+        assert dispatched[0]["task_id"] == "ark-orphan"
+
+    # ------------------------------------------------------------------
+    # _process_resume_task：分流 + provider 锁定
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_process_resume_task_locks_persisted_provider_to_payload(self, monkeypatch):
+        """C2 回归：persisted provider_id 应注入 payload.video_provider。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+        captured_task: dict | None = None
+
+        async def _fake_execute(task):
+            nonlocal captured_task
+            captured_task = task
+            return {"ok": True}
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _fake_execute)
+
+        task = {
+            "task_id": "resume-locked",
+            "task_type": "video",
+            "media_type": "video",
+            "provider_id": "openai",
+            "provider_job_id": "openai-job",
+            "payload": {"video_provider": "gemini-aistudio"},  # payload 原本指向另一个 provider
+            "project_name": "demo",
+        }
+        await worker._process_resume_task(task)
+        assert captured_task is not None
+        # _process_resume_task 应覆写为持久化 provider_id (openai)
+        assert captured_task["payload"]["video_provider"] == "openai"
+        assert queue.succeeded == [("resume-locked", {"ok": True})]
+
+    @pytest.mark.asyncio
+    async def test_process_resume_task_resume_expired(self, monkeypatch):
+        """ResumeExpiredError → mark_failed [resume_expired]。"""
+        from lib.video_backends.base import ResumeExpiredError
+
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _expire(_task):
+            raise ResumeExpiredError(job_id="x", provider="ark")
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _expire)
+        task = {
+            "task_id": "exp",
+            "task_type": "video",
+            "media_type": "video",
+            "provider_id": "ark",
+            "provider_job_id": "x",
+            "payload": {},
+            "project_name": "demo",
+        }
+        await worker._process_resume_task(task)
+        assert queue.failed and queue.failed[0][0] == "exp"
+        assert "[resume_expired]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_process_resume_task_resume_unsupported(self, monkeypatch):
+        """NotImplementedError → mark_failed [resume_unsupported]。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _unsup(_task):
+            raise NotImplementedError("no resume_video")
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _unsup)
+        task = {
+            "task_id": "uns",
+            "task_type": "video",
+            "media_type": "video",
+            "provider_id": "vidu",
+            "provider_job_id": "x",
+            "payload": {},
+            "project_name": "demo",
+        }
+        await worker._process_resume_task(task)
+        assert queue.failed and queue.failed[0][0] == "uns"
+        assert "[resume_unsupported]" in queue.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_process_resume_task_generic_exception(self, monkeypatch):
+        """通用 Exception → mark_failed（无前缀，与运行期 backend 失败同款）。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _boom(_task):
+            raise RuntimeError("transient backend error")
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _boom)
+        task = {
+            "task_id": "boom",
+            "task_type": "video",
+            "media_type": "video",
+            "provider_id": "ark",
+            "provider_job_id": "x",
+            "payload": {},
+            "project_name": "demo",
+        }
+        await worker._process_resume_task(task)
+        assert queue.failed and queue.failed[0][0] == "boom"
+        # 无 [resume_*] 前缀
+        assert not queue.failed[0][1].startswith("[resume_")
+
+    @pytest.mark.asyncio
+    async def test_process_resume_task_cancelled_error(self, monkeypatch):
+        """CancelledError → mark_cancelled + 重新抛出。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _cancel(_task):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _cancel)
+        task = {
+            "task_id": "rc",
+            "task_type": "video",
+            "media_type": "video",
+            "provider_id": "ark",
+            "provider_job_id": "x",
+            "payload": {},
+            "project_name": "demo",
+        }
+        with pytest.raises(asyncio.CancelledError):
+            await worker._process_resume_task(task)
+        assert queue.cancelled and queue.cancelled[0][0] == "rc"
