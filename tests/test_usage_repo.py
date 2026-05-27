@@ -99,19 +99,42 @@ class TestFinalizePendingByCallId:
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id)
+        # 显式 cost_amount=0.0 维持单元测试的确定性，绕过 auto-calc 路径
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, cost_amount=0.0)
         assert affected == 1
 
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["status"] == "success"
         assert calls["items"][0]["cost_amount"] == 0.0
 
+    async def test_auto_calculates_cost_when_amount_omitted(self, db_session):
+        """cost_amount=None + status='success' → 按 ApiCall 行字段调 cost_calculator 算实际 cost。"""
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.0-fast-generate-001",
+            duration_seconds=8,
+            resolution="1080p",
+            aspect_ratio="9:16",
+            generate_audio=True,
+            provider="gemini",
+        )
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id)
+        assert affected == 1
+
+        calls = await repo.get_calls(project_name="demo")
+        # auto-calc 由 cost_calculator 按 model/duration/resolution/audio 算出，应为正数
+        assert calls["items"][0]["status"] == "success"
+        assert calls["items"][0]["cost_amount"] > 0.0, "auto-calc 应算出真实 cost，不应是 0"
+
     async def test_does_not_touch_other_pending_call(self, db_session):
         repo = UsageRepository(db_session)
         cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
         cid_b = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
 
-        affected = await repo.finalize_pending_by_call_id(call_id=cid_a)
+        affected = await repo.finalize_pending_by_call_id(call_id=cid_a, cost_amount=0.0)
         assert affected == 1
 
         # 全量查询

@@ -56,8 +56,8 @@ class UsageTracker:
         self,
         *,
         call_id: int,
-        cost_amount: float = 0.0,
-        currency: str = "USD",
+        cost_amount: float | None = None,
+        currency: str | None = None,
         status: str = "success",
     ) -> int:
         async with self._session_factory() as session:

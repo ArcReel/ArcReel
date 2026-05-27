@@ -589,12 +589,14 @@ class MediaGenerator:
         video_ref = None
         video_uri = result.video_uri
 
-        # Resume 成功：精准翻 pending → success，cost_amount=0 保持单次计费语义。
+        # Resume 成功：精准翻 pending → success。cost_amount=None 让 repo 按 ApiCall 行
+        # 字段（model/resolution/duration/generate_audio）调 cost_calculator 算实际 cost，
+        # 与 generate 路径 finish_call 自动算 cost 等价——避免视频已生成但账本永久漏记。
+        # WHERE status='pending' 仍保护幂等性，已 success 行不会被 touch。
         if api_call_id is not None:
             try:
                 affected = await self.usage_tracker.finalize_pending_by_call_id(
                     call_id=api_call_id,
-                    cost_amount=0.0,
                     status="success",
                 )
                 if affected == 0:

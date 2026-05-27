@@ -141,7 +141,9 @@ async def test_resume_success_flips_pending_apicall_by_call_id(tmp_path):
     call = gen.usage_tracker.finalized[0]
     assert call["call_id"] == 42
     assert call["status"] == "success"
-    assert call["cost_amount"] == 0.0
+    # success 路径不显式传 cost_amount，让 repo 按 ApiCall 行字段 auto-calc 算实际 cost
+    # （与 generate 路径 finish_call 等价记账），caller 端不再硬编码 0.0
+    assert "cost_amount" not in call or call["cost_amount"] is None
 
 
 @pytest.mark.asyncio
