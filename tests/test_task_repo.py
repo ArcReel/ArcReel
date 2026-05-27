@@ -494,6 +494,30 @@ class TestCancelCascadeAcrossCancelling:
             assert t["status"] == "cancelled", f"{tid} expected cancelled, got {t['status']}"
             assert t["cancelled_by"] == expected
 
+    async def test_finalize_cancelled_returns_cascading_cancelling_ids(self, db_session):
+        """finalize_cancelled 应返回级联出来的 running 子任务 task_id 列表，
+        让上层 GenerationQueue 同步分发 in-process cancel 信号给 worker。
+        """
+        repo = TaskRepository(db_session)
+        a, b, c = await self._chain_3(repo)
+        await repo.claim_next("image")
+        # 直接把 B set 成 running 绕开依赖守卫
+        from sqlalchemy import update
+
+        from lib.db.models.task import Task
+
+        await db_session.execute(update(Task).where(Task.task_id == b).values(status="running"))
+        await db_session.commit()
+
+        # finalize_cancelled(a) 级联：A → cancelled、B(running) → cancelling、C(queued, dep on B) 留 queued
+        result = await repo.finalize_cancelled(a)
+
+        assert result["rows"] == 1
+        # B 是 running 下游，cascade 把它转 cancelling 应进入 cancelling 列表
+        assert b in result["cancelling"], "running 下游 task_id 必须返回，让上层分发 cancel"
+        # C 是 queued（依赖 B 还没结束），不进 cancelling 列表
+        assert c not in result["cancelling"]
+
     async def test_cancel_link_running_running_queued(self, db_session):
         """A(running)→B(running)→C(queued)：finalize(A) → A cancelled、B cancelling、C queued；
         finalize(B) → B cancelled、C cancelled。"""

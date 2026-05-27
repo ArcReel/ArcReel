@@ -190,10 +190,26 @@ class GenerationQueue:
         return affected
 
     async def mark_task_cancelled(self, task_id: str, *, cancelled_by: str = "user") -> int:
-        """Worker finally 0-rows-cancelled 协议兜底入口（SQL 守卫 status IN queued|cancelling）。"""
+        """Worker finally 0-rows-cancelled 协议兜底入口（SQL 守卫 status IN queued|cancelling）。
+
+        Repository 返回 ``{"rows", "cancelling"}``：cancelling 是级联出来的 running 下游
+        task_id 列表——这里同步调 worker callback 分发 in-process cancel（与 cancel_task
+        模式一致），让父任务 finalize 时打到的 running 子任务也能立刻收到 cancel 信号，
+        而不必等它跑完整个 provider 调用。返回 rows 兼容现有 0-rows-cancelled 协议 caller。
+        """
         async with self._session_factory() as session:
             repo = TaskRepository(session)
-            return await repo.finalize_cancelled(task_id, cancelled_by=cancelled_by)
+            result = await repo.finalize_cancelled(task_id, cancelled_by=cancelled_by)
+
+        callback = self._worker_cancel_callback
+        if callback is not None:
+            for tid in result.get("cancelling", []):
+                try:
+                    callback(tid)
+                except Exception:
+                    logger.exception("worker cancel callback 派发失败 task_id=%s (finalize cascade)", tid)
+
+        return int(result.get("rows", 0))
 
     async def cancel_task(self, task_id: str) -> dict[str, Any]:
         async with self._session_factory() as session:

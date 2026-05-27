@@ -361,6 +361,54 @@ class TestGenerationQueue:
         assert signaled == [enqueued["task_id"]]
         assert result["cancelling"] == [enqueued["task_id"]]
 
+    async def test_finalize_cancelled_dispatches_cascade_callback(self, queue):
+        """mark_task_cancelled(finalize 入口) 把级联出的 running 子任务派发给 callback。
+
+        A(running)→B(running)→C(queued)：worker finally 调 finalize_cancelled(A)，
+        cascade 把 B 标 cancelling，须同步调 callback(B) 让 worker request_cancel(B)
+        立刻发 in-process cancel，而非等 B 跑完 provider 调用。
+        """
+        from sqlalchemy import update as sql_update
+
+        from lib.db.models.task import Task
+
+        a_task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+        b_task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=a_task["task_id"],
+        )
+
+        # 把 A 拉到 running、B 也直接 set 成 running（跳过 dep 守卫）
+        await queue.claim_next_task("image")
+        async with queue._session_factory() as session:
+            await session.execute(sql_update(Task).where(Task.task_id == b_task["task_id"]).values(status="running"))
+            await session.commit()
+
+        signaled: list[str] = []
+
+        def _fake_cancel(task_id: str) -> bool:
+            signaled.append(task_id)
+            return True
+
+        queue.set_worker_cancel_callback(_fake_cancel)
+        # finalize_cancelled(A) 级联：A → cancelled、B(running) → cancelling
+        rows = await queue.mark_task_cancelled(a_task["task_id"], cancelled_by="user")
+        assert rows == 1
+        # B 必须被分发 callback —— Repository 返回意图、Queue 上层分发
+        assert b_task["task_id"] in signaled
+
     async def test_cancel_task_callback_exception_does_not_break(self, queue):
         """callback 抛异常不影响 cancel_task 返回(best-effort 信号)。"""
         enqueued = await queue.enqueue_task(

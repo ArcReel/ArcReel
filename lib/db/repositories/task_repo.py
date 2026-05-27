@@ -698,7 +698,7 @@ class TaskRepository(BaseRepository):
         )
         return [_task_to_dict(t) for t in result.scalars().all()]
 
-    async def finalize_cancelled(self, task_id: str, *, cancelled_by: str = "user") -> int:
+    async def finalize_cancelled(self, task_id: str, *, cancelled_by: str = "user") -> dict[str, Any]:
         """Worker finally 0-rows-cancelled 协议入口：把 queued/cancelling/running task 落 cancelled。
 
         SQL 守卫 ``status IN ('queued','cancelling','running')`` 接住三条路径：
@@ -708,13 +708,22 @@ class TaskRepository(BaseRepository):
 
         ``cascade=True``：本 task 终态落地后，``_mark_cancelled`` 内部触发下游级联——
         覆盖「父 running 还在 cancelling，下游 queued 暂未级联，等父 worker finally
-        落 cancelled 时再统一级联下游」这条主路径。caller 不消费 list，传 None 兜底。
+        落 cancelled 时再统一级联下游」这条主路径。
 
-        独立 commit，返回受影响行数。
+        返回 ``{"rows": int, "cancelling": list[str]}``：cancelling 是级联出来的 running
+        下游 task_id 列表——Repository 只返回意图，由上层 GenerationQueue 同步分发
+        in-process cancel 信号（Repository 不持 Worker callback）；这样级联打到的
+        running 子任务能立刻收到 cancel 而不必等它跑完。
         """
-        data = await self._mark_cancelled(task_id, cancelled_by=cancelled_by, cascade=True)
+        cancelling: list[str] = []
+        data = await self._mark_cancelled(
+            task_id,
+            cancelled_by=cancelled_by,
+            cancelling=cancelling,
+            cascade=True,
+        )
         await self.session.commit()
-        return 1 if data is not None else 0
+        return {"rows": 1 if data is not None else 0, "cancelling": cancelling}
 
     async def get_cancel_all_preview(self, project_name: str) -> int:
         """返回项目中当前 queued 状态的任务数量。"""
