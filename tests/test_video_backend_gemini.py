@@ -357,6 +357,44 @@ class TestDownloadVideo:
             backend._download_video(mock_ref, output)
 
 
+class TestGeminiResumeVideo:
+    """resume_video 路径：初次 + mid-poll NOT_FOUND 都归类为 ResumeExpiredError。"""
+
+    async def test_mid_poll_not_found_classified_as_resume_expired(self, backend, tmp_path):
+        from lib.video_backends.base import ResumeExpiredError
+
+        # 初次 operations.get 返回 pending 让 poll 进入循环；poll_fn 中抛 NOT_FOUND
+        pending_op = MagicMock()
+        pending_op.done = False
+        get_calls = {"n": 0}
+
+        async def _fake_get(_op):
+            get_calls["n"] += 1
+            if get_calls["n"] == 1:
+                return pending_op
+            raise RuntimeError("operation not found mid poll")
+
+        backend._client.aio.operations.get = AsyncMock(side_effect=_fake_get)
+        # GenerateVideosOperation.model_validate 用 MagicMock，返回任意对象即可
+        backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=pending_op)
+
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
+        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(ResumeExpiredError) as ei:
+                await backend.resume_video("op-xyz", request)
+        assert ei.value.job_id == "op-xyz"
+
+    async def test_initial_get_not_found_classified_as_resume_expired(self, backend, tmp_path):
+        from lib.video_backends.base import ResumeExpiredError
+
+        backend._client.aio.operations.get = AsyncMock(side_effect=RuntimeError("operation not found"))
+        backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=MagicMock())
+
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
+        with pytest.raises(ResumeExpiredError):
+            await backend.resume_video("op-not-found", request)
+
+
 class TestIsGeminiNotFound:
     """fix #647 #6：INVALID_ARGUMENT 不归过期，只保留 404 / NOT_FOUND / "not found" / "expired"。"""
 

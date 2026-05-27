@@ -129,6 +129,11 @@ class OpenAIVideoBackend:
             await persist_provider_job_id(request.task_id, video.id, provider=PROVIDER_OPENAI)
         final = await self._poll_until_complete(video.id, request.duration_seconds)
 
+        # generate 路径下 expired 是「provider 异常 / 输入参数过期」类失败，
+        # 抛 RuntimeError 让 worker mark_failed（不带 [resume_expired] 前缀）。
+        if final.status == "expired":
+            raise RuntimeError(f"OpenAI Sora job expired during generate: {final.id}")
+
         return await self._download_and_build_result(final, request, kwargs)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -139,6 +144,16 @@ class OpenAIVideoBackend:
             if _is_openai_not_found(exc):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_OPENAI) from exc
             raise
+
+        # resume 路径下 expired = provider 端已忘 / 输入资产过期，归类
+        # [resume_expired] 让 worker 错误前缀化、不再尝试重启自愈
+        if final.status == "expired":
+            raise ResumeExpiredError(
+                job_id=job_id,
+                provider=PROVIDER_OPENAI,
+                message=f"OpenAI Sora job expired: {final.id}",
+            )
+
         return await self._download_and_build_result(final, request, {"seconds": str(request.duration_seconds)})
 
     async def _download_and_build_result(
@@ -177,21 +192,15 @@ class OpenAIVideoBackend:
         """
         max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(duration_seconds) * _POLL_TIMEOUT_PER_SECOND)
 
-        def _is_done(v) -> bool:
-            # 在 is_done 内识别 expired——poll_with_retry 的 else 分支不在 except 块内，
-            # raise 自然冒泡；ResumeExpiredError 不在 OPENAI_RETRYABLE_ERRORS 内，
-            # 外层 except 不会重试。
-            if v.status == "expired":
-                raise ResumeExpiredError(
-                    job_id=v.id,
-                    provider=PROVIDER_OPENAI,
-                    message=f"OpenAI Sora job expired: {v.id}",
-                )
-            return v.status == "completed"
-
+        # _is_done 是纯谓词：completed / failed / expired 三种状态都视为「已终态」让 poll 返回。
+        # caller (generate / resume_video) 拿到 result 后再分流：
+        #   - completed → 下载
+        #   - failed   → is_failed 已抛 RuntimeError
+        #   - expired  → 在 caller 处按 generate vs resume 上下文抛 RuntimeError / ResumeExpiredError
+        # 关键不变量：is_failed 不识别 expired，避免覆盖 caller 分流。
         return await poll_with_retry(
             poll_fn=lambda: self._client.videos.retrieve(video_id),
-            is_done=_is_done,
+            is_done=lambda v: v.status in ("completed", "failed", "expired"),
             is_failed=lambda v: f"Sora 视频生成失败: {getattr(v, 'error', None)}" if v.status == "failed" else None,
             poll_interval=_POLL_INTERVAL_SECONDS,
             max_wait=max_wait,

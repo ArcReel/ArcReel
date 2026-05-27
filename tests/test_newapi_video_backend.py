@@ -477,3 +477,34 @@ class TestNewAPIVideoBackend:
                 )
             assert ei.value.job_id == "task-x"
             assert ei.value.provider == PROVIDER_NEWAPI
+
+    async def test_generate_expired_status_raises_runtime_error_not_resume_expired(self, tmp_path: Path):
+        """generate 路径下 status='expired' 抛 RuntimeError，不带 [resume_expired] 语义。"""
+        from lib.video_backends.base import ResumeExpiredError
+
+        create_resp = _make_response(200, {"task_id": "task-new"})
+        expired_resp = _make_response(200, {"task_id": "task-new", "status": "expired"})
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_resp)
+        mock_client.get = AsyncMock(return_value=expired_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            with pytest.raises(RuntimeError) as ei:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p",
+                        output_path=tmp_path / "out.mp4",
+                        aspect_ratio="9:16",
+                        duration_seconds=5,
+                    ),
+                )
+            assert "expired" in str(ei.value).lower()
+            assert not isinstance(ei.value, ResumeExpiredError), "generate 路径不应抛 ResumeExpiredError"

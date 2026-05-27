@@ -128,15 +128,21 @@ class GeminiVideoBackend:
         Operation 是 ABC，不可实例化；具体 LRO 子类 GenerateVideosOperation 通过
         Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的
         字段推断不全，用 model_validate 绕开）。
+
+        NOT_FOUND 既可能在初次 ``operations.get`` 抛，也可能在 ``_poll_until_done`` 内
+        mid-poll 抛（远端 GC 了 LRO）。两处都需要归类为 ResumeExpiredError 让 worker
+        finally 走 ``[resume_expired]``——下面的 try/except 把整段包住。
         """
         op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
         try:
             refreshed = await self._client.aio.operations.get(op)
+            return await self._poll_until_done(refreshed, request)
+        except ResumeExpiredError:
+            raise
         except Exception as exc:
             if _is_gemini_not_found(exc):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_GEMINI) from exc
             raise
-        return await self._poll_until_done(refreshed, request)
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
