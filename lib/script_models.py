@@ -103,6 +103,10 @@ class GeneratedAssets(BaseModel):
     grid_id: str | None = Field(default=None, description="关联的网格图生成 ID")
     grid_cell_index: int | None = Field(default=None, description="在网格图中的单元格索引")
     video_clip: str | None = Field(default=None, description="视频片段路径")
+    # video_thumbnail 由 reference_video_tasks / generation_tasks 在视频生成后通过
+    # lib.thumbnail.extract_video_thumbnail 抽帧落盘,写到 ga["video_thumbnail"];
+    # 漏声明的话 extra="forbid" 会让「不更坏」检测到 extra_forbidden 差集,拒整集写盘。
+    video_thumbnail: str | None = Field(default=None, description="视频缩略图路径")
     video_uri: str | None = Field(default=None, description="视频 URI")
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
 

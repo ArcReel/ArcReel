@@ -306,3 +306,35 @@ class TestRuntimeBackwardCompat:
             }
         )
         assert seg.transition_to_next == "cut"
+
+
+class TestGeneratedAssetsTemplateContract:
+    """GeneratedAssets 模型与 create_generated_assets() dict 模板必须保持字段一致。
+
+    模型开 extra="forbid" 后,运行时回写若出现模型未声明的字段,会被 _guard_no_worse
+    在 before/after 差集中检测为 extra_forbidden 拒整集写盘——例如视频生成完成后
+    reference_video_tasks 在 ga 上写 "video_thumbnail" 时整集拒。本测试守住「模板
+    写入字段⊆模型声明字段」契约。
+    """
+
+    def test_template_dict_validates_against_generated_assets_model(self):
+        from lib.project_manager import ProjectManager
+        from lib.script_models import GeneratedAssets
+
+        # 不抛即通过——template 任何 key 不在模型字段集时 extra="forbid" 会抛 ValidationError
+        GeneratedAssets.model_validate(ProjectManager.create_generated_assets())
+        GeneratedAssets.model_validate(ProjectManager.create_generated_assets("drama"))
+
+    def test_video_thumbnail_runtime_write_passes_strict_validation(self):
+        """reference_video_tasks 在视频生成后会写 ga['video_thumbnail'],模型必须接受。"""
+        from lib.script_models import GeneratedAssets
+
+        GeneratedAssets.model_validate(
+            {
+                "storyboard_image": "scenes/E1S01.png",
+                "video_clip": "videos/E1S01.mp4",
+                "video_thumbnail": "thumbnails/E1S01.jpg",
+                "video_uri": "https://example/v",
+                "status": "completed",
+            }
+        )
