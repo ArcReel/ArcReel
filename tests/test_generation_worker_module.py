@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from lib.generation_worker import (
+    _ORPHAN_RESCAN_LEASE_LOST_MULT,
     DEFAULT_PROVIDER,
     GenerationWorker,
     ProviderPool,
@@ -1099,3 +1100,123 @@ class TestDispatcherFailFastAndPendingTracking:
 
         block.set()
         await worker._orphan_dispatcher_task
+
+
+class TestOrphanOnceAndLeaseFlap:
+    """orphan 一次性扫描 + lease flap 阈值。"""
+
+    def _build_worker(self) -> tuple[GenerationWorker, _FakeQueue, list[int]]:
+        """构造 worker；返回 (worker, queue, scan_count)。scan_count 记录扫描次数。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+        scan_count: list[int] = []
+
+        async def _spy_scan():
+            scan_count.append(1)
+
+        # 替换 _handle_orphan_tasks_on_start 为 spy，便于精确断言扫描次数
+        worker._handle_orphan_tasks_on_start = _spy_scan  # type: ignore[assignment]
+        return worker, queue, scan_count
+
+    @pytest.mark.asyncio
+    async def test_orphan_scanned_once_on_first_lease_acquire(self):
+        worker, _, scan_count = self._build_worker()
+        worker._owns_lease = True
+        worker._orphan_handled_once = False
+
+        # 模拟主循环里那段守卫
+        if worker._owns_lease and not worker._orphan_handled_once:
+            await worker._handle_orphan_tasks_on_start()
+            worker._orphan_handled_once = True
+
+        assert len(scan_count) == 1
+        assert worker._orphan_handled_once is True
+
+    @pytest.mark.asyncio
+    async def test_orphan_not_rescanned_in_steady_state(self):
+        """稳定持 lease 多拍主循环：扫描仅 1 次。"""
+        worker, _, scan_count = self._build_worker()
+        worker._owns_lease = True
+
+        for _ in range(5):
+            if worker._owns_lease and not worker._orphan_handled_once:
+                await worker._handle_orphan_tasks_on_start()
+                worker._orphan_handled_once = True
+
+        assert len(scan_count) == 1
+
+    @pytest.mark.asyncio
+    async def test_orphan_does_not_rescan_on_short_lease_flap(self):
+        """lease flap < lease_ttl：不重扫。"""
+        worker, _, scan_count = self._build_worker()
+        worker.lease_ttl = 10.0
+
+        # 首次获得 lease 扫一次
+        worker._owns_lease = True
+        await worker._handle_orphan_tasks_on_start()
+        worker._orphan_handled_once = True
+
+        # 模拟丢 lease 1 秒后又夺回（短 flap）
+        import time as _time
+
+        worker._lease_lost_monotonic = _time.monotonic() - 1.0
+        # 应用 _run_loop 中的逻辑片段
+        lost_duration = _time.monotonic() - worker._lease_lost_monotonic
+        if lost_duration > worker.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
+            worker._orphan_handled_once = False
+        worker._lease_lost_monotonic = None
+
+        # flap 时长远小于 30s，仍是 handled_once
+        assert worker._orphan_handled_once is True
+        if worker._owns_lease and not worker._orphan_handled_once:
+            await worker._handle_orphan_tasks_on_start()
+        assert len(scan_count) == 1, "短 flap 不应重扫"
+
+    @pytest.mark.asyncio
+    async def test_orphan_does_not_rescan_below_3x_ttl(self):
+        """lease_ttl < lost < 3×lease_ttl：仍不重扫（边界）。"""
+        worker, _, scan_count = self._build_worker()
+        worker.lease_ttl = 10.0
+
+        worker._owns_lease = True
+        await worker._handle_orphan_tasks_on_start()
+        worker._orphan_handled_once = True
+
+        import time as _time
+
+        # lost = 15s（介于 ttl=10s 与 3×ttl=30s 之间）
+        worker._lease_lost_monotonic = _time.monotonic() - 15.0
+        lost_duration = _time.monotonic() - worker._lease_lost_monotonic
+        if lost_duration > worker.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
+            worker._orphan_handled_once = False
+        worker._lease_lost_monotonic = None
+
+        assert worker._orphan_handled_once is True
+        if worker._owns_lease and not worker._orphan_handled_once:
+            await worker._handle_orphan_tasks_on_start()
+        assert len(scan_count) == 1, "15s 仍 < 3×ttl=30s，不应重扫"
+
+    @pytest.mark.asyncio
+    async def test_orphan_rescans_after_real_lease_handoff(self):
+        """lost > 3×lease_ttl：清零开关，下次重扫。"""
+        worker, _, scan_count = self._build_worker()
+        worker.lease_ttl = 10.0
+
+        worker._owns_lease = True
+        await worker._handle_orphan_tasks_on_start()
+        worker._orphan_handled_once = True
+
+        import time as _time
+
+        # lost = 40s > 30s 阈值，认为另一进程曾持过 lease
+        worker._lease_lost_monotonic = _time.monotonic() - 40.0
+        lost_duration = _time.monotonic() - worker._lease_lost_monotonic
+        if lost_duration > worker.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
+            worker._orphan_handled_once = False
+        worker._lease_lost_monotonic = None
+
+        assert worker._orphan_handled_once is False
+        if worker._owns_lease and not worker._orphan_handled_once:
+            await worker._handle_orphan_tasks_on_start()
+            worker._orphan_handled_once = True
+        assert len(scan_count) == 2, "lost 超过 3×ttl 应重扫一次"

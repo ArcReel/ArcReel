@@ -516,6 +516,26 @@ class TestCancelCascadeAcrossCancelling:
         assert (await repo.get(c))["status"] == "cancelled"
         assert (await repo.get(c))["cancelled_by"] == "cascade"
 
+    async def test_cancel_cascade_event_data_carries_cancelled_by(self, db_session):
+        """前端通过 SSE 事件 data 中的 cancelled_by 字段区分级联取消。
+
+        本测试断言：finalize_cancelled(A) 触发的 B/C cancelled 事件 data 中
+        cancelled_by="cascade"；A 自己的事件 data cancelled_by="user"。
+        """
+        repo = TaskRepository(db_session)
+        a, b, c = await self._chain_3(repo)
+        await repo.claim_next("image")
+        await repo.cancel_task(a)
+        await repo.finalize_cancelled(a)
+
+        events = await repo.get_events_since(last_event_id=0)
+        cancelled_events = [e for e in events if e["event_type"] == "cancelled"]
+        by_task = {e["task_id"]: e for e in cancelled_events}
+
+        assert by_task[a]["data"]["cancelled_by"] == "user"
+        assert by_task[b]["data"]["cancelled_by"] == "cascade"
+        assert by_task[c]["data"]["cancelled_by"] == "cascade"
+
     async def test_cancel_emits_each_event_at_most_twice(self, db_session):
         """每个 task 的 cancelling/cancelled 事件不超过 1 次/各 1 次（不重复 emit）。"""
         repo = TaskRepository(db_session)

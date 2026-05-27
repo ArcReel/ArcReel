@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,6 +18,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from datetime import UTC
+
+# Lease 丢失超过 ``lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT`` 才认为是真切换 owner
+# （另一个 worker 进程曾持过 lease 且写入了新 orphan），需要重扫；短 flap（续约抖动）
+# 不触发。lease_ttl 默认 10s → 阈值 30s。常量化便于单测注入与未来调参。
+_ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
 from lib.generation_queue import (
     TASK_POLL_INTERVAL_SEC,
@@ -231,6 +237,10 @@ class GenerationWorker:
         # Orphan dispatcher 句柄持久化：shutdown 时 await 它跑完；lease 切换重夺时
         # 第二次进 _handle_orphan_tasks_on_start，旧句柄未 done 不能直接覆盖。
         self._orphan_dispatcher_task: asyncio.Task | None = None
+        # 一次性扫描开关：单 lease 互斥架构下，进程一旦扫过 orphan 就不再重扫；
+        # 配合 _lease_lost_monotonic 阈值在「真切换 owner」时清零、「短 flap」不清零。
+        self._orphan_handled_once: bool = False
+        self._lease_lost_monotonic: float | None = None
 
     # ------------------------------------------------------------------
     # Backward compatibility shims
@@ -383,12 +393,27 @@ class GenerationWorker:
 
                 await self._drain_finished_tasks()
 
-                # 仅在「真重启 / 长时间失去 lease 后重获」时扫一次孤儿做重启自愈：
-                # 同 ADR 0007——重启不重 submit；按 provider_job_id 接续轮询或标 failed。
-                # 保留 guard 否则 lease 续期会重复扫孤儿。
-                all_inflight = self._image_inflight or self._video_inflight
-                if self._owns_lease and not had_lease and not all_inflight:
+                # Lease 状态变化跟踪：首次失去 lease 时打点；重夺 lease 后判断
+                # 「真切换 owner」（>= 3× ttl）→ 重置开关；「续约 flap」（< 3× ttl）→ 保持。
+                if had_lease and not self._owns_lease and self._lease_lost_monotonic is None:
+                    self._lease_lost_monotonic = time.monotonic()
+                if self._owns_lease and self._lease_lost_monotonic is not None:
+                    lost_duration = time.monotonic() - self._lease_lost_monotonic
+                    if lost_duration > self.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
+                        logger.info(
+                            "lease 丢失 %.1fs（> %d×ttl=%.1fs），认为另一进程曾持过 lease，重扫 orphan",
+                            lost_duration,
+                            _ORPHAN_RESCAN_LEASE_LOST_MULT,
+                            self.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT,
+                        )
+                        self._orphan_handled_once = False
+                    self._lease_lost_monotonic = None
+
+                # 一次性扫描：进程持 lease 后只扫一次 orphan；后续主循环不再重扫。
+                # 单 lease 互斥保证不会与另一个 worker 同时扫；跨进程接管由上述阈值兜底。
+                if self._owns_lease and not self._orphan_handled_once:
                     await self._handle_orphan_tasks_on_start()
+                    self._orphan_handled_once = True
 
                 if not self._owns_lease:
                     await asyncio.sleep(self.heartbeat_interval)
