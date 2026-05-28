@@ -242,6 +242,46 @@ class TestTextUtilsCountVsOffsetParity:
         assert tu.count_chars("他说：「你好。」") == 8
 
 
+class TestPeekSplitNfcSameCoordinateSystem:
+    """peek 与 split 必须共用 NFC 坐标系:peek 把 NFD 源 normalize 到 NFC 后输出
+    context/anchor,split 必须也对源文件 NFC normalize,否则 agent 从 peek 拿到的
+    NFC anchor 在 NFD 文件中搜不到,vi macOS/外部导入越南语场景下切分失败。
+    """
+
+    @staticmethod
+    def _read_script_text(rel: str) -> str:
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parent.parent
+        return (repo_root / rel).read_text(encoding="utf-8")
+
+    def test_split_episode_normalizes_to_nfc(self) -> None:
+        # 钉契约:split_episode.py 源码中含 NFC normalize,确保与 peek 同坐标系
+        src = self._read_script_text("agent_runtime_profile/.claude/skills/manage-project/scripts/split_episode.py")
+        assert 'unicodedata.normalize("NFC"' in src or "unicodedata.normalize('NFC'" in src, (
+            "split_episode.py 必须对源文件 NFC normalize 与 peek 同坐标系"
+        )
+
+    def test_nfc_anchor_found_in_nfd_source_via_normalize(self) -> None:
+        # 模拟:NFD 源 → split NFC normalize 后,NFC anchor 能命中
+        import unicodedata
+
+        nfc_source = "Hôm nay trời đẹp quá. Chúng ta đi chơi nhé."
+        nfd_source = unicodedata.normalize("NFD", nfc_source)
+        assert nfc_source != nfd_source
+
+        # peek 输出的 anchor 在 NFC 空间
+        peek_anchor = "trời đẹp"
+        assert peek_anchor in nfc_source
+
+        # NFD 源直接查找 NFC anchor → miss(早期 bug)
+        assert peek_anchor not in nfd_source
+
+        # split NFC normalize 后查找 → hit(本 commit 修复)
+        normalized = unicodedata.normalize("NFC", nfd_source)
+        assert peek_anchor in normalized
+
+
 class TestPeekBreakpointsLanguageAware:
     """peek 的 find_natural_breakpoints 调用须按 language 选标点集:zh 用 `。！？…`,
     en/vi 用 ASCII `. ! ? …`。早期版本未传 language → en/vi 文本断点为空,split

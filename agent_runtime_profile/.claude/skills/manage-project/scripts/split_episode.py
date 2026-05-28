@@ -15,6 +15,7 @@ split_episode.py - 执行分集切分
 
 import argparse
 import sys
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -98,7 +99,11 @@ def main():
 
     source_path, source_dir = _resolve_source_in_project(args.source)
 
-    text = source_path.read_text(encoding="utf-8")
+    # NFC normalize 与 peek_split_point 同坐标系:peek 已对源文件 NFC normalize,
+    # 输出的 anchor 字符串在 NFC 空间。这里同样 normalize,确保 anchor 搜索一致。
+    # 输出 episode_N.txt / _remaining.txt 也将以 NFC 写入(原 NFD 源文件在
+    # macOS/外部导入越南语场景才出现,统一 NFC 是 industry standard)。
+    text = unicodedata.normalize("NFC", source_path.read_text(encoding="utf-8"))
 
     # 用目标字数计算大致偏移位置
     target_offset = find_char_offset(text, args.target)
