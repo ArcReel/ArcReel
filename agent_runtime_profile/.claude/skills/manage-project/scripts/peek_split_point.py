@@ -29,7 +29,7 @@ from _text_utils import count_chars, find_natural_breakpoints  # noqa: E402
 # Path(__file__) 回溯到仓库根。profile 物化到 ARCREEL_DATA_DIR/AI_ANIME_PROJECTS
 # 指向的项目目录后,脚本父目录链上没有 pyproject.toml,运行时无法定位 lib。
 # 改 lib/text_metrics.py 时同步更新这里 —— 接口稳定,改动罕见。
-_ZH_UNIT_PATTERN = re.compile("[㐀-鿿豈-﫿　-〿＀-￯]")
+_ZH_UNIT_PATTERN = re.compile("[㐀-鿿豈-﫿　-〿＀-￯𠀀-𲎯]")
 _LATIN_WORD_PATTERN = re.compile(r"\b\w+\b", re.UNICODE)
 
 

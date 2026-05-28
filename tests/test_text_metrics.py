@@ -30,6 +30,17 @@ class TestZh:
     def test_pure_whitespace(self) -> None:
         assert count_reading_units("   \n\t  ", "zh") == 0
 
+    def test_sip_plane_cjk_ext_b_to_h_counted(self) -> None:
+        # 罕用字 / 古籍 / 人名地名: SIP 平面 U+20000-U+323AF (CJK Ext B-H)
+        # 早期实现仅覆盖 BMP,SIP 字符走 zh 路径会被 \w 不识别 → count 偏少
+        assert count_reading_units(chr(0x20000), "zh") == 1  # CJK Ext B 起
+        assert count_reading_units(chr(0x2A6DF), "zh") == 1  # CJK Ext B 末
+        assert count_reading_units(chr(0x30000), "zh") == 1  # CJK Ext G 起
+        assert count_reading_units(chr(0x323AF), "zh") == 1  # CJK Ext H 覆盖范围内
+        # 混排 BMP + SIP
+        text = f"今天{chr(0x20000)}天气{chr(0x30000)}好"
+        assert count_reading_units(text, "zh") == 7
+
 
 class TestEn:
     def test_pure_english(self) -> None:
