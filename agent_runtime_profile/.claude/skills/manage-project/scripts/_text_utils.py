@@ -55,7 +55,13 @@ def find_char_offset(text: str, target_count: int) -> int:
     return pos
 
 
-def find_natural_breakpoints(text: str, center_offset: int, window: int = 200) -> list[dict]:
+_ZH_SENTENCE_ENDINGS = frozenset({"。", "！", "？", "…"})
+_LATIN_SENTENCE_ENDINGS = frozenset({".", "!", "?", "…"})
+
+
+def find_natural_breakpoints(
+    text: str, center_offset: int, window: int = 200, language: str | None = None
+) -> list[dict]:
     """在指定偏移附近查找自然断点（句号、段落边界等）。
 
     返回断点列表，每个断点包含：
@@ -63,11 +69,15 @@ def find_natural_breakpoints(text: str, center_offset: int, window: int = 200) -
     - char: 断点字符
     - type: 断点类型（sentence/paragraph）
     - distance: 距离 center_offset 的字符数
+
+    language: zh (默认,与历史行为一致) 用 CJK 标点 `。！？…`;en/vi 用 ASCII `. ! ? …`。
+    缺省/未知语言走 zh 路径(向后兼容老调用方,如未指定 language 的早期 peek)。
     """
     start = max(0, center_offset - window)
     end = min(len(text), center_offset + window)
 
-    sentence_endings = {"。", "！", "？", "…"}
+    code = (language or "").strip().lower()
+    sentence_endings = _LATIN_SENTENCE_ENDINGS if code in ("en", "vi") else _ZH_SENTENCE_ENDINGS
     breakpoints = []
 
     for i in range(start, end):

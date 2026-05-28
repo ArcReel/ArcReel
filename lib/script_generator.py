@@ -7,6 +7,7 @@ script_generator.py - 剧本生成器
 import json
 import logging
 import re
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
@@ -559,10 +560,16 @@ class ScriptGenerator:
                 source_path = self.project_path / "source" / f"episode_{episode}.txt"
                 if source_path.is_file():
                     source_lang = self.project_json.get("source_language", "zh")
-                    source_text = source_path.read_text(encoding="utf-8")
+                    # NFC normalize 边界:LLM 输出几乎必然 NFC,源若为 NFD(越南语 macOS
+                    # 文件名等罕见场景)会让 \w word boundary 把组合重音拆词,导致 expected
+                    # 偏大触发 false drift。统一 NFC 后比较 fair。
+                    source_text = unicodedata.normalize("NFC", source_path.read_text(encoding="utf-8"))
                     expected = count_reading_units(source_text, source_lang)
                     actual = sum(
-                        count_reading_units(str(seg.get("novel_text") or ""), source_lang)
+                        count_reading_units(
+                            unicodedata.normalize("NFC", str(seg.get("novel_text") or "")),
+                            source_lang,
+                        )
                         for seg in script_data.get("segments") or []
                         if isinstance(seg, dict)
                     )

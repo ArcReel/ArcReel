@@ -110,6 +110,22 @@ class TestFindReadingUnitOffset:
         # Hôm nay trời 第 2 词 "nay" 末尾 = 7
         assert find_reading_unit_offset("Hôm nay trời", 2, "vi") == 7
 
+    def test_vi_nfd_documents_caller_normalize_contract(self) -> None:
+        # 越南语 NFD/组合重音形式: H + o + ̂ + m → \w word boundary 把组合标记拆出
+        # 导致 "Hôm" 被计为 2 token (H + om)。lib 不主动 normalize (保持纯字符串),
+        # 调用方应在文件读入边界 NFC normalize。这里把契约钉为测试。
+        import unicodedata
+
+        nfc = "Hôm nay trời"
+        nfd = unicodedata.normalize("NFD", nfc)
+        assert nfc != nfd, "前置:NFC 与 NFD 字面应不同(否则 case 无效)"
+        # NFC 输入:3 词
+        assert count_reading_units(nfc, "vi") == 3
+        # NFD 输入:词数偏多(具体值视组合标记数,但必然 > 3),证明 lib 不会 silent 兜底
+        assert count_reading_units(nfd, "vi") > 3
+        # 调用方 NFC normalize 后,lib 即可正确计数
+        assert count_reading_units(unicodedata.normalize("NFC", nfd), "vi") == 3
+
     def test_fallback_to_zh_for_unknown_language(self) -> None:
         # ja / None / "" 走 zh 路径,英文字符不计入 → 应返回 0(没有阅读单位)
         # 但因为没找到第 N 个单位,会走到末尾分支
@@ -174,3 +190,54 @@ class TestPeekVendorSync:
             assert peek.find_reading_unit_offset(text, 2, lang) == lib_tm.find_reading_unit_offset(text, 2, lang), (
                 f"offset drift on text={text!r} lang={lang!r}"
             )
+
+
+class TestPeekBreakpointsLanguageAware:
+    """peek 的 find_natural_breakpoints 调用须按 language 选标点集:zh 用 `。！？…`,
+    en/vi 用 ASCII `. ! ? …`。早期版本未传 language → en/vi 文本断点为空,split
+    工作流对英文/越南语源退化。
+    """
+
+    @staticmethod
+    def _load_text_utils():
+        import importlib.util
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parent.parent
+        module_path = repo_root / "agent_runtime_profile/.claude/skills/manage-project/scripts/_text_utils.py"
+        spec = importlib.util.spec_from_file_location("_peek_text_utils", module_path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_en_text_finds_ascii_sentence_endings(self) -> None:
+        tu = self._load_text_utils()
+        text = "Hello world. This is fine! Is that right?"
+        bps = tu.find_natural_breakpoints(text, len(text) // 2, window=200, language="en")
+        chars = {bp["char"] for bp in bps if bp["type"] == "sentence"}
+        assert chars == {".", "!", "?"}
+
+    def test_vi_text_finds_ascii_sentence_endings(self) -> None:
+        tu = self._load_text_utils()
+        text = "Hôm nay trời đẹp. Chúng ta đi chơi! Bạn có rảnh?"
+        bps = tu.find_natural_breakpoints(text, len(text) // 2, window=200, language="vi")
+        chars = {bp["char"] for bp in bps if bp["type"] == "sentence"}
+        assert chars == {".", "!", "?"}
+
+    def test_zh_default_keeps_cjk_endings(self) -> None:
+        # 不传 language 时按 zh 路径,保持向后兼容
+        tu = self._load_text_utils()
+        text = "今天天气真好。我们一起去公园！你来吗？"
+        bps = tu.find_natural_breakpoints(text, len(text) // 2, window=200)
+        chars = {bp["char"] for bp in bps if bp["type"] == "sentence"}
+        assert chars == {"。", "！", "？"}
+
+    def test_en_does_not_find_cjk_endings(self) -> None:
+        # 反向断言:en 路径不应误命中 zh 标点
+        tu = self._load_text_utils()
+        text = "Mixed text。Should ignore CJK punctuation here."
+        bps = tu.find_natural_breakpoints(text, len(text) // 2, window=200, language="en")
+        chars = {bp["char"] for bp in bps if bp["type"] == "sentence"}
+        assert "。" not in chars
+        assert "." in chars

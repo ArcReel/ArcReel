@@ -4,6 +4,12 @@
 - `count_chars` 是字符级、语言无关的「非空白 Unicode 字符」计数器,用于工程上的偏移定位。
 - `count_reading_units` 是语义级、按源文语言裁剪的「阅读单位」计数器,贴合用户「N 字一集」的心智。
 
+输入约定:
+- 调用方应传入 NFC normalize 过的文本。NFD/组合重音形式的越南语等会让 `\\w` word
+  boundary 把组合标记拆出 token,导致 ``Hôm``(``H + o + ̂ + m``) 这类词被计为多 token。
+  调用方在文件读入边界 ``unicodedata.normalize("NFC", text)`` 即可。lib 本身不主动
+  normalize 以保持纯字符串处理 + offset 与输入文本同坐标系。
+
 设计约束:
 - 本模块不依赖任何 lib/ 内部模块,以便 agent skill 脚本通过 sys.path 注入后干净引入。
 - 接口稳定:加新语言时只新增分支,不破调用方。

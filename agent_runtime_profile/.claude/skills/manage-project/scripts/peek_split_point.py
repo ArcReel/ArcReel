@@ -18,6 +18,7 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 # 导入共享工具
@@ -144,7 +145,10 @@ def main():
     source_path = _resolve_source_in_project(args.source)
     language = _resolve_language(args.language)
 
-    text = source_path.read_text(encoding="utf-8")
+    # NFC normalize 边界:越南语 NFD/组合重音(macOS 文件名等场景)会让 \w word
+    # boundary 把 Hôm 拆成 H + om,导致 count_reading_units 偏多、断点 offset 偏移。
+    # 统一 NFC 后,下游 anchor 字符串与 split_target_chars 也都在 NFC 空间一致。
+    text = unicodedata.normalize("NFC", source_path.read_text(encoding="utf-8"))
     total_units = count_reading_units(text, language)
 
     if total_units == 0:
@@ -165,8 +169,8 @@ def main():
     target_offset = find_reading_unit_offset(text, args.target, language)
     split_target_chars = count_chars(text[:target_offset])
 
-    # 查找附近的自然断点
-    breakpoints = find_natural_breakpoints(text, target_offset, window=args.context)
+    # 查找附近的自然断点(传 language:en/vi 用 ASCII `. ! ?`,zh 用 `。！？`)
+    breakpoints = find_natural_breakpoints(text, target_offset, window=args.context, language=language)
 
     # 提取上下文
     ctx_start = max(0, target_offset - args.context)
