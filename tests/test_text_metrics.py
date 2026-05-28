@@ -1,8 +1,8 @@
-"""lib.text_metrics.count_reading_units 的覆盖测试。"""
+"""lib.text_metrics 的覆盖测试。"""
 
 from __future__ import annotations
 
-from lib.text_metrics import count_reading_units
+from lib.text_metrics import count_reading_units, find_reading_unit_offset
 
 
 class TestZh:
@@ -70,3 +70,47 @@ class TestFallback:
         # 大小写不影响分支选择
         assert count_reading_units("hello world", "EN") == 2
         assert count_reading_units("hello world", "En") == 2
+
+
+class TestFindReadingUnitOffset:
+    def test_zh_returns_end_of_nth_char(self) -> None:
+        # "今天天气真好" 第 3 个汉字"天"末尾 → offset 3(0-based exclusive)
+        assert find_reading_unit_offset("今天天气真好", 3, "zh") == 3
+
+    def test_zh_with_mixed_ascii(self) -> None:
+        # "他说：abc 123，好" 阅读单位:他 说 ：（全角）, ，（全角）, 好
+        # 第 3 个单位"：" 末尾 = 索引 3 (0-based 'a' 前)
+        assert find_reading_unit_offset("他说：abc 123，好", 3, "zh") == 3
+
+    def test_en_returns_end_of_nth_word(self) -> None:
+        # "hello world foo" 第 2 个 word "world" 末尾 = 索引 11
+        assert find_reading_unit_offset("hello world foo", 2, "en") == 11
+
+    def test_en_uneven_word_lengths_no_global_ratio_drift(self) -> None:
+        # 全局比例换算的关键失败场景:前半部分长词、后半部分短词
+        # "longwordone longwordtwo a b c d e" 7 个 word,字符总长度不均(共 33 字符)
+        # 全局比例:第 4 个 word target → int(4*33/7)=18,落到 "longwordtwo" 中间
+        # 累计扫描:第 4 个 word 是 "b" 末尾 = 27
+        text = "longwordone longwordtwo a b c d e"
+        assert find_reading_unit_offset(text, 2, "en") == 23
+        assert find_reading_unit_offset(text, 4, "en") == 27
+
+    def test_target_exceeds_total_returns_text_length(self) -> None:
+        assert find_reading_unit_offset("hello", 99, "en") == 5
+        assert find_reading_unit_offset("你好", 99, "zh") == 2
+
+    def test_target_zero_or_negative_returns_zero(self) -> None:
+        assert find_reading_unit_offset("hello", 0, "en") == 0
+        assert find_reading_unit_offset("hello", -1, "en") == 0
+
+    def test_empty_text_returns_zero(self) -> None:
+        assert find_reading_unit_offset("", 5, "zh") == 0
+
+    def test_vi_uses_word_pattern(self) -> None:
+        # Hôm nay trời 第 2 词 "nay" 末尾 = 7
+        assert find_reading_unit_offset("Hôm nay trời", 2, "vi") == 7
+
+    def test_fallback_to_zh_for_unknown_language(self) -> None:
+        # ja / None / "" 走 zh 路径,英文字符不计入 → 应返回 0(没有阅读单位)
+        # 但因为没找到第 N 个单位,会走到末尾分支
+        assert find_reading_unit_offset("hello world", 1, "ja") == 11

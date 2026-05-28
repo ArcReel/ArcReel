@@ -6,8 +6,8 @@ peek_split_point.py - 切分点探测脚本
 
 「阅读单位」按 source_language 定义:zh 数汉字 + CJK 标点,en/vi 数 word。
 与 _text_utils.count_chars 的字符级度量分工:本脚本展示的是用户心智模型
-里的「字数」,而切分点定位仍走原 find_char_offset(字符偏移),
-由本脚本在内部按比例换算桥接。
+里的「字数」,而切分点定位走 find_reading_unit_offset (按原文顺序累计扫描),
+再回填字符级 split_target_chars 给 split_episode.py。
 
 用法:
     python peek_split_point.py --source source/novel.txt --target 1000
@@ -15,43 +15,47 @@ peek_split_point.py - 切分点探测脚本
 """
 
 import argparse
-import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
 # 导入共享工具
 sys.path.insert(0, str(Path(__file__).parent))
-from _text_utils import count_chars, find_char_offset, find_natural_breakpoints  # noqa: E402
+from _text_utils import count_chars, find_natural_breakpoints  # noqa: E402
+
+# vendored from lib/text_metrics.py —— 故意复制而非 import,避免依赖
+# Path(__file__) 回溯到仓库根。profile 物化到 ARCREEL_DATA_DIR/AI_ANIME_PROJECTS
+# 指向的项目目录后,脚本父目录链上没有 pyproject.toml,运行时无法定位 lib。
+# 改 lib/text_metrics.py 时同步更新这里 —— 接口稳定,改动罕见。
+_ZH_UNIT_PATTERN = re.compile("[㐀-鿿豈-﫿　-〿＀-￯]")
+_LATIN_WORD_PATTERN = re.compile(r"\b\w+\b", re.UNICODE)
 
 
-def _find_repo_root(start: Path) -> Path:
-    """向上回溯定位含 pyproject.toml 的目录,覆盖源/物化/editable 三种部署形态。"""
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").is_file():
-            return candidate
-    raise RuntimeError(f"无法从 {start} 向上找到 pyproject.toml。请确认脚本位于 ArcReel 仓库内。")
+def _pattern_for(language: str | None) -> "re.Pattern[str]":
+    code = (language or "").strip().lower()
+    if code in ("en", "vi"):
+        return _LATIN_WORD_PATTERN
+    return _ZH_UNIT_PATTERN
 
 
-def _load_text_metrics():
-    """单文件加载 lib/text_metrics.py,绕过 lib/__init__.py 的 ProjectManager 重链。
-
-    走 importlib.util.spec_from_file_location 而非 `from lib.text_metrics import X`:
-    后者会先触发 lib/__init__.py 顶层 `from .project_manager import ProjectManager`,
-    把 portalocker / SQLAlchemy 等整套服务端运行时依赖拉进来。peek 是 agent 在
-    project cwd 内跑的轻量探测脚本,只需 count_reading_units 一个纯函数。
-    """
-    repo_root = _find_repo_root(Path(__file__).resolve())
-    module_path = repo_root / "lib" / "text_metrics.py"
-    spec = importlib.util.spec_from_file_location("_arcreel_text_metrics", module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"无法加载 {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.count_reading_units
+def count_reading_units(text: str, language: str | None) -> int:
+    if not text:
+        return 0
+    return len(_pattern_for(language).findall(text))
 
 
-count_reading_units = _load_text_metrics()
+def find_reading_unit_offset(text: str, target_units: int, language: str | None) -> int:
+    if target_units <= 0 or not text:
+        return 0
+    count = 0
+    last_end = 0
+    for match in _pattern_for(language).finditer(text):
+        count += 1
+        last_end = match.end()
+        if count >= target_units:
+            return last_end
+    return len(text)
 
 
 def _resolve_source_in_project(arg_source: str) -> Path:
@@ -133,6 +137,10 @@ def main():
     )
     args = parser.parse_args()
 
+    if args.target < 1:
+        print(f"❌ --target ({args.target}) 必须 >= 1", file=sys.stderr)
+        sys.exit(1)
+
     source_path = _resolve_source_in_project(args.source)
     language = _resolve_language(args.language)
 
@@ -150,17 +158,12 @@ def main():
         )
         sys.exit(1)
 
-    # 阅读单位 → 原文字符的比例换算:find_char_offset 按"非空行字符数"累计,
-    # 与阅读单位的度量口径不同。先按 total 比例把 target_units 换算回字符级
-    # target_chars,再喂给字符级偏移定位器。这样切分点定位逻辑不动,展示
-    # 给用户/agent 的所有「字数」统一是阅读单位口径。
-    # split_target_chars 同时回给 agent —— split_episode.py 的 --target 按
-    # 字符级 count_chars 解读,agent 须用这个值而非原始 target_units,否则
-    # 在 ASCII 占比高(zh 混排)或 word 语种(en/vi)场景会让 split 的锚点
-    # 搜索窗口偏离 peek 选定位置、可能落空或错选同名锚点。
-    char_total = count_chars(text)
-    target_chars = max(1, int(args.target * char_total / total_units))
-    target_offset = find_char_offset(text, target_chars)
+    # 按原文顺序累计阅读单位找到精准 offset(早期版本用全局比例换算,在 en/vi
+    # 或 zh 混排 ASCII/数字分布不均时会偏移,把后续 split 锚点搜索带出窗口)。
+    # split_episode.py 的 --target 仍是字符级口径(count_chars 等价于
+    # find_char_offset),所以同时回填 split_target_chars 给 agent。
+    target_offset = find_reading_unit_offset(text, args.target, language)
+    split_target_chars = count_chars(text[:target_offset])
 
     # 查找附近的自然断点
     breakpoints = find_natural_breakpoints(text, target_offset, window=args.context)
@@ -176,7 +179,7 @@ def main():
         "language": language,
         "total_units": total_units,
         "target_units": args.target,
-        "split_target_chars": target_chars,
+        "split_target_chars": split_target_chars,
         "target_offset": target_offset,
         "context_before": before_context,
         "context_after": after_context,

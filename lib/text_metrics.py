@@ -20,16 +20,42 @@ _ZH_UNIT_PATTERN = re.compile("[㐀-鿿豈-﫿　-〿＀-￯]")
 _LATIN_WORD_PATTERN = re.compile(r"\b\w+\b", re.UNICODE)
 
 
+def _pattern_for(language: str | None) -> re.Pattern[str]:
+    code = (language or "").strip().lower()
+    if code in ("en", "vi"):
+        return _LATIN_WORD_PATTERN
+    return _ZH_UNIT_PATTERN
+
+
 def count_reading_units(text: str, language: str | None) -> int:
     """按源文语言数『阅读单位』。
 
     zh: 汉字 + CJK 标点 / 全角符号
-    en / vi: unicode word-boundary 词数(数字与缩写如 "don't" 各计 1)
+    en / vi: unicode word-boundary 词数（数字计作词;缩写如 "don't" 会按 word-boundary
+        规则拆分为 ``don`` + ``t``。如需把缩写计为单一 token，需换用不同的正则。）
     未知 / None / 空 language: 按 zh 路径处理(向后兼容老项目缺 source_language 的场景)
     """
     if not text:
         return 0
-    code = (language or "").strip().lower()
-    if code in ("en", "vi"):
-        return len(_LATIN_WORD_PATTERN.findall(text))
-    return len(_ZH_UNIT_PATTERN.findall(text))
+    return len(_pattern_for(language).findall(text))
+
+
+def find_reading_unit_offset(text: str, target_units: int, language: str | None) -> int:
+    """返回第 ``target_units`` 个阅读单位末尾的字符偏移（含尾）。
+
+    与 ``count_reading_units`` 共用度量口径。按原文顺序累计扫描，避免全局比例换算
+    在 ASCII/数字分布不均（en/vi 或 zh 混排）时把目标单位映射到错误位置。
+
+    - ``target_units <= 0`` 或 ``text`` 为空 → 返回 0
+    - text 中阅读单位数 < target_units → 返回 ``len(text)``
+    """
+    if target_units <= 0 or not text:
+        return 0
+    count = 0
+    last_end = 0
+    for match in _pattern_for(language).finditer(text):
+        count += 1
+        last_end = match.end()
+        if count >= target_units:
+            return last_end
+    return len(text)
