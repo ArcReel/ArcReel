@@ -192,6 +192,56 @@ class TestPeekVendorSync:
             )
 
 
+class TestTextUtilsCountVsOffsetParity:
+    """_text_utils.count_chars 与 find_char_offset 必须同口径(都跳所有空白字符)。
+    若 count_chars 把行内空白也算入(早期 line.strip() 实现),en/vi 含空格场景下
+    peek 输出的 split_target_chars 会超过 split.find_char_offset 能累到的 counted
+    上限,导致 target_offset 跑末尾 + anchor 搜索窗口落空 + 切分错位。
+    """
+
+    @staticmethod
+    def _load_text_utils():
+        import importlib.util
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parent.parent
+        module_path = repo_root / "agent_runtime_profile/.claude/skills/manage-project/scripts/_text_utils.py"
+        spec = importlib.util.spec_from_file_location("_peek_text_utils_parity", module_path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_en_with_inline_spaces_counts_only_nonwhitespace(self) -> None:
+        tu = self._load_text_utils()
+        # "hello world" 5+5=10 个非空白字符,行内空格不计入
+        assert tu.count_chars("hello world") == 10
+
+    def test_count_chars_equals_find_char_offset_counted_ceiling(self) -> None:
+        # 对任意文本,find_char_offset(text, count_chars(text)+1) 必然返回末尾(超过 counted 上限)
+        # 而 find_char_offset(text, count_chars(text)) 能命中最后一个非空白字符的位置
+        tu = self._load_text_utils()
+        for text in ["hello world foo bar baz", "今天天气真好", "  hello\n\n  world  ", "a b c\n\nd e f"]:
+            n = tu.count_chars(text)
+            if n == 0:
+                continue
+            # 上限内可达
+            assert tu.find_char_offset(text, n) < len(text), f"target=count 应可达,text={text!r}"
+            # 超出上限走兜底返回末尾
+            assert tu.find_char_offset(text, n + 1) == len(text), f"target>count 兜底末尾,text={text!r}"
+
+    def test_count_chars_drops_all_whitespace_kinds(self) -> None:
+        tu = self._load_text_utils()
+        # 全角空格 / 制表 / 换行 / 普通空格均不计入
+        assert tu.count_chars("a　b\tc\nd e") == 5
+
+    def test_zh_text_unaffected_by_change(self) -> None:
+        # 中文几乎无内嵌空白,新旧口径同结果(回归保护)
+        tu = self._load_text_utils()
+        assert tu.count_chars("今天天气真好") == 6
+        assert tu.count_chars("他说：「你好。」") == 8
+
+
 class TestPeekBreakpointsLanguageAware:
     """peek 的 find_natural_breakpoints 调用须按 language 选标点集:zh 用 `。！？…`,
     en/vi 用 ASCII `. ! ? …`。早期版本未传 language → en/vi 文本断点为空,split

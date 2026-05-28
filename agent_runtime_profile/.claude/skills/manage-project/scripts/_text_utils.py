@@ -3,18 +3,23 @@ _text_utils.py - 分集切分共享工具函数
 
 提供字数计数和字符偏移转换功能，供 peek_split_point.py 和 split_episode.py 共享。
 
-计数规则：含标点，不含空行（纯空白行不计入字数）。
+计数规则：非空白 Unicode 字符总数（含标点，跳过所有空白:空格/制表/换行/全角空格）。
+与 find_char_offset 的 counted 累积口径一致 —— 后者按非空白字符累计找 target 个,
+前者数总数。两者口径一致后,peek 的 split_target_chars = count_chars(text[:offset])
+可以直接喂给 split.find_char_offset 找到等价 offset。
 """
 
 
 def count_chars(text: str) -> int:
-    """计算有效字数：所有非空行中的字符总数（含标点，不含空行）。"""
-    total = 0
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped:  # 跳过空行
-            total += len(stripped)
-    return total
+    """非空白 Unicode 字符总数(含标点;空格/制表/换行/全角空格等均跳)。
+
+    与 find_char_offset 的 counted 累积口径一致。早期实现按 line.strip() 长度求和,
+    包含行内空白(单行 "hello world" 计 11),而 find_char_offset 的 counted 累计只
+    认非空白字符(同样输入最多累 10)。zh 文本几乎无内嵌空白故长期未暴露,en/vi 路径
+    打开后会让 split_target_chars 比 split 端能达到的 counted 上限大近千,导致
+    target_offset 跑到末尾、anchor 搜索窗口落空。
+    """
+    return sum(1 for c in text if not c.isspace())
 
 
 def find_char_offset(text: str, target_count: int) -> int:

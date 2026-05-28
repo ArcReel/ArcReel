@@ -164,8 +164,10 @@ def main():
 
     # 按原文顺序累计阅读单位找到精准 offset(早期版本用全局比例换算,在 en/vi
     # 或 zh 混排 ASCII/数字分布不均时会偏移,把后续 split 锚点搜索带出窗口)。
-    # split_episode.py 的 --target 仍是字符级口径(count_chars 等价于
-    # find_char_offset),所以同时回填 split_target_chars 给 agent。
+    # split_episode.py 的 --target 是非空白字符数口径(_text_utils.count_chars
+    # 与 find_char_offset 同口径,跳过所有空白)。en/vi 含空格场景下 count_chars
+    # 不再多算行内空白,split.find_char_offset 接到 split_target_chars 能找到等价
+    # offset、anchor 搜索窗口对齐。
     target_offset = find_reading_unit_offset(text, args.target, language)
     split_target_chars = count_chars(text[:target_offset])
 
