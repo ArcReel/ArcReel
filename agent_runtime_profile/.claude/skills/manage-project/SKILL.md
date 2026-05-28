@@ -77,11 +77,14 @@ mcp__arcreel__patch_project({"table": "characters", "entries": {"角色名": {"d
 mcp__arcreel__patch_project({"table": "scenes", "entries": {"场景名": {"description": "..."}}})
 mcp__arcreel__patch_project({"table": "props", "entries": {"道具名": {"description": "..."}}})
 mcp__arcreel__patch_project({"settings": {"episode_target_units": 1000}})
+mcp__arcreel__patch_project({"settings": {"source_language": "en"}})
 ```
 
 **两种调用形态二选一**：传 `{"table", "entries"}` 走资产 upsert，传 `{"settings"}` 走顶层字段写入；
-两者同时给出或都不给会被拒。`settings` 只接受白名单字段（首期 `episode_target_units`），值为
-`int >= 1` 时设置，值为 `null` 时清除该字段。
+两者同时给出或都不给会被拒。`settings` 白名单字段：
+
+- `episode_target_units`：`int >= 1` 设置 / `null` 清除
+- `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。**仅在 overview 跳过或失败、且用户明确确认语言后写入**；正常路径由 overview 生成自动落盘
 
 工具返回会区分**新增 N 个 / 合并改字段 N 个**,并显式列出被忽略的字段（``reference_image`` /
 ``character_sheet`` 等系统管理字段、``type`` / ``importance`` 等已废弃字段）。结构非法（如缺

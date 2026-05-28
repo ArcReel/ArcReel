@@ -482,10 +482,24 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is True
         assert "arbitrary_field" not in ctx.pm.load_project("demo")
 
-    async def test_source_language_not_whitelisted(self, ctx: ToolContext) -> None:
-        """source_language 由 generate_overview LLM 判定,agent 不开放直改."""
-        out = await _call(patch_project_tool(ctx), {"settings": {"source_language": "en"}})
+    @pytest.mark.parametrize("lang", ["zh", "en", "vi"])
+    async def test_set_source_language_allowed_values(self, ctx: ToolContext, lang: str) -> None:
+        """source_language 作为 user-confirmed 恢复通道(overview 失败/跳过时),enum 校验."""
+        out = await _call(patch_project_tool(ctx), {"settings": {"source_language": lang}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["source_language"] == lang
+
+    async def test_clear_source_language(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"source_language": "en"}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"source_language": None}})
+        assert out.get("is_error") is not True
+        assert "source_language" not in ctx.pm.load_project("demo")
+
+    @pytest.mark.parametrize("bad", ["english", "ja", "ZH", "", 1, True, ["en"]])
+    async def test_invalid_source_language_rejected(self, ctx: ToolContext, bad: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"source_language": bad}})
         assert out.get("is_error") is True
+        assert "source_language" not in ctx.pm.load_project("demo")
 
     @pytest.mark.parametrize("bad_value", ["1000", 0, -5, 1.5, True])
     async def test_invalid_value_rejected(self, ctx: ToolContext, bad_value: Any) -> None:

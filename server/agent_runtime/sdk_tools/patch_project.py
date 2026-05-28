@@ -19,9 +19,11 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
 _TABLES = ("characters", "scenes", "props")
 
-# 顶层 settings 白名单。source_language 不在内 — 由 generate_overview LLM 判定得出,
-# 不开放给 agent 直改,避免 agent 误判后污染所有后续度量。新增项 append 到 tuple。
-_SETTINGS_WHITELIST = ("episode_target_units",)
+# 顶层 settings 白名单。新增项 append 到 tuple,并在 _validate_setting_value 加分支。
+# source_language: overview 生成是非必经路径(generate_overview=false / overview 失败时
+# 源语言不会落盘),需要给 agent 在用户确认后写入的恢复通道,带 zh/en/vi enum 校验防乱填。
+_SETTINGS_WHITELIST = ("episode_target_units", "source_language")
+_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
 
 
 def patch_project_tool(ctx: ToolContext):
@@ -122,6 +124,12 @@ def _validate_setting_value(key: str, value: Any) -> None:
             return
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"episode_target_units 必须是正整数或 null,收到 {value!r}")
+        return
+    if key == "source_language":
+        if value is None:
+            return
+        if not isinstance(value, str) or value not in _SOURCE_LANGUAGE_VALUES:
+            raise ValueError(f"source_language 必须是 {list(_SOURCE_LANGUAGE_VALUES)} 之一或 null,收到 {value!r}")
         return
     # 不应到这,白名单校验在调用前
     raise ValueError(f"settings 字段 {key!r} 缺类型校验")
