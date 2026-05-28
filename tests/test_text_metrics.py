@@ -114,3 +114,63 @@ class TestFindReadingUnitOffset:
         # ja / None / "" 走 zh 路径,英文字符不计入 → 应返回 0(没有阅读单位)
         # 但因为没找到第 N 个单位,会走到末尾分支
         assert find_reading_unit_offset("hello world", 1, "ja") == 11
+
+
+class TestPeekVendorSync:
+    """peek_split_point.py 内联了 lib.text_metrics 的纯字符串逻辑(see vendor 注释)。
+    本类锁两份在 pattern 与行为上一致,防止 copy-paste 时字符录入错(如 U+8C48 vs
+    U+F900 这种视觉相同 codepoint 不同的字符)漂移到生产路径。
+    """
+
+    @staticmethod
+    def _load_peek():
+        import importlib.util
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parent.parent
+        module_path = repo_root / "agent_runtime_profile/.claude/skills/manage-project/scripts/peek_split_point.py"
+        spec = importlib.util.spec_from_file_location("_peek_split_point", module_path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_zh_pattern_codepoints_match(self) -> None:
+        import lib.text_metrics as lib_tm
+
+        peek = self._load_peek()
+        assert lib_tm._ZH_UNIT_PATTERN.pattern == peek._ZH_UNIT_PATTERN.pattern, (
+            f"vendor drift: lib={lib_tm._ZH_UNIT_PATTERN.pattern!r} vs peek={peek._ZH_UNIT_PATTERN.pattern!r}"
+        )
+
+    def test_latin_pattern_codepoints_match(self) -> None:
+        import lib.text_metrics as lib_tm
+
+        peek = self._load_peek()
+        assert lib_tm._LATIN_WORD_PATTERN.pattern == peek._LATIN_WORD_PATTERN.pattern
+
+    def test_count_agrees_on_mixed_inputs(self) -> None:
+        import lib.text_metrics as lib_tm
+
+        peek = self._load_peek()
+        # 覆盖 zh / en / vi 以及 fallback 路径,断言两实现行为一致
+        cases = [
+            ("今天天气真好", "zh"),
+            ("他说：「你好。」abc 123", "zh"),
+            ("The quick brown fox jumps", "en"),
+            ("don't worry, it's fine", "en"),
+            ("Hôm nay trời đẹp quá", "vi"),
+            ("hello world", None),
+            ("", "zh"),
+            # Hangul / Yi 等非 CJK 字符: zh 度量应该 == 0
+            # (vendor 早期把 U+F900 写成 U+8C48 时,这里会误把 Hangul 计入)
+            ("안녕하세요", "zh"),
+            ("ꀀꀁꀂ", "zh"),
+        ]
+        for text, lang in cases:
+            assert peek.count_reading_units(text, lang) == lib_tm.count_reading_units(text, lang), (
+                f"drift on text={text!r} lang={lang!r}"
+            )
+            assert peek.find_reading_unit_offset(text, 2, lang) == lib_tm.find_reading_unit_offset(text, 2, lang), (
+                f"offset drift on text={text!r} lang={lang!r}"
+            )
