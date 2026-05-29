@@ -247,6 +247,7 @@ async def test_custom_video_max_refs_fallthrough_failure_raises(db_session: Asyn
             await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
 
 
+@pytest.mark.asyncio
 async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSession):
     """endpoint cap=None，fallthrough 读到 backend 负数 caps → raise ValueError（不静默下传坏值）。"""
     from unittest.mock import MagicMock, patch

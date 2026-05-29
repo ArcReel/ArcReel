@@ -197,6 +197,9 @@ class TestNormalizeRoot:
             # 带小版本号的版本段（/v1.1、/v1.0）也归一化
             ("https://api.aimlapi.com/v1.1", "https://api.aimlapi.com"),
             ("https://api.aimlapi.com/v1.0", "https://api.aimlapi.com"),
+            # 无 scheme 的纯域名补 https://（否则 httpx 拒收相对 URL）
+            ("api.aimlapi.com", "https://api.aimlapi.com"),
+            ("api.aimlapi.com/v1", "https://api.aimlapi.com"),
         ],
     )
     def test_strips_version_suffix(self, base_url, expected):

@@ -218,12 +218,15 @@ def _redacted_body(body: dict) -> dict:
 
 
 def _normalize_root(base_url: str) -> str:
-    """归一化为 root 形态：去尾斜杠 + 去末尾版本段（/v1、/v2beta 等）。
+    """归一化为 root 形态：补协议 + 去尾斜杠 + 去末尾版本段（/v1、/v2beta 等）。
 
     后续显式拼 ``/v2/video/generations``。不能用 ensure_openai_base_url —— 它会在
-    缺版本段时追加 ``/v1``，与本端点的 ``/v2`` 路径冲突。
+    缺版本段时追加 ``/v1``，与本端点的 ``/v2`` 路径冲突。无 scheme 的纯域名（如
+    ``api.aimlapi.com``）先补 ``https://``，否则 httpx 拒收缺协议的相对 URL。
     """
     s = base_url.strip().rstrip("/")
+    if s and "://" not in s:
+        s = f"https://{s}"
     return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", s)
 
 
