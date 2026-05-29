@@ -84,6 +84,10 @@ class TestPerImageByResolution:
         amount, _ = calculate_pricing(self.pricing, PricingParams(call_type="image", model="m1"))
         assert amount == pytest.approx(0.067)
 
+    def test_n_images(self):
+        amount, _ = calculate_pricing(self.pricing, PricingParams(call_type="image", model="m1", resolution="1K", n=3))
+        assert amount == pytest.approx(0.067 * 3)
+
 
 class TestPerImageOpenAIToken:
     pricing = PerImageOpenAIToken(
@@ -177,6 +181,14 @@ class TestPerImageOpenAIToken:
         )
         assert amount == pytest.approx(0.053)
 
+    def test_fallback_n_images(self):
+        # 兜底路径同样按 n 缩放（与 token 路径无关）
+        amount, _ = calculate_pricing(
+            self.pricing,
+            PricingParams(call_type="image", model="gpt-image-2", quality="medium", n=2),
+        )
+        assert amount == pytest.approx(0.053 * 2)
+
 
 class TestPerSecondMatrix:
     audio = PerSecondMatrix(
@@ -233,6 +245,14 @@ class TestPerSecondMatrix:
     def test_resolution_only_defaults_to_720p(self):
         amount, _ = calculate_pricing(self.res_only, PricingParams(call_type="video", model="sora", duration_seconds=8))
         assert amount == pytest.approx(2.40)
+
+    def test_resolution_only_uppercased(self):
+        # 大写分辨率经 .lower() 归一后命中小写费率键，不再回落 720p
+        amount, _ = calculate_pricing(
+            self.res_only,
+            PricingParams(call_type="video", model="sora", duration_seconds=4, resolution="1080P"),
+        )
+        assert amount == pytest.approx(2.80)
 
     def test_flat_ignores_resolution(self):
         amount, _ = calculate_pricing(

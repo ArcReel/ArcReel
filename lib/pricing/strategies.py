@@ -60,9 +60,9 @@ def _per_image_flat(pricing: PerImageFlat, params: PricingParams) -> tuple[float
 def _per_image_by_resolution(pricing: PerImageByResolution, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
     model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
-    default_cost = model_costs.get("1K") or pricing.rates[pricing.default_model]["1K"]
+    default_cost = model_costs.get("1K") or pricing.rates[pricing.default_model].get("1K", 0.0)
     resolution = params.resolution or "1K"
-    return model_costs.get(resolution.upper(), default_cost), pricing.currency
+    return model_costs.get(resolution.upper(), default_cost) * params.n, pricing.currency
 
 
 def _per_image_openai_token(pricing: PerImageOpenAIToken, params: PricingParams) -> tuple[float, str]:
@@ -96,7 +96,7 @@ def _per_image_openai_token(pricing: PerImageOpenAIToken, params: PricingParams)
         (quality, size),
         model_costs.get((quality, "1024x1024"), model_costs.get(("medium", "1024x1024"), 0.034)),
     )
-    return per_image, pricing.currency
+    return per_image * params.n, pricing.currency
 
 
 def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple[float, str]:
@@ -107,13 +107,13 @@ def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple
     duration = params.duration_seconds if params.duration_seconds is not None else 8
     if pricing.dimensions == "resolution_audio":
         resolution = (params.resolution or "1080p").lower()
-        fallback = model_costs.get(("1080p", True)) or pricing.rates[pricing.default_model][("1080p", True)]
+        fallback = model_costs.get(("1080p", True)) or pricing.rates[pricing.default_model].get(("1080p", True), 0.0)
         per_second = model_costs.get((resolution, params.generate_audio), fallback)
     elif pricing.dimensions == "resolution_only":
-        resolution = params.resolution or "720p"
+        resolution = (params.resolution or "720p").lower()
         per_second = model_costs.get((resolution, None), model_costs.get(("720p", None), 0.0))
     else:  # flat
-        per_second = model_costs[("", None)]
+        per_second = model_costs.get(("", None), 0.0)
     return duration * per_second, pricing.currency
 
 

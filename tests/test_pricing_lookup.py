@@ -87,7 +87,7 @@ class TestUnknownModelFallback:
         assert isinstance(pricing, PerTokenVideo)
         # 回落到 ark 默认视频模型
         assert "doubao-seedance-1-5-pro-251215" in pricing.rates
-        assert any("no-such-model" in r.message for r in caplog.records)
+        assert any("no-such-model" in r.getMessage() for r in caplog.records)
 
     def test_agent_plan_no_pricing_falls_back_to_gemini_quietly(self, caplog):
         with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
