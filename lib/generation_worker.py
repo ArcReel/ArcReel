@@ -560,6 +560,13 @@ class GenerationWorker:
             for finished_task in pool.drain_finished():
                 try:
                     await finished_task
+                except asyncio.CancelledError:
+                    # 用户取消 inflight 任务：_process_task 已 mark_cancelled 并按 asyncio
+                    # 协议 re-raise。CancelledError 继承 BaseException，不能落到下方 except
+                    # Exception，否则冒泡到 _run_loop 让主循环永久退出。drain 端吞掉即可——
+                    # drain_finished() 只返回已 done() 的 task，await 不会挂起本协程，
+                    # 故这里捕获的必是子任务的取消结果，绝不会误吞针对 _run_loop 的取消。
+                    pass
                 except Exception:
                     logger.debug("已处理的任务异常已在 _process_task 中记录")
 

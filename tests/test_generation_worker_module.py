@@ -303,6 +303,169 @@ class TestGenerationWorker:
         assert worker.request_cancel("ghost") is False
 
     @pytest.mark.asyncio
+    async def test_drain_finished_tasks_absorbs_cancelled_error(self):
+        """取消的 inflight task 被 drain 时不能让 CancelledError 冒泡（继承 BaseException）。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+
+        async def _long():
+            await asyncio.sleep(10)
+
+        t = asyncio.create_task(_long())
+        t.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+        assert t.cancelled()
+        pool.video_inflight["tid"] = t
+
+        # 修复前：CancelledError 不被 except Exception 接住，会从这里抛出。
+        # 修复后：drain 端显式吸收，不抛，且 task 已从 inflight 字典 pop。
+        await worker._drain_finished_tasks()
+        assert "tid" not in pool.video_inflight
+
+    @pytest.mark.asyncio
+    async def test_run_loop_survives_inflight_task_cancellation(self, monkeypatch):
+        """用户取消运行中的任务：任务 mark_cancelled，但 worker 主循环不退出。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        started = asyncio.Event()
+
+        async def _block(_task):
+            started.set()
+            await asyncio.sleep(10)  # 模拟长时间运行的生成任务
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _block)
+
+        t = asyncio.create_task(
+            worker._process_task({"task_id": "tid", "media_type": "video"}),
+            name="generation-video-tid",
+        )
+        pool.video_inflight["tid"] = t
+
+        await worker.start()
+        await started.wait()  # 确保 _process_task 已进入 execute（_extract_provider 已完成）
+
+        assert worker.request_cancel("tid") is True
+        await asyncio.sleep(0.1)  # 跨多个 loop tick：取消落地 + drain
+
+        # 任务被正确 mark_cancelled
+        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+        # 主循环吸收 CancelledError 后仍存活
+        assert worker._main_task is not None and not worker._main_task.done()
+
+        await asyncio.wait_for(worker.stop(), timeout=2.0)
+        assert queue.released
+
+    @pytest.mark.asyncio
+    async def test_run_loop_survives_consecutive_cancellations_and_keeps_claiming(self, monkeypatch):
+        """连续取消多个 inflight 任务后，主循环仍存活并能继续 claim 新任务。"""
+
+        class _GatedQueue(_FakeQueue):
+            def __init__(self):
+                super().__init__()
+                self.allow_new = False
+                self.new_dispatched = False
+
+            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
+                if self.allow_new and not self.new_dispatched and media_type == "image":
+                    self.new_dispatched = True
+                    return {
+                        "task_id": "fresh-img",
+                        "task_type": "gen_image",
+                        "media_type": "image",
+                        "payload": {"image_provider": "gemini-aistudio"},
+                    }
+                return None
+
+        queue = _GatedQueue()
+        pool = ProviderPool(provider_id="gemini-aistudio", image_max=5, video_max=3)
+        worker = GenerationWorker(queue=queue, pools={"gemini-aistudio": pool})
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        release = asyncio.Event()
+        entered: set[str] = set()
+
+        async def _block(task):
+            entered.add(task["task_id"])
+            await release.wait()
+            return {"ok": True}
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _block)
+
+        vid_ids = ["vid-0", "vid-1", "vid-2"]
+        for tid in vid_ids:
+            t = asyncio.create_task(
+                worker._process_task({"task_id": tid, "media_type": "video"}),
+                name=f"generation-video-{tid}",
+            )
+            pool.video_inflight[tid] = t
+
+        await worker.start()
+        while not set(vid_ids) <= entered:  # 等三个任务都进入 execute
+            await asyncio.sleep(0)
+
+        for tid in vid_ids:
+            assert worker.request_cancel(tid) is True
+        await asyncio.sleep(0.1)
+
+        # 主循环存活 + 三个任务都 mark_cancelled
+        assert worker._main_task is not None and not worker._main_task.done()
+        assert set(vid_ids) <= {c[0] for c in queue.cancelled}
+
+        # 取消后仍能 claim 并 dispatch 新任务
+        queue.allow_new = True
+        await asyncio.sleep(0.1)
+        assert queue.new_dispatched is True
+        assert "fresh-img" in pool.image_inflight
+
+        # 收尾：放行 fresh-img 后正常停机
+        release.set()
+        await asyncio.wait_for(worker.stop(), timeout=2.0)
+        assert queue.released
+
+    @pytest.mark.asyncio
+    async def test_stop_event_exits_loop_even_with_cancellations(self, monkeypatch):
+        """语义对比：单任务取消不退出，但显式 stop（set stop event）必须让 worker 退出。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        started = asyncio.Event()
+
+        async def _block(_task):
+            started.set()
+            await asyncio.sleep(10)
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _block)
+
+        t = asyncio.create_task(
+            worker._process_task({"task_id": "tid", "media_type": "video"}),
+            name="generation-video-tid",
+        )
+        pool.video_inflight["tid"] = t
+
+        await worker.start()
+        await started.wait()
+        assert worker.request_cancel("tid") is True
+        await asyncio.sleep(0.05)
+        # 取消阶段：主循环仍存活
+        assert worker._main_task is not None and not worker._main_task.done()
+        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+
+        # 显式 stop → worker 正常退出
+        await asyncio.wait_for(worker.stop(), timeout=2.0)
+        assert worker._main_task is None
+        assert queue.released
+
+    @pytest.mark.asyncio
     async def test_handle_orphan_cancelling_marks_cancelled(self, monkeypatch):
         """ADR 0007：orphan cancelling 状态 → mark_cancelled。"""
         queue = _FakeQueue()
