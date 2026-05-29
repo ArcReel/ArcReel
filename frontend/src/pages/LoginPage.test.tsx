@@ -1,27 +1,22 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Router, useLocation, useSearch } from "wouter";
+import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { LoginPage } from "@/pages/LoginPage";
 import { useAuthStore } from "@/stores/auth-store";
 
-// 探针组件：把当前 wouter location 渲染出来，响应式读取回跳目标。
-// useLocation 只返回 pathname，query 要从 useSearch 取，否则 ?tab=scene 这类
-// 回跳参数会被探针漏掉。
-function LocationProbe() {
-  const [location] = useLocation();
-  const search = useSearch();
-  return <div data-testid="location">{search ? `${location}?${search}` : location}</div>;
-}
-
+// wouter 的 useLocation/useSearch 钩子只暴露 pathname / search，不暴露 hash，
+// 无法用渲染探针断言 #fragment。改用 memoryLocation 的 record 历史：navigate
+// 入参被逐字 push 进 history，因此可直接断言登录成功后导航到的完整目标
+// （含 query 与 hash），从而锁住回跳链路对 hash 的保留。
 function renderLoginAt(path: string) {
-  const { hook } = memoryLocation({ path });
-  return render(
-    <Router hook={hook}>
+  const memory = memoryLocation({ path, record: true });
+  const view = render(
+    <Router hook={memory.hook}>
       <LoginPage />
-      <LocationProbe />
     </Router>,
   );
+  return { ...view, history: memory.history };
 }
 
 // 填表并提交。input id 来自 LoginPage（login-username / login-password），
@@ -56,26 +51,36 @@ describe("LoginPage returnTo consumption", () => {
   // 锁住登录成功后对 ?from 的「消费」分支：读取 from → safeReturnPath 校验 → 回跳。
   // 防止以后误改回固定跳转 /app/projects 而主流程回归漏过。
   it("navigates to a valid internal ?from path after successful login", async () => {
-    const { container } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%3Ftab%3Dscene");
+    const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%3Ftab%3Dscene");
     submitLogin(container);
     await waitFor(() => {
-      expect(screen.getByTestId("location")).toHaveTextContent("/app/projects/demo?tab=scene");
+      expect(history.at(-1)).toBe("/app/projects/demo?tab=scene");
+    });
+  });
+
+  // 锁住 hash 在回跳链路中存活：from 携带 #shot-3，登录后导航目标须保留该锚点。
+  // 若源码（AuthGuard / 401 拦截 / safeReturnPath）丢掉 hash，此断言会失败。
+  it("preserves the URL hash in the return path", async () => {
+    const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%23shot-3");
+    submitLogin(container);
+    await waitFor(() => {
+      expect(history.at(-1)).toBe("/app/projects/demo#shot-3");
     });
   });
 
   it("falls back to /app/projects when ?from is an unsafe open-redirect target", async () => {
-    const { container } = renderLoginAt("/login?from=https%3A%2F%2Fevil.com%2Fapp%2Fx");
+    const { container, history } = renderLoginAt("/login?from=https%3A%2F%2Fevil.com%2Fapp%2Fx");
     submitLogin(container);
     await waitFor(() => {
-      expect(screen.getByTestId("location")).toHaveTextContent("/app/projects");
+      expect(history.at(-1)).toBe("/app/projects");
     });
   });
 
   it("falls back to /app/projects when no ?from is present", async () => {
-    const { container } = renderLoginAt("/login");
+    const { container, history } = renderLoginAt("/login");
     submitLogin(container);
     await waitFor(() => {
-      expect(screen.getByTestId("location")).toHaveTextContent("/app/projects");
+      expect(history.at(-1)).toBe("/app/projects");
     });
   });
 });
