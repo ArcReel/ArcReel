@@ -1,0 +1,153 @@
+"""按 ``kind`` 派发的计费策略：每种定价形状一个纯函数，``calculate_pricing`` 统一入口。
+
+策略只读 ``Pricing`` 声明 + ``PricingParams`` 维度，无 HTTP/DB 依赖，可独立单测。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from lib.openai_shared import OPENAI_IMAGE_SIZE_MAP
+from lib.pricing.types import (
+    PerImageByResolution,
+    PerImageFlat,
+    PerImageOpenAIToken,
+    PerSecondMatrix,
+    PerToken,
+    PerTokenVideo,
+    Pricing,
+    ViduDelegate,
+)
+from lib.vidu_shared import calculate_vidu_cost
+
+
+@dataclass(frozen=True)
+class PricingParams:
+    """承载一次计费所需的全部维度；各 kind 策略按需取用。"""
+
+    call_type: str
+    model: str | None = None
+    resolution: str | None = None
+    aspect_ratio: str | None = None
+    duration_seconds: int | None = None
+    generate_audio: bool = True
+    usage_tokens: int | None = None
+    service_tier: str = "default"
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    quality: str | None = None
+    size: str | None = None
+    image_input_tokens: int | None = None
+    image_output_tokens: int | None = None
+    text_input_tokens: int | None = None
+    text_output_tokens: int | None = None
+    n: int = 1
+
+
+def _per_token(pricing: PerToken, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    rates = pricing.rates.get(model, pricing.rates.get(pricing.default_model, {"input": 0.0, "output": 0.0}))
+    amount = ((params.input_tokens or 0) * rates["input"] + (params.output_tokens or 0) * rates["output"]) / 1_000_000
+    return amount, pricing.currency
+
+
+def _per_image_flat(pricing: PerImageFlat, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    per_image = pricing.rates.get(model, pricing.rates[pricing.default_model])
+    return per_image * params.n, pricing.currency
+
+
+def _per_image_by_resolution(pricing: PerImageByResolution, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
+    default_cost = model_costs.get("1K") or pricing.rates[pricing.default_model]["1K"]
+    resolution = params.resolution or "1K"
+    return model_costs.get(resolution.upper(), default_cost), pricing.currency
+
+
+def _per_image_openai_token(pricing: PerImageOpenAIToken, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    has_usage = any(
+        t is not None
+        for t in (
+            params.image_input_tokens,
+            params.image_output_tokens,
+            params.text_input_tokens,
+            params.text_output_tokens,
+        )
+    )
+    if has_usage:
+        rates = pricing.token_rates.get(model, pricing.token_rates[pricing.default_model])
+        amount = (
+            (params.image_input_tokens or 0) * rates["image_in"]
+            + (params.image_output_tokens or 0) * rates["image_out"]
+            + (params.text_input_tokens or 0) * rates["text_in"]
+            + (params.text_output_tokens or 0) * rates["text_out"]
+        ) / 1_000_000
+        return amount, pricing.currency
+
+    size = params.size
+    if size is None and params.resolution is not None and params.aspect_ratio is not None:
+        size = OPENAI_IMAGE_SIZE_MAP.get((params.resolution, params.aspect_ratio))
+    quality = params.quality or "medium"
+    size = size or "1024x1024"
+    model_costs = pricing.fallback_rates.get(model, pricing.fallback_rates[pricing.default_model])
+    per_image = model_costs.get(
+        (quality, size),
+        model_costs.get((quality, "1024x1024"), model_costs.get(("medium", "1024x1024"), 0.034)),
+    )
+    return per_image, pricing.currency
+
+
+def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
+    duration = params.duration_seconds or 8
+    if pricing.dimensions == "resolution_audio":
+        resolution = (params.resolution or "1080p").lower()
+        fallback = model_costs.get(("1080p", True)) or pricing.rates[pricing.default_model][("1080p", True)]
+        per_second = model_costs.get((resolution, params.generate_audio), fallback)
+    elif pricing.dimensions == "resolution_only":
+        resolution = params.resolution or "720p"
+        per_second = model_costs.get((resolution, None), model_costs.get(("720p", None), 0.0))
+    else:  # flat
+        per_second = model_costs[("", None)]
+    return duration * per_second, pricing.currency
+
+
+def _per_token_video(pricing: PerTokenVideo, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
+    key = (params.service_tier, params.generate_audio)
+    price_per_million = model_costs.get(key, model_costs.get(("default", True), 16.00))
+    amount = (params.usage_tokens or 0) / 1_000_000 * price_per_million
+    return amount, pricing.currency
+
+
+def _vidu(pricing: ViduDelegate, params: PricingParams) -> tuple[float, str]:
+    return calculate_vidu_cost(
+        call_type=params.call_type,
+        usage_tokens=params.usage_tokens,
+        model=params.model,
+        resolution=params.resolution,
+        duration_seconds=params.duration_seconds,
+    )
+
+
+def calculate_pricing(pricing: Pricing, params: PricingParams) -> tuple[float, str]:
+    """按 ``pricing`` 的运行时类型派发到对应策略，返回 ``(金额, 币种)``。"""
+    if isinstance(pricing, PerToken):
+        return _per_token(pricing, params)
+    if isinstance(pricing, PerImageFlat):
+        return _per_image_flat(pricing, params)
+    if isinstance(pricing, PerImageByResolution):
+        return _per_image_by_resolution(pricing, params)
+    if isinstance(pricing, PerImageOpenAIToken):
+        return _per_image_openai_token(pricing, params)
+    if isinstance(pricing, PerSecondMatrix):
+        return _per_second_matrix(pricing, params)
+    if isinstance(pricing, PerTokenVideo):
+        return _per_token_video(pricing, params)
+    # 仅剩 ViduDelegate；若日后新增 kind 未在上方分派，此处类型收窄会让 _vidu 入参报错，
+    # 起到穷尽性检查的作用。
+    return _vidu(pricing, params)
