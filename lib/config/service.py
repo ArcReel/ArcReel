@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,10 +123,11 @@ class ConfigService:
             else:
                 status = "unconfigured"
                 missing = list(meta.required_keys)
-            # 排除 pricing：其费率含 tuple 键（如 (resolution, audio)），asdict 后非 JSON 可序列化，
-            # 且供应商状态/前端响应不消费定价。保留其余字段供 ModelInfoResponse 构造。
+            # 用 __dict__ 浅拷贝并排除 pricing：pricing 费率含 tuple 键（如 (resolution, audio)），
+            # 非 JSON 可序列化且响应不消费；asdict 会递归转换 pricing 后又被丢弃，纯属浪费。其余字段
+            # 均为标量或标量容器，浅拷贝后交 ModelInfoResponse（Pydantic 构造时复制）即可。
             models_dict = {
-                mid: {k: v for k, v in asdict(mi).items() if k != "pricing"} for mid, mi in meta.models.items()
+                mid: {k: v for k, v in mi.__dict__.items() if k != "pricing"} for mid, mi in meta.models.items()
             }
             statuses.append(
                 ProviderStatus(
