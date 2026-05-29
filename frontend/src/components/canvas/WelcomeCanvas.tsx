@@ -88,6 +88,12 @@ export function WelcomeCanvas({
   const processFile = useCallback(
     async (file: File) => {
       if (!onUpload) return;
+      // 统一在汇聚点校验，让拖拽与文件选择器两个入口共用一条规则；
+      // <input accept> 只是 picker 提示，不能挡未授权类型。
+      if (!isSupportedSourceFile(file.name)) {
+        setError(t("source_unsupported_extension", { filename: file.name }));
+        return;
+      }
       setFileName(file.name);
       setError(null);
 
@@ -141,16 +147,9 @@ export function WelcomeCanvas({
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (!file) return;
-      if (isSupportedSourceFile(file.name)) {
-        voidCall(processFile(file));
-      } else {
-        // 与 file picker 入口（accept 仅是提示）和 SourceFilesPage 保持一致：
-        // 拖入不支持的类型要给反馈，而非静默丢弃。
-        setError(t("source_unsupported_extension", { filename: file.name }));
-      }
+      if (file) voidCall(processFile(file));
     },
-    [processFile, t],
+    [processFile],
   );
 
   const handleFileSelect = useCallback(

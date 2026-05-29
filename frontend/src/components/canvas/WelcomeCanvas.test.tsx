@@ -93,7 +93,7 @@ describe("WelcomeCanvas accept extension", () => {
   });
 });
 
-describe("WelcomeCanvas drag-and-drop validation", () => {
+describe("WelcomeCanvas unsupported file validation", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
@@ -108,6 +108,18 @@ describe("WelcomeCanvas drag-and-drop validation", () => {
     expect(dropZone).not.toBeNull();
     const file = new File(["x"], "cover.png", { type: "image/png" });
     fireEvent.drop(dropZone as HTMLElement, { dataTransfer: { files: [file] } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("不支持的文件类型：cover.png");
+    expect(onUpload).not.toHaveBeenCalled();
+  });
+
+  it("shows an error and does not upload when an unsupported file is picked", async () => {
+    const onUpload = vi.fn().mockResolvedValue(undefined);
+    renderWelcome({ onUpload });
+
+    const input = await screen.findByLabelText(/upload|上传/i);
+    const file = new File(["x"], "cover.png", { type: "image/png" });
+    fireEvent.change(input, { target: { files: [file] } });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("不支持的文件类型：cover.png");
     expect(onUpload).not.toHaveBeenCalled();
