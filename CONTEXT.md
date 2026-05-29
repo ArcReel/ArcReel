@@ -14,6 +14,17 @@ _Avoid_: vendor、channel。
 按某个 provider + model 构造出来的、真正调用其 API 的客户端对象。一个 provider 可派生出多个 backend。backend 是**构造物**，与 provider 身份是两件事——"选哪个 provider" 和 "造哪个 backend" 是两个独立决策。
 _Avoid_: client（太泛）、adapter（另有架构含义）。
 
+**内置 provider（built-in provider）**：
+ArcReel 启动时在 `PROVIDER_REGISTRY` 静态注册的供应商（如 `gemini-aistudio` / `gemini-vertex` / `ark` / `openai` / `grok` / `vidu`）。用户填凭证 + 选 model 即可使用；凭证字段可按供应商定制（如 Vertex AI 用 service account JSON、Ark 用 AKSK、Kling 用 JWT access+secret）。
+_Avoid_: preset（易与 model preset 混淆）、official（误读为"获 vendor 官方授权"）。
+
+**自定义 provider（custom provider）**：
+用户运行时通过 UI 创建的供应商，`provider_id` 形如 `custom-{id}`。挂接一个 endpoint 决定协议形态；凭证模型固定为 `api_key`（单字段）+ `base_url`。主要承载中转站接入场景。需要多字段凭证（如 service account JSON、AKSK、JWT access+secret）的协议**无法**作为自定义 provider 接入，只能走内置 provider。
+
+**endpoint（协议端口）**：
+自定义 provider 可挂接的一种协议形态——HTTP URL 模板 + 鉴权约定 + 字段语义构成的"协议槽位"（如 `openai-video` 对应 OpenAI Sora `/v1/videos` 协议、`newapi-video` 对应 NewAPI 自有 `/v1/video/generations` 协议）。一个 endpoint 决定 backend 如何被构造和调用；endpoint 是协议归属的单一真相源，登记在 `ENDPOINT_REGISTRY`。一个内置 backend 可被同时用于内置 provider 和 endpoint 闭包，代码共享。
+_Avoid_: protocol（太泛，易与 HTTP/JSON 协议混淆）、format（易与 image format / 文件格式混淆）、端口（含义重叠 network port，避免）。
+
 **规范 provider id（canonical provider id）**：
 `PROVIDER_REGISTRY` 的 key 形式，是 provider 身份的唯一真相源与全系统唯一接受的写入形式。
 _Avoid_: legacy provider 名。
@@ -61,6 +72,12 @@ _Avoid_: ResolvedBackend、BackendSelection（会与 backend 混淆）。
 
 **capability（t2i / i2i）**：
 图片任务的两种形态——t2i 文生图（无参考图）、i2i 图生图（带参考图）。一个镜头属于哪种，取决于"开画那一刻"是否拼出了参考图，**只有执行时才能确定**（见 `docs/adr/0001`）；入队与调度（worker claim）这两个执行前环节都无法获知。视频任务无 capability 维度。
+
+### 计费
+
+**成本快照（cost snapshot）**：
+一次 API 调用完成时（`ApiCall` 从 `pending` 转 `success`），由 `CostCalculator` 按**当时**的模型与计费参数算出金额，**冻结写入该调用记录的 `cost_amount` + `currency`**。所有用量与费用聚合一律 `SUM(cost_amount)` 读这个冻结值，**不在读时重算**。两条推论：① 调整定价只影响**之后**的新调用，不会追溯改变历史记录；② 下线模型的过往花费已锁定，定价数据无需为历史计费保留旧费率。
+_Avoid_: 实时计费、读时重算成本。
 
 ## 示例对话
 
