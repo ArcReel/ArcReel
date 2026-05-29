@@ -121,6 +121,22 @@ class TestGeminiFamilyVideoFallback:
         assert pricing.rates["veo-3.1-generate-001"][("1080p", True)] == 0.40
 
 
+class TestCrossModalModelMismatch:
+    """模型名与 call_type 媒体类型不符时，应按当前媒体类型默认模型计价，而非该模型自身的异模态费率
+    （复刻历史「按 call_type 分表」：模型名只在本模态费率表内查）。"""
+
+    def test_openai_image_model_on_video_call_falls_back_to_video_default(self):
+        # video 调用带图像模型名 → 不返回图片定价，回落 openai 视频默认（Sora，PerSecondMatrix）。
+        pricing = lookup_pricing("openai", "gpt-image-2", "video")
+        assert isinstance(pricing, PerSecondMatrix)
+
+    def test_gemini_image_model_on_video_call_falls_back_to_video_default(self):
+        # 非 OWN_TABLE 的 gemini 家族同理 → 回落 Gemini 视频通用默认（lite）。
+        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image-preview", "video")
+        assert isinstance(pricing, PerSecondMatrix)
+        assert "veo-3.1-lite-generate-preview" in pricing.rates
+
+
 class TestHiddenModelStillResolves:
     def test_hidden_does_not_block_lookup(self, monkeypatch):
         # 成本快照边角：模型被下线（hidden=True）后，入队遗留任务仍需算价。

@@ -82,13 +82,24 @@ def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing
         return _gemini_default_pricing_for(media_type, model)
 
     info = meta.models.get(model) if model is not None else None
-    if info is not None and info.pricing is not None:
+    # 必须媒体类型匹配才命中：历史按 call_type 分表，模型名只在本模态费率表内查。跨模态的
+    # (model, call_type) 组合（如 video 调用带着图像模型名）应回落到当前媒体类型的默认模型，
+    # 而非按该模型自身的异模态费率计价。
+    if info is not None and info.media_type == media_type and info.pricing is not None:
         return info.pricing
 
-    # 未知 model 名很可能是配置/调用错误，告警；已知 model 但定价为 None（如 Agent Plan 套餐）
-    # 是预期的 Gemini 兜底，降级到 debug 避免噪声。
+    # 未知 model 名很可能是配置/调用错误，告警；媒体类型与调用不符同样告警（将按默认模型计价）；
+    # 已知 model 但定价为 None（如 Agent Plan 套餐）是预期的 Gemini 兜底，降级到 debug 避免噪声。
     if model is not None and info is None:
         logger.warning("pricing lookup: provider=%s model=%s 未在 registry，回落到默认模型费率", provider, model)
+    elif info is not None and info.media_type != media_type:
+        logger.warning(
+            "pricing lookup: provider=%s model=%s 媒体类型(%s)与调用(%s)不符，回落到默认模型费率",
+            provider,
+            model,
+            info.media_type,
+            media_type,
+        )
     elif info is not None and info.pricing is None:
         logger.debug("pricing lookup: provider=%s model=%s 未声明定价，回落到默认模型费率", provider, model)
 
