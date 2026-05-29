@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal
 
@@ -123,11 +124,12 @@ class ConfigService:
             else:
                 status = "unconfigured"
                 missing = list(meta.required_keys)
-            # 用 __dict__ 浅拷贝并排除 pricing：pricing 费率含 tuple 键（如 (resolution, audio)），
-            # 非 JSON 可序列化且响应不消费；asdict 会递归转换 pricing 后又被丢弃，纯属浪费。其余字段
-            # 均为标量或标量容器，浅拷贝后交 ModelInfoResponse（Pydantic 构造时复制）即可。
+            # 先按 __dict__ 排除 pricing（其费率含 tuple 键，非 JSON 可序列化且响应不消费；
+            # 用 __dict__ 而非 asdict 以免递归转换 pricing 后又被丢弃），再 deepcopy 其余可变容器
+            # 字段（list/dict），避免返回值与全局 PROVIDER_REGISTRY 共享引用被调用方意外改写。
             models_dict = {
-                mid: {k: v for k, v in mi.__dict__.items() if k != "pricing"} for mid, mi in meta.models.items()
+                mid: deepcopy({k: v for k, v in mi.__dict__.items() if k != "pricing"})
+                for mid, mi in meta.models.items()
             }
             statuses.append(
                 ProviderStatus(

@@ -32,6 +32,18 @@ async def test_get_all_providers_status_empty(config_service: ConfigService):
         assert s.status == "unconfigured"
 
 
+async def test_provider_status_models_isolated_from_registry(config_service: ConfigService):
+    # models 返回值须与全局 PROVIDER_REGISTRY 隔离：改写其可变容器不应污染注册表。
+    from lib.config.registry import PROVIDER_REGISTRY
+
+    statuses = await config_service.get_all_providers_status()
+    target = next(s for s in statuses if s.models)
+    mid, model_dict = next(iter(target.models.items()))
+    before = list(PROVIDER_REGISTRY[target.name].models[mid].capabilities)
+    model_dict["capabilities"].append("__mutation_probe__")
+    assert PROVIDER_REGISTRY[target.name].models[mid].capabilities == before
+
+
 async def test_provider_becomes_ready(config_service: ConfigService, session: AsyncSession):
     # 新逻辑：status 由凭证表中的活跃凭证决定，而不是 ProviderConfig 表
     cred_repo = CredentialRepository(session)
