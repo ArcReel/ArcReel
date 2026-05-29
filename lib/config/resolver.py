@@ -28,7 +28,9 @@ from lib.config.service import (
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.custom_provider.backends import CustomVideoBackend
 from lib.custom_provider.endpoints import get_endpoint_spec
+from lib.custom_provider.factory import create_custom_backend
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import ProjectManager
@@ -463,7 +465,27 @@ class ConfigResolver:
                     f"endpoint media_type mismatch: {provider_id}/{model_id} endpoint={model.endpoint!r} "
                     f"is {endpoint_spec.media_type}, not video"
                 )
-            max_reference_images = endpoint_spec.video_max_reference_images
+            endpoint_cap = endpoint_spec.video_max_reference_images
+            if endpoint_cap is not None:
+                max_reference_images = endpoint_cap
+            else:
+                # endpoint cap 未声明（多 model 共享端点、容量不同）→ fallthrough 到 backend caps。
+                # CustomProviderModel 无 provider relationship，须显式取 provider 行（多一次 DB 查询）。
+                provider = await repo.get_provider(db_pid)
+                if provider is None:
+                    raise ValueError(f"custom provider not found: {provider_id}")
+                try:
+                    backend = create_custom_backend(provider=provider, model_id=model_id, endpoint=model.endpoint)
+                except Exception as exc:
+                    raise ValueError(
+                        f"failed to construct backend for max_reference_images fallthrough: "
+                        f"{provider_id}/{model_id} endpoint={model.endpoint!r}"
+                    ) from exc
+                if not isinstance(backend, CustomVideoBackend):
+                    raise ValueError(
+                        f"video endpoint built non-video backend: {provider_id}/{model_id} endpoint={model.endpoint!r}"
+                    )
+                max_reference_images = backend.video_capabilities.max_reference_images
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:

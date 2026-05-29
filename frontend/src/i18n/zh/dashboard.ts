@@ -747,6 +747,9 @@ export default {
   'endpoint_gemini_image_display': 'Google Gemini Image',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',
+  'endpoint_v2_video_generations_display': 'V2 Video Generations',
+  'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',
+  'endpoint_vidu_video_display': 'Vidu Video',
   'endpoint_catalog_loading': '加载端点目录…',
   // Image Capability
   'image_capability_t2i': '文生图',

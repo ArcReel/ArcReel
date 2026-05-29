@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
@@ -20,8 +21,11 @@ from lib.image_backends.gemini import GeminiImageBackend
 from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
+from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.newapi import NewAPIVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
+from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
+from lib.video_backends.vidu import ViduVideoBackend
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -42,9 +46,11 @@ class EndpointSpec:
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
     build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
-    # 参考生视频单镜头参考图上限；仅 video 类有意义。这是显式上限，0 会原样下传作为硬约束
-    # （表示不接受参考图，executor 据此将 references 裁剪为 0 张），不代表「未声明」。
-    video_max_reference_images: int = 0
+    # 参考生视频单镜头参考图上限；仅 video 类有意义。
+    # 显式 int：原样下传作为硬约束（0 表示不接受参考图，executor 据此将 references 裁剪为 0 张）。
+    # None：未声明 —— 一个 endpoint 多 model、容量不同时 endpoint 维度给不出准数，由 resolver
+    # fallthrough 到 backend video_capabilities 读取该 model 的真实上限。
+    video_max_reference_images: int | None = None
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
@@ -107,6 +113,37 @@ def _build_newapi_video(provider, model_id: str) -> CustomVideoBackend:
     if not base_url:
         raise ValueError("NewAPI 视频后端需要 base_url")
     delegate = NewAPIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
+    """用户只填到 host 时补全协议已知挂载路径（ark /api/v3、vidu /ent/v2）；
+    已带显式路径则原样信任，避免错误叠加。供 ark/vidu 闭包复用。"""
+    s = (base_url or "").strip().rstrip("/")
+    if not s:
+        return None
+    if urlsplit(s).path in ("", "/"):
+        return s + suffix
+    return s
+
+
+def _build_v2_video_generations(provider, model_id: str) -> CustomVideoBackend:
+    if not provider.base_url:
+        raise ValueError("v2-video-generations 端点需要 base_url")
+    # base_url 归一化（去版本段 + 拼 /v2/video/generations）由 V2VideoGenerationsBackend 内部处理
+    delegate = V2VideoGenerationsBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_ark_seedance(provider, model_id: str) -> CustomVideoBackend:
+    base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
+    delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_vidu_video(provider, model_id: str) -> CustomVideoBackend:
+    base_url = _ensure_url_path_suffix(provider.base_url, "/ent/v2")
+    delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -194,6 +231,34 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_newapi_video,
         video_max_reference_images=0,
     ),
+    "v2-video-generations": EndpointSpec(
+        key="v2-video-generations",
+        media_type="video",
+        family="v2",
+        display_name_key="endpoint_v2_video_generations_display",
+        request_method="POST",
+        request_path_template="/v2/video/generations",
+        build_backend=_build_v2_video_generations,
+        # 多 model 共享端点、容量不同 → 未声明，fallthrough 到 backend caps
+    ),
+    "ark-seedance": EndpointSpec(
+        key="ark-seedance",
+        media_type="video",
+        family="ark",
+        display_name_key="endpoint_ark_seedance_display",
+        request_method="POST",
+        request_path_template="/api/v3/contents/generations/tasks",
+        build_backend=_build_ark_seedance,
+    ),
+    "vidu-video": EndpointSpec(
+        key="vidu-video",
+        media_type="video",
+        family="vidu",
+        display_name_key="endpoint_vidu_video_display",
+        request_method="POST",
+        request_path_template="/ent/v2/img2video",
+        build_backend=_build_vidu_video,
+    ),
 }
 
 
@@ -252,19 +317,33 @@ _VIDEO_PATTERN = re.compile(
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
-    """根据模型 id 与 discovery_format 推默认 endpoint。
+    """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
 
-    1) 视频家族 → 一律 "openai-video"（OpenAI /v1/videos 协议为首选默认，
-       newapi-video 仅在用户手动选择时使用）
-    2) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
-    3) 文本（默认）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+    model id 内容优先于 discovery_format：中转站普遍 discovery_format="openai"，但模型
+    列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
+    openai-chat/openai-images，每次都要手动改回。
+
+    1) imagen → "gemini-image"（图像，不论 discovery_format）
+    2) gemini 且非 video/image 形态 → "gemini-generate"（文本，不论 discovery_format）
+    3) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
+       （v2-video-generations 命名碎片化无法可靠识别，不自动推断，留用户手选）
+    4) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
+    5) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
-    if _VIDEO_PATTERN.search(model_id):
-        return "openai-video"
-    if _IMAGE_PATTERN.search(model_id):
-        if discovery_format == "google":
-            return "gemini-image"
-        return "openai-images"
-    if discovery_format == "google":
+    lowered = model_id.lower()
+    is_video = bool(_VIDEO_PATTERN.search(model_id))
+    is_image = bool(_IMAGE_PATTERN.search(model_id))
+
+    if "imagen" in lowered:
+        return "gemini-image"
+    if "gemini" in lowered and not is_video and not is_image:
         return "gemini-generate"
-    return "openai-chat"
+    if is_video:
+        if "seedance" in lowered:
+            return "ark-seedance"
+        if "viduq3" in lowered:
+            return "vidu-video"
+        return "openai-video"
+    if is_image:
+        return "gemini-image" if discovery_format == "google" else "openai-images"
+    return "gemini-generate" if discovery_format == "google" else "openai-chat"

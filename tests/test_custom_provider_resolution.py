@@ -153,16 +153,21 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "endpoint, expected_max_refs",
+    "endpoint, model_id, expected_max_refs",
     [
-        ("openai-video", 1),
-        ("newapi-video", 0),
+        # 显式 int：直接用 endpoint cap（行为零变化）
+        ("openai-video", "vid-model", 1),
+        ("newapi-video", "vid-model", 0),
+        # 未声明（None）：fallthrough 到 backend video_capabilities 读该 model 真实上限
+        ("ark-seedance", "doubao-seedance-2-0", 9),
+        ("vidu-video", "viduq3-turbo", 7),
     ],
 )
 async def test_custom_video_max_reference_images_from_endpoint(
-    db_session: AsyncSession, endpoint: str, expected_max_refs: int
+    db_session: AsyncSession, endpoint: str, model_id: str, expected_max_refs: int
 ):
-    """custom 视频 model 的 max_reference_images 经 ENDPOINT_REGISTRY 派生，不再静默落默认值。"""
+    """custom 视频 model 的 max_reference_images 经 ENDPOINT_REGISTRY 派生：endpoint cap
+    为显式 int 时直接用；为 None 时 fallthrough 到 backend caps，均不静默落默认值。"""
     from lib.config.resolver import ConfigResolver
     from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
@@ -178,7 +183,7 @@ async def test_custom_video_max_reference_images_from_endpoint(
 
     model = CustomProviderModel(
         provider_id=provider.id,
-        model_id="vid-model",
+        model_id=model_id,
         display_name="Vid Model",
         endpoint=endpoint,
         is_default=True,
@@ -189,7 +194,7 @@ async def test_custom_video_max_reference_images_from_endpoint(
     await db_session.flush()
 
     provider_id_str = make_provider_id(provider.id)
-    project = {"video_backend": f"{provider_id_str}/vid-model"}
+    project = {"video_backend": f"{provider_id_str}/{model_id}"}
 
     factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
     svc = ConfigService(db_session)
@@ -198,3 +203,45 @@ async def test_custom_video_max_reference_images_from_endpoint(
     caps = await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
     assert caps["source"] == "custom"
     assert caps["max_reference_images"] == expected_max_refs
+
+
+@pytest.mark.asyncio
+async def test_custom_video_max_refs_fallthrough_failure_raises(db_session: AsyncSession):
+    """endpoint cap=None 且 backend 构造失败 → raise ValueError（不静默裁剪为 0）。"""
+    from unittest.mock import patch
+
+    from lib.config.resolver import ConfigResolver
+    from lib.config.service import ConfigService
+    from lib.custom_provider import make_provider_id
+
+    provider = CustomProvider(
+        display_name="VideoProv",
+        discovery_format="openai",
+        base_url="https://api.example.com",
+        api_key="k",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+
+    model = CustomProviderModel(
+        provider_id=provider.id,
+        model_id="doubao-seedance-2-0",
+        display_name="Vid Model",
+        endpoint="ark-seedance",
+        is_default=True,
+        is_enabled=True,
+        supported_durations="[5, 10]",
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    provider_id_str = make_provider_id(provider.id)
+    project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
+
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    svc = ConfigService(db_session)
+    resolver = ConfigResolver(factory, _bound_session=db_session)
+
+    with patch("lib.config.resolver.create_custom_backend", side_effect=RuntimeError("boom")):
+        with pytest.raises(ValueError, match="failed to construct backend"):
+            await resolver._resolve_video_capabilities_from_project(svc, db_session, project)

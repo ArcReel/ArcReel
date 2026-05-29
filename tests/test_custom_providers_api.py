@@ -212,6 +212,9 @@ class TestEndpointCatalog:
             "gemini-image",
             "openai-video",
             "newapi-video",
+            "v2-video-generations",
+            "ark-seedance",
+            "vidu-video",
         }
 
     def test_descriptor_shape(self, client: TestClient):

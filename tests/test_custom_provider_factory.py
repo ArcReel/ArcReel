@@ -67,6 +67,38 @@ class TestEndpointDispatch:
         create_custom_backend(provider=provider, model_id="kling-v2", endpoint="newapi-video")
         mock_cls.assert_called_once_with(api_key="sk-test", base_url="https://api.example.com/v1", model="kling-v2")
 
+    @patch("lib.custom_provider.endpoints.V2VideoGenerationsBackend")
+    def test_v2_video_generations(self, mock_cls):
+        provider = _make_provider(base_url="https://api.aimlapi.com")
+        result = create_custom_backend(
+            provider=provider, model_id="bytedance/seedance-1-0-lite-i2v", endpoint="v2-video-generations"
+        )
+        assert isinstance(result, CustomVideoBackend)
+        # base_url 原样下传，归一化由 V2VideoGenerationsBackend 内部处理
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://api.aimlapi.com", model="bytedance/seedance-1-0-lite-i2v"
+        )
+
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
+    def test_ark_seedance(self, mock_cls):
+        provider = _make_provider(base_url="https://relay.example.com")
+        result = create_custom_backend(provider=provider, model_id="doubao-seedance-2-0", endpoint="ark-seedance")
+        assert isinstance(result, CustomVideoBackend)
+        # 仅 host → 补全 ark 协议挂载路径 /api/v3
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://relay.example.com/api/v3", model="doubao-seedance-2-0"
+        )
+
+    @patch("lib.custom_provider.endpoints.ViduVideoBackend")
+    def test_vidu_video(self, mock_cls):
+        provider = _make_provider(base_url="https://relay.example.com")
+        result = create_custom_backend(provider=provider, model_id="viduq3-turbo", endpoint="vidu-video")
+        assert isinstance(result, CustomVideoBackend)
+        # 仅 host → 补全 vidu 协议挂载路径 /ent/v2
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://relay.example.com/ent/v2", model="viduq3-turbo"
+        )
+
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     def test_openai_images_generations(self, mock_cls):
         provider = _make_provider()
@@ -114,6 +146,21 @@ class TestUrlNormalization:
         provider = _make_provider(base_url="")
         create_custom_backend(provider=provider, model_id="gemini-2.5", endpoint="gemini-generate")
         mock_cls.assert_called_once_with(api_key="sk-test", base_url=None, model="gemini-2.5")
+
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
+    def test_ark_explicit_path_passthrough(self, mock_cls):
+        """已带显式路径（/api/v3）→ 原样信任，不重复叠加。"""
+        provider = _make_provider(base_url="https://relay.example.com/api/v3")
+        create_custom_backend(provider=provider, model_id="doubao-seedance-2-0", endpoint="ark-seedance")
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://relay.example.com/api/v3", model="doubao-seedance-2-0"
+        )
+
+    @patch("lib.custom_provider.endpoints.ViduVideoBackend")
+    def test_vidu_explicit_path_passthrough(self, mock_cls):
+        provider = _make_provider(base_url="https://api.vidu.cn/ent/v2")
+        create_custom_backend(provider=provider, model_id="viduq3-turbo", endpoint="vidu-video")
+        mock_cls.assert_called_once_with(api_key="sk-test", base_url="https://api.vidu.cn/ent/v2", model="viduq3-turbo")
 
 
 class TestErrors:
