@@ -42,7 +42,8 @@ class EndpointSpec:
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
     build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
-    # 参考生视频单镜头参考图上限；仅 video 类有意义，0 = 不接受参考图。
+    # 参考生视频单镜头参考图上限；仅 video 类有意义。这是显式上限，0 会原样下传作为硬约束
+    # （表示不接受参考图，executor 据此将 references 裁剪为 0 张），不代表「未声明」。
     video_max_reference_images: int = 0
 
 

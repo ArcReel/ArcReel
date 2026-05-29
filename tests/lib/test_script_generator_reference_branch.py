@@ -186,6 +186,42 @@ def test_resolve_max_refs_from_caps(tmp_path: Path, caps, expected):
 
 
 @pytest.mark.parametrize(
+    "video_backend, expected",
+    [
+        ("grok/grok-imagine-video", 7),
+        ("gemini-aistudio/veo-3.1-generate-preview", 3),
+        ("ark/doubao-seedance-2-0-260128", 9),
+        # registry 里 max_reference_images=0（字段默认/未声明）→ truthy 守卫当未声明 → None
+        ("ark/doubao-seedream-4-0-250828", None),
+        # registry 不存在该 provider → None
+        ("nonexistent/whatever", None),
+    ],
+)
+def test_resolve_max_refs_from_registry_fallback(tmp_path: Path, video_backend, expected):
+    """caps 缺失时退到 project.json.video_backend → registry，与 _resolve_supported_durations 同构。"""
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    import json as _j
+
+    project = {
+        "title": "t",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "video_backend": video_backend,
+        "overview": {},
+        "style": "",
+        "style_description": "",
+        "characters": {},
+        "scenes": {},
+        "props": {},
+    }
+    (project_dir / "project.json").write_text(_j.dumps(project), encoding="utf-8")
+
+    gen = ScriptGenerator(project_dir)
+    assert gen._resolve_max_refs(None) == expected
+
+
+@pytest.mark.parametrize(
     "video_backend, expected_max_duration_sec",
     [
         ("grok/grok-imagine-video", "15"),

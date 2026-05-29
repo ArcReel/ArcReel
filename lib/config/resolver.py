@@ -28,6 +28,7 @@ from lib.config.service import (
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import ProjectManager
@@ -455,8 +456,6 @@ class ConfigResolver:
             model = await repo.get_model_by_ids(db_pid, model_id)
             if model is None:
                 raise ValueError(f"custom model not found: {provider_id}/{model_id}")
-
-            from lib.custom_provider.endpoints import get_endpoint_spec
 
             endpoint_spec = get_endpoint_spec(model.endpoint)
             if endpoint_spec.media_type != "video":

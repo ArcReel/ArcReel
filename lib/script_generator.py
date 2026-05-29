@@ -330,15 +330,26 @@ class ScriptGenerator:
         return "9:16" if self.content_mode == "narration" else "16:9"
 
     def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
-        """解析当前视频模型的最大参考图数；来源是 caps 的 max_reference_images。
+        """解析当前视频模型的最大参考图数；caps → project.json.video_backend → registry 两级回退。
 
-        caps 缺失时返回 None，表示无法确定上限——上层据此不在 prompt 里写硬性数量约束，
-        裁剪交由 executor / backend 处理。
+        语义约定：仅 None 视为「未声明上限」（上层不在 prompt 写硬性数量约束，且 executor 跳过裁剪）；
+        caps 来源的 0 是显式上限（如不接受参考图的 endpoint），会原样下传触发裁剪为 0 张。
+        caps 解析失败（DB/migration 故障等）时退到 registry 的 ModelInfo.max_reference_images——
+        与 _resolve_supported_durations 同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
+        registry 里 0 是字段默认值（图像/文本模型或视频模型未声明），用 truthy 守卫当作未声明跳过。
         """
         if caps:
             cached = caps.get("max_reference_images")
             if cached is not None:
                 return int(cached)
+        video_backend = self.project_json.get("video_backend")
+        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
+            provider_id, model_id = video_backend.split("/", 1)
+            provider_meta = PROVIDER_REGISTRY.get(provider_id)
+            if provider_meta:
+                model_info = provider_meta.models.get(model_id)
+                if model_info and model_info.max_reference_images:
+                    return int(model_info.max_reference_images)
         return None
 
     def _load_project_json(self) -> dict:
