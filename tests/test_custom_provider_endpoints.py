@@ -105,6 +105,11 @@ class TestInferEndpoint:
             ("imagen-4", "openai", "gemini-image"),  # imagen 一律 gemini-image
             ("imagen-4", "google", "gemini-image"),
             ("gemini-imagen-3", "openai", "gemini-image"),  # imagen 优先于 gemini 文本
+            # gemini 原生图像模型也按内容纠偏到 gemini-image（不被错推到 openai-images）
+            ("gemini-2.5-flash-image", "openai", "gemini-image"),
+            ("gemini-2.5-flash-image", "google", "gemini-image"),
+            ("gemini-2.0-flash-exp-image-generation", "openai", "gemini-image"),
+            ("gemini-3-pro-image-preview", "openai", "gemini-image"),
             # ── 新视频分支路由 ──
             ("seedance-1.0", "openai", "ark-seedance"),
             ("doubao-seedance-2-0", "openai", "ark-seedance"),

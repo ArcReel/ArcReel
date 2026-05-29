@@ -324,7 +324,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     openai-chat/openai-images，每次都要手动改回。
 
     1) imagen → "gemini-image"（图像，不论 discovery_format）
-    2) gemini 且非 video/image 形态 → "gemini-generate"（文本，不论 discovery_format）
+    2) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
+       （均不论 discovery_format：gemini-* 一律按 Google 端点路由，gemini-*-image 也不例外）
     3) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
        （v2-video-generations 命名碎片化无法可靠识别，不自动推断，留用户手选）
     4) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
@@ -336,8 +337,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
 
     if "imagen" in lowered:
         return "gemini-image"
-    if "gemini" in lowered and not is_video and not is_image:
-        return "gemini-generate"
+    if "gemini" in lowered and not is_video:
+        return "gemini-image" if is_image else "gemini-generate"
     if is_video:
         if "seedance" in lowered:
             return "ark-seedance"
