@@ -60,7 +60,9 @@ def _per_image_flat(pricing: PerImageFlat, params: PricingParams) -> tuple[float
 def _per_image_by_resolution(pricing: PerImageByResolution, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
     model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
-    default_cost = model_costs.get("1K") or pricing.rates[pricing.default_model].get("1K", 0.0)
+    # 用 is None 而非 or：模型可显式声明 0.0 免费档，falsy 的 0.0 不应被当作缺失而回落默认费率。
+    own_1k = model_costs.get("1K")
+    default_cost = own_1k if own_1k is not None else pricing.rates[pricing.default_model].get("1K", 0.0)
     resolution = params.resolution or "1K"
     return model_costs.get(resolution.upper(), default_cost) * params.n, pricing.currency
 
@@ -107,7 +109,11 @@ def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple
     duration = params.duration_seconds if params.duration_seconds is not None else 8
     if pricing.dimensions == "resolution_audio":
         resolution = (params.resolution or "1080p").lower()
-        fallback = model_costs.get(("1080p", True)) or pricing.rates[pricing.default_model].get(("1080p", True), 0.0)
+        # 同上：0.0 免费档不应被 or 当作缺失而回落默认模型费率。
+        own_1080p = model_costs.get(("1080p", True))
+        fallback = (
+            own_1080p if own_1080p is not None else pricing.rates[pricing.default_model].get(("1080p", True), 0.0)
+        )
         per_second = model_costs.get((resolution, params.generate_audio), fallback)
     elif pricing.dimensions == "resolution_only":
         resolution = (params.resolution or "720p").lower()

@@ -88,6 +88,16 @@ class TestPerImageByResolution:
         amount, _ = calculate_pricing(self.pricing, PricingParams(call_type="image", model="m1", resolution="1K", n=3))
         assert amount == pytest.approx(0.067 * 3)
 
+    def test_zero_1k_rate_not_treated_as_missing(self):
+        # free 模型 1K 显式 0.0，未知分辨率回落 default_cost 时应保留自身 0.0，不误用 paid 费率。
+        pricing = PerImageByResolution(
+            rates={"free": {"1K": 0.0}, "paid": {"1K": 0.067}},
+            default_model="paid",
+            currency="USD",
+        )
+        amount, _ = calculate_pricing(pricing, PricingParams(call_type="image", model="free", resolution="4K"))
+        assert amount == pytest.approx(0.0)
+
 
 class TestPerImageOpenAIToken:
     pricing = PerImageOpenAIToken(
@@ -264,6 +274,22 @@ class TestPerSecondMatrix:
     def test_duration_defaults_to_8(self):
         amount, _ = calculate_pricing(self.flat, PricingParams(call_type="video", model="grok"))
         assert amount == pytest.approx(0.40)
+
+    def test_resolution_audio_zero_fallback_rate_not_treated_as_missing(self):
+        # free 模型 (1080p,True) 显式 0.0，未知分辨率回落 fallback 时应保留自身 0.0，不误用 paid 费率。
+        pricing = PerSecondMatrix(
+            rates={"free": {("1080p", True): 0.0}, "paid": {("1080p", True): 0.08}},
+            default_model="paid",
+            dimensions="resolution_audio",
+            currency="USD",
+        )
+        amount, _ = calculate_pricing(
+            pricing,
+            PricingParams(
+                call_type="video", model="free", duration_seconds=10, resolution="UNKNOWN", generate_audio=True
+            ),
+        )
+        assert amount == pytest.approx(0.0)
 
 
 class TestPerTokenVideo:
