@@ -156,7 +156,7 @@ class TestFinalizePendingByCallId:
 
     async def test_usage_tokens_passed_to_cost_calculator(self, db_session, monkeypatch):
         """Ark video 按 usage_tokens 计费，repo 必须把 caller 传入的 usage_tokens 透传到 cost_calculator，
-        否则 calculate_ark_video_cost 走 usage_tokens or 0 路径 → cost 永远为 0 CNY。"""
+        否则按 token 计费的视频走 usage_tokens or 0 路径 → cost 永远为 0 CNY。"""
         from lib import cost_calculator as cc_module
 
         captured: dict[str, object] = {}

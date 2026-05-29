@@ -5,21 +5,24 @@ class TestTextCost:
     def setup_method(self):
         self.calc = CostCalculator()
 
+    def _text(self, provider: str):
+        return self.calc.calculate_cost(provider, "text", input_tokens=1000, output_tokens=500)
+
     def test_gemini_cost(self):
-        amount, currency = self.calc.calculate_text_cost(1000, 500, "gemini")
+        amount, currency = self._text("gemini")
         assert currency == "USD"
         assert amount == (1000 * 0.50 + 500 * 3.00) / 1_000_000
 
     def test_ark_cost(self):
-        amount, currency = self.calc.calculate_text_cost(1000, 500, "ark")
+        amount, currency = self._text("ark")
         assert currency == "CNY"
         assert amount == (1000 * 0.60 + 500 * 3.60) / 1_000_000
 
     def test_grok_cost(self):
-        amount, currency = self.calc.calculate_text_cost(1000, 500, "grok")
+        amount, currency = self._text("grok")
         assert currency == "USD"
         assert amount == (1000 * 0.20 + 500 * 0.50) / 1_000_000
 
     def test_unknown_provider_defaults_to_gemini(self):
-        amount, currency = self.calc.calculate_text_cost(1000, 500, "unknown")
+        amount, currency = self._text("unknown")
         assert currency == "USD"
