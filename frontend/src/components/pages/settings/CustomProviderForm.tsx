@@ -451,7 +451,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             type="url"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.example.com/v1"
+            placeholder="https://api.example.com"
             className={INPUT_CLS}
           />
           {urlPreview && (
