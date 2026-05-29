@@ -164,12 +164,16 @@ def build_request_body(model: str, request: VideoGenerationRequest) -> dict:
 
     图像走 base64 data URI 内嵌（与 newapi 一致）：首帧 ``image_url``、尾帧
     ``last_image_url``、参考数组 ``image_urls``。已知风险：部分中转站要求公网 URL
-    而非 base64（见研究报告 §8.2），真实接受形态留手动集成测试。
+    而非 base64，真实接受形态留手动集成测试。
     """
     # 延迟导入避免 image_backends ↔ video_backends 循环依赖
     from lib.image_backends.base import image_to_base64_data_uri
 
     body: dict = {"model": model, "prompt": request.prompt, "duration": request.duration_seconds}
+    # 画幅恒有值（默认 9:16），表达项目朝向意图；与 resolution 同属公共子集的尽力透传，
+    # 不识别该字段的中转站会忽略。漏发会让竖屏项目在按 aspect_ratio 出片的供应商上变横屏。
+    if request.aspect_ratio:
+        body["aspect_ratio"] = request.aspect_ratio
     if request.resolution:
         body["resolution"] = request.resolution
     if request.seed is not None:
@@ -203,6 +207,16 @@ def build_request_body(model: str, request: VideoGenerationRequest) -> dict:
     return body
 
 
+# 请求体里这些键可能内嵌整张图片的 base64 data URI，落日志前脱敏：
+# 避免明文记录用户图像，也防止日志体积被撑爆。
+_REDACTED_BODY_KEYS = frozenset({"image_url", "last_image_url", "image_urls"})
+
+
+def _redacted_body(body: dict) -> dict:
+    """日志用副本：内嵌图片字段替换为占位符，其余原样保留。"""
+    return {key: ("<redacted-image-data>" if key in _REDACTED_BODY_KEYS else value) for key, value in body.items()}
+
+
 def _normalize_root(base_url: str) -> str:
     """归一化为 root 形态：去尾斜杠 + 去末尾版本段（/v1、/v2beta 等）。
 
@@ -210,7 +224,7 @@ def _normalize_root(base_url: str) -> str:
     缺版本段时追加 ``/v1``，与本端点的 ``/v2`` 路径冲突。
     """
     s = base_url.strip().rstrip("/")
-    return re.sub(r"/v\d+[a-zA-Z]*$", "", s)
+    return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", s)
 
 
 def _extract_failure(state: dict) -> str | None:
@@ -268,7 +282,7 @@ class V2VideoGenerationsBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         body = build_request_body(self._model, request)
         logger.info("V2 视频生成开始: model=%s duration=%s", self._model, request.duration_seconds)
-        logger.info("调用 %s 视频接口 payload=%s", self.name, format_kwargs_for_log(body))
+        logger.info("调用 %s 视频接口 payload=%s", self.name, format_kwargs_for_log(_redacted_body(body)))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             generation_id = await self._create_task(client, body)

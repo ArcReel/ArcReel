@@ -486,6 +486,13 @@ class ConfigResolver:
                         f"video endpoint built non-video backend: {provider_id}/{model_id} endpoint={model.endpoint!r}"
                     )
                 max_reference_images = backend.video_capabilities.max_reference_images
+                if max_reference_images < 0:
+                    # backend caps 是这条链路的真相源，负数直接抛错，不静默下传——
+                    # 否则 reference_video_tasks 会按坏值跳过裁剪。
+                    raise ValueError(
+                        f"invalid backend max_reference_images: {provider_id}/{model_id} "
+                        f"endpoint={model.endpoint!r} value={max_reference_images!r}"
+                    )
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:

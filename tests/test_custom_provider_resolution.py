@@ -245,3 +245,47 @@ async def test_custom_video_max_refs_fallthrough_failure_raises(db_session: Asyn
     with patch("lib.config.resolver.create_custom_backend", side_effect=RuntimeError("boom")):
         with pytest.raises(ValueError, match="failed to construct backend"):
             await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
+
+
+async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSession):
+    """endpoint cap=None，fallthrough 读到 backend 负数 caps → raise ValueError（不静默下传坏值）。"""
+    from unittest.mock import MagicMock, patch
+
+    from lib.config.resolver import ConfigResolver
+    from lib.config.service import ConfigService
+    from lib.custom_provider import make_provider_id
+    from lib.custom_provider.backends import CustomVideoBackend
+
+    provider = CustomProvider(
+        display_name="VideoProv",
+        discovery_format="openai",
+        base_url="https://api.example.com",
+        api_key="k",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+
+    model = CustomProviderModel(
+        provider_id=provider.id,
+        model_id="doubao-seedance-2-0",
+        display_name="Vid Model",
+        endpoint="ark-seedance",
+        is_default=True,
+        is_enabled=True,
+        supported_durations="[5, 10]",
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    provider_id_str = make_provider_id(provider.id)
+    project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
+
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    svc = ConfigService(db_session)
+    resolver = ConfigResolver(factory, _bound_session=db_session)
+
+    bad_backend = MagicMock(spec=CustomVideoBackend)
+    bad_backend.video_capabilities.max_reference_images = -1
+    with patch("lib.config.resolver.create_custom_backend", return_value=bad_backend):
+        with pytest.raises(ValueError, match="invalid backend max_reference_images"):
+            await resolver._resolve_video_capabilities_from_project(svc, db_session, project)

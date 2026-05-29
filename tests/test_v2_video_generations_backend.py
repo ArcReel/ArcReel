@@ -17,6 +17,7 @@ from lib.video_backends.v2_video_generations import (
     _extract_failure,
     _first_str_by_paths,
     _normalize_root,
+    _redacted_body,
     build_request_body,
     normalize_status,
 )
@@ -128,8 +129,13 @@ class TestTaskIdExtraction:
 
 class TestBuildRequestBody:
     def test_text_to_video_minimal(self, tmp_path):
+        # aspect_ratio 恒透传（默认 9:16），表达项目朝向
         body = build_request_body("kling-v2", _req(tmp_path, duration_seconds=8))
-        assert body == {"model": "kling-v2", "prompt": "a cat", "duration": 8}
+        assert body == {"model": "kling-v2", "prompt": "a cat", "duration": 8, "aspect_ratio": "9:16"}
+
+    def test_aspect_ratio_passed_through(self, tmp_path):
+        body = build_request_body("m", _req(tmp_path, aspect_ratio="16:9"))
+        assert body["aspect_ratio"] == "16:9"
 
     def test_includes_seed_and_resolution(self, tmp_path):
         body = build_request_body("m", _req(tmp_path, seed=42, resolution="720p"))
@@ -188,7 +194,29 @@ class TestNormalizeRoot:
             ("https://api.aimlapi.com/v1", "https://api.aimlapi.com"),
             ("https://api.aimlapi.com/v2", "https://api.aimlapi.com"),
             ("https://api.aimlapi.com/v1beta", "https://api.aimlapi.com"),
+            # 带小版本号的版本段（/v1.1、/v1.0）也归一化
+            ("https://api.aimlapi.com/v1.1", "https://api.aimlapi.com"),
+            ("https://api.aimlapi.com/v1.0", "https://api.aimlapi.com"),
         ],
     )
     def test_strips_version_suffix(self, base_url, expected):
         assert _normalize_root(base_url) == expected
+
+
+class TestRedactedBody:
+    def test_image_fields_redacted(self):
+        body = {
+            "model": "m",
+            "prompt": "p",
+            "image_url": "data:image/png;base64,AAAA",
+            "last_image_url": "data:image/png;base64,BBBB",
+            "image_urls": ["data:image/png;base64,CCCC"],
+        }
+        safe = _redacted_body(body)
+        assert safe["model"] == "m"
+        assert safe["prompt"] == "p"
+        assert safe["image_url"] == "<redacted-image-data>"
+        assert safe["last_image_url"] == "<redacted-image-data>"
+        assert safe["image_urls"] == "<redacted-image-data>"
+        # 原 body 不被就地修改
+        assert body["image_url"].startswith("data:image/png;base64,")

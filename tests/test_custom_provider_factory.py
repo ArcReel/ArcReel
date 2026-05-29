@@ -162,9 +162,45 @@ class TestUrlNormalization:
         create_custom_backend(provider=provider, model_id="viduq3-turbo", endpoint="vidu-video")
         mock_cls.assert_called_once_with(api_key="sk-test", base_url="https://api.vidu.cn/ent/v2", model="viduq3-turbo")
 
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
+    def test_ark_host_only_no_scheme(self, mock_cls):
+        """纯域名（无 scheme）→ 补 https:// 再挂载 /api/v3。"""
+        provider = _make_provider(base_url="relay.example.com")
+        create_custom_backend(provider=provider, model_id="doubao-seedance-2-0", endpoint="ark-seedance")
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://relay.example.com/api/v3", model="doubao-seedance-2-0"
+        )
+
+    @patch("lib.custom_provider.endpoints.ViduVideoBackend")
+    def test_vidu_host_only_no_scheme(self, mock_cls):
+        provider = _make_provider(base_url="relay.example.com")
+        create_custom_backend(provider=provider, model_id="viduq3-turbo", endpoint="vidu-video")
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://relay.example.com/ent/v2", model="viduq3-turbo"
+        )
+
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
+    def test_ark_empty_base_url_normalizes_to_none(self, mock_cls):
+        """空 base_url → _ensure_url_path_suffix 归一化为 None 下传（不强行补挂载路径）。"""
+        provider = _make_provider(base_url="")
+        create_custom_backend(provider=provider, model_id="doubao-seedance-2-0", endpoint="ark-seedance")
+        mock_cls.assert_called_once_with(api_key="sk-test", base_url=None, model="doubao-seedance-2-0")
+
+    @patch("lib.custom_provider.endpoints.ViduVideoBackend")
+    def test_vidu_empty_base_url_normalizes_to_none(self, mock_cls):
+        provider = _make_provider(base_url="")
+        create_custom_backend(provider=provider, model_id="viduq3-turbo", endpoint="vidu-video")
+        mock_cls.assert_called_once_with(api_key="sk-test", base_url=None, model="viduq3-turbo")
+
 
 class TestErrors:
     def test_unknown_endpoint(self):
         provider = _make_provider()
         with pytest.raises(ValueError, match="unknown endpoint"):
             create_custom_backend(provider=provider, model_id="claude-4", endpoint="anthropic-messages")
+
+    def test_v2_empty_base_url_raises(self):
+        """v2-video-generations 强制要求 base_url（无默认 host），空值 fail-loud。"""
+        provider = _make_provider(base_url="")
+        with pytest.raises(ValueError, match="需要 base_url"):
+            create_custom_backend(provider=provider, model_id="some-model", endpoint="v2-video-generations")
