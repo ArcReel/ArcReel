@@ -246,18 +246,19 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     [filteredModels],
   );
 
+  // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
+  // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
+  const baseUrlChanged = isEdit && !!existing && baseUrl.trim() !== existing.base_url;
+  // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）；
+  // 创建模式或 base_url 变更时必须明文 api_key。发现模型与测试连接共用此判断。
+  const useStoredCredential = isEdit && !!existing && !apiKey && !baseUrlChanged;
+
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
     if (!baseUrl) {
       showError(t("fill_base_url_first"));
       return;
     }
-    // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
-    // 否则 by-id 端点会用 DB 中的旧 base_url 发现模型，与保存的新地址错位。
-    const baseUrlChanged = isEdit && !!existing && baseUrl.trim() !== existing.base_url;
-    // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）发现模型；
-    // 创建模式或 base_url 变更时必须明文 api_key。
-    const useStoredCredential = isEdit && !!existing && !apiKey && !baseUrlChanged;
     if (!useStoredCredential && !apiKey) {
       showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
@@ -292,7 +293,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setDiscovering(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, isEdit, existing, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {
@@ -300,17 +301,23 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url_first"));
       return;
     }
+    if (!useStoredCredential && !apiKey) {
+      showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
+      return;
+    }
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await API.testCustomConnection({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
+      const res = useStoredCredential
+        ? await API.testCustomConnectionById(existing.id)
+        : await API.testCustomConnection({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       setTestResult(res);
     } catch (e) {
       setTestResult({ success: false, message: errMsg(e, t("connection_test_failed")) });
     } finally {
       setTesting(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
