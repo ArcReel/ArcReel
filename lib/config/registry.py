@@ -14,6 +14,8 @@ class ModelInfo:
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
     resolutions: list[str] = field(default_factory=list)
+    # 参考生视频单镜头参考图上限；0 = 不适用（图像/文本模型，或视频模型未声明）。
+    max_reference_images: int = 0
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
                 resolutions=["720p", "1080p"],
+                max_reference_images=3,
             ),
             "veo-3.1-fast-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Fast",
@@ -90,6 +93,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
                 resolutions=["720p", "1080p"],
+                max_reference_images=3,
             ),
             "veo-3.1-lite-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Lite",
@@ -99,6 +103,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
                 resolutions=["720p", "1080p"],
+                max_reference_images=3,
             ),
         },
     ),
@@ -147,6 +152,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "negative_prompt", "video_extend"],
                 supported_durations=[4, 6, 8],
                 resolutions=["720p", "1080p"],
+                max_reference_images=3,
             ),
             "veo-3.1-fast-generate-001": ModelInfo(
                 display_name="Veo 3.1 Fast",
@@ -155,6 +161,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 supported_durations=[4, 6, 8],
                 resolutions=["720p", "1080p"],
+                max_reference_images=3,
             ),
         },
     ),
@@ -217,6 +224,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 supported_durations=list(range(4, 13)),
                 resolutions=["480p", "720p", "1080p"],
+                max_reference_images=9,
             ),
             "doubao-seedance-2-0-260128": ModelInfo(
                 display_name="Seedance 2.0",
@@ -224,6 +232,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
+                max_reference_images=9,
             ),
             "doubao-seedance-2-0-fast-260128": ModelInfo(
                 display_name="Seedance 2.0 Fast",
@@ -231,6 +240,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
+                max_reference_images=9,
             ),
         },
         default_base_url=ARK_BASE_URL,
@@ -303,6 +313,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "flex_tier"],
                 supported_durations=list(range(4, 13)),
                 resolutions=["480p", "720p", "1080p"],
+                max_reference_images=9,
             ),
             "doubao-seedance-2.0": ModelInfo(
                 display_name="Seedance 2.0",
@@ -310,6 +321,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
+                max_reference_images=9,
             ),
             "doubao-seedance-2.0-fast": ModelInfo(
                 display_name="Seedance 2.0 Fast",
@@ -318,6 +330,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
+                max_reference_images=9,
             ),
         },
         default_base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
@@ -373,6 +386,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 supported_durations=list(range(1, 16)),
                 resolutions=["480p", "720p"],
+                # 参考图上限值来自第三方来源，官方文档未明确列出。
+                max_reference_images=7,
             ),
         },
     ),
@@ -433,6 +448,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
+                max_reference_images=1,
             ),
             "sora-2-pro": ModelInfo(
                 display_name="Sora 2 Pro",
@@ -440,6 +456,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video"],
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
+                max_reference_images=1,
             ),
         },
     ),
@@ -472,6 +489,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 supported_durations=list(range(1, 17)),
                 resolutions=["540p", "720p", "1080p"],
+                max_reference_images=7,
             ),
             "viduq3-pro": ModelInfo(
                 display_name="Vidu Q3 Pro",
@@ -479,6 +497,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control"],
                 supported_durations=list(range(1, 17)),
                 resolutions=["540p", "720p", "1080p"],
+                max_reference_images=7,
             ),
             "viduq3": ModelInfo(
                 display_name="Vidu Q3 (Reference)",
@@ -486,6 +505,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["image_to_video", "generate_audio", "seed_control"],
                 supported_durations=list(range(3, 17)),
                 resolutions=["540p", "720p", "1080p"],
+                max_reference_images=7,
             ),
             "vidu2.0": ModelInfo(
                 display_name="Vidu 2.0",
@@ -493,6 +513,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["image_to_video", "seed_control"],
                 supported_durations=[4, 8],
                 resolutions=["360p", "720p", "1080p"],
+                max_reference_images=7,
             ),
         },
     ),

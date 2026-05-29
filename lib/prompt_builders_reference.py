@@ -28,7 +28,7 @@ def build_reference_video_prompt(
     props: dict,
     units_md: str,
     supported_durations: list[int],
-    max_refs: int,
+    max_refs: int | None,
     episode: int,
     max_duration: int | None = None,
     aspect_ratio: str = "9:16",
@@ -42,7 +42,7 @@ def build_reference_video_prompt(
         characters / scenes / props: 三类已注册资产字典（用于候选列表）。
         units_md: `step1_reference_units.md` 内容（subagent 输出）。
         supported_durations: 当前视频模型支持的单镜头时长列表（秒）。
-        max_refs: 当前视频模型支持的最大参考图数。
+        max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
         max_duration: 当前视频模型的单次生成时长上限（秒）。传入时 prompt 会显式
             引导 LLM 让 unit 总时长贴近该值，避免默认挑最短值；为 None 时不插入该段。
     """
@@ -51,6 +51,11 @@ def build_reference_video_prompt(
     prop_names = list(props.keys())
 
     durations_desc = "/".join(str(d) for d in supported_durations) + "s"
+    max_refs_line = (
+        f"\n    - **references 数量不超过 {max_refs}**（模型上限）；超出时把次要角色合并到背景描述。"
+        if max_refs is not None
+        else ""
+    )
     max_duration_line = (
         f"\n   - unit 内所有 Shot `duration` 之和宜贴近 {max_duration} 秒（当前模型上限），"
         f"除非内容明显不需要这么长；不要默认挑最短值，也不得超过 {max_duration}。"
@@ -122,8 +127,7 @@ c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
         - character: {", ".join(character_names) or "（无）"}
         - scene: {", ".join(scene_names) or "（无）"}
         - prop: {", ".join(prop_names) or "（无）"}
-    - 每个 shot `text` 中出现的 `@[名称]` 都要在 references 注册一次。
-    - **references 数量不超过 {max_refs}**（模型上限）；超出时把次要角色合并到背景描述。
+    - 每个 shot `text` 中出现的 `@[名称]` 都要在 references 注册一次。{max_refs_line}
 
 d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
 

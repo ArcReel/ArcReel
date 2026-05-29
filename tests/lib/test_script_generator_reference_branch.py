@@ -152,18 +152,18 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
 
 
 @pytest.mark.parametrize(
-    "video_backend, expected",
+    "caps, expected",
     [
-        ("gemini-aistudio/veo-3.1-generate-preview", 3),
-        ("gemini-vertex/veo-3.1", 3),
-        ("openai/sora-2", 1),
-        ("grok/grok-imagine-video", 7),
-        ("ark/seedance-2.0", 9),
-        (None, 9),
-        ("unknown/xyz", 9),
+        ({"max_reference_images": 3}, 3),
+        ({"max_reference_images": 1}, 1),
+        ({"max_reference_images": 0}, 0),
+        # caps 缺该键 → 无法确定上限 → None
+        ({}, None),
+        # caps 整体缺失 → None
+        (None, None),
     ],
 )
-def test_resolve_max_refs_by_provider(tmp_path: Path, video_backend, expected):
+def test_resolve_max_refs_from_caps(tmp_path: Path, caps, expected):
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     import json as _j
@@ -179,12 +179,10 @@ def test_resolve_max_refs_by_provider(tmp_path: Path, video_backend, expected):
         "scenes": {},
         "props": {},
     }
-    if video_backend is not None:
-        project["video_backend"] = video_backend
     (project_dir / "project.json").write_text(_j.dumps(project), encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
-    assert gen._resolve_max_refs() == expected
+    assert gen._resolve_max_refs(caps) == expected
 
 
 @pytest.mark.parametrize(

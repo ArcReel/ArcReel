@@ -94,7 +94,8 @@ class OpenAIVideoBackend:
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return VideoCapabilities(reference_images=True, max_reference_images=3)
+        # Sora input_reference 为单张首帧图，参考图上限为 1。
+        return VideoCapabilities(reference_images=True, max_reference_images=1)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {

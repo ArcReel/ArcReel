@@ -49,6 +49,7 @@ class TestRegistry:
             "request_method": "POST",
             "request_path_template": "/v1/chat/completions",
             "image_capabilities": None,
+            "video_max_reference_images": 0,
         }
 
     def test_media_type_groups(self):

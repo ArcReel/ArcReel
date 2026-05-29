@@ -31,7 +31,6 @@ from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import ProjectManager
-from lib.reference_video.limits import DEFAULT_MAX_REFS, PROVIDER_MAX_REFS, normalize_provider_id
 from lib.text_backends.base import TextTaskType
 
 _project_manager: ProjectManager | None = None
@@ -253,7 +252,7 @@ class ConfigResolver:
               "model": str,
               "supported_durations": list[int],    # 来自 model (单一真相源)
               "max_duration": int,                 # max(supported_durations) 派生
-              "max_reference_images": int,         # 按归一化 provider 查 PROVIDER_MAX_REFS，缺省 DEFAULT_MAX_REFS
+              "max_reference_images": int,         # registry: model.max_reference_images；custom: endpoint.video_max_reference_images
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
@@ -457,14 +456,15 @@ class ConfigResolver:
             if model is None:
                 raise ValueError(f"custom model not found: {provider_id}/{model_id}")
 
-            from lib.custom_provider.endpoints import endpoint_to_media_type
+            from lib.custom_provider.endpoints import get_endpoint_spec
 
-            derived_media = endpoint_to_media_type(model.endpoint)
-            if derived_media != "video":
+            endpoint_spec = get_endpoint_spec(model.endpoint)
+            if endpoint_spec.media_type != "video":
                 raise ValueError(
                     f"endpoint media_type mismatch: {provider_id}/{model_id} endpoint={model.endpoint!r} "
-                    f"is {derived_media}, not video"
+                    f"is {endpoint_spec.media_type}, not video"
                 )
+            max_reference_images = endpoint_spec.video_max_reference_images
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
@@ -485,13 +485,12 @@ class ConfigResolver:
             if model_info is None:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
+            max_reference_images = model_info.max_reference_images
 
         if not supported_durations:
             raise ValueError(f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities")
 
         max_duration = max(supported_durations)
-        normalized_provider = normalize_provider_id(provider_id)
-        max_reference_images = PROVIDER_MAX_REFS.get(normalized_provider, DEFAULT_MAX_REFS)
 
         default_duration: int | None = None
         content_mode: str | None = None

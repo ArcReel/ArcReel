@@ -42,6 +42,8 @@ class EndpointSpec:
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
     build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
+    # 参考生视频单镜头参考图上限；仅 video 类有意义，0 = 不接受参考图。
+    video_max_reference_images: int = 0
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
@@ -178,6 +180,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/videos",
         build_backend=_build_openai_video,
+        # OpenAI Sora input_reference 为单张首帧图。
+        video_max_reference_images=1,
     ),
     "newapi-video": EndpointSpec(
         key="newapi-video",
@@ -187,6 +191,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/video/generations",
         build_backend=_build_newapi_video,
+        video_max_reference_images=0,
     ),
 }
 

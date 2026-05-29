@@ -149,3 +149,52 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
 
     with pytest.raises(ValueError, match="endpoint media_type mismatch"):
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint, expected_max_refs",
+    [
+        ("openai-video", 1),
+        ("newapi-video", 0),
+    ],
+)
+async def test_custom_video_max_reference_images_from_endpoint(
+    db_session: AsyncSession, endpoint: str, expected_max_refs: int
+):
+    """custom 视频 model 的 max_reference_images 经 ENDPOINT_REGISTRY 派生，不再静默落默认值。"""
+    from lib.config.resolver import ConfigResolver
+    from lib.config.service import ConfigService
+    from lib.custom_provider import make_provider_id
+
+    provider = CustomProvider(
+        display_name="VideoProv",
+        discovery_format="openai",
+        base_url="https://api.example.com",
+        api_key="k",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+
+    model = CustomProviderModel(
+        provider_id=provider.id,
+        model_id="vid-model",
+        display_name="Vid Model",
+        endpoint=endpoint,
+        is_default=True,
+        is_enabled=True,
+        supported_durations="[5, 10]",
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    provider_id_str = make_provider_id(provider.id)
+    project = {"video_backend": f"{provider_id_str}/vid-model"}
+
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    svc = ConfigService(db_session)
+    resolver = ConfigResolver(factory, _bound_session=db_session)
+
+    caps = await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
+    assert caps["source"] == "custom"
+    assert caps["max_reference_images"] == expected_max_refs

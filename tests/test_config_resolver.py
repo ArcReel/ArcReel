@@ -469,7 +469,7 @@ class TestVideoCapabilities:
         assert caps["source"] == "registry"
         assert caps["supported_durations"] == [4, 6, 8]
         assert caps["max_duration"] == 8
-        # normalize("gemini-aistudio") -> "gemini"，查 PROVIDER_MAX_REFS["gemini"]
+        # max_reference_images 来源：registry 中该 veo 视频模型的 ModelInfo.max_reference_images
         assert caps["max_reference_images"] == 3
 
     async def test_reads_project_default_duration_and_modes(self):
@@ -561,28 +561,29 @@ class TestVideoCapabilities:
         assert caps["default_duration"] == 9
         assert caps["max_reference_images"] == 7
 
-    async def test_max_reference_images_falls_back_to_default_for_unlisted_provider(self):
-        """PROVIDER_MAX_REFS 未覆盖的 provider → resolver 返 DEFAULT_MAX_REFS，不返 None。
-
-        gemini 建议：下游消费者（subagent / 前端）不用处理 None 特例。
-        """
-        from lib.reference_video.limits import DEFAULT_MAX_REFS
-
+    async def test_max_reference_images_reads_model_info_for_openai_sora(self):
+        """openai sora 的 max_reference_images 来自 registry ModelInfo（=1），不再依赖 provider 级 fallback。"""
         factory, engine = await _make_session()
         try:
             resolver = ConfigResolver(factory)
             with patch("lib.config.resolver.get_project_manager"):
-                # ark 在 PROVIDER_MAX_REFS 里登记（=9），这里借道 normalize_provider_id 不会剥离的串验证
-                # 使用一个 PROVIDER_MAX_REFS 明确未登记的 provider：不过所有注册 provider 都有入口，
-                # 本测试改为 patch normalize_provider_id 让它返回未登记字符串以触发 fallback
-                with patch(
-                    "lib.config.resolver.normalize_provider_id",
-                    return_value="___never_registered___",
-                ):
-                    caps = await resolver.video_capabilities_for_project({"video_backend": "grok/grok-imagine-video"})
+                caps = await resolver.video_capabilities_for_project({"video_backend": "openai/sora-2"})
         finally:
             await engine.dispose()
-        assert caps["max_reference_images"] == DEFAULT_MAX_REFS
+        assert caps["max_reference_images"] == 1
+
+    async def test_max_reference_images_reads_model_info_for_ark_seedance(self):
+        """ark seedance 的 max_reference_images 来自 registry ModelInfo（=9）。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager"):
+                caps = await resolver.video_capabilities_for_project(
+                    {"video_backend": "ark/doubao-seedance-2-0-260128"}
+                )
+        finally:
+            await engine.dispose()
+        assert caps["max_reference_images"] == 9
 
     async def test_custom_provider_reads_db_supported_durations(self):
         """custom-<id>/<model> 走 DB 分支，返回 source='custom'。"""
@@ -622,6 +623,46 @@ class TestVideoCapabilities:
         assert caps["source"] == "custom"
         assert caps["supported_durations"] == [5, 10]
         assert caps["max_duration"] == 10
+        # newapi-video endpoint 不接受参考图，max=0（来源：EndpointSpec.video_max_reference_images）
+        assert caps["max_reference_images"] == 0
+
+    async def test_custom_video_openai_endpoint_resolves_max_one(self):
+        """custom-<id>/<model> 经 openai-video endpoint 解析出 max_reference_images=1（不再静默落 9）。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Sora",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                model = CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="sora-like",
+                    display_name="Sora-like",
+                    endpoint="openai-video",
+                    supported_durations="[4, 8]",
+                )
+                session.add(model)
+                await session.flush()
+
+                project_backend = f"custom-{provider.id}/sora-like"
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": project_backend,
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["source"] == "custom"
+        assert caps["max_reference_images"] == 1
 
 
 class TestResolveImageBackend:
