@@ -326,6 +326,56 @@ class TestGenerationWorker:
         assert queue.cancelled and queue.cancelled[0][0] == "tid"
 
     @pytest.mark.asyncio
+    async def test_drain_finished_tasks_drains_success_and_failure(self):
+        """非取消路径：成功 task 走 .result() 无异常，失败 task 走 except 分支，均不触发兜底取消。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="test", image_max=2, video_max=2)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+
+        async def _ok():
+            return "done"
+
+        async def _boom():
+            raise RuntimeError("boom")
+
+        ok_t = asyncio.create_task(_ok())
+        boom_t = asyncio.create_task(_boom())
+        await asyncio.gather(ok_t, boom_t, return_exceptions=True)
+        pool.image_inflight["ok"] = ok_t
+        pool.video_inflight["boom"] = boom_t
+
+        await worker._drain_finished_tasks()  # 不抛
+        assert "ok" not in pool.image_inflight
+        assert "boom" not in pool.video_inflight
+        # 非取消任务不应触发 drain 兜底 mark_cancelled
+        assert queue.cancelled == []
+
+    @pytest.mark.asyncio
+    async def test_drain_fallback_mark_cancelled_failure_does_not_propagate(self):
+        """drain 端兜底 mark_cancelled 自身抛错时只 warning，不冒泡（不挂掉主循环）。"""
+
+        class _RaisingQueue(_FakeQueue):
+            async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):  # type: ignore[override]
+                raise RuntimeError("db down")
+
+        queue = _RaisingQueue()
+        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+
+        async def _long():
+            await asyncio.sleep(10)
+
+        t = asyncio.create_task(_long())
+        t.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+        pool.video_inflight["tid"] = t
+
+        # mark_cancelled 抛错被 except 吞掉，drain 不抛、task 仍被 pop
+        await worker._drain_finished_tasks()
+        assert "tid" not in pool.video_inflight
+
+    @pytest.mark.asyncio
     async def test_drain_marks_cancelled_when_cancel_hits_before_process_task_try(self, monkeypatch):
         """取消落在 _process_task 进 try 之前（_extract_provider await）：drain 端兜底落终态。"""
         queue = _FakeQueue()
