@@ -6,9 +6,9 @@
 **定价说明**：各家价格随促销波动，本报告价格供选型参考，标注了官方来源与第三方来源的区别；上线前应以各官方控制台为准
 
 **信息来源与可信度声明**：
-- 阿里百炼：模型清单已对照官方"模型大全"页（`help.aliyun.com/zh/model-studio/models`，页面更新时间 2026-05-21）逐条核对，模型 ID 以官方页为准。
-- MiniMax：模型清单已对照官方"模型发布"页（`platform.minimaxi.com/docs/release-notes/models`）核对发布时间线，旗舰判断准确。
-- 可灵 Kling：模型清单与定价均已对照可灵官方文档 `klingai.com/document-api/.../{video,image}Models` 与官方定价页 `klingai.com/dev/pricing` 一手核对，模型 ID、能力矩阵、积分单价（视频 1 积分=¥1、图像 1 积分=¥0.025）以官方为准。
+- 阿里百炼：模型清单已对照[官方"模型大全"页](https://help.aliyun.com/zh/model-studio/models)（页面更新时间 2026-05-21）逐条核对，模型 ID 以官方页为准。
+- MiniMax：模型清单已对照[官方"模型发布"页](https://platform.minimaxi.com/docs/release-notes/models)核对发布时间线，旗舰判断准确。
+- 可灵 Kling：模型清单与定价均已对照可灵官方文档（[视频模型](https://klingai.com/document-api/apiReference/model/videoModels) / [图像模型](https://klingai.com/document-api/apiReference/model/imageModels)）与[官方定价页](https://klingai.com/dev/pricing)一手核对，模型 ID、能力矩阵、积分单价（视频 1 积分=¥1、图像 1 积分=¥0.025）以官方为准。
 - 阿里"按张"的 `qwen-image-2.0` / `wan2.7-image` 精确单价、登录墙后的细分档位仍需控制台确认；标注"控制台核对"的为未一手确认项。
 
 ---
@@ -298,6 +298,7 @@
 - 视频参考（含编辑）：`v3-omni`（3-10s）、`o1`
 
 **可灵视频接入要点**（JWT）：
+
 ```python
 import jwt, time
 def kling_token(ak, sk):
@@ -305,6 +306,7 @@ def kling_token(ak, sk):
         {"iss": ak, "exp": int(time.time())+1800, "nbf": int(time.time())-5},
         sk, algorithm="HS256", headers={"alg":"HS256","typ":"JWT"})
 ```
+
 建议封装 JWT 鉴权类，30 分钟内复用 token、过期前 60 秒自动刷新。
 
 ---
