@@ -2,9 +2,10 @@ import { useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { errMsg, voidPromise } from "@/utils/async";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
+import { safeReturnPath } from "@/utils/safe-url";
 import { BRAND } from "@/branding";
 import type { LoginResponse, ErrorResponse } from "@/api";
 import { FieldLabel } from "@/components/ui/FieldLabel";
@@ -27,6 +28,7 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const login = useAuthStore((s) => s.login);
   const usernameRef = useAutoFocus<HTMLInputElement>();
 
@@ -57,7 +59,10 @@ export function LoginPage() {
 
       const data = await resp.json() as LoginResponse;
       login(data.access_token, username);
-      setLocation("/app/projects");
+      // 登录成功后回跳到进入登录页前的原始地址（由 AuthGuard / 401 拦截以 ?from 传入），
+      // 经 safeReturnPath 校验为站内安全路径；非法或缺失时回退到项目列表。
+      const returnTo = safeReturnPath(new URLSearchParams(search).get("from"));
+      setLocation(returnTo ?? "/app/projects");
     } catch (err) {
       setError(errMsg(err, t("auth:login_failed")));
     } finally {
@@ -66,7 +71,10 @@ export function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-4 text-text">
+    <div
+      data-testid="login-page"
+      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-4 text-text"
+    >
       <div aria-hidden className="pointer-events-none absolute inset-0" style={AMBIENT_GLOW_STYLE} />
       <div aria-hidden className="pointer-events-none absolute inset-0" style={POSTER_GRID_STYLE} />
 

@@ -132,4 +132,19 @@ describe("AppRoutes", () => {
       expect(projectState.projectDetailLoading).toBe(false);
     });
   });
+
+  it("redirects unauthenticated nested project URL to top-level /login", async () => {
+    useAuthStore.setState({ isAuthenticated: false, isLoading: false });
+    renderAt("/app/projects/demo");
+    // 回归：AuthGuard 渲染在 nest 路由内，相对的 /login 会被拼成
+    // /app/projects/demo/login（无匹配 → 404）；用 ~/login 绝对路径才落到 /login。
+    expect(await screen.findByTestId("login-page")).toBeInTheDocument();
+    expect(screen.queryByText("404")).not.toBeInTheDocument();
+  });
+
+  it("redirects unauthenticated non-nested protected route to /login", async () => {
+    useAuthStore.setState({ isAuthenticated: false, isLoading: false });
+    renderAt("/app/projects");
+    expect(await screen.findByTestId("login-page")).toBeInTheDocument();
+  });
 });

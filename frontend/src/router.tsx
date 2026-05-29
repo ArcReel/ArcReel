@@ -40,7 +40,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return <Redirect to="/login" />;
+    // 用 `~` 前缀跳到顶层 /login：AuthGuard 可能渲染在 nest 嵌套路由内
+    // （/app/projects/:projectName），此时相对路径会被拼到嵌套 base 之后，
+    // 必须用绝对路径才能落到真正的 /login。
+    // 带上完整原始 URL（取 window.location，nest 内 useLocation 只是相对路径），
+    // 登录成功后据此回跳。
+    const from = window.location.pathname + window.location.search;
+    return <Redirect to={`~/login?from=${encodeURIComponent(from)}`} />;
   }
 
   return <>{children}</>;
