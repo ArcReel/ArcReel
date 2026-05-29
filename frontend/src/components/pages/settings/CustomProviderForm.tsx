@@ -248,7 +248,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
   // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
-  const baseUrlChanged = !!existing && baseUrl.trim() !== existing.base_url;
+  const baseUrlChanged = !!existing && baseUrl.trim() !== existing.base_url.trim();
   // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）；
   // 创建模式或 base_url 变更时必须明文 api_key。发现模型与测试连接共用此判断。
   const useStoredCredential = !!existing && !apiKey && !baseUrlChanged;
