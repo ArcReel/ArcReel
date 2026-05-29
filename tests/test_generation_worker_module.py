@@ -314,8 +314,7 @@ class TestGenerationWorker:
 
         t = asyncio.create_task(_long())
         t.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await t
+        await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
         assert t.cancelled()
         pool.video_inflight["tid"] = t
 
@@ -367,8 +366,8 @@ class TestGenerationWorker:
 
         t = asyncio.create_task(_long())
         t.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await t
+        await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
+        assert t.cancelled()
         pool.video_inflight["tid"] = t
 
         # mark_cancelled 抛错被 except 吞掉，drain 不抛、task 仍被 pop
