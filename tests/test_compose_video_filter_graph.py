@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -272,6 +273,86 @@ class TestBuildXfadeFilterComplex:
         assert result is not None
         # 边界 1 没在 transitions 里 → 默认 fade
         assert "[g0v1][2:v]xfade=transition=fade" in result
+
+    def test_middle_clip_both_sided_xfade_downgrades_left(self) -> None:
+        """中段两侧 xfade 且 td < dur < 2*td：左侧降 cut，保留右侧。
+
+        durations=[10, 3, 10], transitions=["fade","fade"], td=2.0
+        → 中段 3s 须承担 2+2=4s 转场但单边界守卫各自放行（3 > 2）
+        → 左侧边界 0 降 cut，等价 boundary_xfade=[None, "fade"]
+        → group A=[0]（单段透传），group B=[1,2]（xfade）
+        """
+        result = compose_video._build_xfade_filter_complex([10.0, 3.0, 10.0], ["fade", "fade"], 2.0)
+        assert result is not None
+        # 边界 0 降 cut：不应出现 [0:v][1:v]xfade
+        assert "[0:v][1:v]xfade" not in result
+        # 边界 1 保留 fade：offset = dur[1] - td = 3 - 2 = 1.000
+        assert "[1:v][2:v]xfade=transition=fade:duration=2.0:offset=1.000[g1v]" in result
+        # cut 分组 → 组间 concat
+        assert "concat=n=2:v=1:a=1[vout][aout]" in result
+
+    def test_chained_short_middle_clips_downgrade_left_to_right(self) -> None:
+        """链式短中段：从左向右逐个降左侧，最终只保留最右 xfade。
+
+        durations=[10, 3, 3, 10], transitions=["fade","fade","fade"], td=2.0
+        → 中段 1、2 均为 3s（< 4s）双侧 xfade
+        → i=1 降边界 0，i=2 降边界 1，等价 boundary_xfade=[None, None, "fade"]
+        → group A=[0]、B=[1]（均单段透传），C=[2,3]（xfade）
+        """
+        result = compose_video._build_xfade_filter_complex([10.0, 3.0, 3.0, 10.0], ["fade", "fade", "fade"], 2.0)
+        assert result is not None
+        # 边界 0、1 降 cut
+        assert "[0:v][1:v]xfade" not in result
+        assert "[1:v][2:v]xfade" not in result
+        # 只剩最右边界 2：offset = dur[2] - td = 3 - 2 = 1.000
+        assert "[2:v][3:v]xfade=transition=fade:duration=2.0:offset=1.000[g2v]" in result
+        # 三个 group 串联
+        assert "concat=n=3:v=1:a=1[vout][aout]" in result
+
+    def test_middle_clip_exactly_two_transition_durations_keeps_both(self) -> None:
+        """中段恰好等于 2*td：视为足够，双侧 xfade 都保留（严格 < 才降级）。
+
+        durations=[10, 4, 10], transitions=["fade","fade"], td=2.0
+        → 4 == 2*2，不降级；单 group=[0,1,2]，链式 xfade，无 concat
+        """
+        result = compose_video._build_xfade_filter_complex([10.0, 4.0, 10.0], ["fade", "fade"], 2.0)
+        assert result is not None
+        # 第一 xfade offset = 10 - 2 = 8.000
+        assert "[0:v][1:v]xfade=transition=fade:duration=2.0:offset=8.000[g0v1]" in result
+        # 第二 xfade offset = 10+4 - 2*2 = 10.000
+        assert "[g0v1][2:v]xfade=transition=fade:duration=2.0:offset=10.000[g0v]" in result
+        # 单 group 走 null/anull，不出现 concat
+        assert "concat" not in result
+
+    def test_short_end_clip_not_affected_by_middle_guard(self) -> None:
+        """端片短（td < dur < 2*td）但只有一个 xfade 边界，本守卫不触发。
+
+        durations=[3, 10, 10], transitions=["fade","fade"], td=2.0
+        → 端片 0 为 3s，只承担边界 0 单个转场（> td 足够）
+        → 中段 1 为 10s（>= 4s），不降级 → 双侧 xfade 全保留
+        """
+        result = compose_video._build_xfade_filter_complex([3.0, 10.0, 10.0], ["fade", "fade"], 2.0)
+        assert result is not None
+        # 端片短不触发降级，边界 0 仍 fade
+        assert "[0:v][1:v]xfade=transition=fade:duration=2.0:offset=1.000[g0v1]" in result
+        # 中段 10s 不降级，边界 1 仍 fade
+        assert "[g0v1][2:v]xfade=transition=fade" in result
+        assert "concat" not in result
+
+    def test_no_negative_xfade_offset_after_guard(self) -> None:
+        """守卫生效后，xfade chain 中不出现负 offset（解析 offset 字符串断言 >= 0）。"""
+        cases = [
+            ([10.0, 3.0, 10.0], ["fade", "fade"], 2.0),
+            ([10.0, 3.0, 3.0, 10.0], ["fade", "fade", "fade"], 2.0),
+            ([10.0, 4.0, 10.0], ["fade", "fade"], 2.0),
+            ([3.0, 10.0, 10.0], ["fade", "fade"], 2.0),
+        ]
+        for durations, transitions, td in cases:
+            result = compose_video._build_xfade_filter_complex(durations, transitions, td)
+            assert result is not None
+            offsets = [float(m) for m in re.findall(r"offset=(-?\d+\.\d+)", result)]
+            assert offsets, f"应至少有一个 xfade offset: {durations}"
+            assert all(o >= 0 for o in offsets), f"出现负 offset {offsets}: {durations}"
 
 
 # ---------------------------------------------------------------------------
