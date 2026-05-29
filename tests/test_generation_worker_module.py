@@ -304,7 +304,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_absorbs_cancelled_error(self):
-        """取消的 inflight task 被 drain 时不能让 CancelledError 冒泡（继承 BaseException）。"""
+        """取消的 inflight task 被 drain：不抛、从字典 pop，并 drain 端兜底 mark_cancelled。"""
         queue = _FakeQueue()
         pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
         worker = GenerationWorker(queue=queue, pools={"test": pool})
@@ -319,10 +319,52 @@ class TestGenerationWorker:
         assert t.cancelled()
         pool.video_inflight["tid"] = t
 
-        # 修复前：CancelledError 不被 except Exception 接住，会从这里抛出。
-        # 修复后：drain 端显式吸收，不抛，且 task 已从 inflight 字典 pop。
+        # 同步判定 .cancelled()：不 await，不抛 CancelledError，task 已被 drain pop。
         await worker._drain_finished_tasks()
         assert "tid" not in pool.video_inflight
+        # 子任务来不及自落终态时，drain 端兜底 mark_cancelled。
+        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+
+    @pytest.mark.asyncio
+    async def test_drain_marks_cancelled_when_cancel_hits_before_process_task_try(self, monkeypatch):
+        """取消落在 _process_task 进 try 之前（_extract_provider await）：drain 端兜底落终态。"""
+        queue = _FakeQueue()
+        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
+        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        in_extract = asyncio.Event()
+
+        async def _blocking_extract(_task):
+            in_extract.set()
+            await asyncio.sleep(10)  # 停在入口解析，模拟 cancel 落在 _process_task 的 try 之前
+            return "test"
+
+        monkeypatch.setattr("lib.generation_worker._extract_provider", _blocking_extract)
+
+        async def _execute(_task):
+            raise AssertionError("execute 不应被调用：cancel 在 _extract_provider 阶段就到")
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _execute)
+
+        t = asyncio.create_task(
+            worker._process_task({"task_id": "tid", "media_type": "video"}),
+            name="generation-video-tid",
+        )
+        pool.video_inflight["tid"] = t
+
+        await worker.start()
+        await in_extract.wait()  # 确保停在 _extract_provider（try 之前）
+        assert worker.request_cancel("tid") is True
+        await asyncio.sleep(0.1)
+
+        # _process_task 没机会 mark（cancel 在 try 之前）→ drain 端兜底 mark_cancelled
+        assert queue.cancelled and queue.cancelled[0][0] == "tid"
+        # 主循环仍存活
+        assert worker._main_task is not None and not worker._main_task.done()
+
+        await asyncio.wait_for(worker.stop(), timeout=2.0)
 
     @pytest.mark.asyncio
     async def test_run_loop_survives_inflight_task_cancellation(self, monkeypatch):

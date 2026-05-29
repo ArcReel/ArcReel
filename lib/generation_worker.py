@@ -87,13 +87,13 @@ class ProviderPool:
         # 计入 pending：sem 排队期 sub-task 同样占名额，避免主循环超额 claim
         return self.video_max > 0 and len(self.video_inflight) + len(self.video_pending) < self.video_max
 
-    def drain_finished(self) -> list[asyncio.Task]:
-        """Remove finished tasks from inflight dicts. Return them for await."""
+    def drain_finished(self) -> list[tuple[str, asyncio.Task]]:
+        """Remove finished tasks from inflight dicts. Return ``(task_id, task)`` for inspection."""
         finished = []
         for inflight in (self.image_inflight, self.video_inflight):
             done_ids = [tid for tid, t in inflight.items() if t.done()]
             for tid in done_ids:
-                finished.append(inflight.pop(tid))
+                finished.append((tid, inflight.pop(tid)))
         return finished
 
     def all_inflight(self) -> list[asyncio.Task]:
@@ -557,16 +557,22 @@ class GenerationWorker:
 
     async def _drain_finished_tasks(self) -> None:
         for pool in self._pools.values():
-            for finished_task in pool.drain_finished():
+            for task_id, finished_task in pool.drain_finished():
+                # 同步判定取消/异常：drain_finished() 只返回 done() 的 task，无需 await。
+                # 不 await 就没有挂起点，自然不会误吞针对 _run_loop 自身的取消信号。
+                if finished_task.cancelled():
+                    # 子任务被取消。正常路径 _process_task 已 mark_cancelled 并 re-raise；
+                    # 但取消可能落在 _process_task 进入 try 之前（协程尚未开始执行，或仍停在
+                    # 入口的 _extract_provider await），那一刻子任务来不及落终态。drain 端兜底
+                    # mark_cancelled——SQL 守卫 status IN (queued, cancelling, running) 保证幂等：
+                    # 已落终态则 0 rows 无副作用，避免任务永久卡在 running/cancelling。
+                    try:
+                        await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
+                    except Exception:
+                        logger.warning("drain 兜底 mark_cancelled 失败 task_id=%s", task_id, exc_info=True)
+                    continue
                 try:
-                    await finished_task
-                except asyncio.CancelledError:
-                    # 用户取消 inflight 任务：_process_task 已 mark_cancelled 并按 asyncio
-                    # 协议 re-raise。CancelledError 继承 BaseException，不能落到下方 except
-                    # Exception，否则冒泡到 _run_loop 让主循环永久退出。drain 端吞掉即可——
-                    # drain_finished() 只返回已 done() 的 task，await 不会挂起本协程，
-                    # 故这里捕获的必是子任务的取消结果，绝不会误吞针对 _run_loop 的取消。
-                    pass
+                    finished_task.result()
                 except Exception:
                     logger.debug("已处理的任务异常已在 _process_task 中记录")
 
