@@ -207,14 +207,19 @@ def build_request_body(model: str, request: VideoGenerationRequest) -> dict:
     return body
 
 
-# 请求体里这些键可能内嵌整张图片的 base64 data URI，落日志前脱敏：
-# 避免明文记录用户图像，也防止日志体积被撑爆。
-_REDACTED_BODY_KEYS = frozenset({"image_url", "last_image_url", "image_urls"})
+# 仅以下键允许进入日志（白名单，键集静态可判定，CodeQL 不再把整份 dict 保守标记为污点）。
+_SAFE_LOG_KEYS = frozenset({"model", "prompt", "duration", "aspect_ratio", "resolution", "seed"})
+# 这些键可能内嵌整张图片的 base64 data URI，固定替换为占位符（白名单外的未知键一律丢弃）。
+_IMAGE_BODY_KEYS = ("image_url", "last_image_url", "image_urls")
 
 
 def _redacted_body(body: dict) -> dict:
-    """日志用副本：内嵌图片字段替换为占位符，其余原样保留。"""
-    return {key: ("<redacted-image-data>" if key in _REDACTED_BODY_KEYS else value) for key, value in body.items()}
+    """日志用副本：仅保留白名单字段，图片字段替换为占位符；不就地修改入参。"""
+    view: dict = {key: body[key] for key in _SAFE_LOG_KEYS if key in body}
+    for key in _IMAGE_BODY_KEYS:
+        if key in body:
+            view[key] = "<redacted-image-data>"
+    return view
 
 
 def _normalize_root(base_url: str) -> str:
