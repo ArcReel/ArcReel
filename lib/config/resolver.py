@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.app_data_dir import app_data_dir
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.service import (
     _DEFAULT_IMAGE_BACKEND,
     _DEFAULT_TEXT_BACKEND,
@@ -83,17 +83,6 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
     return provider, model
 
 
-def _default_model_for_provider(provider_id: str, media_type: str) -> str | None:
-    """返回该 provider 在 ``PROVIDER_REGISTRY`` 中指定 media_type 的默认 model_id；无则 None。"""
-    meta = PROVIDER_REGISTRY.get(provider_id)
-    if meta is None:
-        return None
-    for model_id, model_info in meta.models.items():
-        if model_info.media_type == media_type and model_info.default:
-            return model_id
-    return None
-
-
 def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
     """解析 project.json 的 provider 字段，兼容裸 provider 覆盖。
 
@@ -110,7 +99,7 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
         # 裸 provider，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该 provider 默认 model
         provider = raw.strip().rstrip("/").strip()
         if provider:
-            model = _default_model_for_provider(provider, media_type)
+            model = default_model_for_provider(provider, media_type)
             if model is not None:
                 return provider, model
     return None
@@ -139,7 +128,7 @@ def _payload_model_or_default(raw_model: object, provider_id: str, media_type: s
     返回 None，由调用方回退 project/global。"""
     if isinstance(raw_model, str) and raw_model.strip():
         return raw_model.strip()
-    return _default_model_for_provider(provider_id, media_type)
+    return default_model_for_provider(provider_id, media_type)
 
 
 _TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {

@@ -3,6 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from lib.ark_shared import ARK_BASE_URL
+from lib.pricing.types import (
+    PerImageByResolution,
+    PerImageFlat,
+    PerImageOpenAIToken,
+    PerSecondMatrix,
+    PerToken,
+    PerTokenVideo,
+    Pricing,
+    ViduDelegate,
+)
 
 
 @dataclass(frozen=True)
@@ -16,6 +26,10 @@ class ModelInfo:
     resolutions: list[str] = field(default_factory=list)
     # 参考生视频单镜头参考图上限；0 = 不适用（图像/文本模型，或视频模型未声明）。
     max_reference_images: int = 0
+    # 计费定价声明（单一真相源）；None = 该模型按 provider 默认模型 / Gemini 默认费率兜底计费。
+    pricing: Pricing | None = None
+    # 从 UI 下拉剔除但保留条目（供"入队后、finish 前被下线"的边角仍能算价）。
+    hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -37,6 +51,120 @@ class ProviderMeta:
         return sorted(set(c for m in self.models.values() for c in m.capabilities))
 
 
+# Gemini 文本费率（美元/百万 token），Standard paid tier、prompt ≤200K 区间。
+def _gemini_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="USD",
+    )
+
+
+# Gemini 图片费率（美元/张），按分辨率档位。
+def _gemini_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
+    return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
+
+
+# Veo 视频费率（美元/秒），按 (分辨率, 是否生成音频)。
+def _veo_video_pricing(model_id: str, rates: dict[tuple[str, bool | None], float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: rates},
+        default_model=model_id,
+        dimensions="resolution_audio",
+        currency="USD",
+    )
+
+
+_VEO_STANDARD_RATES: dict[tuple[str, bool | None], float] = {
+    ("720p", True): 0.40,
+    ("720p", False): 0.20,
+    ("1080p", True): 0.40,
+    ("1080p", False): 0.20,
+    ("4k", True): 0.60,
+    ("4k", False): 0.40,
+}
+_VEO_FAST_RATES: dict[tuple[str, bool | None], float] = {
+    ("720p", True): 0.15,
+    ("720p", False): 0.10,
+    ("1080p", True): 0.15,
+    ("1080p", False): 0.10,
+    ("4k", True): 0.35,
+    ("4k", False): 0.30,
+}
+_VEO_LITE_RATES: dict[tuple[str, bool | None], float] = {
+    ("720p", True): 0.05,
+    ("720p", False): 0.05,
+    ("1080p", True): 0.08,
+    ("1080p", False): 0.08,
+}
+
+
+# Ark 文本费率（元/百万 token），在线推理、输入 [0, 32k] 区间。
+def _ark_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="CNY",
+    )
+
+
+# Ark 图片费率（元/张）。
+def _ark_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
+    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
+
+
+# Ark 视频费率（元/百万 token），按 (service_tier, 是否生成音频)。
+def _ark_video_pricing(model_id: str, rates: dict[tuple[str, bool], float]) -> PerTokenVideo:
+    return PerTokenVideo(rates={model_id: rates}, default_model=model_id)
+
+
+# Grok 文本费率（美元/百万 token）。
+def _grok_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="USD",
+    )
+
+
+# Grok 图片费率（美元/张）。
+def _grok_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
+    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
+
+
+# OpenAI 文本费率（美元/百万 token）。
+def _openai_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="USD",
+    )
+
+
+# OpenAI 图片费率：token 主路径 + (quality, size) 兜底表。
+def _openai_image_pricing(
+    model_id: str,
+    token_rates: dict[str, float],
+    fallback_rates: dict[tuple[str, str], float],
+) -> PerImageOpenAIToken:
+    return PerImageOpenAIToken(
+        token_rates={model_id: token_rates},
+        fallback_rates={model_id: fallback_rates},
+        default_model=model_id,
+        currency="USD",
+    )
+
+
+# Sora 视频费率（美元/秒），按分辨率。
+def _sora_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
+        currency="USD",
+    )
+
+
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
         display_name="AI Studio",
@@ -50,17 +178,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Gemini 3.1 Pro",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_gemini_text_pricing("gemini-3.1-pro-preview", 2.00, 12.00),
             ),
             "gemini-3-flash-preview": ModelInfo(
                 display_name="Gemini 3 Flash",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
             ),
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
+                pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
             ),
             # --- image ---
             "gemini-3-pro-image-preview": ModelInfo(
@@ -68,6 +199,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["1K", "2K", "4K"],
+                pricing=_gemini_image_pricing("gemini-3-pro-image-preview", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
             ),
             "gemini-3.1-flash-image-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Image",
@@ -75,6 +207,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1K", "2K", "4K"],
+                pricing=_gemini_image_pricing(
+                    "gemini-3.1-flash-image-preview",
+                    {"512PX": 0.045, "1K": 0.067, "2K": 0.101, "4K": 0.151},
+                ),
             ),
             # --- video ---
             "veo-3.1-generate-preview": ModelInfo(
@@ -85,6 +221,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 duration_resolution_constraints={"1080p": [8]},
                 resolutions=["720p", "1080p"],
                 max_reference_images=3,
+                pricing=_veo_video_pricing("veo-3.1-generate-preview", _VEO_STANDARD_RATES),
             ),
             "veo-3.1-fast-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Fast",
@@ -94,6 +231,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 duration_resolution_constraints={"1080p": [8]},
                 resolutions=["720p", "1080p"],
                 max_reference_images=3,
+                pricing=_veo_video_pricing("veo-3.1-fast-generate-preview", _VEO_FAST_RATES),
             ),
             "veo-3.1-lite-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Lite",
@@ -104,6 +242,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 duration_resolution_constraints={"1080p": [8]},
                 resolutions=["720p", "1080p"],
                 max_reference_images=3,
+                pricing=_veo_video_pricing("veo-3.1-lite-generate-preview", _VEO_LITE_RATES),
             ),
         },
     ),
@@ -119,17 +258,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Gemini 3.1 Pro",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_gemini_text_pricing("gemini-3.1-pro-preview", 2.00, 12.00),
             ),
             "gemini-3-flash-preview": ModelInfo(
                 display_name="Gemini 3 Flash",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
             ),
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
+                pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
             ),
             # --- image ---
             "gemini-3-pro-image-preview": ModelInfo(
@@ -137,6 +279,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["1K", "2K", "4K"],
+                pricing=_gemini_image_pricing("gemini-3-pro-image-preview", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
             ),
             "gemini-3.1-flash-image-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Image",
@@ -144,6 +287,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1K", "2K", "4K"],
+                pricing=_gemini_image_pricing(
+                    "gemini-3.1-flash-image-preview",
+                    {"512PX": 0.045, "1K": 0.067, "2K": 0.101, "4K": 0.151},
+                ),
             ),
             # --- video ---
             "veo-3.1-generate-001": ModelInfo(
@@ -153,6 +300,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 6, 8],
                 resolutions=["720p", "1080p"],
                 max_reference_images=3,
+                pricing=_veo_video_pricing("veo-3.1-generate-001", _VEO_STANDARD_RATES),
             ),
             "veo-3.1-fast-generate-001": ModelInfo(
                 display_name="Veo 3.1 Fast",
@@ -162,6 +310,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 6, 8],
                 resolutions=["720p", "1080p"],
                 max_reference_images=3,
+                pricing=_veo_video_pricing("veo-3.1-fast-generate-001", _VEO_FAST_RATES),
             ),
         },
     ),
@@ -177,22 +326,26 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="豆包 Seed 2.0 Pro",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
+                pricing=_ark_text_pricing("doubao-seed-2-0-pro-260215", 3.20, 16.00),
             ),
             "doubao-seed-2-0-lite-260215": ModelInfo(
                 display_name="豆包 Seed 2.0 Lite",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
                 default=True,
+                pricing=_ark_text_pricing("doubao-seed-2-0-lite-260215", 0.60, 3.60),
             ),
             "doubao-seed-2-0-mini-260215": ModelInfo(
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
+                pricing=_ark_text_pricing("doubao-seed-2-0-mini-260215", 0.20, 2.00),
             ),
             "doubao-seed-1-8-251228": ModelInfo(
                 display_name="豆包 Seed 1.8",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_ark_text_pricing("doubao-seed-1-8-251228", 0.80, 2.00),
             ),
             # --- image ---
             "doubao-seedream-5-0-lite-260128": ModelInfo(
@@ -200,21 +353,25 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
+                pricing=_ark_image_pricing("doubao-seedream-5-0-lite-260128", 0.22),
             ),
             "doubao-seedream-5-0-260128": ModelInfo(
                 display_name="Seedream 5.0",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
+                pricing=_ark_image_pricing("doubao-seedream-5-0-260128", 0.22),
             ),
             "doubao-seedream-4-5-251128": ModelInfo(
                 display_name="Seedream 4.5",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
+                pricing=_ark_image_pricing("doubao-seedream-4-5-251128", 0.25),
             ),
             "doubao-seedream-4-0-250828": ModelInfo(
                 display_name="Seedream 4.0",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
+                pricing=_ark_image_pricing("doubao-seedream-4-0-250828", 0.20),
             ),
             # --- video ---
             "doubao-seedance-1-5-pro-251215": ModelInfo(
@@ -225,6 +382,15 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=list(range(4, 13)),
                 resolutions=["480p", "720p", "1080p"],
                 max_reference_images=9,
+                pricing=_ark_video_pricing(
+                    "doubao-seedance-1-5-pro-251215",
+                    {
+                        ("default", True): 16.00,
+                        ("default", False): 8.00,
+                        ("flex", True): 8.00,
+                        ("flex", False): 4.00,
+                    },
+                ),
             ),
             "doubao-seedance-2-0-260128": ModelInfo(
                 display_name="Seedance 2.0",
@@ -233,6 +399,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
                 max_reference_images=9,
+                pricing=_ark_video_pricing(
+                    "doubao-seedance-2-0-260128",
+                    {("default", True): 46.00, ("default", False): 46.00},
+                ),
             ),
             "doubao-seedance-2-0-fast-260128": ModelInfo(
                 display_name="Seedance 2.0 Fast",
@@ -241,6 +411,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
                 max_reference_images=9,
+                pricing=_ark_video_pricing(
+                    "doubao-seedance-2-0-fast-260128",
+                    {("default", True): 37.00, ("default", False): 37.00},
+                ),
             ),
         },
         default_base_url=ARK_BASE_URL,
@@ -253,6 +427,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- text ---
+            # Agent Plan 套餐价当前无独立费率表，沿用历史行为：按 Gemini 默认费率兜底（pricing=None）。
             "doubao-seed-2.0-mini": ModelInfo(
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",
@@ -347,22 +522,26 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Grok 4.20 Reasoning",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_grok_text_pricing("grok-4.20-0309-reasoning", 2.00, 6.00),
             ),
             "grok-4.20-0309-non-reasoning": ModelInfo(
                 display_name="Grok 4.20 Non-Reasoning",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_grok_text_pricing("grok-4.20-0309-non-reasoning", 2.00, 6.00),
             ),
             "grok-4-1-fast-reasoning": ModelInfo(
                 display_name="Grok 4.1 Fast Reasoning",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                pricing=_grok_text_pricing("grok-4-1-fast-reasoning", 0.20, 0.50),
             ),
             "grok-4-1-fast-non-reasoning": ModelInfo(
                 display_name="Grok 4.1 Fast (Non-Reasoning)",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_grok_text_pricing("grok-4-1-fast-non-reasoning", 0.20, 0.50),
             ),
             # --- image ---
             "grok-imagine-image-pro": ModelInfo(
@@ -370,6 +549,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["1K", "2K"],
+                pricing=_grok_image_pricing("grok-imagine-image-pro", 0.07),
             ),
             "grok-imagine-image": ModelInfo(
                 display_name="Grok Imagine Image",
@@ -377,6 +557,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1K", "2K"],
+                pricing=_grok_image_pricing("grok-imagine-image", 0.02),
             ),
             # --- video ---
             "grok-imagine-video": ModelInfo(
@@ -388,6 +569,13 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["480p", "720p"],
                 # 参考图上限值来自第三方来源，官方文档未明确列出。
                 max_reference_images=7,
+                # 不区分分辨率/音频的单一秒费率。
+                pricing=PerSecondMatrix(
+                    rates={"grok-imagine-video": {("", None): 0.050}},
+                    default_model="grok-imagine-video",
+                    dimensions="flat",
+                    currency="USD",
+                ),
             ),
         },
     ),
@@ -403,22 +591,26 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="GPT-5.5",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_openai_text_pricing("gpt-5.5", 5.00, 30.00),
             ),
             "gpt-5.4": ModelInfo(
                 display_name="GPT-5.4",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_openai_text_pricing("gpt-5.4", 2.50, 15.00),
             ),
             "gpt-5.4-mini": ModelInfo(
                 display_name="GPT-5.4 Mini",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                pricing=_openai_text_pricing("gpt-5.4-mini", 0.75, 4.50),
             ),
             "gpt-5.4-nano": ModelInfo(
                 display_name="GPT-5.4 Nano",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_openai_text_pricing("gpt-5.4-nano", 0.20, 1.25),
             ),
             # --- image ---
             "gpt-image-2": ModelInfo(
@@ -427,18 +619,84 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["512px", "1K", "2K"],
+                pricing=_openai_image_pricing(
+                    "gpt-image-2",
+                    {
+                        "image_in": 8.0,
+                        "image_cached_in": 2.0,
+                        "image_out": 30.0,
+                        "text_in": 5.0,
+                        "text_cached_in": 1.25,
+                        "text_out": 0.0,
+                    },
+                    {
+                        ("low", "1024x1024"): 0.006,
+                        ("low", "1024x1792"): 0.012,
+                        ("low", "1792x1024"): 0.012,
+                        ("medium", "1024x1024"): 0.053,
+                        ("medium", "1024x1792"): 0.106,
+                        ("medium", "1792x1024"): 0.106,
+                        ("high", "1024x1024"): 0.211,
+                        ("high", "1024x1792"): 0.317,
+                        ("high", "1792x1024"): 0.317,
+                    },
+                ),
             ),
             "gpt-image-1.5": ModelInfo(
                 display_name="GPT Image 1.5",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["512px", "1K", "2K"],
+                pricing=_openai_image_pricing(
+                    "gpt-image-1.5",
+                    {
+                        "image_in": 8.0,
+                        "image_cached_in": 2.0,
+                        "image_out": 32.0,
+                        "text_in": 5.0,
+                        "text_cached_in": 1.25,
+                        "text_out": 10.0,
+                    },
+                    {
+                        ("low", "1024x1024"): 0.009,
+                        ("low", "1024x1792"): 0.013,
+                        ("low", "1792x1024"): 0.013,
+                        ("medium", "1024x1024"): 0.034,
+                        ("medium", "1024x1792"): 0.051,
+                        ("medium", "1792x1024"): 0.051,
+                        ("high", "1024x1024"): 0.133,
+                        ("high", "1024x1792"): 0.200,
+                        ("high", "1792x1024"): 0.200,
+                    },
+                ),
             ),
             "gpt-image-1-mini": ModelInfo(
                 display_name="GPT Image 1 Mini",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["512px", "1K", "2K"],
+                pricing=_openai_image_pricing(
+                    "gpt-image-1-mini",
+                    {
+                        "image_in": 2.5,
+                        "image_cached_in": 0.25,
+                        "image_out": 8.0,
+                        "text_in": 2.0,
+                        "text_cached_in": 0.20,
+                        "text_out": 0.0,
+                    },
+                    {
+                        ("low", "1024x1024"): 0.005,
+                        ("low", "1024x1792"): 0.008,
+                        ("low", "1792x1024"): 0.008,
+                        ("medium", "1024x1024"): 0.011,
+                        ("medium", "1024x1792"): 0.017,
+                        ("medium", "1792x1024"): 0.017,
+                        ("high", "1024x1024"): 0.036,
+                        ("high", "1024x1792"): 0.054,
+                        ("high", "1792x1024"): 0.054,
+                    },
+                ),
             ),
             # --- video ---
             "sora-2": ModelInfo(
@@ -449,6 +707,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
                 max_reference_images=1,
+                pricing=_sora_video_pricing("sora-2", {"720p": 0.10}),
             ),
             "sora-2-pro": ModelInfo(
                 display_name="Sora 2 Pro",
@@ -457,6 +716,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
                 max_reference_images=1,
+                pricing=_sora_video_pricing("sora-2-pro", {"720p": 0.30, "1024p": 0.50, "1080p": 0.70}),
             ),
         },
     ),
@@ -468,18 +728,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- image ---
+            # Vidu 计费以响应 credits 为准，费率逻辑在 lib.vidu_shared；此处统一委托标记。
             "viduq2": ModelInfo(
                 display_name="Vidu Q2 Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1080p", "2K", "4K"],
+                pricing=ViduDelegate(),
             ),
             "viduq1": ModelInfo(
                 display_name="Vidu Q1 Image",
                 media_type="image",
                 capabilities=["image_to_image"],
                 resolutions=["1080p"],
+                pricing=ViduDelegate(),
             ),
             # --- video ---
             "viduq3-turbo": ModelInfo(
@@ -490,6 +753,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=list(range(1, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 max_reference_images=7,
+                pricing=ViduDelegate(),
             ),
             "viduq3-pro": ModelInfo(
                 display_name="Vidu Q3 Pro",
@@ -498,6 +762,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=list(range(1, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 max_reference_images=7,
+                pricing=ViduDelegate(),
             ),
             "viduq3": ModelInfo(
                 display_name="Vidu Q3 (Reference)",
@@ -506,6 +771,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=list(range(3, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 max_reference_images=7,
+                pricing=ViduDelegate(),
             ),
             "vidu2.0": ModelInfo(
                 display_name="Vidu 2.0",
@@ -514,7 +780,19 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[4, 8],
                 resolutions=["360p", "720p", "1080p"],
                 max_reference_images=7,
+                pricing=ViduDelegate(),
             ),
         },
     ),
 }
+
+
+def default_model_for_provider(provider_id: str, media_type: str) -> str | None:
+    """返回该 provider 在 ``PROVIDER_REGISTRY`` 中指定 media_type 的默认 model_id；无则 None。"""
+    meta = PROVIDER_REGISTRY.get(provider_id)
+    if meta is None:
+        return None
+    for model_id, model_info in meta.models.items():
+        if model_info.media_type == media_type and model_info.default:
+            return model_id
+    return None
