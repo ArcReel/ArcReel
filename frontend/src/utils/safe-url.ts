@@ -31,5 +31,5 @@ export function safeReturnPath(raw: string | null | undefined): string | null {
   }
   if (url.origin !== window.location.origin) return null;
   if (!url.pathname.startsWith("/app/")) return null;
-  return url.pathname + url.search;
+  return url.pathname + url.search + url.hash;
 }

@@ -45,7 +45,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // 必须用绝对路径才能落到真正的 /login。
     // 带上完整原始 URL（取 window.location，nest 内 useLocation 只是相对路径），
     // 登录成功后据此回跳。
-    const from = window.location.pathname + window.location.search;
+    const from = window.location.pathname + window.location.search + window.location.hash;
     return <Redirect to={`~/login?from=${encodeURIComponent(from)}`} />;
   }
 

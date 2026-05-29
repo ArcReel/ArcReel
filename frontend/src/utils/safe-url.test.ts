@@ -7,6 +7,13 @@ describe("safeReturnPath", () => {
     expect(safeReturnPath("/app/projects/demo?tab=scene")).toBe("/app/projects/demo?tab=scene");
   });
 
+  it("preserves the URL hash alongside path and query", () => {
+    expect(safeReturnPath("/app/projects/demo#shot-3")).toBe("/app/projects/demo#shot-3");
+    expect(safeReturnPath("/app/projects/demo?tab=scene#shot-3")).toBe(
+      "/app/projects/demo?tab=scene#shot-3",
+    );
+  });
+
   it("rejects internal paths outside /app/", () => {
     expect(safeReturnPath("/login")).toBeNull();
     expect(safeReturnPath("/")).toBeNull();
