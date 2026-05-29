@@ -141,11 +141,16 @@ export function WelcomeCanvas({
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file && isSupportedSourceFile(file.name)) {
+      if (!file) return;
+      if (isSupportedSourceFile(file.name)) {
         voidCall(processFile(file));
+      } else {
+        // 与 file picker 入口（accept 仅是提示）和 SourceFilesPage 保持一致：
+        // 拖入不支持的类型要给反馈，而非静默丢弃。
+        setError(t("source_unsupported_extension", { filename: file.name }));
       }
     },
-    [processFile],
+    [processFile, t],
   );
 
   const handleFileSelect = useCallback(

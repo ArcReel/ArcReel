@@ -92,3 +92,35 @@ describe("WelcomeCanvas accept extension", () => {
     expect(input.accept).toContain(".pdf");
   });
 });
+
+describe("WelcomeCanvas drag-and-drop validation", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    vi.spyOn(API, "listFiles").mockResolvedValue({ files: { source: [] } });
+  });
+
+  it("shows an error and does not upload when an unsupported file is dropped", async () => {
+    const onUpload = vi.fn().mockResolvedValue(undefined);
+    renderWelcome({ onUpload });
+
+    const dropZone = (await screen.findByText("拖拽文件到此处")).closest("button");
+    expect(dropZone).not.toBeNull();
+    const file = new File(["x"], "cover.png", { type: "image/png" });
+    fireEvent.drop(dropZone as HTMLElement, { dataTransfer: { files: [file] } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("不支持的文件类型：cover.png");
+    expect(onUpload).not.toHaveBeenCalled();
+  });
+
+  it("uploads when a supported file is dropped", async () => {
+    const onUpload = vi.fn().mockResolvedValue(undefined);
+    renderWelcome({ onUpload });
+
+    const dropZone = (await screen.findByText("拖拽文件到此处")).closest("button");
+    const file = new File(["x"], "novel.txt", { type: "text/plain" });
+    fireEvent.drop(dropZone as HTMLElement, { dataTransfer: { files: [file] } });
+
+    await waitFor(() => expect(onUpload).toHaveBeenCalledWith(file));
+  });
+});
