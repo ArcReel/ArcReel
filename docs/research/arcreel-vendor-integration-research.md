@@ -30,7 +30,7 @@
 | 阿里百炼 | text | Qwen-Plus（量产均衡） | `qwen-plus` | 阶梯 0-128K：¥0.8 入 / ¥2 出（百万 token） | OpenAI 兼容 ✅ |
 | 阿里百炼 | text | Qwen3.6-Plus（最新视觉语言 Plus） | `qwen3.6-plus` | ¥2 入 / ¥12 出；缓存命中 ¥0.2 | OpenAI 兼容 ✅ |
 | 阿里百炼 | text | Qwen3-Max（稳定旗舰） | `qwen3-max` | 阶梯 0-32K：¥2.5 入 / ¥10 出 | OpenAI 兼容 ✅ |
-| 阿里百炼 | text | Qwen3.7-Max（最新旗舰，智能体） | `qwen3.7-max` | ¥8 入 / ¥24 出（256K-1M）；限时 5 折至 6-22 | OpenAI 兼容 ✅ |
+| 阿里百炼 | text | Qwen3.7-Max（最新旗舰，智能体） | `qwen3.7-max` | ¥12 入 / ¥36 出（256K-1M）；限时 5 折至 ¥6/¥18（2026-06-22 止） | OpenAI 兼容 ✅ |
 | 阿里百炼 | image | Qwen-Image-2.0-Pro（官方推荐，漫画/分镜/文字渲染） | `qwen-image-2.0-pro` / `qwen-image-2.0`（加速版） | 按张（控制台核对） | DashScope 同步 |
 | 阿里百炼 | image | 万相 2.7 图像（人像真实感/组图） | `wan2.7-image` / `-image-pro` | 按张（控制台核对，失败不扣） | DashScope 同步/异步 |
 | 阿里百炼 | video | HappyHorse 1.0 首帧生视频 | `happyhorse-1.0-i2v` | 720P ¥0.9/s、1080P ¥1.6/s | DashScope 异步 |
@@ -91,7 +91,7 @@
 
 | 模型 ID | 定位 | 输入 | 输出 | 上下文 | 说明 |
 |---|---|---|---|---|---|
-| `qwen3.7-max` | **最新旗舰**，面向智能体时代，对位 GPT-5.5 / Claude Opus 4.7 | ¥8 | ¥24 | 256K-1M | 限时 5 折至 ¥6/¥18（至 2026-06-22）；AA 榜 56.6 分全球第五国产第一；纯文本能力开放 |
+| `qwen3.7-max` | **最新旗舰**，面向智能体时代，对位 GPT-5.5 / Claude Opus 4.7 | ¥12 | ¥36 | 256K-1M | 限时 5 折至 ¥6/¥18（至 2026-06-22）；缓存命中输入 ¥1.2；AA 榜 56.6 分全球第五国产第一；纯文本能力开放 |
 | `qwen3-max` | 稳定旗舰（快照 `qwen3-max-2025-09-23` / `-2026-01-23`） | ¥2.5（0-32K） | ¥10 | 256K | 32-128K ¥4/¥16；128-256K ¥7/¥28；原生 search agent；思考模式输出翻数倍 |
 | `qwen3.6-plus` | 最新视觉语言 Plus（2026-04-02 快照，官方千问首推之一） | ¥2 | ¥12 | — | 缓存命中 ¥0.2；代码/OCR/多模态超 3.5 系列 |
 | `qwen3.6-flash` | 最新 Flash（官方千问首推之一，高频低成本档） | 控制台核对 | 控制台核对 | — | 官方模型大全页千问首推三款之一；适合 ArcReel 最高频的 prompt 改写/标签提取 |
@@ -417,7 +417,7 @@ def kling_token(ak, sk):
 ## 7. 关键风险与不确定性
 
 1. **价格波动**：三家均有限时折扣（Qwen3.7-Max 限时 5 折至 2026-06-22、Qwen3.6 全模型 4.5 折、HappyHorse 限时 8 折、可灵套餐活动）。ArcReel `PROVIDER_REGISTRY` 价格字段应配置化，不写死。
-2. **官方价已核实项**：HappyHorse 1.0 全族 720P ¥0.9/s、1080P ¥1.6/s（阿里云上线公告）；Qwen 系列阶梯价与 Qwen3.7-Max ¥8/¥24（阿里云价格页/产品页）；MiniMax M2.7 ¥2.1/¥8.4、image-01 ¥0.025/张、Hailuo 2.3 各档（platform.minimaxi.com）；**可灵全系视频/图像积分单价**（官方定价页 klingai.com/dev/pricing：视频 1 积分=¥1 按"模式×时长×参考视频×有声"四维计费、图像 1 积分=¥0.025，image-o1/v3-omni ¥0.2/张）。
+2. **官方价已核实项**：HappyHorse 1.0 全族 720P ¥0.9/s、1080P ¥1.6/s（阿里云上线公告）；Qwen 系列阶梯价与 Qwen3.7-Max ¥12/¥36（阿里云价格页/产品页）；MiniMax M2.7 ¥2.1/¥8.4、image-01 ¥0.025/张、Hailuo 2.3 各档（platform.minimaxi.com）；**可灵全系视频/图像积分单价**（官方定价页 klingai.com/dev/pricing：视频 1 积分=¥1 按"模式×时长×参考视频×有声"四维计费、图像 1 积分=¥0.025，image-o1/v3-omni ¥0.2/张）。
 3. **仍需控制台核对项**：`qwen-image-2.0-pro/2.0` 与 `wan2.7-image` 精确每张 RMB 单价、`qwen3.6-flash` 精确 token 单价（阿里官方价格页未直接列出每张/每档数值）；百炼代理的三方模型（DeepSeek/Kimi/GLM/MiMo）在百炼侧定价。可灵定价已一手核实，无需再核对。
 4. **模型 ID 更新**：Qwen 每月发快照，优先用稳定别名 + 定期回归；阿里官方千问文本首推 `qwen3.7-max`/`qwen3.6-plus`/`qwen3.6-flash`，图像视频首推 `wan2.7-image-pro`/`qwen-image-2.0-pro`/`happyhorse-1.0-*`（均据官方模型大全页 2026-05-21）；MiniMax 当前 M2.7 / Hailuo 2.3 / image-01（据官方发布页）。
 5. **能力边界（官方一手）**：可灵角色一致性当前最强是 `kling-v3`/`v3-omni` 的"主体控制（视频角色主体+多图主体）"，非旧版 v1-6 多图参考；可灵 `v3`/`v3-omni` 视频"人声控制"官方标 ❌，仅 `kling-v2-6` pro 支持视频内人声。Hailuo 2.3 不支持 R2V（只 T2V+I2V），2.3-Fast 仅 I2V，MiniMax 的 R2V 走 S2V-01（仅单图人脸）。
