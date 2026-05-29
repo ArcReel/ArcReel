@@ -9,9 +9,14 @@ from __future__ import annotations
 import logging
 
 from lib.pricing.types import PerToken, Pricing, ViduDelegate
-from lib.providers import PROVIDER_ANTHROPIC, PROVIDER_VIDU
+from lib.providers import PROVIDER_ANTHROPIC, PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_VIDU
 
 logger = logging.getLogger(__name__)
+
+# 这些 provider 各有独立费率表：未知 model 回落到「该 provider 的默认模型」。其余 provider
+# （gemini-aistudio/vertex、裸 gemini、ark-agent-plan、未知）一律回落 Gemini 家族通用默认费率，
+# 复刻历史「仅 ark/grok/openai 走专属表、其余皆走全局 Gemini 表」的路由。
+_OWN_TABLE_PROVIDERS = frozenset({PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI})
 
 # Anthropic 不在 PROVIDER_REGISTRY（无 ModelInfo 落点），文本定价作为 registry-external 例外。
 # 助手主链路优先使用 SDK 回报的实际费用；此表仅在只拿到 token 数时兜底。费率为美元/百万 token。
@@ -33,22 +38,17 @@ _ANTHROPIC_PRICING = PerToken(
     currency="USD",
 )
 
-# 未知 provider（``gemini`` / ``unknown`` / 缺省）回落到的 Gemini 默认模型，按媒体类型。
-_GEMINI_DEFAULT_MODELS: dict[str, str] = {
-    "text": "gemini-3-flash-preview",
-    "image": "gemini-3.1-flash-image-preview",
-    "video": "veo-3.1-lite-generate-preview",
-}
-
 
 def _gemini_default_pricing_for(media_type: str, model: str | None = None) -> Pricing:
     """非 ark/grok/openai/vidu/anthropic 的 provider（含裸 ``gemini`` / 未知 provider /
-    Agent Plan）统一走 Gemini 家族费率：先按 model 在 aistudio + vertex 命中（复刻历史「全局
-    Gemini 费率表按 model 命中」，覆盖如裸 ``gemini`` + ``veo-3.1-generate-001`` 这类历史调用），
-    未命中再回落该媒体类型的默认模型。"""
+    Agent Plan / gemini-aistudio / gemini-vertex）统一走 Gemini 家族费率：先按 model 在
+    aistudio + vertex 命中（复刻历史「全局 Gemini 费率表按 model 命中」，覆盖如裸 ``gemini`` +
+    ``veo-3.1-generate-001`` 这类历史调用），未命中再回落 aistudio 该媒体类型的默认模型——
+    历史上所有 Gemini 家族 provider 共用同一通用默认（如视频 veo-3.1-lite），故按 aistudio
+    的 ``default=True`` 取，避免按各 provider 自身默认（如 vertex 视频默认是 fast-001）算错价。"""
     # registry 导入放函数内：lib.config 包初始化会拉起 resolver→usage_repo→cost_calculator，
     # 与本模块（被 cost_calculator 导入）构成导入环；延迟到调用时导入即可避开。
-    from lib.config.registry import PROVIDER_REGISTRY
+    from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 
     if model is not None:
         for provider_id in ("gemini-aistudio", "gemini-vertex"):
@@ -57,13 +57,14 @@ def _gemini_default_pricing_for(media_type: str, model: str | None = None) -> Pr
                 return info.pricing
 
     meta = PROVIDER_REGISTRY["gemini-aistudio"]
-    model_id = _GEMINI_DEFAULT_MODELS.get(media_type, "gemini-3-flash-preview")
-    info = meta.models.get(model_id)
-    if info is not None and info.pricing is not None:
-        return info.pricing
-    text_info = meta.models["gemini-3-flash-preview"]
-    assert text_info.pricing is not None
-    return text_info.pricing
+    # 默认模型取 registry 的 default=True 单一真相源，避免与硬编码模型名漂移。
+    for fallback_media in (media_type, "text"):
+        model_id = default_model_for_provider("gemini-aistudio", fallback_media)
+        if model_id is not None:
+            info = meta.models.get(model_id)
+            if info is not None and info.pricing is not None:
+                return info.pricing
+    raise RuntimeError("gemini-aistudio 缺少可用于兜底的默认模型定价声明")
 
 
 def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing:
@@ -91,9 +92,12 @@ def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing
     elif info is not None and info.pricing is None:
         logger.debug("pricing lookup: provider=%s model=%s 未声明定价，回落到默认模型费率", provider, model)
 
-    default_model = default_model_for_provider(provider, media_type)
-    if default_model is not None:
-        default_info = meta.models.get(default_model)
-        if default_info is not None and default_info.pricing is not None:
-            return default_info.pricing
+    # ark/grok/openai 各有专属费率表 → 未知 model 回落到该 provider 的默认模型；
+    # 其余（gemini 家族等）回落 Gemini 通用默认费率，与历史路由一致。
+    if provider in _OWN_TABLE_PROVIDERS:
+        default_model = default_model_for_provider(provider, media_type)
+        if default_model is not None:
+            default_info = meta.models.get(default_model)
+            if default_info is not None and default_info.pricing is not None:
+                return default_info.pricing
     return _gemini_default_pricing_for(media_type, model)

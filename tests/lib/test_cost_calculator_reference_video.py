@@ -54,3 +54,14 @@ def test_estimate_empty_units_returns_zero(calc: CostCalculator):
     )
     assert amount == 0.0
     assert currency == "USD"
+
+
+def test_estimate_all_zero_durations_returns_zero(calc: CostCalculator):
+    # 累计时长为 0（非空全零列表）按秒计费应得 0，不应被默认 8 秒兜底成非零。
+    amount, currency = calc.estimate_reference_video_cost(
+        unit_durations_seconds=[0, 0],
+        provider=PROVIDER_GROK,
+        model="grok-imagine-video",
+    )
+    assert amount == pytest.approx(0.0)
+    assert currency == "USD"

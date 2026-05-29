@@ -123,7 +123,11 @@ class ConfigService:
             else:
                 status = "unconfigured"
                 missing = list(meta.required_keys)
-            models_dict = {mid: asdict(mi) for mid, mi in meta.models.items()}
+            # 排除 pricing：其费率含 tuple 键（如 (resolution, audio)），asdict 后非 JSON 可序列化，
+            # 且供应商状态/前端响应不消费定价。保留其余字段供 ModelInfoResponse 构造。
+            models_dict = {
+                mid: {k: v for k, v in asdict(mi).items() if k != "pricing"} for mid, mi in meta.models.items()
+            }
             statuses.append(
                 ProviderStatus(
                     name=name,

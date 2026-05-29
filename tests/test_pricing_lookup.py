@@ -98,6 +98,29 @@ class TestUnknownModelFallback:
         assert not any(r.levelno >= logging.WARNING for r in caplog.records)
 
 
+class TestGeminiFamilyVideoFallback:
+    """gemini-aistudio/vertex 的未知/None 视频模型应回落到 Gemini 通用默认（lite），
+    而非各 provider 自身默认（vertex 视频默认是 fast-001），保持历史费率一致。"""
+
+    def test_vertex_none_model_uses_universal_lite_not_vertex_fast_default(self):
+        pricing = lookup_pricing("gemini-vertex", None, "video")
+        assert isinstance(pricing, PerSecondMatrix)
+        # 通用默认 = veo-3.1-lite-generate-preview（1080p+audio=0.08），不是 vertex 默认 fast-001（0.15）
+        assert "veo-3.1-lite-generate-preview" in pricing.rates
+        assert pricing.rates["veo-3.1-lite-generate-preview"][("1080p", True)] == 0.08
+
+    def test_vertex_unknown_model_uses_universal_lite(self):
+        pricing = lookup_pricing("gemini-vertex", "veo-removed-from-registry", "video")
+        assert isinstance(pricing, PerSecondMatrix)
+        assert "veo-3.1-lite-generate-preview" in pricing.rates
+
+    def test_vertex_known_model_still_resolves_own_pricing(self):
+        # 正常配对（vertex + 其自有模型）仍命中该模型自身费率。
+        pricing = lookup_pricing("gemini-vertex", "veo-3.1-generate-001", "video")
+        assert isinstance(pricing, PerSecondMatrix)
+        assert pricing.rates["veo-3.1-generate-001"][("1080p", True)] == 0.40
+
+
 class TestHiddenModelStillResolves:
     def test_hidden_does_not_block_lookup(self, monkeypatch):
         # 成本快照边角：模型被下线（hidden=True）后，入队遗留任务仍需算价。
