@@ -248,10 +248,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
   // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
-  const baseUrlChanged = isEdit && !!existing && baseUrl.trim() !== existing.base_url;
+  const baseUrlChanged = !!existing && baseUrl.trim() !== existing.base_url;
   // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）；
   // 创建模式或 base_url 变更时必须明文 api_key。发现模型与测试连接共用此判断。
-  const useStoredCredential = isEdit && !!existing && !apiKey && !baseUrlChanged;
+  const useStoredCredential = !!existing && !apiKey && !baseUrlChanged;
 
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
@@ -297,6 +297,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {
+    // 清空上一次结果放在所有校验之前：校验失败直接 return 时也不残留旧的成功/失败提示。
+    setTestResult(null);
     if (!baseUrl) {
       showError(t("fill_base_url_first"));
       return;
@@ -306,7 +308,6 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       return;
     }
     setTesting(true);
-    setTestResult(null);
     try {
       const res = useStoredCredential
         ? await API.testCustomConnectionById(existing.id)
