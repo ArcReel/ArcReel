@@ -13,6 +13,11 @@ import {
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { getProjectDisplayName } from "@/utils/project-display";
+import {
+  SOURCE_FILE_ACCEPT,
+  SOURCE_FILE_FORMATS_LABEL,
+  isSupportedSourceFile,
+} from "@/utils/source-files";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -136,8 +141,7 @@ export function WelcomeCanvas({
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      const ALLOWED = [".txt", ".md", ".docx", ".epub", ".pdf"];
-      if (file && ALLOWED.some((ext) => file.name.toLowerCase().endsWith(ext))) {
+      if (file && isSupportedSourceFile(file.name)) {
         voidCall(processFile(file));
       }
     },
@@ -265,10 +269,16 @@ export function WelcomeCanvas({
             >
               {t("click_to_select_files")}
             </p>
+            <p
+              className="num mt-1.5 text-[10.5px] uppercase tracking-[0.18em]"
+              style={{ color: "var(--color-text-4)" }}
+            >
+              {SOURCE_FILE_FORMATS_LABEL}
+            </p>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.docx,.epub,.pdf"
+              accept={SOURCE_FILE_ACCEPT}
               aria-label={t("upload_script_file_aria")}
               className="hidden"
               onChange={handleFileSelect}
@@ -409,7 +419,7 @@ export function WelcomeCanvas({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.docx,.epub,.pdf"
+              accept={SOURCE_FILE_ACCEPT}
               aria-label={t("upload_script_file_aria")}
               className="hidden"
               onChange={handleFileSelect}

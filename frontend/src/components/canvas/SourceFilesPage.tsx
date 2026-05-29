@@ -5,6 +5,11 @@ import { BookOpen, FileText, Plus, Trash2, Upload, ArrowRight } from "lucide-rea
 import { API, ConflictError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg, voidPromise } from "@/utils/async";
+import {
+  SOURCE_FILE_ACCEPT,
+  SOURCE_FILE_FORMATS_LABEL,
+  isSupportedSourceFile,
+} from "@/utils/source-files";
 import { ConflictModal, type ConflictResolution } from "./ConflictModal";
 
 interface SourceFile {
@@ -17,8 +22,6 @@ interface SourceFile {
 interface SourceFilesPageProps {
   projectName: string;
 }
-
-const ALLOWED_EXTENSIONS = [".txt", ".md", ".docx", ".epub", ".pdf"];
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -76,7 +79,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
     async (file: File) => {
       // 入口处统一做扩展名校验，让拖拽 / file picker 共用一条规则；
       // <input accept> 只是 picker 提示，不能挡未授权类型。
-      if (!ALLOWED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
+      if (!isSupportedSourceFile(file.name)) {
         useAppStore
           .getState()
           .pushToast(
@@ -258,7 +261,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
         <input
           ref={fileInputRef}
           type="file"
-          accept={ALLOWED_EXTENSIONS.join(",")}
+          accept={SOURCE_FILE_ACCEPT}
           onChange={handleFileSelect}
           className="hidden"
         />
@@ -351,7 +354,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                   className="num text-[10.5px] uppercase tracking-[0.18em]"
                   style={{ color: "var(--color-text-4)" }}
                 >
-                  {ALLOWED_EXTENSIONS.map((e) => e.replace(/^\./, "").toUpperCase()).join(" · ")}
+                  {SOURCE_FILE_FORMATS_LABEL}
                 </p>
               </div>
               <span
