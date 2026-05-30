@@ -207,19 +207,24 @@ def build_request_body(model: str, request: VideoGenerationRequest) -> dict:
     return body
 
 
-# 仅以下键允许进入日志（白名单，键集静态可判定，CodeQL 不再把整份 dict 保守标记为污点）。
-_SAFE_LOG_KEYS = frozenset({"model", "prompt", "duration", "aspect_ratio", "resolution", "seed"})
-# 这些键可能内嵌整张图片的 base64 data URI，固定替换为占位符（白名单外的未知键一律丢弃）。
-_IMAGE_BODY_KEYS = ("image_url", "last_image_url", "image_urls")
+def _log_fields(model: str, request: VideoGenerationRequest) -> dict:
+    """日志摘要：只从 request 的标量字段 + 图片「有无/数量」构造，绝不读取请求体里
+    由图片编码得到的 base64 data URI。
 
-
-def _redacted_body(body: dict) -> dict:
-    """日志用副本：仅保留白名单字段，图片字段替换为占位符；不就地修改入参。"""
-    view: dict = {key: body[key] for key in _SAFE_LOG_KEYS if key in body}
-    for key in _IMAGE_BODY_KEYS:
-        if key in body:
-            view[key] = "<redacted-image-data>"
-    return view
+    必须从 request 而非 build_request_body 的产物（body）派生——后者内嵌的图片 base64
+    是污点源，任何从该 dict 取值都会被静态分析判定为带污点并触发明文记录告警；图片只记数量。
+    """
+    return {
+        "model": model,
+        "prompt": request.prompt,
+        "duration": request.duration_seconds,
+        "aspect_ratio": request.aspect_ratio,
+        "resolution": request.resolution,
+        "seed": request.seed,
+        "start_image": bool(request.start_image),
+        "end_image": bool(request.end_image),
+        "reference_images": len(request.reference_images or []),
+    }
 
 
 def _normalize_root(base_url: str) -> str:
@@ -290,7 +295,7 @@ class V2VideoGenerationsBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         body = build_request_body(self._model, request)
         logger.info("V2 视频生成开始: model=%s duration=%s", self._model, request.duration_seconds)
-        logger.info("调用 %s 视频接口 payload=%s", self.name, format_kwargs_for_log(_redacted_body(body)))
+        logger.info("调用 %s 视频接口 payload=%s", self.name, format_kwargs_for_log(_log_fields(self._model, request)))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             generation_id = await self._create_task(client, body)

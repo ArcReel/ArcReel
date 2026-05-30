@@ -23,8 +23,8 @@ from lib.video_backends.v2_video_generations import (
     _dig,
     _extract_failure,
     _first_str_by_paths,
+    _log_fields,
     _normalize_root,
-    _redacted_body,
     build_request_body,
     normalize_status,
 )
@@ -249,28 +249,30 @@ class TestNormalizeRoot:
         assert _normalize_root(base_url) == expected
 
 
-class TestRedactedBody:
-    def test_image_fields_redacted(self):
-        body = {
-            "model": "m",
-            "prompt": "p",
-            "image_url": "data:image/png;base64,AAAA",
-            "last_image_url": "data:image/png;base64,BBBB",
-            "image_urls": ["data:image/png;base64,CCCC"],
-        }
-        safe = _redacted_body(body)
-        assert safe["model"] == "m"
-        assert safe["prompt"] == "p"
-        assert safe["image_url"] == "<redacted-image-data>"
-        assert safe["last_image_url"] == "<redacted-image-data>"
-        assert safe["image_urls"] == "<redacted-image-data>"
-        # 原 body 不被就地修改
-        assert body["image_url"].startswith("data:image/png;base64,")
+class TestLogFields:
+    def test_summary_built_from_request_never_base64(self, tmp_path):
+        start = _write_img(tmp_path, "s.png")
+        refs = [_write_img(tmp_path, "r1.png"), _write_img(tmp_path, "r2.png")]
+        fields = _log_fields(
+            "seedance-1.0",
+            _req(tmp_path, start_image=start, reference_images=refs, resolution="720p", seed=7, aspect_ratio="16:9"),
+        )
+        assert fields["model"] == "seedance-1.0"
+        assert fields["prompt"] == "a cat"
+        assert fields["resolution"] == "720p"
+        assert fields["aspect_ratio"] == "16:9"
+        assert fields["seed"] == 7
+        # 图片只记有无/数量，绝不出现 base64 data URI
+        assert fields["start_image"] is True
+        assert fields["end_image"] is False
+        assert fields["reference_images"] == 2
+        assert not any("base64" in str(v) for v in fields.values())
 
-    def test_unknown_keys_dropped(self):
-        # 白名单外的键一律不进日志（CodeQL 不再保守标记整份 dict）
-        safe = _redacted_body({"model": "m", "duration": 5, "negative_prompt": "x", "secret": "y"})
-        assert safe == {"model": "m", "duration": 5}
+    def test_no_images(self, tmp_path):
+        fields = _log_fields("m", _req(tmp_path))
+        assert fields["start_image"] is False
+        assert fields["end_image"] is False
+        assert fields["reference_images"] == 0
 
 
 class TestBuildRequestBodyBranches:
