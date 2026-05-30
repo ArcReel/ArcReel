@@ -282,21 +282,27 @@ ENDPOINT_KEYS_BY_MEDIA_TYPE: dict[str, tuple[str, ...]] = {
 
 
 def _validate_video_caps_declarations() -> None:
-    """import 期校验参考图上限来源：每个 video endpoint 必须「int cap」XOR「caps_fn 非 None」恰一、
-    且 int cap 非负；非 video endpoint 两者皆 None。misconfig（多 model 共享端点漏配 caps_fn、同时
-    声明二者、或声明负数 cap）在 import 期 fail-fast，而非等到 request 期 resolver 才抛。
+    """import 期校验参考图上限来源：caps_fn 若声明必须可调用；每个 video endpoint 必须「int cap」
+    XOR「caps_fn 非 None」恰一、且 int cap 非负；非 video endpoint 两者皆 None。misconfig（caps_fn
+    填成非 callable、多 model 共享端点漏配 caps_fn、同时声明二者、或声明负数 cap）在 import 期
+    fail-fast，而非等到 request 期 resolver 才抛。
     """
     for key, spec in ENDPOINT_REGISTRY.items():
         cap = spec.video_max_reference_images
+        caps_fn = spec.video_caps_for_model
         has_int = cap is not None
-        has_fn = spec.video_caps_for_model is not None
+        # resolver 会以 caps_fn(model_id) 执行它，故必须是 callable。误填字符串/整数等非空非 callable
+        # 值要在 import 期就挡掉，而非放行到请求期才在 resolver 里炸——与本函数的 fail-fast 初衷一致。
+        if caps_fn is not None and not callable(caps_fn):
+            raise ValueError(f"endpoint {key!r} declares non-callable video_caps_for_model: {caps_fn!r}")
+        has_fn = callable(caps_fn)
         if spec.media_type == "video":
             if has_int == has_fn:
                 raise ValueError(
                     f"video endpoint {key!r} must declare exactly one of video_max_reference_images "
                     f"(int) or video_caps_for_model (callable), got "
                     f"video_max_reference_images={cap!r}, "
-                    f"video_caps_for_model={'<callable>' if has_fn else None}"
+                    f"video_caps_for_model={caps_fn!r}"
                 )
             if cap is not None and cap < 0:
                 # int cap 是参考图张数硬上限；负数到了下游会被当负切片 references[:-1] 误丢最后一张
@@ -306,7 +312,7 @@ def _validate_video_caps_declarations() -> None:
             raise ValueError(
                 f"non-video endpoint {key!r} must not declare video caps, got "
                 f"video_max_reference_images={cap!r}, "
-                f"video_caps_for_model={'<callable>' if has_fn else None}"
+                f"video_caps_for_model={caps_fn!r}"
             )
 
 

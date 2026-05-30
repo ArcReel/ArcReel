@@ -90,6 +90,23 @@ class TestRegistry:
         with pytest.raises(ValueError, match="negative video_max_reference_images"):
             _validate_video_caps_declarations()
 
+    def test_non_callable_caps_fn_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
+        """import 期不变式拒绝非 callable 的 video_caps_for_model：否则误填字符串/整数会放行到
+        request 期才在 resolver `caps_fn(model_id)` 处炸，违背 fail-fast 初衷。"""
+        import dataclasses
+
+        from lib.custom_provider.endpoints import _validate_video_caps_declarations
+
+        # 非 callable 真值（字符串）冒充 caps_fn；同时清掉 int cap 避免先撞 XOR 校验
+        bad = dataclasses.replace(
+            ENDPOINT_REGISTRY["ark-seedance"],
+            video_max_reference_images=None,
+            video_caps_for_model="not-callable",
+        )
+        monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance", bad)
+        with pytest.raises(ValueError, match="non-callable video_caps_for_model"):
+            _validate_video_caps_declarations()
+
     def test_media_type_groups(self):
         text_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "text"}
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}

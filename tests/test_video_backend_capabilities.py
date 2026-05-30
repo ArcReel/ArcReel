@@ -94,8 +94,14 @@ class TestVideoCapabilitiesForModel:
         assert V2VideoGenerationsBackend.video_capabilities_for_model("whatever").max_reference_images == 4
 
     def test_instance_property_delegates_to_static(self):
-        """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。"""
+        """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。
+
+        patch 掉 create_ark_client：本测试只验证 property→静态方法的委托，不应在 __init__ 里真实
+        构造 Ark SDK client（那正是本 PR 要移出 caps 路径的依赖）。"""
+        from unittest.mock import patch
+
         from lib.video_backends.ark import ArkVideoBackend
 
-        backend = ArkVideoBackend(api_key="k", model="doubao-seedance-2-0")
+        with patch("lib.video_backends.ark.create_ark_client"):
+            backend = ArkVideoBackend(api_key="k", model="doubao-seedance-2-0")
         assert backend.video_capabilities == ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
