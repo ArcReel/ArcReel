@@ -23,7 +23,6 @@ from pathlib import Path
 
 import httpx
 
-from lib.logging_utils import format_kwargs_for_log
 from lib.retry import (
     BASE_RETRYABLE_ERRORS,
     DEFAULT_BACKOFF_SECONDS,
@@ -58,6 +57,9 @@ _DEFAULT_MAX_REFERENCE_IMAGES = 4
 
 # 超过此阈值的图触发 warning（base64 编码后易触发中转站请求体上限）
 _LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
+
+# 日志摘要里 prompt 截断长度（避免长 prompt 撑爆日志）
+_PROMPT_LOG_MAX = 200
 
 # HTTPStatusError 不继承 RequestError，必须显式列出以便 5xx 响应走类型匹配而非字符串匹配
 _V2_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.RequestError, httpx.HTTPStatusError)
@@ -208,15 +210,17 @@ def build_request_body(model: str, request: VideoGenerationRequest) -> dict:
 
 
 def _log_fields(model: str, request: VideoGenerationRequest) -> dict:
-    """日志摘要：只从 request 的标量字段 + 图片「有无/数量」构造，绝不读取请求体里
-    由图片编码得到的 base64 data URI。
+    """日志摘要：只从 request 的标量字段 + 图片「有无/数量」构造，自带 prompt 截断。
 
-    必须从 request 而非 build_request_body 的产物（body）派生——后者内嵌的图片 base64
-    是污点源，任何从该 dict 取值都会被静态分析判定为带污点并触发明文记录告警；图片只记数量。
+    两点刻意为之：① 从 request 而非 build_request_body 的产物 body 派生——body 内嵌的图片
+    base64 是污点源，从该 dict 取值会被静态分析判为带污点；图片只记有无/数量。② 直接喂
+    logger、不过 format_kwargs_for_log——后者内部含密钥脱敏分支，静态分析把其返回值整体判为
+    带 secret 污点；本摘要已自带去敏与截断，无需再过那层。
     """
+    prompt = request.prompt
     return {
         "model": model,
-        "prompt": request.prompt,
+        "prompt": prompt if len(prompt) <= _PROMPT_LOG_MAX else f"{prompt[:_PROMPT_LOG_MAX]}…<{len(prompt)} chars>",
         "duration": request.duration_seconds,
         "aspect_ratio": request.aspect_ratio,
         "resolution": request.resolution,
@@ -295,7 +299,7 @@ class V2VideoGenerationsBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         body = build_request_body(self._model, request)
         logger.info("V2 视频生成开始: model=%s duration=%s", self._model, request.duration_seconds)
-        logger.info("调用 %s 视频接口 payload=%s", self.name, format_kwargs_for_log(_log_fields(self._model, request)))
+        logger.info("调用 %s 视频接口 payload=%s", self.name, _log_fields(self._model, request))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             generation_id = await self._create_task(client, body)

@@ -274,6 +274,12 @@ class TestLogFields:
         assert fields["end_image"] is False
         assert fields["reference_images"] == 0
 
+    def test_long_prompt_truncated(self, tmp_path):
+        long_prompt = "x" * 1000
+        fields = _log_fields("m", _req(tmp_path, prompt=long_prompt))
+        assert len(fields["prompt"]) < len(long_prompt)
+        assert "1000 chars" in fields["prompt"]
+
 
 class TestBuildRequestBodyBranches:
     def test_large_image_warns(self, tmp_path, caplog):
