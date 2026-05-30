@@ -22,6 +22,7 @@ from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
+from lib.video_backends.base import VideoCapabilities
 from lib.video_backends.newapi import NewAPIVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
 from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
@@ -29,7 +30,6 @@ from lib.video_backends.vidu import ViduVideoBackend
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
-    from lib.video_backends.base import VideoCapabilities
 
 
 # ── EndpointSpec 数据类型 ───────────────────────────────────────────
