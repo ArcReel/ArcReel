@@ -9,6 +9,7 @@ PROVIDER_GROK = "grok"
 PROVIDER_OPENAI = "openai"
 PROVIDER_VIDU = "vidu"
 PROVIDER_NEWAPI = "newapi"
+PROVIDER_DASHSCOPE = "dashscope"
 PROVIDER_ANTHROPIC = "anthropic"
 
 CallType = Literal["image", "video", "text"]

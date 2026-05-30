@@ -46,3 +46,8 @@ from lib.image_backends.vidu import ViduImageBackend
 from lib.providers import PROVIDER_VIDU
 
 register_backend(PROVIDER_VIDU, ViduImageBackend)
+
+from lib.image_backends.dashscope import DashScopeImageBackend
+from lib.providers import PROVIDER_DASHSCOPE
+
+register_backend(PROVIDER_DASHSCOPE, DashScopeImageBackend)

@@ -63,3 +63,9 @@ from lib.providers import PROVIDER_VIDU  # noqa: E402
 from lib.video_backends.vidu import ViduVideoBackend  # noqa: E402
 
 register_backend(PROVIDER_VIDU, ViduVideoBackend)
+
+# 阿里百炼 DashScope — HappyHorse / 万相视频
+from lib.providers import PROVIDER_DASHSCOPE  # noqa: E402
+from lib.video_backends.dashscope import DashScopeVideoBackend  # noqa: E402
+
+register_backend(PROVIDER_DASHSCOPE, DashScopeVideoBackend)
