@@ -287,14 +287,21 @@ class V2VideoGenerationsBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 client。保留 `model` 形参仅为跨 backend 接口统一，
+        generic 端点跨多模型无单一供应商真相，当前取保守默认 `_DEFAULT_MAX_REFERENCE_IMAGES`。
+        """
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
             reference_images=True,
             max_reference_images=_DEFAULT_MAX_REFERENCE_IMAGES,
         )
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         body = build_request_body(self._model, request)

@@ -57,12 +57,38 @@ class TestRegistry:
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
-        """v2/ark/vidu 不在 endpoint 维度声明上限，由 resolver fallthrough 到 backend caps。"""
+        """v2/ark/vidu 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
         for key in ("v2-video-generations", "ark-seedance", "vidu-video"):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
         assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
         assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images == 0
+
+    def test_video_caps_declaration_bindings(self):
+        """每个 video endpoint 选对了上限来源：None-cap 的绑 caps_fn、显式 int 的不绑。
+
+        全注册表 XOR/非负不变式由 endpoints.py 的 module-load `_validate_video_caps_declarations()`
+        在 import 期保证（违反则本文件根本 import 不进来），故此处只断言「具体哪个 endpoint 选了哪条
+        路径」——这是 XOR 校验抓不到的（换机制仍满足 XOR），是真正的回归护栏。"""
+        # None-cap 的三个 video endpoint 必须绑定纯 caps 函数
+        for key in ("v2-video-generations", "ark-seedance", "vidu-video"):
+            assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
+        # 显式 int 的 video endpoint 不应再绑 caps 函数
+        for key in ("openai-video", "newapi-video"):
+            assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
+
+    def test_negative_int_cap_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
+        """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""
+        import dataclasses
+
+        from lib.custom_provider.endpoints import _validate_video_caps_declarations
+
+        bad = dataclasses.replace(
+            ENDPOINT_REGISTRY["openai-video"], video_max_reference_images=-1, video_caps_for_model=None
+        )
+        monkeypatch.setitem(ENDPOINT_REGISTRY, "openai-video", bad)
+        with pytest.raises(ValueError, match="negative video_max_reference_images"):
+            _validate_video_caps_declarations()
 
     def test_media_type_groups(self):
         text_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "text"}

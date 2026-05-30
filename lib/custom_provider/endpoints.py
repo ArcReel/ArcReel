@@ -29,6 +29,7 @@ from lib.video_backends.vidu import ViduVideoBackend
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
+    from lib.video_backends.base import VideoCapabilities
 
 
 # ── EndpointSpec 数据类型 ───────────────────────────────────────────
@@ -49,8 +50,12 @@ class EndpointSpec:
     # 参考生视频单镜头参考图上限；仅 video 类有意义。
     # 显式 int：原样下传作为硬约束（0 表示不接受参考图，executor 据此将 references 裁剪为 0 张）。
     # None：未声明 —— 一个 endpoint 多 model、容量不同时 endpoint 维度给不出准数，由 resolver
-    # fallthrough 到 backend video_capabilities 读取该 model 的真实上限。
+    # 调 video_caps_for_model 按 model_id 读取该 model 的真实上限。
     video_max_reference_images: int | None = None
+    # 当 video_max_reference_images 为 None 时，resolver 用此纯函数按 model_id 读 backend 声明的
+    # caps —— 不构造 SDK client、不查 provider 行。video_max_reference_images 为 int 时此字段应为
+    # None（endpoint 维度已能给出硬上限）。二者对每个 video endpoint 恰填其一（见注册表末尾不变式）。
+    video_caps_for_model: Callable[[str], VideoCapabilities] | None = None
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
@@ -244,7 +249,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v2/video/generations",
         build_backend=_build_v2_video_generations,
-        # 多 model 共享端点、容量不同 → 未声明，fallthrough 到 backend caps
+        # 多 model 共享端点、容量不同 → endpoint 维度不声明，按 model 读 backend caps（不构造 client）
+        video_caps_for_model=V2VideoGenerationsBackend.video_capabilities_for_model,
     ),
     "ark-seedance": EndpointSpec(
         key="ark-seedance",
@@ -254,6 +260,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/api/v3/contents/generations/tasks",
         build_backend=_build_ark_seedance,
+        video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
     ),
     "vidu-video": EndpointSpec(
         key="vidu-video",
@@ -263,6 +270,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/ent/v2/img2video",
         build_backend=_build_vidu_video,
+        video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
     ),
 }
 
@@ -271,6 +279,38 @@ ENDPOINT_KEYS_BY_MEDIA_TYPE: dict[str, tuple[str, ...]] = {
     media_type: tuple(k for k, s in ENDPOINT_REGISTRY.items() if s.media_type == media_type)
     for media_type in {s.media_type for s in ENDPOINT_REGISTRY.values()}
 }
+
+
+def _validate_video_caps_declarations() -> None:
+    """import 期校验参考图上限来源：每个 video endpoint 必须「int cap」XOR「caps_fn 非 None」恰一、
+    且 int cap 非负；非 video endpoint 两者皆 None。misconfig（多 model 共享端点漏配 caps_fn、同时
+    声明二者、或声明负数 cap）在 import 期 fail-fast，而非等到 request 期 resolver 才抛。
+    """
+    for key, spec in ENDPOINT_REGISTRY.items():
+        cap = spec.video_max_reference_images
+        has_int = cap is not None
+        has_fn = spec.video_caps_for_model is not None
+        if spec.media_type == "video":
+            if has_int == has_fn:
+                raise ValueError(
+                    f"video endpoint {key!r} must declare exactly one of video_max_reference_images "
+                    f"(int) or video_caps_for_model (callable), got "
+                    f"video_max_reference_images={cap!r}, "
+                    f"video_caps_for_model={'<callable>' if has_fn else None}"
+                )
+            if cap is not None and cap < 0:
+                # int cap 是参考图张数硬上限；负数到了下游会被当负切片 references[:-1] 误丢最后一张
+                # 而非裁成 0 张 → import 期挡掉，保证 resolver int 分支取到的恒为合法非负数。
+                raise ValueError(f"video endpoint {key!r} declares negative video_max_reference_images: {cap}")
+        elif has_int or has_fn:
+            raise ValueError(
+                f"non-video endpoint {key!r} must not declare video caps, got "
+                f"video_max_reference_images={cap!r}, "
+                f"video_caps_for_model={'<callable>' if has_fn else None}"
+            )
+
+
+_validate_video_caps_declarations()
 
 
 # ── 工具函数 ───────────────────────────────────────────────────────
@@ -303,6 +343,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
     data = asdict(spec)
     data.pop("build_backend", None)
+    data.pop("video_caps_for_model", None)  # 同 build_backend：callable 不可 JSON 化，剥掉
     if spec.image_capabilities is not None:
         data["image_capabilities"] = sorted(c.value for c in spec.image_capabilities)
     else:

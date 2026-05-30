@@ -63,3 +63,39 @@ class TestVideoGenerationRequestNewFields:
         assert req.start_image == Path("/tmp/start.png")
         assert req.generate_audio is False
         assert req.seed == 42
+
+
+class TestVideoCapabilitiesForModel:
+    """各 backend 的 client-free 静态 caps 方法：按 model_id 纯计算，不构造实例 / 不需 api_key。
+
+    resolver 解析参考图上限走这条纯函数路径，故不应触发 SDK client 构造或 api_key 校验。"""
+
+    def test_ark_seedance_2_returns_nine(self):
+        from lib.video_backends.ark import ArkVideoBackend
+
+        # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得 caps
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
+        assert caps.max_reference_images == 9
+        assert caps.reference_images is True
+
+    def test_ark_non_seedance_2_returns_zero(self):
+        from lib.video_backends.ark import ArkVideoBackend
+
+        assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0").max_reference_images == 0
+
+    def test_vidu_returns_seven(self):
+        from lib.video_backends.vidu import ViduVideoBackend
+
+        assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").max_reference_images == 7
+
+    def test_v2_returns_four(self):
+        from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
+
+        assert V2VideoGenerationsBackend.video_capabilities_for_model("whatever").max_reference_images == 4
+
+    def test_instance_property_delegates_to_static(self):
+        """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。"""
+        from lib.video_backends.ark import ArkVideoBackend
+
+        backend = ArkVideoBackend(api_key="k", model="doubao-seedance-2-0")
+        assert backend.video_capabilities == ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
