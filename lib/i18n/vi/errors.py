@@ -145,6 +145,7 @@ MESSAGES = {
     "image_endpoint_mismatch_no_t2i": "Mô hình {model} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image",
     "image_capability_missing_i2i": "{provider}/{model} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh",
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
+    "image_dashscope_4k_t2i_only": "Mô hình {model} chỉ hỗ trợ 4K cho text-to-image; hãy dùng 2K hoặc thấp hơn cho image-to-image",
     # Video Capability
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",

@@ -750,6 +750,8 @@ export default {
   'endpoint_v2_video_generations_display': 'V2 Video Generations',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',
   'endpoint_vidu_video_display': 'Vidu Video',
+  'endpoint_dashscope_image_display': 'Alibaba Model Studio (Image)',
+  'endpoint_dashscope_async_video_display': 'Alibaba Model Studio (Async Video)',
   'endpoint_catalog_loading': '加载端点目录…',
   // Image Capability
   'image_capability_t2i': '文生图',

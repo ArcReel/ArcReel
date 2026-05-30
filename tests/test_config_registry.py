@@ -10,6 +10,7 @@ def test_all_providers_registered():
         "grok",
         "openai",
         "vidu",
+        "dashscope",
     }
 
 

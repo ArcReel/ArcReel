@@ -215,6 +215,8 @@ class TestEndpointCatalog:
             "v2-video-generations",
             "ark-seedance",
             "vidu-video",
+            "dashscope-image",
+            "dashscope-async-video",
         }
 
     def test_descriptor_shape(self, client: TestClient):

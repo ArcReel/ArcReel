@@ -28,13 +28,15 @@ class TestRegistry:
             "v2-video-generations",
             "ark-seedance",
             "vidu-video",
+            "dashscope-image",
+            "dashscope-async-video",
         }
 
     def test_each_spec_has_required_fields(self):
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu"}
+            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope"}
             assert spec.display_name_key.startswith("endpoint_")
             assert callable(spec.build_backend)
             assert spec.request_method == "POST"
@@ -69,8 +71,21 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         assert text_keys == {"openai-chat", "gemini-generate"}
-        assert image_keys == {"openai-images", "openai-images-generations", "openai-images-edits", "gemini-image"}
-        assert video_keys == {"openai-video", "newapi-video", "v2-video-generations", "ark-seedance", "vidu-video"}
+        assert image_keys == {
+            "openai-images",
+            "openai-images-generations",
+            "openai-images-edits",
+            "gemini-image",
+            "dashscope-image",
+        }
+        assert video_keys == {
+            "openai-video",
+            "newapi-video",
+            "v2-video-generations",
+            "ark-seedance",
+            "vidu-video",
+            "dashscope-async-video",
+        }
 
 
 class TestHelpers:
@@ -167,11 +182,17 @@ class TestInferEndpoint:
         assert infer_endpoint(model_id, discovery_format) != "v2-video-generations"
 
 
-def test_image_endpoint_registry_has_four_entries():
+def test_image_endpoint_registry_entries():
     from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
 
     image_keys = set(ENDPOINT_KEYS_BY_MEDIA_TYPE["image"])
-    assert image_keys == {"openai-images", "openai-images-generations", "openai-images-edits", "gemini-image"}
+    assert image_keys == {
+        "openai-images",
+        "openai-images-generations",
+        "openai-images-edits",
+        "gemini-image",
+        "dashscope-image",
+    }
 
 
 def test_split_endpoints_have_single_capability():
