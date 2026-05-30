@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from lib.ark_shared import ARK_BASE_URL
+from lib.dashscope_shared import DASHSCOPE_BASE_URL
 from lib.pricing.types import (
     PerImageByResolution,
     PerImageFlat,
@@ -162,6 +163,30 @@ def _sora_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatr
         default_model=model_id,
         dimensions="resolution_only",
         currency="USD",
+    )
+
+
+# DashScope（阿里百炼）文本费率（元/百万 token），标准在线推理价。
+def _dashscope_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="CNY",
+    )
+
+
+# DashScope 图片费率（元/张），T2I 与 I2I 同价。
+def _dashscope_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
+    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
+
+
+# DashScope 视频费率（元/秒），按分辨率（音频恒开，不入计费维度）。
+def _dashscope_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
+        currency="CNY",
     )
 
 
@@ -783,6 +808,156 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=ViduDelegate(),
             ),
         },
+    ),
+    "dashscope": ProviderMeta(
+        display_name="阿里百炼",
+        description="阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- text ---
+            "qwen-plus": ModelInfo(
+                display_name="Qwen Plus",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                default=True,
+                pricing=_dashscope_text_pricing("qwen-plus", 0.8, 2.0),
+            ),
+            "qwen3.6-plus": ModelInfo(
+                display_name="Qwen3.6 Plus",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_dashscope_text_pricing("qwen3.6-plus", 2.0, 12.0),
+            ),
+            "qwen3-max": ModelInfo(
+                display_name="Qwen3 Max",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_dashscope_text_pricing("qwen3-max", 2.5, 10.0),
+            ),
+            "qwen3.7-max": ModelInfo(
+                display_name="Qwen3.7 Max",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_dashscope_text_pricing("qwen3.7-max", 12.0, 36.0),
+            ),
+            "qwen3.6-flash": ModelInfo(
+                display_name="Qwen3.6 Flash",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_dashscope_text_pricing("qwen3.6-flash", 1.2, 7.2),
+            ),
+            "qwen-long": ModelInfo(
+                display_name="Qwen Long",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_dashscope_text_pricing("qwen-long", 0.5, 2.0),
+            ),
+            # --- image ---
+            # qwen-image-2.0 融合系列：T2I + I2I 同模型，size 用像素值 宽*高。
+            "qwen-image-2.0": ModelInfo(
+                display_name="Qwen Image 2.0",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["2048*2048", "2688*1536", "1536*2688", "2368*1728", "1728*2368"],
+                pricing=_dashscope_image_pricing("qwen-image-2.0", 0.2),
+            ),
+            "qwen-image-2.0-pro": ModelInfo(
+                display_name="Qwen Image 2.0 Pro",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["2048*2048", "2688*1536", "1536*2688", "2368*1728", "1728*2368"],
+                pricing=_dashscope_image_pricing("qwen-image-2.0-pro", 0.5),
+            ),
+            # 编辑专用系列：仅图生图（角色一致性增强）。
+            "qwen-image-edit-plus": ModelInfo(
+                display_name="Qwen Image Edit Plus",
+                media_type="image",
+                capabilities=["image_to_image"],
+                # 编辑系列宽高均 ∈ [512, 2048]，像素档不超过 2048
+                resolutions=["2048*2048", "2048*1152", "1152*2048", "2048*1536", "1536*2048"],
+                pricing=_dashscope_image_pricing("qwen-image-edit-plus", 0.2),
+            ),
+            "qwen-image-edit-max": ModelInfo(
+                display_name="Qwen Image Edit Max",
+                media_type="image",
+                capabilities=["image_to_image"],
+                resolutions=["2048*2048", "2048*1152", "1152*2048", "2048*1536", "1536*2048"],
+                pricing=_dashscope_image_pricing("qwen-image-edit-max", 0.5),
+            ),
+            # 万相 2.7 图像系列：size 用档位 1K/2K(/4K)。
+            "wan2.7-image": ModelInfo(
+                display_name="万相 2.7 图像",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["1K", "2K"],
+                pricing=_dashscope_image_pricing("wan2.7-image", 0.2),
+            ),
+            "wan2.7-image-pro": ModelInfo(
+                display_name="万相 2.7 图像 Pro",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["1K", "2K", "4K"],
+                pricing=_dashscope_image_pricing("wan2.7-image-pro", 0.5),
+            ),
+            # --- video ---
+            # HappyHorse 1.0 系列：720P ¥0.9/s，1080P ¥1.6/s（音频恒开）。
+            "happyhorse-1.0-i2v": ModelInfo(
+                display_name="HappyHorse 1.0 图生视频",
+                media_type="video",
+                capabilities=["image_to_video", "generate_audio", "seed_control"],
+                default=True,
+                supported_durations=list(range(3, 16)),
+                resolutions=["720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.0-i2v", {"720p": 0.9, "1080p": 1.6}),
+            ),
+            "happyhorse-1.0-t2v": ModelInfo(
+                display_name="HappyHorse 1.0 文生视频",
+                media_type="video",
+                capabilities=["text_to_video", "generate_audio", "seed_control"],
+                supported_durations=list(range(3, 16)),
+                resolutions=["720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.0-t2v", {"720p": 0.9, "1080p": 1.6}),
+            ),
+            "happyhorse-1.0-r2v": ModelInfo(
+                display_name="HappyHorse 1.0 参考生视频",
+                media_type="video",
+                capabilities=["image_to_video", "generate_audio", "seed_control"],
+                supported_durations=list(range(3, 16)),
+                resolutions=["720p", "1080p"],
+                max_reference_images=9,
+                pricing=_dashscope_video_pricing("happyhorse-1.0-r2v", {"720p": 0.9, "1080p": 1.6}),
+            ),
+            # 万相 2.7 视频系列：720P ¥0.6/s，1080P ¥1.0/s（音频恒开）。
+            "wan2.7-i2v": ModelInfo(
+                display_name="万相 2.7 图生视频",
+                media_type="video",
+                capabilities=["image_to_video", "generate_audio", "seed_control"],
+                supported_durations=list(range(2, 16)),
+                resolutions=["720p", "1080p"],
+                pricing=_dashscope_video_pricing("wan2.7-i2v", {"720p": 0.6, "1080p": 1.0}),
+            ),
+            "wan2.7-t2v": ModelInfo(
+                display_name="万相 2.7 文生视频",
+                media_type="video",
+                capabilities=["text_to_video", "generate_audio", "seed_control"],
+                supported_durations=list(range(2, 16)),
+                resolutions=["720p", "1080p"],
+                pricing=_dashscope_video_pricing("wan2.7-t2v", {"720p": 0.6, "1080p": 1.0}),
+            ),
+            "wan2.7-r2v": ModelInfo(
+                display_name="万相 2.7 参考生视频",
+                media_type="video",
+                capabilities=["image_to_video", "generate_audio", "seed_control"],
+                supported_durations=list(range(2, 16)),
+                resolutions=["720p", "1080p"],
+                max_reference_images=5,
+                pricing=_dashscope_video_pricing("wan2.7-r2v", {"720p": 0.6, "1080p": 1.0}),
+            ),
+        },
+        default_base_url=DASHSCOPE_BASE_URL,
     ),
 }
 

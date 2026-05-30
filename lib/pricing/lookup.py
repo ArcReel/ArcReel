@@ -9,14 +9,21 @@ from __future__ import annotations
 import logging
 
 from lib.pricing.types import PerToken, Pricing, ViduDelegate
-from lib.providers import PROVIDER_ANTHROPIC, PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_VIDU
+from lib.providers import (
+    PROVIDER_ANTHROPIC,
+    PROVIDER_ARK,
+    PROVIDER_DASHSCOPE,
+    PROVIDER_GROK,
+    PROVIDER_OPENAI,
+    PROVIDER_VIDU,
+)
 
 logger = logging.getLogger(__name__)
 
 # 这些 provider 各有独立费率表：未知 model 回落到「该 provider 的默认模型」。其余 provider
 # （gemini-aistudio/vertex、裸 gemini、ark-agent-plan、未知）一律回落 Gemini 家族通用默认费率，
 # 复刻历史「仅 ark/grok/openai 走专属表、其余皆走全局 Gemini 表」的路由。
-_OWN_TABLE_PROVIDERS = frozenset({PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI})
+_OWN_TABLE_PROVIDERS = frozenset({PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_DASHSCOPE})
 
 # Anthropic 不在 PROVIDER_REGISTRY（无 ModelInfo 落点），文本定价作为 registry-external 例外。
 # 助手主链路优先使用 SDK 回报的实际费用；此表仅在只拿到 token 数时兜底。费率为美元/百万 token。

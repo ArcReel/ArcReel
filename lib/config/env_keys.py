@@ -22,6 +22,7 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     "XAI_API_KEY",
     "GEMINI_API_KEY",
     "VIDU_API_KEY",
+    "DASHSCOPE_API_KEY",
     "GOOGLE_APPLICATION_CREDENTIALS",
     "GEMINI_BASE_URL",
     "GEMINI_IMAGE_MODEL",
@@ -41,6 +42,7 @@ PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
         "XAI_API_KEY",
         "GEMINI_API_KEY",
         "VIDU_API_KEY",
+        "DASHSCOPE_API_KEY",
         "GOOGLE_APPLICATION_CREDENTIALS",
     }
 )
