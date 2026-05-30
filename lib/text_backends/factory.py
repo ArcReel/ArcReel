@@ -6,7 +6,7 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory
-from lib.providers import PROVIDER_OPENAI
+from lib.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
 from lib.text_backends.base import TextBackend, TextTaskType
 from lib.text_backends.registry import create_backend
 
@@ -17,6 +17,8 @@ PROVIDER_ID_TO_BACKEND: dict[str, str] = {
     "ark-agent-plan": "ark-agent-plan",
     "grok": "grok",
     "openai": "openai",
+    # 阿里百炼文本走 OpenAI 兼容协议，复用 OpenAI 后端（base_url 与 provider_name 在下方特例处理）
+    "dashscope": "openai",
 }
 
 
@@ -85,6 +87,13 @@ async def create_text_backend_for_task(
         if provider_id in ("gemini-aistudio", PROVIDER_OPENAI):
             # 这两个允许用户填自定义 endpoint，没有 registry default。
             kwargs["base_url"] = user_base_url
+        elif provider_id == PROVIDER_DASHSCOPE:
+            # 文本走 OpenAI 兼容模式：从 host 派生 /compatible-mode/v1；并透传真实 provider
+            # 名给 OpenAI 后端，确保 usage 记账与计费查表命中百炼自身的 CNY 费率。
+            from lib.dashscope_shared import dashscope_text_base_url
+
+            kwargs["base_url"] = dashscope_text_base_url(user_base_url)
+            kwargs["provider_name"] = PROVIDER_DASHSCOPE
         else:
             # ark / ark-agent-plan 等：用户优先，缺省回落 ProviderMeta.default_base_url
             # （与 server.services.generation_tasks._fill_simple_provider_kwargs 对称）。

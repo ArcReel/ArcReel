@@ -16,12 +16,15 @@ from urllib.parse import urlsplit
 
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.dashscope_shared import dashscope_native_base_url
 from lib.image_backends.base import ImageCapability
+from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
 from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
+from lib.video_backends.dashscope import DashScopeVideoBackend
 from lib.video_backends.newapi import NewAPIVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
 from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
@@ -152,6 +155,19 @@ def _build_vidu_video(provider, model_id: str) -> CustomVideoBackend:
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_dashscope_image(provider, model_id: str) -> CustomImageBackend:
+    # backend 内部由 host 派生 /api/v1，容忍 base_url 带/不带后缀
+    base_url = dashscope_native_base_url(provider.base_url)
+    delegate = DashScopeImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_dashscope_async_video(provider, model_id: str) -> CustomVideoBackend:
+    base_url = dashscope_native_base_url(provider.base_url)
+    delegate = DashScopeVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 # ── ENDPOINT_REGISTRY 注册表 ───────────────────────────────────────
 
 
@@ -264,6 +280,27 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/ent/v2/img2video",
         build_backend=_build_vidu_video,
     ),
+    "dashscope-image": EndpointSpec(
+        key="dashscope-image",
+        media_type="image",
+        family="dashscope",
+        display_name_key="endpoint_dashscope_image_display",
+        request_method="POST",
+        request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_dashscope_image,
+    ),
+    "dashscope-async-video": EndpointSpec(
+        key="dashscope-async-video",
+        media_type="video",
+        family="dashscope",
+        display_name_key="endpoint_dashscope_async_video_display",
+        request_method="POST",
+        request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
+        build_backend=_build_dashscope_async_video,
+        # 多 model（happyhorse-r2v=9 / wan2.7-r2v=5）容量不同 → 不声明，
+        # fallthrough 到 backend video_capabilities 读该 model 的真实上限。
+    ),
 }
 
 
@@ -328,17 +365,26 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
     openai-chat/openai-images，每次都要手动改回。
 
-    1) imagen → "gemini-image"（图像，不论 discovery_format）
-    2) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
-       （均不论 discovery_format：gemini-* 一律按 Google 端点路由，gemini-*-image 也不例外）
-    3) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
-       （v2-video-generations 命名碎片化无法可靠识别，不自动推断，留用户手选）
-    4) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
-    5) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+    1) 阿里百炼视频 → happyhorse / wan2.x（非 image）走 "dashscope-async-video"（原生异步端点）。
+       happyhorse 不在 _VIDEO_PATTERN 须显式；wan2.x 视频抢在通用 is_video 前拦截。图像不自动推
+       dashscope（中转可能是 OpenAI 兼容），qwen-image / wan2.x-image 落到既有图像家族推断。
+    2) imagen → "gemini-image"（图像，不论 discovery_format）
+    3) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
+    4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
+    5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
+    6) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
     lowered = model_id.lower()
-    is_video = bool(_VIDEO_PATTERN.search(model_id))
     is_image = bool(_IMAGE_PATTERN.search(model_id))
+
+    # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
+    if "happyhorse" in lowered:
+        return "dashscope-async-video"
+    if "wan2." in lowered and not is_image:
+        return "dashscope-async-video"
+
+    # wan2.x-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到图像家族推断
+    is_video = bool(_VIDEO_PATTERN.search(model_id)) and not ("wan2." in lowered and is_image)
 
     if "imagen" in lowered:
         return "gemini-image"
