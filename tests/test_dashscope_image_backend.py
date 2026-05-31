@@ -263,6 +263,42 @@ class TestCapabilityGating:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size=size))
             assert ei.value.code == "image_dashscope_4k_t2i_only"
 
+    async def test_all_refs_unreadable_oserror_raises(self, tmp_path: Path):
+        from lib.image_backends.dashscope import DashScopeImageBackend
+
+        # 文件存在但 read 时抛 OSError（权限/IO）→ 全部跳过后报准确码，不炸成 500
+        ref = _make_ref(tmp_path, "ref.png")
+        b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+        with patch("lib.image_backends.dashscope.image_to_data_uri", side_effect=OSError("permission denied")):
+            with pytest.raises(ImageCapabilityError) as ei:
+                await b.generate(
+                    ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[ref])
+                )
+        assert ei.value.code == "image_reference_images_unreadable"
+
+    async def test_partial_unreadable_refs_keep_readable(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        r1, r2 = _make_ref(tmp_path, "a.png"), _make_ref(tmp_path, "b.png")
+
+        def fake_uri(p: Path) -> str:
+            if p.name == "a.png":
+                raise OSError("io error")
+            return "data:image/png;base64,OK"
+
+        p1, p2 = _patches(client, download)
+        with p1, p2, patch("lib.image_backends.dashscope.image_to_data_uri", side_effect=fake_uri):
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+            await b.generate(
+                ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[r1, r2])
+            )
+
+        content = client.post.call_args.kwargs["json"]["input"]["messages"][0]["content"]
+        images = [c for c in content if "image" in c]
+        assert len(images) == 1  # 仅可读的 b.png 进入
+
 
 class TestErrorResponse:
     async def test_http_error_raises(self, tmp_path: Path):

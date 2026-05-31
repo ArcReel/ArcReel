@@ -201,20 +201,30 @@ class DashScopeImageBackend:
     def _build_content(self, request: ImageGenerationRequest, has_refs: bool) -> list[dict]:
         content: list[dict] = []
         if has_refs:
-            # 用 is_file 而非 exists：空串 "" 解析为当前目录、exists() 返回 True，
-            # 后续 read_bytes 会撞 IsADirectoryError。非空 + 常规文件才纳入。
-            existing = [p for ref in request.reference_images if ref.path and (p := Path(ref.path)).is_file()]
-            if not existing:
+            # 只保留能实际读取的常规文件：缺失/目录（含空串解析出的 "."）/权限或 IO 失败都跳过，
+            # 避免 is_file 通过但 read_bytes 抛 OSError 直接炸成 500。
+            data_uris: list[str] = []
+            for ref in request.reference_images:
+                if not ref.path:
+                    continue
+                path = Path(ref.path)
+                if not path.is_file():
+                    continue
+                try:
+                    data_uris.append(image_to_data_uri(path))
+                except OSError as exc:
+                    logger.warning("DashScope 参考图读取失败，已跳过: %s (%s)", path, exc)
+            if not data_uris:
                 # 模型支持 i2i，只是参考图缺失/不可读；用准确的错误码而非"模型不支持 i2i"
                 raise ImageCapabilityError("image_reference_images_unreadable", model=self._model)
-            if len(existing) > self._ref_limit:
+            if len(data_uris) > self._ref_limit:
                 logger.warning(
                     "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",
-                    len(existing),
+                    len(data_uris),
                     self._model,
                     self._ref_limit,
                 )
-                existing = existing[: self._ref_limit]
-            content.extend({"image": image_to_data_uri(p)} for p in existing)
+                data_uris = data_uris[: self._ref_limit]
+            content.extend({"image": uri} for uri in data_uris)
         content.append({"text": request.prompt})
         return content

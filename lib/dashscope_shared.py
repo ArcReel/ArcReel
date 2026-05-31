@@ -116,9 +116,17 @@ def image_to_data_uri(image_path: Path) -> str:
 # ── 视频异步任务状态工具 ──────────────────────────────────────────────────────
 
 
+def _as_dict(value: object) -> dict:
+    """把任意值归一化为 dict：非 dict（含 None / list / str 等异常上游结构）一律回空 dict。
+
+    DashScope 文档保证 output/usage 为对象，但代理中转或错误响应可能给出非 dict 真值，
+    用此 helper 统一兜底，避免对其调用 .get 抛 AttributeError。
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def _task_status(payload: dict) -> str | None:
-    output = payload.get("output") or {}
-    return output.get("task_status")
+    return _as_dict(payload.get("output")).get("task_status")
 
 
 def is_dashscope_succeeded(payload: dict) -> bool:
@@ -140,7 +148,7 @@ def dashscope_failure_reason(payload: dict) -> str | None:
 
     同时兜底提交阶段的顶层错误响应（``{code, message, request_id}`` 无 output）。
     """
-    output = payload.get("output") or {}
+    output = _as_dict(payload.get("output"))
     status = output.get("task_status")
     if status in _FAILURE_STATES:
         code = output.get("code") or "unknown"
@@ -154,7 +162,7 @@ def dashscope_failure_reason(payload: dict) -> str | None:
 
 def extract_task_id(submit_payload: dict) -> str:
     """从提交响应提取 output.task_id。"""
-    task_id = (submit_payload.get("output") or {}).get("task_id")
+    task_id = _as_dict(submit_payload.get("output")).get("task_id")
     if not task_id:
         reason = dashscope_failure_reason(submit_payload)
         raise RuntimeError(reason or f"DashScope 提交响应缺少 task_id: {submit_payload}")
@@ -163,7 +171,7 @@ def extract_task_id(submit_payload: dict) -> str:
 
 def extract_video_url(payload: dict) -> str:
     """从 SUCCEEDED 轮询响应提取 output.video_url。"""
-    url = (payload.get("output") or {}).get("video_url")
+    url = _as_dict(payload.get("output")).get("video_url")
     if not url:
         raise RuntimeError(f"DashScope 任务完成但缺少 video_url: {payload}")
     return url
@@ -175,7 +183,7 @@ def extract_billing_duration(payload: dict) -> int | None:
     容忍 int / float / 数字字符串；按 half-up 取整（4.5→5）而非截断或银行家舍入，避免少计费秒数。
     非正值（0 / 负 / 无法解析）一律回 None，由 caller 回落请求时长，不记 0 秒账。
     """
-    raw = (payload.get("usage") or {}).get("duration")
+    raw = _as_dict(payload.get("usage")).get("duration")
     if raw is None:
         return None
     try:
@@ -190,14 +198,12 @@ def extract_billing_duration(payload: dict) -> int | None:
 
 def extract_image_url(payload: dict) -> str:
     """从同步图像响应 output.choices[0].message.content[*].image 提取首个 URL。"""
-    choices = (payload.get("output") or {}).get("choices") or []
-    if not choices:
+    choices = _as_dict(payload.get("output")).get("choices")
+    if not isinstance(choices, list) or not choices:
         reason = dashscope_failure_reason(payload)
         raise RuntimeError(reason or f"DashScope 图像响应缺少 choices: {payload}")
     # 上游异常结构（choices[0]/message 非 dict）归一化为空 dict，避免 .get 抛 AttributeError
-    choice = choices[0] if isinstance(choices[0], dict) else {}
-    message = choice.get("message")
-    content = (message if isinstance(message, dict) else {}).get("content") or []
+    content = _as_dict(_as_dict(choices[0]).get("message")).get("content") or []
     for item in content:
         if isinstance(item, dict) and (url := item.get("image")):
             return url

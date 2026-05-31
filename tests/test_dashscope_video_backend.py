@@ -192,7 +192,7 @@ class TestReferenceToVideo:
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
-            with pytest.raises(RuntimeError, match="参考图全部缺失"):
+            with pytest.raises(RuntimeError, match="至少一张参考图"):
                 await b.generate(
                     VideoGenerationRequest(
                         prompt="p",
@@ -202,6 +202,19 @@ class TestReferenceToVideo:
                     )
                 )
         # 提交请求根本不应发出
+        post.assert_not_called()
+
+    async def test_r2v_no_refs_provided_raises(self, tmp_path: Path):
+        # r2v 模型但调用方完全未提供参考图（None/空），也须 fail-loud，不提交无 media 的 r2v 请求
+        post = AsyncMock(return_value=_resp(_submit()))
+        client = _client(post=post, get=AsyncMock())
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3:
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
+            with pytest.raises(RuntimeError, match="至少一张参考图"):
+                await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
         post.assert_not_called()
 
 

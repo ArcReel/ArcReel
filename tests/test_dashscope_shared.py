@@ -90,6 +90,12 @@ class TestStatusHelpers:
         assert is_dashscope_expired({"output": {"task_status": "UNKNOWN"}})
         assert not is_dashscope_expired({"output": {"task_status": "SUCCEEDED"}})
 
+    def test_non_dict_output_does_not_crash(self):
+        # output 为非 dict 真值（畸形上游）时状态判定/失败原因不抛 AttributeError
+        assert not is_dashscope_terminal({"output": ["weird"]})
+        assert not is_dashscope_succeeded({"output": "weird"})
+        assert dashscope_failure_reason({"output": ["weird"]}) is None
+
 
 class TestFailureReason:
     def test_failed_returns_reason(self):
@@ -156,6 +162,11 @@ class TestExtractors:
         assert extract_billing_duration({"usage": {"duration": 0}}) is None
         assert extract_billing_duration({"usage": {"duration": -3}}) is None
 
+    def test_extract_billing_duration_non_dict_usage(self):
+        # usage 为非 dict 真值（畸形上游）→ 归一化为空、回 None，不抛 AttributeError
+        assert extract_billing_duration({"usage": [1, 2]}) is None
+        assert extract_billing_duration({"usage": "oops"}) is None
+
     def test_extract_image_url(self):
         payload = {
             "output": {"choices": [{"message": {"content": [{"image": "https://x/i.png"}]}}]},
@@ -172,6 +183,13 @@ class TestExtractors:
             extract_image_url({"output": {"choices": [None]}})
         with pytest.raises(RuntimeError):
             extract_image_url({"output": {"choices": [{"message": "oops"}]}})
+
+    def test_extract_image_url_non_dict_output_or_non_list_choices(self):
+        # output 非 dict / choices 非 list 真值（畸形上游）→ RuntimeError，不漏 AttributeError/TypeError
+        with pytest.raises(RuntimeError):
+            extract_image_url({"output": "oops"})
+        with pytest.raises(RuntimeError):
+            extract_image_url({"output": {"choices": "not-a-list"}})
 
 
 class TestSafeBodyForLog:
