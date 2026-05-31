@@ -169,14 +169,19 @@ def extract_video_url(payload: dict) -> str:
 
 
 def extract_billing_duration(payload: dict) -> int | None:
-    """从 usage.duration 取真实计费时长（wan2.7-r2v 含输入视频时长）。"""
+    """从 usage.duration 取真实计费时长（wan2.7-r2v 含输入视频时长）。
+
+    容忍 int / float / 数字字符串；浮点四舍五入而非截断，避免少计费秒数。
+    非正值（0 / 负 / 无法解析）一律回 None，由 caller 回落请求时长，不记 0 秒账。
+    """
     raw = (payload.get("usage") or {}).get("duration")
     if raw is None:
         return None
     try:
-        return int(raw)
+        value = round(float(raw))
     except (TypeError, ValueError):
         return None
+    return value if value > 0 else None
 
 
 # ── 同步图像响应工具 ──────────────────────────────────────────────────────────

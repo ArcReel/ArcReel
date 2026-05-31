@@ -38,8 +38,8 @@ DEFAULT_MODEL = "qwen-image-2.0"
 
 _IMAGE_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
-# 编辑专用模型仅图生图（无文生图能力）
-_I2I_ONLY_MARKERS = ("qwen-image-edit-plus", "qwen-image-edit-max")
+# 编辑系列仅图生图（无文生图能力）；子串覆盖 qwen-image-edit / -edit-plus / -edit-max
+_I2I_ONLY_MARKERS = ("qwen-image-edit",)
 
 # 参考图上限：qwen 系 1~3 张、wan 系 0~9 张（docs 确权）
 _QWEN_REF_LIMIT = 3
@@ -48,6 +48,25 @@ _WAN_REF_LIMIT = 9
 # 缺省尺寸：qwen 用像素 宽*高，wan 用档位
 _DEFAULT_QWEN_SIZE = "2048*2048"
 _DEFAULT_WAN_SIZE = "2K"
+
+# aspect_ratio → 像素 宽*高。值取 qwen-image-2.0 系列官方推荐档（千问-文生图.md），
+# 总像素均 ≤ 2048×2048 且比例在 [1:8, 8:1] 内，故 wan2.7-image 像素方式同样适用、复用此表。
+_SIZE_BY_RATIO: dict[str, str] = {
+    "16:9": "2688*1536",
+    "9:16": "1536*2688",
+    "1:1": "2048*2048",
+    "4:3": "2368*1728",
+    "3:4": "1728*2368",
+}
+
+# 编辑系列宽高均 ∈ [512, 2048]，单独一张 ≤2048 的授权档表。
+_EDIT_SIZE_BY_RATIO: dict[str, str] = {
+    "16:9": "2048*1152",
+    "9:16": "1152*2048",
+    "1:1": "2048*2048",
+    "4:3": "2048*1536",
+    "3:4": "1536*2048",
+}
 
 
 class DashScopeImageBackend:
@@ -65,7 +84,9 @@ class DashScopeImageBackend:
         self._base_url = dashscope_native_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
-        self._is_wan = self._model.lower().startswith("wan")
+        mid = self._model.lower()
+        self._is_wan = mid.startswith("wan")
+        self._is_edit = "qwen-image-edit" in mid
         self._capabilities = self._resolve_caps(self._model)
 
     @staticmethod
@@ -146,19 +167,26 @@ class DashScopeImageBackend:
         )
 
     def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:
+        explicit = (request.image_size or "").strip()
         if not self._is_wan:
-            # qwen 系：像素 宽*高，caller 传 registry 像素档，否则默认 2048*2048
-            return request.image_size or _DEFAULT_QWEN_SIZE
-        size = (request.image_size or _DEFAULT_WAN_SIZE).strip()
-        # wan2.7-image-pro 的 4K 仅文生图；I2I + 4K 显式拒绝，不静默降级
-        if size.upper() == "4K" and has_refs:
+            # qwen 系：caller 显式指定优先；否则按 aspect_ratio 选授权像素档（编辑系列宽高 ≤2048）。
+            # 不按 aspect 选档会让项目 aspect_ratio 静默失效、一律产出 1:1 方图。
+            if explicit:
+                return explicit
+            table = _EDIT_SIZE_BY_RATIO if self._is_edit else _SIZE_BY_RATIO
+            return table.get(request.aspect_ratio, _DEFAULT_QWEN_SIZE)
+        # wan 系：未显式指定时同样按 aspect_ratio 选像素值（满足 wan2.7 总像素/比例约束）
+        if not explicit:
+            return _SIZE_BY_RATIO.get(request.aspect_ratio, _DEFAULT_WAN_SIZE)
+        # 显式档位/像素值 honor。4K 仅 wan2.7-image-pro 文生图支持：非 pro 不支持、pro 的 I2I 不支持
+        if explicit.upper() == "4K" and ("pro" not in self._model.lower() or has_refs):
             raise ImageCapabilityError("image_dashscope_4k_t2i_only", model=self._model)
-        return size
+        return explicit
 
     def _build_content(self, request: ImageGenerationRequest, has_refs: bool) -> list[dict]:
         content: list[dict] = []
         if has_refs:
-            existing = [Path(ref.path) for ref in request.reference_images if Path(ref.path).exists()]
+            existing = [p for ref in request.reference_images if (p := Path(ref.path)).exists()]
             if not existing:
                 raise ImageCapabilityError(
                     "image_endpoint_mismatch_no_i2i",

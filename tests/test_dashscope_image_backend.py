@@ -55,7 +55,7 @@ class TestCapabilities:
     def test_edit_models_i2i_only(self):
         from lib.image_backends.dashscope import DashScopeImageBackend
 
-        for model in ("qwen-image-edit-plus", "qwen-image-edit-max"):
+        for model in ("qwen-image-edit", "qwen-image-edit-plus", "qwen-image-edit-max"):
             b = DashScopeImageBackend(api_key="sk", model=model)
             assert b.capabilities == {ImageCapability.IMAGE_TO_IMAGE}
 
@@ -80,8 +80,8 @@ class TestTextToImage:
         body = client.post.call_args.kwargs["json"]
         content = body["input"]["messages"][0]["content"]
         assert content == [{"text": "a fox"}]
-        # qwen 系默认像素 size
-        assert body["parameters"]["size"] == "2048*2048"
+        # qwen 系按默认 aspect_ratio=9:16 选授权像素档（不再一律 1:1 方图）
+        assert body["parameters"]["size"] == "1536*2688"
         assert body["parameters"]["n"] == 1
         assert body["parameters"]["watermark"] is False
         assert body["parameters"]["prompt_extend"] is False
@@ -93,7 +93,7 @@ class TestTextToImage:
         assert result.image_uri == "https://x/out.png"
         download.assert_called_once()
 
-    async def test_wan_default_size_2k(self, tmp_path: Path):
+    async def test_wan_default_size_follows_aspect(self, tmp_path: Path):
         client = _mock_client(_img_response())
         download = AsyncMock()
         p1, p2 = _patches(client, download)
@@ -101,9 +101,37 @@ class TestTextToImage:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            # 默认 aspect_ratio=9:16，wan 像素方式按比例选值（满足 wan 总像素/比例约束）
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1536*2688"
+
+    async def test_explicit_size_honored(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            # caller 显式指定档位时原样下传，不被 aspect 覆盖
+            await b.generate(
+                ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="2K")
+            )
+
         assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "2K"
+
+    async def test_landscape_aspect_picks_wide_size(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+            await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9"))
+
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "2688*1536"
 
 
 class TestImageToImage:
@@ -187,6 +215,15 @@ class TestCapabilityGating:
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4K"))
         assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "4K"
+
+    async def test_wan_non_pro_4k_t2i_raises(self, tmp_path: Path):
+        from lib.image_backends.dashscope import DashScopeImageBackend
+
+        # 非 pro 的 wan2.7-image 完全不支持 4K（即便文生图），须拒绝而非透传给上游
+        b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+        with pytest.raises(ImageCapabilityError) as ei:
+            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4K"))
+        assert ei.value.code == "image_dashscope_4k_t2i_only"
 
     async def test_all_refs_missing_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend

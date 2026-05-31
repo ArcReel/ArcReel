@@ -135,13 +135,20 @@ class TestExtractors:
 
     def test_extract_billing_duration(self):
         assert extract_billing_duration({"usage": {"duration": 15}}) == 15
+        # 容忍 float / 数字字符串，浮点四舍五入而非截断
+        assert extract_billing_duration({"usage": {"duration": 4.8}}) == 5
+        assert extract_billing_duration({"usage": {"duration": "10"}}) == 10
 
     def test_extract_billing_duration_missing(self):
         assert extract_billing_duration({"usage": {}}) is None
         assert extract_billing_duration({}) is None
+        # 非数字字符串无法解析 → None
+        assert extract_billing_duration({"usage": {"duration": "abc"}}) is None
 
-    def test_extract_billing_duration_zero(self):
-        assert extract_billing_duration({"usage": {"duration": 0}}) == 0
+    def test_extract_billing_duration_non_positive_falls_back(self):
+        # 0 / 负值不记账，回 None 由 caller 回落请求时长
+        assert extract_billing_duration({"usage": {"duration": 0}}) is None
+        assert extract_billing_duration({"usage": {"duration": -3}}) is None
 
     def test_extract_image_url(self):
         payload = {

@@ -177,7 +177,13 @@ class DashScopeVideoBackend:
             else:
                 logger.warning("DashScope start_image 文件不存在，已忽略: %s", p)
         if caps.reference_images and request.reference_images:
-            refs = [Path(r) for r in request.reference_images if Path(r).exists()]
+            refs = [p for r in request.reference_images if (p := Path(r)).exists()]
+            if not refs:
+                logger.warning(
+                    "DashScope 参考图全部不存在，r2v 将退化为无参考生成: model=%s count=%d",
+                    self._model,
+                    len(request.reference_images),
+                )
             limit = caps.max_reference_images
             if len(refs) > limit:
                 logger.warning(
