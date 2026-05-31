@@ -253,15 +253,29 @@ class TestCapabilityGating:
             )
         assert ei.value.code == "image_reference_images_unreadable"
 
-    async def test_wan_non_pro_numeric_4k_t2i_raises(self, tmp_path: Path):
+    async def test_oversized_numeric_t2i_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend
 
-        # 等价 4K 像素值（任意朝向）也须被门控拦截，不能因数字写法绕过
+        # 超 2048×2048 总像素预算的像素值（文档 4K=4096×4096，及其它超预算写法/分隔符）
+        # 须被门控拦截，不能因数字写法绕过；非 pro 完全不支持
         b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-        for size in ("3840*2160", "2160*3840"):
+        for size in ("4096*4096", "4096×2160", "3000*3000"):
             with pytest.raises(ImageCapabilityError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size=size))
             assert ei.value.code == "image_dashscope_4k_t2i_only"
+
+    async def test_narrow_size_within_budget_not_gated(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            # 窄幅尺寸总像素在 2048×2048 预算内（4096*512=2.1M < 4.19M），合法、不应被门控误拒
+            # （按"任意维度>2048"判会错杀这类比例尺寸，故门控用总像素而非单维阈值）
+            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4096*512"))
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "4096*512"
 
     async def test_all_refs_unreadable_oserror_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend

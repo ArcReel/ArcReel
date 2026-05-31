@@ -526,6 +526,42 @@ class TestTestProviderConnection:
         assert body["success"] is False
         assert "API key invalid" in body["message"]
 
+    def test_dashscope_registered_in_dispatch(self):
+        # dashscope 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
+        # 否则点"测试连接"会落到 unsupported_test 分支（即便 API Key 有效）
+        assert "dashscope" in providers._TEST_DISPATCH
+
+    def test_dashscope_test_fn_uses_compatible_mode_and_filters_models(self):
+        from types import SimpleNamespace
+
+        captured: dict = {}
+
+        class _FakeModels:
+            def list(self):
+                return SimpleNamespace(
+                    data=[
+                        SimpleNamespace(id="qwen-plus"),
+                        SimpleNamespace(id="wan2.7-image"),
+                        SimpleNamespace(id="text-embedding-v3"),
+                    ]
+                )
+
+        class _FakeOpenAI:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                self.models = _FakeModels()
+
+        with patch("openai.OpenAI", _FakeOpenAI):
+            resp = providers._test_dashscope(
+                {"api_key": "sk", "base_url": "https://dashscope.aliyuncs.com"}, lambda k, **kw: k
+            )
+        # host → compatible-mode base（OpenAI 协议），api_key 透传
+        assert captured["base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        assert captured["api_key"] == "sk"
+        # 仅暴露 qwen/wan 模型，过滤掉 embedding 等
+        assert resp.available_models == ["qwen-plus", "wan2.7-image"]
+        assert resp.success is True
+
     def test_specific_credential_id(self):
         """使用 credential_id 参数测试特定凭证。"""
         repo = MagicMock(spec=CredentialRepository)

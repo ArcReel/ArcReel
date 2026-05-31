@@ -29,8 +29,14 @@ logger = logging.getLogger(__name__)
 # host 段（scheme://host），不含 /api/v1 或 /compatible-mode/v1 后缀；两 base 由此派生。
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com"
 
-# 仅类型匹配传输层瞬态错误；5xx/429 由 _should_retry 的字符串模式兜底（HTTPStatusError
-# 的 str 含状态码），故意不列 HTTPStatusError 以免 401/400/404 业务错误被重试到超时。
+# 故意不含 httpx.HTTPStatusError —— 这是经核实的设计决策，勿据"它不是 RequestError 子类"加入。
+#
+# HTTPStatusError 与 RequestError 同为 HTTPXError 的兄弟类（互不继承），但重试无需把它列进
+# 类型元组：with_retry_async 与 poll_with_retry 都经 lib.retry._should_retry，该函数在类型
+# 不匹配时回退到字符串匹配——HTTPStatusError 的 str() 含状态码短语（如 "Server error '503 …'"），
+# 故 429/500/502/503/504 仍被重试；而 400/401/403/404 的 str 不命中 RETRYABLE_STATUS_PATTERNS，
+# 保持快速失败。若把 HTTPStatusError 直接加进本元组，isinstance 会对全部 4xx 也判 True →
+# 鉴权/参数等业务错误被重试到超时，反而破坏 fail-fast。此为全仓后端一致约定。
 DASHSCOPE_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     *BASE_RETRYABLE_ERRORS,
     httpx.RequestError,
@@ -78,7 +84,9 @@ def resolve_dashscope_api_key(api_key: str | None = None) -> str:
 
 def _dashscope_host(configured: str | None) -> str:
     """从配置的 base_url 提取 host 段（剥除已知路径后缀），缺省回落北京 host。"""
-    base = (configured or DASHSCOPE_BASE_URL).strip().rstrip("/")
+    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后，
+    # 否则 base 变空串、派生出 "/api/v1" 这类非法相对 URL。
+    base = ((configured or "").strip() or DASHSCOPE_BASE_URL).rstrip("/")
     for suffix in _KNOWN_SUFFIXES:
         if base.endswith(suffix):
             return base[: -len(suffix)]
@@ -203,10 +211,13 @@ def extract_image_url(payload: dict) -> str:
         reason = dashscope_failure_reason(payload)
         raise RuntimeError(reason or f"DashScope 图像响应缺少 choices: {payload}")
     # 上游异常结构（choices[0]/message 非 dict）归一化为空 dict，避免 .get 抛 AttributeError
-    content = _as_dict(_as_dict(choices[0]).get("message")).get("content") or []
-    for item in content:
-        if isinstance(item, dict) and (url := item.get("image")):
-            return url
+    content = _as_dict(_as_dict(choices[0]).get("message")).get("content")
+    # 显式校验 list：content 为 truthy 非 list（如 int / bool / dict）时 `or []` 兜不住，
+    # 直接 for 会抛 TypeError；isinstance 守卫统一落到下方 RuntimeError。
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and (url := item.get("image")):
+                return url
     raise RuntimeError(f"DashScope 图像响应 content 无 image 字段: {payload}")
 
 

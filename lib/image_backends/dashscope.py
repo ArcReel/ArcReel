@@ -49,6 +49,9 @@ _WAN_REF_LIMIT = 9
 _DEFAULT_QWEN_SIZE = "2048*2048"
 _DEFAULT_WAN_SIZE = "2K"
 
+# 标准档总像素预算（非 pro / 非文生图上限）= 2048×2048；超出须 wan2.7-image-pro 文生图（4K=4096×4096）
+_STANDARD_PIXEL_BUDGET = 2048 * 2048
+
 # aspect_ratio → 像素 宽*高。值取 qwen-image-2.0 系列官方推荐档（千问-文生图.md），
 # 总像素均 ≤ 2048×2048 且比例在 [1:8, 8:1] 内，故 wan2.7-image 像素方式同样适用、复用此表。
 _SIZE_BY_RATIO: dict[str, str] = {
@@ -97,16 +100,24 @@ class DashScopeImageBackend:
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
     @staticmethod
-    def _is_4k_size(size: str) -> bool:
-        """档位 "4K" 或等价 4K 像素值（3840×2160 任意朝向）都算 4K，避免数字写法绕过门控。"""
+    def _exceeds_standard_budget(size: str) -> bool:
+        """size 是否超出标准档总像素预算（2048×2048）。
+
+        docs 口径：超出 2048×2048 的输出仅 wan2.7-image-pro 文生图支持（4K 档=4096×4096）。
+        档位 "1K"/"2K" 在预算内、"4K" 超预算；像素值按"总像素 > 预算"判定，避免只认 "4K"
+        字面而让 "4096*4096" / "3000*3000" 等数字写法绕过门控（这是按比例算总像素，
+        故 "4096*512" 这类窄幅合法尺寸不会被误拒）。
+        """
         normalized = size.strip().upper()
+        if normalized in ("1K", "2K"):
+            return False
         if normalized == "4K":
             return True
         for sep in ("*", "X", "×"):
             if sep in normalized:
                 parts = normalized.split(sep, 1)
                 try:
-                    return {int(parts[0]), int(parts[1])} == {3840, 2160}
+                    return int(parts[0]) * int(parts[1]) > _STANDARD_PIXEL_BUDGET
                 except ValueError:
                     return False
         return False
@@ -193,8 +204,9 @@ class DashScopeImageBackend:
         # wan 系：未显式指定时同样按 aspect_ratio 选像素值（满足 wan2.7 总像素/比例约束）
         if not explicit:
             return _SIZE_BY_RATIO.get(request.aspect_ratio, _DEFAULT_WAN_SIZE)
-        # 显式档位/像素值 honor。4K 仅 wan2.7-image-pro 文生图支持：非 pro 不支持、pro 的 I2I 不支持
-        if self._is_4k_size(explicit) and ("pro" not in self._model.lower() or has_refs):
+        # 显式档位/像素值 honor。超 2048×2048 预算的输出仅 wan2.7-image-pro 文生图支持：
+        # 非 pro 不支持、pro 的 I2I 不支持
+        if self._exceeds_standard_budget(explicit) and ("pro" not in self._model.lower() or has_refs):
             raise ImageCapabilityError("image_dashscope_4k_t2i_only", model=self._model)
         return explicit
 

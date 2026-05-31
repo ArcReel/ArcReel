@@ -50,6 +50,12 @@ class TestBaseUrlDerivation:
     def test_trailing_slash_stripped(self):
         assert dashscope_native_base_url("https://dashscope.aliyuncs.com/") == f"{DASHSCOPE_BASE_URL}/api/v1"
 
+    def test_whitespace_configured_falls_back_to_default(self):
+        # 纯空白 base_url（"   "）是真值会绕过 or，须 strip 后回落默认 host，
+        # 不能 strip 成空串派生出 "/api/v1" / "/compatible-mode/v1" 这类非法相对 URL
+        assert dashscope_native_base_url("   ") == f"{DASHSCOPE_BASE_URL}/api/v1"
+        assert dashscope_text_base_url("  ") == f"{DASHSCOPE_BASE_URL}/compatible-mode/v1"
+
 
 class TestHeaders:
     def test_sync_headers_no_async_flag(self):
@@ -190,6 +196,13 @@ class TestExtractors:
             extract_image_url({"output": "oops"})
         with pytest.raises(RuntimeError):
             extract_image_url({"output": {"choices": "not-a-list"}})
+
+    def test_extract_image_url_truthy_non_list_content_raises_runtime(self):
+        # content 为 truthy 非 list（int/bool/dict）时不得 for 迭代抛 TypeError，须落 RuntimeError
+        for content in (5, True, {"image": "x"}):
+            payload = {"output": {"choices": [{"message": {"content": content}}]}}
+            with pytest.raises(RuntimeError):
+                extract_image_url(payload)
 
 
 class TestSafeBodyForLog:

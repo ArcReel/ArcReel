@@ -174,29 +174,43 @@ class DashScopeVideoBackend:
             p = Path(request.start_image)
             # is_file 而非 exists：目录/非常规文件（含空串解析出的 "."）一律排除，避免 read_bytes 崩
             if p.is_file():
-                media.append({"type": "first_frame", "url": image_to_data_uri(p)})
+                try:
+                    media.append({"type": "first_frame", "url": image_to_data_uri(p)})
+                except OSError as exc:
+                    logger.warning("DashScope start_image 读取失败，已忽略: %s (%s)", p, exc)
             else:
                 logger.warning("DashScope start_image 文件不存在或不是常规文件，已忽略: %s", p)
         if caps.reference_images:
             # r2v 必须有参考图：无论调用方传 None / 空列表 / 全部缺失或不可读，都 fail-loud，
-            # 不静默退化为无参考生成（会产出错误结果且照常计费），也不把空 media 提交给上游
+            # 不静默退化为无参考生成（会产出错误结果且照常计费），也不把空 media 提交给上游。
+            # is_file 通过但 read_bytes 抛 OSError（权限/并发删除）的也算不可读，逐个跳过。
             provided = request.reference_images or []
-            refs = [p for r in provided if r and (p := Path(r)).is_file()]
-            if not refs:
+            data_uris: list[str] = []
+            for r in provided:
+                if not r:
+                    continue
+                p = Path(r)
+                if not p.is_file():
+                    continue
+                try:
+                    data_uris.append(image_to_data_uri(p))
+                except OSError as exc:
+                    logger.warning("DashScope 参考图读取失败，已跳过: %s (%s)", p, exc)
+            if not data_uris:
                 raise RuntimeError(
                     f"DashScope r2v 需要至少一张参考图，但未提供或全部缺失/不可读: "
                     f"model={self._model} count={len(provided)}"
                 )
             limit = caps.max_reference_images
-            if len(refs) > limit:
+            if len(data_uris) > limit:
                 logger.warning(
                     "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",
-                    len(refs),
+                    len(data_uris),
                     self._model,
                     limit,
                 )
-                refs = refs[:limit]
-            media.extend({"type": "reference_image", "url": image_to_data_uri(p)} for p in refs)
+                data_uris = data_uris[:limit]
+            media.extend({"type": "reference_image", "url": uri} for uri in data_uris)
         return media
 
     # ── HTTP submit / poll / download ───────────────────────────────────
