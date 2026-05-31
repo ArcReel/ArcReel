@@ -253,6 +253,17 @@ class TestSafeBodyForLog:
         assert view["model"] == "qwen-image-2.0"
         assert "content" not in view
 
+    def test_non_dict_params_or_input_does_not_crash(self):
+        # parameters / input 为 truthy 非 dict（list / str，畸形上游）时 fail-safe 日志辅助
+        # 不得抛 AttributeError/TypeError，须归一化为空、只回 model
+        for body in (
+            {"model": "wan2.7-r2v", "parameters": [1, 2], "input": "oops"},
+            {"model": "wan2.7-r2v", "parameters": "seed", "input": ["x"]},
+        ):
+            view = safe_body_for_log(body)
+            assert view["model"] == "wan2.7-r2v"
+            assert "prompt" not in view and "size" not in view
+
 
 def test_image_to_data_uri(tmp_path: Path):
     p = tmp_path / "x.png"

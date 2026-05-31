@@ -235,13 +235,15 @@ def safe_body_for_log(body: dict) -> dict:
     body 含 input.messages（图像）或 input.media（视频），内部嵌 base64/URL；
     一律不展开，避免敏感数据进日志（对齐 CodeQL clear-text-logging 约束）。
     """
-    params = body.get("parameters") or {}
+    # _as_dict 而非 `or {}`：truthy 非 dict（如 parameters/input 为 list/str）下 `or {}` 兜不住，
+    # 后续 .get / in 会抛 AttributeError/TypeError，反而让 fail-safe 日志辅助遮蔽原始异常。
+    params = _as_dict(body.get("parameters"))
     view: dict = {"model": body.get("model")}
     for key in _SAFE_LOG_KEYS:
         if key in params:
             view[key] = params[key]
 
-    inp = body.get("input") or {}
+    inp = _as_dict(body.get("input"))
     prompt = inp.get("prompt")
     if isinstance(prompt, str):
         view["prompt"] = prompt[:120] + ("…" if len(prompt) > 120 else "")
