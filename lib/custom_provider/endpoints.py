@@ -16,7 +16,6 @@ from urllib.parse import urlsplit
 
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
-from lib.dashscope_shared import dashscope_native_base_url
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -156,15 +155,13 @@ def _build_vidu_video(provider, model_id: str) -> CustomVideoBackend:
 
 
 def _build_dashscope_image(provider, model_id: str) -> CustomImageBackend:
-    # backend 内部由 host 派生 /api/v1，容忍 base_url 带/不带后缀
-    base_url = dashscope_native_base_url(provider.base_url)
-    delegate = DashScopeImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
+    delegate = DashScopeImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_dashscope_async_video(provider, model_id: str) -> CustomVideoBackend:
-    base_url = dashscope_native_base_url(provider.base_url)
-    delegate = DashScopeVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = DashScopeVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 

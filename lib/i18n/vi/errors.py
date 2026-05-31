@@ -146,6 +146,7 @@ MESSAGES = {
     "image_capability_missing_i2i": "{provider}/{model} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh",
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
+    "image_reference_images_unreadable": "Tất cả ảnh tham chiếu cho mô hình {model} bị thiếu hoặc không đọc được; hãy kiểm tra đường dẫn ảnh tham chiếu",
     # Video Capability
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",

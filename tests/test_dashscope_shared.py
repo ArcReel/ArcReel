@@ -135,9 +135,15 @@ class TestExtractors:
 
     def test_extract_billing_duration(self):
         assert extract_billing_duration({"usage": {"duration": 15}}) == 15
-        # 容忍 float / 数字字符串，浮点四舍五入而非截断
+        # 容忍 float / 数字字符串
         assert extract_billing_duration({"usage": {"duration": 4.8}}) == 5
         assert extract_billing_duration({"usage": {"duration": "10"}}) == 10
+
+    def test_extract_billing_duration_half_up_not_bankers(self):
+        # .5 边界须 half-up（4.5→5 / 2.5→3），而非 round() 的银行家舍入（会得 4 / 2 少计费）
+        assert extract_billing_duration({"usage": {"duration": 4.5}}) == 5
+        assert extract_billing_duration({"usage": {"duration": 2.5}}) == 3
+        assert extract_billing_duration({"usage": {"duration": "7.5"}}) == 8
 
     def test_extract_billing_duration_missing(self):
         assert extract_billing_duration({"usage": {}}) is None
@@ -159,6 +165,13 @@ class TestExtractors:
     def test_extract_image_url_missing_choices_raises(self):
         with pytest.raises(RuntimeError):
             extract_image_url({"output": {}})
+
+    def test_extract_image_url_malformed_choice_raises_runtime_not_attribute(self):
+        # 上游异常结构（choices[0] 非 dict / message 非 dict）须报 RuntimeError，不能漏出 AttributeError
+        with pytest.raises(RuntimeError):
+            extract_image_url({"output": {"choices": [None]}})
+        with pytest.raises(RuntimeError):
+            extract_image_url({"output": {"choices": [{"message": "oops"}]}})
 
 
 class TestSafeBodyForLog:
@@ -201,6 +214,13 @@ class TestSafeBodyForLog:
         assert "AAA" not in str(view)
         assert view["content"] == "<1 image, 1 text>"
         assert view["size"] == "2048*2048"
+
+    def test_non_dict_first_message_does_not_crash(self):
+        # 日志辅助绝不能因畸形 messages[0]（非 dict）抛 AttributeError
+        body = {"model": "qwen-image-2.0", "input": {"messages": ["oops"]}, "parameters": {}}
+        view = safe_body_for_log(body)
+        assert view["model"] == "qwen-image-2.0"
+        assert "content" not in view
 
 
 def test_image_to_data_uri(tmp_path: Path):

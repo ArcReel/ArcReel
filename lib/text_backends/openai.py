@@ -109,7 +109,9 @@ class OpenAITextBackend:
             logger.warning(
                 "原生 response_format 返回非 JSON 内容（代理可能未支持 response_format），降级到 Instructor 路径",
             )
-            return await _instructor_fallback(self._client, self._model, request, messages)
+            return await _instructor_fallback(
+                self._client, self._model, request, messages, provider=self._provider_name
+            )
 
         warn_if_truncated(
             getattr(choice, "finish_reason", None),

@@ -114,8 +114,9 @@ class TestCustomEndpointDispatch:
 
         result = create_custom_backend(provider=self._provider(), model_id="qwen-image-2.0", endpoint="dashscope-image")
         assert isinstance(result, CustomImageBackend)
+        # builder 透传原始 base_url，由 backend 内部派生 /api/v1（不重复归一化）
         mock_cls.assert_called_once_with(
-            api_key="sk-test", base_url="https://dashscope.aliyuncs.com/api/v1", model="qwen-image-2.0"
+            api_key="sk-test", base_url="https://dashscope.aliyuncs.com", model="qwen-image-2.0"
         )
 
     @patch("lib.custom_provider.endpoints.DashScopeVideoBackend")
@@ -127,8 +128,9 @@ class TestCustomEndpointDispatch:
             provider=self._provider(), model_id="happyhorse-1.0-r2v", endpoint="dashscope-async-video"
         )
         assert isinstance(result, CustomVideoBackend)
+        # builder 透传原始 base_url，由 backend 内部派生 /api/v1（不重复归一化）
         mock_cls.assert_called_once_with(
-            api_key="sk-test", base_url="https://dashscope.aliyuncs.com/api/v1", model="happyhorse-1.0-r2v"
+            api_key="sk-test", base_url="https://dashscope.aliyuncs.com", model="happyhorse-1.0-r2v"
         )
 
 

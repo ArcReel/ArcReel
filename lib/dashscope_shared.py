@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 import httpx
@@ -171,15 +172,15 @@ def extract_video_url(payload: dict) -> str:
 def extract_billing_duration(payload: dict) -> int | None:
     """从 usage.duration 取真实计费时长（wan2.7-r2v 含输入视频时长）。
 
-    容忍 int / float / 数字字符串；浮点四舍五入而非截断，避免少计费秒数。
+    容忍 int / float / 数字字符串；按 half-up 取整（4.5→5）而非截断或银行家舍入，避免少计费秒数。
     非正值（0 / 负 / 无法解析）一律回 None，由 caller 回落请求时长，不记 0 秒账。
     """
     raw = (payload.get("usage") or {}).get("duration")
     if raw is None:
         return None
     try:
-        value = round(float(raw))
-    except (TypeError, ValueError):
+        value = int(Decimal(str(raw)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
         return None
     return value if value > 0 else None
 
@@ -193,10 +194,12 @@ def extract_image_url(payload: dict) -> str:
     if not choices:
         reason = dashscope_failure_reason(payload)
         raise RuntimeError(reason or f"DashScope 图像响应缺少 choices: {payload}")
-    content = (choices[0].get("message") or {}).get("content") or []
+    # 上游异常结构（choices[0]/message 非 dict）归一化为空 dict，避免 .get 抛 AttributeError
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    message = choice.get("message")
+    content = (message if isinstance(message, dict) else {}).get("content") or []
     for item in content:
-        url = item.get("image")
-        if url:
+        if isinstance(item, dict) and (url := item.get("image")):
             return url
     raise RuntimeError(f"DashScope 图像响应 content 无 image 字段: {payload}")
 
@@ -231,8 +234,8 @@ def safe_body_for_log(body: dict) -> dict:
         view["media"] = f"<{len(media)} item>"
 
     messages = inp.get("messages")
-    if isinstance(messages, list) and messages:
-        content = (messages[0] or {}).get("content")
+    if isinstance(messages, list) and messages and isinstance(messages[0], dict):
+        content = messages[0].get("content")
         if isinstance(content, list):
             images = sum(1 for c in content if isinstance(c, dict) and "image" in c)
             texts = sum(1 for c in content if isinstance(c, dict) and "text" in c)

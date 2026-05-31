@@ -172,17 +172,17 @@ class DashScopeVideoBackend:
         media: list[dict] = []
         if caps.first_frame and request.start_image:
             p = Path(request.start_image)
-            if p.exists():
+            # is_file 而非 exists：目录/非常规文件（含空串解析出的 "."）一律排除，避免 read_bytes 崩
+            if p.is_file():
                 media.append({"type": "first_frame", "url": image_to_data_uri(p)})
             else:
-                logger.warning("DashScope start_image 文件不存在，已忽略: %s", p)
+                logger.warning("DashScope start_image 文件不存在或不是常规文件，已忽略: %s", p)
         if caps.reference_images and request.reference_images:
-            refs = [p for r in request.reference_images if (p := Path(r)).exists()]
+            refs = [p for r in request.reference_images if r and (p := Path(r)).is_file()]
             if not refs:
-                logger.warning(
-                    "DashScope 参考图全部不存在，r2v 将退化为无参考生成: model=%s count=%d",
-                    self._model,
-                    len(request.reference_images),
+                # r2v 必须有参考图，无参考会产出错误结果且照常计费 → fail-loud 而非静默退化
+                raise RuntimeError(
+                    f"DashScope r2v 参考图全部缺失或不可读: model={self._model} count={len(request.reference_images)}"
                 )
             limit = caps.max_reference_images
             if len(refs) > limit:

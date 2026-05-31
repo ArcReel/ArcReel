@@ -96,6 +96,21 @@ class DashScopeImageBackend:
             return {ImageCapability.IMAGE_TO_IMAGE}
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
+    @staticmethod
+    def _is_4k_size(size: str) -> bool:
+        """档位 "4K" 或等价 4K 像素值（3840×2160 任意朝向）都算 4K，避免数字写法绕过门控。"""
+        normalized = size.strip().upper()
+        if normalized == "4K":
+            return True
+        for sep in ("*", "X", "×"):
+            if sep in normalized:
+                parts = normalized.split(sep, 1)
+                try:
+                    return {int(parts[0]), int(parts[1])} == {3840, 2160}
+                except ValueError:
+                    return False
+        return False
+
     @property
     def name(self) -> str:
         return PROVIDER_DASHSCOPE
@@ -179,20 +194,19 @@ class DashScopeImageBackend:
         if not explicit:
             return _SIZE_BY_RATIO.get(request.aspect_ratio, _DEFAULT_WAN_SIZE)
         # 显式档位/像素值 honor。4K 仅 wan2.7-image-pro 文生图支持：非 pro 不支持、pro 的 I2I 不支持
-        if explicit.upper() == "4K" and ("pro" not in self._model.lower() or has_refs):
+        if self._is_4k_size(explicit) and ("pro" not in self._model.lower() or has_refs):
             raise ImageCapabilityError("image_dashscope_4k_t2i_only", model=self._model)
         return explicit
 
     def _build_content(self, request: ImageGenerationRequest, has_refs: bool) -> list[dict]:
         content: list[dict] = []
         if has_refs:
-            existing = [p for ref in request.reference_images if (p := Path(ref.path)).exists()]
+            # 用 is_file 而非 exists：空串 "" 解析为当前目录、exists() 返回 True，
+            # 后续 read_bytes 会撞 IsADirectoryError。非空 + 常规文件才纳入。
+            existing = [p for ref in request.reference_images if ref.path and (p := Path(ref.path)).is_file()]
             if not existing:
-                raise ImageCapabilityError(
-                    "image_endpoint_mismatch_no_i2i",
-                    model=self._model,
-                    detail="all reference images failed to open",
-                )
+                # 模型支持 i2i，只是参考图缺失/不可读；用准确的错误码而非"模型不支持 i2i"
+                raise ImageCapabilityError("image_reference_images_unreadable", model=self._model)
             if len(existing) > self._ref_limit:
                 logger.warning(
                     "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",

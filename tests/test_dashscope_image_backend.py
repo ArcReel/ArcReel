@@ -237,7 +237,31 @@ class TestCapabilityGating:
                     reference_images=[ReferenceImage(path=str(tmp_path / "nope.png"))],
                 )
             )
-        assert ei.value.code == "image_endpoint_mismatch_no_i2i"
+        # 模型支持 i2i，只是参考图不可读 → 用准确码而非"模型不支持 i2i"
+        assert ei.value.code == "image_reference_images_unreadable"
+
+    async def test_empty_ref_path_treated_as_missing(self, tmp_path: Path):
+        from lib.image_backends.dashscope import DashScopeImageBackend
+
+        # 空串路径 Path("").exists() 会误判为 True；用 is_file 拦掉，避免读到目录崩溃
+        b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+        with pytest.raises(ImageCapabilityError) as ei:
+            await b.generate(
+                ImageGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.png", reference_images=[ReferenceImage(path="")]
+                )
+            )
+        assert ei.value.code == "image_reference_images_unreadable"
+
+    async def test_wan_non_pro_numeric_4k_t2i_raises(self, tmp_path: Path):
+        from lib.image_backends.dashscope import DashScopeImageBackend
+
+        # 等价 4K 像素值（任意朝向）也须被门控拦截，不能因数字写法绕过
+        b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+        for size in ("3840*2160", "2160*3840"):
+            with pytest.raises(ImageCapabilityError) as ei:
+                await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size=size))
+            assert ei.value.code == "image_dashscope_4k_t2i_only"
 
 
 class TestErrorResponse:

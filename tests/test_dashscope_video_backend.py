@@ -183,6 +183,27 @@ class TestReferenceToVideo:
             )
         assert len(post.call_args.kwargs["json"]["input"]["media"]) == 5
 
+    async def test_r2v_all_refs_missing_raises(self, tmp_path: Path):
+        # r2v 参考图全部缺失/不可读（含空串）须 fail-loud，不静默退化为无参考生成
+        post = AsyncMock(return_value=_resp(_submit()))
+        client = _client(post=post, get=AsyncMock())
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3:
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+            with pytest.raises(RuntimeError, match="参考图全部缺失"):
+                await b.generate(
+                    VideoGenerationRequest(
+                        prompt="p",
+                        output_path=tmp_path / "o.mp4",
+                        reference_images=[str(tmp_path / "nope.png"), ""],
+                        resolution="720p",
+                    )
+                )
+        # 提交请求根本不应发出
+        post.assert_not_called()
+
 
 class TestFirstFrameAndTextOnly:
     async def test_i2v_first_frame(self, tmp_path: Path):
