@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -296,6 +297,30 @@ class TestGetProviderConfig:
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         assert resp.json()["status"] == "unconfigured"
+
+    @pytest.mark.parametrize(
+        ("provider_id", "expected"),
+        [
+            ("gemini-aistudio", True),
+            ("openai", True),
+            ("vidu", True),
+            ("dashscope", True),
+            ("ark", False),
+            ("grok", False),
+            ("gemini-vertex", False),
+        ],
+    )
+    def test_supports_base_url_derived_from_optional_keys(self, provider_id: str, expected: bool):
+        """supports_base_url 取自 registry optional_keys 是否含 base_url，前端据此渲染凭证 URL 输入。"""
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
+            with TestClient(app) as client:
+                resp = client.get(f"/api/v1/providers/{provider_id}/config")
+        assert resp.status_code == 200
+        assert resp.json()["supports_base_url"] is expected
 
 
 # ---------------------------------------------------------------------------

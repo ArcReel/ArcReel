@@ -38,6 +38,8 @@ export interface ProviderConfigDetail {
   status: "ready" | "unconfigured" | "error";
   media_types?: string[];
   fields: ProviderField[];
+  // 凭证是否支持自定义 base_url（后端按 optional_keys 派生，单一真相源）
+  supports_base_url: boolean;
 }
 
 export interface ProviderTestResult {

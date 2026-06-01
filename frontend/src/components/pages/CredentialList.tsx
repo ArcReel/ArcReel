@@ -28,10 +28,11 @@ interface RowProps {
   cred: ProviderCredential;
   providerId: string;
   isVertex: boolean;
+  supportsBaseUrl: boolean;
   onChanged: () => void;
 }
 
-const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
+const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, supportsBaseUrl, onChanged }: RowProps) {
   const { t } = useTranslation("dashboard");
   const [editing, setEditing] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -288,7 +289,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               className={INPUT_CLS}
             />
           </div>
-          {providerId === "gemini-aistudio" && (
+          {supportsBaseUrl && (
             <div>
               <FieldLabel htmlFor={`${editPrefix}-baseurl`}>{t("base_url_optional")}</FieldLabel>
               <input
@@ -334,11 +335,12 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
 interface AddFormProps {
   providerId: string;
   isVertex: boolean;
+  supportsBaseUrl: boolean;
   onCreated: () => void;
   onCancel: () => void;
 }
 
-function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFormProps) {
+function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, onCreated, onCancel }: AddFormProps) {
   const { t } = useTranslation("dashboard");
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -444,7 +446,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
               className={INPUT_CLS}
             />
           </div>
-          {providerId === "gemini-aistudio" && (
+          {supportsBaseUrl && (
             <div>
               <FieldLabel htmlFor="cred-add-baseurl">{t("base_url_optional")}</FieldLabel>
               <input
@@ -502,10 +504,11 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
 
 interface Props {
   providerId: string;
+  supportsBaseUrl: boolean;
   onChanged?: () => void;
 }
 
-export function CredentialList({ providerId, onChanged }: Props) {
+export function CredentialList({ providerId, supportsBaseUrl, onChanged }: Props) {
   const { t } = useTranslation("dashboard");
   const [credentials, setCredentials] = useState<ProviderCredential[]>([]);
   const [loading, setLoading] = useState(true);
@@ -590,6 +593,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
             cred={c}
             providerId={providerId}
             isVertex={isVertex}
+            supportsBaseUrl={supportsBaseUrl}
             onChanged={voidPromise(handleChanged)}
           />
         ))}
@@ -600,6 +604,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
           <AddCredentialForm
             providerId={providerId}
             isVertex={isVertex}
+            supportsBaseUrl={supportsBaseUrl}
             onCreated={() => {
               setShowAdd(false);
               void handleChanged();

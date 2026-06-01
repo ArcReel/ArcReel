@@ -364,7 +364,11 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       )}
 
       {/* Credentials */}
-      <CredentialList providerId={providerId} onChanged={voidPromise(handleCredentialChanged)} />
+      <CredentialList
+        providerId={providerId}
+        supportsBaseUrl={detail.supports_base_url}
+        onChanged={voidPromise(handleCredentialChanged)}
+      />
 
       {/* Advanced */}
       {detail.fields.length > 0 && (

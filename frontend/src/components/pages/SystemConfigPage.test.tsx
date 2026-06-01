@@ -110,6 +110,7 @@ describe("SystemConfigPage", () => {
       media_types: ["image", "video"],
       capabilities: [],
       fields: [],
+      supports_base_url: false,
     } as never);
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
     vi.spyOn(API, "getUsageStatsGrouped").mockResolvedValue({ stats: [], period: { start: "", end: "" } });
