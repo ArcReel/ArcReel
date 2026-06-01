@@ -89,6 +89,27 @@ _DEFAULT_PROFILE: tuple[set[VideoCapability], VideoCapabilities] = (
 )
 
 
+def _profile_for_model(model: str | None) -> tuple[set[VideoCapability], VideoCapabilities]:
+    """按 model_id 解析能力档：先精确命中，再容忍代理中转的前后缀装饰。
+
+    infer_endpoint 用子串（"happyhorse" / "wan2."）路由到 dashscope-async-video，故此处也须
+    子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回 _DEFAULT_PROFILE、
+    丢掉 r2v 的 reference_images/max_reference_images，_build_media 据此构造出错误 payload。
+    仅带系列名而无变体后缀（如裸 "happyhorse"）无法判别 t2v/i2v/r2v，按设计回落通用默认。
+    __init__ 与 video_capabilities_for_model 共用本函数，保持单一真相源。
+    """
+    normalized = (model or "").strip().lower()
+    if not normalized:
+        return _DEFAULT_PROFILE
+    if normalized in _MODEL_PROFILES:
+        return _MODEL_PROFILES[normalized]
+    # 各 profile key（happyhorse-1.0-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义
+    for known, profile in _MODEL_PROFILES.items():
+        if known in normalized:
+            return profile
+    return _DEFAULT_PROFILE
+
+
 class DashScopeVideoBackend:
     """阿里百炼视频后端（异步 video-synthesis 端点）。"""
 
@@ -104,7 +125,7 @@ class DashScopeVideoBackend:
         self._base_url = dashscope_native_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
-        self._capabilities, self._video_capabilities = _MODEL_PROFILES.get(self._model, _DEFAULT_PROFILE)
+        self._capabilities, self._video_capabilities = _profile_for_model(self._model)
 
     @property
     def name(self) -> str:
@@ -125,7 +146,7 @@ class DashScopeVideoBackend:
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
         保持 backend 为单一真相源。
         """
-        return _MODEL_PROFILES.get(model, _DEFAULT_PROFILE)[1]
+        return _profile_for_model(model)[1]
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

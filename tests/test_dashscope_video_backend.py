@@ -106,6 +106,31 @@ class TestCapabilities:
         assert VideoCapability.IMAGE_TO_VIDEO in b.capabilities
         assert b.video_capabilities.first_frame is True
 
+    def test_decorated_model_name_resolves_r2v_caps(self):
+        """代理中转的前缀/后缀装饰名（infer_endpoint 会按子串路由到 dashscope-async-video）
+        必须解析出真实 r2v caps，而非退回 _DEFAULT_PROFILE 丢掉 reference_images。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        for model, expected_max in (
+            ("proxy/happyhorse-1.0-r2v", 9),
+            ("provider:wan2.7-r2v", 5),
+            ("wan2.7-r2v-0715", 5),  # 后缀版本号
+            ("Pro/HappyHorse-1.0-R2V", 9),  # 大小写不敏感
+        ):
+            # 实例侧（_build_media 据此构造 media）
+            b = DashScopeVideoBackend(api_key="sk", model=model)
+            assert b.video_capabilities.reference_images is True
+            assert b.video_capabilities.max_reference_images == expected_max
+            # resolver 侧（纯函数，不构造 backend）
+            assert DashScopeVideoBackend.video_capabilities_for_model(model).max_reference_images == expected_max
+
+    def test_unknown_bare_series_falls_back_to_default(self):
+        """仅系列名无变体后缀（裸 "happyhorse"）无法判别 t2v/i2v/r2v → 通用默认（无 r2v）。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        b = DashScopeVideoBackend(api_key="sk", model="happyhorse")
+        assert b.video_capabilities.reference_images is False
+
 
 class TestReferenceToVideo:
     async def test_r2v_happy_path(self, tmp_path: Path):
