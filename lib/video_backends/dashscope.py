@@ -199,7 +199,11 @@ class DashScopeVideoBackend:
             # HappyHorse 默认带 "Happy Horse" 水印，显式关闭
             "watermark": False,
         }
-        if request.aspect_ratio:
+        # ratio 仅在无首帧时下传：图生视频/带首帧的参考生视频按首帧定宽高比，上游会忽略 ratio
+        # （wan2.7「传 first_frame 时自动忽略」），HappyHorse 图生视频更直接把 ratio 当非法参数拒绝。
+        # 默认 aspect_ratio 非空，若不门控会让带首帧的请求被上游拒。首帧缺席（文生视频/无首帧参考）才需 ratio。
+        has_first_frame = any(m.get("type") == "first_frame" for m in media)
+        if request.aspect_ratio and not has_first_frame:
             parameters["ratio"] = request.aspect_ratio
         if request.seed is not None:
             parameters["seed"] = request.seed
@@ -239,7 +243,7 @@ class DashScopeVideoBackend:
                     data_uris.append(uri)
             if unreadable:
                 raise VideoCapabilityError(
-                    "video_reference_images_unreadable", model=self._model, names="、".join(unreadable)
+                    "video_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
                 )
             limit = caps.max_reference_images
             if len(data_uris) > limit:

@@ -240,10 +240,12 @@ class DashScopeImageBackend:
             # 生成出错误结果还照常计费。
             data_uris: list[str] = []
             unreadable: list[str] = []
-            for ref in request.reference_images:
+            # names 进多语言错误模板（en/vi 也渲染），分隔符与占位用 locale 中性形式：
+            # 空路径无文件名可显示，用序号 #N 标识第几张参考图，避免中文占位漏进非中文报错。
+            for idx, ref in enumerate(request.reference_images, start=1):
                 path = Path(ref.path) if ref.path else None
                 if path is None or not path.is_file():
-                    unreadable.append(path.name if path else "(空路径)")
+                    unreadable.append(path.name if path else f"#{idx}")
                     continue
                 try:
                     data_uris.append(image_to_data_uri(path))
@@ -252,7 +254,7 @@ class DashScopeImageBackend:
                     unreadable.append(path.name)
             if unreadable:
                 raise ImageCapabilityError(
-                    "image_reference_images_unreadable", model=self._model, names="、".join(unreadable)
+                    "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
                 )
             if len(data_uris) > self._ref_limit:
                 logger.warning(

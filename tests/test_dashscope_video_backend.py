@@ -335,6 +335,8 @@ class TestFirstFrameAndTextOnly:
         media = post.call_args.kwargs["json"]["input"]["media"]
         assert media == [{"type": "first_frame", "url": media[0]["url"]}]
         assert media[0]["url"].startswith("data:image/png;base64,")
+        # 带首帧（图生视频）按首帧定宽高比：默认 aspect_ratio 非空也不得下传 ratio，否则上游拒绝
+        assert "ratio" not in post.call_args.kwargs["json"]["parameters"]
 
     async def test_t2v_no_media(self, tmp_path: Path):
         post = AsyncMock(return_value=_resp(_submit()))

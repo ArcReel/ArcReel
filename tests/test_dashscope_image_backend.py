@@ -287,6 +287,9 @@ class TestCapabilityGating:
                 )
             )
         assert ei.value.code == "image_reference_images_unreadable"
+        # 空路径无文件名：用 locale 中性序号 #N 标识，不得漏中文占位到 en/vi 报错
+        assert ei.value.params["names"] == "#1"
+        assert "空路径" not in ei.value.params["names"]
 
     async def test_oversized_numeric_t2i_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend
@@ -348,6 +351,20 @@ class TestCapabilityGating:
         assert ei.value.code == "image_reference_images_unreadable"
         assert "a.png" in ei.value.params["names"]
         client.post.assert_not_called()
+
+    async def test_unreadable_names_locale_neutral_separator(self, tmp_path: Path):
+        from lib.image_backends.dashscope import DashScopeImageBackend
+
+        # names 进 en/vi 错误模板，多文件分隔符须 locale 中性（", "），不得用中文 "、"
+        b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+        missing = [ReferenceImage(path=str(tmp_path / "a.png")), ReferenceImage(path=str(tmp_path / "b.png"))]
+        with pytest.raises(ImageCapabilityError) as ei:
+            await b.generate(
+                ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=missing)
+            )
+        names = ei.value.params["names"]
+        assert names == "a.png, b.png"
+        assert "、" not in names
 
 
 class TestErrorResponse:
