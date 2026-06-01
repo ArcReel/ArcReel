@@ -106,7 +106,7 @@ class TestTextToImage:
 
         assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1536*2688"
 
-    async def test_explicit_size_honored(self, tmp_path: Path):
+    async def test_explicit_tier_translated_to_aspect_pixels(self, tmp_path: Path):
         client = _mock_client(_img_response())
         download = AsyncMock()
         p1, p2 = _patches(client, download)
@@ -114,12 +114,44 @@ class TestTextToImage:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-            # caller 显式指定档位时原样下传，不被 aspect 覆盖
+            # 档位词「2K」按比例换算成显式像素，绝不原样下传（否则 wan 文生图会被强制方图）
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="2K")
             )
 
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "2K"
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1536*2688"
+
+    async def test_explicit_pixel_size_honored(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            # caller 显式给像素值时原样 honor（比例已由 caller 决定）
+            await b.generate(
+                ImageGenerationRequest(
+                    prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="1920*1080"
+                )
+            )
+
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1920*1080"
+
+    async def test_low_tier_translated_to_aspect_pixels(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
+            # 1K 档同样按比例换算（2K 等比 ×0.5）
+            await b.generate(
+                ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="1K")
+            )
+
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1344*768"
 
     async def test_landscape_aspect_picks_wide_size(self, tmp_path: Path):
         client = _mock_client(_img_response())
@@ -213,8 +245,11 @@ class TestCapabilityGating:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
-            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4K"))
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "4K"
+            # 4K 在 pro 文生图允许，但仍按比例换算成显式像素（4K 预算 = 2K 等比 ×2），不下传「4K」档位
+            await b.generate(
+                ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="4K")
+            )
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "5376*3072"
 
     async def test_wan_non_pro_4k_t2i_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend
@@ -290,7 +325,7 @@ class TestCapabilityGating:
                 )
         assert ei.value.code == "image_reference_images_unreadable"
 
-    async def test_partial_unreadable_refs_keep_readable(self, tmp_path: Path):
+    async def test_partial_unreadable_refs_fail_loud(self, tmp_path: Path):
         client = _mock_client(_img_response())
         download = AsyncMock()
         r1, r2 = _make_ref(tmp_path, "a.png"), _make_ref(tmp_path, "b.png")
@@ -305,13 +340,14 @@ class TestCapabilityGating:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
-            await b.generate(
-                ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[r1, r2])
-            )
-
-        content = client.post.call_args.kwargs["json"]["input"]["messages"][0]["content"]
-        images = [c for c in content if "image" in c]
-        assert len(images) == 1  # 仅可读的 b.png 进入
+            # fail-loud：a.png 不可读即中止，不静默用 b.png 的子集生成；报错列出不可读文件名
+            with pytest.raises(ImageCapabilityError) as ei:
+                await b.generate(
+                    ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[r1, r2])
+                )
+        assert ei.value.code == "image_reference_images_unreadable"
+        assert "a.png" in ei.value.params["names"]
+        client.post.assert_not_called()
 
 
 class TestErrorResponse:

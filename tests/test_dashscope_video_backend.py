@@ -12,6 +12,7 @@ from lib.providers import PROVIDER_DASHSCOPE
 from lib.video_backends.base import (
     ResumeExpiredError,
     VideoCapability,
+    VideoCapabilityError,
     VideoGenerationRequest,
 )
 
@@ -208,8 +209,8 @@ class TestReferenceToVideo:
             )
         assert len(post.call_args.kwargs["json"]["input"]["media"]) == 5
 
-    async def test_r2v_all_refs_missing_raises(self, tmp_path: Path):
-        # r2v 参考图全部缺失/不可读（含空串）须 fail-loud，不静默退化为无参考生成
+    async def test_r2v_all_refs_missing_fail_loud(self, tmp_path: Path):
+        # r2v 参考图缺失/不可读（含空串过滤后仍有声明项）须 fail-loud 报错列名，不静默退化
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
@@ -217,7 +218,7 @@ class TestReferenceToVideo:
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
-            with pytest.raises(RuntimeError, match="至少一张参考图"):
+            with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
                         prompt="p",
@@ -226,11 +227,13 @@ class TestReferenceToVideo:
                         resolution="720p",
                     )
                 )
+        assert ei.value.code == "video_reference_images_unreadable"
+        assert "nope.png" in ei.value.params["names"]
         # 提交请求根本不应发出
         post.assert_not_called()
 
     async def test_r2v_no_refs_provided_raises(self, tmp_path: Path):
-        # r2v 模型但调用方完全未提供参考图（None/空），也须 fail-loud，不提交无 media 的 r2v 请求
+        # r2v 模型但调用方完全未提供参考图（None/空）→ required 错误，不提交无 media 的 r2v 请求
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
@@ -238,12 +241,14 @@ class TestReferenceToVideo:
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
-            with pytest.raises(RuntimeError, match="至少一张参考图"):
+            with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
+        assert ei.value.code == "video_reference_images_required"
         post.assert_not_called()
 
-    async def test_r2v_partial_unreadable_refs_keep_readable(self, tmp_path: Path):
-        # 部分参考图 read 抛 OSError（is_file 通过但读失败）→ 跳过不可读、保留可读，不整体崩成 500
+    async def test_r2v_partial_unreadable_refs_fail_loud(self, tmp_path: Path):
+        # 部分参考图 read 抛 OSError（is_file 通过但读失败）→ fail-loud 中止并列出不可读文件名，
+        # 不静默用可读子集生成（会产出错误结果且照常计费）
         post = AsyncMock(return_value=_resp(_submit("t-r2v")))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
@@ -259,17 +264,21 @@ class TestReferenceToVideo:
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
-            await b.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "o.mp4", reference_images=[str(ra), str(rb)], resolution="720p"
+            with pytest.raises(VideoCapabilityError) as ei:
+                await b.generate(
+                    VideoGenerationRequest(
+                        prompt="p",
+                        output_path=tmp_path / "o.mp4",
+                        reference_images=[str(ra), str(rb)],
+                        resolution="720p",
+                    )
                 )
-            )
-        media = post.call_args.kwargs["json"]["input"]["media"]
-        assert len(media) == 1
-        assert media[0]["url"] == "data:image/png;base64,OK"
+        assert ei.value.code == "video_reference_images_unreadable"
+        assert "a.png" in ei.value.params["names"]
+        post.assert_not_called()
 
-    async def test_r2v_all_refs_unreadable_oserror_raises(self, tmp_path: Path):
-        # 全部参考图 read 抛 OSError → 全部跳过后 fail-loud，不提交无 media 的 r2v 请求
+    async def test_r2v_all_refs_unreadable_oserror_fail_loud(self, tmp_path: Path):
+        # 全部参考图 read 抛 OSError → fail-loud，不提交无 media 的 r2v 请求
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         ra = _ref(tmp_path, "a.png")
@@ -278,18 +287,19 @@ class TestReferenceToVideo:
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
-            with pytest.raises(RuntimeError, match="至少一张参考图"):
+            with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
                     VideoGenerationRequest(
                         prompt="p", output_path=tmp_path / "o.mp4", reference_images=[str(ra)], resolution="720p"
                     )
                 )
+        assert ei.value.code == "video_reference_images_unreadable"
         post.assert_not_called()
 
 
 class TestFirstFrameAndTextOnly:
-    async def test_i2v_start_image_oserror_skipped(self, tmp_path: Path):
-        # start_image read 抛 OSError（权限/IO）→ 忽略首帧但请求照常发出，不整体崩
+    async def test_i2v_start_image_oserror_fail_loud(self, tmp_path: Path):
+        # 声明了首帧图却 read 抛 OSError（权限/IO）→ fail-loud 中止，不静默忽略首帧照常出片
         post = AsyncMock(return_value=_resp(_submit()))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
@@ -299,12 +309,15 @@ class TestFirstFrameAndTextOnly:
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")
-            await b.generate(
-                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start, resolution="720p")
-            )
-        # 首帧读失败被跳过 → input 无 media，但 submit 照常
-        assert "media" not in post.call_args.kwargs["json"]["input"]
-        post.assert_called_once()
+            with pytest.raises(VideoCapabilityError) as ei:
+                await b.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", start_image=start, resolution="720p"
+                    )
+                )
+        assert ei.value.code == "video_start_image_unreadable"
+        assert "start.png" in ei.value.params["name"]
+        post.assert_not_called()
 
     async def test_i2v_first_frame(self, tmp_path: Path):
         post = AsyncMock(return_value=_resp(_submit()))

@@ -43,6 +43,7 @@ from lib.video_backends.base import (
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
@@ -51,6 +52,18 @@ from lib.video_backends.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _read_image_or_none(path: Path) -> str | None:
+    """读成 data URI；缺失（目录/非常规文件，含空串解析出的 "."）或 IO 失败（权限/并发删除）返回 None。"""
+    if not path.is_file():
+        return None
+    try:
+        return image_to_data_uri(path)
+    except OSError as exc:
+        logger.warning("DashScope 图片读取失败: %s (%s)", path, exc)
+        return None
+
 
 DEFAULT_MODEL = "happyhorse-1.0-i2v"
 
@@ -202,34 +215,31 @@ class DashScopeVideoBackend:
         media: list[dict] = []
         if caps.first_frame and request.start_image:
             p = Path(request.start_image)
-            # is_file 而非 exists：目录/非常规文件（含空串解析出的 "."）一律排除，避免 read_bytes 崩
-            if p.is_file():
-                try:
-                    media.append({"type": "first_frame", "url": image_to_data_uri(p)})
-                except OSError as exc:
-                    logger.warning("DashScope start_image 读取失败，已忽略: %s (%s)", p, exc)
-            else:
-                logger.warning("DashScope start_image 文件不存在或不是常规文件，已忽略: %s", p)
+            # fail-loud：声明了首帧图却缺失（目录/非常规文件，含空串解析出的 "."）或读取失败即中止，
+            # 不静默忽略 —— 否则用户拿到一个没用上首帧的结果却不知情。
+            uri = _read_image_or_none(p)
+            if uri is None:
+                raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=p.name)
+            media.append({"type": "first_frame", "url": uri})
         if caps.reference_images:
-            # r2v 必须有参考图：无论调用方传 None / 空列表 / 全部缺失或不可读，都 fail-loud，
-            # 不静默退化为无参考生成（会产出错误结果且照常计费），也不把空 media 提交给上游。
-            # is_file 通过但 read_bytes 抛 OSError（权限/并发删除）的也算不可读，逐个跳过。
-            provided = request.reference_images or []
+            # r2v 必须有参考图。fail-loud：未提供 → required；任一声明的参考图缺失/不可读（is_file 不过
+            # 或 read_bytes 抛 OSError）→ 报错列出文件名中止。不静默退化为无参考/子集生成（会产出错误
+            # 结果且照常计费），让用户感知到有图未被使用。
+            provided = [r for r in (request.reference_images or []) if r]
+            if not provided:
+                raise VideoCapabilityError("video_reference_images_required", model=self._model)
             data_uris: list[str] = []
+            unreadable: list[str] = []
             for r in provided:
-                if not r:
-                    continue
                 p = Path(r)
-                if not p.is_file():
-                    continue
-                try:
-                    data_uris.append(image_to_data_uri(p))
-                except OSError as exc:
-                    logger.warning("DashScope 参考图读取失败，已跳过: %s (%s)", p, exc)
-            if not data_uris:
-                raise RuntimeError(
-                    f"DashScope r2v 需要至少一张参考图，但未提供或全部缺失/不可读: "
-                    f"model={self._model} count={len(provided)}"
+                uri = _read_image_or_none(p)
+                if uri is None:
+                    unreadable.append(p.name)
+                else:
+                    data_uris.append(uri)
+            if unreadable:
+                raise VideoCapabilityError(
+                    "video_reference_images_unreadable", model=self._model, names="、".join(unreadable)
                 )
             limit = caps.max_reference_images
             if len(data_uris) > limit:

@@ -45,9 +45,9 @@ _I2I_ONLY_MARKERS = ("qwen-image-edit",)
 _QWEN_REF_LIMIT = 3
 _WAN_REF_LIMIT = 9
 
-# 缺省尺寸：qwen 用像素 宽*高，wan 用档位
+# 缺省尺寸：qwen 用像素 宽*高，wan 用档位预算（换算成像素后下传）
 _DEFAULT_QWEN_SIZE = "2048*2048"
-_DEFAULT_WAN_SIZE = "2K"
+_DEFAULT_WAN_BUDGET = "2K"
 
 # 标准档总像素预算（非 pro / 非文生图上限）= 2048×2048；超出须 wan2.7-image-pro 文生图（4K=4096×4096）
 _STANDARD_PIXEL_BUDGET = 2048 * 2048
@@ -61,6 +61,23 @@ _SIZE_BY_RATIO: dict[str, str] = {
     "4:3": "2368*1728",
     "3:4": "1728*2368",
 }
+
+# wan 系档位 → 各比例的显式像素。wan 的「方式一档位」在文生图下会强制输出正方形、丢掉比例，
+# 故 backend 永不下传档位词，一律换算成「方式二像素值」。2K 复用上方官方推荐档；1K/4K 按 2K
+# 等比 ×0.5 / ×2 并对齐 16 的倍数，保持官方推荐档的精确比例。4K（总像素 4096×4096）仅
+# wan2.7-image-pro 文生图可用，门控见 _resolve_size。
+_WAN_PIXELS_BY_BUDGET: dict[str, dict[str, str]] = {
+    "1K": {"16:9": "1344*768", "9:16": "768*1344", "1:1": "1024*1024", "4:3": "1184*864", "3:4": "864*1184"},
+    "2K": _SIZE_BY_RATIO,
+    "4K": {"16:9": "5376*3072", "9:16": "3072*5376", "1:1": "4096*4096", "4:3": "4736*3456", "3:4": "3456*4736"},
+}
+
+
+def _has_pixel_sep(size: str) -> bool:
+    """size 是否为显式像素值（含 宽*高 分隔符），区别于 1K/2K/4K 档位词。"""
+    s = size.lower()
+    return "*" in s or "x" in s or "×" in s
+
 
 # 编辑系列宽高均 ∈ [512, 2048]，单独一张 ≤2048 的授权档表。
 _EDIT_SIZE_BY_RATIO: dict[str, str] = {
@@ -201,34 +218,42 @@ class DashScopeImageBackend:
                 return explicit
             table = _EDIT_SIZE_BY_RATIO if self._is_edit else _SIZE_BY_RATIO
             return table.get(request.aspect_ratio, _DEFAULT_QWEN_SIZE)
-        # wan 系：未显式指定时同样按 aspect_ratio 选像素值（满足 wan2.7 总像素/比例约束）
-        if not explicit:
-            return _SIZE_BY_RATIO.get(request.aspect_ratio, _DEFAULT_WAN_SIZE)
-        # 显式档位/像素值 honor。超 2048×2048 预算的输出仅 wan2.7-image-pro 文生图支持：
-        # 非 pro 不支持、pro 的 I2I 不支持
-        if self._exceeds_standard_budget(explicit) and ("pro" not in self._model.lower() or has_refs):
+        # wan 系：超 2048×2048 预算的输出（4K 档或大像素值）仅 wan2.7-image-pro 文生图支持，
+        # 非 pro 不支持、pro 的 I2I 不支持 —— 先门控（档位词与像素值统一判定）
+        budget = explicit or _DEFAULT_WAN_BUDGET
+        if self._exceeds_standard_budget(budget) and ("pro" not in self._model.lower() or has_refs):
             raise ImageCapabilityError("image_dashscope_4k_t2i_only", model=self._model)
-        return explicit
+        # 显式像素值（caller 已定比例）原样 honor
+        if _has_pixel_sep(explicit):
+            return explicit
+        # 档位词 / 空 → 一律按 aspect_ratio 换算成显式像素，绝不下传档位词，
+        # 否则 wan 文生图会被强制输出正方形、丢掉项目的 16:9 / 9:16 比例
+        tier = explicit.upper() if explicit.upper() in _WAN_PIXELS_BY_BUDGET else _DEFAULT_WAN_BUDGET
+        table = _WAN_PIXELS_BY_BUDGET[tier]
+        return table.get(request.aspect_ratio, table["1:1"])
 
     def _build_content(self, request: ImageGenerationRequest, has_refs: bool) -> list[dict]:
         content: list[dict] = []
         if has_refs:
-            # 只保留能实际读取的常规文件：缺失/目录（含空串解析出的 "."）/权限或 IO 失败都跳过，
-            # 避免 is_file 通过但 read_bytes 抛 OSError 直接炸成 500。
+            # fail-loud：任一声明的参考图缺失（含目录/空串解析出的 "."）或读取失败（权限/并发删除
+            # → OSError）即中止生成并报错列出文件名，让用户感知到有图未被使用，而非静默丢弃、用子集
+            # 生成出错误结果还照常计费。
             data_uris: list[str] = []
+            unreadable: list[str] = []
             for ref in request.reference_images:
-                if not ref.path:
-                    continue
-                path = Path(ref.path)
-                if not path.is_file():
+                path = Path(ref.path) if ref.path else None
+                if path is None or not path.is_file():
+                    unreadable.append(path.name if path else "(空路径)")
                     continue
                 try:
                     data_uris.append(image_to_data_uri(path))
                 except OSError as exc:
-                    logger.warning("DashScope 参考图读取失败，已跳过: %s (%s)", path, exc)
-            if not data_uris:
-                # 模型支持 i2i，只是参考图缺失/不可读；用准确的错误码而非"模型不支持 i2i"
-                raise ImageCapabilityError("image_reference_images_unreadable", model=self._model)
+                    logger.warning("DashScope 参考图读取失败: %s (%s)", path, exc)
+                    unreadable.append(path.name)
+            if unreadable:
+                raise ImageCapabilityError(
+                    "image_reference_images_unreadable", model=self._model, names="、".join(unreadable)
+                )
             if len(data_uris) > self._ref_limit:
                 logger.warning(
                     "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",
