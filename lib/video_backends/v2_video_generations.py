@@ -24,7 +24,6 @@ from pathlib import Path
 import httpx
 
 from lib.retry import (
-    BASE_RETRYABLE_ERRORS,
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
     DOWNLOAD_BACKOFF_SECONDS,
@@ -40,6 +39,8 @@ from lib.video_backends.base import (
     download_video,
     persist_provider_job_id,
     poll_with_retry,
+    should_retry_poll,
+    should_retry_submit,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,9 +61,6 @@ _LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
 
 # 日志摘要里 prompt 截断长度（避免长 prompt 撑爆日志）
 _PROMPT_LOG_MAX = 200
-
-# HTTPStatusError 不继承 RequestError，必须显式列出以便 5xx 响应走类型匹配而非字符串匹配
-_V2_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.RequestError, httpx.HTTPStatusError)
 
 # 状态串 → canonical（lowercase 后查表）。覆盖 aimlapi 官方枚举 queued/generating/
 # completed/error，并并入跨厂商同义词（流派 C 路由到多家时底层状态串可能透传）。
@@ -287,14 +285,21 @@ class V2VideoGenerationsBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 client。保留 `model` 形参仅为跨 backend 接口统一，
+        generic 端点跨多模型无单一供应商真相，当前取保守默认 `_DEFAULT_MAX_REFERENCE_IMAGES`。
+        """
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
             reference_images=True,
             max_reference_images=_DEFAULT_MAX_REFERENCE_IMAGES,
         )
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         body = build_request_body(self._model, request)
@@ -316,7 +321,7 @@ class V2VideoGenerationsBackend:
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
-        retryable_errors=_V2_RETRYABLE_ERRORS,
+        retry_if=should_retry_submit,
     )
     async def _create_task(self, client: httpx.AsyncClient, body: dict) -> str:
         resp = await client.post(f"{self._root}{_SUBMIT_PATH}", json=body, headers=self._headers())
@@ -344,8 +349,10 @@ class V2VideoGenerationsBackend:
         *,
         is_resume: bool,
     ) -> VideoGenerationResult:
-        # resume 路径下 404 直接抛 ResumeExpiredError，不走 poll_with_retry 的
-        # HTTPStatusError 重试（否则 404 会被重试到超时，过期任务永不落 [resume_expired]）。
+        # resume 路径下 404 直接抛 ResumeExpiredError：should_retry_poll 把轮询 404 当作
+        # "短暂未就绪"重试，对已过期的 resume 任务会一直重到 max_wait 超时、永不落
+        # [resume_expired]，故在此一击转终态异常。非 resume 的 4xx 重新抛出，交 should_retry_poll
+        # 按 status_code 分流（确定性 4xx 快速失败，404/429/5xx 重试）。
         async def _gated_poll() -> dict:
             try:
                 return await self._poll_once(client, generation_id)
@@ -360,7 +367,7 @@ class V2VideoGenerationsBackend:
             is_failed=_extract_failure,
             poll_interval=_POLL_INTERVAL_SECONDS,
             max_wait=self._max_wait(request.duration_seconds),
-            retryable_errors=_V2_RETRYABLE_ERRORS,
+            retry_if=should_retry_poll,
             label="V2",
         )
 
@@ -383,7 +390,7 @@ class V2VideoGenerationsBackend:
     @with_retry_async(
         max_attempts=DOWNLOAD_MAX_ATTEMPTS,
         backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=_V2_RETRYABLE_ERRORS,
+        retry_if=should_retry_poll,
     )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         """对齐其它后端的下载重试策略（5 次、5/10/20/40 秒），与生成阶段独立。"""

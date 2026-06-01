@@ -181,14 +181,21 @@ class ViduVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 client。保留 `model` 形参仅为跨 backend 接口统一，
+        Vidu 容量当前不随 model 变（恒为 `_MAX_REFERENCE_IMAGES`）。
+        """
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
             reference_images=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
         )
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._model)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 本 PR 暂不实现 Vidu resume（poll 完全内联在 generate，需要先抽 _poll_until_done）；

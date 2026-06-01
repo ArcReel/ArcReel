@@ -14,7 +14,6 @@ import httpx
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_NEWAPI
 from lib.retry import (
-    BASE_RETRYABLE_ERRORS,
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
     DOWNLOAD_BACKOFF_SECONDS,
@@ -30,6 +29,8 @@ from lib.video_backends.base import (
     download_video,
     persist_provider_job_id,
     poll_with_retry,
+    should_retry_poll,
+    should_retry_submit,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,9 +40,6 @@ DEFAULT_MODEL = "kling-v1"
 _POLL_INTERVAL_SECONDS = 5.0
 _MIN_POLL_TIMEOUT_SECONDS = 600
 _POLL_TIMEOUT_PER_SECOND = 30
-
-# HTTPStatusError 不继承 RequestError，必须显式列出以便 5xx 响应走类型匹配而非字符串匹配
-_NEWAPI_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.RequestError, httpx.HTTPStatusError)
 
 # 超过此阈值的起始图会触发 warning，NewAPI 聚合后端常见 4MB 请求体上限
 _LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
@@ -168,10 +166,10 @@ class NewAPIVideoBackend:
     ) -> VideoGenerationResult:
         # _is_done 纯谓词：completed / failed / expired 均视为终态；caller 按 is_resume
         # flag 决定 expired 抛 RuntimeError（generate）还是 ResumeExpiredError（resume）。
-        # resume 路径下 4xx（特别 404）由 _gated_poll 直接抛 ResumeExpiredError 而不
-        # 走 poll_with_retry 的 HTTPStatusError 重试：原 retryable_errors 包含
-        # HTTPStatusError 会让 404 被无限重试到 max_wait 超时，过期任务永远不会落
-        # [resume_expired]，对应 pending ApiCall 也不走 failed/cost=0 路径。
+        # resume 路径下 404 由 _gated_poll 直接抛 ResumeExpiredError：should_retry_poll 把
+        # 轮询 404 当作"短暂未就绪"重试，对已过期的 resume 任务会一直重到 max_wait 超时、
+        # 永不落 [resume_expired]，对应 pending ApiCall 也不走 failed/cost=0 路径，故在此一击
+        # 转终态异常。非 resume 的 4xx 重新抛出，交 should_retry_poll 按 status_code 分流。
         async def _gated_poll() -> dict:
             try:
                 return await self._poll_once(client, task_id)
@@ -186,7 +184,7 @@ class NewAPIVideoBackend:
             is_failed=_extract_failure,
             poll_interval=_POLL_INTERVAL_SECONDS,
             max_wait=self._max_wait(request.duration_seconds),
-            retryable_errors=_NEWAPI_RETRYABLE_ERRORS,
+            retry_if=should_retry_poll,
             label="NewAPI",
         )
 
@@ -221,7 +219,7 @@ class NewAPIVideoBackend:
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
-        retryable_errors=_NEWAPI_RETRYABLE_ERRORS,
+        retry_if=should_retry_submit,
     )
     async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
         resp = await client.post(
@@ -248,7 +246,7 @@ class NewAPIVideoBackend:
     @with_retry_async(
         max_attempts=DOWNLOAD_MAX_ATTEMPTS,
         backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=_NEWAPI_RETRYABLE_ERRORS,
+        retry_if=should_retry_poll,
     )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         """对齐 OpenAI/Ark 的下载重试策略（5 次、5/10/20/40 秒），与生成阶段独立。"""

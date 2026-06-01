@@ -118,9 +118,18 @@ class DashScopeVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
+
+        resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
+        保持 backend 为单一真相源。
+        """
+        return _MODEL_PROFILES.get(model, _DEFAULT_PROFILE)[1]
+
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self._video_capabilities
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         payload = self._build_payload(request)

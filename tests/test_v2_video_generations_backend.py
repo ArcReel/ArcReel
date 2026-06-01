@@ -457,3 +457,33 @@ class TestV2BackendHttp:
             req = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5)
             with pytest.raises(ResumeExpiredError):
                 await self._backend().resume_video("gen-expired", req)
+
+    @pytest.mark.asyncio
+    async def test_create_non_retryable_4xx_fails_fast(self, tmp_path: Path):
+        """创建任务遇确定性 4xx（400）应一次失败，不重试。"""
+        resp400 = _make_response(400, {"error": "bad request"})
+        resp400.raise_for_status = MagicMock(side_effect=_make_http_error(400, "bad request"))
+        client = _mock_client(post=resp400)
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+        ):
+            req = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5)
+            with pytest.raises(httpx.HTTPStatusError):
+                await self._backend().generate(req)
+        assert client.post.call_count == 1, "确定性 4xx 不该被 retry"
+
+    @pytest.mark.asyncio
+    async def test_poll_non_retryable_4xx_fails_fast(self, tmp_path: Path):
+        """轮询遇确定性 4xx（401，如 token 轮换失效）应一次失败，不重试到 max_wait 超时。"""
+        resp401 = _make_response(401, {"error": "unauthorized"})
+        resp401.raise_for_status = MagicMock(side_effect=_make_http_error(401, "unauthorized"))
+        client = _mock_client(post=_make_response(200, {"id": "gen-401", "status": "queued"}), get=resp401)
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.v2_video_generations._POLL_INTERVAL_SECONDS", 0.0),
+        ):
+            req = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5)
+            with pytest.raises(httpx.HTTPStatusError):
+                await self._backend().generate(req)
+        assert client.get.call_count == 1, "轮询确定性 4xx 应一击失败，不重试到超时"

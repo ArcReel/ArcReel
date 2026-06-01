@@ -59,12 +59,63 @@ class TestRegistry:
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
-        """v2/ark/vidu 不在 endpoint 维度声明上限，由 resolver fallthrough 到 backend caps。"""
-        for key in ("v2-video-generations", "ark-seedance", "vidu-video"):
+        """v2/ark/vidu/dashscope 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
+        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video"):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
         assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
         assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images == 0
+
+    def test_video_caps_declaration_bindings(self):
+        """每个 video endpoint 选对了上限来源：None-cap 的绑 caps_fn、显式 int 的不绑。
+
+        全注册表 XOR/非负不变式由 endpoints.py 的 module-load `_validate_video_caps_declarations()`
+        在 import 期保证（违反则本文件根本 import 不进来），故此处只断言「具体哪个 endpoint 选了哪条
+        路径」——这是 XOR 校验抓不到的（换机制仍满足 XOR），是真正的回归护栏。"""
+        # None-cap 的 video endpoint 必须绑定纯 caps 函数
+        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video"):
+            assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
+        # 显式 int 的 video endpoint 不应再绑 caps 函数
+        for key in ("openai-video", "newapi-video"):
+            assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
+
+    def test_dashscope_caps_fn_reads_per_model_limit_without_client(self):
+        """dashscope-async-video 的 caps_fn 是纯函数：按 model_id 返回真实参考图上限
+        （happyhorse-r2v=9 / wan2.7-r2v=5），resolver 据此解析而无需构造 backend / api_key。"""
+        caps_fn = ENDPOINT_REGISTRY["dashscope-async-video"].video_caps_for_model
+        assert caps_fn is not None
+        assert caps_fn("happyhorse-1.0-r2v").max_reference_images == 9
+        assert caps_fn("wan2.7-r2v").max_reference_images == 5
+
+    def test_negative_int_cap_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
+        """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""
+        import dataclasses
+
+        from lib.custom_provider.endpoints import _validate_video_caps_declarations
+
+        bad = dataclasses.replace(
+            ENDPOINT_REGISTRY["openai-video"], video_max_reference_images=-1, video_caps_for_model=None
+        )
+        monkeypatch.setitem(ENDPOINT_REGISTRY, "openai-video", bad)
+        with pytest.raises(ValueError, match="negative video_max_reference_images"):
+            _validate_video_caps_declarations()
+
+    def test_non_callable_caps_fn_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
+        """import 期不变式拒绝非 callable 的 video_caps_for_model：否则误填字符串/整数会放行到
+        request 期才在 resolver `caps_fn(model_id)` 处炸，违背 fail-fast 初衷。"""
+        import dataclasses
+
+        from lib.custom_provider.endpoints import _validate_video_caps_declarations
+
+        # 非 callable 真值（字符串）冒充 caps_fn；同时清掉 int cap 避免先撞 XOR 校验
+        bad = dataclasses.replace(
+            ENDPOINT_REGISTRY["ark-seedance"],
+            video_max_reference_images=None,
+            video_caps_for_model="not-callable",
+        )
+        monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance", bad)
+        with pytest.raises(ValueError, match="non-callable video_caps_for_model"):
+            _validate_video_caps_declarations()
 
     def test_media_type_groups(self):
         text_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "text"}

@@ -80,12 +80,21 @@ class ArkVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
-        model_lower = self._model.lower()
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
+
+        resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
+        保持 backend 为单一真相源。
+        """
+        model_lower = model.lower()
         if "seedance-2" in model_lower or "seedance2" in model_lower:
             return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
         return VideoCapabilities()
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""

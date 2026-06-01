@@ -368,7 +368,7 @@ class TestNewAPIVideoBackend:
         assert result.duration_seconds == 0
 
     async def test_create_retries_on_5xx(self, tmp_path: Path):
-        """5xx HTTPStatusError 应通过 _NEWAPI_RETRYABLE_ERRORS 类型匹配重试。"""
+        """5xx HTTPStatusError 应通过 should_retry_submit 的 status_code 闸门重试。"""
         failing_resp = MagicMock()
         failing_resp.status_code = 503
         failing_resp.raise_for_status = MagicMock(side_effect=_make_http_error(503, "upstream busy"))
@@ -411,6 +411,61 @@ class TestNewAPIVideoBackend:
 
         assert result.task_id == "t-retry"
         assert mock_client.post.call_count == 3
+
+    async def test_create_non_retryable_4xx_fails_fast(self, tmp_path: Path):
+        """创建任务遇确定性 4xx（400）应一次失败，不重试。"""
+        bad_resp = _make_response(400, {"error": "bad request"})
+        bad_resp.raise_for_status = MagicMock(side_effect=_make_http_error(400, "bad request"))
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=bad_resp)
+        mock_client.get = AsyncMock(side_effect=AssertionError("4xx 应在创建阶段失败，不该轮询"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            with pytest.raises(httpx.HTTPStatusError):
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                    )
+                )
+
+        assert mock_client.post.call_count == 1, "确定性 4xx 不该被 retry"
+
+    async def test_poll_non_retryable_4xx_fails_fast(self, tmp_path: Path):
+        """轮询遇确定性 4xx（401，如 token 失效）应一次失败，不重试到 max_wait 超时。"""
+        create_resp = _make_response(200, {"task_id": "t-401", "status": "queued"})
+        unauthorized_resp = _make_response(401, {"error": "unauthorized"})
+        unauthorized_resp.raise_for_status = MagicMock(side_effect=_make_http_error(401, "unauthorized"))
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_resp)
+        mock_client.get = AsyncMock(return_value=unauthorized_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            with pytest.raises(httpx.HTTPStatusError):
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                    )
+                )
+
+        assert mock_client.get.call_count == 1, "轮询确定性 4xx 应一击失败，不重试到超时"
 
     async def test_resume_video_polls_existing_job(self, tmp_path: Path):
         """resume_video 仅 poll + 下载,不 POST create (ADR 0007)。"""
