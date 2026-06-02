@@ -1,6 +1,6 @@
 # 阿里百炼语音合成（TTS）模型调研
 
-更新时间：2026-06-03（基于百炼控制台模型市场 + 官方文档核实）
+更新时间：2026-06-02（基于百炼控制台模型市场 + 官方文档核实）
 
 本文档为 ArcReel issue #707 集成 DashScope TTS 供应商的调研参考。
 
@@ -74,7 +74,7 @@ for chunk in dashscope.MultiModalConversation.call(
 
 **HTTP API**:
 
-```
+```http
 POST https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
 Authorization: Bearer $DASHSCOPE_API_KEY
 Content-Type: application/json
@@ -115,7 +115,7 @@ Content-Type: application/json
 
 **流程**:
 
-```
+```text
 1. 注册音色 → POST /api/v1/services/audio/tts/customization
    model: "qwen-voice-clone"
    target_model: "qwen3-tts-vc-2026-01-26"  (必须与合成时 model 一致)
@@ -135,7 +135,7 @@ Content-Type: application/json
 
 **流程**:
 
-```
+```text
 POST /api/v1/services/audio/tts/customization
 model: "qwen-voice-design"
 target_model: "qwen3-tts-vd-2026-01-26"
@@ -307,4 +307,4 @@ CosyVoice 走旧版 `dashscope.audio.SpeechSynthesizer` 接口。
 - 官方文档：实时语音合成（https://help.aliyun.com/zh/model-studio/qwen-tts-realtime-api-reference/）
 - 官方文档：声音复刻 API（https://help.aliyun.com/zh/model-studio/qwen-tts-voice-cloning）
 - 官方文档：声音设计 API（https://help.aliyun.com/zh/model-studio/qwen-tts-voice-design）
-- 截至 2026-06-03 核实
+- 截至 2026-06-02 核实

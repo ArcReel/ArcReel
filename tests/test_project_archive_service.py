@@ -680,6 +680,63 @@ class TestProjectArchiveService:
         assert imported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01_1.mp4"
         assert result.diagnostics["auto_fixed"]
 
+    def test_export_repairs_narration_audio_from_version_history(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_json(
+            project_dir / "versions" / "versions.json",
+            {
+                "audio": {
+                    "E1S01": {
+                        "current_version": 1,
+                        "versions": [
+                            {
+                                "version": 1,
+                                "file": "versions/audio/E1S01_v1.wav",
+                                "prompt": "旁白",
+                                "created_at": "2024-01-01",
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+        _write_bytes(project_dir / "versions" / "audio" / "E1S01_v1.wav", b"wav-v1")
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {"title": "Demo", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/scene_E1S01.png",
+                            # 当前文件缺失但版本历史尚在 → 归档修复应从 versions/audio 回溯到 canonical
+                            "narration_audio": "versions/audio/E1S01_v9.wav",
+                            "status": "completed",
+                        },
+                    }
+                ],
+            },
+        )
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            exported_script = json.loads(archive.read("demo/scripts/episode_1.json"))
+
+        assert exported_script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
+
     def test_import_blocks_missing_scene_definition(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

@@ -10,6 +10,7 @@ schema 依据 docs/dashscope-docs/ 一手核实快照。
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import httpx
 
@@ -95,6 +96,8 @@ class DashScopeAudioBackend:
                 "language_type": request.language_type,
             },
         }
+        # safe_body_for_log 只输出 model + parameters 白名单，不读取 input.text，
+        # 合成文本不会进日志（CodeQL clear-text-logging 告警对此为误报）。
         logger.info(
             "调用 %s 语音合成 API model=%s voice=%s language=%s chars=%d body=%s",
             self.name,
@@ -119,7 +122,7 @@ class DashScopeAudioBackend:
         backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
         retryable_errors=DASHSCOPE_RETRYABLE_ERRORS,
     )
-    async def _download_audio(self, url: str, output_path) -> None:
+    async def _download_audio(self, url: str, output_path: Path) -> None:
         """下载合成音频（非计费段，可独立多次重试）。"""
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             resp = await client.get(url)

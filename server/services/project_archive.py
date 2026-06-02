@@ -799,6 +799,7 @@ class ProjectArchiveService:
                 for field_name, resource_type in (
                     ("storyboard_image", "storyboards"),
                     ("video_clip", "videos"),
+                    ("narration_audio", "audio"),
                 ):
                     if self._repair_path_to_canonical(
                         project_dir,

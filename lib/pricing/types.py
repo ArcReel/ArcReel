@@ -95,7 +95,13 @@ class PerTokenVideo:
 
 @dataclass(frozen=True)
 class PerCharacter:
-    """按字符计费（TTS）。``rates`` 形如 ``{model: 每万字符价}``，未知 model 回落 ``default_model``。"""
+    """按字符计费（TTS），费率单位为每万字符。
+
+    - ``rates``：``{model_id: 每万字符价}``，价格以 ``currency`` 计
+      （如 ``{"qwen3-tts-flash": 0.8}`` 表示每万字符 0.8）。
+    - ``default_model``：``rates`` 未命中请求 model 时回落到此 model 的费率。
+    - ``currency``：费率币种（如 ``"CNY"``）。
+    """
 
     rates: dict[str, float]
     default_model: str

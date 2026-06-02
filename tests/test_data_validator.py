@@ -124,6 +124,64 @@ class TestDataValidator:
         assert result.valid
         assert any("缺少 duration_seconds" in w for w in result.warnings)
 
+    def test_validate_episode_rejects_missing_narration_audio_file(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "原文",
+                        "characters_in_segment": ["姜月茴"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "generated_assets": {"narration_audio": "audio/segment_E1S01.wav"},
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        # 引用的音频文件不存在 → 中央校验报错（不再被白名单静默放过）
+        assert not result.valid
+        assert any("narration_audio" in error for error in result.errors)
+
+    def test_validate_episode_accepts_existing_narration_audio(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        audio_file = project_dir / "audio" / "segment_E1S01.wav"
+        audio_file.parent.mkdir(parents=True, exist_ok=True)
+        audio_file.write_bytes(b"RIFFfakewav")
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "原文",
+                        "characters_in_segment": ["姜月茴"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "generated_assets": {"narration_audio": "audio/segment_E1S01.wav"},
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        # 文件存在 → 不产生 narration_audio 相关错误
+        assert not any("narration_audio" in error for error in result.errors)
+
     def test_validate_episode_accepts_split_segment_ids_and_missing_scenes_props_warning(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))

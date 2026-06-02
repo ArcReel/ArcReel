@@ -264,6 +264,18 @@ class TestSafeBodyForLog:
             assert view["model"] == "wan2.7-r2v"
             assert "prompt" not in view and "size" not in view
 
+    def test_tts_input_text_not_logged(self):
+        # TTS 合成文本（input.text）不在白名单内，绝不进日志视图
+        secret_text = "用户私密旁白文本SECRETNARRATION"
+        body = {
+            "model": "qwen3-tts-flash",
+            "input": {"text": secret_text, "voice": "Cherry", "language_type": "Chinese"},
+        }
+        view = safe_body_for_log(body)
+        assert secret_text not in str(view)
+        assert "text" not in view
+        assert view["model"] == "qwen3-tts-flash"
+
 
 def test_image_to_data_uri(tmp_path: Path):
     p = tmp_path / "x.png"
