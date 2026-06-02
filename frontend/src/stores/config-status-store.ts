@@ -107,10 +107,12 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
         set({ issues, isComplete: issues.length === 0, initialized: true });
       } catch {
         // 失败保持 initialized=false,下次仍可重试。
-      } finally {
-        set({ loading: false });
       }
-      if (!get().pendingRefresh) break;
+      // loading 仅在整条链终止时才置 false:补跑间隙保持 true,避免 true→false→true 闪烁。
+      if (!get().pendingRefresh) {
+        set({ loading: false });
+        break;
+      }
     }
   };
 
