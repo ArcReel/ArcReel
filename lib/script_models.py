@@ -108,6 +108,9 @@ class GeneratedAssets(BaseModel):
     # 漏声明的话 extra="forbid" 会让「不更坏」检测到 extra_forbidden 差集,拒整集写盘。
     video_thumbnail: str | None = Field(default=None, description="视频缩略图路径")
     video_uri: str | None = Field(default=None, description="视频 URI")
+    # narration_audio 由 TTS 任务（generation_tasks.execute_tts_task）在合成后写回，
+    # 显式声明使其通过 extra="forbid" + 「不更坏」守卫；仅说书 segment 写入，drama/refvideo 恒 None。
+    narration_audio: str | None = Field(default=None, description="旁白音频路径")
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
 
 

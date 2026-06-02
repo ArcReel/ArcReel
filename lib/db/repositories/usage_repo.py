@@ -387,6 +387,7 @@ class UsageRepository(BaseRepository):
                 func.count(case((ApiCall.call_type == "image", 1))).label("image_count"),
                 func.count(case((ApiCall.call_type == "video", 1))).label("video_count"),
                 func.count(case((ApiCall.call_type == "text", 1))).label("text_count"),
+                func.count(case((ApiCall.call_type == "audio", 1))).label("audio_count"),
                 func.count(case((ApiCall.status == "failed", 1))).label("failed_count"),
                 func.count().label("total_count"),
             )
@@ -422,6 +423,7 @@ class UsageRepository(BaseRepository):
             "image_count": row.image_count,
             "video_count": row.video_count,
             "text_count": row.text_count,
+            "audio_count": row.audio_count,
             "failed_count": row.failed_count,
             "total_count": row.total_count,
         }

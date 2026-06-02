@@ -94,6 +94,16 @@ class PerTokenVideo:
 
 
 @dataclass(frozen=True)
+class PerCharacter:
+    """按字符计费（TTS）。``rates`` 形如 ``{model: 每万字符价}``，未知 model 回落 ``default_model``。"""
+
+    rates: dict[str, float]
+    default_model: str
+    currency: str
+    kind: Literal["per_character"] = "per_character"
+
+
+@dataclass(frozen=True)
 class ViduDelegate:
     """委托标记：实际费率在 ``lib.vidu_shared.calculate_vidu_cost``（依赖响应 credits）。
 
@@ -112,5 +122,6 @@ Pricing = (
     | PerImageOpenAIToken
     | PerSecondMatrix
     | PerTokenVideo
+    | PerCharacter
     | ViduDelegate
 )

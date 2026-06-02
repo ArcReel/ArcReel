@@ -856,6 +856,7 @@ class ProjectManager:
             "video_clip": None,
             "video_thumbnail": None,
             "video_uri": None,
+            "narration_audio": None,
             "grid_id": None,
             "grid_cell_index": None,
             "status": "pending",

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from lib.ark_shared import ARK_BASE_URL
 from lib.dashscope_shared import DASHSCOPE_BASE_URL
 from lib.pricing.types import (
+    PerCharacter,
     PerImageByResolution,
     PerImageFlat,
     PerImageOpenAIToken,
@@ -188,6 +189,11 @@ def _dashscope_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecon
         dimensions="resolution_only",
         currency="CNY",
     )
+
+
+# DashScope 语音合成费率（元/万字符）。
+def _dashscope_audio_pricing(model_id: str, per_10k_chars: float) -> PerCharacter:
+    return PerCharacter(rates={model_id: per_10k_chars}, default_model=model_id, currency="CNY")
 
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
@@ -813,7 +819,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="阿里百炼",
         description="阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -955,6 +961,15 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["720p", "1080p"],
                 max_reference_images=5,
                 pricing=_dashscope_video_pricing("wan2.7-r2v", {"720p": 0.6, "1080p": 1.0}),
+            ),
+            # --- audio ---
+            # qwen3-tts-flash：同步 HTTP 语音合成，按字符计费（¥0.8/万字符）。
+            "qwen3-tts-flash": ModelInfo(
+                display_name="Qwen3 TTS Flash",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+                pricing=_dashscope_audio_pricing("qwen3-tts-flash", 0.8),
             ),
         },
         default_base_url=DASHSCOPE_BASE_URL,

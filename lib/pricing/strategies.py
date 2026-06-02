@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from lib.openai_shared import OPENAI_IMAGE_SIZE_MAP
 from lib.pricing.types import (
+    PerCharacter,
     PerImageByResolution,
     PerImageFlat,
     PerImageOpenAIToken,
@@ -132,6 +133,14 @@ def _per_token_video(pricing: PerTokenVideo, params: PricingParams) -> tuple[flo
     return amount, pricing.currency
 
 
+def _per_character(pricing: PerCharacter, params: PricingParams) -> tuple[float, str]:
+    # 字符数复用通用计数字段 usage_tokens 承载（与 _per_token_video / _vidu 同模式，免新增 DB 列）。
+    model = params.model or pricing.default_model
+    rate = pricing.rates.get(model, pricing.rates.get(pricing.default_model, 0.0))
+    amount = (params.usage_tokens or 0) / 10_000 * rate
+    return amount, pricing.currency
+
+
 def _vidu(pricing: ViduDelegate, params: PricingParams) -> tuple[float, str]:
     return calculate_vidu_cost(
         call_type=params.call_type,
@@ -156,6 +165,8 @@ def calculate_pricing(pricing: Pricing, params: PricingParams) -> tuple[float, s
         return _per_second_matrix(pricing, params)
     if isinstance(pricing, PerTokenVideo):
         return _per_token_video(pricing, params)
+    if isinstance(pricing, PerCharacter):
+        return _per_character(pricing, params)
     # 仅剩 ViduDelegate；若日后新增 kind 未在上方分派，此处类型收窄会让 _vidu 入参报错，
     # 起到穷尽性检查的作用。
     return _vidu(pricing, params)

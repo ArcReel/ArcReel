@@ -70,15 +70,17 @@ class ProviderPool:
     Video lane 还有一个 ``video_pending`` 字典：dispatcher 父协程 ``create_task`` 后
     sub-task 还在 sem 排队的瞬态。``has_video_room`` 计入 pending + inflight 严格
     限制总并发；``request_cancel`` 也查 pending，让排队中的孤儿可被秒级取消。
-    Image lane 不引入 ``image_pending``——image 没有 sem-throttled dispatcher。
+    Image / audio lane 不引入 ``*_pending``——它们没有 sem-throttled dispatcher（后端同步）。
     """
 
     provider_id: str
     image_max: int  # 0 = this provider doesn't support image
     video_max: int  # 0 = this provider doesn't support video
+    audio_max: int = 0  # 0 = this provider doesn't support audio
     image_inflight: dict[str, asyncio.Task] = field(default_factory=dict)
     video_inflight: dict[str, asyncio.Task] = field(default_factory=dict)
     video_pending: dict[str, asyncio.Task] = field(default_factory=dict)
+    audio_inflight: dict[str, asyncio.Task] = field(default_factory=dict)
 
     def has_image_room(self) -> bool:
         return self.image_max > 0 and len(self.image_inflight) < self.image_max
@@ -87,10 +89,14 @@ class ProviderPool:
         # 计入 pending：sem 排队期 sub-task 同样占名额，避免主循环超额 claim
         return self.video_max > 0 and len(self.video_inflight) + len(self.video_pending) < self.video_max
 
+    def has_audio_room(self) -> bool:
+        # audio 同步、无 pending，与 image lane 同形
+        return self.audio_max > 0 and len(self.audio_inflight) < self.audio_max
+
     def drain_finished(self) -> list[tuple[str, asyncio.Task]]:
         """Remove finished tasks from inflight dicts. Return ``(task_id, task)`` for inspection."""
         finished = []
-        for inflight in (self.image_inflight, self.video_inflight):
+        for inflight in (self.image_inflight, self.video_inflight, self.audio_inflight):
             done_ids = [tid for tid, t in inflight.items() if t.done()]
             for tid in done_ids:
                 finished.append((tid, inflight.pop(tid)))
@@ -98,11 +104,16 @@ class ProviderPool:
 
     def all_inflight(self) -> list[asyncio.Task]:
         """实际在跑的 task（不含 sem 排队中的 pending）。用于 metrics/真实并发统计。"""
-        return [*self.image_inflight.values(), *self.video_inflight.values()]
+        return [*self.image_inflight.values(), *self.video_inflight.values(), *self.audio_inflight.values()]
 
     def all_active(self) -> list[asyncio.Task]:
         """In-flight + 排队中的 pending：用于 reload keep-alive 判定 / shutdown wait。"""
-        return [*self.image_inflight.values(), *self.video_inflight.values(), *self.video_pending.values()]
+        return [
+            *self.image_inflight.values(),
+            *self.video_inflight.values(),
+            *self.video_pending.values(),
+            *self.audio_inflight.values(),
+        ]
 
 
 async def _extract_provider(task: dict[str, Any]) -> str:
@@ -116,8 +127,9 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     """
     project_name = task.get("project_name")
     payload = task.get("payload") or {}
-    # 以 media lane 区分 video / image：reference_video 等 task_type 同属 video lane。
+    # 以 media lane 区分 video / audio / image：reference_video 等 task_type 同属 video lane。
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
+    is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
 
     # 整体兜底：含项目加载（队列里可能有指向已删除/不可读项目的历史任务，load_project 会抛
     # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
@@ -134,6 +146,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         resolver = ConfigResolver(async_session_factory)
         if is_video:
             resolved = await resolver.resolve_video_backend(project, payload)
+        elif is_audio:
+            resolved = await resolver.resolve_audio_backend(project, payload)
         else:
             resolved = await resolver.resolve_image_backend(project, payload, capability="t2i")
     except Exception:
@@ -151,6 +165,7 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
 
     default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
     default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+    default_audio = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
 
     pools: dict[str, ProviderPool] = {}
     async with safe_session_factory() as session:
@@ -160,12 +175,15 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
             config = all_configs.get(provider_id, {})
             supports_image = "image" in meta.media_types
             supports_video = "video" in meta.media_types
+            supports_audio = "audio" in meta.media_types
             image_max = int(config.get("image_max_workers", str(default_image))) if supports_image else 0
             video_max = int(config.get("video_max_workers", str(default_video))) if supports_video else 0
+            audio_max = int(config.get("audio_max_workers", str(default_audio))) if supports_audio else 0
             pools[provider_id] = ProviderPool(
                 provider_id=provider_id,
                 image_max=max(0, image_max),
                 video_max=max(0, video_max),
+                audio_max=max(0, audio_max),
             )
 
         # 加载自定义供应商的池配置（使用与内置供应商相同的默认值）
@@ -179,11 +197,12 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
                 provider_id=pid,
                 image_max=default_image if "image" in media_types else 0,
                 video_max=default_video if "video" in media_types else 0,
+                audio_max=default_audio if "audio" in media_types else 0,
             )
 
     logger.info(
         "从 DB 加载供应商池配置: %s",
-        {pid: (p.image_max, p.video_max) for pid, p in pools.items()},
+        {pid: (p.image_max, p.video_max, p.audio_max) for pid, p in pools.items()},
     )
     return pools
 
@@ -198,6 +217,7 @@ def _build_default_pools() -> dict[str, ProviderPool]:
 
     image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
     video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+    audio_max = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
 
     pools: dict[str, ProviderPool] = {}
     for provider_id, meta in PROVIDER_REGISTRY.items():
@@ -205,6 +225,7 @@ def _build_default_pools() -> dict[str, ProviderPool]:
             provider_id=provider_id,
             image_max=image_max if "image" in meta.media_types else 0,
             video_max=video_max if "video" in meta.media_types else 0,
+            audio_max=audio_max if "audio" in meta.media_types else 0,
         )
     return pools
 
@@ -225,7 +246,7 @@ class GenerationWorker:
         self._pools: dict[str, ProviderPool] = pools or _build_default_pools()
         logger.info(
             "Worker 初始池配置: %s",
-            {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
+            {pid: (p.image_max, p.video_max, p.audio_max) for pid, p in self._pools.items()},
         )
         self.lease_ttl = max(1.0, float(TASK_WORKER_LEASE_TTL_SEC))
         self.heartbeat_interval = max(0.5, float(TASK_WORKER_HEARTBEAT_SEC))
@@ -257,6 +278,11 @@ class GenerationWorker:
         return sum(p.video_max for p in self._pools.values())
 
     @property
+    def audio_workers(self) -> int:
+        """Total audio concurrency across all providers."""
+        return sum(p.audio_max for p in self._pools.values())
+
+    @property
     def _image_inflight(self) -> dict[str, asyncio.Task]:
         """Merged view of all image inflight tasks (read-only convenience)."""
         merged: dict[str, asyncio.Task] = {}
@@ -284,13 +310,17 @@ class GenerationWorker:
         # Unknown provider — use same defaults as built-in providers
         image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
         video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+        audio_max = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
         pool = ProviderPool(
             provider_id=provider_id,
             image_max=image_max,
             video_max=video_max,
+            audio_max=audio_max,
         )
         self._pools[provider_id] = pool
-        logger.info("为供应商 %s 创建默认池 (image=%d, video=%d)", provider_id, image_max, video_max)
+        logger.info(
+            "为供应商 %s 创建默认池 (image=%d, video=%d, audio=%d)", provider_id, image_max, video_max, audio_max
+        )
         return pool
 
     def _any_pool_has_room(self, media_type: str) -> bool:
@@ -299,6 +329,8 @@ class GenerationWorker:
             if media_type == "image" and pool.has_image_room():
                 return True
             if media_type == "video" and pool.has_video_room():
+                return True
+            if media_type == "audio" and pool.has_audio_room():
                 return True
         return False
 
@@ -323,6 +355,7 @@ class GenerationWorker:
                 new_pool.image_inflight = old_pool.image_inflight
                 new_pool.video_inflight = old_pool.video_inflight
                 new_pool.video_pending = old_pool.video_pending
+                new_pool.audio_inflight = old_pool.audio_inflight
 
         # Pools that existed before but are no longer registered:
         # 仍有 pending / inflight 的旧 pool 保留到耗尽——用 all_active 判定（含 pending）。
@@ -331,11 +364,12 @@ class GenerationWorker:
                 new_pools[pid] = old_pool
                 new_pools[pid].image_max = 0
                 new_pools[pid].video_max = 0
+                new_pools[pid].audio_max = 0
 
         self._pools = new_pools
         logger.info(
             "已更新供应商池配置: %s",
-            {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
+            {pid: (p.image_max, p.video_max, p.audio_max) for pid, p in self._pools.items()},
         )
 
     def reload_limits_from_env(self) -> None:
@@ -345,15 +379,18 @@ class GenerationWorker:
         """
         image_max = _read_int_env("IMAGE_MAX_WORKERS", 3, minimum=1)
         video_max = _read_int_env("VIDEO_MAX_WORKERS", 2, minimum=1)
+        audio_max = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
         default_pool = self._pools.get(DEFAULT_PROVIDER)
         if default_pool:
             default_pool.image_max = image_max
             default_pool.video_max = video_max
+            default_pool.audio_max = audio_max
         else:
             self._pools[DEFAULT_PROVIDER] = ProviderPool(
                 provider_id=DEFAULT_PROVIDER,
                 image_max=image_max,
                 video_max=video_max,
+                audio_max=audio_max,
             )
 
     # ------------------------------------------------------------------
@@ -446,6 +483,8 @@ class GenerationWorker:
         """
         if media_type == "image":
             return frozenset(pid for pid, p in self._pools.items() if p.image_max > 0 and not p.has_image_room())
+        if media_type == "audio":
+            return frozenset(pid for pid, p in self._pools.items() if p.audio_max > 0 and not p.has_audio_room())
         return frozenset(pid for pid, p in self._pools.items() if p.video_max > 0 and not p.has_video_room())
 
     async def _claim_tasks(self) -> bool:
@@ -458,7 +497,7 @@ class GenerationWorker:
         """
         claimed_any = False
 
-        for media_type in ("image", "video"):
+        for media_type in ("image", "video", "audio"):
             while True:
                 # 每轮重算池满集合：刚 claim 的任务可能让某 pool 进入满状态
                 pool_full = self._pool_full_providers(media_type)
@@ -475,6 +514,9 @@ class GenerationWorker:
                 if media_type == "image":
                     max_capacity = pool.image_max
                     has_room = pool.has_image_room()
+                elif media_type == "audio":
+                    max_capacity = pool.audio_max
+                    has_room = pool.has_audio_room()
                 else:
                     max_capacity = pool.video_max
                     has_room = pool.has_video_room()
@@ -512,7 +554,12 @@ class GenerationWorker:
 
                 # Dispatch to pool
                 claimed_any = True
-                inflight = pool.image_inflight if media_type == "image" else pool.video_inflight
+                if media_type == "image":
+                    inflight = pool.image_inflight
+                elif media_type == "audio":
+                    inflight = pool.audio_inflight
+                else:
+                    inflight = pool.video_inflight
                 inflight[task["task_id"]] = asyncio.create_task(
                     self._process_task(task),
                     name=f"generation-{media_type}-{task['task_id']}",
@@ -595,6 +642,7 @@ class GenerationWorker:
             pool.image_inflight.clear()
             pool.video_inflight.clear()
             pool.video_pending.clear()
+            pool.audio_inflight.clear()
 
     async def _process_task(self, task: dict[str, Any]) -> None:
         """Run a generation task with 0-rows-cancelled finally protocol (ADR 0006).
@@ -735,7 +783,7 @@ class GenerationWorker:
         兜底（SQL 守卫 IN queued|cancelling|running 接住）。
         """
         for pool in self._pools.values():
-            for inflight in (pool.image_inflight, pool.video_inflight, pool.video_pending):
+            for inflight in (pool.image_inflight, pool.video_inflight, pool.video_pending, pool.audio_inflight):
                 t = inflight.get(task_id)
                 if t is not None and not t.done():
                     t.cancel()
@@ -786,6 +834,7 @@ class GenerationWorker:
             self_active_task_ids.update(pool.image_inflight.keys())
             self_active_task_ids.update(pool.video_inflight.keys())
             self_active_task_ids.update(pool.video_pending.keys())
+            self_active_task_ids.update(pool.audio_inflight.keys())
 
         resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
 
@@ -801,9 +850,15 @@ class GenerationWorker:
                 continue
 
             # status == "running"
-            media_type = task.get("media_type") or (
-                "video" if task.get("task_type") in ("video", "reference_video") else "image"
-            )
+            task_type = task.get("task_type")
+            if task.get("media_type"):
+                media_type = task["media_type"]
+            elif task_type in ("video", "reference_video"):
+                media_type = "video"
+            elif task_type == "tts":
+                media_type = "audio"
+            else:
+                media_type = "image"
 
             # image 任务不持久化 job_id 也无 resume 入口——已提交给供应商的请求无法回收，
             # 主动 requeue 会双重扣费。直接丢弃，等用户决定是否手动重试。
@@ -812,6 +867,18 @@ class GenerationWorker:
                 rows = await self.queue.mark_task_failed(
                     task_id,
                     "[restart_lost] image 任务无法接续，需手动重试以避免重复计费",
+                )
+                if rows == 0:
+                    await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
+                continue
+
+            # audio（TTS）同步、不持久化 job_id、无 resume 入口——与 image 同样降级为 [restart_lost]，
+            # 不重新提交以免重复计费（见 ADR 0010）。
+            if media_type == "audio":
+                logger.warning("孤儿 audio running → [restart_lost]: %s", task_id)
+                rows = await self.queue.mark_task_failed(
+                    task_id,
+                    "[restart_lost] audio 任务无法接续，需手动重试以避免重复计费",
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")

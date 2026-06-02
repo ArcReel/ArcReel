@@ -1,7 +1,7 @@
 """资源路径解析器 — 「资源类型 → 项目内相对路径」的唯一真相源。
 
 纯函数，不读盘、不持有项目状态。独家拥有各资源类型的子目录、文件名模板、
-扩展名，以及 storyboards/videos 的 ``scene_`` 前缀特例。
+扩展名，以及 storyboards/videos（``scene_``）、audio（``segment_``）的文件名前缀。
 
 写侧（MediaGenerator）、版本回溯（versions 路由）、导入修复（project_archive）、
 版本管理（VersionManager）都从这里取形状，避免副本各自漂移。越界校验不在此处，
@@ -19,17 +19,18 @@ class ResourcePattern:
 
     subdir: str
     extension: str
-    scene_prefix: bool  # storyboards/videos 的文件名带 scene_ 前缀
+    prefix: str = ""  # 文件名前缀：storyboards/videos 用 "scene_"，audio 用 "segment_"，其余空
 
 
 _PATTERNS: dict[str, ResourcePattern] = {
-    "storyboards": ResourcePattern("storyboards", ".png", scene_prefix=True),
-    "videos": ResourcePattern("videos", ".mp4", scene_prefix=True),
-    "characters": ResourcePattern("characters", ".png", scene_prefix=False),
-    "scenes": ResourcePattern("scenes", ".png", scene_prefix=False),
-    "props": ResourcePattern("props", ".png", scene_prefix=False),
-    "grids": ResourcePattern("grids", ".png", scene_prefix=False),
-    "reference_videos": ResourcePattern("reference_videos", ".mp4", scene_prefix=False),
+    "storyboards": ResourcePattern("storyboards", ".png", prefix="scene_"),
+    "videos": ResourcePattern("videos", ".mp4", prefix="scene_"),
+    "characters": ResourcePattern("characters", ".png"),
+    "scenes": ResourcePattern("scenes", ".png"),
+    "props": ResourcePattern("props", ".png"),
+    "grids": ResourcePattern("grids", ".png"),
+    "reference_videos": ResourcePattern("reference_videos", ".mp4"),
+    "audio": ResourcePattern("audio", ".wav", prefix="segment_"),
 }
 
 RESOURCE_TYPES: tuple[str, ...] = tuple(_PATTERNS)
@@ -45,11 +46,11 @@ def _pattern(resource_type: str) -> ResourcePattern:
 def resource_relative_path(resource_type: str, resource_id: str) -> str:
     """返回资源在项目内的相对路径（posix，正斜杠）。
 
-    storyboards/videos 形如 ``storyboards/scene_{id}.png``；其余 ``{subdir}/{id}{ext}``。
-    未知类型抛 ``ValueError``。
+    storyboards/videos 形如 ``storyboards/scene_{id}.png``、audio 形如 ``audio/segment_{id}.wav``；
+    其余 ``{subdir}/{id}{ext}``。未知类型抛 ``ValueError``。
     """
     pattern = _pattern(resource_type)
-    filename = f"scene_{resource_id}" if pattern.scene_prefix else resource_id
+    filename = f"{pattern.prefix}{resource_id}"
     return f"{pattern.subdir}/{filename}{pattern.extension}"
 
 

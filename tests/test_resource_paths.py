@@ -23,6 +23,8 @@ class TestResourceRelativePath:
             # storyboards / videos 带 scene_ 前缀特例
             ("storyboards", "E1S01", "storyboards/scene_E1S01.png"),
             ("videos", "E1S01", "videos/scene_E1S01.mp4"),
+            # audio 带 segment_ 前缀特例
+            ("audio", "E1S01", "audio/segment_E1S01.wav"),
             # 其余无前缀
             ("characters", "姜月茴", "characters/姜月茴.png"),
             ("scenes", "庙宇", "scenes/庙宇.png"),
@@ -35,9 +37,10 @@ class TestResourceRelativePath:
         assert resource_relative_path(resource_type, resource_id) == expected
 
     def test_only_storyboards_and_videos_get_scene_prefix(self) -> None:
-        # 反向断言：非 storyboards/videos 不得带 scene_ 前缀
+        # 反向断言：非 storyboards/videos 不得带 scene_ 前缀（audio 用 segment_ 前缀，单独验证）
         for rt in ("characters", "scenes", "props", "grids", "reference_videos"):
             assert "scene_" not in resource_relative_path(rt, "X")
+        assert resource_relative_path("audio", "X").startswith("audio/segment_")
 
     def test_returns_posix_forward_slashes(self) -> None:
         # 跨平台：始终用 / 分隔，不受运行平台影响
@@ -60,6 +63,7 @@ class TestResourceExtension:
             ("props", ".png"),
             ("grids", ".png"),
             ("reference_videos", ".mp4"),
+            ("audio", ".wav"),
         ],
     )
     def test_extensions(self, resource_type: str, expected: str) -> None:
@@ -72,10 +76,11 @@ class TestResourceExtension:
 
 @pytest.mark.unit
 class TestResourceTypes:
-    def test_covers_seven_canonical_types(self) -> None:
+    def test_covers_canonical_types(self) -> None:
         assert set(RESOURCE_TYPES) == {
             "storyboards",
             "videos",
+            "audio",
             "characters",
             "scenes",
             "props",

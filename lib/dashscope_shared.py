@@ -221,6 +221,18 @@ def extract_image_url(payload: dict) -> str:
     raise RuntimeError(f"DashScope 图像响应 content 无 image 字段: {payload}")
 
 
+# ── 同步音频响应工具 ──────────────────────────────────────────────────────────
+
+
+def extract_audio_url(payload: dict) -> str:
+    """从同步语音合成响应 output.audio.url 提取音频文件 URL（wav，24h 有效）。"""
+    url = _as_dict(_as_dict(payload.get("output")).get("audio")).get("url")
+    if not url:
+        reason = dashscope_failure_reason(payload)
+        raise RuntimeError(reason or f"DashScope 语音合成响应缺少 audio.url: {payload}")
+    return url
+
+
 # ── 日志脱敏 ──────────────────────────────────────────────────────────────────
 
 # 仅允许进日志的标量字段白名单；其余（含 base64 image / media url）一律不入日志。

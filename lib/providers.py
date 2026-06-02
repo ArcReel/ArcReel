@@ -12,7 +12,8 @@ PROVIDER_NEWAPI = "newapi"
 PROVIDER_DASHSCOPE = "dashscope"
 PROVIDER_ANTHROPIC = "anthropic"
 
-CallType = Literal["image", "video", "text"]
+CallType = Literal["image", "video", "text", "audio"]
 CALL_TYPE_IMAGE: CallType = "image"
 CALL_TYPE_VIDEO: CallType = "video"
 CALL_TYPE_TEXT: CallType = "text"
+CALL_TYPE_AUDIO: CallType = "audio"

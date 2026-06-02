@@ -75,7 +75,7 @@ def _gemini_default_pricing_for(media_type: str, model: str | None = None) -> Pr
 
 
 def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing:
-    """返回该调用的定价声明。``media_type`` 即 call_type（``text`` / ``image`` / ``video``）。"""
+    """返回该调用的定价声明。``media_type`` 即 call_type（``text`` / ``image`` / ``video`` / ``audio``）。"""
     if provider == PROVIDER_ANTHROPIC:
         return _ANTHROPIC_PRICING
     if provider == PROVIDER_VIDU:

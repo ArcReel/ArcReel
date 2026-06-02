@@ -1,0 +1,131 @@
+"""DashScopeAudioBackend — 阿里百炼 Qwen3-TTS 语音合成后端（同步）。
+
+走原生 multimodal-generation/generation 同步端点：请求体 ``input`` 直接携带
+``text`` / ``voice`` / ``language_type``（区别于图像的 messages 结构），响应在
+``output.audio.url`` 给出 wav 文件 URL（24kHz，24h 有效），再 HTTP GET 下载字节落盘。
+TTS 同步调用不带 X-DashScope-Async 头（该头仅图像/视频异步两步式使用）。
+schema 依据 docs/dashscope-docs/ 一手核实快照。
+"""
+
+from __future__ import annotations
+
+import logging
+
+import httpx
+
+from lib.audio_backends.base import (
+    AudioCapability,
+    AudioSynthesisRequest,
+    AudioSynthesisResult,
+)
+from lib.dashscope_shared import (
+    DASHSCOPE_RETRYABLE_ERRORS,
+    dashscope_headers,
+    dashscope_native_base_url,
+    extract_audio_url,
+    resolve_dashscope_api_key,
+    safe_body_for_log,
+)
+from lib.logging_utils import format_kwargs_for_log
+from lib.providers import PROVIDER_DASHSCOPE
+from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_MODEL = "qwen3-tts-flash"
+
+_TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
+
+
+class DashScopeAudioBackend:
+    """阿里百炼语音合成后端（同步 multimodal 端点）。"""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        http_timeout: float = 60.0,
+    ) -> None:
+        self._api_key = resolve_dashscope_api_key(api_key)
+        self._base_url = dashscope_native_base_url(base_url)
+        self._model = model or DEFAULT_MODEL
+        self._http_timeout = http_timeout
+
+    @property
+    def name(self) -> str:
+        return PROVIDER_DASHSCOPE
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def capabilities(self) -> set[AudioCapability]:
+        return {AudioCapability.TEXT_TO_SPEECH}
+
+    async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
+        if request.speed is not None:
+            # 同步 qwen3-tts-flash 不支持 speech_rate（仅 realtime WebSocket 版可用），忽略。
+            logger.debug("DashScope 同步 TTS 不支持语速参数 speed=%s，已忽略", request.speed)
+
+        # 合成（计费）与下载分两段独立重试：下载瞬时失败只重试 GET，绝不回头重跑会再次计费的
+        # 合成 POST（与 lib.retry.DOWNLOAD_* 注释「下载失败不浪费生成额度」一致）。
+        url = await self._request_synthesis(request)
+        await self._download_audio(url, request.output_path)
+
+        logger.info("DashScope 语音合成完成: %s", request.output_path)
+
+        return AudioSynthesisResult(
+            provider=PROVIDER_DASHSCOPE,
+            model=self._model,
+            characters=len(request.text),
+            output_path=request.output_path,
+        )
+
+    @with_retry_async(retryable_errors=DASHSCOPE_RETRYABLE_ERRORS)
+    async def _request_synthesis(self, request: AudioSynthesisRequest) -> str:
+        """提交合成请求（计费段），返回 output.audio.url。"""
+        payload = {
+            "model": self._model,
+            "input": {
+                "text": request.text,
+                "voice": request.voice,
+                "language_type": request.language_type,
+            },
+        }
+        logger.info(
+            "调用 %s 语音合成 API model=%s voice=%s language=%s chars=%d body=%s",
+            self.name,
+            self._model,
+            request.voice,
+            request.language_type,
+            len(request.text),
+            format_kwargs_for_log(safe_body_for_log(payload)),
+        )
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}{_TTS_ENDPOINT}",
+                json=payload,
+                headers=dashscope_headers(self._api_key),
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(f"DashScope 语音合成接口返回 {resp.status_code}: {resp.text[:500]}")
+            return extract_audio_url(resp.json())
+
+    @with_retry_async(
+        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
+        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
+        retryable_errors=DASHSCOPE_RETRYABLE_ERRORS,
+    )
+    async def _download_audio(self, url: str, output_path) -> None:
+        """下载合成音频（非计费段，可独立多次重试）。"""
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+            resp = await client.get(url)
+            if resp.status_code >= 400:
+                raise RuntimeError(f"DashScope 音频下载返回 {resp.status_code}: {url}")
+            if not resp.content:
+                # 200 但空体（代理/range 异常）：不写 0 字节 wav，触发下载重试。
+                raise RuntimeError(f"DashScope 音频下载返回空内容: {url}")
+            output_path.write_bytes(resp.content)

@@ -32,6 +32,7 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_VIDU
+from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -261,6 +262,33 @@ async def _get_or_create_image_backend(
     return backend
 
 
+async def _get_or_create_audio_backend(
+    provider_name: str,
+    provider_settings: dict,
+    resolver: ConfigResolver,
+    *,
+    default_audio_model: str | None = None,
+):
+    """获取或创建 AudioBackend 实例（带缓存）。本期仅内置 DashScope，自定义供应商 audio 通路是 follow-up。"""
+    from lib.audio_backends import create_backend
+
+    effective_model = provider_settings.get("model") or default_audio_model or None
+    cache_key = ("audio", provider_name, effective_model)
+    if cache_key in _backend_cache:
+        return _backend_cache[cache_key]
+
+    if is_custom_provider(provider_name):
+        # 自定义供应商 audio 后端创建尚未接入；显式抛错而非静默走未注册路径，便于将来定位。
+        raise NotImplementedError("custom provider audio backend not implemented yet")
+
+    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
+    kwargs: dict = {}
+    await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
+    backend = create_backend(backend_name, **kwargs)
+    _backend_cache[cache_key] = backend
+    return backend
+
+
 async def _resolve_video_backend(
     project_name: str,
     resolver: ConfigResolver,
@@ -301,10 +329,13 @@ async def get_media_generator(
     user_id: str = DEFAULT_USER_ID,
     require_image_backend: bool = True,
     needs_i2i: bool = False,
+    needs_audio: bool = False,
 ) -> MediaGenerator:
     """创建 MediaGenerator。仅按调用场景初始化所需的 backend。
 
     needs_i2i: 若调用方知晓本次任务带参考图，传 True 以选 I2I 默认 backend；否则用 T2I。
+    needs_audio: TTS 任务传 True，只构造 audio backend，跳过 image/video（语音任务不需要二者，
+        且强行构造视频 backend 会因视频供应商缺配置而误失败）。
     """
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
@@ -314,29 +345,43 @@ async def get_media_generator(
 
     async with resolver.session() as r:
         image_backend = None
-        if require_image_backend:
+        video_backend = None
+        audio_backend = None
+
+        if needs_audio:
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-            resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=needs_i2i)
-            # 解析失败 → provider_id 为空，让 _get_or_create_image_backend 抛出清晰错误
-            image_backend = await _get_or_create_image_backend(
-                resolved_image.provider_id,
+            resolved_audio = await r.resolve_audio_backend(project, payload)
+            audio_backend = await _get_or_create_audio_backend(
+                resolved_audio.provider_id,
                 {},
                 r,
-                default_image_model=resolved_image.model_id or None,
+                default_audio_model=resolved_audio.model_id or None,
             )
+        else:
+            if require_image_backend:
+                project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+                resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=needs_i2i)
+                # 解析失败 → provider_id 为空，让 _get_or_create_image_backend 抛出清晰错误
+                image_backend = await _get_or_create_image_backend(
+                    resolved_image.provider_id,
+                    {},
+                    r,
+                    default_image_model=resolved_image.model_id or None,
+                )
 
-        # 解析 video backend（保持现有逻辑）
-        video_backend, _, _ = await _resolve_video_backend(
-            project_name,
-            r,
-            payload,
-        )
+            # 解析 video backend（保持现有逻辑）
+            video_backend, _, _ = await _resolve_video_backend(
+                project_name,
+                r,
+                payload,
+            )
 
     return MediaGenerator(
         project_path,
         rate_limiter=rate_limiter,
         image_backend=image_backend,  # type: ignore[arg-type]
         video_backend=video_backend,  # type: ignore[arg-type]
+        audio_backend=audio_backend,  # type: ignore[arg-type]
         config_resolver=resolver,
         user_id=user_id,
     )
@@ -634,6 +679,9 @@ def _compute_affected_fingerprints(project_name: str, task_type: str, resource_i
                 project_path / "reference_videos" / "thumbnails" / f"{resource_id}.jpg",
             )
         )
+    elif task_type == "tts":
+        audio_rel = resource_relative_path("audio", resource_id)
+        paths.append((audio_rel, project_path / audio_rel))
 
     result: dict[str, int] = {}
     for rel, abs_path in paths:
@@ -648,6 +696,7 @@ def _compute_affected_fingerprints(project_name: str, task_type: str, resource_i
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "storyboard": ("segment", "storyboard_ready", "分镜「{}」", True),
     "video": ("segment", "video_ready", "分镜「{}」", True),
+    "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
     "reference_video": ("reference_video_unit", "reference_video_ready", "参考视频「{}」", True),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
@@ -774,6 +823,83 @@ async def execute_storyboard_task(
         "file_path": f"storyboards/scene_{resource_id}.png",
         "created_at": created_at,
         "resource_type": "storyboards",
+        "resource_id": resource_id,
+    }
+
+
+async def execute_tts_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """为说书模式单个 segment 合成旁白音频（同步 TTS，无续传）。
+
+    文本来源：payload.text 显式优先；否则从脚本 segment 的 novel_text 读取。文本为空 /
+    segment 找不到 / 脚本未生成一律显式 raise，绝不把空串送给 backend 合成。
+    """
+    script_file = payload.get("script_file")
+
+    def _prepare() -> tuple[dict, str]:
+        _project = get_project_manager().load_project(project_name)
+        _text = payload.get("text") or payload.get("prompt")
+        if not _text:
+            if not script_file:
+                raise ValueError("tts task 需要 payload.text 或 payload.script_file 之一")
+            _script = get_project_manager().load_script(project_name, script_file)
+            _items, _id_field, *_ = get_storyboard_items(_script)
+            _resolved = find_storyboard_item(_items, _id_field, resource_id)
+            if _resolved is None:
+                raise ValueError(f"segment not found: {resource_id}")
+            _segment, _ = _resolved
+            _text = _segment.get("novel_text")
+        if not isinstance(_text, str) or not _text.strip():
+            raise ValueError(f"segment {resource_id} 无可合成的旁白文本（novel_text 为空）")
+        return _project, _text.strip()
+
+    project, text = await asyncio.to_thread(_prepare)
+
+    generator = await get_media_generator(
+        project_name,
+        payload=payload,
+        user_id=user_id,
+        require_image_backend=False,
+        needs_audio=True,
+    )
+
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
+
+    voice = await ConfigResolver(async_session_factory).resolve_narration_voice(project)
+
+    _, version = await generator.generate_audio_async(
+        text=text,
+        resource_id=resource_id,
+        voice=voice,
+    )
+
+    audio_rel = resource_relative_path("audio", resource_id)
+
+    def _finalize():
+        if script_file:
+            get_project_manager().update_scene_asset(
+                project_name=project_name,
+                script_filename=script_file,
+                scene_id=resource_id,
+                asset_type="narration_audio",
+                asset_path=audio_rel,
+            )
+        return generator.versions.get_versions("audio", resource_id)["versions"][-1]["created_at"]
+
+    created_at = await asyncio.to_thread(_finalize)
+
+    return {
+        "version": version,
+        "file_path": audio_rel,
+        "created_at": created_at,
+        "resource_type": "audio",
         "resource_id": resource_id,
     }
 
@@ -1384,6 +1510,7 @@ async def _execute_reference_video_task_proxy(
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
+    "tts": execute_tts_task,
     "character": execute_character_task,
     "scene": execute_scene_task,
     "prop": execute_prop_task,

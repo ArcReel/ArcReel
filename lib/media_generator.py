@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from PIL import Image
 
 if TYPE_CHECKING:
+    from lib.audio_backends.base import AudioBackend
     from lib.config.resolver import ConfigResolver
     from lib.image_backends.base import ImageBackend
 
@@ -46,6 +47,7 @@ class MediaGenerator:
         rate_limiter: RateLimiter | None = None,
         image_backend: Optional["ImageBackend"] = None,
         video_backend=None,
+        audio_backend: Optional["AudioBackend"] = None,
         *,
         config_resolver: Optional["ConfigResolver"] = None,
         user_id: str = DEFAULT_USER_ID,
@@ -58,6 +60,7 @@ class MediaGenerator:
             rate_limiter: 可选的限流器实例
             image_backend: 可选的 ImageBackend 实例（用于图片生成）
             video_backend: 可选的 VideoBackend 实例（用于视频生成）
+            audio_backend: 可选的 AudioBackend 实例（用于语音合成）
             config_resolver: ConfigResolver 实例，用于运行时读取配置
             user_id: 用户 ID
         """
@@ -66,6 +69,7 @@ class MediaGenerator:
         self._rate_limiter = rate_limiter
         self._image_backend = image_backend
         self._video_backend = video_backend
+        self._audio_backend = audio_backend
         self._config = config_resolver
         self._user_id = user_id
         self.versions = VersionManager(project_path)
@@ -277,6 +281,97 @@ class MediaGenerator:
             prompt=prompt,
             source_file=output_path,
             aspect_ratio=aspect_ratio,
+            **version_metadata,
+        )
+
+        return output_path, new_version
+
+    async def generate_audio_async(
+        self,
+        text: str,
+        resource_id: str,
+        voice: str,
+        language_type: str = "Chinese",
+        speed: float | None = None,
+        **version_metadata,
+    ) -> tuple[Path, int]:
+        """
+        异步合成语音（带自动版本管理）
+
+        与图片/视频不同，TTS 后端是同步调用（无 submit-poll-resume），逻辑最简。
+
+        Args:
+            text: 待合成文本（旁白原文）
+            resource_id: 资源 ID（segment，如 E1S01）
+            voice: 音色（如 Cherry）
+            language_type: 语种，默认 Chinese
+            speed: 语速预留（同步模型忽略）
+            **version_metadata: 额外元数据
+
+        Returns:
+            (output_path, version_number) 元组
+        """
+        from lib.audio_backends.base import AudioSynthesisRequest
+
+        resource_type = "audio"
+        output_path = self._get_output_path(resource_type, resource_id)
+        self._ensure_parent_dir(output_path)
+
+        # 若已存在，确保旧文件被记录
+        if output_path.exists():
+            self.versions.ensure_current_tracked(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                current_file=output_path,
+                prompt=text,
+                **version_metadata,
+            )
+
+        if self._audio_backend is None:
+            raise RuntimeError("audio_backend not configured")
+
+        call_id = await self.usage_tracker.start_call(
+            project_name=self.project_name,
+            call_type="audio",
+            model=self._audio_backend.model,
+            prompt=text,
+            provider=self._audio_backend.name,
+            user_id=self._user_id,
+            segment_id=resource_id,
+        )
+
+        try:
+            request = AudioSynthesisRequest(
+                text=text,
+                output_path=output_path,
+                voice=voice,
+                language_type=language_type,
+                speed=speed,
+            )
+            result = await self._audio_backend.synthesize(request)
+
+            # audio 的 usage_tokens 承载合成字符数（非 LLM token），驱动 per_character 计费；
+            # finish_call 据此冻结 ApiCall.cost_amount 成本快照。
+            await self.usage_tracker.finish_call(
+                call_id=call_id,
+                status="success",
+                output_path=str(output_path),
+                usage_tokens=result.characters,
+            )
+        except Exception as e:
+            logger.exception("生成失败 (%s)", "audio")
+            await self.usage_tracker.finish_call(
+                call_id=call_id,
+                status="failed",
+                error_message=str(e),
+            )
+            raise
+
+        new_version = self.versions.add_version(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=text,
+            source_file=output_path,
             **version_metadata,
         )
 

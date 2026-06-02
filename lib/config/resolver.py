@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.app_data_dir import app_data_dir
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.service import (
+    _DEFAULT_AUDIO_BACKEND,
     _DEFAULT_IMAGE_BACKEND,
     _DEFAULT_TEXT_BACKEND,
     _DEFAULT_VIDEO_BACKEND,
@@ -233,6 +234,33 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_provider_model(svc, session, project, payload)
 
+    async def default_audio_backend(self) -> tuple[str, str]:
+        """返回系统级默认音频 (provider_id, model_id)（不含项目级覆盖）。"""
+        async with self._open_session() as (session, svc):
+            return await self._resolve_default_audio_backend(svc, session)
+
+    async def resolve_audio_backend(
+        self,
+        project: dict | None,
+        payload: dict | None,
+    ) -> ProviderModel:
+        """解析语音合成任务应使用的 ProviderModel。
+
+        优先级：payload（历史任务携带的 ``audio_provider``）> project（``audio_backend``）> 全局默认。
+        语音任务无 capability 维度。不做任何 provider 归一化。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_audio_provider_model(svc, session, project, payload)
+
+    async def resolve_narration_voice(self, project: dict | None) -> str:
+        """解析旁白音色：project.json 顶层 ``narration_voice`` > 全局 setting > 服务默认。"""
+        async with self._open_session() as (session, svc):
+            if project is not None:
+                override = project.get("narration_voice")
+                if isinstance(override, str) and override.strip():
+                    return override.strip()
+            return await svc.get_narration_voice()
+
     async def video_capabilities(self, project_name: str | None = None) -> dict:
         """解析当前项目视频 model 的综合能力 + 用户项目偏好。
 
@@ -406,6 +434,45 @@ class ConfigResolver:
                 if model is not None:
                     return ProviderModel(provider_id, model)
         provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
+        return ProviderModel(provider_id, model_id)
+
+    async def _resolve_default_audio_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
+        raw = await svc.get_setting("default_audio_backend", "")
+        if raw and "/" in raw:
+            return ConfigService._parse_backend(raw, _DEFAULT_AUDIO_BACKEND)
+        return await self._auto_resolve_backend(svc, session, "audio")
+
+    async def _resolve_audio_backend_from_project(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+    ) -> tuple[str, str]:
+        if project is not None:
+            parsed = _parse_project_provider(project.get("audio_backend"), "audio")
+            if parsed is not None:
+                return parsed
+        return await self._resolve_default_audio_backend(svc, session)
+
+    async def _resolve_audio_provider_model(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+        payload: dict | None,
+    ) -> ProviderModel:
+        """payload > project > 全局默认 三级解析音频 ProviderModel。
+
+        payload 层服务于历史任务（携带 ``audio_provider`` + ``audio_model``）的排空。payload
+        provider 须是已知 provider（见 ``_trusted_payload_provider``），否则回退 project/global。
+        """
+        if payload:
+            provider_id = _trusted_payload_provider(payload.get("audio_provider"))
+            if provider_id is not None:
+                model = _payload_model_or_default(payload.get("audio_model"), provider_id, "audio")
+                if model is not None:
+                    return ProviderModel(provider_id, model)
+        provider_id, model_id = await self._resolve_audio_backend_from_project(svc, session, project)
         return ProviderModel(provider_id, model_id)
 
     async def _resolve_video_capabilities(

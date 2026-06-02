@@ -151,6 +151,10 @@ class CostCalculator:
             return price_input, cur
         elif call_type == "video":
             return (duration_seconds or 8) * price_input, cur
+        elif call_type == "audio":
+            # 自定义供应商 audio 通路尚未接入（resolve 仅解析内置 registry）；显式抛错而非
+            # fall through 到下方静默记零，避免将来悄悄按 0 计费且难在测试里被发现。
+            raise NotImplementedError("custom provider audio cost calculation not implemented yet")
         return 0.0, cur
 
 

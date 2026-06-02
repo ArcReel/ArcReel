@@ -33,6 +33,7 @@ async def _derive_provider_id_for_enqueue(
     claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
     is_video = media_type == "video" or task_type in ("video", "reference_video")
+    is_audio = media_type == "audio" or task_type == "tts"
     try:
         from lib.config.resolver import ConfigResolver, get_project_manager
         from lib.db import async_session_factory
@@ -44,6 +45,8 @@ async def _derive_provider_id_for_enqueue(
         resolver = ConfigResolver(async_session_factory)
         if is_video:
             resolved = await resolver.resolve_video_backend(project, payload or {})
+        elif is_audio:
+            resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
             resolved = await resolver.resolve_image_backend(project, payload or {}, capability="t2i")
     except Exception:

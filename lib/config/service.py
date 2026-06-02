@@ -14,6 +14,10 @@ from lib.db.repositories.credential_repository import CredentialRepository
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
 _DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
+_DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
+# 旁白默认音色（DashScope 预设）；可被 project.json 顶层 narration_voice 或全局 setting 覆盖
+# （与 video_backend 等同走顶层 key，非 settings 子字典）。
+_DEFAULT_NARRATION_VOICE = "Cherry"
 
 # DB setting key → environment variable name
 _ANTHROPIC_ENV_MAP: dict[str, str] = {
@@ -186,6 +190,13 @@ class ConfigService:
     async def get_default_text_backend(self) -> tuple[str, str]:
         raw = await self._setting_repo.get("default_text_backend", _DEFAULT_TEXT_BACKEND)
         return self._parse_backend(raw, _DEFAULT_TEXT_BACKEND)
+
+    async def get_default_audio_backend(self) -> tuple[str, str]:
+        raw = await self._setting_repo.get("default_audio_backend", _DEFAULT_AUDIO_BACKEND)
+        return self._parse_backend(raw, _DEFAULT_AUDIO_BACKEND)
+
+    async def get_narration_voice(self) -> str:
+        return await self._setting_repo.get("narration_voice", _DEFAULT_NARRATION_VOICE)
 
     @staticmethod
     def _validate_provider(provider: str) -> None:

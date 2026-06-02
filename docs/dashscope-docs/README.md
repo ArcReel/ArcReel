@@ -10,6 +10,7 @@
 - [万相2.7-图像.md](./万相2.7-图像.md) — `wan2.7-image` / `wan2.7-image-pro`:T2I/编辑/组图/交互式编辑(bbox)/思考模式/4K
 - [参考生视频-HappyHorse.md](./参考生视频-HappyHorse.md) — `happyhorse-1.0-r2v` 请求/响应 schema、参数约束
 - [参考生视频-wan2.7.md](./参考生视频-wan2.7.md) — `wan2.7-r2v` 请求/响应 schema、参数约束、与 wan2.6 差异
+- [语音合成-TTS模型.md](./语音合成-TTS模型.md) — Qwen3-TTS / CosyVoice 全系列：模型选型、定价、48 音色、声音复刻/设计 API、Instruct 指令控制
 - [阿里百炼费用参考.md](./阿里百炼费用参考.md) — 文本/图像/视频全模型定价（CNY，已核实)
 
 ## 数据来源

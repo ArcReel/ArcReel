@@ -152,6 +152,7 @@ class ProjectArchiveService:
         {
             "storyboards",
             "videos",
+            "audio",
             "characters",
             "scenes",
             "props",

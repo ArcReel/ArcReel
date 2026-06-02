@@ -62,6 +62,7 @@ class DataValidator:
         "reference_videos",
         "storyboards",
         "videos",
+        "audio",
         "thumbnails",
         "output",
         "versions",
