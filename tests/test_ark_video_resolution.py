@@ -64,4 +64,6 @@ async def test_resolution_passed_when_set(tmp_path):
     with pytest.raises(RuntimeError):
         await backend._create_task(req)
 
+    # 比例独立性守护：resolution 与 ratio 同传时彼此正交，resolution 不覆盖/不改写比例
     assert captured["resolution"] == "720p"
+    assert captured["ratio"] == "9:16"

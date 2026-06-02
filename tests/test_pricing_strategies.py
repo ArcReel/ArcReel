@@ -161,13 +161,14 @@ class TestPerImageOpenAIToken:
         )
         assert amount == pytest.approx(0.053)
 
-    def test_fallback_resolves_size_from_resolution_aspect(self):
-        # size=None, resolution + aspect_ratio → 反查 SIZE_MAP → 1024x1792
+    def test_fallback_no_size_falls_to_default_square(self):
+        # 计费与输出尺寸解耦（adr 0011）：size 反查已删，即便有 resolution+aspect_ratio，
+        # 无显式 size 也落默认 1024x1024 档（接受兜底丧失按尺寸区分成本；主路径走 token 不受影响）
         amount, _ = calculate_pricing(
             self.pricing,
             PricingParams(call_type="image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16"),
         )
-        assert amount == pytest.approx(0.317)
+        assert amount == pytest.approx(0.211)  # ("high","1024x1024")，非旧反查的 0.317
 
     def test_fallback_explicit_size_overrides(self):
         amount, _ = calculate_pricing(

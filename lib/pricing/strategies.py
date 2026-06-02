@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from lib.openai_shared import OPENAI_IMAGE_SIZE_MAP
 from lib.pricing.types import (
     PerImageByResolution,
     PerImageFlat,
@@ -88,11 +87,11 @@ def _per_image_openai_token(pricing: PerImageOpenAIToken, params: PricingParams)
         ) / 1_000_000
         return amount, pricing.currency
 
-    size = params.size
-    if size is None and params.resolution is not None and params.aspect_ratio is not None:
-        size = OPENAI_IMAGE_SIZE_MAP.get((params.resolution, params.aspect_ratio))
+    # 主路径按 token 计费已覆盖绝大多数；此处为 SDK 不返回 usage 的兜底。不再用静态
+    # (resolution, aspect_ratio) → size 表反查（已废弃），size 缺失即落默认档，接受兜底
+    # 丧失按尺寸区分成本——避免为兜底引入额外尺寸真相源（见 docs/adr/0011）。
     quality = params.quality or "medium"
-    size = size or "1024x1024"
+    size = params.size or "1024x1024"
     model_costs = pricing.fallback_rates.get(model, pricing.fallback_rates[pricing.default_model])
     per_image = model_costs.get(
         (quality, size),

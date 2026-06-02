@@ -164,6 +164,8 @@ class ArkVideoBackend:
                     )
 
         # 2. Build API params
+        # 比例优先：ratio 是独立 SDK 字段，由 aspect_ratio 直接决定；resolution 仅清晰度档位，
+        # 与比例正交（SDK 内部按 ratio×resolution 算像素），不把比例压进像素 size，故无尺寸 bug。
         create_params = {
             "model": self._model,
             "content": content,
