@@ -107,4 +107,50 @@ describe("config-status-store", () => {
     expect(useConfigStatusStore.getState().initialized).toBe(true);
     expect(useConfigStatusStore.getState().issues.length).toBeGreaterThan(0);
   });
+
+  it("coalesces a refresh requested while one is in flight instead of dropping it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let providersCall = 0;
+    vi.spyOn(API, "getProviders").mockImplementation(async () => {
+      providersCall += 1;
+      if (providersCall === 1) {
+        await gate; // 让首次刷新停在 in-flight,模拟"保存后刷新"撞上进行中的加载
+        return makeProviders(); // 旧数据:未就绪 → 有 issues
+      }
+      return makeProviders([
+        {
+          id: "gemini",
+          display_name: "Google Gemini",
+          status: "ready",
+          media_types: ["image", "video", "text"],
+          capabilities: [],
+          configured_keys: ["api_key"],
+          missing_keys: [],
+          models: {},
+        },
+      ]); // 新数据:全就绪 → 无 issues
+    });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
+    );
+
+    const store = useConfigStatusStore.getState();
+    const first = store.refresh();
+    const second = store.refresh(); // 命中 loading 守卫 → 应被合并而非丢弃
+    expect(useConfigStatusStore.getState().pendingRefresh).toBe(true);
+
+    release();
+    await first; // 首次刷新 + 合并补跑的尾部刷新都在此完成
+    await second;
+
+    // 补跑确实执行(getProviders 被调两次),且最终落地的是最新数据
+    expect(API.getProviders).toHaveBeenCalledTimes(2);
+    expect(useConfigStatusStore.getState().issues).toHaveLength(0);
+    expect(useConfigStatusStore.getState().isComplete).toBe(true);
+    expect(useConfigStatusStore.getState().pendingRefresh).toBe(false);
+  });
 });

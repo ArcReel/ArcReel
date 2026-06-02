@@ -5,6 +5,7 @@ import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { AppRoutes } from "@/router";
 
@@ -40,6 +41,9 @@ describe("AppRoutes", () => {
   beforeEach(() => {
     resetStores();
     useAuthStore.setState({ isAuthenticated: true, isLoading: false });
+    // ConfigStatusLoader 在 AppRoutes 中始终挂载；预置 initialized 让其 fetch() 短路，
+    // 路由测试无需关心配置状态，也避免触发未 mock 的供应商接口与退避重试。
+    useConfigStatusStore.setState({ initialized: true });
     vi.restoreAllMocks();
   });
 

@@ -17,6 +17,42 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
+
+// ---------------------------------------------------------------------------
+// ConfigStatusLoader — 登录后集中拉取一次配置完整性状态
+// ---------------------------------------------------------------------------
+
+/**
+ * 配置完整性（红点 / 必需设置提醒）的单点加载器，始终挂载在路由根，跨页面导航存活。
+ * 单例 store 一次初始化即覆盖所有落地页（首页 / 设置 / 项目），不再依赖某个具体页面
+ * 是否在 mount 时拉取。首次失败（如后端尚未就绪）时带界次数退避重试，无需手动刷新页面。
+ */
+function ConfigStatusLoader() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      await useConfigStatusStore.getState().fetch();
+      if (cancelled) return;
+      if (!useConfigStatusStore.getState().initialized && attempts < 5) {
+        attempts += 1;
+        timer = setTimeout(() => void tick(), 800 * attempts);
+      }
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isAuthenticated]);
+
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // AuthGuard — redirects to /login when not authenticated
@@ -111,6 +147,7 @@ function StudioWorkspace() {
 export function AppRoutes() {
   return (
     <>
+      <ConfigStatusLoader />
       <Switch>
         {/* Login page */}
         <Route path="/login" component={LoginPage} />

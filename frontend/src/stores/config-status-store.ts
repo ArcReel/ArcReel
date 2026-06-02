@@ -87,6 +87,8 @@ interface ConfigStatusState {
   isComplete: boolean;
   loading: boolean;
   initialized: boolean;
+  /** 进行中刷新期间又收到 refresh() 时置位,完成后补跑一次,避免丢掉最后一次请求的数据。 */
+  pendingRefresh: boolean;
   fetch: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -96,6 +98,7 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => ({
   isComplete: true,
   loading: false,
   initialized: false,
+  pendingRefresh: false,
 
   fetch: async () => {
     if (get().initialized || get().loading) return;
@@ -103,13 +106,23 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => ({
   },
 
   refresh: async () => {
-    if (get().loading) return;
-    set({ loading: true });
+    // 已有刷新在途:不丢弃这次请求,而是标记 pending,在途刷新完成后补跑一次。
+    // 否则"保存供应商后的 refresh()"会被初始加载/前一次刷新的 loading 守卫静默吞掉,
+    // 红点/警示停留在保存前的旧值。
+    if (get().loading) {
+      set({ pendingRefresh: true });
+      return;
+    }
+    set({ loading: true, pendingRefresh: false });
     try {
       const issues = await getConfigIssues();
       set({ issues, isComplete: issues.length === 0, loading: false, initialized: true });
     } catch {
       set({ loading: false });
+    }
+    if (get().pendingRefresh) {
+      set({ pendingRefresh: false });
+      await get().refresh();
     }
   },
 }));

@@ -4,6 +4,7 @@ import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
 import type { ProviderInfo, CustomProviderInfo } from "@/types";
 import { ProviderDetail } from "./ProviderDetail";
@@ -97,11 +98,13 @@ export function ProviderSection() {
   const refreshPreset = useCallback(async () => {
     const res = await API.getProviders();
     setProviders(res.providers);
+    void useConfigStatusStore.getState().refresh();
   }, []);
 
   const refreshCustom = useCallback(async () => {
     const res = await API.listCustomProviders();
     setCustomProviders(res.providers);
+    void useConfigStatusStore.getState().refresh();
   }, []);
 
   useEffect(() => {
@@ -250,6 +253,7 @@ export function ProviderSection() {
               void API.listCustomProviders()
                 .then((res) => {
                   setCustomProviders(res.providers);
+                  void useConfigStatusStore.getState().refresh();
                   if (res.providers.length > 0) {
                     const newest = res.providers[res.providers.length - 1];
                     setSelection({ kind: "custom", id: newest.id });
