@@ -734,6 +734,8 @@ class TestProjectArchiveService:
 
         with zipfile.ZipFile(archive_path) as archive:
             exported_script = json.loads(archive.read("demo/scripts/episode_1.json"))
+            # 不仅改写 JSON 路径，还应把回溯出的当前文件物化进归档
+            assert "demo/audio/segment_E1S01.wav" in archive.namelist()
 
         assert exported_script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
 
