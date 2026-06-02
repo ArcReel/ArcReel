@@ -42,11 +42,11 @@ _Avoid_: job（无此概念）。
 中间状态，表示 cancel 信号已发出但 worker 内 asyncio task 尚未走完 finally 收尾。cancel API 把 DB 从 `running` 改成 `cancelling` 后立即返回；worker finally 在 mark 终态时只能从 `cancelling` 转 `cancelled`（不再走 succeeded/failed 分支）。这是状态机里唯一一个**从 `running` 出发、由 worker 之外的代码改写的非终态**——`queued` 由 enqueue API 写、`cancelled` 直接由 cancel queued 路径写都属于「外部写入」，但前者不从 running 出发、后者是终态。
 
 **slot（执行槽）**：
-GenerationWorker 内并发执行 task 的容量，维度是 **provider × media_type**（不是简单的 image/video 两条总通道）。每个 provider 各有独立的 image / video / audio pool，默认容量分别为 `IMAGE_MAX_WORKERS=5` / `VIDEO_MAX_WORKERS=3` / `AUDIO_MAX_WORKERS`（TTS 便宜快，默认放宽），可在 provider config 里覆盖。一个 provider 的 video 池满，**只阻塞该 provider 的 video 任务**，不影响其他 provider；但若用户的项目只配了一个 video provider，这等于阻塞所有 video 任务。
+GenerationWorker 内并发执行 task 的容量，维度是 **provider × media_type**（不是简单的 image/video 两条总通道）。每个 provider 各有独立的 image / video pool，默认容量分别为 `IMAGE_MAX_WORKERS=5` / `VIDEO_MAX_WORKERS=3`，可在 provider config 里覆盖；TTS 落地后并列新增 audio pool（`AUDIO_MAX_WORKERS`，默认值随实现设定——TTS 便宜快、倾向放宽，见 `docs/adr/0010`）。一个 provider 的 video 池满，**只阻塞该 provider 的 video 任务**，不影响其他 provider；但若用户的项目只配了一个 video provider，这等于阻塞所有 video 任务。
 _Avoid_: concurrency limit（太泛）。
 
 **ProviderPool**：
-worker 内承载 slot 的数据结构（`lib/generation_worker.py:ProviderPool`），字段 `image_max` / `video_max` + 两个 `inflight: dict[task_id, asyncio.Task]`。inflight 字典是**worker 内存状态**，与 DB 中的 `status='running'` 必须配对维护——cancel 触发时由 worker 在 in-process task 字典里查到对应 asyncio.Task 后 `cancel()`，finally 收尾时从 inflight 移除并把 DB 从 `cancelling` 转 `cancelled`（见 `docs/adr/0006`）。`docs/adr/0006` 落地前 inflight 会出现「DB 改 cancelled 但 asyncio.Task 没被中断、名额仍被占」的撕裂，是已知遗留缺陷。
+worker 内承载 slot 的数据结构（`lib/generation_worker.py:ProviderPool`），字段 `image_max` / `video_max` + 两个 `inflight: dict[task_id, asyncio.Task]`（TTS 落地后并列新增 `audio_max` + `audio_inflight`，见 `docs/adr/0010`）。inflight 字典是**worker 内存状态**，与 DB 中的 `status='running'` 必须配对维护——cancel 触发时由 worker 在 in-process task 字典里查到对应 asyncio.Task 后 `cancel()`，finally 收尾时从 inflight 移除并把 DB 从 `cancelling` 转 `cancelled`（见 `docs/adr/0006`）。`docs/adr/0006` 落地前 inflight 会出现「DB 改 cancelled 但 asyncio.Task 没被中断、名额仍被占」的撕裂，是已知遗留缺陷。
 
 **worker（GenerationWorker）**：
 ArcReel 中始终与 server 主进程**捆绑在同一个 uvicorn 进程内**的 background asyncio task，**不是**独立进程，**不是**集群成员。代码里的 `lease` / `heartbeat` / `requeue_running` 是早期遗留的"多 worker 协调"脚手架，从未被多进程使用。涉及 worker 的设计按"单进程 in-process 协调"思路。
