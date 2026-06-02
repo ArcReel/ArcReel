@@ -220,7 +220,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
         sideOffset={6}
         width="w-[22rem]"
         maxHeight={420}
-        className="overflow-hidden rounded-xl border border-hairline shadow-2xl shadow-black/40"
+        className="flex flex-col overflow-hidden rounded-xl border border-hairline shadow-2xl shadow-black/40"
       >
         <div
           ref={listboxRef}
@@ -229,7 +229,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
           aria-label={ariaLabel}
           tabIndex={-1}
           onKeyDown={onListKeyDown}
-          className="max-h-[420px] overflow-y-auto py-1.5 outline-none"
+          className="min-h-0 flex-1 overflow-y-auto py-1.5 outline-none"
         >
           {grouped.map((group, gIdx) => {
             if (group.options.length === 0) return null;
