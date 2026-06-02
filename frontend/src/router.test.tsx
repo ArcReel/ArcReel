@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
@@ -45,6 +45,11 @@ describe("AppRoutes", () => {
     // 路由测试无需关心配置状态，也避免触发未 mock 的供应商接口与退避重试。
     useConfigStatusStore.setState({ initialized: true });
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    // 个别用例切到 fake timers,统一还原,避免污染其它用例。
+    vi.useRealTimers();
   });
 
   it("redirects root path to /app/projects", async () => {
@@ -150,5 +155,29 @@ describe("AppRoutes", () => {
     useAuthStore.setState({ isAuthenticated: false, isLoading: false });
     renderAt("/app/projects");
     expect(await screen.findByTestId("login-page")).toBeInTheDocument();
+  });
+
+  it("ConfigStatusLoader 挂载后拉取配置状态,未初始化时按退避重试", async () => {
+    vi.useFakeTimers();
+    // 从未初始化起步,让根级 ConfigStatusLoader 真正执行 fetch/重试逻辑
+    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
+    // 让配置拉取失败 → store 保持未初始化 → loader 按退避重试
+    vi.spyOn(API, "getProviders").mockRejectedValue(new Error("backend not ready"));
+    vi.spyOn(API, "listCustomProviders").mockRejectedValue(new Error("backend not ready"));
+    vi.spyOn(API, "getSystemConfig").mockRejectedValue(new Error("backend not ready"));
+
+    renderAt("/app/projects");
+
+    // 挂载即首次拉取
+    await vi.advanceTimersByTimeAsync(0);
+    expect(API.getProviders).toHaveBeenCalledTimes(1);
+
+    // 第一次退避重试(800ms)
+    await vi.advanceTimersByTimeAsync(800);
+    expect(API.getProviders).toHaveBeenCalledTimes(2);
+
+    // 第二次退避重试(再 1600ms)
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(API.getProviders).toHaveBeenCalledTimes(3);
   });
 });
