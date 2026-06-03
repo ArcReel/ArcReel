@@ -98,6 +98,14 @@ async def test_sora2pro_4k_capped_to_1080p(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sora2pro_custom_short_picks_nearest_tier(tmp_path):
+    """sora-2-pro 自定义分辨率（短边 1000，更近 1080）选最近档 1080p，不被「向下取整」误降到 720p。"""
+    backend = _make_backend(model="sora-2-pro")
+    size = await _capture_size(backend, output_path=tmp_path / "o.mp4", aspect_ratio="9:16", resolution="1000x1778")
+    assert size == "1080x1920"
+
+
+@pytest.mark.asyncio
 async def test_sora2_base_ignores_1080p_request(tmp_path):
     """sora-2（base）不支持 1080p：请求 1080p 仍降级为 720x1280（清晰度让位模型能力）。"""
     backend = _make_backend(model="sora-2")

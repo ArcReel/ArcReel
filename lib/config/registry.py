@@ -674,7 +674,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video"],
                 default=True,
                 supported_durations=[4, 8, 12],
-                resolutions=["720p", "1080p"],
+                resolutions=["720p"],
                 max_reference_images=1,
                 pricing=_sora_video_pricing("sora-2", {"720p": 0.10}),
             ),

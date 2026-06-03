@@ -54,11 +54,13 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
     target = aw / ah
     is_pro = "pro" in model.lower()
     short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
-    use_1080 = is_pro and short >= _SORA_1080P_MIN_SHORT
-    legal = _SORA_SIZES_1080P if use_1080 else _SORA_SIZES_720P
-    achieved_short = _SORA_1080P_MIN_SHORT if use_1080 else 720
+    # sora 支持的短边档：base 仅 720；pro 增 1080。按「最近档」选（等距取更高档），避免把
+    # short=1000 这类自定义分辨率值无故降到 720p（floor 会误降，最近档不会）。
+    supported_shorts = [720, _SORA_1080P_MIN_SHORT] if is_pro else [720]
+    achieved_short = min(supported_shorts, key=lambda s: (abs(s - short), -s))
+    legal = _SORA_SIZES_1080P if achieved_short == _SORA_1080P_MIN_SHORT else _SORA_SIZES_720P
     if short > achieved_short:
-        # sora-2 base 请 1080p、或 sora-2-pro 请 4K：sora 无更高档，封顶/降级并提示清晰度让位
+        # 请求高于模型可达档（base 请 1080p、或 pro 请 4K）：封顶并提示清晰度让位
         logger.warning(
             "OpenAI video: model=%s 无法满足分辨率请求 %s（短边 %d），输出封顶到 %dp 档（清晰度让位比例）",
             model,
