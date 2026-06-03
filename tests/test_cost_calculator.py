@@ -263,36 +263,17 @@ class TestOpenAICost:
         assert currency == "USD"
         assert amount == pytest.approx(0.75)
 
-    def test_openai_image_cost_square(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-1.5", quality="medium")
+    def test_openai_image_cost_low(self):
+        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-2", quality="low")
         assert currency == "USD"
-        assert amount == pytest.approx(0.034)  # 默认 1024x1024
-
-    def test_openai_image_cost_portrait(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", quality="medium", size="1024x1792"
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(0.051)
+        assert amount == pytest.approx(0.006)  # 默认 1024x1024
 
     def test_openai_image_cost_landscape(self):
         amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", quality="high", size="1792x1024"
+            "openai", "image", model="gpt-image-2", quality="high", size="1792x1024"
         )
         assert currency == "USD"
-        assert amount == pytest.approx(0.200)
-
-    def test_openai_image_cost_low(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-1-mini", quality="low")
-        assert currency == "USD"
-        assert amount == pytest.approx(0.005)
-
-    def test_openai_image_cost_mini_portrait(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1-mini", quality="medium", size="1024x1792"
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(0.017)
+        assert amount == pytest.approx(0.317)
 
     def test_openai_video_cost(self):
         amount, currency = cost_calculator.calculate_cost("openai", "video", duration_seconds=8, model="sora-2")
@@ -334,12 +315,12 @@ class TestOpenAICost:
     def test_unified_entry_openai(self):
         amount, _ = cost_calculator.calculate_cost("openai", "text", input_tokens=500_000, output_tokens=100_000)
         assert amount == pytest.approx(0.375 + 0.45)
-        amount, _ = cost_calculator.calculate_cost("openai", "image", model="gpt-image-1.5", quality="high")
-        assert amount == pytest.approx(0.133)  # 默认 1024x1024
+        amount, _ = cost_calculator.calculate_cost("openai", "image", model="gpt-image-2", quality="high")
+        assert amount == pytest.approx(0.211)  # 默认 1024x1024
         amount, _ = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", quality="high", size="1024x1792"
+            "openai", "image", model="gpt-image-2", quality="high", size="1024x1792"
         )
-        assert amount == pytest.approx(0.200)
+        assert amount == pytest.approx(0.317)
         amount, _ = cost_calculator.calculate_cost("openai", "video", duration_seconds=12, model="sora-2")
         assert amount == pytest.approx(1.20)
 
@@ -361,26 +342,6 @@ class TestOpenAIImageTokenCost:
         )
         assert currency == "USD"
         assert amount == pytest.approx((10_000 * 8 + 2_000 * 30 + 500 * 5 + 100 * 0) / 1_000_000)
-
-    def test_token_cost_gpt_image_1_5_text_output(self):
-        # gpt-image-1.5 text output 费率 $10/M，与 gpt-image-2 不同。
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", text_output_tokens=200
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(200 * 10 / 1_000_000)
-
-    def test_token_cost_gpt_image_1_mini(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai",
-            "image",
-            model="gpt-image-1-mini",
-            image_input_tokens=5_000,
-            image_output_tokens=1_000,
-            text_input_tokens=300,
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx((5_000 * 2.5 + 1_000 * 8 + 300 * 2) / 1_000_000)
 
     def test_zero_tokens_still_uses_token_path(self):
         # 所有 token 至少有一个非 None 时走 token 主路径，即使全为 0。

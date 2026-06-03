@@ -74,8 +74,8 @@ class TestOpenAIImageBackend:
         with patch("lib.openai_shared.AsyncOpenAI"):
             from lib.image_backends.openai import OpenAIImageBackend
 
-            backend = OpenAIImageBackend(api_key="test-key", model="gpt-image-1-mini")
-            assert backend.model == "gpt-image-1-mini"
+            backend = OpenAIImageBackend(api_key="test-key", model="custom-image-model")
+            assert backend.model == "custom-image-model"
 
     def test_capabilities(self):
         with patch("lib.openai_shared.AsyncOpenAI"):
