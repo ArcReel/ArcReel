@@ -24,7 +24,7 @@ class TestNormalizeStyle:
 
     def test_empty_and_none_safe(self):
         assert normalize_style("") == ""
-        assert normalize_style(None) == ""  # pyright: ignore[reportArgumentType]
+        assert normalize_style(None) == ""
 
 
 class TestPromptUtils:

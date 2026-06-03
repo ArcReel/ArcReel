@@ -40,7 +40,8 @@ def test_no_preset_starts_with_huafeng_prefix():
         if tpl_id == "anim_arcane":
             assert data["prompt"].startswith("油画三渲二画风：")
             continue
-        assert not data["prompt"].startswith("画风："), tpl_id
+        # 全角/半角冒号都要排除，与 normalize_style 的清理口径（画风： / 画风:）一致
+        assert not data["prompt"].startswith(("画风：", "画风:")), tpl_id
 
 
 def test_resolve_template_prompt_ok():

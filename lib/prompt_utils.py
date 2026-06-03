@@ -12,7 +12,7 @@ import yaml
 _STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
 
 
-def normalize_style(style: str) -> str:
+def normalize_style(style: str | None) -> str:
     """去掉风格值开头的「画风：」前缀并 strip 两端空白；幂等（已无前缀则原样返回）。
 
     存量项目的 style 取自旧版风格模版（值以「画风：」开头），叠加英文 ``Style:`` 标签会渲染成
