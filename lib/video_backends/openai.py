@@ -83,6 +83,8 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
             aspect_ratio,
             chosen,
         )
+    # 后置不变量：只返回 sora 合法档全集内的尺寸，防止未来改档逻辑时静默产出非法 size。
+    assert chosen in _SORA_LEGAL_SIZES, f"_resolve_size produced illegal sora size: {chosen}"
     return chosen
 
 
