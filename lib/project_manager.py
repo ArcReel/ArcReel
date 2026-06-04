@@ -587,6 +587,10 @@ class ProjectManager:
             default_duration = 4 if kind == "segments" else 8
 
             def _duration(item: dict) -> int:
+                # 损坏脚本可能混入非 dict 元素（如 ["foo", {...}]）——与 script_editor 的
+                # _find_index / _existing_ids 一致地跳过，退化为 default 而非抛 AttributeError。
+                if not isinstance(item, dict):
+                    return default_duration
                 value = item.get("duration_seconds")
                 # bool 是 int 子类,排除避免 duration_seconds=True 被算成 1 秒、=False 算成 0 秒
                 if isinstance(value, bool):
@@ -1125,6 +1129,10 @@ class ProjectManager:
             items, id_field, _kind = resolve_items(script)
 
             for item in items:
+                # 损坏脚本的非 dict 元素跳过（镜像 script_editor._find_index 的 isinstance 守卫），
+                # 避免 item.get(id_field) 抛 AttributeError；未命中仍走下方 else 的 KeyError fail-loud。
+                if not isinstance(item, dict):
+                    continue
                 if str(item.get(id_field)) == str(scene_id):
                     assets = item.get("generated_assets")
                     if not isinstance(assets, dict):
@@ -1175,8 +1183,9 @@ class ProjectManager:
             content_mode = script.get("content_mode", "narration")
             items, id_field, _kind = resolve_items(script)
 
-            # 建立 scene_id → item 索引，避免 O(N*M) 查找
-            item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items}
+            # 建立 scene_id → item 索引，避免 O(N*M) 查找。损坏脚本的非 dict 元素过滤掉
+            # （镜像 script_editor._existing_ids），命中这类 id 的 update 会落 missing → KeyError fail-loud。
+            item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items if isinstance(item, dict)}
             missing: list[str] = []
 
             for scene_id, asset_type, asset_path in updates:
@@ -1230,7 +1239,8 @@ class ProjectManager:
             assets = item.get("generated_assets")
             return not isinstance(assets, dict) or not assets.get(asset_type)
 
-        return [item for item in items if _missing(item)]
+        # 损坏脚本的非 dict 元素直接剔除（镜像 script_editor._existing_ids 的过滤），UI 不渲染垃圾项。
+        return [item for item in items if isinstance(item, dict) and _missing(item)]
 
     # ==================== 文件路径工具 ====================
 
@@ -1275,7 +1285,8 @@ class ProjectManager:
             assets = item.get("generated_assets")
             return not isinstance(assets, dict) or not assets.get("storyboard_image")
 
-        return [item for item in items if _missing_storyboard(item)]
+        # 同 get_pending_scenes：非 dict 元素剔除，镜像 script_editor._existing_ids。
+        return [item for item in items if isinstance(item, dict) and _missing_storyboard(item)]
 
     # ==================== 项目级元数据管理 ====================
 

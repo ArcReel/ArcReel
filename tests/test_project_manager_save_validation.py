@@ -338,3 +338,51 @@ class TestAssetWritebackExemption:
         # 同样 get_scenes_needing_storyboard 也容错
         result2 = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
         assert len(result2) == 1
+
+    def _seed_non_dict_element(self, tmp_path: Path) -> None:
+        """落盘构造合法 list 但混入非 dict 元素（"foo"）的脏剧本——模拟手改/损坏数据。"""
+        script_dir = tmp_path / "projects" / "demo" / "scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "episode_1.json").write_text(
+            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            '"segments": ["foo", {"segment_id": "E1S01", "duration_seconds": 4}], '
+            '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
+            encoding="utf-8",
+        )
+
+    def test_read_helpers_skip_non_dict_items(self, tmp_path: Path):
+        """读取侧：数组混入非 dict 元素（"foo"）时跳过它、只返回合法 dict 项，不抛 AttributeError。
+        与 script_editor._existing_ids 的 isinstance 过滤一致。"""
+        pm = _pm(tmp_path)
+        self._seed_non_dict_element(tmp_path)
+        pending = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
+        assert [item["segment_id"] for item in pending] == ["E1S01"]
+        needing = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
+        assert [item["segment_id"] for item in needing] == ["E1S01"]
+
+    def test_update_scene_asset_writes_with_non_dict_sibling(self, tmp_path: Path):
+        """写入侧 update_scene_asset：非 dict 兄弟元素被跳过，合法 id 正常回写，不抛 AttributeError。
+        写回触发的 metadata 重算（_duration）遍历含非 dict 元素的数组也不崩。"""
+        pm = _pm(tmp_path)
+        self._seed_non_dict_element(tmp_path)
+        pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "storyboards/E1S01.png")
+        saved = pm.load_script("demo", "episode_1.json")
+        target = next(s for s in saved["segments"] if isinstance(s, dict) and s.get("segment_id") == "E1S01")
+        assert target["generated_assets"]["storyboard_image"] == "storyboards/E1S01.png"
+
+    def test_batch_update_scene_assets_writes_with_non_dict_sibling(self, tmp_path: Path):
+        """批量写入：非 dict 兄弟元素被过滤；合法 id 成功；写回触发的 metadata 重算（_duration）
+        遍历含非 dict 元素的数组也不抛 AttributeError。"""
+        pm = _pm(tmp_path)
+        self._seed_non_dict_element(tmp_path)
+        pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
+        saved = pm.load_script("demo", "episode_1.json")
+        target = next(s for s in saved["segments"] if isinstance(s, dict) and s.get("segment_id") == "E1S01")
+        assert target["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
+
+    def test_batch_update_scene_assets_missing_id_fails_loud_with_non_dict_sibling(self, tmp_path: Path):
+        """命中不存在 id 仍 fail-loud（KeyError）——非 dict 元素被过滤后不会被误当作 id 命中。"""
+        pm = _pm(tmp_path)
+        self._seed_non_dict_element(tmp_path)
+        with pytest.raises(KeyError):
+            pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S99", "video_clip", "videos/x.mp4")])
