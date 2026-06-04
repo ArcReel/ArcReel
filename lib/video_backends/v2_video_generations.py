@@ -98,6 +98,7 @@ _VIDEO_URL_PATHS: tuple[tuple[str | int, ...], ...] = (
     ("url",),
 )
 _TASK_ID_PATHS: tuple[tuple[str | int, ...], ...] = (
+    ("generation_id",),
     ("id",),
     ("task_id",),
     ("data", "task_id"),
