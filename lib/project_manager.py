@@ -578,7 +578,12 @@ class ProjectManager:
                 e,
             )
         else:
-            metadata["total_scenes"] = len(items)
+            # 损坏脚本可能混入非 dict 元素（如 ["foo", {...}]）——它们在读取路径
+            # （get_pending_scenes 等）与写入路径（batch_update 索引 / update_scene_asset 循环）
+            # 都被当作不存在过滤掉，metadata 重算一并排除：否则 total_scenes 会多计、
+            # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
+            scene_items = [item for item in items if isinstance(item, dict)]
+            metadata["total_scenes"] = len(scene_items)
             # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判。
             # ``.get(k, default)`` 仅在键缺失时返回 default，键存在但值为 None（脏数据）会
             # 返回 None 让 sum() 抛 TypeError——显式判 None 视为缺失，与同函数前面对 metadata
@@ -587,10 +592,6 @@ class ProjectManager:
             default_duration = 4 if kind == "segments" else 8
 
             def _duration(item: dict) -> int:
-                # 损坏脚本可能混入非 dict 元素（如 ["foo", {...}]）——与 script_editor 的
-                # _find_index / _existing_ids 一致地跳过，退化为 default 而非抛 AttributeError。
-                if not isinstance(item, dict):
-                    return default_duration
                 value = item.get("duration_seconds")
                 # bool 是 int 子类,排除避免 duration_seconds=True 被算成 1 秒、=False 算成 0 秒
                 if isinstance(value, bool):
@@ -599,7 +600,7 @@ class ProjectManager:
                     return int(value)
                 return default_duration
 
-            metadata["estimated_duration_seconds"] = sum(_duration(item) for item in items)
+            metadata["estimated_duration_seconds"] = sum(_duration(item) for item in scene_items)
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)

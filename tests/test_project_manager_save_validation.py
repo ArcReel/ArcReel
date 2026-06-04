@@ -379,6 +379,9 @@ class TestAssetWritebackExemption:
         saved = pm.load_script("demo", "episode_1.json")
         target = next(s for s in saved["segments"] if isinstance(s, dict) and s.get("segment_id") == "E1S01")
         assert target["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
+        # 非 dict 元素（"foo"）不计入 metadata：只有 1 个合法片段、4 秒，不被垃圾元素撑大
+        assert saved["metadata"]["total_scenes"] == 1
+        assert saved["metadata"]["estimated_duration_seconds"] == 4
 
     def test_batch_update_scene_assets_missing_id_fails_loud_with_non_dict_sibling(self, tmp_path: Path):
         """命中不存在 id 仍 fail-loud（KeyError）——非 dict 元素被过滤后不会被误当作 id 命中。"""
