@@ -427,52 +427,23 @@ class TestArkModelCapabilities:
 class TestArkServiceTierParam:
     """service_tier 只对声明了 FLEX_TIER 能力的模型传入，否则 API 会报错。"""
 
-    async def test_seedance_2_does_not_send_service_tier(self, tmp_path):
+    @pytest.mark.parametrize(
+        "model",
+        ["doubao-seedance-2-0-260128", "dreamina-seedance-2-0-260128"],
+    )
+    async def test_seedance_2_does_not_send_service_tier(self, tmp_path, model):
+        """seedance-2 系列（含 dreamina- 前缀的自定义供应商命名）不得发 service_tier，否则 r2v 上游 400。"""
         output = tmp_path / "out.mp4"
         mock_client = MagicMock()
         mock_client.content_generation = MagicMock()
         mock_client.content_generation.tasks = MagicMock()
 
         with patch("lib.video_backends.ark.create_ark_client", return_value=mock_client):
-            backend = ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
+            backend = ArkVideoBackend(api_key="test", model=model)
         backend._client = mock_client
 
         create_result = MagicMock()
         create_result.id = "cgt-seedance2"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
-
-        get_result = MagicMock()
-        get_result.status = "succeeded"
-        get_result.content = MagicMock()
-        get_result.content.video_url = "https://cdn.example.com/v.mp4"
-        get_result.seed = None
-        get_result.usage = None
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
-
-        patcher = _mock_httpx_stream()
-        try:
-            request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                await backend.generate(request)
-        finally:
-            patcher.stop()
-
-        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
-        assert "service_tier" not in create_kwargs
-
-    async def test_seedance_2_dreamina_prefix_does_not_send_service_tier(self, tmp_path):
-        """dreamina- 前缀的 seedance-2（自定义供应商常见）同样不得发 service_tier，否则 r2v 上游 400。"""
-        output = tmp_path / "out.mp4"
-        mock_client = MagicMock()
-        mock_client.content_generation = MagicMock()
-        mock_client.content_generation.tasks = MagicMock()
-
-        with patch("lib.video_backends.ark.create_ark_client", return_value=mock_client):
-            backend = ArkVideoBackend(api_key="test", model="dreamina-seedance-2-0-260128")
-        backend._client = mock_client
-
-        create_result = MagicMock()
-        create_result.id = "cgt-dreamina2"
         backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
