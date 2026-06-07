@@ -64,6 +64,89 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 
 @dataclass
+class CapacityTable:
+    """Per-provider concurrency limits keyed by ``provider_id × media_type``.
+
+    纯标量配置表，唯一真相来自 provider config。改并发 = 只改这张表上一个数字，
+    占用台账不受影响。``get`` 三态语义区分"已知但不支持（0）"与"provider 未知（懒默认）"。
+    """
+
+    _limits: dict[str, dict[str, int]]  # provider_id → {media_type → 上限}
+    _defaults: dict[str, int]  # {"image": 5, "video": 3}，未知 provider 懒默认
+
+    def get(self, provider_id: str, media_type: str) -> int:
+        """返回 ``(provider, media)`` 的并发上限。
+
+        - provider 已知 + lane 在表 → 登记值（可能 0=不支持该 lane）
+        - provider 已知 + lane 不在表 → 0（不支持）
+        - provider 整个未知 → ``_defaults[media_type]``（纯查询，不写回表）
+        """
+        lanes = self._limits.get(provider_id)
+        if lanes is None:
+            return self._defaults.get(media_type, 0)
+        return lanes.get(media_type, 0)
+
+    def knows(self, provider_id: str) -> bool:
+        """provider 是否在表中（区分"已知但不支持"与"完全未知"）。"""
+        return provider_id in self._limits
+
+    def replace(self, new_limits: dict[str, dict[str, int]]) -> None:
+        """整表换数字（reload 入口）。占用台账与默认值不受影响。"""
+        self._limits = new_limits
+
+    @classmethod
+    def from_env(cls) -> CapacityTable:
+        """从环境变量 / 默认值构造（DB 不可用前或测试用）。"""
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+        video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+        limits: dict[str, dict[str, int]] = {}
+        for provider_id, meta in PROVIDER_REGISTRY.items():
+            limits[provider_id] = {
+                "image": image_max if "image" in meta.media_types else 0,
+                "video": video_max if "video" in meta.media_types else 0,
+            }
+        return cls(_limits=limits, _defaults={"image": image_max, "video": video_max})
+
+    @classmethod
+    async def from_db(cls) -> CapacityTable:
+        """从 ConfigService + PROVIDER_REGISTRY + 自定义供应商加载容量表。"""
+        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.config.service import ConfigService
+        from lib.custom_provider.endpoints import endpoint_to_media_type
+        from lib.db import safe_session_factory
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+        default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+
+        limits: dict[str, dict[str, int]] = {}
+        async with safe_session_factory() as session:
+            svc = ConfigService(session)
+            all_configs = await svc.get_all_provider_configs()
+            for provider_id, meta in PROVIDER_REGISTRY.items():
+                config = all_configs.get(provider_id, {})
+                supports_image = "image" in meta.media_types
+                supports_video = "video" in meta.media_types
+                image_max = int(config.get("image_max_workers", str(default_image))) if supports_image else 0
+                video_max = int(config.get("video_max_workers", str(default_video))) if supports_video else 0
+                limits[provider_id] = {"image": max(0, image_max), "video": max(0, video_max)}
+
+            repo = CustomProviderRepository(session)
+            for provider, models in await repo.list_providers_with_models():
+                pid = provider.provider_id  # "custom-{id}"
+                media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
+                limits[pid] = {
+                    "image": default_image if "image" in media_types else 0,
+                    "video": default_video if "video" in media_types else 0,
+                }
+
+        logger.info("从 DB 加载供应商容量表: %s", limits)
+        return cls(_limits=limits, _defaults={"image": default_image, "video": default_video})
+
+
+@dataclass
 class ProviderPool:
     """Per-provider concurrency pool with independent image/video lanes.
 
@@ -142,52 +225,6 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     return resolved.provider_id or DEFAULT_PROVIDER
 
 
-async def _load_pools_from_db() -> dict[str, ProviderPool]:
-    """Load per-provider pool configs from ConfigService + PROVIDER_REGISTRY + custom providers."""
-    from lib.config.registry import PROVIDER_REGISTRY
-    from lib.config.service import ConfigService
-    from lib.db import safe_session_factory
-    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-    default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
-    default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
-
-    pools: dict[str, ProviderPool] = {}
-    async with safe_session_factory() as session:
-        svc = ConfigService(session)
-        all_configs = await svc.get_all_provider_configs()
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            config = all_configs.get(provider_id, {})
-            supports_image = "image" in meta.media_types
-            supports_video = "video" in meta.media_types
-            image_max = int(config.get("image_max_workers", str(default_image))) if supports_image else 0
-            video_max = int(config.get("video_max_workers", str(default_video))) if supports_video else 0
-            pools[provider_id] = ProviderPool(
-                provider_id=provider_id,
-                image_max=max(0, image_max),
-                video_max=max(0, video_max),
-            )
-
-        # 加载自定义供应商的池配置（使用与内置供应商相同的默认值）
-        from lib.custom_provider.endpoints import endpoint_to_media_type
-
-        repo = CustomProviderRepository(session)
-        for provider, models in await repo.list_providers_with_models():
-            pid = provider.provider_id  # "custom-{id}"
-            media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
-            pools[pid] = ProviderPool(
-                provider_id=pid,
-                image_max=default_image if "image" in media_types else 0,
-                video_max=default_video if "video" in media_types else 0,
-            )
-
-    logger.info(
-        "从 DB 加载供应商池配置: %s",
-        {pid: (p.image_max, p.video_max) for pid, p in pools.items()},
-    )
-    return pools
-
-
 def _build_default_pools() -> dict[str, ProviderPool]:
     """Build pools from env vars / defaults (used before DB is available or in tests).
 
@@ -217,11 +254,15 @@ class GenerationWorker:
         queue: GenerationQueue | None = None,
         lease_name: str = "default",
         pools: dict[str, ProviderPool] | None = None,
+        capacity: CapacityTable | None = None,
     ):
         self.queue = queue or get_generation_queue()
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
 
+        # 容量表（上限，用户配置驱动）与占用池（运行时记账）分离：前者是配置真相，
+        # 后者承载 inflight/pending。reload 只换容量表数字，占用池不重建。
+        self._capacity: CapacityTable = capacity or CapacityTable.from_env()
         self._pools: dict[str, ProviderPool] = pools or _build_default_pools()
         logger.info(
             "Worker 初始池配置: %s",
@@ -303,58 +344,44 @@ class GenerationWorker:
         return False
 
     async def reload_limits(self) -> None:
-        """Reload per-provider concurrency limits from DB.
+        """Reload per-provider concurrency limits from DB into the CapacityTable.
 
-        Preserves in-flight tasks: only updates max limits on existing pools
-        and adds/removes pool entries as needed.
+        占用池不重建：只把容量整数原位更新到现有 pool 上，inflight/pending 容器
+        引用纹丝不动——彻底消除"reload 时活体搬运在跑 task"的脆弱性。
         """
         try:
-            new_pools = await _load_pools_from_db()
+            new = await CapacityTable.from_db()
         except Exception:
             logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
             return
+        self._capacity.replace(new._limits)
 
-        # Migrate inflight + pending tasks to new pool objects；漏迁 video_pending
-        # 会让 sem 排队中的 sub-task 引用旧 pool 字典，新 pool 看不见，cancel 失配
-        # 且 keep-alive 判定漏掉这些 task。
-        for pid, new_pool in new_pools.items():
-            old_pool = self._pools.get(pid)
-            if old_pool:
-                new_pool.image_inflight = old_pool.image_inflight
-                new_pool.video_inflight = old_pool.video_inflight
-                new_pool.video_pending = old_pool.video_pending
+        # 把容量表的数字原位同步到占用池（不重建对象、不迁移 inflight/pending）。
+        for pid in self._capacity._limits:
+            pool = self._pools.get(pid)
+            if pool is None:
+                self._pools[pid] = ProviderPool(
+                    provider_id=pid,
+                    image_max=self._capacity.get(pid, "image"),
+                    video_max=self._capacity.get(pid, "video"),
+                )
+            else:
+                pool.image_max = self._capacity.get(pid, "image")
+                pool.video_max = self._capacity.get(pid, "video")
+        # 注销的 provider：仍有占用则容量归零保留到耗尽，否则移除空池。
+        for pid in list(self._pools):
+            if not self._capacity.knows(pid):
+                pool = self._pools[pid]
+                if pool.all_active():
+                    pool.image_max = 0
+                    pool.video_max = 0
+                else:
+                    del self._pools[pid]
 
-        # Pools that existed before but are no longer registered:
-        # 仍有 pending / inflight 的旧 pool 保留到耗尽——用 all_active 判定（含 pending）。
-        for pid, old_pool in self._pools.items():
-            if pid not in new_pools and old_pool.all_active():
-                new_pools[pid] = old_pool
-                new_pools[pid].image_max = 0
-                new_pools[pid].video_max = 0
-
-        self._pools = new_pools
         logger.info(
             "已更新供应商池配置: %s",
             {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
         )
-
-    def reload_limits_from_env(self) -> None:
-        """Reload worker concurrency limits from environment variables.
-
-        Backward-compatible shim. Prefer reload_limits() for DB-backed config.
-        """
-        image_max = _read_int_env("IMAGE_MAX_WORKERS", 3, minimum=1)
-        video_max = _read_int_env("VIDEO_MAX_WORKERS", 2, minimum=1)
-        default_pool = self._pools.get(DEFAULT_PROVIDER)
-        if default_pool:
-            default_pool.image_max = image_max
-            default_pool.video_max = video_max
-        else:
-            self._pools[DEFAULT_PROVIDER] = ProviderPool(
-                provider_id=DEFAULT_PROVIDER,
-                image_max=image_max,
-                video_max=video_max,
-            )
 
     # ------------------------------------------------------------------
     # Lifecycle

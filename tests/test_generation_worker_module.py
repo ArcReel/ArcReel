@@ -6,6 +6,7 @@ import pytest
 from lib.generation_worker import (
     _ORPHAN_RESCAN_LEASE_LOST_MULT,
     DEFAULT_PROVIDER,
+    CapacityTable,
     GenerationWorker,
     ProviderPool,
     _build_default_pools,
@@ -228,6 +229,76 @@ class TestBuildDefaultPools:
         pools = _build_default_pools()
         assert pools[DEFAULT_PROVIDER].image_max == 5
         assert pools[DEFAULT_PROVIDER].video_max == 4
+
+
+class TestCapacityTable:
+    """容量表：provider × media_type → 上限，三态 get + reload 只换数字。"""
+
+    def test_get_three_states(self):
+        table = CapacityTable(
+            _limits={"known": {"image": 4, "video": 0}},
+            _defaults={"image": 5, "video": 3},
+        )
+        # 已知 + lane 在表 → 登记值（含 0=不支持该 lane）
+        assert table.get("known", "image") == 4
+        assert table.get("known", "video") == 0
+        # 已知 + lane 不在表 → 0
+        assert table.get("known", "audio") == 0
+        # 完全未知 → 默认，且纯查询不写回
+        assert table.get("unknown", "image") == 5
+        assert table.get("unknown", "video") == 3
+        assert "unknown" not in table._limits
+
+    def test_knows_distinguishes_unsupported_vs_unknown(self):
+        table = CapacityTable(
+            _limits={"known": {"image": 0, "video": 0}},
+            _defaults={"image": 5, "video": 3},
+        )
+        assert table.knows("known") is True
+        assert table.knows("missing") is False
+
+    def test_replace_only_swaps_numbers(self):
+        table = CapacityTable(_limits={"p": {"image": 3, "video": 3}}, _defaults={"image": 5, "video": 3})
+        table.replace({"p": {"image": 9, "video": 1}})
+        assert table.get("p", "image") == 9
+        assert table.get("p", "video") == 1
+        # 默认不受 replace 影响
+        assert table.get("unknown", "image") == 5
+
+    def test_from_env_derives_support_and_defaults(self, monkeypatch):
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
+        monkeypatch.delenv("VIDEO_MAX_WORKERS", raising=False)
+        table = CapacityTable.from_env()
+        for pid, meta in PROVIDER_REGISTRY.items():
+            assert table.knows(pid)
+            assert table.get(pid, "image") == (5 if "image" in meta.media_types else 0)
+            assert table.get(pid, "video") == (3 if "video" in meta.media_types else 0)
+
+    def test_from_env_reads_env(self, monkeypatch):
+        monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
+        monkeypatch.setenv("VIDEO_MAX_WORKERS", "2")
+        table = CapacityTable.from_env()
+        # 未知 provider 的懒默认跟随 env
+        assert table.get("unknown", "image") == 7
+        assert table.get("unknown", "video") == 2
+
+    async def test_from_db_known_providers_and_unsupported_lanes_zero(self):
+        """from_db：所有 registry provider 已知，不支持的 lane 强制 0。
+
+        只断言与 config 数值无关的确定不变量（已知 + 不支持→0），避免本地 dev DB
+        的 config 覆盖导致 env 耦合。
+        """
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        table = await CapacityTable.from_db()
+        for pid, meta in PROVIDER_REGISTRY.items():
+            assert table.knows(pid)
+            if "image" not in meta.media_types:
+                assert table.get(pid, "image") == 0
+            if "video" not in meta.media_types:
+                assert table.get(pid, "video") == 0
 
 
 class TestGenerationWorker:
@@ -619,15 +690,6 @@ class TestGenerationWorker:
         worker = GenerationWorker(queue=_FakeQueue(), pools=pools)
         assert worker.image_workers == 4
         assert worker.video_workers == 2
-
-    def test_reload_limits_from_env(self, monkeypatch):
-        queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue)
-        monkeypatch.setenv("IMAGE_MAX_WORKERS", "10")
-        monkeypatch.setenv("VIDEO_MAX_WORKERS", "8")
-        worker.reload_limits_from_env()
-        assert worker._pools[DEFAULT_PROVIDER].image_max == 10
-        assert worker._pools[DEFAULT_PROVIDER].video_max == 8
 
     def test_get_or_create_pool_unknown(self):
         worker = GenerationWorker(queue=_FakeQueue())
