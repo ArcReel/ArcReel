@@ -208,14 +208,6 @@ class TestCapacityTable:
         assert table.get("unknown", "video") == 3
         assert "unknown" not in table._limits
 
-    def test_knows_distinguishes_unsupported_vs_unknown(self):
-        table = CapacityTable(
-            _limits={"known": {"image": 0, "video": 0}},
-            _defaults={"image": 5, "video": 3},
-        )
-        assert table.knows("known") is True
-        assert table.knows("missing") is False
-
     def test_replace_only_swaps_numbers(self):
         table = CapacityTable(_limits={"p": {"image": 3, "video": 3}}, _defaults={"image": 5, "video": 3})
         table.replace({"p": {"image": 9, "video": 1}})
@@ -231,7 +223,7 @@ class TestCapacityTable:
         monkeypatch.delenv("VIDEO_MAX_WORKERS", raising=False)
         table = CapacityTable.from_env()
         for pid, meta in PROVIDER_REGISTRY.items():
-            assert table.knows(pid)
+            assert pid in table._limits
             assert table.get(pid, "image") == (5 if "image" in meta.media_types else 0)
             assert table.get(pid, "video") == (3 if "video" in meta.media_types else 0)
 
@@ -253,7 +245,7 @@ class TestCapacityTable:
 
         table = await CapacityTable.from_db()
         for pid, meta in PROVIDER_REGISTRY.items():
-            assert table.knows(pid)
+            assert pid in table._limits
             if "image" not in meta.media_types:
                 assert table.get(pid, "image") == 0
             if "video" not in meta.media_types:

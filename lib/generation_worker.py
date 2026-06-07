@@ -86,10 +86,6 @@ class CapacityTable:
             return self._defaults.get(media_type, 0)
         return lanes.get(media_type, 0)
 
-    def knows(self, provider_id: str) -> bool:
-        """provider 是否在表中（区分"已知但不支持"与"完全未知"）。"""
-        return provider_id in self._limits
-
     def replace(self, new_limits: dict[str, dict[str, int]]) -> None:
         """整表换数字（reload 入口）。占用台账与默认值不受影响。"""
         self._limits = new_limits
@@ -135,11 +131,10 @@ class CapacityTable:
             all_configs = await svc.get_all_provider_configs()
             for provider_id, meta in PROVIDER_REGISTRY.items():
                 config = all_configs.get(provider_id, {})
-                supports_image = "image" in meta.media_types
-                supports_video = "video" in meta.media_types
-                image_max = int(config.get("image_max_workers", str(default_image))) if supports_image else 0
-                video_max = int(config.get("video_max_workers", str(default_video))) if supports_video else 0
-                limits[provider_id] = {"image": max(0, image_max), "video": max(0, video_max)}
+                image_max = max(0, int(config.get("image_max_workers", str(default_image))))
+                video_max = max(0, int(config.get("video_max_workers", str(default_video))))
+                # _lane_limits 统一负责"不支持的 lane → 0"，三个装载路径共用同一投影点
+                limits[provider_id] = cls._lane_limits(meta.media_types, image_max, video_max)
 
             repo = CustomProviderRepository(session)
             for provider, models in await repo.list_providers_with_models():
