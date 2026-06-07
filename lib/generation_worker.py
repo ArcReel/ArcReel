@@ -1,8 +1,8 @@
 """
 Background worker that consumes generation tasks from SQLite queue.
 
-Per-provider pool scheduling: each provider gets independent concurrency
-limits for image and video tasks, read from ConfigService (DB).
+Per-provider × media_type 调度，拆成两件独立的东西：CapacityTable（上限，来自
+ConfigService 的用户配置）+ SlotTable（运行时占用台账）。
 """
 
 from __future__ import annotations
@@ -94,6 +94,17 @@ class CapacityTable:
         """整表换数字（reload 入口）。占用台账与默认值不受影响。"""
         self._limits = new_limits
 
+    @staticmethod
+    def _lane_limits(media_types: Any, image: int, video: int) -> dict[str, int]:
+        """按 provider 支持的 media_types 把上限投影成 lane 字典；不支持的 lane → 0。
+
+        容量装载的单一映射点：未来接入 audio lane 时在这里加一行即可。
+        """
+        return {
+            "image": image if "image" in media_types else 0,
+            "video": video if "video" in media_types else 0,
+        }
+
     @classmethod
     def from_env(cls) -> CapacityTable:
         """从环境变量 / 默认值构造（DB 不可用前或测试用）。"""
@@ -101,12 +112,9 @@ class CapacityTable:
 
         image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
         video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
-        limits: dict[str, dict[str, int]] = {}
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            limits[provider_id] = {
-                "image": image_max if "image" in meta.media_types else 0,
-                "video": video_max if "video" in meta.media_types else 0,
-            }
+        limits = {
+            pid: cls._lane_limits(meta.media_types, image_max, video_max) for pid, meta in PROVIDER_REGISTRY.items()
+        }
         return cls(_limits=limits, _defaults={"image": image_max, "video": video_max})
 
     @classmethod
@@ -137,10 +145,7 @@ class CapacityTable:
             for provider, models in await repo.list_providers_with_models():
                 pid = provider.provider_id  # "custom-{id}"
                 media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
-                limits[pid] = {
-                    "image": default_image if "image" in media_types else 0,
-                    "video": default_video if "video" in media_types else 0,
-                }
+                limits[pid] = cls._lane_limits(media_types, default_image, default_video)
 
         logger.info("从 DB 加载供应商容量表: %s", limits)
         return cls(_limits=limits, _defaults={"image": default_image, "video": default_video})
@@ -257,7 +262,7 @@ class SlotTable:
 
 
 async def _extract_provider(task: dict[str, Any]) -> str:
-    """Extract a provider_id from a claimed task, used **only** for rate-limit pool routing.
+    """Extract a provider_id from a claimed task, used **only** for rate-limit slot routing.
 
     这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
     ``resolve_image_backend``，取 ``.provider_id``。image 任务一律按 ``capability="t2i"`` 取一个
@@ -335,8 +340,10 @@ class GenerationWorker:
         """Reload per-provider concurrency limits from DB into the CapacityTable.
 
         只换容量表的数字（``replace``）——占用台账纹丝不动，inflight/pending 容器
-        引用恒定。彻底消除"reload 时活体搬运在跑 task"的脆弱性：未来不再支持的
-        provider，其占用自然 drain，``has_room`` 经 ``CapacityTable.get`` 落到 0/默认。
+        引用恒定，彻底消除"reload 时活体搬运在跑 task"的脆弱性。某 provider 被删后其
+        在跑占用照常 drain；新任务的容量判定经 ``CapacityTable.get``：lane 被降级为不
+        支持→0（fail-fast），provider 整个消失→懒默认（此时该 provider 已无法解析，
+        任务回退 DEFAULT_PROVIDER 或在执行层失败，不会真按默认容量占用它）。
         """
         try:
             new = await CapacityTable.from_db()
@@ -464,8 +471,8 @@ class GenerationWorker:
                 provider_id = await _extract_provider(task)
                 cap = self._capacity.get(provider_id, media_type)
 
-                if cap == 0:
-                    # 供应商不支持此媒体类型（容量为 0），直接失败
+                if cap <= 0:
+                    # 供应商不支持此媒体类型（容量 ≤ 0），直接失败（与 has_room 守卫一致）
                     logger.warning(
                         "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
                         provider_id,
