@@ -8,11 +8,27 @@ from lib.generation_worker import (
     DEFAULT_PROVIDER,
     CapacityTable,
     GenerationWorker,
-    ProviderPool,
-    _build_default_pools,
+    SlotTable,
     _extract_provider,
     _read_int_env,
 )
+
+
+def _cap(limits: dict[str, dict[str, int]] | None = None, *, image: int = 5, video: int = 3) -> CapacityTable:
+    """构造一张容量表：显式 per-provider 上限 + 懒默认（默认 image=5 / video=3）。"""
+    return CapacityTable(_limits=limits or {}, _defaults={"image": image, "video": video})
+
+
+def _phase_ids(slots: SlotTable, provider: str, media: str) -> tuple[set[str], set[str]]:
+    """白盒辅助：返回某 (provider, media) bucket 的 (inflight_ids, pending_ids)。
+
+    等价于旧测对 ``pool.video_inflight`` / ``pool.video_pending`` 的直接读取——
+    SlotTable 用 ``_Occupant.pending`` 标志区分两相，对外不暴露按相计数。
+    """
+    bucket = slots._slots.get((provider, media), {})
+    inflight = {tid for tid, occ in bucket.items() if not occ.pending}
+    pending = {tid for tid, occ in bucket.items() if occ.pending}
+    return inflight, pending
 
 
 class _FakeQueue:
@@ -67,46 +83,6 @@ class TestReadIntEnv:
     def test_minimum_enforced(self, monkeypatch):
         monkeypatch.setenv("ARCREEL_INT", "0")
         assert _read_int_env("ARCREEL_INT", 3, minimum=2) == 2
-
-
-class TestProviderPool:
-    def test_has_room(self):
-        pool = ProviderPool(provider_id="test", image_max=2, video_max=1)
-        assert pool.has_image_room()
-        assert pool.has_video_room()
-
-    def test_no_room_when_max_zero(self):
-        pool = ProviderPool(provider_id="test", image_max=0, video_max=0)
-        assert not pool.has_image_room()
-        assert not pool.has_video_room()
-
-    async def test_no_room_when_full(self):
-        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
-        # Simulate inflight tasks with a dummy future
-        loop = asyncio.get_running_loop()
-        dummy = loop.create_future()
-        dummy.set_result(None)
-        pool.image_inflight["t1"] = dummy
-        pool.video_inflight["t2"] = dummy
-        assert not pool.has_image_room()
-        assert not pool.has_video_room()
-
-    async def test_drain_finished(self):
-        pool = ProviderPool(provider_id="test", image_max=2, video_max=2)
-        loop = asyncio.get_running_loop()
-        done = loop.create_future()
-        done.set_result(None)
-        pending = loop.create_future()
-        pool.image_inflight["done1"] = done
-        pool.image_inflight["pending1"] = pending
-        pool.video_inflight["done2"] = done
-
-        finished = pool.drain_finished()
-        assert len(finished) == 2
-        assert "done1" not in pool.image_inflight
-        assert "pending1" in pool.image_inflight
-        assert "done2" not in pool.video_inflight
-        pending.cancel()
 
 
 def _patch_pm(monkeypatch, project: dict | None):
@@ -212,23 +188,6 @@ class TestExtractProviderAlignsWithExecution:
         worker_provider = await _extract_provider(task)
         resolved = await ConfigResolver(async_session_factory).resolve_video_backend(project, {})
         assert worker_provider == resolved.provider_id == "ark"
-
-
-class TestBuildDefaultPools:
-    def test_builds_default_pool(self, monkeypatch):
-        monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
-        monkeypatch.delenv("VIDEO_MAX_WORKERS", raising=False)
-        pools = _build_default_pools()
-        assert DEFAULT_PROVIDER in pools
-        assert pools[DEFAULT_PROVIDER].image_max == 5
-        assert pools[DEFAULT_PROVIDER].video_max == 3
-
-    def test_reads_env(self, monkeypatch):
-        monkeypatch.setenv("IMAGE_MAX_WORKERS", "5")
-        monkeypatch.setenv("VIDEO_MAX_WORKERS", "4")
-        pools = _build_default_pools()
-        assert pools[DEFAULT_PROVIDER].image_max == 5
-        assert pools[DEFAULT_PROVIDER].video_max == 4
 
 
 class TestCapacityTable:
@@ -356,14 +315,13 @@ class TestGenerationWorker:
     @pytest.mark.asyncio
     async def test_request_cancel_signals_inflight_task(self):
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker = GenerationWorker(queue=queue)
 
         async def _long():
             await asyncio.sleep(10)
 
         t = asyncio.create_task(_long())
-        pool.video_inflight["tid"] = t
+        worker._slots.register("test", "video", "tid", t)
 
         assert worker.request_cancel("tid") is True
         # asyncio 会在下次调度时 cancel
@@ -375,10 +333,9 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_absorbs_cancelled_error(self):
-        """取消的 inflight task 被 drain：不抛、从字典 pop，并 drain 端兜底 mark_cancelled。"""
+        """取消的 inflight task 被 drain：不抛、从台账移除，并 drain 端兜底 mark_cancelled。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker = GenerationWorker(queue=queue)
 
         async def _long():
             await asyncio.sleep(10)
@@ -387,11 +344,11 @@ class TestGenerationWorker:
         t.cancel()
         await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
         assert t.cancelled()
-        pool.video_inflight["tid"] = t
+        worker._slots.register("test", "video", "tid", t)
 
-        # 同步判定 .cancelled()：不 await，不抛 CancelledError，task 已被 drain pop。
+        # 同步判定 .cancelled()：不 await，不抛 CancelledError，task 已被 drain 移除。
         await worker._drain_finished_tasks()
-        assert "tid" not in pool.video_inflight
+        assert worker._slots.occupied("test", "video") == 0
         # 子任务来不及自落终态时，drain 端兜底 mark_cancelled。
         assert queue.cancelled and queue.cancelled[0][0] == "tid"
 
@@ -399,8 +356,7 @@ class TestGenerationWorker:
     async def test_drain_finished_tasks_drains_success_and_failure(self):
         """非取消路径：成功 task 走 .result() 无异常，失败 task 走 except 分支，均不触发兜底取消。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="test", image_max=2, video_max=2)
-        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker = GenerationWorker(queue=queue)
 
         async def _ok():
             return "done"
@@ -411,12 +367,12 @@ class TestGenerationWorker:
         ok_t = asyncio.create_task(_ok())
         boom_t = asyncio.create_task(_boom())
         await asyncio.gather(ok_t, boom_t, return_exceptions=True)
-        pool.image_inflight["ok"] = ok_t
-        pool.video_inflight["boom"] = boom_t
+        worker._slots.register("test", "image", "ok", ok_t)
+        worker._slots.register("test", "video", "boom", boom_t)
 
         await worker._drain_finished_tasks()  # 不抛
-        assert "ok" not in pool.image_inflight
-        assert "boom" not in pool.video_inflight
+        assert worker._slots.occupied("test", "image") == 0
+        assert worker._slots.occupied("test", "video") == 0
         # 非取消任务不应触发 drain 兜底 mark_cancelled
         assert queue.cancelled == []
 
@@ -429,8 +385,7 @@ class TestGenerationWorker:
                 raise RuntimeError("db down")
 
         queue = _RaisingQueue()
-        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker = GenerationWorker(queue=queue)
 
         async def _long():
             await asyncio.sleep(10)
@@ -439,18 +394,17 @@ class TestGenerationWorker:
         t.cancel()
         await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
         assert t.cancelled()
-        pool.video_inflight["tid"] = t
+        worker._slots.register("test", "video", "tid", t)
 
-        # mark_cancelled 抛错被 except 吞掉，drain 不抛、task 仍被 pop
+        # mark_cancelled 抛错被 except 吞掉，drain 不抛、task 仍被移除
         await worker._drain_finished_tasks()
-        assert "tid" not in pool.video_inflight
+        assert worker._slots.occupied("test", "video") == 0
 
     @pytest.mark.asyncio
     async def test_drain_marks_cancelled_when_cancel_hits_before_process_task_try(self, monkeypatch):
         """取消落在 _process_task 进 try 之前（_extract_provider await）：drain 端兜底落终态。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker = GenerationWorker(queue=queue)
         worker.heartbeat_interval = 0.01
         worker.poll_interval = 0.01
 
@@ -472,7 +426,7 @@ class TestGenerationWorker:
             worker._process_task({"task_id": "tid", "media_type": "video"}),
             name="generation-video-tid",
         )
-        pool.video_inflight["tid"] = t
+        worker._slots.register("test", "video", "tid", t)
 
         await worker.start()
         await in_extract.wait()  # 确保停在 _extract_provider（try 之前）
@@ -490,8 +444,7 @@ class TestGenerationWorker:
     async def test_run_loop_survives_inflight_task_cancellation(self, monkeypatch):
         """用户取消运行中的任务：任务 mark_cancelled，但 worker 主循环不退出。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker = GenerationWorker(queue=queue)
         worker.heartbeat_interval = 0.01
         worker.poll_interval = 0.01
 
@@ -507,7 +460,7 @@ class TestGenerationWorker:
             worker._process_task({"task_id": "tid", "media_type": "video"}),
             name="generation-video-tid",
         )
-        pool.video_inflight["tid"] = t
+        worker._slots.register("test", "video", "tid", t)
 
         await worker.start()
         await started.wait()  # 确保 _process_task 已进入 execute（_extract_provider 已完成）
@@ -545,8 +498,7 @@ class TestGenerationWorker:
                 return None
 
         queue = _GatedQueue()
-        pool = ProviderPool(provider_id="gemini-aistudio", image_max=5, video_max=3)
-        worker = GenerationWorker(queue=queue, pools={"gemini-aistudio": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"gemini-aistudio": {"image": 5, "video": 3}}))
         worker.heartbeat_interval = 0.01
         worker.poll_interval = 0.01
 
@@ -566,7 +518,7 @@ class TestGenerationWorker:
                 worker._process_task({"task_id": tid, "media_type": "video"}),
                 name=f"generation-video-{tid}",
             )
-            pool.video_inflight[tid] = t
+            worker._slots.register("gemini-aistudio", "video", tid, t)
 
         await worker.start()
         while not set(vid_ids) <= entered:  # 等三个任务都进入 execute
@@ -584,7 +536,7 @@ class TestGenerationWorker:
         queue.allow_new = True
         await asyncio.sleep(0.1)
         assert queue.new_dispatched is True
-        assert "fresh-img" in pool.image_inflight
+        assert worker._slots.find_by_task("fresh-img") is not None
 
         # 收尾：放行 fresh-img 后正常停机
         release.set()
@@ -595,8 +547,7 @@ class TestGenerationWorker:
     async def test_stop_event_exits_loop_even_with_cancellations(self, monkeypatch):
         """语义对比：单任务取消不退出，但显式 stop（set stop event）必须让 worker 退出。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"test": pool})
+        worker = GenerationWorker(queue=queue)
         worker.heartbeat_interval = 0.01
         worker.poll_interval = 0.01
 
@@ -612,7 +563,7 @@ class TestGenerationWorker:
             worker._process_task({"task_id": "tid", "media_type": "video"}),
             name="generation-video-tid",
         )
-        pool.video_inflight["tid"] = t
+        worker._slots.register("test", "video", "tid", t)
 
         await worker.start()
         await started.wait()
@@ -682,41 +633,9 @@ class TestGenerationWorker:
         assert queue.released
         assert worker._main_task is None
 
-    def test_backward_compat_image_video_workers(self):
-        pools = {
-            "a": ProviderPool(provider_id="a", image_max=3, video_max=2),
-            "b": ProviderPool(provider_id="b", image_max=1, video_max=0),
-        }
-        worker = GenerationWorker(queue=_FakeQueue(), pools=pools)
-        assert worker.image_workers == 4
-        assert worker.video_workers == 2
-
-    def test_get_or_create_pool_unknown(self):
-        worker = GenerationWorker(queue=_FakeQueue())
-        pool = worker._get_or_create_pool("unknown-provider")
-        assert pool.provider_id == "unknown-provider"
-        assert pool.image_max == 5
-        assert pool.video_max == 3
-        assert "unknown-provider" in worker._pools
-
-    async def test_any_pool_has_room(self):
-        pools = {
-            "a": ProviderPool(provider_id="a", image_max=0, video_max=1),
-            "b": ProviderPool(provider_id="b", image_max=1, video_max=0),
-        }
-        worker = GenerationWorker(queue=_FakeQueue(), pools=pools)
-        assert worker._any_pool_has_room("image")
-        assert worker._any_pool_has_room("video")
-        # Fill them up
-        loop = asyncio.get_running_loop()
-        dummy = loop.create_future()
-        dummy.set_result(None)
-        pools["b"].image_inflight["t1"] = dummy
-        assert not worker._any_pool_has_room("image")
-
     @pytest.mark.asyncio
     async def test_claim_tasks_dispatches_to_correct_pool(self, monkeypatch):
-        """Tasks are dispatched to the correct provider pool."""
+        """Tasks are dispatched to the correct provider slot."""
 
         class _ClaimableQueue(_FakeQueue):
             def __init__(self):
@@ -743,11 +662,10 @@ class TestGenerationWorker:
                 return None
 
         queue = _ClaimableQueue()
-        pools = {
-            "gemini-aistudio": ProviderPool(provider_id="gemini-aistudio", image_max=3, video_max=2),
-            "ark": ProviderPool(provider_id="ark", image_max=0, video_max=2),
-        }
-        worker = GenerationWorker(queue=queue, pools=pools)
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=_cap({"gemini-aistudio": {"image": 3, "video": 2}, "ark": {"image": 0, "video": 2}}),
+        )
 
         async def _fake_execute(task):
             return {"ok": True}
@@ -759,47 +677,54 @@ class TestGenerationWorker:
 
         claimed = await worker._claim_tasks()
         assert claimed
-        assert "img1" in pools["gemini-aistudio"].image_inflight
-        assert "vid1" in pools["ark"].video_inflight
+        assert worker._slots.occupied("gemini-aistudio", "image") == 1
+        assert worker._slots.find_by_task("img1") is not None
+        assert worker._slots.occupied("ark", "video") == 1
+        assert worker._slots.find_by_task("vid1") is not None
 
         # Wait for tasks to complete
-        await asyncio.gather(
-            *[
-                *pools["gemini-aistudio"].image_inflight.values(),
-                *pools["ark"].video_inflight.values(),
-            ],
-            return_exceptions=True,
-        )
+        await asyncio.gather(*worker._slots.all_active_tasks(), return_exceptions=True)
 
     # ------------------------------------------------------------------
     # _pool_full_providers
     # ------------------------------------------------------------------
-    def test_pool_full_providers_excludes_max_zero(self):
-        """max=0 lane 不应被归入'池满'黑名单。
+    def test_pool_full_providers_sources_from_occupancy_with_cap_guard(self):
+        """池满黑名单源 = 有占用的 provider；cap==0 守卫短路降级 lane 的在跑占用。
 
-        has_image_room/has_video_room 在 *_max == 0 时也返回 False，若不加守卫
-        SQL filter 会把'不支持该 lane 的 provider'与池满 provider 一起排除，
-        让任务被无声 drop 而非走 worker 二次校验的 max_capacity == 0 fail-fast。
+        新设计下黑名单源是 ``occupied_providers``，无占用的 provider 根本不会到达
+        ``cap > 0`` 守卫——所以守卫唯一可达场景是「有占用 + cap==0」（运行中 reload
+        把某 lane 降级为不支持）。这类 provider 必须 *不* 进黑名单：其在跑任务靠主循环
+        drain，新任务走 ``_claim_tasks`` 的 cap==0 fail-fast，而非被 SQL 静默 drop。
         """
-        pools = {
-            # 不支持 image (image_max=0)，但 video 支持 + 有空
-            "video-only": ProviderPool(provider_id="video-only", image_max=0, video_max=2),
-            # 支持 image + 池满
-            "img-full": ProviderPool(provider_id="img-full", image_max=1, video_max=0),
-        }
         loop = asyncio.new_event_loop()
         dummy = loop.create_future()
         dummy.set_result(None)
-        pools["img-full"].image_inflight["t1"] = dummy
 
-        worker = GenerationWorker(queue=_FakeQueue(), pools=pools)
+        worker = GenerationWorker(
+            queue=_FakeQueue(),
+            capacity=_cap(
+                {
+                    "full": {"image": 1, "video": 0},  # cap=1 占 1 → 满
+                    "roomy": {"image": 2, "video": 0},  # cap=2 占 1 → 有空
+                    "downgraded": {"image": 0, "video": 0},  # 占 1 但 cap=0（被 reload 降级）
+                }
+            ),
+        )
+        # 三个 provider 在 image lane 都有占用 → 都会进入 occupied_providers，都到达守卫
+        worker._slots.register("full", "image", "t-full", dummy)
+        worker._slots.register("roomy", "image", "t-roomy", dummy)
+        worker._slots.register("downgraded", "image", "t-down", dummy)
+
         full_image = worker._pool_full_providers("image")
-        assert "img-full" in full_image, "image 池满应被归入黑名单"
-        assert "video-only" not in full_image, "image_max=0 的 provider 不应归入 image 黑名单"
+        assert "full" in full_image, "cap>0 且占满应进黑名单"
+        assert "roomy" not in full_image, "cap>0 但有空不进黑名单"
+        # 关键：守卫真正被执行——downgraded 有占用 → 到达 cap>0 守卫 → 短路排除。
+        # 若直译旧测（无占用的 cap==0 provider），它根本不在 occupied_providers 里，
+        # 守卫一行都不会跑，测试会"假通过"。
+        assert "downgraded" not in full_image, "cap==0 守卫必须短路，不让降级 lane 进黑名单"
 
-        full_video = worker._pool_full_providers("video")
-        assert "img-full" not in full_video, "video_max=0 的 provider 不应归入 video 黑名单"
-        assert "video-only" not in full_video, "video 池有空不归入黑名单"
+        # video lane 无任何占用 → 黑名单为空（无占用就不可能"满"）
+        assert worker._pool_full_providers("video") == frozenset()
         loop.close()
 
     # ------------------------------------------------------------------
@@ -1013,8 +938,7 @@ class TestGenerationWorker:
             }
             for i in range(5)
         ]
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=2)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 2}}))
 
         # 让 _process_resume_task block 住——验证 fast path 不等它完成
         async def _block_forever(self, task):
@@ -1037,8 +961,8 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_handle_orphan_dispatcher_respects_pool_capacity(self, monkeypatch):
-        """fix #647 #1：后台 dispatcher 受 pool video_max 容量约束分批入 inflight，
-        任一时刻 `len(pool.video_inflight) ≤ video_max`。"""
+        """fix #647 #1：后台 dispatcher 受 video 容量约束分批 promote 进 INFLIGHT，
+        任一时刻 inflight 占用 ≤ cap（pending 不消耗 sem，不计入此上限）。"""
         queue = _FakeQueue()
         queue._orphans = [
             {
@@ -1053,41 +977,45 @@ class TestGenerationWorker:
             }
             for i in range(4)
         ]
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=2)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 2}}))
 
-        # 用 controlled future 让 resume 任务可控完成；同时记录每次 dispatch 时的池占用
+        # 用 controlled event 让 resume 任务可控完成；同时记录每次 dispatch 时的占用
         snapshots: list[int] = []
+        entered: list[str] = []
         gates: dict[str, asyncio.Event] = {f"orphan-{i}": asyncio.Event() for i in range(4)}
 
+        def _inflight() -> int:
+            return len(_phase_ids(worker._slots, "ark", "video")[0])
+
         async def _gated(self, task):
-            snapshots.append(len(pool.video_inflight))
+            snapshots.append(_inflight())
+            entered.append(task["task_id"])
             await gates[task["task_id"]].wait()
 
         monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
 
         await worker._handle_orphan_tasks_on_start()
-        # 让 dispatcher 把前 2 个 dispatch 进 inflight
+        # 让 dispatcher 把前 2 个 promote 进 INFLIGHT（其余 2 个 PENDING 排队）
         for _ in range(20):
             await asyncio.sleep(0)
-            if len(pool.video_inflight) >= 2:
+            if _inflight() >= 2:
                 break
-        assert len(pool.video_inflight) == 2, f"应只有 2 个 inflight，实际 {len(pool.video_inflight)}"
+        assert _inflight() == 2, f"应只有 2 个 inflight，实际 {_inflight()}"
 
-        # 释放第一个，让 dispatcher 继续派发——主循环在生产中负责 drain，这里手动模拟
-        first_done = next(iter(pool.video_inflight))
-        gates[first_done].set()
+        # 释放一个已 inflight 的 task：其 _run_one finally 会 release 占用 + sem，
+        # 腾出名额让 dispatcher 把第 3 个 promote 进来；主循环每 cycle 的 drain_finished
+        # 在生产中清理，这里调一次模拟（对 dispatcher sub-task 是 no-op，占用由 finally 释放）。
+        gates[entered[0]].set()
         await asyncio.sleep(0)
-        # 模拟主循环 _drain_finished_tasks
-        for tid in list(pool.video_inflight):
-            if pool.video_inflight[tid].done():
-                pool.video_inflight.pop(tid)
+        worker._slots.drain_finished()
         for _ in range(20):
             await asyncio.sleep(0)
-            if len(pool.video_inflight) >= 2:
+            if _inflight() >= 2:
                 break
-        # 此时 dispatcher 应已把第 3 个推进 inflight
-        assert len(pool.video_inflight) <= 2
+        # 任一时刻 inflight 都不超过容量 2
+        assert _inflight() <= 2
+        # 每次 promote 进 _process_resume_task 时的 inflight 快照都 ≤ 容量（核心回归点）
+        assert snapshots and all(s <= 2 for s in snapshots), f"inflight 快照越过容量上限: {snapshots}"
 
         # 收尾：释放所有 gate，等 dispatcher 结束
         for gate in gates.values():
@@ -1119,8 +1047,7 @@ class TestGenerationWorker:
             }
             for i in range(3)
         ]
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         dispatched_count = 0
         first_dispatched = asyncio.Event()
@@ -1303,10 +1230,9 @@ class TestDispatcherFailFastAndPendingTracking:
 
     @pytest.mark.asyncio
     async def test_dispatch_provider_bucket_fail_fast_when_video_max_zero(self, monkeypatch):
-        """pool.video_max=0 → 直接 mark_failed[resume_unsupported]，不进 Semaphore(0) 死锁。"""
+        """video 容量=0 → 直接 mark_failed[resume_unsupported]，不进 Semaphore(0) 死锁。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=0)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 0}}))
 
         async def _no_reload(self):
             return None
@@ -1321,10 +1247,9 @@ class TestDispatcherFailFastAndPendingTracking:
 
     @pytest.mark.asyncio
     async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch):
-        """sem=1 + 2 task：第 2 个 sub-task sem 排队期间应在 pool.video_pending。"""
+        """sem=1 + 2 task：第 2 个 sub-task sem 排队期间应以 PENDING 登记在台账。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         gate = asyncio.Event()
 
@@ -1338,31 +1263,23 @@ class TestDispatcherFailFastAndPendingTracking:
 
         for _ in range(20):
             await asyncio.sleep(0)
-            if len(pool.video_inflight) == 1:
+            inflight, _pending = _phase_ids(worker._slots, "ark", "video")
+            if len(inflight) == 1:
                 break
-        assert len(pool.video_inflight) == 1
-        assert len(pool.video_pending) == 1
-        assert pool.has_video_room() is False
+        inflight, pending = _phase_ids(worker._slots, "ark", "video")
+        assert len(inflight) == 1
+        assert len(pending) == 1
+        # pending 计入容量：占用=2 ≥ cap=1 → 无空位，主循环不会超额 claim
+        assert worker._slots.has_room("ark", "video", 1) is False
 
         gate.set()
         await dispatcher
 
     @pytest.mark.asyncio
-    async def test_has_video_room_counts_pending_plus_inflight(self):
-        """pending=1, inflight=0, max=1 → has_video_room False，主循环不会超额 claim。"""
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        loop = asyncio.get_running_loop()
-        dummy = loop.create_future()
-        dummy.set_result(None)
-        pool.video_pending["orphan-1"] = dummy
-        assert pool.has_video_room() is False
-
-    @pytest.mark.asyncio
     async def test_request_cancel_finds_sem_queued_task_in_pending(self, monkeypatch):
         """cancel sem 排队中的 task → request_cancel 命中并触发 cancel。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         gate = asyncio.Event()
         process_started: asyncio.Event = asyncio.Event()
@@ -1377,7 +1294,8 @@ class TestDispatcherFailFastAndPendingTracking:
         dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
 
         await asyncio.wait_for(process_started.wait(), timeout=1.0)
-        assert "orphan-1" in pool.video_pending
+        _inflight, pending = _phase_ids(worker._slots, "ark", "video")
+        assert "orphan-1" in pending
 
         ok = worker.request_cancel("orphan-1")
         assert ok is True
@@ -1389,8 +1307,7 @@ class TestDispatcherFailFastAndPendingTracking:
     async def test_sem_queued_cancel_marks_task_cancelled(self, monkeypatch):
         """sem 排队期被 cancel：_run_one 应显式 mark_task_cancelled，DB 不留 cancelling。"""
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         gate = asyncio.Event()
         first_started = asyncio.Event()
@@ -1406,10 +1323,12 @@ class TestDispatcherFailFastAndPendingTracking:
 
         # 等第 1 个 task 进入 _process_resume_task（占住 sem），第 2 个还在 sem 排队
         await asyncio.wait_for(first_started.wait(), timeout=1.0)
-        assert "orphan-1" in pool.video_pending
+        _inflight, pending = _phase_ids(worker._slots, "ark", "video")
+        assert "orphan-1" in pending
 
         # 取消 sem 排队中的 orphan-1
-        queued_task = pool.video_pending["orphan-1"]
+        queued_task = worker._slots.find_by_task("orphan-1")
+        assert queued_task is not None
         queued_task.cancel()
 
         # 让 dispatcher 跑完
@@ -1428,8 +1347,7 @@ class TestDispatcherFailFastAndPendingTracking:
         cancel 在那段 await 抛 CancelledError，内部不会调 mark，必须由 _run_one 兜底。
         """
         queue = _FakeQueue()
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         acquired_event = asyncio.Event()
         pre_try_gate = asyncio.Event()
@@ -1448,8 +1366,9 @@ class TestDispatcherFailFastAndPendingTracking:
         # 等 _process_resume_task 进入空窗（await pre_try_gate.wait() 期间）
         await asyncio.wait_for(acquired_event.wait(), timeout=1.0)
 
-        # 现在 task 在 acquired=True 状态，但 _process_resume_task 还没接管终态
-        sub_task = next(iter(pool.video_inflight.values()))
+        # 现在 task 在 acquired=True（已 promote 为 INFLIGHT）状态，但内部还没接管终态
+        sub_task = worker._slots.find_by_task("orphan-pre-try")
+        assert sub_task is not None
         sub_task.cancel()
 
         # gate 放开（CancelledError 已经在路上）
@@ -1475,8 +1394,7 @@ class TestDispatcherFailFastAndPendingTracking:
                 "project_name": "demo",
             }
         ]
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         block = asyncio.Event()
 
@@ -1510,11 +1428,10 @@ class TestOrphanScanSelfPreemption:
                 "project_name": "demo",
             }
         ]
-        pool = ProviderPool(provider_id="ark", image_max=1, video_max=0)
+        worker = GenerationWorker(queue=queue)
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
-        pool.image_inflight["img-active"] = fut  # type: ignore[assignment]
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker._slots.register("ark", "image", "img-active", fut)
 
         await worker._handle_orphan_tasks_on_start()
 
@@ -1541,11 +1458,10 @@ class TestOrphanScanSelfPreemption:
                 "project_name": "demo",
             }
         ]
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue)
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
-        pool.video_inflight["vid-active"] = fut  # type: ignore[assignment]
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker._slots.register("ark", "video", "vid-active", fut)
 
         captured: list[dict[str, Any]] = []
 
@@ -1579,11 +1495,10 @@ class TestOrphanScanSelfPreemption:
                 "project_name": "demo",
             }
         ]
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
+        worker = GenerationWorker(queue=queue)
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
-        pool.video_pending["vid-pending"] = fut  # type: ignore[assignment]
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker._slots.register("ark", "video", "vid-pending", fut, pending=True)
 
         await worker._handle_orphan_tasks_on_start()
 
@@ -1613,8 +1528,7 @@ class TestOrphanDispatcherNonBlockingOverride:
                 "project_name": "demo",
             }
         ]
-        pool = ProviderPool(provider_id="ark", image_max=0, video_max=1)
-        worker = GenerationWorker(queue=queue, pools={"ark": pool})
+        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         block = asyncio.Event()
 
