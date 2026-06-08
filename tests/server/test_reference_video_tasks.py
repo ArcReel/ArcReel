@@ -562,6 +562,14 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
         async def video_generate_audio(self, _project_name=None):
             return False
 
+        async def reference_payload_limits(self, _provider_id=None):
+            from lib.config.service import (
+                _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+                _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            )
+
+            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+
     # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 UsageTracker 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir

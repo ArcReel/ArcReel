@@ -49,8 +49,13 @@ def _is_413(exc: BaseException) -> bool:
         or getattr(getattr(exc, "response", None), "status_code", None)
         or getattr(exc, "code", None)
     )
-    if status == 413:
-        return True
+    # 防御性 int 转换：个别 SDK / mock 可能把状态码给成字符串 "413"，
+    # 直接 ``== 413`` 会恒 False；非数字状态码落回下方短语匹配。
+    try:
+        if status is not None and int(status) == 413:
+            return True
+    except (ValueError, TypeError):
+        pass
     msg = str(exc).lower()
     return "request entity too large" in msg or "payload too large" in msg
 
@@ -143,12 +148,13 @@ class MediaGenerator:
     async def _reference_limits(self, provider_id: str | None) -> "PayloadLimits":
         """解析参考上传副本的 PayloadLimits。
 
-        无 config_resolver 或无 provider_id（零配置场景）→ 保守通用默认，不触 DB。
-        仿 video_generate_audio 的 None 兜底。
+        无 config_resolver（零配置场景）→ 保守通用默认，不触 DB。其余情形统一交给
+        ConfigResolver.reference_payload_limits：provider_id 为 None 时它内部短路返回 service
+        层默认（同样不触 DB），避免在本层再引入第二份默认来源、与配置层漂移。
         """
         from lib.reference_compression import PayloadLimits
 
-        if self._config is None or provider_id is None:
+        if self._config is None:
             return PayloadLimits()
         total, single = await self._config.reference_payload_limits(provider_id)
         return PayloadLimits(total_max_bytes=total, single_max_bytes=single)

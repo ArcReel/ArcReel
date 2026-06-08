@@ -93,6 +93,15 @@ class _FakeConfigResolver:
     async def video_generate_audio(self, project_name=None):
         return self._video_generate_audio
 
+    async def reference_payload_limits(self, provider_id=None):
+        # 与真实 resolver 同契约：provider_id 为 None 或未配置时返回 service 层保守默认。
+        from lib.config.service import (
+            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+        )
+
+        return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+
 
 def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen = object.__new__(MediaGenerator)
@@ -305,6 +314,21 @@ class TestIs413:
             code = 400
 
         assert _is_413(_ApiErr("bad request")) is False
+
+    def test_string_status_code_413(self):
+        # 个别 SDK / mock 把状态码给成字符串 "413"，需防御性 int 转换
+        class _StrErr(Exception):
+            status_code = "413"
+
+        assert _is_413(_StrErr("too big")) is True
+
+    def test_non_numeric_status_code_falls_back_to_phrase(self):
+        # 非数字状态码不应抛 ValueError，落回短语匹配
+        class _WeirdErr(Exception):
+            status_code = "not-a-number"
+
+        assert _is_413(_WeirdErr("totally unrelated")) is False
+        assert _is_413(_WeirdErr("request entity too large")) is True
 
 
 class TestReferenceCompressionSeam:
