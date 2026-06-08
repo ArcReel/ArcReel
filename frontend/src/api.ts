@@ -678,6 +678,21 @@ class API {
     );
   }
 
+  /** 更新分集顶层元数据（当前仅 title）。以剧本顶层 title 为唯一真相源，后端会镜像到 project.json。 */
+  static async updateEpisode(
+    projectName: string,
+    episode: number,
+    updates: { title: string }
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      }
+    );
+  }
+
   // ==================== 片段管理（说书模式） ====================
 
   /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */

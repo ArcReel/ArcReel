@@ -137,6 +137,27 @@ class _FakePM:
         yield script
         self.save_script(name, script, script_file)
 
+    @contextmanager
+    def locked_episode_script(self, name, resolve_script_file, *, validate=True):
+        # 复刻真实 ProjectManager.locked_episode_script：解析 episode→script_file →
+        # 锁内读改写脚本 → 内联把 title/script_file 镜像回 project.json episodes[]
+        # （仅当脚本含 episode int，与真实 _apply_episode_sync 触发条件一致）。
+        script_file = resolve_script_file(self.load_project(name))
+        norm = script_file[len("scripts/") :] if script_file.startswith("scripts/") else script_file
+        script = deepcopy(self.load_script(name, norm))
+        yield script
+        self.save_script(name, script, norm)
+        if isinstance(script.get("episode"), int):
+            project = deepcopy(self.load_project(name))
+            episodes = project.setdefault("episodes", [])
+            entry = next((e for e in episodes if e.get("episode") == script["episode"]), None)
+            if entry is None:
+                entry = {"episode": script["episode"]}
+                episodes.append(entry)
+            entry["title"] = script.get("title", "")
+            entry["script_file"] = f"scripts/{norm}"
+            self.save_project(name, project)
+
     async def generate_overview(self, name):
         if name == "ready":
             return {"synopsis": "generated"}
@@ -741,7 +762,7 @@ class TestProjectsRouter:
             assert "generation_mode" not in ep2
 
     def test_patch_project_episodes_strips_computed_fields(self, tmp_path, monkeypatch):
-        """PATCH 不得将 StatusCalculator 注入的计算字段写回 project.json。"""
+        """PATCH 不得将 StatusCalculator 注入的计算字段写回 project.json；title 也已移出白名单。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["episodes"] = [
             {"episode": 1, "title": "原标题", "script_file": "scripts/ep1.json"},
@@ -755,7 +776,8 @@ class TestProjectsRouter:
                     "episodes": [
                         {
                             "episode": 1,
-                            "title": "新标题",
+                            "generation_mode": "grid",  # 合法白名单字段
+                            "title": "新标题",  # title 不再可经 PATCH /projects 写入（已移出白名单）
                             # 以下为 StatusCalculator 注入的计算字段，不应写入磁盘
                             "scenes_count": 999,
                             "status": "completed",
@@ -770,7 +792,9 @@ class TestProjectsRouter:
             assert resp.status_code == 200
             ep1 = fake_pm.project_data["ready"]["episodes"][0]
             # 合法字段应被写入
-            assert ep1["title"] == "新标题"
+            assert ep1["generation_mode"] == "grid"
+            # title 不可经此端点改写，保持原值（改名走 PATCH /episodes/{episode}）
+            assert ep1["title"] == "原标题"
             # 计算字段不得写入
             assert "scenes_count" not in ep1
             assert "status" not in ep1
@@ -825,6 +849,38 @@ class TestProjectsRouter:
             # 其他字段保持不变
             assert ep1["title"] == "第一集"
             assert ep1["script_file"] == "scripts/ep1.json"
+
+    def test_update_episode_title_renames_script_and_mirror(self, tmp_path, monkeypatch):
+        """PATCH /episodes/{episode}：剧本顶层 title 与 project.json 镜像都反映新值，标题首尾空白被裁剪。"""
+        fake_pm = _FakePM(tmp_path)
+        # 剧本带 episode 字段，触发 _apply_episode_sync 镜像（与真实生成剧本一致）
+        fake_pm.scripts[("ready", "episode_1.json")]["episode"] = 1
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "  新集名  "})
+            assert resp.status_code == 200
+            assert resp.json()["episode"]["title"] == "新集名"
+            # 剧本顶层 title 落盘
+            assert fake_pm.scripts[("ready", "episode_1.json")]["title"] == "新集名"
+            # project.json 镜像同步
+            ep = next(e for e in fake_pm.project_data["ready"]["episodes"] if e["episode"] == 1)
+            assert ep["title"] == "新集名"
+
+    def test_update_episode_title_empty_rejected(self, tmp_path, monkeypatch):
+        """空/纯空白标题被拒（422），不进锁。"""
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            for blank in ("", "   "):
+                resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": blank})
+                assert resp.status_code == 422
+
+    def test_update_episode_missing_episode_404(self, tmp_path, monkeypatch):
+        """不存在的 episode → 404。"""
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready/episodes/99", json={"title": "x"})
+            assert resp.status_code == 404
 
 
 class TestGetVideoCapabilities:

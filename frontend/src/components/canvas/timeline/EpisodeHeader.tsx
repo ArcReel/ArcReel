@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeCost } from "@/types";
 import { totalBreakdown, formatCost } from "@/utils/cost-format";
@@ -8,6 +9,8 @@ interface EpisodeHeaderProps {
   segmentCount: number;
   totalDuration: number;
   episodeCost?: EpisodeCost;
+  onSaveTitle?: (next: string) => Promise<void>;
+  canEditTitle?: boolean;
 }
 
 /**
@@ -18,6 +21,8 @@ export function EpisodeHeader({
   segmentCount,
   totalDuration,
   episodeCost,
+  onSaveTitle,
+  canEditTitle,
 }: EpisodeHeaderProps) {
   const { t } = useTranslation("dashboard");
   const isActive = ep.status === "in_production";
@@ -84,12 +89,13 @@ export function EpisodeHeader({
             </>
           )}
         </div>
-        <h1
-          className="display-serif m-0 truncate text-[26px] font-medium"
-          style={{ letterSpacing: "-0.4px", lineHeight: 1.15 }}
-        >
-          {ep.title}
-        </h1>
+        <EditableEpisodeTitle
+          title={ep.title}
+          canEdit={Boolean(canEditTitle && onSaveTitle)}
+          onSave={onSaveTitle ?? (async () => {})}
+          headingClassName="display-serif m-0 truncate text-[26px] font-medium"
+          headingStyle={{ letterSpacing: "-0.4px", lineHeight: 1.15 }}
+        />
       </div>
 
       {episodeCost && (

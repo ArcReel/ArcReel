@@ -37,6 +37,8 @@ export interface ReferenceVideoCanvasProps {
   projectName: string;
   episode: number;
   episodeTitle?: string;
+  onSaveTitle?: (next: string) => Promise<void>;
+  canEditTitle?: boolean;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -65,6 +67,8 @@ export function ReferenceVideoCanvas({
   projectName,
   episode,
   episodeTitle,
+  onSaveTitle,
+  canEditTitle,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -422,7 +426,13 @@ export function ReferenceVideoCanvas({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <EpisodeHeader episode={episode} title={episodeTitle ?? `E${episode}`} units={units} />
+      <EpisodeHeader
+        episode={episode}
+        title={episodeTitle ?? `E${episode}`}
+        units={units}
+        onSaveTitle={onSaveTitle}
+        canEditTitle={canEditTitle}
+      />
 
       {/* Tab + 批量生成 */}
       <div

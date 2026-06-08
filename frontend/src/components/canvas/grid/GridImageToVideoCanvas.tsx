@@ -44,6 +44,8 @@ interface GridImageToVideoCanvasProps {
   ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
+  onSaveTitle?: (next: string) => Promise<void>;
+  canEditTitle?: boolean;
 }
 
 export function GridImageToVideoCanvas({
@@ -61,6 +63,8 @@ export function GridImageToVideoCanvas({
   onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
+  onSaveTitle,
+  canEditTitle,
 }: GridImageToVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
@@ -212,6 +216,8 @@ export function GridImageToVideoCanvas({
         segmentCount={segments.length}
         totalDuration={totalDuration}
         episodeCost={episodeCost ?? undefined}
+        onSaveTitle={onSaveTitle}
+        canEditTitle={canEditTitle}
       />
 
       <div

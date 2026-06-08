@@ -5,8 +5,9 @@
 ``ProjectManager.upsert_assets`` 在单一文件锁内 read-modify-write，apply 后落盘前做结构
 校验，非法则不写。取代脆弱的单行 CLI-JSON 脚本 ``add_assets.py``（且把「只能加」扩为「可改」）。
 
-同一工具同时承担顶层 ``settings`` 字段写入（白名单驱动），首期支持 ``episode_target_units``。
-``table + entries`` 与 ``settings`` 二选一,在 ``update_project`` 锁内 RMW 与 upsert 同源。
+同一工具同时承担顶层 ``settings`` 字段写入（白名单驱动），首期支持 ``episode_target_units``，
+以及项目概述 ``overview``（synopsis/genre/theme/world_setting，merge 语义）的编辑。
+``table + entries`` / ``settings`` / ``overview`` 三选一,在 ``update_project`` 锁内 RMW 同源。
 """
 
 from __future__ import annotations
@@ -25,14 +26,18 @@ _TABLES = ("characters", "scenes", "props")
 _SETTINGS_WHITELIST = ("episode_target_units", "source_language")
 _SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
 
+# 项目概述（project["overview"]）可经本工具编辑的字段白名单。merge 语义:只改传入字段。
+_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
+
 
 def patch_project_tool(ctx: ToolContext):
     @tool(
         "patch_project",
         "新增或修改 project.json:(1) 资产 upsert(传 table+entries),按 table+name upsert "
         "(name 不存在则新增、存在则合并改字段);(2) 顶层 settings 写入(传 settings),"
-        f"白名单字段 {list(_SETTINGS_WHITELIST)},值为 null 时清除。两种形态二选一,"
-        "同时给出或都不给会被拒。结构非法时不落盘并报错。",
+        f"白名单字段 {list(_SETTINGS_WHITELIST)},值为 null 时清除;(3) 项目概述编辑(传 overview),"
+        f"白名单字段 {list(_OVERVIEW_FIELDS)},merge 语义只改传入字段、概述不存在时创建。"
+        "三种形态三选一,同时给出多个或都不给会被拒。结构非法时不落盘并报错。",
         {
             "type": "object",
             "properties": {
@@ -52,6 +57,13 @@ def patch_project_tool(ctx: ToolContext):
                         f"{list(_SETTINGS_WHITELIST)},值为 null 时清除该字段"
                     ),
                 },
+                "overview": {
+                    "type": "object",
+                    "description": (
+                        "(项目概述分支)概述字段映射,key 必须在白名单内 "
+                        f"{list(_OVERVIEW_FIELDS)};merge 语义(只更新传入字段),概述不存在时创建"
+                    ),
+                },
             },
         },
     )
@@ -59,10 +71,18 @@ def patch_project_tool(ctx: ToolContext):
         try:
             has_upsert = "table" in args or "entries" in args
             has_settings = "settings" in args
-            if has_upsert and has_settings:
-                raise ValueError("table/entries 与 settings 二选一,不能同时给出")
-            if not has_upsert and not has_settings:
-                raise ValueError("必须提供 table+entries(资产 upsert)或 settings(顶层字段)之一")
+            has_overview = "overview" in args
+            if sum((has_upsert, has_settings, has_overview)) > 1:
+                raise ValueError("table/entries、settings、overview 三选一,不能同时给出多个")
+            if not (has_upsert or has_settings or has_overview):
+                raise ValueError("必须提供 table+entries(资产 upsert)、settings(顶层字段)或 overview(项目概述)之一")
+
+            if has_overview:
+                overview = args["overview"]
+                if not isinstance(overview, dict) or not overview:
+                    raise ValueError("overview 必须是非空 { 字段名: 值 } 映射")
+                updated_overview = _apply_overview(ctx, overview)
+                return {"content": [{"type": "text", "text": _format_overview_result(updated_overview)}]}
 
             if has_settings:
                 settings = args["settings"]
@@ -115,6 +135,52 @@ def _apply_settings(ctx: ToolContext, settings: dict[str, Any]) -> dict[str, Any
 
     ctx.pm.update_project(ctx.project_name, _mutate)
     return diagnostics
+
+
+def _apply_overview(ctx: ToolContext, overview: dict[str, Any]) -> dict[str, str]:
+    """在 update_project 锁内 merge 项目概述四字段(只改传入字段,概述不存在时创建)。
+
+    返回 { field: 'set' | 'noop' } 诊断 dict,供 _format_overview_result 渲染。与
+    PATCH /projects/{name}/overview 端点行为一致(merge、不清除未传字段)。
+    """
+    for key, value in overview.items():
+        if key not in _OVERVIEW_FIELDS:
+            raise ValueError(f"overview 字段 {key!r} 不在白名单 {list(_OVERVIEW_FIELDS)} 内")
+        if not isinstance(value, str):
+            raise ValueError(f"overview 字段 {key!r} 的值必须是字符串,收到 {value!r}")
+
+    diagnostics: dict[str, str] = {}
+
+    def _mutate(project: dict[str, Any]) -> None:
+        existing = project.get("overview")
+        if not isinstance(existing, dict):
+            existing = {}
+            project["overview"] = existing
+        for key, value in overview.items():
+            if existing.get(key) == value:
+                diagnostics[key] = "noop"
+            else:
+                existing[key] = value
+                diagnostics[key] = "set"
+
+    ctx.pm.update_project(ctx.project_name, _mutate)
+    return diagnostics
+
+
+def _format_overview_result(updated: dict[str, str]) -> str:
+    """overview 分支结果文本,风格对齐 _format_settings_result。"""
+    set_items = [k for k, op in updated.items() if op == "set"]
+    noop_items = [k for k, op in updated.items() if op == "noop"]
+
+    parts: list[str] = []
+    if set_items:
+        parts.append("已更新 " + ", ".join(set_items))
+    if noop_items:
+        parts.append("无变更 " + ", ".join(noop_items))
+
+    icon = "ℹ️" if not set_items else "✅"
+    summary = "; ".join(parts) if parts else "无变更"
+    return f"{icon} overview: {summary}"
 
 
 def _validate_setting_value(key: str, value: Any) -> None:

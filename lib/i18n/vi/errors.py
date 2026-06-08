@@ -138,6 +138,9 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids không khớp với các đơn vị hiện có",
     "ref_script_missing": "Tệp kịch bản gắn với tập này không tồn tại",
     "ref_script_rebound": "Liên kết kịch bản của tập này đã thay đổi, vui lòng thử lại",
+    # Episode meta
+    "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
+    "episode_title_empty": "Tiêu đề tập không được để trống",
     "about_update_check_failed": "Kiểm tra cập nhật thất bại, vui lòng thử lại sau",
     "about_version_read_failed": "Không đọc được phiên bản ứng dụng",
     # Image Capability

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
@@ -62,14 +62,53 @@ describe("OverviewCanvas", () => {
 
     render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
 
-    // Find the regenerate button by its accessible role
-    const buttons = screen.getAllByRole("button");
-    const regenButton = buttons.find((b) => b.getAttribute("title") !== null);
-    if (regenButton) {
-      regenButton.click();
-      await waitFor(() => {
-        expect(API.generateOverview).toHaveBeenCalledWith("demo");
-      });
-    }
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    await waitFor(() => {
+      expect(API.generateOverview).toHaveBeenCalledWith("demo");
+    });
   }, 10_000);
+
+  it("edits the four overview fields and saves via API.updateOverview", async () => {
+    vi.spyOn(API, "updateOverview").mockResolvedValue(undefined as never);
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: {},
+    });
+
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    fireEvent.change(screen.getByLabelText("故事梗概"), { target: { value: "新梗概" } });
+    fireEvent.change(screen.getByLabelText("世界观设定"), { target: { value: "新世界观" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(API.updateOverview).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({ synopsis: "新梗概", world_setting: "新世界观" }),
+      );
+    });
+  });
+
+  it("reverts overview edits on cancel", () => {
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    fireEvent.change(screen.getByLabelText("故事梗概"), { target: { value: "临时改动" } });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    // 退出编辑：表单消失，显示原 synopsis 文本
+    expect(screen.queryByLabelText("故事梗概")).toBeNull();
+    expect(screen.getByText("summary")).toBeInTheDocument();
+  });
+
+  it("offers a create-overview entry when overview is absent but episodes exist", () => {
+    render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({ overview: undefined })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "创建概述" })).toBeInTheDocument();
+  });
 });

@@ -36,6 +36,8 @@ interface TimelineCanvasProps {
   durationOptions?: number[];
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
+  onSaveTitle?: (next: string) => Promise<void>;
+  canEditTitle?: boolean;
 }
 
 export function TimelineCanvas({
@@ -52,6 +54,8 @@ export function TimelineCanvas({
   onGenerateVideo,
   onRestoreStoryboard,
   onRestoreVideo,
+  onSaveTitle,
+  canEditTitle,
 }: TimelineCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
@@ -161,6 +165,8 @@ export function TimelineCanvas({
         segmentCount={segments.length}
         totalDuration={totalDuration}
         episodeCost={episodeCost ?? undefined}
+        onSaveTitle={onSaveTitle}
+        canEditTitle={canEditTitle}
       />
 
       {/* Tab bar + 批量按钮 */}

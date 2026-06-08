@@ -138,6 +138,9 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids do not match existing units",
     "ref_script_missing": "The script file bound to this episode does not exist",
     "ref_script_rebound": "This episode's script binding changed, please retry",
+    # Episode meta
+    "episode_not_found": "Episode {episode} not found or has no script file yet",
+    "episode_title_empty": "Episode title cannot be empty",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
     # Image Capability
