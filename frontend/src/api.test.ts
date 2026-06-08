@@ -194,6 +194,7 @@ describe("API", () => {
       await API.getScript("demo", "episode 1.json");
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
       await API.updateSegment("demo", "segment-1", { y: 2 });
+      await API.updateEpisode("demo", 3, { title: "新标题" });
 
       await API.getSystemConfig();
       await API.getSystemVersion();
@@ -253,6 +254,10 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/segments/segment-1", {
         method: "PATCH",
         body: JSON.stringify({ y: 2 }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes/3", {
+        method: "PATCH",
+        body: JSON.stringify({ title: "新标题" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/system/config");
       expect(requestSpy).toHaveBeenCalledWith("/system/version");
