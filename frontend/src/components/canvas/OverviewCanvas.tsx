@@ -322,6 +322,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                       id={synopsisFieldId}
                       value={draft.synopsis}
                       onChange={(e) => setDraft((d) => ({ ...d, synopsis: e.target.value }))}
+                      disabled={savingOverview}
                       rows={4}
                       className="focus-ring mt-1.5 w-full resize-y rounded-lg px-3 py-2 text-[13px] leading-[1.6] outline-none"
                       style={FIELD_STYLE}
@@ -336,6 +337,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                         type="text"
                         value={draft.genre}
                         onChange={(e) => setDraft((d) => ({ ...d, genre: e.target.value }))}
+                        disabled={savingOverview}
                         className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none"
                         style={FIELD_STYLE}
                       />
@@ -347,6 +349,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                         type="text"
                         value={draft.theme}
                         onChange={(e) => setDraft((d) => ({ ...d, theme: e.target.value }))}
+                        disabled={savingOverview}
                         className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none"
                         style={FIELD_STYLE}
                       />
@@ -358,6 +361,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                       id={worldFieldId}
                       value={draft.world_setting}
                       onChange={(e) => setDraft((d) => ({ ...d, world_setting: e.target.value }))}
+                      disabled={savingOverview}
                       rows={3}
                       className="focus-ring mt-1.5 w-full resize-y rounded-lg px-3 py-2 text-[13px] leading-[1.6] outline-none"
                       style={FIELD_STYLE}
