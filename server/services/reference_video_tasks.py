@@ -24,7 +24,7 @@ from lib.reference_video import assemble_shots_text, render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
-from server.services.generation_tasks import get_media_generator, get_project_manager
+from server.services.generation_tasks import assert_duration_supported, get_media_generator, get_project_manager
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +218,7 @@ async def execute_reference_video_task(
     #    本 PR 范围内先缓解。
     max_refs: int | None = None
     max_duration: int | None = None
+    supported_durations: list[int] = []
     try:
         resolver = ConfigResolver(async_session_factory)
         caps = await resolver.video_capabilities_for_project(project)
@@ -232,6 +233,9 @@ async def execute_reference_video_task(
         else:
             max_refs = caps.get("max_reference_images")
             max_duration = caps.get("max_duration")
+            # caps 与实际 backend model 一致时才取 supported_durations 做 duration 能力守卫；
+            # 不一致（caps 不可信）时留空，守卫遇空集放行，把决策推给 backend（与 clamp 同口径）。
+            supported_durations = [int(d) for d in caps.get("supported_durations") or []]
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，跳过 executor clamp：%s", exc)
 
@@ -245,6 +249,10 @@ async def execute_reference_video_task(
         references=source_refs,
         duration_seconds=base_duration,
     )
+
+    # duration 能力守卫：clamp 只裁"超上限"，区间内的非成员总时长（如模型支持 [4,8,12] 而总和=5）
+    # 它不修正、会漏给 backend 报 400；这里与普通视频路径对称地本地拦下（VideoCapabilityError）。
+    assert_duration_supported(effective_duration, supported_durations)
 
     # resolver key 必须是 registry provider_id（project.video_backend 的 "/" 前半段），
     # 而非 backend.name（如 "gemini"）——与 generation_tasks.execute_video_task 保持一致。

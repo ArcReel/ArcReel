@@ -800,7 +800,9 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"duration": 3, "text": "Shot 1 (3s): @张三 在 @酒馆 拿起 @瓶子"}]
+    # 时长取 sora supported_durations 成员（4），避免触发执行层 duration 能力守卫；本测试聚焦 refs 裁剪。
+    script["video_units"][0]["shots"] = [{"duration": 4, "text": "Shot 1 (4s): @张三 在 @酒馆 拿起 @瓶子"}]
+    script["video_units"][0]["duration_seconds"] = 4
     script["video_units"][0]["references"] = [
         {"type": "character", "name": "张三"},
         {"type": "scene", "name": "酒馆"},
@@ -896,6 +898,13 @@ async def test_gemini_model_settings_read_via_composite_key(
     project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
     project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    # video_backend 显式指向 veo（caps 命中 → duration 守卫生效）：unit 时长取 veo 支持成员，
+    # 避免触发能力守卫（本测试聚焦 resolution composite key）。
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["duration_seconds"] = 8
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
 
@@ -1029,3 +1038,75 @@ async def test_execute_reference_video_task_skips_clamp_when_backend_model_diver
     assert captured["duration_seconds"] == 20
     # refs 也保留原数（2 张，未被 caps.max_reference_images=1 裁到 1）
     assert len(captured["reference_images"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_rejects_unsupported_duration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """执行层能力守卫：unit 总时长不在 supported_durations 内（且 ≤max 不会被 clamp 修正）时，
+    必须抛 VideoCapabilityError 本地失败，而非把非成员时长漏给供应商 API 报 400。
+    """
+    from lib.video_backends.base import VideoCapabilityError
+
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    # 5 ≤ max(12) 不会被 clamp，但不是 [4,8,12] 成员 → 守卫必须拒
+    script["video_units"][0]["shots"] = [{"duration": 5, "text": "Shot 1 (5s): @张三 推门"}]
+    script["video_units"][0]["duration_seconds"] = 5
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "openai"
+    fake_video_backend.model = "sora-2"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    from lib.config.resolver import ConfigResolver
+
+    async def _fake_caps(self, project):
+        return {
+            "provider_id": "openai",
+            "model": "sora-2",
+            "supported_durations": [4, 8, 12],
+            "max_duration": 12,
+            "max_reference_images": 9,
+            "source": "registry",
+            "default_duration": None,
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+        }
+
+    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
+
+    with pytest.raises(VideoCapabilityError):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+    # 守卫在调用 backend 前拦下：generate_video_async 不应被调用
+    fake_generator.generate_video_async.assert_not_called()
