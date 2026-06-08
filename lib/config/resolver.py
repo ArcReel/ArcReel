@@ -23,6 +23,8 @@ from lib.app_data_dir import app_data_dir
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.service import (
     _DEFAULT_IMAGE_BACKEND,
+    _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+    _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
     _DEFAULT_TEXT_BACKEND,
     _DEFAULT_VIDEO_BACKEND,
     ConfigService,
@@ -67,6 +69,23 @@ class ProviderModel:
 def _parse_bool(raw: str) -> bool:
     """将配置字符串解析为布尔值。"""
     return raw.strip().lower() in _TRUTHY
+
+
+def _parse_int(raw: object, default: int) -> int:
+    """将配置值解析为正整数；空串 / 非数字 / 非正一律回 default（容错，不抛）。"""
+    if isinstance(raw, bool):  # bool 是 int 子类，显式排除避免 True→1
+        return default
+    if isinstance(raw, int):
+        return raw if raw > 0 else default
+    if isinstance(raw, str) and raw.strip().isdigit():
+        value = int(raw.strip())
+        return value if value > 0 else default
+    return default
+
+
+# 参考上传副本上限的 per-provider 覆盖 key（裸 API PATCH /providers/{id}/config 可设置）。
+_REFERENCE_TOTAL_MAX_BYTES_KEY = "reference_total_max_bytes"
+_REFERENCE_SINGLE_MAX_BYTES_KEY = "reference_single_max_bytes"
 
 
 def _split_pair(raw: object) -> tuple[str, str] | None:
@@ -299,6 +318,18 @@ class ConfigResolver:
         """批量获取所有供应商配置。"""
         async with self._open_session() as (session, svc):
             return await self._resolve_all_provider_configs(svc, session)
+
+    async def reference_payload_limits(self, provider_id: str | None) -> tuple[int, int]:
+        """解析参考上传副本的 (total_max_bytes, single_max_bytes)。
+
+        优先级：per-provider 配置覆盖 > service 层保守通用默认。provider_id 为 None（零配置 /
+        通用上限场景）直接返回默认元组、不触 DB。返回纯 int 元组、不 import reference_compression，
+        避免把 PIL 间接拖进被广泛依赖的 resolver。
+        """
+        if provider_id is None:
+            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        async with self._open_session() as (session, svc):
+            return await self._resolve_reference_payload_limits(svc, session, provider_id)
 
     # ── 内部解析方法（可独立测试，接收已创建的 svc） ──
 
@@ -558,6 +589,21 @@ class ConfigResolver:
         if active:
             active.overlay_config(config)
         return config
+
+    async def _resolve_reference_payload_limits(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        provider_id: str,
+    ) -> tuple[int, int]:
+        try:
+            cfg = await self._resolve_provider_config(svc, session, provider_id)
+        except ValueError:
+            # 未知 / 自定义 provider（_validate_provider 抛 ValueError）→ 回退保守通用默认
+            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), _DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
+        single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), _DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
+        return total, single
 
     async def _resolve_all_provider_configs(
         self,

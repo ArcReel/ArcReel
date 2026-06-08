@@ -177,7 +177,10 @@ class ViduImageBackend:
         logger.info("调用 Vidu 图片 API kwargs=%s", format_kwargs_for_log(safe_body_for_log(body)))
         resp = await client.post("/reference2image", json=body)
         if resp.status_code >= 400:
-            raise RuntimeError(f"Vidu 图片接口 /reference2image 返回 {resp.status_code}: {resp.text[:500]}")
+            # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code，
+            # 让咽喉层能识别 413 走降档重试；body 先落日志保留可诊断性。
+            logger.warning("Vidu 图片接口 /reference2image 返回 %s: %s", resp.status_code, resp.text[:500])
+            resp.raise_for_status()
         data = resp.json()
         if not data.get("task_id"):
             raise RuntimeError(f"Vidu 图片任务创建响应缺少 task_id: {data}")

@@ -271,3 +271,30 @@ class TestDurationRulesSpec:
 
     def test_q3_turbo_text2video_full_range(self):
         assert _DURATION_RULES[("viduq3-turbo", "/text2video")] == list(range(1, 17))
+
+
+class TestCreateTask413:
+    """413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。"""
+
+    async def test_create_task_413_surfaces_httpstatuserror_no_retry(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        import httpx
+
+        request = httpx.Request("POST", "https://vidu/text2video")
+        response = httpx.Response(413, request=request, text="Request Entity Too Large")
+        err = httpx.HTTPStatusError("error 413", request=request, response=response)
+
+        resp = MagicMock()
+        resp.status_code = 413
+        resp.text = "Request Entity Too Large"
+        resp.raise_for_status = MagicMock(side_effect=err)
+        client = AsyncMock()
+        client.post = AsyncMock(return_value=resp)
+
+        backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
+        with pytest.raises(httpx.HTTPStatusError) as ei:
+            await backend._create_task(client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8})
+        assert ei.value.response.status_code == 413
+        # 413 非 retryable → fail-fast 单次
+        assert client.post.call_count == 1

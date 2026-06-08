@@ -802,3 +802,95 @@ class TestResolveVideoBackend:
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, {}, payload)
         assert resolved.provider_id == "ark"
         assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # 补 ark 默认 video model
+
+
+def test_parse_int_variants():
+    from lib.config.resolver import _parse_int
+
+    assert _parse_int("100", 7) == 100
+    assert _parse_int("", 7) == 7
+    assert _parse_int("abc", 7) == 7
+    assert _parse_int("0", 7) == 7  # 非正回 default
+    assert _parse_int("-5", 7) == 7  # "-5".isdigit() == False
+    assert _parse_int(None, 7) == 7
+    assert _parse_int(50, 7) == 50
+    assert _parse_int(True, 7) == 7  # bool 显式排除（避免 True→1）
+
+
+class TestReferencePayloadLimits:
+    """验证 reference_payload_limits 的默认、per-provider 覆盖、容错与 None 短路。"""
+
+    async def test_none_provider_returns_default_without_db(self):
+        # 无需 DB：provider_id=None 直接返回保守通用默认
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        total, single = await resolver.reference_payload_limits(None)
+        from lib.config.service import (
+            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+        )
+
+        assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+        assert single == _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+
+    async def test_default_when_unset(self):
+        from lib.config.service import (
+            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+        )
+
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            total, single = await resolver.reference_payload_limits("gemini-aistudio")
+            assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+            assert single == _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        finally:
+            await engine.dispose()
+
+    async def test_provider_override_applies(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                svc = ConfigService(session)
+                await svc.set_provider_config("gemini-aistudio", "reference_total_max_bytes", "1000000")
+                await svc.set_provider_config("gemini-aistudio", "reference_single_max_bytes", "500000")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            total, single = await resolver.reference_payload_limits("gemini-aistudio")
+            assert (total, single) == (1000000, 500000)
+        finally:
+            await engine.dispose()
+
+    async def test_unknown_provider_falls_back_to_default(self):
+        from lib.config.service import _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            # 未知 provider → get_provider_config 抛 ValueError → catch 回退默认
+            total, single = await resolver.reference_payload_limits("totally-unknown-provider")
+            assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+        finally:
+            await engine.dispose()
+
+    async def test_non_numeric_override_falls_back(self):
+        from lib.config.service import (
+            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            ConfigService,
+        )
+
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                svc = ConfigService(session)
+                await svc.set_provider_config("gemini-aistudio", "reference_total_max_bytes", "not-a-number")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            total, single = await resolver.reference_payload_limits("gemini-aistudio")
+            assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES  # 非数字回退
+            assert single == _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        finally:
+            await engine.dispose()

@@ -14,13 +14,6 @@ class MissingReferenceError(Exception):
         super().__init__(f"Missing references: {names}")
 
 
-class RequestPayloadTooLargeError(Exception):
-    """视频生成请求体超出供应商限制（gRPC/HTTP body size）。"""
-
-    def __init__(self, message: str = "Request payload too large"):
-        super().__init__(message)
-
-
 class ProviderUnsupportedFeatureError(Exception):
     """供应商不支持某项能力（如 Sora 多参考图）。"""
 
