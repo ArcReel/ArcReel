@@ -368,15 +368,15 @@ wheels = [
 
 [[package]]
 name = "beautifulsoup4"
-version = "4.14.3"
+version = "4.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "soupsieve" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/b0/1c6a16426d389813b48d95e26898aff79abbde42ad353958ad95cc8c9b21/beautifulsoup4-4.14.3.tar.gz", hash = "sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86", size = 627737, upload-time = "2025-11-30T15:08:26.084Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/65/318323f98dbee45d42dff61d8f047181bc6f2268a9068cfad035a46be5af/beautifulsoup4-4.15.0.tar.gz", hash = "sha256:288e3ca7d54b06f2ac191970bc275c1939cb46d450b255bf6718b04aa37ab4f7", size = 632571, upload-time = "2026-06-07T16:44:20.453Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/39/47f9197bdd44df24d67ac8893641e16f386c984a0619ef2ee4c51fbbc019/beautifulsoup4-4.14.3-py3-none-any.whl", hash = "sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb", size = 107721, upload-time = "2025-11-30T15:08:24.087Z" },
+    { url = "https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl", hash = "sha256:d6f88de62e1d4e38ecb1077eb9724cd0eff29d2a08ca16a401e9b9e93f117cf9", size = 109924, upload-time = "2026-06-07T16:44:21.566Z" },
 ]
 
 [[package]]
@@ -1735,18 +1735,18 @@ wheels = [
 
 [[package]]
 name = "pdf-oxide"
-version = "0.3.55"
+version = "0.3.61"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/14/fe/06fc38856c895484cdc4413c352248b76912a98e4f85d8bd369caefd2eba/pdf_oxide-0.3.55.tar.gz", hash = "sha256:7d493e89eb9f8e3ec0f0f9b7cacef58af974c8e236e5a39db70c4dedbe0f03c1", size = 3509583, upload-time = "2026-05-25T08:20:49.331Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/8e/e19043ce8d3a53bf132de2e5f25164875c72c4a46a629246362c67f096a6/pdf_oxide-0.3.61.tar.gz", hash = "sha256:826b0934463247cc8514fb187db7bbacf05981233824bacb85137ac207aba059", size = 3842442, upload-time = "2026-06-07T23:30:20.171Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/79/347374f21d7d0b36f31a16f2d00670f9c72fd1c6b8bfa20ef63dfac193fa/pdf_oxide-0.3.55-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:d15abd4397b124c329ef743ccc18dea38a9809bd67d05f2ea2b7becd2d9680b4", size = 9932300, upload-time = "2026-05-25T08:20:32.07Z" },
-    { url = "https://files.pythonhosted.org/packages/a2/fd/13f98382f50d5c472dfd44f4eec04c5c12b10b5c4766b7227fad54f0cccc/pdf_oxide-0.3.55-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:bfd432cdc373ee45e6d0c91d00c81400c734569b8bf4dcec3b01b0f1484e57fd", size = 9359339, upload-time = "2026-05-25T08:20:34.92Z" },
-    { url = "https://files.pythonhosted.org/packages/a1/d3/91b1d0d495b2d236a026d8fdd92baa810904754a4c1060c34b69faad0a2b/pdf_oxide-0.3.55-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:4b795bba3b8578fdd6f9451350eee7c128679aab66684607cfff62760ea34826", size = 9667470, upload-time = "2026-05-25T08:20:37.132Z" },
-    { url = "https://files.pythonhosted.org/packages/3d/b1/06640e097ef442013a9bfd25e93a17264e4016449c4a753ab52d96e6021e/pdf_oxide-0.3.55-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:cc61ed0047a1719bb7a65036d5bce4cf0f7e354590a7a5c6ffd164ae4ed967fd", size = 10221414, upload-time = "2026-05-25T08:20:39.106Z" },
-    { url = "https://files.pythonhosted.org/packages/c5/8c/fc2632df450f6608d82b968b7d46c2728709aa553ea5f75aa47e038da085/pdf_oxide-0.3.55-cp38-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:6b226ed63e0f6fc69d0b4d7b62606746e7348f322b7437fa328fb5ae562145e7", size = 9867166, upload-time = "2026-05-25T08:20:41.002Z" },
-    { url = "https://files.pythonhosted.org/packages/a8/d1/97c25f38751fd4f0af0ce86e7616ef9b99b2e04f5ec9b980fbd07e356b09/pdf_oxide-0.3.55-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:2fd4f2515bffba9d565c66d8009a4a02bbe3706c3f11545914ce57de87f5f077", size = 10468077, upload-time = "2026-05-25T08:20:43.234Z" },
-    { url = "https://files.pythonhosted.org/packages/bc/67/e1ce498fb2307ff4c5b59c4dc4129a41b903fbe9be471889295106fd077d/pdf_oxide-0.3.55-cp38-abi3-win_amd64.whl", hash = "sha256:b4bf2c61f5618d5329b0f6c7d099fa013bcb3f95737022d2c2bd2581fe2ec4c8", size = 10266797, upload-time = "2026-05-25T08:20:45.195Z" },
-    { url = "https://files.pythonhosted.org/packages/bc/3c/f6a48114e0733ec4739dcf0ba59f00520ab2a1a96ee507c284773c2cbe30/pdf_oxide-0.3.55-cp38-abi3-win_arm64.whl", hash = "sha256:09c86ddf45484998e4072a60f10ae2d39e989a3cc9df72565a6b57b902700905", size = 9598992, upload-time = "2026-05-25T08:20:47.336Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/41/003d20eb19d0845cd5abbdec66cc280bad43fcf95f614d296b02813ec5f0/pdf_oxide-0.3.61-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2be7b1b090de568ddc3920694a139fd55429ec44f872d674142467083cc0da04", size = 10294566, upload-time = "2026-06-07T23:29:58.208Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/73/317c34ddfdfd3b1019377359ad4f507ac9add08a7e59165c9ab4d09c1ac7/pdf_oxide-0.3.61-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:f686ce976526b7241b2e5dd1d38d140b098621dc24a04d88610f5f650bde471f", size = 9683067, upload-time = "2026-06-07T23:30:00.915Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/18/a73e8275003e41c6077f36cf42d7ff8b6e33d1284675ec1f39708b7f190a/pdf_oxide-0.3.61-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:768c1550ac5a39ff09149ed8efcee97d5a7748210d2f627a11b54c6c349fd3f9", size = 10000281, upload-time = "2026-06-07T23:30:03.52Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/97/8248b088e34eb0af5a9f6097539fb96ca2a6ff86e7f54e8bbb7ccbdfafac/pdf_oxide-0.3.61-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:4282a80d2ae28d4666963074433bf36f3e24253aa6bf9bb53252d8044e5a7214", size = 10617019, upload-time = "2026-06-07T23:30:06.39Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/49/7b572c9a82388b22b2a6a72c0e643b00ae5e216283c1627f0b2643bbf078/pdf_oxide-0.3.61-cp38-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:1983b3757d23a4cabd570fc52a0d692a2b62fa85e09726b0a5aa61f975a49091", size = 10188781, upload-time = "2026-06-07T23:30:09.012Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/cc/efa4fd8fb62288f48d5114befd6e55a0bb00c49ed11a0ff685a321110c7c/pdf_oxide-0.3.61-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:9f25b2550513671ff203119cbdce6fcb6c3c73b9a3f37b178e1476648643a6fa", size = 10842368, upload-time = "2026-06-07T23:30:11.814Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/a4/c884f22557b8671c19694c8484a66520482450ce8328c1667c23f8654d0d/pdf_oxide-0.3.61-cp38-abi3-win_amd64.whl", hash = "sha256:d2e0c4cf67d2f3f7fae72d06615e9d77163f1219ff3ba3058945dff159a2e5d0", size = 10614114, upload-time = "2026-06-07T23:30:14.622Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/34/dde25ea6360250f5afc0c455a514c00ff4391ff9c1172cfdd7a39b189866/pdf_oxide-0.3.61-cp38-abi3-win_arm64.whl", hash = "sha256:9dc728889d8bd1d27337d4a2d6b697bd9ad4a8339ebed6c8a309029d5aef6afa", size = 9922715, upload-time = "2026-06-07T23:30:17.629Z" },
 ]
 
 [[package]]
