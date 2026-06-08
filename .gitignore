@@ -84,6 +84,7 @@ frontend/.vite/
 # Test coverage
 htmlcov/
 .coverage
+coverage/
 
 # File locks (project_manager 原子写产物)
 **/*.lock
