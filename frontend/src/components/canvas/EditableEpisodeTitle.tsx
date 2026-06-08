@@ -85,6 +85,8 @@ export function EditableEpisodeTitle({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
+            // 输入法组合输入中（如中文拼音）按 Enter 是在确认候选词，不应触发保存
+            if (e.nativeEvent.isComposing) return;
             if (e.key === "Enter") {
               e.preventDefault();
               void save();

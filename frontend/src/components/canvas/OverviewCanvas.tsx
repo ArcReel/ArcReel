@@ -367,7 +367,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     <button
                       type="button"
                       onClick={() => void handleSaveOverview()}
-                      disabled={savingOverview || draft.synopsis.trim().length === 0}
+                      disabled={savingOverview}
                       className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
                       style={{
                         color: "oklch(0.14 0 0)",
