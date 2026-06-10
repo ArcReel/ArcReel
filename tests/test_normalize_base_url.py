@@ -39,6 +39,10 @@ class TestIsOfficialOpenAIBaseURL:
     def test_url_without_scheme_is_not_official(self):
         assert is_official_openai_base_url("api.openai.com/v1") is False
 
+    def test_env_whitespace_only_treated_as_unset(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_BASE_URL", "   ")
+        assert is_official_openai_base_url(None) is True
+
     def test_env_relay_overrides_empty_base_url(self, monkeypatch):
         monkeypatch.setenv("OPENAI_BASE_URL", "https://relay.example.com/v1")
         assert is_official_openai_base_url(None) is False
