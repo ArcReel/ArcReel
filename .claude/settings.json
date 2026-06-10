@@ -72,6 +72,10 @@
           {
             "type": "command",
             "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.py) uv run ruff check --fix --unfixable F401,F811,F841 \"$f\"; uv run ruff format \"$f\";; esac; } 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in */frontend/*.ts|*/frontend/*.tsx) fe=\"${f%%/frontend/*}/frontend\"; (cd \"$fe\" && pnpm exec eslint --fix \"$f\");; esac; } 2>/dev/null || true"
           }
         ]
       }

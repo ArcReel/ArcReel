@@ -32,6 +32,7 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_VIDU
+from lib.reference_compression import ReferencePayloadFloorError
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -265,13 +266,13 @@ async def _resolve_video_backend(
     project_name: str,
     resolver: ConfigResolver,
     payload: dict | None,
-) -> tuple[Any | None, str, str]:
-    """解析并构造视频后端，返回 (video_backend, video_backend_type, video_model)。
+) -> tuple[Any | None, str, str, str]:
+    """解析并构造视频后端，返回 (video_backend, video_backend_type, video_model, provider_id)。
 
     provider/model 的**解析**是 ``resolver.resolve_video_backend`` 的薄投影；backend **构造**
     （``_get_or_create_video_backend``）留在原地。仅在 payload 存在时创建 VideoBackend，避免
     图片任务因视频配置缺失而报错。注意：video_backend_type 仅在 video_backend 为 None
-    （回退到 GeminiClient）时生效。
+    （回退到 GeminiClient）时生效。provider_id 是 registry id（参考图压缩按它查 per-provider 上限）。
     """
     project = await asyncio.to_thread(get_project_manager().load_project, project_name) if payload else None
     resolved = await resolver.resolve_video_backend(project, payload)
@@ -291,7 +292,7 @@ async def _resolve_video_backend(
             default_video_model=resolved.model_id or None,
         )
 
-    return video_backend, video_backend_type, resolved.model_id
+    return video_backend, video_backend_type, resolved.model_id, resolved.provider_id
 
 
 async def get_media_generator(
@@ -312,12 +313,17 @@ async def get_media_generator(
     project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
     resolver = ConfigResolver(async_session_factory)
 
+    # provider_id 须在 async with 之前初始化：纯视频任务（require_image_backend=False）取不到
+    # image provider，纯图任务也要拿到 video provider，两个分支各自赋值后传给 MediaGenerator。
+    image_provider_id: str | None = None
+    video_provider_id: str | None = None
     async with resolver.session() as r:
         image_backend = None
         if require_image_backend:
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
             resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=needs_i2i)
             # 解析失败 → provider_id 为空，让 _get_or_create_image_backend 抛出清晰错误
+            image_provider_id = resolved_image.provider_id
             image_backend = await _get_or_create_image_backend(
                 resolved_image.provider_id,
                 {},
@@ -326,7 +332,7 @@ async def get_media_generator(
             )
 
         # 解析 video backend（保持现有逻辑）
-        video_backend, _, _ = await _resolve_video_backend(
+        video_backend, _, _, video_provider_id = await _resolve_video_backend(
             project_name,
             r,
             payload,
@@ -339,6 +345,8 @@ async def get_media_generator(
         video_backend=video_backend,  # type: ignore[arg-type]
         config_resolver=resolver,
         user_id=user_id,
+        image_provider_id=image_provider_id,
+        video_provider_id=video_provider_id,
     )
 
 
@@ -564,7 +572,7 @@ def _resolve_script_episode(project_name: str, script_file: str | None) -> int |
     return None
 
 
-def _compute_affected_fingerprints(project_name: str, task_type: str, resource_id: str) -> dict[str, int]:
+def compute_affected_fingerprints(project_name: str, task_type: str, resource_id: str) -> dict[str, int]:
     """计算受影响文件的 mtime 指纹"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
@@ -621,6 +629,31 @@ def _compute_affected_fingerprints(project_name: str, task_type: str, resource_i
                 project_path / "grids" / f"{resource_id}.png",
             )
         )
+        # 宫格切割还会覆写多个 canonical 分镜图，实际写入的 cell 路径持久化在
+        # grid 记录的 frame_chain 中，一并纳入指纹让前端对这些文件 cache-bust；
+        # 记录缺失/损坏时降级为只报宫格主图。
+        try:
+            from lib.grid_manager import GridManager
+
+            grid = GridManager(project_path).get(resource_id)
+        except Exception:
+            grid = None
+        if grid is not None:
+            # 记录是磁盘上的 JSON，image_path 不可直接信任：绝对路径会覆盖左操作数、
+            # ../ 会越出项目目录，把任意服务器文件的存在性/mtime 暴露给前端
+            project_root = project_path.resolve()
+            for frame in grid.frame_chain:
+                if not frame.image_path:
+                    continue
+                candidate = (project_path / frame.image_path).resolve()
+                try:
+                    # 指纹 key 用归一化后的项目相对路径：原始字符串若是项目内的
+                    # 绝对路径，会把服务器路径泄漏给前端且匹配不上前端的资源 key
+                    rel = candidate.relative_to(project_root).as_posix()
+                except ValueError:
+                    logger.warning("跳过越出项目目录的宫格 cell 路径: %s", frame.image_path)
+                    continue
+                paths.append((rel, candidate))
     elif task_type == "reference_video":
         paths.append(
             (
@@ -660,13 +693,17 @@ def emit_generation_success_batch(
     project_name: str,
     resource_id: str,
     payload: dict[str, Any],
-) -> None:
+) -> dict[str, int]:
+    """发送生成/上传完成的项目变更事件，返回受影响文件的指纹（调用方可直接复用，免二次计算）。
+
+    事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
+    """
     spec = _TASK_CHANGE_SPECS.get(task_type)
     if spec is None:
-        return
+        return {}
 
     entity_type, action, label_tpl, include_script_episode = spec
-    asset_fingerprints = _compute_affected_fingerprints(project_name, task_type, resource_id)
+    asset_fingerprints = compute_affected_fingerprints(project_name, task_type, resource_id)
 
     change: dict[str, Any] = {
         "entity_type": entity_type,
@@ -683,7 +720,7 @@ def emit_generation_success_batch(
         change["episode"] = _resolve_script_episode(project_name, script_file)
 
     try:
-        emit_project_change_batch(project_name, [change], source="worker")
+        emit_project_change_batch(project_name, [change])
     except Exception:
         logger.exception(
             "发送生成完成项目事件失败 project=%s task_type=%s resource_id=%s",
@@ -691,6 +728,7 @@ def emit_generation_success_batch(
             task_type,
             resource_id,
         )
+    return asset_fingerprints
 
 
 async def execute_storyboard_task(
@@ -1320,7 +1358,19 @@ async def execute_grid_task(
 
                 cell_rel = f"storyboards/scene_{frame.next_scene_id}.png"
                 cell_path = storyboards_dir / f"scene_{frame.next_scene_id}.png"
+                # 与 MediaGenerator 版本顺序一致：旧文件先补登再覆写、覆写后登记新版本。
+                # 否则宫格重切的单元格不进版本史，版本面板的「当前版本」与磁盘内容脱节，
+                # 且下一次还原/上传会让未登记的格子字节永久丢失。
+                generator.versions.ensure_current_tracked("storyboards", str(frame.next_scene_id), cell_path, "")
                 cell.save(cell_path, format="PNG")
+                generator.versions.add_version(
+                    resource_type="storyboards",
+                    resource_id=str(frame.next_scene_id),
+                    prompt="",
+                    source_file=cell_path,
+                    source="grid_split",
+                    grid_id=resource_id,
+                )
                 frame.image_path = cell_rel
                 asset_updates.append((frame.next_scene_id, "storyboard_image", cell_rel))
                 asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
@@ -1412,9 +1462,10 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
     with project_change_source("worker"):
         try:
             result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
-        except (ImageCapabilityError, VideoCapabilityError) as err:
+        except (ImageCapabilityError, VideoCapabilityError, ReferencePayloadFloorError) as err:
             # Worker 后台无 request 上下文，按 DEFAULT_LOCALE 渲染稳定的 i18n 文案
-            # 落到 task.error_message，前端轮询时即可看到本地化提示
+            # 落到 task.error_message，前端轮询时即可看到本地化提示。
+            # ReferencePayloadFloorError 对普通图/视频与 R2V 都经此渲染（R2V 走同一 dispatch catch）。
             message = i18n_translate(err.code, locale=DEFAULT_LOCALE, **err.params)
             raise RuntimeError(message) from err
         emit_generation_success_batch(

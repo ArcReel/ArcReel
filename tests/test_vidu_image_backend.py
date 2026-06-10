@@ -102,3 +102,30 @@ class TestCapabilityMismatchRaises:
         # 不应是 ImageCapabilityError；应是我们注入的 RuntimeError
         with pytest.raises(RuntimeError, match="short-circuit"):
             await backend.generate(request)
+
+
+class TestViduImageCreateTask413:
+    """413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。"""
+
+    async def test_create_task_413_surfaces_httpstatuserror_no_retry(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        import httpx
+
+        request = httpx.Request("POST", "https://vidu/reference2image")
+        response = httpx.Response(413, request=request, text="Request Entity Too Large")
+        err = httpx.HTTPStatusError("error 413", request=request, response=response)
+
+        resp = MagicMock()
+        resp.status_code = 413
+        resp.text = "Request Entity Too Large"
+        resp.raise_for_status = MagicMock(side_effect=err)
+        client = AsyncMock()
+        client.post = AsyncMock(return_value=resp)
+
+        backend = ViduImageBackend(api_key="k", model="viduq2")
+        with pytest.raises(httpx.HTTPStatusError) as ei:
+            await backend._create_task(client, {"model": "viduq2", "prompt": "x"})
+        assert ei.value.response.status_code == 413
+        # 413 非 retryable → fail-fast 单次
+        assert client.post.call_count == 1

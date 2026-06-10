@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from lib.image_backends.base import (
@@ -35,6 +36,20 @@ def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
     p = tmp_path / name
     p.write_bytes(b"\x89PNG\r\nfake")
     return ReferenceImage(path=str(p))
+
+
+def _http_error(status_code: int, message: str) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://x/api/v1/x")
+    response = httpx.Response(status_code, request=request, text=message)
+    return httpx.HTTPStatusError(f"error {status_code}", request=request, response=response)
+
+
+def _error_response(status_code: int) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = "Request Entity Too Large"
+    resp.raise_for_status = MagicMock(side_effect=_http_error(status_code, "Request Entity Too Large"))
+    return resp
 
 
 def _patches(client: AsyncMock, download: AsyncMock):
@@ -418,17 +433,31 @@ class TestCapabilityGating:
 
 
 class TestErrorResponse:
-    async def test_http_error_raises(self, tmp_path: Path):
-        resp = MagicMock()
-        resp.status_code = 400
-        resp.text = "bad request"
-        client = _mock_client(resp)
+    async def test_http_error_surfaces_httpstatuserror(self, tmp_path: Path):
+        client = _mock_client(_error_response(400))
         download = AsyncMock()
         p1, p2 = _patches(client, download)
         with p1, p2:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
-            with pytest.raises(RuntimeError, match="400"):
+            with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
+        # raise_for_status 透出保留状态码（#701：4xx fail-fast，不再吞成无状态码的 RuntimeError）
+        assert ei.value.response.status_code == 400
+        download.assert_not_called()
+
+    async def test_413_surfaces_httpstatuserror_no_retry(self, tmp_path: Path):
+        client = _mock_client(_error_response(413))
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+            with pytest.raises(httpx.HTTPStatusError) as ei:
+                await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
+        # 保留 status_code 让咽喉层识别 413 走降档；413 不在 retryable 模式中 → fail-fast 单次
+        assert ei.value.response.status_code == 413
+        assert client.post.call_count == 1
         download.assert_not_called()

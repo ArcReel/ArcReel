@@ -15,6 +15,12 @@ _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
 _DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 
+# 参考上传副本的保守通用请求体上限（ArcReel 侧安全策略常量，非任一供应商的真实字节限；
+# 被动 413 兜底负责自我纠正）。可经 per-provider 配置 key 覆盖。
+# 与 lib/reference_compression.DEFAULT_* 数值一致（单测断言对齐）。
+_DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
+_DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
+
 # DB setting key → environment variable name
 _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",

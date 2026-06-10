@@ -29,6 +29,7 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_scene_tool,
     generate_video_selected_tool,
 )
+from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     insert_segment_tool,
@@ -64,6 +65,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "normalize_drama_script",
     "get_video_capabilities",
     "patch_episode_script",
+    "patch_episode_meta",
     "insert_segment",
     "remove_segment",
     "split_segment",
@@ -90,6 +92,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             normalize_drama_script_tool(ctx),
             get_video_capabilities_tool(ctx),
             patch_episode_script_tool(ctx),
+            patch_episode_meta_tool(ctx),
             insert_segment_tool(ctx),
             remove_segment_tool(ctx),
             split_segment_tool(ctx),

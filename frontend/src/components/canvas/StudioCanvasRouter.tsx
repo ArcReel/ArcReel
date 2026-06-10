@@ -207,6 +207,18 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, currentProjectData, refreshProject]);
 
+  const handleUpdateEpisodeTitle = useCallback(async (episode: number, title: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.updateEpisode(currentProjectName, episode, { title });
+      await refreshProject();
+      useAppStore.getState().pushToast(tRef.current("episode_title_updated"), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("episode_title_update_failed", { message: errMsg(err) }), "error");
+      throw err; // 让 EditableEpisodeTitle 保持编辑态，不误清空
+    }
+  }, [currentProjectName, refreshProject]);
+
   const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "image_prompt", scriptFile);
@@ -516,6 +528,8 @@ export function StudioCanvasRouter() {
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}
+                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
+                    canEditTitle={Boolean(episode?.script_file)}
                   />
                 ) : mode === "grid" ? (
                   <GridImageToVideoCanvas
@@ -523,6 +537,8 @@ export function StudioCanvasRouter() {
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}
+                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
+                    canEditTitle={Boolean(episode?.script_file)}
                     hasDraft={hasDraft}
                     episodeScript={script}
                     scriptFile={scriptFile ?? undefined}
@@ -544,6 +560,8 @@ export function StudioCanvasRouter() {
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}
+                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
+                    canEditTitle={Boolean(episode?.script_file)}
                     hasDraft={hasDraft}
                     episodeScript={script}
                     scriptFile={scriptFile ?? undefined}

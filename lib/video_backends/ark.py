@@ -32,29 +32,11 @@ class ArkVideoBackend:
 
     DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
 
-    # Seedance 2.0 系列不接受 service_tier 参数；FLEX_TIER 必须从能力集中剔除，
-    # 否则 _create_task 会触发上游 400。ark 与 ark-agent-plan 各用不同的模型 ID
-    # 命名（dash + 日期戳 vs. dot 简洁版），两套都要纳入。
-    _SEEDANCE_2_BASE_CAPABILITIES: set[VideoCapability] = {
+    _BASE_CAPABILITIES: set[VideoCapability] = {
         VideoCapability.TEXT_TO_VIDEO,
         VideoCapability.IMAGE_TO_VIDEO,
         VideoCapability.GENERATE_AUDIO,
         VideoCapability.SEED_CONTROL,
-    }
-
-    _MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
-        "doubao-seedance-2-0-260128": _SEEDANCE_2_BASE_CAPABILITIES,
-        "doubao-seedance-2-0-fast-260128": _SEEDANCE_2_BASE_CAPABILITIES,
-        "doubao-seedance-2.0": _SEEDANCE_2_BASE_CAPABILITIES,
-        "doubao-seedance-2.0-fast": _SEEDANCE_2_BASE_CAPABILITIES,
-    }
-
-    _DEFAULT_CAPABILITIES: set[VideoCapability] = {
-        VideoCapability.TEXT_TO_VIDEO,
-        VideoCapability.IMAGE_TO_VIDEO,
-        VideoCapability.GENERATE_AUDIO,
-        VideoCapability.SEED_CONTROL,
-        VideoCapability.FLEX_TIER,
     }
 
     def __init__(
@@ -66,7 +48,13 @@ class ArkVideoBackend:
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url)
         self._model = model or self.DEFAULT_MODEL
-        self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAPABILITIES)
+        # FLEX_TIER（service_tier 参数）仅 seedance-1.x 等老模型支持；seedance-2-0/2.0 系列
+        # 上游在 r2v 下会 400 拒绝该参数，必须从能力集中剔除。判定见 _is_seedance_2：用 `in`
+        # 子串兼容多套前缀命名（doubao-/dreamina-），但版本号收窄到已验证的 2-0/2.0，
+        # 不对未发布版本（如 seedance-2.5）过早假设。
+        self._capabilities = set(self._BASE_CAPABILITIES)
+        if not self._is_seedance_2(self._model):
+            self._capabilities.add(VideoCapability.FLEX_TIER)
 
     @property
     def name(self) -> str:
@@ -81,14 +69,25 @@ class ArkVideoBackend:
         return self._capabilities
 
     @staticmethod
+    def _is_seedance_2(model: str) -> bool:
+        """按 model_id 子串识别已验证的 seedance-2-0 / seedance-2.0 系列（含 fast 变体）。
+
+        只匹配已验证不支持 service_tier 的版本号（2-0 与 2.0 两种写法），不对未发布的未来版本
+        （如 seedance-2.5）过早假设。用 `in` 子串而非前缀匹配，以兼容上游多套前缀命名
+        （doubao- 火山国内站 / dreamina- BytePlus 国际站）。FLEX_TIER 剔除与参考图能力共用
+        本判定，避免两条路径口径漂移。
+        """
+        model_lower = model.lower()
+        return "seedance-2-0" in model_lower or "seedance-2.0" in model_lower
+
+    @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
         保持 backend 为单一真相源。
         """
-        model_lower = model.lower()
-        if "seedance-2" in model_lower or "seedance2" in model_lower:
+        if ArkVideoBackend._is_seedance_2(model):
             return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
         return VideoCapabilities()
 

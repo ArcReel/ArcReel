@@ -11,6 +11,8 @@ interface ShotSplitViewProps {
   contentMode: "narration" | "drama";
   aspectRatio: "9:16" | "16:9";
   projectName: string;
+  /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
+  scriptFile?: string;
   isGridMode?: boolean;
   onUpdatePrompt?: (
     segmentId: string,
@@ -40,6 +42,7 @@ export function ShotSplitView({
   contentMode,
   aspectRatio,
   projectName,
+  scriptFile,
   isGridMode,
   onUpdatePrompt,
   onGenerateStoryboard,
@@ -113,6 +116,7 @@ export function ShotSplitView({
         contentMode={contentMode}
         aspectRatio={aspectRatio}
         projectName={projectName}
+        scriptFile={scriptFile}
         isGridMode={isGridMode}
         selectedIndex={safeIndex}
         totalCount={segments.length}

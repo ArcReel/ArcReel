@@ -7,10 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
+from lib.reference_video.errors import MissingReferenceError
 from server.services.reference_video_tasks import (
     _apply_provider_constraints,
-    _compress_references_to_tempfiles,
     _render_unit_prompt,
     _resolve_unit_references,
 )
@@ -83,6 +82,21 @@ def _write_project(tmp_path: Path) -> Path:
     return proj_dir
 
 
+def _wire_locked_script(fake_pm: MagicMock) -> None:
+    """让 fake_pm.locked_script 产出磁盘上的真实剧本 dict。
+
+    finalize 写回 unit 资产时会在剧本中查找 unit 并在缺失时抛 KeyError，
+    裸 MagicMock 的 script.get("video_units") 不是 list 会直接炸。
+    """
+    proj_dir = fake_pm.get_project_path.return_value
+
+    @contextmanager
+    def _locked(_name, script_file, *, validate=True):
+        yield json.loads((proj_dir / script_file).read_text(encoding="utf-8"))
+
+    fake_pm.locked_script.side_effect = _locked
+
+
 def test_resolve_unit_references_maps_sheets(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, unit = _load_project_and_unit(proj_dir, "E1U1")
@@ -107,35 +121,6 @@ def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     with pytest.raises(MissingReferenceError) as excinfo:
         _resolve_unit_references(project, proj_dir, bad_refs)
     assert ("prop", "不存在的道具") in excinfo.value.missing
-
-
-def _make_png_bytes() -> bytes:
-    import io
-
-    from PIL import Image
-
-    img = Image.new("RGB", (3000, 2000), color=(200, 100, 50))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def test_compress_references_returns_temp_paths(tmp_path: Path):
-    src = tmp_path / "big.png"
-    src.write_bytes(_make_png_bytes())
-    temps = _compress_references_to_tempfiles([src, src])
-    try:
-        assert len(temps) == 2
-        for p in temps:
-            assert p.exists()
-            assert p.stat().st_size > 0
-    finally:
-        for p in temps:
-            p.unlink(missing_ok=True)
-
-
-def test_compress_references_empty_input(tmp_path: Path):
-    assert _compress_references_to_tempfiles([]) == []
 
 
 def test_render_unit_prompt_rejects_empty_shots():
@@ -271,6 +256,7 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
         return json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
 
     fake_pm.load_script.side_effect = fake_load_script
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     # Mock generator.generate_video_async: 创建伪视频文件
@@ -404,6 +390,7 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
     fake_pm.load_script.side_effect = lambda *_a: json.loads(
         (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
     )
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     captured: dict = {}
@@ -467,6 +454,7 @@ async def test_execute_reference_video_task_respects_project_model_settings_reso
     fake_pm.load_script.side_effect = lambda *_a: json.loads(
         (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
     )
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     captured: dict = {}
@@ -519,6 +507,7 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
     fake_pm.load_script.side_effect = lambda *_a: json.loads(
         (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
     )
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     with pytest.raises(MissingReferenceError):
@@ -550,6 +539,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     fake_pm.load_script.side_effect = lambda *_a: json.loads(
         (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
     )
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     # 只 mock 最外层：VideoBackend（唯一的真外部依赖）+ UsageTracker/ConfigResolver
@@ -592,6 +582,14 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
         async def video_generate_audio(self, _project_name=None):
             return False
 
+        async def reference_payload_limits(self, _provider_id=None):
+            from lib.config.service import (
+                _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+                _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            )
+
+            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+
     # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 UsageTracker 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir
@@ -601,6 +599,8 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     real_gen._video_backend = _FakeVideoBackend()
     real_gen._user_id = "u1"
     real_gen._config = _FakeConfigResolver()
+    real_gen._image_provider_id = None
+    real_gen._video_provider_id = None
     real_gen.versions = VersionManager(proj_dir)
     real_gen.usage_tracker = _FakeUsage()
 
@@ -636,7 +636,10 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """R2V 退场回归：executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），
+    压缩下沉咽喉层——不再预压缩到临时文件、不再有 R2V 层的二次压缩重试。
+    """
     proj_dir = _write_project(tmp_path)
 
     from server.services import reference_video_tasks as rvt
@@ -647,14 +650,15 @@ async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: 
     fake_pm.load_script.side_effect = lambda *_a: json.loads(
         (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
     )
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
+    captured: dict = {}
     call_count = {"n": 0}
 
     async def _fake_generate_video_async(**kwargs):
         call_count["n"] += 1
-        if call_count["n"] == 1:
-            raise RequestPayloadTooLargeError()
+        captured["reference_images"] = kwargs.get("reference_images")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -684,8 +688,16 @@ async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: 
         {"script_file": "scripts/episode_1.json"},
         user_id="u1",
     )
-    assert call_count["n"] == 2
+    # 单次调用：R2V 层不再做二次压缩重试
+    assert call_count["n"] == 1
     assert result["resource_id"] == "E1U1"
+    # 传给咽喉层的恰是源 sheet 路径（项目目录内真实文件），而非临时压缩副本——
+    # 压缩已下沉到 MediaGenerator 咽喉层
+    refs = [Path(p).resolve() for p in captured["reference_images"]]
+    assert refs == [
+        (proj_dir / "characters" / "张三.png").resolve(),
+        (proj_dir / "scenes" / "酒馆.png").resolve(),
+    ]
 
 
 @pytest.mark.asyncio
@@ -715,6 +727,7 @@ async def test_execute_reference_video_task_clamps_via_resolver(
     fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
     fake_pm.get_project_path.return_value = proj_dir
     fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     captured: dict = {}
@@ -800,7 +813,9 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"duration": 3, "text": "Shot 1 (3s): @张三 在 @酒馆 拿起 @瓶子"}]
+    # 时长取 sora supported_durations 成员（4），避免触发执行层 duration 能力守卫；本测试聚焦 refs 裁剪。
+    script["video_units"][0]["shots"] = [{"duration": 4, "text": "Shot 1 (4s): @张三 在 @酒馆 拿起 @瓶子"}]
+    script["video_units"][0]["duration_seconds"] = 4
     script["video_units"][0]["references"] = [
         {"type": "character", "name": "张三"},
         {"type": "scene", "name": "酒馆"},
@@ -814,6 +829,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
     fake_pm.get_project_path.return_value = proj_dir
     fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     captured: dict = {}
@@ -897,6 +913,13 @@ async def test_gemini_model_settings_read_via_composite_key(
     project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
 
+    # video_backend 显式指向 veo（caps 命中 → duration 守卫生效）：unit 时长取 veo 支持成员，
+    # 避免触发能力守卫（本测试聚焦 resolution composite key）。
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["duration_seconds"] = 8
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
     from server.services import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -905,6 +928,7 @@ async def test_gemini_model_settings_read_via_composite_key(
     fake_pm.load_script.side_effect = lambda *_a: json.loads(
         (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
     )
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     captured: dict = {}
@@ -970,6 +994,7 @@ async def test_execute_reference_video_task_skips_clamp_when_backend_model_diver
     fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
     fake_pm.get_project_path.return_value = proj_dir
     fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     captured: dict = {}
@@ -1029,3 +1054,104 @@ async def test_execute_reference_video_task_skips_clamp_when_backend_model_diver
     assert captured["duration_seconds"] == 20
     # refs 也保留原数（2 张，未被 caps.max_reference_images=1 裁到 1）
     assert len(captured["reference_images"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_rejects_unsupported_duration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """执行层能力守卫：unit 总时长不在 supported_durations 内（且 ≤max 不会被 clamp 修正）时，
+    必须抛 VideoCapabilityError 本地失败，而非把非成员时长漏给供应商 API 报 400。
+    """
+    from lib.video_backends.base import VideoCapabilityError
+
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    # 5 ≤ max(12) 不会被 clamp，但不是 [4,8,12] 成员 → 守卫必须拒
+    script["video_units"][0]["shots"] = [{"duration": 5, "text": "Shot 1 (5s): @张三 推门"}]
+    script["video_units"][0]["duration_seconds"] = 5
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "openai"
+    fake_video_backend.model = "sora-2"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    from lib.config.resolver import ConfigResolver
+
+    async def _fake_caps(self, project):
+        return {
+            "provider_id": "openai",
+            "model": "sora-2",
+            "supported_durations": [4, 8, 12],
+            "max_duration": 12,
+            "max_reference_images": 9,
+            "source": "registry",
+            "default_duration": None,
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+        }
+
+    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
+
+    with pytest.raises(VideoCapabilityError):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+    # 守卫在调用 backend 前拦下：generate_video_async 不应被调用
+    fake_generator.generate_video_async.assert_not_called()
+
+
+def test_apply_unit_video_assets_distinguishes_failures():
+    """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。"""
+    from lib.script_editor import ScriptEditError
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    with pytest.raises(ScriptEditError):
+        apply_unit_video_assets({"video_units": "broken"}, "E1U1", video_uri=None, thumb_rel=None)
+    with pytest.raises(ScriptEditError):
+        apply_unit_video_assets({}, "E1U1", video_uri=None, thumb_rel=None)
+    with pytest.raises(ScriptEditError):
+        apply_unit_video_assets(
+            {"video_units": [{"unit_id": "E1U1", "generated_assets": "broken"}]},
+            "E1U1",
+            video_uri=None,
+            thumb_rel=None,
+        )
+    with pytest.raises(KeyError):
+        apply_unit_video_assets({"video_units": []}, "E1U1", video_uri=None, thumb_rel=None)
+
+    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {"video_uri": "https://old"}}]}
+    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel="reference_videos/thumbnails/E1U1.jpg")
+    ga = script["video_units"][0]["generated_assets"]
+    assert ga["video_clip"] == "reference_videos/E1U1.mp4"
+    assert "video_uri" not in ga
+    assert ga["video_thumbnail"] == "reference_videos/thumbnails/E1U1.jpg"
+    assert ga["status"] == "completed"

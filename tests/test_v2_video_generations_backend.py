@@ -155,6 +155,7 @@ class TestTaskIdExtraction:
     @pytest.mark.parametrize(
         "payload,expected",
         [
+            ({"generation_id": "vg_xxx"}, "vg_xxx"),  # 流派 C 文档约定字段（CometAPI 等）
             ({"id": "gen_1"}, "gen_1"),
             ({"task_id": "t1"}, "t1"),
             ({"data": {"task_id": "d1"}}, "d1"),
@@ -168,6 +169,10 @@ class TestTaskIdExtraction:
 
     def test_priority_id_wins(self):
         assert _first_str_by_paths({"id": "primary", "task_id": "secondary"}, _TASK_ID_PATHS) == "primary"
+
+    def test_priority_generation_id_wins(self):
+        # generation_id 是端点文档约定字段，优先级压过 id（表首）
+        assert _first_str_by_paths({"generation_id": "gen", "id": "fallback"}, _TASK_ID_PATHS) == "gen"
 
 
 class TestBuildRequestBody:

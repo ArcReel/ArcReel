@@ -45,7 +45,10 @@ MESSAGES = {
     "invalid_upload_type": "Loại tải lên không hợp lệ: {upload_type}",
     "missing_filename": "Tệp tải lên thiếu tên tệp",
     "unsupported_image_type": "Định dạng tệp không hỗ trợ {ext}. Các loại cho phép: {allowed}",
+    "unsupported_video_type": "Định dạng video không hỗ trợ {ext}. Các loại cho phép: {allowed}",
+    "upload_too_large": "Tệp tải lên vượt quá giới hạn dung lượng ({max_mb} MB)",
     "invalid_image_file": "Tệp ảnh không hợp lệ, không thể phân tích",
+    "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",
@@ -127,6 +130,7 @@ MESSAGES = {
     "ref_duration_exceeded": "Thời lượng đơn vị video tham chiếu {duration}s vượt giới hạn {max_duration}s của {model}, đã cắt bớt",
     "ref_too_many_images": "Số lượng ảnh tham chiếu {count} vượt giới hạn {max_count} của {model}, đã giữ {max_count} ảnh đầu tiên",
     "ref_payload_too_large": "Dữ liệu ảnh tham chiếu vượt giới hạn của nhà cung cấp, đã thử lại với mức nén bổ sung",
+    "ref_payload_floor_exceeded": "Ảnh tham chiếu quá lớn hoặc quá nhiều; ngay cả khi nén ở mức chất lượng thấp nhất vẫn vượt giới hạn kích thước yêu cầu của nhà cung cấp. Vui lòng giảm số lượng ảnh tham chiếu hoặc độ phân giải rồi thử lại",
     "ref_sora_single_ref": "Chế độ tham chiếu Sora hiện không hỗ trợ nhiều ảnh, đã hạ về một ảnh",
     "ref_shot_parse_fallback": "Không phát hiện tiêu đề Shot N (Xs), được xử lý như một cảnh quay duy nhất",
     "ref_episode_not_found": "Không tìm thấy tập {episode}",
@@ -138,6 +142,9 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids không khớp với các đơn vị hiện có",
     "ref_script_missing": "Tệp kịch bản gắn với tập này không tồn tại",
     "ref_script_rebound": "Liên kết kịch bản của tập này đã thay đổi, vui lòng thử lại",
+    # Episode meta
+    "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
+    "episode_title_empty": "Tiêu đề tập không được để trống",
     "about_update_check_failed": "Kiểm tra cập nhật thất bại, vui lòng thử lại sau",
     "about_version_read_failed": "Không đọc được phiên bản ứng dụng",
     # Image Capability

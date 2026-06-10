@@ -15,6 +15,7 @@ MediaGenerator 中间层
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -23,6 +24,7 @@ from PIL import Image
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
     from lib.image_backends.base import ImageBackend
+    from lib.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
@@ -31,6 +33,31 @@ from lib.usage_tracker import UsageTracker
 from lib.version_manager import VersionManager
 
 logger = logging.getLogger(__name__)
+
+
+def _is_413(exc: BaseException) -> bool:
+    """识别请求体超限（HTTP 413）。
+
+    先从异常通用属性提取状态码：``status_code``（OpenAI/xai SDK + 规整后的 vidu/dashscope）/
+    ``response.status_code``（httpx.HTTPStatusError）/ ``code``（google-genai APIError）——
+    覆盖默认 provider gemini 及各 SDK 类后端，而非只认 httpx（与 lib/video_backends/ark.py 的
+    状态码提取口径一致）。状态码缺失时退回短语匹配，但不用裸 "413" 子串——避免被字节数 /
+    请求 ID（如 "41300 bytes"）误命中。
+    """
+    status = (
+        getattr(exc, "status_code", None)
+        or getattr(getattr(exc, "response", None), "status_code", None)
+        or getattr(exc, "code", None)
+    )
+    # 防御性 int 转换：个别 SDK / mock 可能把状态码给成字符串 "413"，
+    # 直接 ``== 413`` 会恒 False；非数字状态码落回下方短语匹配。
+    try:
+        if status is not None and int(status) == 413:
+            return True
+    except (ValueError, TypeError):
+        pass
+    msg = str(exc).lower()
+    return "request entity too large" in msg or "payload too large" in msg
 
 
 class MediaGenerator:
@@ -49,6 +76,8 @@ class MediaGenerator:
         *,
         config_resolver: Optional["ConfigResolver"] = None,
         user_id: str = DEFAULT_USER_ID,
+        image_provider_id: str | None = None,
+        video_provider_id: str | None = None,
     ):
         """
         初始化 MediaGenerator
@@ -60,6 +89,9 @@ class MediaGenerator:
             video_backend: 可选的 VideoBackend 实例（用于视频生成）
             config_resolver: ConfigResolver 实例，用于运行时读取配置
             user_id: 用户 ID
+            image_provider_id: 图像 registry provider_id（解析参考图压缩 per-provider 上限用；
+                None 时走保守通用上限）。须为 registry id（如 "gemini-aistudio"），非 backend.name
+            video_provider_id: 视频 registry provider_id（同上，I2V/R2V 用）
         """
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
@@ -68,6 +100,8 @@ class MediaGenerator:
         self._video_backend = video_backend
         self._config = config_resolver
         self._user_id = user_id
+        self._image_provider_id = image_provider_id
+        self._video_provider_id = video_provider_id
         self.versions = VersionManager(project_path)
 
         # 初始化 UsageTracker（使用全局 async session factory）
@@ -110,6 +144,66 @@ class MediaGenerator:
     def _ensure_parent_dir(self, output_path: Path) -> None:
         """确保输出目录存在"""
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _reference_limits(self, provider_id: str | None) -> "PayloadLimits":
+        """解析参考上传副本的 PayloadLimits。
+
+        无 config_resolver（零配置场景）→ 保守通用默认，不触 DB。其余情形统一交给
+        ConfigResolver.reference_payload_limits：provider_id 为 None 时它内部短路返回 service
+        层默认（同样不触 DB），避免在本层再引入第二份默认来源、与配置层漂移。
+        """
+        from lib.reference_compression import PayloadLimits
+
+        if self._config is None:
+            return PayloadLimits()
+        total, single = await self._config.reference_payload_limits(provider_id)
+        return PayloadLimits(total_max_bytes=total, single_max_bytes=single)
+
+    async def _run_with_reference_compression(
+        self,
+        *,
+        specs: "list[ReferenceSpec]",
+        provider_id: str | None,
+        build_and_call: "Callable[[list[CompressedRef]], Awaitable[Any]]",
+    ) -> Any:
+        """对参考上传副本做主动压缩 + 预检降档 + 被动 413 兜底，再调用 backend。
+
+        build_and_call 接收按原序合并好的 CompressedRef 列表（1:1 保数、含透传项），构造 provider
+        请求并返回 backend.generate 协程。无参考图时直接单次调用、不做降档（T2I/T2V 的 413 与
+        参考图无关，不应被误转成 floor 错误）。
+        """
+        from lib.reference_compression import (
+            LADDER_STEPS,
+            ReferencePayloadFloorError,
+            compressed_reference_payload,
+        )
+
+        if not specs:
+            return await build_and_call([])
+
+        limits = await self._reference_limits(provider_id)
+        step = 0
+        while True:
+            # 压缩是 CPU 密集的 PIL 解码/编码 + 写盘，放进线程避免阻塞 worker 事件循环
+            # （心跳 / SSE / 另一并发通道）。手动驱动上下文管理器：__enter__（含压缩）走线程，
+            # __exit__（清理临时目录，轻量）留在循环里。预检 floor 在 __enter__ 内抛出，此时
+            # 尚未进入 try，临时目录也未创建（select_ladder_step 先于写盘），无需清理、直接冒泡。
+            cm = compressed_reference_payload(specs, limits=limits, start_step=step)
+            landed, compressed = await asyncio.to_thread(cm.__enter__)
+            try:
+                return await build_and_call(compressed)
+            except Exception as e:
+                if not _is_413(e):
+                    raise
+                # 从「实际落定档位 landed」续档，而非请求值 step——主动预检可能已因字节超限
+                # 降到 landed>step，必须 landed+1 才严格更小、保证降档单调。
+                if landed < LADDER_STEPS:
+                    step = landed + 1
+                    continue
+                # 已在地板仍 413 → 耗尽 → 用户可见硬错误（保 413 cause）
+                raise ReferencePayloadFloorError() from e
+            finally:
+                cm.__exit__(None, None, None)
 
     def generate_image(
         self,
@@ -238,15 +332,29 @@ class MediaGenerator:
         )
 
         try:
-            request = ImageGenerationRequest(
-                prompt=prompt,
-                output_path=output_path,
-                reference_images=ref_images,
-                aspect_ratio=aspect_ratio,
-                image_size=image_size,
-                project_name=self.project_name,
+            from lib.reference_compression import ReferenceSpec, RefRole
+
+            image_backend = self._image_backend
+            # 所有图像参考图都走数组角色（完整基线 + 降档梯子 + 字节预算）。
+            specs = [ReferenceSpec(source=Path(r.path), label=r.label, role=RefRole.ARRAY) for r in ref_images]
+
+            def _call_image(compressed: "list[CompressedRef]"):
+                return image_backend.generate(
+                    ImageGenerationRequest(
+                        prompt=prompt,
+                        output_path=output_path,
+                        reference_images=[ReferenceImage(path=str(c.path), label=c.label) for c in compressed],
+                        aspect_ratio=aspect_ratio,
+                        image_size=image_size,
+                        project_name=self.project_name,
+                    )
+                )
+
+            result = await self._run_with_reference_compression(
+                specs=specs,
+                provider_id=self._image_provider_id,
+                build_and_call=_call_image,
             )
-            result = await self._image_backend.generate(request)
 
             # 4. 记录调用成功
             await self.usage_tracker.finish_call(
@@ -445,23 +553,62 @@ class MediaGenerator:
                         self._video_backend.name,
                     )
 
-            request = VideoGenerationRequest(
-                prompt=prompt,
-                output_path=output_path,
-                aspect_ratio=aspect_ratio,
-                duration_seconds=duration_int,
-                resolution=resolution,
-                start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
-                end_image=actual_end_image,
-                reference_images=actual_reference_images,
-                generate_audio=effective_generate_audio,
-                project_name=self.project_name,
-                task_id=task_id,
-                service_tier=version_metadata.get("service_tier", "default"),
-                seed=version_metadata.get("seed"),
-            )
+            from lib.reference_compression import ReferenceSpec, RefRole
 
-            result = await self._video_backend.generate(request)
+            video_backend = self._video_backend
+            # FRAME（start/end 帧，永不缩尺寸）+ ARRAY（参考数组，完整梯子）按已知序位组织成
+            # specs，压缩后按 index 还原回三个请求字段。start_image 沿用现有 path 门控：仅 str/Path
+            # 文件源作 FRAME，PIL.Image / None 不入压缩器（维持原行为 request.start_image=None）。
+            specs: list[ReferenceSpec] = []
+            start_spec_idx: int | None = None
+            end_spec_idx: int | None = None
+            ref_start_idx: int | None = None
+
+            if isinstance(start_image, (str, Path)):
+                start_spec_idx = len(specs)
+                specs.append(ReferenceSpec(source=Path(start_image), label="", role=RefRole.FRAME))
+            if actual_end_image is not None:
+                end_spec_idx = len(specs)
+                specs.append(ReferenceSpec(source=Path(actual_end_image), label="", role=RefRole.FRAME))
+            if actual_reference_images:
+                ref_start_idx = len(specs)
+                specs.extend(
+                    ReferenceSpec(source=Path(r), label="", role=RefRole.ARRAY) for r in actual_reference_images
+                )
+
+            def _call_video(compressed: "list[CompressedRef]"):
+                start_arg = compressed[start_spec_idx].path if start_spec_idx is not None else None
+                end_arg = compressed[end_spec_idx].path if end_spec_idx is not None else None
+                # 数组参考图恒在 specs 末段（append start/end 之后），故 [ref_start_idx:] 精确取它们；
+                # 无可压缩数组项时回落原 actual_reference_images（保留 None / [] 语义）。
+                ref_arg = (
+                    [c.path for c in compressed[ref_start_idx:]]
+                    if ref_start_idx is not None
+                    else actual_reference_images
+                )
+                return video_backend.generate(
+                    VideoGenerationRequest(
+                        prompt=prompt,
+                        output_path=output_path,
+                        aspect_ratio=aspect_ratio,
+                        duration_seconds=duration_int,
+                        resolution=resolution,
+                        start_image=start_arg,
+                        end_image=end_arg,
+                        reference_images=ref_arg,
+                        generate_audio=effective_generate_audio,
+                        project_name=self.project_name,
+                        task_id=task_id,
+                        service_tier=version_metadata.get("service_tier", "default"),
+                        seed=version_metadata.get("seed"),
+                    )
+                )
+
+            result = await self._run_with_reference_compression(
+                specs=specs,
+                provider_id=self._video_provider_id,
+                build_and_call=_call_video,
+            )
             video_ref = None
             video_uri = result.video_uri
 

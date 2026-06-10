@@ -121,6 +121,29 @@ def test_locked_episode_script_detects_rebind(tmp_path: Path) -> None:
     assert units == [], "重绑检测命中时不应改写旧脚本"
 
 
+def test_locked_episode_script_title_write_mirrors_to_project(tmp_path: Path) -> None:
+    """写剧本顶层 title → 内联 _apply_episode_sync 把镜像同步进 project.json episodes[].title；
+    且后续保存脚本不丢标题（这是 PATCH /episodes/{episode} 改名端点依赖的机制）。"""
+    pm = ProjectManager(tmp_path)
+    name = "p-title"
+    _seed(pm, name)
+
+    with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
+        script["title"] = "改后的集名"
+
+    # 剧本顶层 title 落盘 + project.json 镜像同步
+    assert pm.load_script(name, "episode_1.json")["title"] == "改后的集名"
+    ep = next(e for e in pm.load_project(name)["episodes"] if e["episode"] == 1)
+    assert ep["title"] == "改后的集名"
+
+    # 后续保存脚本（不显式动 title）不丢标题
+    with pm.locked_script(name, "episode_1.json", validate=False) as script:
+        script.setdefault("video_units", [])
+    assert pm.load_script(name, "episode_1.json")["title"] == "改后的集名"
+    ep_after = next(e for e in pm.load_project(name)["episodes"] if e["episode"] == 1)
+    assert ep_after["title"] == "改后的集名"
+
+
 def test_locked_episode_script_no_self_deadlock(tmp_path: Path) -> None:
     """正常写入路径不挂起（sync 自死锁回归）：写入在超时内完成且生效。"""
     pm = ProjectManager(tmp_path)

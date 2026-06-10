@@ -45,7 +45,10 @@ MESSAGES = {
     "invalid_upload_type": "无效的上传类型: {upload_type}",
     "missing_filename": "上传的文件缺少文件名",
     "unsupported_image_type": "不支持的文件类型 {ext}，允许的类型: {allowed}",
+    "unsupported_video_type": "不支持的视频类型 {ext}，允许的类型: {allowed}",
+    "upload_too_large": "上传文件超过大小上限（{max_mb} MB）",
     "invalid_image_file": "无效的图片文件，无法解析",
+    "internal_server_error": "服务器内部错误，请稍后重试",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_step_num": "无效的步骤编号: {step_num}",
@@ -127,6 +130,7 @@ MESSAGES = {
     "ref_duration_exceeded": "参考视频单元时长 {duration}s 超出 {model} 上限 {max_duration}s，已裁剪",
     "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
+    "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
     "ref_sora_single_ref": "Sora 参考模式暂不支持多图，已降级为单图",
     "ref_shot_parse_fallback": "未识别到 Shot N (Xs): 标记，按单镜头处理",
     "ref_episode_not_found": "第 {episode} 集不存在",
@@ -138,6 +142,9 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids 与现有单元不匹配",
     "ref_script_missing": "该集绑定的剧本文件不存在",
     "ref_script_rebound": "该集剧本绑定已变更，请重试",
+    # Episode meta
+    "episode_not_found": "第 {episode} 集不存在或尚无剧本文件",
+    "episode_title_empty": "分集标题不能为空",
     "about_update_check_failed": "检查更新失败，请稍后重试",
     "about_version_read_failed": "读取应用版本失败",
     # Image Capability

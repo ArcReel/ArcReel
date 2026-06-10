@@ -34,7 +34,7 @@ from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
-from lib.project_manager import ProjectManager
+from lib.project_manager import EpisodeScriptReboundError, ProjectManager
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -53,8 +53,9 @@ calc = StatusCalculator(pm)
 
 # episode 字段白名单：只允许持久化合法的 on-disk 字段。
 # StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
-# 是读时计算值，禁止写回 project.json。
-EPISODE_PERSIST_FIELDS = {"title", "script_file", "generation_mode"}
+# 是读时计算值，禁止写回 project.json。title 不在白名单：它以剧本顶层 title 为唯一真相源，
+# 经 _apply_episode_sync 单向同步进 episodes[].title，专用端点 PATCH /episodes/{episode} 写入。
+EPISODE_PERSIST_FIELDS = {"script_file", "generation_mode"}
 
 
 def get_project_manager() -> ProjectManager:
@@ -98,7 +99,6 @@ class EpisodePatch(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
     episode: int
-    title: str | None = None
     script_file: str | None = None
     generation_mode: Literal["storyboard", "grid", "reference_video"] | None = None
 
@@ -852,6 +852,10 @@ class UpdateOverviewRequest(BaseModel):
     world_setting: str | None = None
 
 
+class UpdateEpisodeRequest(BaseModel):
+    title: str
+
+
 @router.patch("/projects/{name}/segments/{segment_id}")
 async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser, _t: Translator):
     """更新说书模式片段"""
@@ -905,6 +909,62 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         )
     except HTTPException:
         raise
+    except Exception as e:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/projects/{name}/episodes/{episode}")
+async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _user: CurrentUser, _t: Translator):
+    """更新分集顶层元数据（当前仅标题）。
+
+    以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
+    「脚本锁 → 项目锁」临界区内改剧本 title，并内联 _apply_episode_sync 把镜像同步回
+    project.json 的 episodes[].title，原子且无 TOCTOU。镜像由 PATCH /projects 改写的入口
+    已移除（title 不在 EPISODE_PERSIST_FIELDS），杜绝第二真相源。
+    """
+    title = req.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail=_t("episode_title_empty"))
+
+    try:
+
+        def _sync():
+            manager = get_project_manager()
+
+            def _resolve(project: dict) -> str:
+                episodes = project.get("episodes") or []
+                meta = next((e for e in episodes if e.get("episode") == episode), None)
+                if meta is None or not meta.get("script_file"):
+                    raise HTTPException(status_code=404, detail=_t("episode_not_found", episode=episode))
+                return meta["script_file"]
+
+            with project_change_source("webui"):
+                try:
+                    with manager.locked_episode_script(name, _resolve) as script:
+                        script["title"] = title
+                except FileNotFoundError as exc:
+                    if not manager.project_exists(name):
+                        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name)) from exc
+                    # project.json 指向的脚本文件已删除/移动（stale 绑定）
+                    raise HTTPException(status_code=404, detail=_t("ref_script_missing")) from exc
+                except EpisodeScriptReboundError as exc:
+                    logger.info("episode script rebound during title update: %s", exc)
+                    raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=422, detail=_t("script_validation_failed", details=str(exc))
+                    ) from exc
+
+            # 返回刚写入的值（前端保存后整体 refreshProject，不强依赖此返回）。
+            # 不再锁后二次 load_project：省一次读盘，且避免锁外读取被并发写者污染返回值。
+            return {"success": True, "episode": {"episode": episode, "title": title}}
+
+        return await asyncio.to_thread(_sync)
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

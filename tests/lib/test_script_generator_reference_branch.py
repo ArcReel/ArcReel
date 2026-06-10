@@ -93,9 +93,13 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     assert data["generation_mode"] == "reference_video"
     assert len(data["video_units"]) == 1
 
-    # 确认生成时用了 ReferenceVideoScript schema
-    call_kwargs = fake_generator.generate.await_args.args[0]
-    assert call_kwargs.response_schema is ReferenceVideoScript
+    # 确认生成时用了 duration 枚举硬约束的 ReferenceVideoScript 子类（unit 总时长被收紧为 enum）
+    schema = fake_generator.generate.await_args.args[0].response_schema
+    assert isinstance(schema, type) and issubclass(schema, ReferenceVideoScript)
+    unit_def = next(
+        d for d in schema.model_json_schema().get("$defs", {}).values() if "shots" in d.get("properties", {})
+    )
+    assert "enum" in unit_def["properties"]["duration_seconds"]
 
 
 @pytest.mark.asyncio

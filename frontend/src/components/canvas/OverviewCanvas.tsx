@@ -1,7 +1,7 @@
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshCw, Sparkles, Users, Landmark, Package } from "lucide-react";
+import { Pencil, RefreshCw, Sparkles, Users, Landmark, Package } from "lucide-react";
 import type { ProjectData } from "@/types";
 import { API, ConflictError } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -23,9 +23,23 @@ const CARD_BG =
   "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))";
 const CARD_SHADOW =
   "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 8px 24px -10px oklch(0 0 0 / 0.5)";
+const FIELD_STYLE: React.CSSProperties = {
+  background:
+    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
+  border: "1px solid var(--color-hairline)",
+  color: "var(--color-text)",
+  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
+};
+
+interface OverviewDraft {
+  synopsis: string;
+  genre: string;
+  theme: string;
+  world_setting: string;
+}
 
 export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
   const tRef = useRef(t);
   tRef.current = t;
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
@@ -146,6 +160,52 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     }
   }, [projectName, refreshProject]);
 
+  const [editingOverview, setEditingOverview] = useState(false);
+  const [savingOverview, setSavingOverview] = useState(false);
+  const [draft, setDraft] = useState<OverviewDraft>({
+    synopsis: "",
+    genre: "",
+    theme: "",
+    world_setting: "",
+  });
+  const synopsisFieldId = useId();
+  const genreFieldId = useId();
+  const themeFieldId = useId();
+  const worldFieldId = useId();
+
+  const enterOverviewEdit = useCallback(() => {
+    const ov = projectData?.overview;
+    setDraft({
+      synopsis: ov?.synopsis ?? "",
+      genre: ov?.genre ?? "",
+      theme: ov?.theme ?? "",
+      world_setting: ov?.world_setting ?? "",
+    });
+    setEditingOverview(true);
+  }, [projectData]);
+
+  const handleSaveOverview = useCallback(async () => {
+    setSavingOverview(true);
+    try {
+      // 与分集标题写入口一致:落盘前裁剪首尾空白(避免持久化纯空白/缩进噪音)
+      await API.updateOverview(projectName, {
+        synopsis: draft.synopsis.trim(),
+        genre: draft.genre.trim(),
+        theme: draft.theme.trim(),
+        world_setting: draft.world_setting.trim(),
+      });
+      await refreshProject();
+      setEditingOverview(false);
+      useAppStore.getState().pushToast(tRef.current("overview_updated"), "success");
+    } catch (err) {
+      useAppStore
+        .getState()
+        .pushToast(tRef.current("update_overview_failed", { message: errMsg(err) }), "error");
+    } finally {
+      setSavingOverview(false);
+    }
+  }, [projectName, draft, refreshProject]);
+
   if (!projectData) {
     // 项目数据加载期间保留同结构的空容器（不渲染居中 loading 文字），
     // 避免「居中提示 → 顶端内容」的位置跳跃造成闪动；StudioLayout 的外壳
@@ -201,86 +261,207 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           />
         ) : (
           <>
-            {/* Synopsis card */}
-            {overview && (
-              <section
-                className="relative overflow-hidden rounded-2xl p-5"
+            {/* Synopsis / overview card */}
+            <section
+              className="relative overflow-hidden rounded-2xl p-5"
+              style={{
+                border: "1px solid var(--color-hairline-soft)",
+                background: CARD_BG,
+                boxShadow: CARD_SHADOW,
+              }}
+            >
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 top-0 h-px"
                 style={{
-                  border: "1px solid var(--color-hairline-soft)",
-                  background: CARD_BG,
-                  boxShadow: CARD_SHADOW,
+                  background:
+                    "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
                 }}
-              >
+              />
+              <div className="mb-3 flex items-center gap-2.5">
+                <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--color-accent-2)" }} />
                 <span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-0 top-0 h-px"
-                  style={{
-                    background:
-                      "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
-                  }}
-                />
-                <div className="mb-3 flex items-center gap-2.5">
-                  <Sparkles
-                    className="h-3.5 w-3.5"
-                    style={{ color: "var(--color-accent-2)" }}
-                  />
-                  <span
-                    className="text-[10.5px] font-bold uppercase"
-                    style={{
-                      color: "var(--color-text-4)",
-                      letterSpacing: "1.0px",
-                    }}
-                  >
-                    {t("project_overview_title")}
-                  </span>
-                  <div className="flex-1" />
-                  <button
-                    type="button"
-                    onClick={() => void handleRegenerate()}
-                    disabled={regenerating}
-                    title={t("regen_overview_title")}
-                    className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-3)]"
-                  >
-                    <RefreshCw
-                      className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`}
+                  className="text-[10.5px] font-bold uppercase"
+                  style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+                >
+                  {t("project_overview_title")}
+                </span>
+                <div className="flex-1" />
+                {!editingOverview && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={enterOverviewEdit}
+                      title={t("edit_overview")}
+                      className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)]"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      <span>{t("edit_overview")}</span>
+                    </button>
+                    {overview && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRegenerate()}
+                        disabled={regenerating}
+                        title={t("regen_overview_title")}
+                        className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-3)]"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`} />
+                        <span>{regenerating ? t("regenerating_short") : t("regen_short")}</span>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {editingOverview ? (
+                <div className="space-y-3">
+                  <div>
+                    <FieldLabel htmlFor={synopsisFieldId}>{t("synopsis_label")}</FieldLabel>
+                    <textarea
+                      id={synopsisFieldId}
+                      value={draft.synopsis}
+                      onChange={(e) => setDraft((d) => ({ ...d, synopsis: e.target.value }))}
+                      disabled={savingOverview}
+                      rows={4}
+                      className="focus-ring mt-1.5 w-full resize-y rounded-lg px-3 py-2 text-[13px] leading-[1.6] outline-none"
+                      style={FIELD_STYLE}
+                      placeholder={t("synopsis_placeholder")}
                     />
-                    <span>{regenerating ? t("regenerating_short") : t("regen_short")}</span>
-                  </button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <FieldLabel htmlFor={genreFieldId}>{t("genre_label")}</FieldLabel>
+                      <input
+                        id={genreFieldId}
+                        type="text"
+                        value={draft.genre}
+                        onChange={(e) => setDraft((d) => ({ ...d, genre: e.target.value }))}
+                        disabled={savingOverview}
+                        className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none"
+                        style={FIELD_STYLE}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel htmlFor={themeFieldId}>{t("theme_label")}</FieldLabel>
+                      <input
+                        id={themeFieldId}
+                        type="text"
+                        value={draft.theme}
+                        onChange={(e) => setDraft((d) => ({ ...d, theme: e.target.value }))}
+                        disabled={savingOverview}
+                        className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none"
+                        style={FIELD_STYLE}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <FieldLabel htmlFor={worldFieldId}>{t("world_setting_label")}</FieldLabel>
+                    <textarea
+                      id={worldFieldId}
+                      value={draft.world_setting}
+                      onChange={(e) => setDraft((d) => ({ ...d, world_setting: e.target.value }))}
+                      disabled={savingOverview}
+                      rows={3}
+                      className="focus-ring mt-1.5 w-full resize-y rounded-lg px-3 py-2 text-[13px] leading-[1.6] outline-none"
+                      style={FIELD_STYLE}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveOverview()}
+                      disabled={savingOverview}
+                      className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
+                      style={{
+                        color: "oklch(0.14 0 0)",
+                        background:
+                          "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                        boxShadow:
+                          "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                      }}
+                    >
+                      {savingOverview ? t("common:saving") : t("common:save")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingOverview(false)}
+                      disabled={savingOverview}
+                      className="focus-ring rounded-md px-3 py-1.5 text-[12px] text-[var(--color-text-3)] transition-colors hover:text-[var(--color-text)] disabled:opacity-50"
+                    >
+                      {t("common:cancel")}
+                    </button>
+                  </div>
                 </div>
-                <p
-                  className="text-[13px] leading-[1.7]"
-                  style={{ color: "var(--color-text-2)" }}
-                >
-                  {overview.synopsis}
-                </p>
-                <div
-                  className="mt-3.5 flex flex-wrap gap-2 text-[11px]"
-                  style={{ color: "var(--color-text-4)" }}
-                >
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5"
-                    style={{
-                      background: "var(--color-accent-dim)",
-                      border: "1px solid var(--color-accent-soft)",
-                      color: "var(--color-accent-2)",
-                    }}
+              ) : overview ? (
+                <>
+                  {overview.synopsis && (
+                    <p
+                      className="text-[13px] leading-[1.7]"
+                      style={{ color: "var(--color-text-2)" }}
+                    >
+                      {overview.synopsis}
+                    </p>
+                  )}
+                  <div
+                    className="mt-3.5 flex flex-wrap gap-2 text-[11px]"
+                    style={{ color: "var(--color-text-4)" }}
                   >
-                    <span style={{ color: "var(--color-text-4)" }}>{t("genre_prefix")}</span>
-                    {overview.genre}
-                  </span>
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5"
-                    style={{
-                      background: "oklch(0.20 0.011 265 / 0.6)",
-                      border: "1px solid var(--color-hairline)",
-                    }}
-                  >
-                    <span style={{ color: "var(--color-text-4)" }}>{t("theme_prefix")}</span>
-                    <span style={{ color: "var(--color-text-2)" }}>{overview.theme}</span>
-                  </span>
-                </div>
-              </section>
-            )}
+                    {overview.genre && (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5"
+                        style={{
+                          background: "var(--color-accent-dim)",
+                          border: "1px solid var(--color-accent-soft)",
+                          color: "var(--color-accent-2)",
+                        }}
+                      >
+                        <span style={{ color: "var(--color-text-4)" }}>{t("genre_prefix")}</span>
+                        {overview.genre}
+                      </span>
+                    )}
+                    {overview.theme && (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5"
+                        style={{
+                          background: "oklch(0.20 0.011 265 / 0.6)",
+                          border: "1px solid var(--color-hairline)",
+                        }}
+                      >
+                        <span style={{ color: "var(--color-text-4)" }}>{t("theme_prefix")}</span>
+                        <span style={{ color: "var(--color-text-2)" }}>{overview.theme}</span>
+                      </span>
+                    )}
+                  </div>
+                  {overview.world_setting && (
+                    <div className="mt-3.5">
+                      <div
+                        className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+                        style={{ color: "var(--color-text-4)" }}
+                      >
+                        {t("world_setting_label")}
+                      </div>
+                      <p
+                        className="mt-1 text-[13px] leading-[1.7]"
+                        style={{ color: "var(--color-text-2)" }}
+                      >
+                        {overview.world_setting}
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={enterOverviewEdit}
+                  className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-4 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+                  style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t("create_overview")}
+                </button>
+              )}
+            </section>
 
             {/* Asset progress — characters / scenes / props */}
             {status && (
@@ -564,6 +745,24 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
       )}
       <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} />
     </div>
+  );
+}
+
+function FieldLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  htmlFor: string;
+}) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+      style={{ color: "var(--color-text-4)" }}
+    >
+      {children}
+    </label>
   );
 }
 

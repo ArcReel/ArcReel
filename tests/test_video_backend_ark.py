@@ -412,18 +412,34 @@ class TestArkModelCapabilities:
             b = ArkVideoBackend(api_key="test", model="doubao-seedance-2.0-fast")
         assert VideoCapability.FLEX_TIER not in b.capabilities
 
+    def test_seedance_2_dreamina_prefix_no_flex_tier(self):
+        """BytePlus 国际站用 dreamina- 前缀（dreamina-seedance-2-0-260128），同族不该带 FLEX_TIER。"""
+        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            b = ArkVideoBackend(api_key="test", model="dreamina-seedance-2-0-260128")
+        assert VideoCapability.FLEX_TIER not in b.capabilities
+
+    def test_seedance_2_dreamina_fast_prefix_no_flex_tier(self):
+        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            b = ArkVideoBackend(api_key="test", model="dreamina-seedance-2-0-fast-260128")
+        assert VideoCapability.FLEX_TIER not in b.capabilities
+
 
 class TestArkServiceTierParam:
     """service_tier 只对声明了 FLEX_TIER 能力的模型传入，否则 API 会报错。"""
 
-    async def test_seedance_2_does_not_send_service_tier(self, tmp_path):
+    @pytest.mark.parametrize(
+        "model",
+        ["doubao-seedance-2-0-260128", "dreamina-seedance-2-0-260128"],
+    )
+    async def test_seedance_2_does_not_send_service_tier(self, tmp_path, model):
+        """seedance-2 系列（含 dreamina- 前缀的自定义供应商命名）不得发 service_tier，否则 r2v 上游 400。"""
         output = tmp_path / "out.mp4"
         mock_client = MagicMock()
         mock_client.content_generation = MagicMock()
         mock_client.content_generation.tasks = MagicMock()
 
         with patch("lib.video_backends.ark.create_ark_client", return_value=mock_client):
-            backend = ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
+            backend = ArkVideoBackend(api_key="test", model=model)
         backend._client = mock_client
 
         create_result = MagicMock()

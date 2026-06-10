@@ -45,7 +45,10 @@ MESSAGES = {
     "invalid_upload_type": "Invalid upload type: {upload_type}",
     "missing_filename": "Uploaded file is missing a filename",
     "unsupported_image_type": "Unsupported file type {ext}. Allowed types: {allowed}",
+    "unsupported_video_type": "Unsupported video type {ext}. Allowed types: {allowed}",
+    "upload_too_large": "Uploaded file exceeds the size limit ({max_mb} MB)",
     "invalid_image_file": "Invalid image file, could not be parsed",
+    "internal_server_error": "Internal server error, please try again later",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_step_num": "Invalid step number: {step_num}",
@@ -127,6 +130,7 @@ MESSAGES = {
     "ref_duration_exceeded": "Reference video unit duration {duration}s exceeds {model} limit of {max_duration}s, clamped",
     "ref_too_many_images": "Reference image count {count} exceeds {model} limit of {max_count}, kept the first {max_count}",
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
+    "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
     "ref_sora_single_ref": "Sora reference mode does not currently support multiple images, downgraded to single image",
     "ref_shot_parse_fallback": "No Shot N (Xs) header detected, treated as a single shot",
     "ref_episode_not_found": "Episode {episode} not found",
@@ -138,6 +142,9 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids do not match existing units",
     "ref_script_missing": "The script file bound to this episode does not exist",
     "ref_script_rebound": "This episode's script binding changed, please retry",
+    # Episode meta
+    "episode_not_found": "Episode {episode} not found or has no script file yet",
+    "episode_title_empty": "Episode title cannot be empty",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
     # Image Capability
