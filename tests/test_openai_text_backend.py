@@ -333,7 +333,10 @@ class TestInstructorFallback:
 
 
 class TestMaxOutputTokens:
-    async def test_plain_path_passes_max_tokens(self):
+    """官方端点用 max_completion_tokens，兼容端点保守沿用 max_tokens。"""
+
+    async def test_official_plain_passes_max_completion_tokens(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
@@ -343,9 +346,11 @@ class TestMaxOutputTokens:
             await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
 
         call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["max_tokens"] == 32000
+        assert call_kwargs["max_completion_tokens"] == 32000
+        assert "max_tokens" not in call_kwargs
 
-    async def test_structured_path_passes_max_tokens(self):
+    async def test_official_structured_passes_max_completion_tokens(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(json.dumps({"name": "x"})))
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
@@ -358,9 +363,11 @@ class TestMaxOutputTokens:
             await backend.generate(TextGenerationRequest(prompt="hi", response_schema=MyModel, max_output_tokens=24000))
 
         call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["max_tokens"] == 24000
+        assert call_kwargs["max_completion_tokens"] == 24000
+        assert "max_tokens" not in call_kwargs
 
-    async def test_no_max_tokens_means_key_absent(self):
+    async def test_no_max_tokens_means_key_absent(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
@@ -371,3 +378,106 @@ class TestMaxOutputTokens:
 
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert "max_tokens" not in call_kwargs
+        assert "max_completion_tokens" not in call_kwargs
+
+    async def test_custom_base_url_uses_max_tokens(self):
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k", base_url="https://vllm.example.com/v1")
+            await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_tokens"] == 32000
+        assert "max_completion_tokens" not in call_kwargs
+
+    async def test_explicit_official_base_url_uses_max_completion_tokens(self):
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k", base_url="https://api.openai.com/v1")
+            await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_completion_tokens"] == 32000
+        assert "max_tokens" not in call_kwargs
+
+    async def test_official_dict_schema_fallback_uses_max_completion_tokens(self, monkeypatch):
+        """dict-schema 降级路径（json_object 模式）也按端点选参数。"""
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+        mock_client = AsyncMock()
+        fallback_json = json.dumps({"name": "x"})
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json)]
+        )
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k")
+            await backend.generate(
+                TextGenerationRequest(
+                    prompt="hi",
+                    response_schema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    max_output_tokens=8000,
+                )
+            )
+
+        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
+        assert second_call_kwargs["max_completion_tokens"] == 8000
+        assert "max_tokens" not in second_call_kwargs
+
+    async def test_custom_base_url_dict_schema_fallback_uses_max_tokens(self):
+        mock_client = AsyncMock()
+        fallback_json = json.dumps({"name": "x"})
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json)]
+        )
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k", base_url="https://vllm.example.com/v1")
+            await backend.generate(
+                TextGenerationRequest(
+                    prompt="hi",
+                    response_schema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    max_output_tokens=8000,
+                )
+            )
+
+        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
+        assert second_call_kwargs["max_tokens"] == 8000
+        assert "max_completion_tokens" not in second_call_kwargs
+
+    async def test_official_instructor_fallback_uses_max_completion_tokens(self, monkeypatch):
+        """Pydantic instructor 降级路径端到端穿透到 create_with_completion。"""
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
+
+        instructor_result = _PersonSchema(name="Bob", age=25)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = None
+
+        mock_patched = AsyncMock()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("instructor.from_openai", return_value=mock_patched),
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k")
+            await backend.generate(
+                TextGenerationRequest(prompt="hi", response_schema=_PersonSchema, max_output_tokens=7000)
+            )
+
+        instructor_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
+        assert instructor_kwargs["max_completion_tokens"] == 7000
+        assert "max_tokens" not in instructor_kwargs

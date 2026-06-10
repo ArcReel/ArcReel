@@ -6,11 +6,16 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
 _logger = logging.getLogger(__name__)
+
+# Chat Completions 输出上限参数名：官方 OpenAI 端点已弃用 max_tokens（推理模型
+# 直接拒绝），改用 max_completion_tokens；第三方兼容端点对新参数支持情况不一，
+# 须保守沿用 max_tokens。由调用方按端点选择。
+TokenParam = Literal["max_tokens", "max_completion_tokens"]
 
 
 def warn_if_truncated(

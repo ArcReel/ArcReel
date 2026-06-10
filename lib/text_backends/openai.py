@@ -7,6 +7,7 @@ import logging
 
 from openai import AsyncOpenAI, BadRequestError
 
+from lib.config.url_utils import is_official_openai_base_url
 from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
@@ -15,6 +16,7 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    TokenParam,
     resolve_schema,
     warn_if_truncated,
 )
@@ -41,6 +43,11 @@ class OpenAITextBackend:
         # 复用 OpenAI 兼容协议的 provider（如 dashscope）须用真实 provider 记账，
         # 否则计费查表会命中 OpenAI 的 USD 费率而非自身定价。
         self._provider_name = provider_name
+        # 官方端点已弃用 max_tokens（推理模型直接拒绝），用 max_completion_tokens；
+        # 第三方兼容端点（自定义供应商、dashscope 等）不保证支持新参数，保守沿用 max_tokens
+        self._max_tokens_param: TokenParam = (
+            "max_completion_tokens" if is_official_openai_base_url(base_url) else "max_tokens"
+        )
         self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
             TextCapability.STRUCTURED_OUTPUT,
@@ -73,7 +80,7 @@ class OpenAITextBackend:
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
         if request.max_output_tokens is not None:
-            kwargs["max_completion_tokens"] = request.max_output_tokens
+            kwargs[self._max_tokens_param] = request.max_output_tokens
 
         if request.response_schema:
             schema = resolve_schema(request.response_schema)
@@ -96,7 +103,12 @@ class OpenAITextBackend:
                     exc,
                 )
                 return await _instructor_fallback(
-                    self._client, self._model, request, messages, provider=self._provider_name
+                    self._client,
+                    self._model,
+                    request,
+                    messages,
+                    provider=self._provider_name,
+                    token_param=self._max_tokens_param,
                 )
             raise
 
@@ -110,7 +122,12 @@ class OpenAITextBackend:
                 "原生 response_format 返回非 JSON 内容（代理可能未支持 response_format），降级到 Instructor 路径",
             )
             return await _instructor_fallback(
-                self._client, self._model, request, messages, provider=self._provider_name
+                self._client,
+                self._model,
+                request,
+                messages,
+                provider=self._provider_name,
+                token_param=self._max_tokens_param,
             )
 
         warn_if_truncated(
@@ -199,6 +216,7 @@ async def _instructor_fallback(
     messages: list[dict],
     *,
     provider: str = PROVIDER_OPENAI,
+    token_param: TokenParam = "max_tokens",
 ) -> TextGenerationResult:
     """Instructor 降级：当原生 response_format 不可用时的备选路径。"""
     from lib.text_backends.instructor_support import instructor_fallback_async
@@ -210,4 +228,5 @@ async def _instructor_fallback(
         response_schema=request.response_schema,
         provider=provider,
         max_tokens=request.max_output_tokens,
+        token_param=token_param,
     )

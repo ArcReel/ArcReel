@@ -8,7 +8,7 @@ import instructor
 from instructor import Mode
 from pydantic import BaseModel
 
-from lib.text_backends.base import TextGenerationResult
+from lib.text_backends.base import TextGenerationResult, TokenParam
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,11 @@ def generate_structured_via_instructor(
     mode: Mode = Mode.MD_JSON,
     max_retries: int = 2,
     max_tokens: int | None = None,
+    token_param: TokenParam = "max_tokens",
 ) -> tuple[str, int | None, int | None]:
     """通过 Instructor 生成结构化输出（同步版，供 Ark 等同步 SDK 使用）。
 
+    token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
     返回 (json_text, input_tokens, output_tokens)。
     """
     patched = instructor.from_openai(client, mode=mode)
@@ -32,7 +34,7 @@ def generate_structured_via_instructor(
             f"instructor.from_openai() 返回 None — client 类型 {type(client).__name__} 不受支持，"
             "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
         )
-    extra: dict = {"max_completion_tokens": max_tokens} if max_tokens is not None else {}
+    extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     result, completion = patched.chat.completions.create_with_completion(
         model=model,
         messages=messages,  # type: ignore[arg-type]
@@ -59,9 +61,11 @@ async def generate_structured_via_instructor_async(
     mode: Mode = Mode.MD_JSON,
     max_retries: int = 2,
     max_tokens: int | None = None,
+    token_param: TokenParam = "max_tokens",
 ) -> tuple[str, int | None, int | None]:
     """通过 Instructor 生成结构化输出（异步版，供 OpenAI AsyncOpenAI 使用）。
 
+    token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
     返回 (json_text, input_tokens, output_tokens)。
     """
     patched = instructor.from_openai(client, mode=mode)
@@ -70,7 +74,7 @@ async def generate_structured_via_instructor_async(
             f"instructor.from_openai() 返回 None — client 类型 {type(client).__name__} 不受支持，"
             "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
         )
-    extra: dict = {"max_completion_tokens": max_tokens} if max_tokens is not None else {}
+    extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]
         model=model,
         messages=messages,  # type: ignore[arg-type]
@@ -114,6 +118,7 @@ def instructor_fallback_sync(
     response_schema: dict | type[BaseModel] | None,
     provider: str,
     max_tokens: int | None = None,
+    token_param: TokenParam = "max_tokens",
 ):
     """同步 Instructor 降级路径。
 
@@ -130,6 +135,7 @@ def instructor_fallback_sync(
             messages=messages,
             response_model=response_schema,
             max_tokens=max_tokens,
+            token_param=token_param,
         )
         return TextGenerationResult(
             text=json_text,
@@ -147,7 +153,7 @@ def instructor_fallback_sync(
         "response_format": {"type": "json_object"},
     }
     if max_tokens is not None:
-        create_kwargs["max_completion_tokens"] = max_tokens
+        create_kwargs[token_param] = max_tokens
     response = client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
@@ -177,6 +183,7 @@ async def instructor_fallback_async(
     response_schema: dict | type[BaseModel] | None,
     provider: str,
     max_tokens: int | None = None,
+    token_param: TokenParam = "max_tokens",
 ):
     """异步 Instructor 降级路径。
 
@@ -195,6 +202,7 @@ async def instructor_fallback_async(
             messages=messages,
             response_model=response_schema,
             max_tokens=max_tokens,
+            token_param=token_param,
         )
         return TextGenerationResult(
             text=json_text,
@@ -212,7 +220,7 @@ async def instructor_fallback_async(
         "response_format": {"type": "json_object"},
     }
     if max_tokens is not None:
-        create_kwargs["max_completion_tokens"] = max_tokens
+        create_kwargs[token_param] = max_tokens
     response = await client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
     choice = response.choices[0]

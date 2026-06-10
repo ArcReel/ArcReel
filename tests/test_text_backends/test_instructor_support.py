@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from lib.text_backends.instructor_support import (
     generate_structured_via_instructor,
+    generate_structured_via_instructor_async,
     instructor_fallback_async,
     instructor_fallback_sync,
 )
@@ -107,6 +108,76 @@ class TestGenerateStructuredViaInstructor:
         assert input_tokens is None
         assert output_tokens is None
 
+    def test_max_tokens_uses_default_param_name(self):
+        """默认 token_param 下 max_tokens 值以 max_tokens 为参数名上线。"""
+        sample = SampleModel(name="Dave", age=40)
+        mock_completion = SimpleNamespace(usage=None)
+
+        with patch("lib.text_backends.instructor_support.instructor") as mock_instructor:
+            mock_patched = MagicMock()
+            mock_instructor.from_openai.return_value = mock_patched
+            mock_patched.chat.completions.create_with_completion.return_value = (sample, mock_completion)
+
+            generate_structured_via_instructor(
+                client=MagicMock(),
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_model=SampleModel,
+                max_tokens=1234,
+            )
+
+            call_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
+            assert call_kwargs["max_tokens"] == 1234
+            assert "max_completion_tokens" not in call_kwargs
+
+    def test_explicit_token_param_max_completion_tokens(self):
+        """显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        sample = SampleModel(name="Eve", age=45)
+        mock_completion = SimpleNamespace(usage=None)
+
+        with patch("lib.text_backends.instructor_support.instructor") as mock_instructor:
+            mock_patched = MagicMock()
+            mock_instructor.from_openai.return_value = mock_patched
+            mock_patched.chat.completions.create_with_completion.return_value = (sample, mock_completion)
+
+            generate_structured_via_instructor(
+                client=MagicMock(),
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_model=SampleModel,
+                max_tokens=1234,
+                token_param="max_completion_tokens",
+            )
+
+            call_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
+            assert call_kwargs["max_completion_tokens"] == 1234
+            assert "max_tokens" not in call_kwargs
+
+
+class TestGenerateStructuredViaInstructorAsync:
+    async def test_explicit_token_param_max_completion_tokens(self):
+        """异步版显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        sample = SampleModel(name="Frank", age=50)
+        mock_completion = SimpleNamespace(usage=None)
+
+        with patch("lib.text_backends.instructor_support.instructor") as mock_instructor:
+            mock_patched = MagicMock()
+            mock_instructor.from_openai.return_value = mock_patched
+            mock_patched.chat.completions.create_with_completion = AsyncMock(return_value=(sample, mock_completion))
+
+            await generate_structured_via_instructor_async(
+                client=AsyncMock(),
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_model=SampleModel,
+                max_tokens=2345,
+                token_param="max_completion_tokens",
+            )
+
+            call_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
+            assert call_kwargs["max_completion_tokens"] == 2345
+            assert "max_tokens" not in call_kwargs
+
 
 class TestInstructorFallbackSync:
     """instructor_fallback_sync 高层函数测试。"""
@@ -157,6 +228,72 @@ class TestInstructorFallbackSync:
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["response_format"] == {"type": "json_object"}
 
+    def test_pydantic_branch_forwards_token_param(self):
+        """Pydantic 分支把 token_param 转发给 generate_structured_via_instructor。"""
+        sample = SampleModel(name="Alice", age=30)
+
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            return_value=(sample.model_dump_json(), 50, 20),
+        ) as mock_gen:
+            instructor_fallback_sync(
+                client=MagicMock(),
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_schema=SampleModel,
+                provider="test-provider",
+                max_tokens=500,
+                token_param="max_completion_tokens",
+            )
+
+        assert mock_gen.call_args[1]["token_param"] == "max_completion_tokens"
+        assert mock_gen.call_args[1]["max_tokens"] == 500
+
+    def test_dict_branch_default_token_param(self):
+        """dict 分支默认以 max_tokens 为参数名上线。"""
+        mock_client = MagicMock()
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
+            usage=None,
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        instructor_fallback_sync(
+            client=mock_client,
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="test-provider",
+            max_tokens=500,
+        )
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_tokens"] == 500
+        assert "max_completion_tokens" not in call_kwargs
+
+    def test_dict_branch_explicit_token_param(self):
+        """dict 分支显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        mock_client = MagicMock()
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
+            usage=None,
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        instructor_fallback_sync(
+            client=mock_client,
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="test-provider",
+            max_tokens=500,
+            token_param="max_completion_tokens",
+        )
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_completion_tokens"] == 500
+        assert "max_tokens" not in call_kwargs
+
 
 class TestInstructorFallbackAsync:
     """instructor_fallback_async 高层函数测试。"""
@@ -204,3 +341,69 @@ class TestInstructorFallbackAsync:
         assert result.provider == "async-provider"
         assert result.input_tokens == 25
         assert result.output_tokens == 12
+
+    async def test_pydantic_branch_forwards_token_param_async(self):
+        """异步 Pydantic 分支把 token_param 转发给 generate_structured_via_instructor_async。"""
+        sample = SampleModel(name="Bob", age=25)
+
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+            return_value=(sample.model_dump_json(), 40, 18),
+        ) as mock_gen:
+            await instructor_fallback_async(
+                client=AsyncMock(),
+                model="async-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_schema=SampleModel,
+                provider="async-provider",
+                max_tokens=600,
+                token_param="max_completion_tokens",
+            )
+
+        assert mock_gen.call_args[1]["token_param"] == "max_completion_tokens"
+        assert mock_gen.call_args[1]["max_tokens"] == 600
+
+    async def test_dict_branch_default_token_param_async(self):
+        """异步 dict 分支默认以 max_tokens 为参数名上线。"""
+        mock_client = AsyncMock()
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"k": "v"}'))],
+            usage=None,
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        await instructor_fallback_async(
+            client=mock_client,
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="async-provider",
+            max_tokens=600,
+        )
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_tokens"] == 600
+        assert "max_completion_tokens" not in call_kwargs
+
+    async def test_dict_branch_explicit_token_param_async(self):
+        """异步 dict 分支显式 token_param 时以 max_completion_tokens 为参数名上线。"""
+        mock_client = AsyncMock()
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"k": "v"}'))],
+            usage=None,
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        await instructor_fallback_async(
+            client=mock_client,
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="async-provider",
+            max_tokens=600,
+            token_param="max_completion_tokens",
+        )
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_completion_tokens"] == 600
+        assert "max_tokens" not in call_kwargs

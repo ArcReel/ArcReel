@@ -231,6 +231,7 @@ class TestCapabilityAwareStructured:
         await backend_no_structured.generate(TextGenerationRequest(prompt="hi", max_output_tokens=16000))
         call_kwargs = backend_no_structured._test_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["max_tokens"] == 16000
+        assert "max_completion_tokens" not in call_kwargs
 
     async def test_max_output_tokens_structured_native(self, backend_with_structured, sync_to_thread):
         """原生 structured 路径透传 max_tokens。"""
@@ -244,6 +245,7 @@ class TestCapabilityAwareStructured:
         )
         call_kwargs = backend_with_structured._test_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["max_tokens"] == 20000
+        assert "max_completion_tokens" not in call_kwargs
 
     async def test_max_output_tokens_instructor_fallback(self, backend_no_structured, sync_to_thread):
         """Instructor 降级路径透传 max_tokens。"""
@@ -261,6 +263,28 @@ class TestCapabilityAwareStructured:
                 TextGenerationRequest(prompt="g", response_schema=M, max_output_tokens=24000)
             )
             assert mock_fn.call_args.kwargs["max_tokens"] == 24000
+            assert mock_fn.call_args.kwargs["token_param"] == "max_tokens"
+
+    async def test_instructor_fallback_wire_param_is_max_tokens(self, backend_no_structured, sync_to_thread):
+        """导线级守护：Ark 降级链路最终发给端点的参数名必须是 max_tokens。"""
+        from pydantic import BaseModel
+
+        class M(BaseModel):
+            k: str
+
+        sample = M(k="v")
+        completion = SimpleNamespace(usage=None)
+        mock_patched = MagicMock()
+        mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(sample, completion))
+
+        with patch("instructor.from_openai", return_value=mock_patched):
+            await backend_no_structured.generate(
+                TextGenerationRequest(prompt="g", response_schema=M, max_output_tokens=24000)
+            )
+
+        call_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 24000
+        assert "max_completion_tokens" not in call_kwargs
 
     async def test_native_failure_falls_back(self, backend_with_structured, sync_to_thread):
         """原生 json_schema 运行时失败后降级到 json_object。"""
