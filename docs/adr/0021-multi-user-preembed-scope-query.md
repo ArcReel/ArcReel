@@ -8,5 +8,5 @@ status: accepted
 
 ## Consequences
 
-- 开源版背着一堆看似无用的 no-op 与恒定 `"default"`，**读者勿当死代码删除**。
-- `claim_next` 用原生 SQL、`_scope_query` 拦不住，是已知需商业版 override 的特例。
+- 开源版携带一批看似无用的 no-op 与恒定 `"default"`，**读者勿当死代码删除**。
+- `claim_next` 用原生 SQL、`_scope_query` 无法拦截，是已知需商业版 override 的特例。
