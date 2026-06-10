@@ -183,3 +183,20 @@ class TestDashScopeAudioBackend:
 
         assert client.post.call_count == 1
         assert not out.exists()
+
+    async def test_download_http_error_raises(self, tmp_path: Path, monkeypatch):
+        # 下载 4xx：raise 且不写文件、合成 POST 不被重跑
+        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
+        err_resp = MagicMock()
+        err_resp.status_code = 404
+        client = _mock_client(_synth_response(), err_resp)
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.dashscope import DashScopeAudioBackend
+
+            b = DashScopeAudioBackend(api_key="sk")
+            out = tmp_path / "err.wav"
+            with pytest.raises(RuntimeError, match="音频下载返回 404"):
+                await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
+
+        assert client.post.call_count == 1
+        assert not out.exists()

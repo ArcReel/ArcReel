@@ -121,3 +121,42 @@ class TestResolveNarrationVoice:
             assert await resolver.resolve_narration_voice({"narration_voice": "  "}) == "Cherry"
         finally:
             await engine.dispose()
+
+
+class TestPublicAudioResolverApi:
+    async def test_default_audio_backend_reads_global_setting(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                await ConfigService(session).set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            assert await resolver.default_audio_backend() == ("dashscope", "qwen3-tts-flash")
+        finally:
+            await engine.dispose()
+
+    async def test_resolve_audio_backend_payload_short_circuit(self):
+        factory, engine = await _make_factory()
+        try:
+            resolver = ConfigResolver(factory)
+            result = await resolver.resolve_audio_backend(
+                None, {"audio_provider": "dashscope", "audio_model": "qwen3-tts-flash"}
+            )
+            assert result == ProviderModel("dashscope", "qwen3-tts-flash")
+        finally:
+            await engine.dispose()
+
+
+class TestServiceDefaultAudioBackend:
+    async def test_falls_back_to_builtin_default(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                svc = ConfigService(session)
+                assert await svc.get_default_audio_backend() == ("dashscope", "qwen3-tts-flash")
+        finally:
+            await engine.dispose()

@@ -164,6 +164,17 @@ class TestGenerateAudioAsync:
             raised = True
         assert raised
 
+    async def test_regenerate_tracks_existing_file(self, tmp_path: Path):
+        # 重新生成时旧文件须先经 ensure_current_tracked 记录进版本历史
+        gen = _build_generator(tmp_path)
+        tracked = []
+        gen.versions.ensure_current_tracked = lambda **kw: tracked.append(kw)
+        out1, _ = await gen.generate_audio_async(text="第一次", resource_id="E1S05", voice="Cherry")
+        assert out1.exists()
+        assert tracked == []
+        await gen.generate_audio_async(text="第二次", resource_id="E1S05", voice="Cherry")
+        assert tracked and tracked[0]["resource_type"] == "audio"
+
 
 # ── 用量聚合 audio_count ────────────────────────────────────────────────────────
 
@@ -268,3 +279,70 @@ class TestWorkerAudioLane:
         assert w._slots.occupied("dashscope", "audio") == 1
         assert w._slots.find_by_task("T1") is not None
         await asyncio.gather(*w._slots.all_active_tasks(), return_exceptions=True)
+
+
+class TestExtractProviderAudio:
+    async def test_audio_payload_provider_routes_to_audio_resolver(self):
+        from lib.generation_worker import _extract_provider
+
+        # payload 携带历史 audio_provider → audio lane 投影短路取到
+        task = {
+            "payload": {"audio_provider": "dashscope", "audio_model": "qwen3-tts-flash"},
+            "task_type": "tts",
+        }
+        assert await _extract_provider(task) == "dashscope"
+
+
+class TestOrphanAudioRestartLost:
+    async def test_orphan_audio_running_marked_restart_lost(self):
+        # audio 同步无 resume 入口：running 孤儿降级 [restart_lost]，不重新提交以免重复计费
+        class _Q:
+            def __init__(self):
+                self.failed = []
+                self.cancelled = []
+
+            async def list_orphan_tasks_on_start(self):
+                return [
+                    {
+                        "task_id": "A1",
+                        "status": "running",
+                        "task_type": "tts",
+                        "media_type": None,
+                        "payload": {},
+                    }
+                ]
+
+            async def mark_task_failed(self, task_id, error):
+                self.failed.append((task_id, error))
+                return 1
+
+            async def mark_task_cancelled(self, task_id, cancelled_by="user"):
+                self.cancelled.append(task_id)
+
+        q = _Q()
+        w = GenerationWorker(
+            queue=q,  # type: ignore[arg-type]
+            capacity=CapacityTable(_limits={}, _defaults={"image": 5, "video": 3, "audio": 10}),
+        )
+        await w._handle_orphan_tasks_on_start()
+        assert q.failed == [("A1", "[restart_lost] audio 任务无法接续，需手动重试以避免重复计费")]
+        assert q.cancelled == []
+
+
+class TestDeriveProviderIdForEnqueueAudio:
+    async def test_tts_routes_to_audio_resolver(self, monkeypatch):
+        from lib import generation_queue as gq
+        from lib.config.resolver import ProviderModel
+
+        class _FakeResolver:
+            def __init__(self, factory):
+                pass
+
+            async def resolve_audio_backend(self, project, payload):
+                return ProviderModel("dashscope", "qwen3-tts-flash")
+
+        monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
+        pid = await gq._derive_provider_id_for_enqueue(
+            project_name=None, payload={}, task_type="tts", media_type="audio"
+        )
+        assert pid == "dashscope"
