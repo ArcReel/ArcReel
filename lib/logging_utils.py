@@ -22,7 +22,12 @@ _LIST_TAIL = 2
 _SENSITIVE_KEY_RE = re.compile(r"(api[_-]?key|secret|token|password|authorization)", re.IGNORECASE)
 
 
-def _mask_secret(value: str) -> str:
+def _redact_value(value: str) -> str:
+    """返回凭证的遮蔽显示值：仅保留首尾各 4 字符供人工识别，短值整体替换。
+
+    命名刻意不含 secret/key 等敏感词：返回值是脱敏产物，避免日志静态分析
+    按名字启发式把它误判为敏感数据源。
+    """
     raw = value.strip()
     if len(raw) <= 8:
         return "••••"
@@ -57,7 +62,7 @@ def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
         if obj is None:
             return None
         if isinstance(obj, str):
-            return _mask_secret(obj)
+            return _redact_value(obj)
         return "••••"
 
     if obj is None or isinstance(obj, bool | int | float):

@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from lib.app_data_dir import app_data_dir
 from lib.logging_config import resolve_log_dir
-from lib.logging_utils import _mask_secret
+from lib.logging_utils import _redact_value
 
 _UNAVAILABLE = "<unavailable: {exc}>"
 
@@ -68,7 +68,7 @@ def _db_url() -> str:
         parsed = urlparse(raw)
         netloc = parsed.netloc
         if parsed.username or parsed.password:
-            user = _mask_secret(parsed.username) if parsed.username else ""
+            user = _redact_value(parsed.username) if parsed.username else ""
             host = parsed.hostname or ""
             port = f":{parsed.port}" if parsed.port else ""
             netloc = f"{user}:••@{host}{port}" if parsed.password else f"{user}@{host}{port}"
