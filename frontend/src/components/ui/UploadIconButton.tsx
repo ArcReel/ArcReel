@@ -3,7 +3,7 @@ import { Loader2, Upload } from "lucide-react";
 
 /** 与后端 upload_finalize.py 的扩展名白名单保持一致 */
 export const UPLOAD_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";
-export const UPLOAD_VIDEO_ACCEPT = ".mp4,.mov,.webm,.m4v";
+export const UPLOAD_VIDEO_ACCEPT = ".mp4,.mov,.m4v";
 
 interface UploadIconButtonProps {
   accept: string;

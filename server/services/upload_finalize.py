@@ -21,7 +21,9 @@ UPLOAD_VERSION_SOURCE = "manual_upload"
 # 上传策略（shot_uploads 与 reference_videos 两个路由共用，避免口径漂移）。
 # 视频宽松校验：只看扩展名与大小上限，宽高比/时长不阻塞——用户自主上传即自己负责。
 UPLOAD_IMAGE_EXTENSIONS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
-UPLOAD_VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".mov", ".webm", ".m4v")
+# 不收 webm：字节原样存为 canonical .mp4，VP8/VP9 在 Safari/剪映一侧解码不可用，
+# 错误扩展名还会误导排查；mp4/mov/m4v 同属 ISO BMFF 容器家族
+UPLOAD_VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".mov", ".m4v")
 UPLOAD_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 UPLOAD_VIDEO_MAX_BYTES = 200 * 1024 * 1024
 

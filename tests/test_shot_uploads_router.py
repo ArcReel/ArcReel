@@ -271,6 +271,13 @@ class TestShotVideoUpload:
             resp = _upload(client, "video", "clip.avi", b"\x00" * 16)
             assert resp.status_code == 400
 
+    def test_webm_rejected(self, tmp_path, monkeypatch):
+        """webm 明确不收：字节按 canonical .mp4 存储，VP8/VP9 在 Safari/剪映侧不可解码"""
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = _upload(client, "video", "clip.webm", b"\x00" * 16)
+            assert resp.status_code == 400
+
     def test_oversized_upload_413(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         monkeypatch.setattr(upload_finalize, "UPLOAD_VIDEO_MAX_BYTES", 32)
