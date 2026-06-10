@@ -1153,6 +1153,7 @@ export default {
   'media_upload_video': '上传视频',
   'media_upload_success': '「{{id}}」上传完成',
   'media_upload_failed': '上传失败: {{message}}',
+  'media_refresh_failed': '上传成功，但列表刷新失败: {{message}}',
   'workspace_nav_overview': '项目概览',
   'workspace_nav_source': '源文件',
   'workspace_nav_characters': '角色集',

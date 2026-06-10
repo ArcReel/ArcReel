@@ -1147,6 +1147,13 @@ def test_apply_unit_video_assets_distinguishes_failures():
         apply_unit_video_assets({"video_units": "broken"}, "E1U1", video_uri=None, thumb_rel=None)
     with pytest.raises(ScriptEditError):
         apply_unit_video_assets({}, "E1U1", video_uri=None, thumb_rel=None)
+    with pytest.raises(ScriptEditError):
+        apply_unit_video_assets(
+            {"video_units": [{"unit_id": "E1U1", "generated_assets": "broken"}]},
+            "E1U1",
+            video_uri=None,
+            thumb_rel=None,
+        )
     with pytest.raises(KeyError):
         apply_unit_video_assets({"video_units": []}, "E1U1", video_uri=None, thumb_rel=None)
 

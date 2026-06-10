@@ -354,6 +354,8 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
         if not isinstance(u, dict) or u.get("unit_id") != resource_id:
             continue
         ga = u.setdefault("generated_assets", {})
+        if not isinstance(ga, dict):
+            raise ScriptEditError("generated_assets 必须是 dict")
         ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
         if video_uri:
             ga["video_uri"] = video_uri

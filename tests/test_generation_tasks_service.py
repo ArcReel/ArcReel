@@ -626,6 +626,7 @@ class TestGenerationTasks:
         (project_path / "grids").mkdir()
         (project_path / "grids" / "grid_1.png").write_bytes(b"grid")
         (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"img")
+        (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"img2")
         outside = tmp_path / "outside.png"
         outside.write_bytes(b"secret")
 
@@ -647,9 +648,16 @@ class TestGenerationTasks:
                     next_scene_id="E1S01",
                     image_path="storyboards/scene_E1S01.png",
                 ),
-                FrameCell(index=1, row=0, col=1, frame_type="transition", image_path="../outside.png"),
-                FrameCell(index=2, row=1, col=0, frame_type="transition", image_path=str(outside)),
-                FrameCell(index=3, row=1, col=1, frame_type="placeholder"),
+                FrameCell(
+                    index=1,
+                    row=0,
+                    col=1,
+                    frame_type="transition",
+                    # 项目内的绝对路径：允许纳入，但指纹 key 必须归一为相对路径
+                    image_path=str(project_path / "storyboards" / "scene_E1S02.png"),
+                ),
+                FrameCell(index=2, row=1, col=0, frame_type="transition", image_path="../outside.png"),
+                FrameCell(index=3, row=1, col=1, frame_type="transition", image_path=str(outside)),
             ],
             status="completed",
             prompt=None,
@@ -667,7 +675,9 @@ class TestGenerationTasks:
 
         assert "grids/grid_1.png" in fps
         assert "storyboards/scene_E1S01.png" in fps
+        assert "storyboards/scene_E1S02.png" in fps
         assert all("outside" not in key for key in fps)
+        assert all(not key.startswith("/") for key in fps)
 
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

@@ -639,11 +639,13 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
                     continue
                 candidate = (project_path / frame.image_path).resolve()
                 try:
-                    candidate.relative_to(project_root)
+                    # 指纹 key 用归一化后的项目相对路径：原始字符串若是项目内的
+                    # 绝对路径，会把服务器路径泄漏给前端且匹配不上前端的资源 key
+                    rel = candidate.relative_to(project_root).as_posix()
                 except ValueError:
                     logger.warning("跳过越出项目目录的宫格 cell 路径: %s", frame.image_path)
                     continue
-                paths.append((frame.image_path, candidate))
+                paths.append((rel, candidate))
     elif task_type == "reference_video":
         paths.append(
             (

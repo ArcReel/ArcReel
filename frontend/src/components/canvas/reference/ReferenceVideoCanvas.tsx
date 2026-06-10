@@ -210,12 +210,20 @@ export function ReferenceVideoCanvas({
         return next;
       });
       try {
-        const result = await API.uploadReferenceUnitVideo(projectName, episode, unitId, file);
-        useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
-        await loadUnits(projectName, episode);
-        useAppStore.getState().pushToast(t("media_upload_success", { id: unitId }), "success");
-      } catch (e) {
-        toastError(e, (msg) => t("media_upload_failed", { message: msg }));
+        try {
+          const result = await API.uploadReferenceUnitVideo(projectName, episode, unitId, file);
+          useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+          useAppStore.getState().pushToast(t("media_upload_success", { id: unitId }), "success");
+        } catch (e) {
+          toastError(e, (msg) => t("media_upload_failed", { message: msg }));
+          return;
+        }
+        // 上传已成功落盘：刷新失败单独提示，不误报为上传失败（SSE/重进页面兜底最终一致）
+        try {
+          await loadUnits(projectName, episode);
+        } catch (e) {
+          toastError(e, (msg) => t("media_refresh_failed", { message: msg }));
+        }
       } finally {
         setUploadingUnitIds((s) => {
           const next = new Set(s);

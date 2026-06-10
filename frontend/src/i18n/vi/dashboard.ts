@@ -1108,6 +1108,7 @@ export default {
   'media_upload_video': 'Tải lên video',
   'media_upload_success': 'Đã tải lên "{{id}}"',
   'media_upload_failed': 'Tải lên thất bại: {{message}}',
+  'media_refresh_failed': 'Đã tải lên, nhưng làm mới danh sách thất bại: {{message}}',
   'media_versions_label': 'Phiên bản',
   'media_video_title': 'Video',
   'no_episode_search_results': 'Không có tập phù hợp',

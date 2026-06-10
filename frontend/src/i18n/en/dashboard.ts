@@ -1152,6 +1152,7 @@ export default {
   'media_upload_video': 'Upload video',
   'media_upload_success': '"{{id}}" uploaded',
   'media_upload_failed': 'Upload failed: {{message}}',
+  'media_refresh_failed': 'Uploaded, but the list failed to refresh: {{message}}',
   'workspace_nav_overview': 'Overview',
   'workspace_nav_source': 'Source files',
   'workspace_nav_characters': 'Characters',
