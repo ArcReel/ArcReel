@@ -9,4 +9,5 @@ provider 密钥若进 `os.environ`，会被 agent 子进程整体继承，泄漏
 ## Consequences
 
 - 新增供应商时须把它的 env 变量名登记进 `lib/config/env_keys.py`（启动断言/env 覆盖/Bash 清洗共用此清单；模式扫描只能兜住命名规整的变量）。
+- ③ 是 POSIX 机制（依赖 `env`/`sh`），只为 macOS/Linux 沙箱路径设计；Windows 原生回退下不适用，且该 hook 与 Bash 前缀白名单的权限链交互存在已知缺陷，修复在 issue #622 跟踪——①② 两层不受平台影响。
 - 与 `docs/adr/0017` 互补：0017 讲 Anthropic 凭证「如何注入」，本条讲所有 provider 密钥「如何不泄漏」。
