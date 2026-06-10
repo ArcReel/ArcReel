@@ -24,6 +24,7 @@ from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager, effective_mode
 from lib.reference_video import assemble_shots_text, parse_prompt
 from lib.resource_paths import resource_relative_path
+from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.services.generation_tasks import emit_generation_success_batch
@@ -459,6 +460,8 @@ async def upload_unit_video(
     except KeyError as exc:
         # finalize 写回时 unit 已被并发删除（落盘后绑定重查到锁内写回之间的窄竞态）
         raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id)) from exc
+    except ScriptEditError as exc:
+        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(exc))) from exc
     except HTTPException:
         raise
     except Exception as exc:

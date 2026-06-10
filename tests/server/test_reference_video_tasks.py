@@ -1136,3 +1136,24 @@ async def test_execute_reference_video_task_rejects_unsupported_duration(
         )
     # 守卫在调用 backend 前拦下：generate_video_async 不应被调用
     fake_generator.generate_video_async.assert_not_called()
+
+
+def test_apply_unit_video_assets_distinguishes_failures():
+    """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。"""
+    from lib.script_editor import ScriptEditError
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    with pytest.raises(ScriptEditError):
+        apply_unit_video_assets({"video_units": "broken"}, "E1U1", video_uri=None, thumb_rel=None)
+    with pytest.raises(ScriptEditError):
+        apply_unit_video_assets({}, "E1U1", video_uri=None, thumb_rel=None)
+    with pytest.raises(KeyError):
+        apply_unit_video_assets({"video_units": []}, "E1U1", video_uri=None, thumb_rel=None)
+
+    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {"video_uri": "https://old"}}]}
+    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel="reference_videos/thumbnails/E1U1.jpg")
+    ga = script["video_units"][0]["generated_assets"]
+    assert ga["video_clip"] == "reference_videos/E1U1.mp4"
+    assert "video_uri" not in ga
+    assert ga["video_thumbnail"] == "reference_videos/thumbnails/E1U1.jpg"
+    assert ga["status"] == "completed"

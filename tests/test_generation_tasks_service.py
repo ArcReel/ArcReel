@@ -617,7 +617,7 @@ class TestGenerationTasks:
         assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
     def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
-        """宫格指纹应包含切割覆写的 canonical 分镜图，前端才能对其 cache-bust"""
+        """宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径"""
         from lib.grid.models import FrameCell, GridGeneration
         from lib.grid_manager import GridManager
 
@@ -626,6 +626,8 @@ class TestGenerationTasks:
         (project_path / "grids").mkdir()
         (project_path / "grids" / "grid_1.png").write_bytes(b"grid")
         (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"img")
+        outside = tmp_path / "outside.png"
+        outside.write_bytes(b"secret")
 
         grid = GridGeneration(
             id="grid_1",
@@ -645,7 +647,9 @@ class TestGenerationTasks:
                     next_scene_id="E1S01",
                     image_path="storyboards/scene_E1S01.png",
                 ),
-                FrameCell(index=1, row=0, col=1, frame_type="placeholder"),
+                FrameCell(index=1, row=0, col=1, frame_type="transition", image_path="../outside.png"),
+                FrameCell(index=2, row=1, col=0, frame_type="transition", image_path=str(outside)),
+                FrameCell(index=3, row=1, col=1, frame_type="placeholder"),
             ],
             status="completed",
             prompt=None,
@@ -663,6 +667,7 @@ class TestGenerationTasks:
 
         assert "grids/grid_1.png" in fps
         assert "storyboards/scene_E1S01.png" in fps
+        assert all("outside" not in key for key in fps)
 
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

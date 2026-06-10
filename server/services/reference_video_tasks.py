@@ -22,6 +22,7 @@ from lib.image_utils import compress_image_bytes
 from lib.prompt_builders import append_video_negative_tail
 from lib.reference_video import assemble_shots_text, render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
+from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
@@ -342,12 +343,13 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
 
     生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。
     新结果不含 video_uri / 缩略图时清空旧值，避免指向过期 URI / 已删除文件。
-    剧本不含 video_units 或 unit 不存在时抛 KeyError——写回失败必须让调用方可见，
-    finalize 不能在剧本未更新时静默成功；还原侧的跨集同步把 KeyError 当正常跳过。
+    写回失败必须让调用方可见、finalize 不能在剧本未更新时静默成功，且两种失败
+    要可区分：unit 不存在抛 KeyError（还原侧跨集同步把它当正常跳过），
+    video_units 结构损坏抛 ScriptEditError（还原侧按脏脚本 warning 降级）。
     """
     units = script.get("video_units")
     if not isinstance(units, list):
-        raise KeyError("video_units")
+        raise ScriptEditError("video_units 必须是 list")
     for u in units:
         if not isinstance(u, dict) or u.get("unit_id") != resource_id:
             continue

@@ -631,9 +631,19 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
         except Exception:
             grid = None
         if grid is not None:
+            # 记录是磁盘上的 JSON，image_path 不可直接信任：绝对路径会覆盖左操作数、
+            # ../ 会越出项目目录，把任意服务器文件的存在性/mtime 暴露给前端
+            project_root = project_path.resolve()
             for frame in grid.frame_chain:
-                if frame.image_path:
-                    paths.append((frame.image_path, project_path / frame.image_path))
+                if not frame.image_path:
+                    continue
+                candidate = (project_path / frame.image_path).resolve()
+                try:
+                    candidate.relative_to(project_root)
+                except ValueError:
+                    logger.warning("跳过越出项目目录的宫格 cell 路径: %s", frame.image_path)
+                    continue
+                paths.append((frame.image_path, candidate))
     elif task_type == "reference_video":
         paths.append(
             (
