@@ -37,7 +37,7 @@ _Avoid_: legacy provider 名。
 _Avoid_: api_format（旧名，连同 `newapi` 取值已删；它暗示「一个 provider = 一种协议」的错误读法）；把它当模型调用协议开关。（发现 API 另兼容 `anthropic` 探测，但不落库、不参与协议派发。）
 
 **活跃凭证（active credential）**：
-同一供应商（或 Agent Anthropic 配置）下配多套凭证时当前生效的那一套，由用户在 UI 手动切换、全局生效，每供应商至多一条；删除活跃条时自动改选最早创建的另一条（见 `docs/adr/0016`）。
+同一供应商（或 Agent Anthropic 配置）下配多套凭证时当前生效的那一套，由用户在 UI 手动切换、全局生效，每供应商至多一条；删除活跃条时，供应商凭证自动改选最早创建的另一条，Agent 凭证则不可直接删、须先切换（见 `docs/adr/0016`）。
 _Avoid_: default credential（与「默认 model / 默认 backend」混淆）；把切换理解为自动轮换或负载均衡——系统只手动切换。
 
 **Agent 凭证（agent credential / Anthropic 凭证）**：
