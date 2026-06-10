@@ -18,7 +18,7 @@ I2I / I2V / R2V 场景常把多张体积较大的资产图（character/scene/pro
 
 逐家硬编码请求体上限违反"不猜/不硬编码外部供应商数据"原则（多数家总体上限无明文、且常变；中转站每家各异、根本查不到）。保守通用上限是 ArcReel 侧的安全策略常量（类比 timeout 默认），不声称任何一家的真实数字；被动 413 负责自我纠正。代价：偶发"上限配得略大"会多一次 413 失败调用——但 413 在 ingress 拒、不计费，仅费延迟，且实际服务图像的中转站基本都已调大 body 限制，触发极少。
 
-## 后果
+## Consequences
 
 - 各 backend 错误路径需让 413 可被识别：`vidu`/`dashscope` 现把 `httpx.HTTPStatusError` 包成 `RuntimeError`、丢了状态码，需规整为保留状态码。
 - R2V 原有的 per-task 压缩（`_compress_references_to_tempfiles`）与那段从未被 raise、因而是死代码的 `except RequestPayloadTooLargeError` 一并撤除/迁移；压缩统一由咽喉层负责，避免双压。
