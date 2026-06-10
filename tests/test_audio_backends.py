@@ -34,9 +34,16 @@ class TestRegistry:
             create_backend("nope")
 
     def test_register_and_create_custom(self):
-        marker = object()
-        register_backend("fake-audio-test", lambda **_: marker)
-        assert create_backend("fake-audio-test") is marker
+        from lib.audio_backends import registry as audio_registry
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
+
+        marker = DashScopeAudioBackend(api_key="sk")
+        try:
+            register_backend("fake-audio-test", lambda **_: marker)
+            assert create_backend("fake-audio-test") is marker
+        finally:
+            # 清理全局注册表，避免污染读取注册表的其它测试
+            audio_registry._BACKEND_FACTORIES.pop("fake-audio-test", None)
 
 
 class TestExtractAudioUrl:
@@ -66,7 +73,7 @@ def _download_response(content: bytes = b"RIFFfakewav") -> MagicMock:
     return resp
 
 
-def _mock_client(post_resp: MagicMock, get_resp: MagicMock) -> AsyncMock:
+def _mock_client(post_resp: httpx.Response | MagicMock, get_resp: httpx.Response | MagicMock) -> AsyncMock:
     client = AsyncMock()
     client.post = AsyncMock(return_value=post_resp)
     client.get = AsyncMock(return_value=get_resp)
