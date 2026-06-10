@@ -27,13 +27,15 @@ skills:
 
 使用 Read 工具读取 `project.json`（相对 session cwd），确认：
 - content_mode 字段（narration 或 drama）
+- generation_mode 字段（项目顶层，注意目标集的 `episodes[i].generation_mode` 可覆盖；`effective_mode = episode.generation_mode or project.generation_mode or "storyboard"`）
 - characters、scenes、props 已有数据
 
-使用 Glob 工具确认中间文件存在：
-- narration 模式：`drafts/episode_{N}/step1_segments.md`
-- drama 模式：`drafts/episode_{N}/step1_normalized_script.md`
+使用 Glob 工具确认中间文件存在，按 `effective_mode` × `content_mode` 三分支检查：
+- effective_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/step1_reference_units.md`（缺失时需先运行 `split-reference-video-units`）
+- effective_mode ∈ {storyboard, grid} 且 content_mode == narration：`drafts/episode_{N}/step1_segments.md`（缺失时需先运行 `split-narration-segments`）
+- effective_mode ∈ {storyboard, grid} 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.md`（缺失时需先运行 `normalize-drama-script`）
 
-如果中间文件不存在，报告错误并说明需要先运行哪个预处理 subagent。
+只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的预处理 subagent。
 
 ### Step 2: 调用工具生成 JSON 剧本
 
@@ -49,8 +51,9 @@ mcp__arcreel__generate_episode_script({"episode": {N}})
 确认：
 - 文件存在且为有效 JSON
 - 包含 episode、content_mode 字段
-- narration 模式：segments 数组不为空
-- drama 模式：scenes 数组不为空
+- reference_video 模式：video_units 数组不为空
+- storyboard / grid + narration：segments 数组不为空
+- storyboard / grid + drama：scenes 数组不为空
 
 ### Step 4: 返回摘要
 

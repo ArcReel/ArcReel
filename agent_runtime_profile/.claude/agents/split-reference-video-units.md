@@ -22,7 +22,7 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 1. **跳过分镜**：不生成分镜图，直接按视频生成粒度（video_unit）拆分；每 unit = 一次生成调用。
 2. **参考图驱动**：每个 unit 的描述只用 `@[角色] / @[场景] / @[道具]` 引用**已注册**的资产名；不写外貌 / 服装 / 场景细节（由参考图承担视觉一致性）。
-3. **时长上限**：每 unit 所有 shot `duration` 之和不超过 Step 0 查得的 `max_duration`；总 references 数不超过 `max_reference_images`。
+3. **时长上限**：每 unit 所有 shot `duration` 之和不超过 Step 0 查得的 `max_duration`（放不下时重拆 unit，不违约时长）；总 references 数不超过 `max_reference_images`。
 4. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认。
 
 ## 工作流程
@@ -43,9 +43,17 @@ mcp__arcreel__get_video_capabilities({})
 
 **校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值）。
 
-**决策优先级**（后续 Step 2 拆分时遵循）：
-- `default_duration` 有效（非 null 且在 `supported_durations` 内）→ **优先采用**作为 shot 时长默认
-- `default_duration` 为 null 或被上面 fallback 成 null，或**特殊情况**（一 unit 多 shot 组合需要贴近 `max_duration`、单 shot 不足以表达当前叙事）→ 从 `supported_durations` 自由选取，使 unit 总时长贴近 `max_duration`
+**时长决策表**（后续 Step 2 拆分时遵循；自上而下，高优先级是硬边界，低优先级在其内做优化）：
+
+| 优先级 | 规则 |
+|---|---|
+| 1. 硬约束 | 单 shot 时长必须取自 `supported_durations`；unit 内所有 shot 时长之和 ≤ `max_duration`。违反任一条的方案直接排除，**不得违约时长** |
+| 2. 默认时长偏好 | `default_duration` 有效（非 null 且在 `supported_durations` 内）→ 作为单 shot 时长默认值；单 shot 叙事需要更长时可从 `supported_durations` 取更长值（偏好可被内容需要覆盖，硬约束不可） |
+| 3. 打包效率 | 在 1、2 之内组合 shot，使 unit 总时长贴近 `max_duration`；不要默认挑最短 / 保守值 |
+
+**超限处理**：叙事需要的 shot 总时长超过 `max_duration` 时，**把该 unit 重拆为多个 unit**（shot 按叙事顺序连续分组，每个 unit 各自满足硬约束），而不是把 shot 压到 `supported_durations` 之外或让 unit 超限。
+
+**数值示例**（假设值，仅演示决策序，真实值以 Step 0 查询结果为准）：查得 `supported_durations = [4, 6, 8, 10, 12]`（`max_duration` 即其最大值 12）、`default_duration = 4`。某 unit 按叙事顺序需要 3 个 shot：默认每 shot 取 4s，4+4+4 = 12s 恰好贴满上限；若后两个 shot 的叙事需要 6s，4+6+6 = 16s > 12s 违反硬约束 → 按顺序重拆为两个 unit（4+6 与 6），而不是把 6s 压成 2s（不在 `supported_durations` 内）或让 unit 总时长达到 16s。
 
 工具返回 `is_error: true` 时，停止并把错误文本报告给主 agent。
 
@@ -61,10 +69,7 @@ mcp__arcreel__get_video_capabilities({})
 
 - 每个 unit 对应一个**连贯的视频生成片段**：同一时间、同一地点、主体动作连续。
 - 一个 unit 内可拆 1-4 个 shot；shot 表示镜头切换，但共享同一次生成调用。
-- 单 shot 时长只能从 Step 0 查到的 `supported_durations` 中选取。
-  优先决策：若 `default_duration` 非 null，单 shot 默认取该值；
-  否则或特殊情况下，让 unit 总时长贴近 `max_duration`，不超过上限。
-  不要挑最短 / 保守值作为默认。
+- shot 时长严格按 Step 0 的**时长决策表**取值：单 shot 只能取 `supported_durations` 中的值、unit 总时长 ≤ `max_duration`（硬约束）；`default_duration` 非 null 时作单 shot 默认；在此之内组合 shot 使 unit 总时长贴近 `max_duration`，不要默认挑最短 / 保守值。总时长放不下时重拆 unit。
 - 时间 / 空间 / 情节重大切换点 → 开一个新 unit。
 - 一个 unit 涉及的角色 / 场景 / 道具总数不超过 Step 0 查到的 `max_reference_images`；超出时将次要角色融入背景描述，不进入 references。
 
@@ -100,7 +105,7 @@ Shot 1 (<d1>s): @[<已注册名>] 动作描述（不写外貌/服装）。
 Shot 2 (<d2>s): ...
 ```
 
-> 填值规则：`<di>` 取自 Step 0 查到的 `supported_durations`；`<d1>+<d2>+...+<dk>` 的和宜贴近 `max_duration`（不超过）；若用户设置了 `default_duration`，优先将单 shot 默认值定为该值，特殊情况另议（多 shot 组合贴近 `max_duration` / 单 shot 不足以表达叙事）。
+> 填值规则：按 Step 0 的时长决策表——`<di>` 必须取自 `supported_durations`，`<d1>+<d2>+...+<dk>` ≤ `max_duration` 且宜贴近该值；`default_duration` 非 null 时作单 shot 默认值；放不下时重拆 unit。
 
 使用 Write 工具写入文件。
 
@@ -131,4 +136,4 @@ Shot 2 (<d2>s): ...
 - unit_id 从 `E{集数}U1` 开始按顺序递增。
 - 每 unit shots 不超过 4 个；单 unit references 不超过 Step 0 查到的 `max_reference_images`。
 - `@[名称]` 中的「名称」需出现在 project.json 的 characters / scenes / props 三张表之一；若确实需要新资产，报告给主 agent 要求补资产生成，不要在本 unit 中先发明。
-- 所有 shot 时长从 Step 0 查到的 `supported_durations` 中选；优先组合使 unit 总时长贴近 `max_duration`（若 `default_duration` 非 null，单 shot 默认取其值；特殊情况另议）；不要自己发明其它时长，也不要默认挑最短值。
+- 所有 shot 时长按 Step 0 的时长决策表取值（硬约束 > `default_duration` 偏好 > 贴近 `max_duration` 的打包效率）；不要自己发明其它时长，不要默认挑最短值，超限时重拆 unit 而不是违约时长。

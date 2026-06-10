@@ -85,7 +85,7 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 传 `{"overview"}` 走项目概述编辑；同时给出多个或都不给会被拒。`settings` 白名单字段：
 
 - `episode_target_units`：`int >= 1` 设置 / `null` 清除
-- `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。**仅在 overview 跳过或失败、且用户明确确认语言后写入**；正常路径由 overview 生成自动落盘
+- `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。优先级：**用户显式配置 > 自动推断**——用户明确指定语言时即可写入（不限于 overview 跳过或失败的场景）；无用户显式确认时不要自行猜测写入，正常路径由 overview 生成自动落盘。发现显式配置与自动推断 / 源文实际语言不一致时，提醒用户（WARN）并按显式配置继续，不阻塞流程
 
 `overview` 白名单字段：`synopsis` / `genre` / `theme` / `world_setting`，**merge 语义**（只改传入字段、
 概述不存在时创建）。**修订概述需用户显式意图驱动**（避免静默覆盖人工编辑过的字段）。
@@ -111,6 +111,6 @@ mcp__arcreel__get_video_capabilities({})
 
 **返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `content_mode` / `generation_mode`。
 
-**用途**：所有 generation_mode（storyboard / grid / reference_video）的预处理 subagent 在执行时自查，用于决定单片段 / shot 时长。**决策优先级**：若 `default_duration` 非 null，优先采用为默认值；否则或特殊情况（reference_video 多 shot 组合贴近 `max_duration`、narration 长句需要更长）按规则从 `supported_durations` 选值。
+**用途**：所有 generation_mode（storyboard / grid / reference_video）的预处理 subagent 在执行时自查，用于决定单片段 / shot 时长。**决策优先级**（高到低）：硬约束（时长必须取自 `supported_durations`；reference_video 的 unit 总时长 ≤ `max_duration`）> `default_duration` 偏好（非 null 时作默认值）> 打包效率 / 内容需要（reference_video 组合 shot 贴近 `max_duration`；narration / drama 长句、复杂画面可取更长值）。超限时重拆 unit，不违约时长。
 
 **错误**：项目未找到或模型能力无法解析时返回 `is_error: true`，文本中包含原因。

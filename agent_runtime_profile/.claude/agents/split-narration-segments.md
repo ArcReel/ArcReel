@@ -56,8 +56,9 @@ mcp__arcreel__get_video_capabilities({})
 
 按以下规则拆分：
 
-**时长规则**：
-- 默认单片段时长 = Step 0 查得的 `default_duration`（按朗读速度每秒约 5-6 字估算字数上限）
+**时长规则**（决策序：硬约束 > 默认偏好 > 按内容取值）：
+- 硬约束：片段时长必须取自 Step 0 查得的 `supported_durations`（其最大值即 `max_duration`），不得自行发明取值
+- 默认单片段时长 = Step 0 查得的 `default_duration`（按朗读速度每秒约 5-6 字估算字数上限）；为 null 时按内容节奏从 `supported_durations` 自行取值
 - **特殊情况**（长句、情绪铺陈、关键对话）可选用 `supported_durations` 中更长的值（如 2× / 3× `default_duration`）
 - 保持语义完整性，不拆断完整的语义单元
 
