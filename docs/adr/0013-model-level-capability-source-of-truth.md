@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # 供应商能力声明收敛到模型级，provider 能力为派生只读视图
 
 供应商不同模型能力不同（如 Ark lite 文本模型不支持 structured_output，却被顶层声明覆盖会导致原生调用报错），把 `media_types` / `capabilities` 声明在 provider 顶层必然与个别模型真实能力漂移。决定把能力（text/image/video 各自的 capability 枚举）声明在 `ModelInfo`（模型级），`ProviderMeta` 的 `media_types` / `capabilities` 改为从其下所有模型聚合的只读 `@property`、不独立存储——能力的真相源是模型，provider 级能力是 derived view、不可写。

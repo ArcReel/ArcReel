@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # 会话发送即创建，对外身份统一为 sdk_session_id
 
 预建会话行需要自造 ID，再在 SDK 返回 session_id 后维护一张映射，且会产生「建了从未发言」的孤儿行。决定不预建：新会话先以临时内存态启动 actor 并发送首条消息，等 SDK init 消息带回 session_id 才写 DB 会话行，并把内存 key 从临时 ID 换成真实 ID（key swap）；此后查询/更新/恢复一律以 `sdk_session_id`（UNIQUE）为对外唯一身份。

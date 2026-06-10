@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # 内核沙箱不可用时 server 启动硬失败，仅 Windows 文档化降级
 
 Agent 工具的安全模型以内核沙箱（macOS Seatbelt / Linux bwrap）为底座，探测失败后若静默裸跑，文件越界与外发请求的防线会无声消失。决定把沙箱可用性检查放在 server 启动期（`check_sandbox_available`）：macOS 缺 `sandbox-exec`、Linux 缺 `bwrap`/`socat`、或 bwrap 存在但试跑失败时直接 raise，整个服务拒绝启动（fail-closed），而不是降级运行或等到创建会话时才报错；只有原生无沙箱的 Windows 例外——warning 后禁用沙箱，Agent Bash 工具改走代码级前缀白名单。

@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # 图像端点按能力拆分为 T2I/I2I 双槽，运行时严格 gating 不做隐式 fallback
 
 NewAPI/OneAPI 中转生态里很多模型只暴露 generations（不支持 edits），给「只有 generations 的模型」传参考图会落到 edit 调用、远端 404 且归因模糊。决定把 OpenAI 图像端点从单条通配拆为「通配 / 仅 T2I / 仅 I2I」三条，默认配置按能力分两个独立槽（`default_image_backend_t2i` / `_i2i`）；运行时严格按是否带参考图选路径，能力不匹配直接抛带稳定 code 的 `ImageCapabilityError`，**不再做**「ref 图打不开就回退 T2I」之类隐式 fallback——失败前置且错误清晰，胜过自动派发后远端模糊报错。

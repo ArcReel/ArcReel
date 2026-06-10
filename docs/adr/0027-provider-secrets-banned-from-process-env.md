@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Provider 密钥禁入进程环境：启动断言 + agent env 覆盖 + Bash env -u 清洗
 
 provider 密钥若进 `os.environ`，会被 agent 子进程整体继承，泄漏面大，且进程级单值与多凭证/按会话切换冲突。决定密钥只存 DB，三层强制：①启动断言——`os.environ` 含任何 provider 真密钥（`PROVIDER_SECRET_KEYS`）即 fail-fast 拒绝启动，用环境变量配 key 的部署会直接起不来，这是刻意的；②agent 子进程 env——Anthropic 凭证按会话从 DB 注入（见 `docs/adr/0017`），其余 provider 变量一律空串覆盖；③Bash 命令被 PreToolUse hook 包装成 `env -u … sh -c`，按固定清单 + `*_API_KEY`/`*_AUTH_TOKEN` 等模式扫描动态 unset，兜住任何仍从宿主环境继承的敏感变量。
