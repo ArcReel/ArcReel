@@ -207,8 +207,12 @@ class TestScriptGenerator:
         assert output == project_path / "scripts" / "episode_10.json"
         assert payload["episode"] == 10
 
-    async def test_generate_passes_pydantic_class_as_schema(self, tmp_path):
-        """generate 应传入 Pydantic 类而非 model_json_schema() dict。"""
+    async def test_generate_passes_duration_constrained_schema(self, tmp_path):
+        """generate 应传入 duration_seconds 被 supported_durations 枚举硬约束的 Pydantic 类。
+
+        schema 是 DramaEpisodeScript 的动态约束子类（非静态类本身），其 scenes 时长字段在
+        JSON schema 里渲染为 enum——LLM 结构化输出层即被卡死。
+        """
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
@@ -229,11 +233,27 @@ class TestScriptGenerator:
 
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
+
+        # caps 解析耦合本机 DB（已配置的视频供应商会盖过 project.json 兜底），此处固定能力
+        # 让断言 hermetic：验证的是「按解析出的 supported_durations 构造枚举约束」这条机制。
+        async def _fixed_caps():
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
         # 结构非法的响应在写盘统一入口被严格校验拒绝；但模型调用已发生，
-        # 仍可断言传入的 schema 是 Pydantic 类。
+        # 仍可断言传入的 schema 形态。
         with pytest.raises(ScriptStructureValidationError):
             await generator.generate(1)
-        assert fake.backend.last_request.response_schema is DramaEpisodeScript
+
+        schema = fake.backend.last_request.response_schema
+        assert isinstance(schema, type) and issubclass(schema, DramaEpisodeScript)
+        duration_enums = [
+            props["duration_seconds"].get("enum")
+            for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())
+            if "duration_seconds" in props
+        ]
+        assert [4, 6, 8] in duration_enums
 
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):
         """generate 应在 TextGenerationRequest 上设置 SCRIPT_MAX_OUTPUT_TOKENS。"""

@@ -432,6 +432,72 @@ describe("API", () => {
       await expect(API.uploadFile("demo", "source", file)).rejects.toThrow("上传失败");
     });
 
+    it("uploads shot media via multipart form and returns fingerprints", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          jsonData: {
+            success: true,
+            path: "storyboards/scene_E1S01.png",
+            version: 2,
+            asset_fingerprints: { "storyboards/scene_E1S01.png": 2 },
+          },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const file = new File(["img"], "board.png", { type: "image/png" });
+      const result = await API.uploadShotMedia(
+        "my project",
+        "scripts/ep 1.json",
+        "E1S01",
+        "storyboard",
+        file,
+      );
+
+      expect(result.version).toBe(2);
+      expect(result.asset_fingerprints["storyboards/scene_E1S01.png"]).toBe(2);
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "/api/v1/projects/my%20project/shots/E1S01/upload/storyboard?script_file=scripts%2Fep%201.json",
+      );
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);
+    });
+
+    it("uploads reference unit video and throws detail on failure", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          mockResponse({
+            jsonData: {
+              success: true,
+              path: "reference_videos/unit-1.mp4",
+              version: 1,
+              asset_fingerprints: { "reference_videos/unit-1.mp4": 1 },
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockResponse({
+            ok: false,
+            statusText: "Bad Request",
+            jsonData: { detail: "不支持的视频格式" },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      const file = new File(["vid"], "clip.mp4", { type: "video/mp4" });
+
+      const result = await API.uploadReferenceUnitVideo("demo", 1, "unit-1", file);
+      expect(result.path).toBe("reference_videos/unit-1.mp4");
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/unit-1/upload-video",
+      );
+      expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);
+
+      await expect(API.uploadReferenceUnitVideo("demo", 1, "unit-1", file)).rejects.toThrow(
+        "不支持的视频格式",
+      );
+    });
+
     it("handles source and draft text APIs", async () => {
       const fetchMock = vi
         .fn()

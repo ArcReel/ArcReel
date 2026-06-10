@@ -17,6 +17,7 @@ import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { PreprocessingView } from "@/components/canvas/timeline/PreprocessingView";
+import { API } from "@/api";
 import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
@@ -113,9 +114,16 @@ export function ReferenceVideoCanvas({
   // Optimistic UI: POST 前置位 → 队列接力 → 队列窗口换出后失效。
   const [optimisticUnitIds, setOptimisticUnitIds] = useState<Set<string>>(() => new Set());
 
+  const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
+
   const tasksByUnit = useMemo(() => {
     const map = new Map<string, (typeof relevantTasks)[number]>();
-    for (const tk of relevantTasks) map.set(tk.resource_id, tk);
+    // store 不保证顺序（SSE upsert 原位更新、初始列表排序属后端实现细节）：
+    // 显式取 updated_at 最新的任务行，重试时不被旧失败行盖住
+    for (const tk of relevantTasks) {
+      const prev = map.get(tk.resource_id);
+      if (!prev || tk.updated_at > prev.updated_at) map.set(tk.resource_id, tk);
+    }
     return map;
   }, [relevantTasks]);
 
@@ -124,13 +132,18 @@ export function ReferenceVideoCanvas({
     for (const u of units) {
       let st: UnitStatus = u.generated_assets.video_clip ? "ready" : "pending";
       const queueRow = tasksByUnit.get(u.unit_id);
-      if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
-      else if (queueRow?.status === "failed") st = "failed";
+      // 上传中的 unit 视为 running：批量生成按 statusMap 选 pending，
+      // 否则上传期间会被再次入队，与生成回写同一个成片文件
+      if (uploadingUnitIds.has(u.unit_id)) st = "running";
+      else if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
+      // 失败任务行 DB 持久化、不会过期：手动上传成片后单元已有可播放资产，
+      // 不再让历史失败覆盖 ready（与 timeline/grid 画布用 toast 提示失败的语义对齐）
+      else if (queueRow?.status === "failed" && !u.generated_assets.video_clip) st = "failed";
       else if (optimisticUnitIds.has(u.unit_id) && !queueRow) st = "running";
       map[u.unit_id] = st;
     }
     return map;
-  }, [units, tasksByUnit, optimisticUnitIds]);
+  }, [units, tasksByUnit, optimisticUnitIds, uploadingUnitIds]);
 
   const generating = !!(selected && statusMap[selected.unit_id] === "running");
 
@@ -187,6 +200,44 @@ export function ReferenceVideoCanvas({
       }
     },
     [generate, projectName, episode, t],
+  );
+
+  const handleUploadVideo = useCallback(
+    async (unitId: string, file: File) => {
+      setUploadingUnitIds((s) => {
+        const next = new Set(s);
+        next.add(unitId);
+        return next;
+      });
+      try {
+        try {
+          const result = await API.uploadReferenceUnitVideo(projectName, episode, unitId, file);
+          useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+          useAppStore.getState().pushToast(t("media_upload_success", { id: unitId }), "success");
+        } catch (e) {
+          toastError(e, (msg) => t("media_upload_failed", { message: msg }));
+          return;
+        }
+        // 上传已成功落盘：刷新失败单独提示，不误报为上传失败（SSE/重进页面兜底最终一致）
+        try {
+          await loadUnits(projectName, episode);
+        } catch (e) {
+          toastError(e, (msg) => t("media_refresh_failed", { message: msg }));
+        }
+      } finally {
+        setUploadingUnitIds((s) => {
+          const next = new Set(s);
+          next.delete(unitId);
+          return next;
+        });
+      }
+    },
+    [projectName, episode, loadUnits, t],
+  );
+
+  const handleUnitsRefresh = useCallback(
+    () => loadUnits(projectName, episode),
+    [loadUnits, projectName, episode],
   );
 
   const handleBatchGenerate = useCallback(async () => {
@@ -719,6 +770,9 @@ export function ReferenceVideoCanvas({
                           estimatedCost={estimatedCost}
                           actualCost={actualCost}
                           onGenerate={onGenerateVoid}
+                          onUploadVideo={handleUploadVideo}
+                          uploadingVideo={uploadingUnitIds.has(selected.unit_id)}
+                          onRestored={handleUnitsRefresh}
                         />
                       </div>
                     )}
@@ -742,6 +796,9 @@ export function ReferenceVideoCanvas({
                   estimatedCost={estimatedCost}
                   actualCost={actualCost}
                   onGenerate={onGenerateVoid}
+                  onUploadVideo={handleUploadVideo}
+                  uploadingVideo={selected ? uploadingUnitIds.has(selected.unit_id) : false}
+                  onRestored={handleUnitsRefresh}
                 />
               </div>
             )}

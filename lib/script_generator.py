@@ -28,6 +28,8 @@ from lib.script_models import (
     DramaEpisodeScript,
     NarrationEpisodeScript,
     ReferenceVideoScript,
+    build_episode_script_model,
+    build_reference_video_script_model,
 )
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -140,6 +142,9 @@ class ScriptGenerator:
         scenes = self.project_json.get("scenes", {})
         props = self.project_json.get("props", {})
 
+        # 三分支同口径解析一次：作为 prompt 的时长约束文本，并据此构造 duration 枚举硬约束的 schema。
+        supported_durations = self._resolve_supported_durations(caps)
+
         if gen_mode == "reference_video":
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -149,13 +154,15 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 units_md=step1_md,
-                supported_durations=self._resolve_supported_durations(caps),
+                supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
-            schema = ReferenceVideoScript
+            # unit 总时长（duration_seconds = 各 shot 之和）枚举约束到 supported_durations：
+            # 发给 API 的就是这个总和，源头杜绝非成员值漏到供应商报错。
+            schema = build_reference_video_script_model(supported_durations)
         elif self.content_mode == "narration":
             prompt = build_narration_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -165,12 +172,14 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 segments_md=step1_md,
-                supported_durations=self._resolve_supported_durations(caps),
+                supported_durations=supported_durations,
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
-            schema = NarrationEpisodeScript
+            # duration_seconds 收紧为 supported_durations 的 enum：LLM 结构化输出层即被卡死，
+            # 避免生成出执行层 assert_duration_supported 会拒、或漏到供应商 API 报错的非成员时长。
+            schema = build_episode_script_model("narration", supported_durations)
         else:
             prompt = build_drama_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -180,12 +189,12 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 scenes_md=step1_md,
-                supported_durations=self._resolve_supported_durations(caps),
+                supported_durations=supported_durations,
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
-            schema = DramaEpisodeScript
+            schema = build_episode_script_model("drama", supported_durations)
 
         # 4. 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)

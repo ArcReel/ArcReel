@@ -999,6 +999,7 @@ export default {
   'switch_to_version': 'Switch to this version',
   'version_preview_alt': 'Version v{{version}} preview',
   'version_no_notes': 'No additional notes recorded for this version.',
+  'version_manual_upload': 'Manually uploaded by the user.',
 
   // ProjectCard - more actions
   'more_actions': 'More Actions',
@@ -1147,6 +1148,11 @@ export default {
   'media_generate_video': 'Generate video',
   'media_regenerate_video': 'Regenerate video',
   'media_generate_video_disabled_hint': 'Generate the storyboard first',
+  'media_upload_storyboard': 'Upload storyboard image',
+  'media_upload_video': 'Upload video',
+  'media_upload_success': '"{{id}}" uploaded',
+  'media_upload_failed': 'Upload failed: {{message}}',
+  'media_refresh_failed': 'Uploaded, but the list failed to refresh: {{message}}',
   'workspace_nav_overview': 'Overview',
   'workspace_nav_source': 'Source files',
   'workspace_nav_characters': 'Characters',

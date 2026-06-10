@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.16.1](https://github.com/ArcReel/ArcReel/compare/v0.16.0...v0.16.1) (2026-06-08)
+
+
+### 🐛 Bug 修复
+
+* **project-manager:** 损坏剧本（数组含非对象元素）不再导致 500，按 script_editor 既有模式干净降级 ([#719](https://github.com/ArcReel/ArcReel/issues/719)) ([b11b3d4](https://github.com/ArcReel/ArcReel/commit/b11b3d470aa48f555e2e40f925fc3b351d224224))
+* **script:** 剧本生成时将分镜时长约束到视频模型支持范围，避免不支持时长导致视频生成失败 ([#741](https://github.com/ArcReel/ArcReel/issues/741)) ([72d178f](https://github.com/ArcReel/ArcReel/commit/72d178f3e1eef3aa4d5667ad4b32243abe04b269))
+* **video-backends:** V2 create 响应解析 generation_id ([#718](https://github.com/ArcReel/ArcReel/issues/718)) ([ebbeb35](https://github.com/ArcReel/ArcReel/commit/ebbeb359fc15395c1968ea4d7c6f87d2f501d60b)), closes [#716](https://github.com/ArcReel/ArcReel/issues/716)
+* **video-backends:** 自定义供应商 BytePlus seedance-2 参考生视频不再因 service_tier 报 400 ([#723](https://github.com/ArcReel/ArcReel/issues/723)) ([ff067d6](https://github.com/ArcReel/ArcReel/commit/ff067d67af96c5077836c9b853a7550f797a66f3))
+
+
+### ♻️ 重构
+
+* **worker:** 重构生成并发管理,修改并发上限配置不再有中断正在运行任务的风险 ([#726](https://github.com/ArcReel/ArcReel/issues/726)) ([a02e687](https://github.com/ArcReel/ArcReel/commit/a02e6874bbd4181abd2547783f098a57c795eb31))
+
+
+### 📚 文档
+
+* **context:** 新增「参考图与压缩」术语条目 ([#742](https://github.com/ArcReel/ArcReel/issues/742)) ([a433c60](https://github.com/ArcReel/ArcReel/commit/a433c60c93c8f8d04aef962c99b18faacd979fd6))
+* 更新飞书交流群二维码 ([#746](https://github.com/ArcReel/ArcReel/issues/746)) ([f7eb5ce](https://github.com/ArcReel/ArcReel/commit/f7eb5ce4369b030b8fe60a68770c3c36a967b6e1))
+
 ## [0.16.0](https://github.com/ArcReel/ArcReel/compare/v0.15.2...v0.16.0) (2026-06-03)
 
 

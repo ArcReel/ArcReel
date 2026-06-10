@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import type { ReferenceVideoUnit } from "@/types";
 
@@ -48,5 +48,36 @@ describe("UnitPreviewPanel", () => {
       <UnitPreviewPanel unit={unit} projectName="proj" />,
     );
     expect(container.querySelector("video")).toBeInTheDocument();
+  });
+
+  it("invokes onUploadVideo with unit id and selected file", () => {
+    const onUploadVideo = vi.fn();
+    const { container } = render(
+      <UnitPreviewPanel unit={mkUnit()} projectName="proj" onUploadVideo={onUploadVideo} />,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    const file = new File(["x"], "clip.mp4", { type: "video/mp4" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    expect(onUploadVideo).toHaveBeenCalledWith("E1U1", file);
+  });
+
+  it("hides upload entry when onUploadVideo is not provided", () => {
+    const { container } = render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" />);
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it("disables upload button while the unit is generating", () => {
+    const { container } = render(
+      <UnitPreviewPanel
+        unit={mkUnit()}
+        projectName="proj"
+        status="running"
+        onUploadVideo={vi.fn()}
+      />,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    const button = input?.nextElementSibling as HTMLButtonElement;
+    expect(button).toBeDisabled();
   });
 });

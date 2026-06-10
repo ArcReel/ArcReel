@@ -965,6 +965,7 @@ export default {
   'switch_to_version': 'Chuyển sang phiên bản này',
   'version_preview_alt': 'Xem trước phiên bản v{{version}}',
   'version_no_notes': 'Phiên bản này không có ghi chú bổ sung.',
+  'version_manual_upload': 'Phiên bản do người dùng tải lên thủ công.',
 
   // ProjectCard - more actions
   'more_actions': 'Thao tác khác',
@@ -1103,6 +1104,11 @@ export default {
   'media_regenerate_video': 'Tạo lại video',
   'media_smart_generate_prompt': 'Tạo prompt thông minh',
   'media_storyboard_title': 'Phân cảnh',
+  'media_upload_storyboard': 'Tải lên ảnh phân cảnh',
+  'media_upload_video': 'Tải lên video',
+  'media_upload_success': 'Đã tải lên "{{id}}"',
+  'media_upload_failed': 'Tải lên thất bại: {{message}}',
+  'media_refresh_failed': 'Đã tải lên, nhưng làm mới danh sách thất bại: {{message}}',
   'media_versions_label': 'Phiên bản',
   'media_video_title': 'Video',
   'no_episode_search_results': 'Không có tập phù hợp',

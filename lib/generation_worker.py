@@ -1,8 +1,8 @@
 """
 Background worker that consumes generation tasks from SQLite queue.
 
-Per-provider pool scheduling: each provider gets independent concurrency
-limits for image and video tasks, read from ConfigService (DB).
+Per-provider × media_type 调度，拆成两件独立的东西：CapacityTable（上限，来自
+ConfigService 的用户配置）+ SlotTable（运行时占用台账）。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -64,49 +64,200 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 
 @dataclass
-class ProviderPool:
-    """Per-provider concurrency pool with independent image/video lanes.
+class CapacityTable:
+    """Per-provider concurrency limits keyed by ``provider_id × media_type``.
 
-    Video lane 还有一个 ``video_pending`` 字典：dispatcher 父协程 ``create_task`` 后
-    sub-task 还在 sem 排队的瞬态。``has_video_room`` 计入 pending + inflight 严格
-    限制总并发；``request_cancel`` 也查 pending，让排队中的孤儿可被秒级取消。
-    Image lane 不引入 ``image_pending``——image 没有 sem-throttled dispatcher。
+    纯标量配置表，唯一真相来自 provider config。改并发 = 只改这张表上一个数字，
+    占用台账不受影响。``get`` 三态语义区分"已知但不支持（0）"与"provider 未知（懒默认）"。
     """
 
-    provider_id: str
-    image_max: int  # 0 = this provider doesn't support image
-    video_max: int  # 0 = this provider doesn't support video
-    image_inflight: dict[str, asyncio.Task] = field(default_factory=dict)
-    video_inflight: dict[str, asyncio.Task] = field(default_factory=dict)
-    video_pending: dict[str, asyncio.Task] = field(default_factory=dict)
+    _limits: dict[str, dict[str, int]]  # provider_id → {media_type → 上限}
+    _defaults: dict[str, int]  # {"image": 5, "video": 3}，未知 provider 懒默认
 
-    def has_image_room(self) -> bool:
-        return self.image_max > 0 and len(self.image_inflight) < self.image_max
+    def get(self, provider_id: str, media_type: str) -> int:
+        """返回 ``(provider, media)`` 的并发上限。
 
-    def has_video_room(self) -> bool:
-        # 计入 pending：sem 排队期 sub-task 同样占名额，避免主循环超额 claim
-        return self.video_max > 0 and len(self.video_inflight) + len(self.video_pending) < self.video_max
+        - provider 已知 + lane 在表 → 登记值（可能 0=不支持该 lane）
+        - provider 已知 + lane 不在表 → 0（不支持）
+        - provider 整个未知 → ``_defaults[media_type]``（纯查询，不写回表）
+        """
+        lanes = self._limits.get(provider_id)
+        if lanes is None:
+            return self._defaults.get(media_type, 0)
+        return lanes.get(media_type, 0)
 
-    def drain_finished(self) -> list[tuple[str, asyncio.Task]]:
-        """Remove finished tasks from inflight dicts. Return ``(task_id, task)`` for inspection."""
-        finished = []
-        for inflight in (self.image_inflight, self.video_inflight):
-            done_ids = [tid for tid, t in inflight.items() if t.done()]
+    def replace(self, new_limits: dict[str, dict[str, int]]) -> None:
+        """整表换数字（reload 入口）。占用台账与默认值不受影响。"""
+        self._limits = new_limits
+
+    @staticmethod
+    def _lane_limits(media_types: Any, image: int, video: int) -> dict[str, int]:
+        """按 provider 支持的 media_types 把上限投影成 lane 字典；不支持的 lane → 0。
+
+        容量装载的单一映射点：未来接入 audio lane 时在这里加一行即可。
+        """
+        return {
+            "image": image if "image" in media_types else 0,
+            "video": video if "video" in media_types else 0,
+        }
+
+    @classmethod
+    def from_env(cls) -> CapacityTable:
+        """从环境变量 / 默认值构造（DB 不可用前或测试用）。"""
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+        video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+        limits = {
+            pid: cls._lane_limits(meta.media_types, image_max, video_max) for pid, meta in PROVIDER_REGISTRY.items()
+        }
+        return cls(_limits=limits, _defaults={"image": image_max, "video": video_max})
+
+    @classmethod
+    async def from_db(cls) -> CapacityTable:
+        """从 ConfigService + PROVIDER_REGISTRY + 自定义供应商加载容量表。"""
+        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.config.service import ConfigService
+        from lib.custom_provider.endpoints import endpoint_to_media_type
+        from lib.db import safe_session_factory
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+        default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+
+        limits: dict[str, dict[str, int]] = {}
+        async with safe_session_factory() as session:
+            svc = ConfigService(session)
+            all_configs = await svc.get_all_provider_configs()
+            for provider_id, meta in PROVIDER_REGISTRY.items():
+                config = all_configs.get(provider_id, {})
+                image_max = max(0, int(config.get("image_max_workers", str(default_image))))
+                video_max = max(0, int(config.get("video_max_workers", str(default_video))))
+                # _lane_limits 统一负责"不支持的 lane → 0"，三个装载路径共用同一投影点
+                limits[provider_id] = cls._lane_limits(meta.media_types, image_max, video_max)
+
+            repo = CustomProviderRepository(session)
+            for provider, models in await repo.list_providers_with_models():
+                pid = provider.provider_id  # "custom-{id}"
+                media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
+                limits[pid] = cls._lane_limits(media_types, default_image, default_video)
+
+        logger.info("从 DB 加载供应商容量表: %s", limits)
+        return cls(_limits=limits, _defaults={"image": default_image, "video": default_video})
+
+
+@dataclass
+class _Occupant:
+    """一条占用：执行体 + phase 标志。
+
+    ``pending=True`` 仅由 video 的 sem-throttled dispatcher 在 sub-task 排队期产生；
+    image 无 sem dispatcher，一律 ``pending=False``。promote 只翻这个标志（天然原子），
+    避免"两层容器间瞬时既不在 pending 也不在 inflight"的窗口。
+    """
+
+    task: asyncio.Future[Any]
+    pending: bool = False
+
+
+class SlotTable:
+    """占用台账：``(provider_id, media_type)`` → ``{task_id: _Occupant}``。
+
+    被动纯内存数据结构，**容量无关**：``has_room`` 由 caller 传入 ``capacity``。
+    不写 DB、不解析 provider、不决定孤儿策略、不碰状态机守卫。
+
+    **空 bucket 不残留（by design）**：``release`` / ``drain_finished`` 移除最后一个
+    占用时一并删掉该 ``(provider,media)`` bucket，保证 ``occupied_providers`` 永不
+    返回已清空的 provider（池满黑名单决策的支点）。
+    """
+
+    def __init__(self) -> None:
+        self._slots: dict[tuple[str, str], dict[str, _Occupant]] = {}
+
+    def register(
+        self,
+        provider: str,
+        media: str,
+        task_id: str,
+        task: asyncio.Future[Any],
+        *,
+        pending: bool = False,
+    ) -> None:
+        """登记占用；幂等覆盖。bucket 不存在时自动创建。"""
+        self._slots.setdefault((provider, media), {})[task_id] = _Occupant(task=task, pending=pending)
+
+    def promote(self, provider: str, media: str, task_id: str) -> None:
+        """PENDING→INFLIGHT：sem.acquire 成功后调用，只翻 ``pending`` 标志。
+
+        占用对象已是同一 sub-task（``asyncio.current_task()`` 即登记时的 task），
+        无需替换 task。不存在则 no-op。
+        """
+        bucket = self._slots.get((provider, media))
+        if bucket is None:
+            return
+        occ = bucket.get(task_id)
+        if occ is not None:
+            occ.pending = False
+
+    def release(self, provider: str, media: str, task_id: str) -> None:
+        """释放，不论 phase；幂等；清空后移除该 ``(provider,media)`` bucket。"""
+        bucket = self._slots.get((provider, media))
+        if bucket is None:
+            return
+        bucket.pop(task_id, None)
+        if not bucket:
+            del self._slots[(provider, media)]
+
+    def has_room(self, provider: str, media: str, capacity: int) -> bool:
+        """``capacity>0`` 且 占用数（含 pending）< capacity。"""
+        if capacity <= 0:
+            return False
+        bucket = self._slots.get((provider, media))
+        return (0 if bucket is None else len(bucket)) < capacity
+
+    def occupied(self, provider: str, media: str) -> int:
+        """当前占用数（含 pending）。"""
+        bucket = self._slots.get((provider, media))
+        return 0 if bucket is None else len(bucket)
+
+    def occupied_providers(self, media: str) -> set[str]:
+        """该 ``media`` 下有占用(≥1)的 provider；空 bucket 不计（黑名单源，含未知 provider）。"""
+        return {provider for (provider, m), bucket in self._slots.items() if m == media and bucket}
+
+    def find_by_task(self, task_id: str) -> asyncio.Future[Any] | None:
+        """跨全表按 ``task_id`` 找执行体（cancel 用）；未命中返回 None。"""
+        for bucket in self._slots.values():
+            occ = bucket.get(task_id)
+            if occ is not None:
+                return occ.task
+        return None
+
+    def drain_finished(self) -> list[tuple[str, asyncio.Future[Any]]]:
+        """移除并返回所有 done 的 INFLIGHT 占用（pending 不动）。``(task_id, task)``。"""
+        finished: list[tuple[str, asyncio.Future[Any]]] = []
+        for key in list(self._slots.keys()):
+            bucket = self._slots[key]
+            done_ids = [tid for tid, occ in bucket.items() if not occ.pending and occ.task.done()]
             for tid in done_ids:
-                finished.append((tid, inflight.pop(tid)))
+                finished.append((tid, bucket.pop(tid).task))
+            if not bucket:
+                del self._slots[key]
         return finished
 
-    def all_inflight(self) -> list[asyncio.Task]:
-        """实际在跑的 task（不含 sem 排队中的 pending）。用于 metrics/真实并发统计。"""
-        return [*self.image_inflight.values(), *self.video_inflight.values()]
+    def active_task_ids(self) -> set[str]:
+        """所有占用的 task_id（pending+inflight）：self-active 扫描用。"""
+        return {tid for bucket in self._slots.values() for tid in bucket}
 
-    def all_active(self) -> list[asyncio.Task]:
-        """In-flight + 排队中的 pending：用于 reload keep-alive 判定 / shutdown wait。"""
-        return [*self.image_inflight.values(), *self.video_inflight.values(), *self.video_pending.values()]
+    def all_active_tasks(self) -> list[asyncio.Future[Any]]:
+        """所有占用的执行体（pending+inflight）：shutdown wait 用。"""
+        return [occ.task for bucket in self._slots.values() for occ in bucket.values()]
+
+    def clear(self) -> None:
+        """清空全表（shutdown 收尾）。"""
+        self._slots.clear()
 
 
 async def _extract_provider(task: dict[str, Any]) -> str:
-    """Extract a provider_id from a claimed task, used **only** for rate-limit pool routing.
+    """Extract a provider_id from a claimed task, used **only** for rate-limit slot routing.
 
     这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
     ``resolve_image_backend``，取 ``.provider_id``。image 任务一律按 ``capability="t2i"`` 取一个
@@ -142,73 +293,6 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     return resolved.provider_id or DEFAULT_PROVIDER
 
 
-async def _load_pools_from_db() -> dict[str, ProviderPool]:
-    """Load per-provider pool configs from ConfigService + PROVIDER_REGISTRY + custom providers."""
-    from lib.config.registry import PROVIDER_REGISTRY
-    from lib.config.service import ConfigService
-    from lib.db import safe_session_factory
-    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-    default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
-    default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
-
-    pools: dict[str, ProviderPool] = {}
-    async with safe_session_factory() as session:
-        svc = ConfigService(session)
-        all_configs = await svc.get_all_provider_configs()
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            config = all_configs.get(provider_id, {})
-            supports_image = "image" in meta.media_types
-            supports_video = "video" in meta.media_types
-            image_max = int(config.get("image_max_workers", str(default_image))) if supports_image else 0
-            video_max = int(config.get("video_max_workers", str(default_video))) if supports_video else 0
-            pools[provider_id] = ProviderPool(
-                provider_id=provider_id,
-                image_max=max(0, image_max),
-                video_max=max(0, video_max),
-            )
-
-        # 加载自定义供应商的池配置（使用与内置供应商相同的默认值）
-        from lib.custom_provider.endpoints import endpoint_to_media_type
-
-        repo = CustomProviderRepository(session)
-        for provider, models in await repo.list_providers_with_models():
-            pid = provider.provider_id  # "custom-{id}"
-            media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
-            pools[pid] = ProviderPool(
-                provider_id=pid,
-                image_max=default_image if "image" in media_types else 0,
-                video_max=default_video if "video" in media_types else 0,
-            )
-
-    logger.info(
-        "从 DB 加载供应商池配置: %s",
-        {pid: (p.image_max, p.video_max) for pid, p in pools.items()},
-    )
-    return pools
-
-
-def _build_default_pools() -> dict[str, ProviderPool]:
-    """Build pools from env vars / defaults (used before DB is available or in tests).
-
-    为 PROVIDER_REGISTRY 中所有供应商创建默认池，避免 DB 加载前的任务
-    因供应商未知而降级到 1 并发的 fallback 池。
-    """
-    from lib.config.registry import PROVIDER_REGISTRY
-
-    image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
-    video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
-
-    pools: dict[str, ProviderPool] = {}
-    for provider_id, meta in PROVIDER_REGISTRY.items():
-        pools[provider_id] = ProviderPool(
-            provider_id=provider_id,
-            image_max=image_max if "image" in meta.media_types else 0,
-            video_max=video_max if "video" in meta.media_types else 0,
-        )
-    return pools
-
-
 class GenerationWorker:
     """Queue worker with per-provider image/video lanes and single-active lease."""
 
@@ -216,17 +300,18 @@ class GenerationWorker:
         self,
         queue: GenerationQueue | None = None,
         lease_name: str = "default",
-        pools: dict[str, ProviderPool] | None = None,
+        capacity: CapacityTable | None = None,
+        slots: SlotTable | None = None,
     ):
         self.queue = queue or get_generation_queue()
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
 
-        self._pools: dict[str, ProviderPool] = pools or _build_default_pools()
-        logger.info(
-            "Worker 初始池配置: %s",
-            {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
-        )
+        # 容量表（上限，用户配置驱动）与占用台账（运行时记账）分离：前者是配置真相，
+        # reload 只换它的数字；后者承载 inflight/pending，占用容器引用恒定不被重建。
+        self._capacity: CapacityTable = capacity or CapacityTable.from_env()
+        self._slots: SlotTable = slots or SlotTable()
+        logger.info("Worker 初始容量表: %s", self._capacity._limits)
         self.lease_ttl = max(1.0, float(TASK_WORKER_LEASE_TTL_SEC))
         self.heartbeat_interval = max(0.5, float(TASK_WORKER_HEARTBEAT_SEC))
         self.poll_interval = max(0.1, float(TASK_POLL_INTERVAL_SEC))
@@ -243,118 +328,25 @@ class GenerationWorker:
         self._lease_lost_monotonic: float | None = None
 
     # ------------------------------------------------------------------
-    # Backward compatibility shims
+    # Capacity management
     # ------------------------------------------------------------------
-
-    @property
-    def image_workers(self) -> int:
-        """Total image concurrency across all providers."""
-        return sum(p.image_max for p in self._pools.values())
-
-    @property
-    def video_workers(self) -> int:
-        """Total video concurrency across all providers."""
-        return sum(p.video_max for p in self._pools.values())
-
-    @property
-    def _image_inflight(self) -> dict[str, asyncio.Task]:
-        """Merged view of all image inflight tasks (read-only convenience)."""
-        merged: dict[str, asyncio.Task] = {}
-        for pool in self._pools.values():
-            merged.update(pool.image_inflight)
-        return merged
-
-    @property
-    def _video_inflight(self) -> dict[str, asyncio.Task]:
-        """Merged view of all video inflight tasks (read-only convenience)."""
-        merged: dict[str, asyncio.Task] = {}
-        for pool in self._pools.values():
-            merged.update(pool.video_inflight)
-        return merged
-
-    # ------------------------------------------------------------------
-    # Pool management
-    # ------------------------------------------------------------------
-
-    def _get_or_create_pool(self, provider_id: str) -> ProviderPool:
-        """Get pool for provider, creating a fallback pool if unknown."""
-        pool = self._pools.get(provider_id)
-        if pool is not None:
-            return pool
-        # Unknown provider — use same defaults as built-in providers
-        image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
-        video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
-        pool = ProviderPool(
-            provider_id=provider_id,
-            image_max=image_max,
-            video_max=video_max,
-        )
-        self._pools[provider_id] = pool
-        logger.info("为供应商 %s 创建默认池 (image=%d, video=%d)", provider_id, image_max, video_max)
-        return pool
-
-    def _any_pool_has_room(self, media_type: str) -> bool:
-        """Check if any provider pool has room for the given media_type."""
-        for pool in self._pools.values():
-            if media_type == "image" and pool.has_image_room():
-                return True
-            if media_type == "video" and pool.has_video_room():
-                return True
-        return False
 
     async def reload_limits(self) -> None:
-        """Reload per-provider concurrency limits from DB.
+        """Reload per-provider concurrency limits from DB into the CapacityTable.
 
-        Preserves in-flight tasks: only updates max limits on existing pools
-        and adds/removes pool entries as needed.
+        只换容量表的数字（``replace``）——占用台账纹丝不动，inflight/pending 容器
+        引用恒定，彻底消除"reload 时活体搬运在跑 task"的脆弱性。某 provider 被删后其
+        在跑占用照常 drain；新任务的容量判定经 ``CapacityTable.get``：lane 被降级为不
+        支持→0（fail-fast），provider 整个消失→懒默认（此时该 provider 已无法解析，
+        任务回退 DEFAULT_PROVIDER 或在执行层失败，不会真按默认容量占用它）。
         """
         try:
-            new_pools = await _load_pools_from_db()
+            new = await CapacityTable.from_db()
         except Exception:
             logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
             return
-
-        # Migrate inflight + pending tasks to new pool objects；漏迁 video_pending
-        # 会让 sem 排队中的 sub-task 引用旧 pool 字典，新 pool 看不见，cancel 失配
-        # 且 keep-alive 判定漏掉这些 task。
-        for pid, new_pool in new_pools.items():
-            old_pool = self._pools.get(pid)
-            if old_pool:
-                new_pool.image_inflight = old_pool.image_inflight
-                new_pool.video_inflight = old_pool.video_inflight
-                new_pool.video_pending = old_pool.video_pending
-
-        # Pools that existed before but are no longer registered:
-        # 仍有 pending / inflight 的旧 pool 保留到耗尽——用 all_active 判定（含 pending）。
-        for pid, old_pool in self._pools.items():
-            if pid not in new_pools and old_pool.all_active():
-                new_pools[pid] = old_pool
-                new_pools[pid].image_max = 0
-                new_pools[pid].video_max = 0
-
-        self._pools = new_pools
-        logger.info(
-            "已更新供应商池配置: %s",
-            {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
-        )
-
-    def reload_limits_from_env(self) -> None:
-        """Reload worker concurrency limits from environment variables.
-
-        Backward-compatible shim. Prefer reload_limits() for DB-backed config.
-        """
-        image_max = _read_int_env("IMAGE_MAX_WORKERS", 3, minimum=1)
-        video_max = _read_int_env("VIDEO_MAX_WORKERS", 2, minimum=1)
-        default_pool = self._pools.get(DEFAULT_PROVIDER)
-        if default_pool:
-            default_pool.image_max = image_max
-            default_pool.video_max = video_max
-        else:
-            self._pools[DEFAULT_PROVIDER] = ProviderPool(
-                provider_id=DEFAULT_PROVIDER,
-                image_max=image_max,
-                video_max=video_max,
-            )
+        self._capacity.replace(new._limits)
+        logger.info("已更新供应商容量表: %s", self._capacity._limits)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -433,34 +425,36 @@ class GenerationWorker:
             self._owns_lease = False
 
     def _pool_full_providers(self, media_type: str) -> frozenset[str]:
-        """返回当前 cycle ``media_type`` 池已满的 provider_id 集合（黑名单，用于 claim SQL）。
+        """返回当前 cycle ``media_type`` 已满的 provider_id 集合（黑名单，用于 claim SQL）。
 
-        黑名单语义而非白名单：白名单会把"DB 里有 provider_id 但不在已知 pool 集合"
-        的任务（例如自定义 provider 已删除）永久过滤掉、静默堆积；黑名单只排除已知
-        池满，未知 provider 任务正常 claim 走 worker 二次解析。
+        黑名单源是**有占用的 provider**（``SlotTable.occupied_providers``），而非容量表
+        已知 provider 全集：只有占着槽的 provider 才可能"满"。空 provider 本就 has_room、
+        不该进黑名单；"未知但有占用"的 provider（首次 reload 前的启动窗口 / 运行中途被删的
+        custom provider）照旧能进黑名单，避免其池满任务每 cycle 被 claim→requeue 刷屏。
 
-        注意守卫 ``*_max > 0``：``has_image_room()/has_video_room()`` 在 ``*_max == 0``
-        时同样返回 ``False``，若不加守卫会把"不支持该 lane 的 provider"也归入黑名单，
-        让 SQL 把这些 task 静默 drop，而不是走 worker 二次校验的 ``max_capacity == 0``
-        fail-fast mark_failed 路径。
+        守卫 ``cap > 0`` 保留：``has_room`` 在 ``cap == 0`` 时也返回 False，若不加守卫
+        会把"不支持该 lane 的 provider"也归入黑名单，让 SQL 把这些 task 静默 drop，
+        而不是走 worker 二次校验的 ``cap == 0`` fail-fast mark_failed 路径。
         """
-        if media_type == "image":
-            return frozenset(pid for pid, p in self._pools.items() if p.image_max > 0 and not p.has_image_room())
-        return frozenset(pid for pid, p in self._pools.items() if p.video_max > 0 and not p.has_video_room())
+        return frozenset(
+            pid
+            for pid in self._slots.occupied_providers(media_type)
+            if (cap := self._capacity.get(pid, media_type)) > 0 and not self._slots.has_room(pid, media_type, cap)
+        )
 
     async def _claim_tasks(self) -> bool:
-        """Claim tasks from queue and route to per-provider pools.
+        """Claim tasks from queue and route to per-provider slots.
 
         池满 task 不再 claim → requeue 反复刷屏；改为在 SQL 层按
         ``pool_full_providers`` 黑名单过滤，池满 task 始终保持 ``queued``。
         ``provider_id IS NULL`` 老数据和未知 provider 任务不被过滤，claim 后由
-        worker 二次 ``_extract_provider`` 派生 provider 再校验池容量。
+        worker 二次 ``_extract_provider`` 派生 provider 再校验容量。
         """
         claimed_any = False
 
         for media_type in ("image", "video"):
             while True:
-                # 每轮重算池满集合：刚 claim 的任务可能让某 pool 进入满状态
+                # 每轮重算池满集合：刚 claim 的任务可能让某 provider 进入满状态
                 pool_full = self._pool_full_providers(media_type)
                 task = await self.queue.claim_next_task(
                     media_type=media_type,
@@ -470,17 +464,10 @@ class GenerationWorker:
                     break
 
                 provider_id = await _extract_provider(task)
-                pool = self._get_or_create_pool(provider_id)
+                cap = self._capacity.get(provider_id, media_type)
 
-                if media_type == "image":
-                    max_capacity = pool.image_max
-                    has_room = pool.has_image_room()
-                else:
-                    max_capacity = pool.video_max
-                    has_room = pool.has_video_room()
-
-                if max_capacity == 0:
-                    # 供应商不支持此媒体类型（容量为 0），直接失败
+                if cap <= 0:
+                    # 供应商不支持此媒体类型（容量 ≤ 0），直接失败（与 has_room 守卫一致）
                     logger.warning(
                         "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
                         provider_id,
@@ -494,7 +481,7 @@ class GenerationWorker:
                     claimed_any = True
                     continue
 
-                if not has_room:
+                if not self._slots.has_room(provider_id, media_type, cap):
                     # NULL 老数据 / 未知 provider 通过 SQL 兜底走到这里：二次校验仍满
                     # → 回队让下次 cycle 再试（FIFO 顺序由 queued_at 维持）。绝不能
                     # mark_failed：入队后 provider_id 才被派生，资料完整的任务也可能
@@ -510,12 +497,16 @@ class GenerationWorker:
                     # 过滤掉这个 provider，避免反复 claim 同一 task
                     break
 
-                # Dispatch to pool
+                # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
                 claimed_any = True
-                inflight = pool.image_inflight if media_type == "image" else pool.video_inflight
-                inflight[task["task_id"]] = asyncio.create_task(
-                    self._process_task(task),
-                    name=f"generation-{media_type}-{task['task_id']}",
+                self._slots.register(
+                    provider_id,
+                    media_type,
+                    task["task_id"],
+                    asyncio.create_task(
+                        self._process_task(task),
+                        name=f"generation-{media_type}-{task['task_id']}",
+                    ),
                 )
 
         return claimed_any
@@ -556,25 +547,24 @@ class GenerationWorker:
     # ------------------------------------------------------------------
 
     async def _drain_finished_tasks(self) -> None:
-        for pool in self._pools.values():
-            for task_id, finished_task in pool.drain_finished():
-                # 同步判定取消/异常：drain_finished() 只返回 done() 的 task，无需 await。
-                # 不 await 就没有挂起点，自然不会误吞针对 _run_loop 自身的取消信号。
-                if finished_task.cancelled():
-                    # 子任务被取消。正常路径 _process_task 已 mark_cancelled 并 re-raise；
-                    # 但取消可能落在 _process_task 进入 try 之前（协程尚未开始执行，或仍停在
-                    # 入口的 _extract_provider await），那一刻子任务来不及落终态。drain 端兜底
-                    # mark_cancelled——SQL 守卫 status IN (queued, cancelling, running) 保证幂等：
-                    # 已落终态则 0 rows 无副作用，避免任务永久卡在 running/cancelling。
-                    try:
-                        await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
-                    except Exception:
-                        logger.warning("drain 兜底 mark_cancelled 失败 task_id=%s", task_id, exc_info=True)
-                    continue
+        for task_id, finished_task in self._slots.drain_finished():
+            # 同步判定取消/异常：drain_finished() 只返回 done() 的 task，无需 await。
+            # 不 await 就没有挂起点，自然不会误吞针对 _run_loop 自身的取消信号。
+            if finished_task.cancelled():
+                # 子任务被取消。正常路径 _process_task 已 mark_cancelled 并 re-raise；
+                # 但取消可能落在 _process_task 进入 try 之前（协程尚未开始执行，或仍停在
+                # 入口的 _extract_provider await），那一刻子任务来不及落终态。drain 端兜底
+                # mark_cancelled——SQL 守卫 status IN (queued, cancelling, running) 保证幂等：
+                # 已落终态则 0 rows 无副作用，避免任务永久卡在 running/cancelling。
                 try:
-                    finished_task.result()
+                    await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
                 except Exception:
-                    logger.debug("已处理的任务异常已在 _process_task 中记录")
+                    logger.warning("drain 兜底 mark_cancelled 失败 task_id=%s", task_id, exc_info=True)
+                continue
+            try:
+                finished_task.result()
+            except Exception:
+                logger.debug("已处理的任务异常已在 _process_task 中记录")
 
     async def _wait_inflight_completion(self) -> None:
         # shutdown：先等 dispatcher 派完最后一批 sub-task（否则 sub-task 可能在 dispatcher
@@ -585,16 +575,11 @@ class GenerationWorker:
             except Exception:
                 logger.exception("orphan dispatcher 在 shutdown 等待时异常")
 
-        active_tasks = []
-        for pool in self._pools.values():
-            active_tasks.extend(pool.all_active())
+        active_tasks = self._slots.all_active_tasks()
         if not active_tasks:
             return
         await asyncio.gather(*active_tasks, return_exceptions=True)
-        for pool in self._pools.values():
-            pool.image_inflight.clear()
-            pool.video_inflight.clear()
-            pool.video_pending.clear()
+        self._slots.clear()
 
     async def _process_task(self, task: dict[str, Any]) -> None:
         """Run a generation task with 0-rows-cancelled finally protocol (ADR 0006).
@@ -729,18 +714,16 @@ class GenerationWorker:
     def request_cancel(self, task_id: str) -> bool:
         """In-process cancel 信号：把 task 对应 asyncio.Task cancel()，返回是否找到。
 
-        由 GenerationQueue.cancel_task 同步调用（ADR 0006 秒级响应）。也查 video_pending：
-        sem 排队中的 sub-task cancel 会让 sem.acquire 抛 CancelledError 让 sub-task
-        直接退出。callback 不命中是 best-effort 失败——worker finally 走 mark_cancelled
-        兜底（SQL 守卫 IN queued|cancelling|running 接住）。
+        由 GenerationQueue.cancel_task 同步调用（ADR 0006 秒级响应）。``find_by_task`` 也
+        覆盖 sem 排队中的 pending sub-task：cancel 会让 sem.acquire 抛 CancelledError 让
+        sub-task 直接退出。callback 不命中是 best-effort 失败——worker finally 走
+        mark_cancelled 兜底（SQL 守卫 IN queued|cancelling|running 接住）。
         """
-        for pool in self._pools.values():
-            for inflight in (pool.image_inflight, pool.video_inflight, pool.video_pending):
-                t = inflight.get(task_id)
-                if t is not None and not t.done():
-                    t.cancel()
-                    logger.info("已对 task %s 发出 in-process cancel 信号", task_id)
-                    return True
+        t = self._slots.find_by_task(task_id)
+        if t is not None and not t.done():
+            t.cancel()
+            logger.info("已对 task %s 发出 in-process cancel 信号", task_id)
+            return True
         logger.info("request_cancel: task %s 不在 inflight (worker finally 兜底)", task_id)
         return False
 
@@ -758,12 +741,12 @@ class GenerationWorker:
         - video running，可 resume backend (ark/gemini/openai/newapi)：
           - 无 provider_job_id → [restart_lost]
           - 有 job_id → 收集到 `resumable_by_provider` 桶，后台 dispatcher 受
-            pool video_max 容量约束分批 dispatch（fix #647 第 1 项）
+            video 容量约束分批 dispatch（fix #647 第 1 项）
 
         启动期 fast path（本函数）**只做终结类处理**，立刻返回；可 resume 的视频孤儿
         派发给后台 dispatcher 处理，避免 N 个 Sora orphan × 每个 5min poll 把启动期
         阻塞数十分钟。Dispatcher 不调 `_drain_finished_tasks`，完全依赖主循环每 cycle
-        清理 inflight 字典；`_stop_event` 触发时 dispatcher 自然退出。
+        清理占用台账；`_stop_event` 触发时 dispatcher 自然退出。
         """
         orphans = await self.queue.list_orphan_tasks_on_start()
         if not orphans:
@@ -779,13 +762,8 @@ class GenerationWorker:
         # - image 任务 → 错误标 [restart_lost]（任务还在跑就被标失败）
         # - video 任务 → 启动重复 resume 流，同一 provider job 被并发 poll/finalize，
         #   崩溃窗口可能导致 provider 端双重扣费（违反 ADR 0007 红线）
-        # 收集本进程当前在跑的 task_id（image_inflight + video_inflight + video_pending），
-        # DB 扫到的同 id task 视为本进程的活，跳过孤儿处理。
-        self_active_task_ids: set[str] = set()
-        for pool in self._pools.values():
-            self_active_task_ids.update(pool.image_inflight.keys())
-            self_active_task_ids.update(pool.video_inflight.keys())
-            self_active_task_ids.update(pool.video_pending.keys())
+        # active_task_ids 含 pending+inflight 全部占用，DB 扫到的同 id task 视为本进程的活。
+        self_active_task_ids = self._slots.active_task_ids()
 
         resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
 
@@ -865,13 +843,13 @@ class GenerationWorker:
             # - 不 cancel：cancel 会让旧 dispatcher 的 _run_one 抛 CancelledError，进入
             #   兜底 mark_task_cancelled 路径，把用户**未主动取消**的 in-flight resume 错误
             #   标为 cancelled，且让 provider 端已扣费 job 失去归属
-            # - 直接覆盖：旧 dispatcher_task 的 sub-task 仍由 pool.video_pending/video_inflight
-            #   持有引用 + asyncio.gather 内部 callback 链持有，旧 task 不会被 GC detached
-            # - shutdown 仍能感知：_wait_inflight_completion 经 pool.all_active() 等到旧 sub-task
+            # - 直接覆盖：旧 dispatcher_task 的 sub-task 仍由占用台账（SlotTable）持有引用
+            #   + asyncio.gather 内部 callback 链持有，旧 task 不会被 GC detached
+            # - shutdown 仍能感知：_wait_inflight_completion 经 _slots.all_active_tasks() 等到旧 sub-task
             if self._orphan_dispatcher_task is not None and not self._orphan_dispatcher_task.done():
                 logger.warning(
                     "旧 orphan dispatcher 仍在运行，本轮直接覆盖句柄不等待——"
-                    "旧 sub-task 由 pool 跟踪，shutdown 时经 pool.all_active 兜底"
+                    "旧 sub-task 由占用台账跟踪，shutdown 时经 _slots.all_active_tasks 兜底"
                 )
             self._orphan_dispatcher_task = asyncio.create_task(
                 self._dispatch_resume_orphans_background(resumable_by_provider),
@@ -884,7 +862,7 @@ class GenerationWorker:
         self,
         resumable_by_provider: dict[str, list[dict[str, Any]]],
     ) -> None:
-        """后台 dispatcher：按 provider 分桶并发，受 pool video_max 容量约束分批入 inflight。
+        """后台 dispatcher：按 provider 分桶并发，受 video 容量约束分批入 inflight。
 
         - 不同 provider 之间无容量耦合 → 并发跑独立 sub-task；
         - 同 provider 内顺序入队：满则 `asyncio.wait(inflight, FIRST_COMPLETED)` 等任一
@@ -910,36 +888,36 @@ class GenerationWorker:
         provider_id: str,
         tasks: list[dict[str, Any]],
     ) -> None:
-        """同 provider 桶并发跑 resume task，pending/inflight 分集合精确容量与 cancel 跟踪。
+        """同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。
 
-        - ``pool.video_max <= 0``：fail-fast mark_failed[resume_unsupported]，不进
-          ``Semaphore(0)`` 死锁；reload 一次兜底，避免启动期 capability 抖动误判。
-        - sub-task 由父协程同步预先注册到 ``pool.video_pending``——避免 ``create_task``
-          异步调度还未触发时主循环 ``has_video_room`` 看 inflight={} 误判可有容量。
-        - sem acquire 成功后从 pending 移到 inflight；finally 两个 dict 都 pop。
-        - sem 闭包旧 pool 限制：本 sem = Semaphore(pool.video_max) 在 dispatch 顶部
-          捕获 pool 时定型；reload 期间替换的新 pool 不会影响 sem。这是本批 dispatch
-          内并发上限维持 reload 前值的已知设计选择，非 bug。
+        - ``cap <= 0``：fail-fast mark_failed[resume_unsupported]，不进 ``Semaphore(0)``
+          死锁；reload 一次兜底，避免启动期 capability 抖动误判。
+        - sub-task 由父协程同步预先以 PENDING 登记到占用台账——避免 ``create_task``
+          异步调度还未触发时主循环 ``has_room`` 看占用=0 误判可有容量。
+        - sem acquire 成功后 ``promote`` 把该占用翻成 INFLIGHT（同一 sub-task，只翻标志）；
+          finally ``release``。
+        - sem 容量在 dispatch 顶部从 CapacityTable 读一次定型：reload 期间改的容量表
+          不影响本批 dispatch 的并发上限。这是已知设计选择，非 bug。
         """
-        pool = self._get_or_create_pool(provider_id)
-        if pool.video_max <= 0:
+        cap = self._capacity.get(provider_id, "video")
+        if cap <= 0:
             # 启动期 reload 兜底：DB 加载可能晚于第一次 orphan 扫描。
             try:
                 await self.reload_limits()
             except Exception:
                 logger.warning("reload_limits 兜底失败", exc_info=True)
-            pool = self._get_or_create_pool(provider_id)
-        if pool.video_max <= 0:
+            cap = self._capacity.get(provider_id, "video")
+        if cap <= 0:
             for t in tasks:
                 rows = await self.queue.mark_task_failed(
                     t["task_id"],
-                    f"[resume_unsupported] provider {provider_id} video_max=0",
+                    f"[resume_unsupported] provider {provider_id} video 容量为 0",
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(t["task_id"], cancelled_by="user")
             return
 
-        sem = asyncio.Semaphore(pool.video_max)
+        sem = asyncio.Semaphore(cap)
 
         async def _run_one(t: dict[str, Any]) -> None:
             task_id = t["task_id"]
@@ -949,13 +927,8 @@ class GenerationWorker:
                 acquired = True
                 if self._stop_event.is_set():
                     return
-                # acquire 后 pool 可能在 reload_limits 期间被换新引用；
-                # 务必从 self._pools 重读，保证 inflight 字典写入新 pool
-                pool_now = self._get_or_create_pool(provider_id)
-                pool_now.video_pending.pop(task_id, None)
-                current = asyncio.current_task()
-                if current is not None:
-                    pool_now.video_inflight[task_id] = current
+                # 占用对象恒定（SlotTable 引用不被 reload 重建），promote 直接翻 PENDING→INFLIGHT
+                self._slots.promote(provider_id, "video", task_id)
                 logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
                 await self._process_resume_task(t)
             except asyncio.CancelledError:
@@ -963,7 +936,7 @@ class GenerationWorker:
                 # status IN (queued, cancelling, running) 保证幂等：
                 # 1) sem.acquire 等待期 cancel → _process_resume_task 还没跑，必须由此落终态
                 # 2) acquired=True 后但 _process_resume_task 内 try 块外（如 _extract_provider
-                #    的 await）cancel → 内部 mark 路径不会触发，必须由此落终态（CR round 2 #6）
+                #    的 await）cancel → 内部 mark 路径不会触发，必须由此落终态
                 # 3) _process_resume_task 内部 cancel → 内部已 mark，此处再调 SQL 命中
                 #    cancelled 行返回 0 rows，无副作用
                 try:
@@ -974,20 +947,16 @@ class GenerationWorker:
             finally:
                 if acquired:
                     sem.release()
-                # 同样重读以应对 reload race
-                pool_now = self._get_or_create_pool(provider_id)
-                pool_now.video_pending.pop(task_id, None)
-                pool_now.video_inflight.pop(task_id, None)
+                self._slots.release(provider_id, "video", task_id)
 
         sub: list[asyncio.Task] = []
         for t in tasks:
             if self._stop_event.is_set():
                 break
-            # 父协程同步：先 create_task、再立即写入 pending dict——避免「create_task
-            # 是异步调度，has_video_room 在调度未发生前看 inflight={} 误判可有容量」
-            # 的瞬时 race。
+            # 父协程同步：先 create_task、再立即以 PENDING 登记——避免「create_task
+            # 是异步调度，has_room 在调度未发生前看占用=0 误判可有容量」的瞬时 race。
             sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
-            pool.video_pending[t["task_id"]] = sub_task
+            self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
             sub.append(sub_task)
         if sub:
             await asyncio.gather(*sub, return_exceptions=True)

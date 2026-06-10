@@ -5,12 +5,14 @@ Mount prefix: /api/v1/projects/{project_name}/reference-videos
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.app_data_dir import app_data_dir
@@ -18,9 +20,21 @@ from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
+from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager, effective_mode
 from lib.reference_video import assemble_shots_text, parse_prompt
+from lib.resource_paths import resource_relative_path
+from lib.script_editor import ScriptEditError
+from lib.version_manager import VersionManager
 from server.auth import CurrentUser
+from server.services.generation_tasks import emit_generation_success_batch
+from server.services.reference_video_tasks import _finalize_reference_video_unit
+from server.services.upload_finalize import (
+    UploadValidationError,
+    record_upload_version,
+    save_uploaded_video_stream,
+    validate_upload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -355,3 +369,102 @@ async def generate_unit(
         user_id=_user.id,
     )
     return {"task_id": result["task_id"], "deduped": result.get("deduped", False)}
+
+
+@router.post("/episodes/{episode}/units/{unit_id}/upload-video")
+async def upload_unit_video(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    _user: CurrentUser,
+    _t: Translator,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """上传单元成片视频，替换该 unit 的 AI 生成视频。
+
+    复用生成链路的 finalize（抽缩略图、清旧 video_uri、status=completed），
+    并纳入版本管理。参考图上传走既有的项目资产上传通路，不在此处。
+    """
+    try:
+        max_bytes = validate_upload(file.filename, file.size, kind="video")
+
+        relative_path = resource_relative_path("reference_videos", unit_id)
+
+        def _validate_unit() -> tuple[Path, VersionManager, str]:
+            _project, script, script_file = _load_episode_script(project_name, episode, _t)
+            _find_unit(script, unit_id, _t)  # raises 404 if missing
+            project_path = get_project_manager().get_project_path(project_name)
+            # 路径遍历防护：unit_id 拼出的绝对路径不得逃出项目目录（与 versions.py 对齐）
+            target = project_path / relative_path
+            try:
+                target.resolve().relative_to(project_path.resolve())
+            except ValueError:
+                raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=unit_id))
+            return project_path, VersionManager(project_path), script_file
+
+        project_path, versions, script_file = await asyncio.to_thread(_validate_unit)
+        target = project_path / relative_path
+
+        with project_change_source("webui"):
+            await asyncio.to_thread(versions.ensure_current_tracked, "reference_videos", unit_id, target, "")
+            await save_uploaded_video_stream(file.file, target, max_bytes=max_bytes)
+
+            # 上传流可达数百 MB、耗时数秒，期间 episode→script 绑定可能被并发重绑
+            # （PATCH / agent 同步剧本）。落盘后重解析绑定，确保元数据写进当前生效的剧本。
+            def _recheck_binding() -> str:
+                _p, script2, script_file2 = _load_episode_script(project_name, episode, _t)
+                _find_unit(script2, unit_id, _t)
+                return script_file2
+
+            script_file = await asyncio.to_thread(_recheck_binding)
+
+            version = await asyncio.to_thread(
+                record_upload_version,
+                versions=versions,
+                resource_type="reference_videos",
+                resource_id=unit_id,
+                current_file=target,
+                original_filename=file.filename,
+            )
+            await _finalize_reference_video_unit(
+                project_name=project_name,
+                script_file=script_file,
+                project_path=project_path,
+                resource_id=unit_id,
+                output_path=target,
+                version=version,
+                video_uri=None,
+                versions=versions,
+            )
+            # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；
+            # 返回的指纹直接复用进响应体，免二次计算
+            fingerprints = await asyncio.to_thread(
+                emit_generation_success_batch,
+                task_type="reference_video",
+                project_name=project_name,
+                resource_id=unit_id,
+                payload={"script_file": script_file},
+            )
+
+        return {
+            "success": True,
+            "path": relative_path,
+            "version": version,
+            "asset_fingerprints": fingerprints,
+        }
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=_t(exc.key, **exc.params)) from exc
+    except FileNotFoundError as exc:
+        # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
+        raise HTTPException(status_code=404, detail=_t("ref_script_missing")) from exc
+    except KeyError as exc:
+        # finalize 写回时 unit 已被并发删除（落盘后绑定重查到锁内写回之间的窄竞态）
+        raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id)) from exc
+    except ScriptEditError as exc:
+        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(exc))) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # 不回传 str(exc)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

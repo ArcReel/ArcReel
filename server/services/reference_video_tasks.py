@@ -19,9 +19,11 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.prompt_builders import append_video_negative_tail
 from lib.reference_video import assemble_shots_text, render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError
+from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
-from server.services.generation_tasks import get_media_generator, get_project_manager
+from lib.version_manager import VersionManager
+from server.services.generation_tasks import assert_duration_supported, get_media_generator, get_project_manager
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,7 @@ async def execute_reference_video_task(
     #    本 PR 范围内先缓解。
     max_refs: int | None = None
     max_duration: int | None = None
+    supported_durations: list[int] = []
     try:
         resolver = ConfigResolver(async_session_factory)
         caps = await resolver.video_capabilities_for_project(project)
@@ -194,6 +197,9 @@ async def execute_reference_video_task(
         else:
             max_refs = caps.get("max_reference_images")
             max_duration = caps.get("max_duration")
+            # caps 与实际 backend model 一致时才取 supported_durations 做 duration 能力守卫；
+            # 不一致（caps 不可信）时留空，守卫遇空集放行，把决策推给 backend（与 clamp 同口径）。
+            supported_durations = [int(d) for d in caps.get("supported_durations") or []]
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，跳过 executor clamp：%s", exc)
 
@@ -207,6 +213,10 @@ async def execute_reference_video_task(
         references=source_refs,
         duration_seconds=base_duration,
     )
+
+    # duration 能力守卫：clamp 只裁"超上限"，区间内的非成员总时长（如模型支持 [4,8,12] 而总和=5）
+    # 它不修正、会漏给 backend 报 400；这里与普通视频路径对称地本地拦下（VideoCapabilityError）。
+    assert_duration_supported(effective_duration, supported_durations)
 
     # resolver key 必须是 registry provider_id（project.video_backend 的 "/" 前半段），
     # 而非 backend.name（如 "gemini"）——与 generation_tasks.execute_video_task 保持一致。
@@ -253,9 +263,41 @@ async def execute_reference_video_task(
         output_path=output_path,
         version=version,
         video_uri=video_uri,
-        generator=generator,
+        versions=generator.versions,
         warnings=warnings,
     )
+
+
+def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | None, thumb_rel: str | None) -> None:
+    """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
+
+    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。
+    新结果不含 video_uri / 缩略图时清空旧值，避免指向过期 URI / 已删除文件。
+    写回失败必须让调用方可见、finalize 不能在剧本未更新时静默成功，且两种失败
+    要可区分：unit 不存在抛 KeyError（还原侧跨集同步把它当正常跳过），
+    video_units 结构损坏抛 ScriptEditError（还原侧按脏脚本 warning 降级）。
+    """
+    units = script.get("video_units")
+    if not isinstance(units, list):
+        raise ScriptEditError("video_units 必须是 list")
+    for u in units:
+        if not isinstance(u, dict) or u.get("unit_id") != resource_id:
+            continue
+        ga = u.setdefault("generated_assets", {})
+        if not isinstance(ga, dict):
+            raise ScriptEditError("generated_assets 必须是 dict")
+        ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+        if video_uri:
+            ga["video_uri"] = video_uri
+        else:
+            ga.pop("video_uri", None)
+        if thumb_rel:
+            ga["video_thumbnail"] = thumb_rel
+        else:
+            ga.pop("video_thumbnail", None)
+        ga["status"] = "completed"
+        return
+    raise KeyError(resource_id)
 
 
 async def _finalize_reference_video_unit(
@@ -267,7 +309,7 @@ async def _finalize_reference_video_unit(
     output_path: Path,
     version: int,
     video_uri: str | None,
-    generator: Any,
+    versions: VersionManager,
     warnings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normal + resume 共用：抽缩略图、写 unit.generated_assets、返回 result dict。"""
@@ -286,30 +328,16 @@ async def _finalize_reference_video_unit(
         pm = get_project_manager()
         # 资产回写热路径：只动 unit.generated_assets，结构不可能因此变坏，豁免结构校验。
         with pm.locked_script(project_name, script_file, validate=False) as script:
-            for u in script.get("video_units") or []:
-                if u.get("unit_id") == resource_id:
-                    ga = u.setdefault("generated_assets", {})
-                    ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
-                    # 重跑时若新结果不含 video_uri / 缩略图，清空旧值，避免指向过期 URI / 已删除文件
-                    if video_uri:
-                        ga["video_uri"] = video_uri
-                    else:
-                        ga.pop("video_uri", None)
-                    if thumb_rel:
-                        ga["video_thumbnail"] = thumb_rel
-                    else:
-                        ga.pop("video_thumbnail", None)
-                    ga["status"] = "completed"
-                    break
+            apply_unit_video_assets(script, resource_id, video_uri=video_uri, thumb_rel=thumb_rel)
 
     await asyncio.to_thread(_update_unit_assets)
 
     def _latest_created_at() -> str | None:
-        history = generator.versions.get_versions("reference_videos", resource_id) or {}
-        versions = history.get("versions") or []
-        if not versions:
+        history = versions.get_versions("reference_videos", resource_id) or {}
+        records = history.get("versions") or []
+        if not records:
             return None
-        return versions[-1].get("created_at")
+        return records[-1].get("created_at")
 
     created_at = await asyncio.to_thread(_latest_created_at)
 

@@ -9,7 +9,7 @@ script_models.py - 剧本数据模型
 from dataclasses import dataclass
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 # 所有剧本模型默认禁止额外字段:agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
@@ -362,3 +362,80 @@ def script_shape(content_mode: str) -> ScriptShape:
     if content_mode == "narration":
         return SCRIPT_SHAPES["narration"]
     return SCRIPT_SHAPES["drama"]
+
+
+# ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
+
+
+def _duration_literal(supported_durations: list[int]) -> object:
+    """把 supported_durations 去重排序后构造成 ``Literal[...]``。
+
+    多值在 ``model_json_schema()`` 里渲染为 JSON-schema ``enum``、单值渲染为 ``const``，两者都是硬约束。
+    与 ``ConfigResolver`` 同口径用 ``int(d)`` 归一（见 ``lib/config/resolver.py`` custom 分支）。空集抛 ValueError。
+    """
+    values = tuple(sorted({int(d) for d in supported_durations}))
+    if not values:
+        raise ValueError("supported_durations 为空，无法构造 duration 枚举约束")
+    return Literal[values]
+
+
+def _constrained_duration_item(item_base: type[BaseModel], duration_type: object, description: str) -> type[BaseModel]:
+    """在 ``item_base`` 上把 ``duration_seconds`` 收紧为 ``duration_type``（三工厂共用的字段约束骨架）。"""
+    return create_model(
+        item_base.__name__,
+        __base__=item_base,
+        duration_seconds=(duration_type, Field(description=description)),
+    )
+
+
+def build_episode_script_model(content_mode: str, supported_durations: list[int]) -> type[BaseModel]:
+    """构造 ``duration_seconds`` 被 ``supported_durations`` 枚举硬约束的剧集脚本模型。
+
+    NarrationSegment / DramaScene 静态定义里 ``duration_seconds`` 是 ``Field(ge=1, le=60)`` 的开区间，
+    LLM 在此区间内挑个非成员值（如模型支持 [4,6,8] 却写 5/7）能过 Pydantic、却会在执行层
+    ``assert_duration_supported`` 处晚失败、甚至漏到供应商 API 报错。这里按当前视频模型的
+    ``supported_durations`` 把该字段收紧为 ``Literal[*supported_durations]``：
+    - 在 response_schema（结构化输出）里渲染为 JSON-schema ``enum``（单值时为 ``const``）→ LLM 生成层即被卡死；
+    - ``model_validate`` 时强制成员校验。
+
+    仅服务 narration / drama 两种内容模式（忠实 ``script_shape`` 的二分：仅 ``"narration"`` 走
+    narration，其余落 drama）。reference_video 不经此路：其 API 消费的是 ``unit.duration_seconds``
+    （各 shot 之和），与单 shot 枚举不对应，沿用静态 ``ReferenceVideoScript``。
+    """
+    duration_type = _duration_literal(supported_durations)
+    if content_mode == "narration":
+        segment = _constrained_duration_item(
+            NarrationSegment, duration_type, "片段时长（秒），必须取 supported_durations 中的值"
+        )
+        return create_model(
+            "NarrationEpisodeScript",
+            __base__=NarrationEpisodeScript,
+            segments=(list[segment], Field(description="片段列表")),
+        )
+    scene = _constrained_duration_item(DramaScene, duration_type, "场景时长（秒），必须取 supported_durations 中的值")
+    return create_model(
+        "DramaEpisodeScript",
+        __base__=DramaEpisodeScript,
+        scenes=(list[scene], Field(description="场景列表")),
+    )
+
+
+def build_reference_video_script_model(supported_durations: list[int]) -> type[BaseModel]:
+    """构造 unit 总时长被 ``supported_durations`` 枚举硬约束的参考视频剧集模型。
+
+    参考视频模式发给供应商 API 的是 ``unit.duration_seconds``（各 shot 时长之和），而非单个 shot——
+    单 shot 只是同一段 clip 内的时间编排。故约束加在 ``ReferenceVideoUnit.duration_seconds`` 这个
+    派生字段上：``Literal[*supported_durations]`` 在 response_schema 里渲染为 ``enum``（单值时为 ``const``，LLM 可见），
+    叠加 ``ReferenceVideoUnit`` 既有的 ``duration_seconds == sum(shots)`` 一致性校验器，等价于强制
+    「各 shot 之和 ∈ supported_durations」。``Shot.duration`` 仍保留 1-15 的合理性上限、不要求单 shot 成员。
+    """
+    unit = _constrained_duration_item(
+        ReferenceVideoUnit,
+        _duration_literal(supported_durations),
+        "所有 shot 时长之和，必须取 supported_durations 中的值",
+    )
+    return create_model(
+        "ReferenceVideoScript",
+        __base__=ReferenceVideoScript,
+        video_units=(list[unit], Field(description="视频单元列表")),
+    )
