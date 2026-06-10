@@ -57,7 +57,6 @@ ALLOWED_EXTENSIONS = {
     "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
     "scene": [".png", ".jpg", ".jpeg", ".webp"],
     "prop": [".png", ".jpg", ".jpeg", ".webp"],
-    "storyboard": [".png", ".jpg", ".jpeg", ".webp"],
 }
 
 
@@ -131,9 +130,9 @@ async def upload_file(
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/prop/storyboard)
+        upload_type: 上传类型 (source/character/character_ref/scene/prop)
         file: 上传的文件
-        name: 可选，用于角色/道具名称，或分镜 ID（自动更新元数据）
+        name: 可选，用于角色/场景/道具名称（自动更新元数据）；分镜/视频上传走 shot_uploads 路由
         on_conflict: source 类型独有 — fail / replace / rename
     """
     if upload_type not in ALLOWED_EXTENSIONS:
@@ -193,13 +192,6 @@ async def upload_file(
                     filename = f"{name}.png"
                 else:
                     filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "storyboard":
-                # 注意：目录为 storyboards（复数），而不是 storyboard
-                target_dir = project_dir / "storyboards"
-                if name:
-                    filename = f"scene_{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
             else:
                 target_dir = project_dir / upload_type
                 filename = original_filename
@@ -208,7 +200,7 @@ async def upload_file(
 
             # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
             nonlocal content
-            if upload_type in ("character", "character_ref", "scene", "prop", "storyboard"):
+            if upload_type in ("character", "character_ref", "scene", "prop"):
                 try:
                     content, ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
                 except ValueError:
@@ -230,8 +222,6 @@ async def upload_file(
                 relative_path = f"scenes/{filename}"
             elif upload_type == "prop":
                 relative_path = f"props/{filename}"
-            elif upload_type == "storyboard":
-                relative_path = f"storyboards/{filename}"
             else:
                 relative_path = f"{upload_type}/{filename}"
 

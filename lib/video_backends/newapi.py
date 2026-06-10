@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 
+from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_NEWAPI
 from lib.retry import (
@@ -44,28 +45,16 @@ _POLL_TIMEOUT_PER_SECOND = 30
 # 超过此阈值的起始图会触发 warning，NewAPI 聚合后端常见 4MB 请求体上限
 _LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
 
-_SIZE_MAP: dict[tuple[str, str], tuple[int, int]] = {
-    ("720p", "9:16"): (720, 1280),
-    ("720p", "16:9"): (1280, 720),
-    ("1080p", "9:16"): (1080, 1920),
-    ("1080p", "16:9"): (1920, 1080),
-}
-_DEFAULT_SIZE: tuple[int, int] = (720, 1280)
+# 视频标准尺寸对齐 8 的倍数（1920x1080 / 1080x1920 等；1080 非 16 的倍数），主流视频模型通用。
+_VIDEO_ROUND_TO = 8
 
 
 def _resolve_size(resolution: str | None, aspect_ratio: str) -> tuple[int, int]:
-    if resolution is None:
-        return _DEFAULT_SIZE
-    size = _SIZE_MAP.get((resolution, aspect_ratio))
-    if size is None:
-        logger.warning(
-            "NewAPIVideoBackend 未知 resolution+aspect 组合 (%s, %s)，回退到默认 %dx%d",
-            resolution,
-            aspect_ratio,
-            *_DEFAULT_SIZE,
-        )
-        return _DEFAULT_SIZE
-    return size
+    """比例优先、清晰度其次：短边来自 resolution（档位 / 自定义 / None 兜底 720P），
+    比例精确来自 aspect_ratio、对齐 8 的倍数。修复旧表 1080 不被整除 + 仅 9:16/16:9 两档。
+    """
+    short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
+    return aspect_size(aspect_ratio, short, round_to=_VIDEO_ROUND_TO)
 
 
 class NewAPIVideoBackend:

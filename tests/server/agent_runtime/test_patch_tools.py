@@ -14,6 +14,7 @@ import pytest
 
 from lib.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     insert_segment_tool,
@@ -169,6 +170,62 @@ class TestInsertRemoveSplit:
         out = await _call(
             split_segment_tool(ctx),
             {"script": "episode_1.json", "id": "E1S01", "parts": [_segment("a")]},
+        )
+        assert out.get("is_error") is True
+
+
+class TestPatchEpisodeMeta:
+    """patch_episode_meta：编辑剧本顶层 title，白名单兜底，写盘自动镜像到 project.json。"""
+
+    async def test_set_title(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_episode_meta_tool(ctx),
+            {"script": "episode_1.json", "field": "title", "value": "新标题"},
+        )
+        assert out.get("is_error") is not True
+        assert _load(ctx)["title"] == "新标题"
+        # project.json 镜像同步（locked_script 退出经 sync_episode_from_script）
+        episodes = ctx.pm.load_project("demo")["episodes"]
+        entry = next(e for e in episodes if e["episode"] == 1)
+        assert entry["title"] == "新标题"
+
+    async def test_title_trimmed(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_episode_meta_tool(ctx),
+            {"script": "episode_1.json", "field": "title", "value": "  去空白  "},
+        )
+        assert out.get("is_error") is not True
+        assert _load(ctx)["title"] == "去空白"
+
+    async def test_empty_title_rejected(self, ctx: ToolContext) -> None:
+        for blank in ("", "   ", "\t\n"):
+            out = await _call(
+                patch_episode_meta_tool(ctx),
+                {"script": "episode_1.json", "field": "title", "value": blank},
+            )
+            assert out.get("is_error") is True
+        assert _load(ctx)["title"] == "标题"  # 原值未改
+
+    async def test_non_whitelist_field_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_episode_meta_tool(ctx),
+            {"script": "episode_1.json", "field": "episode", "value": 9},
+        )
+        assert out.get("is_error") is True
+        assert _load(ctx)["episode"] == 1  # 未被改写
+
+    async def test_non_string_value_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_episode_meta_tool(ctx),
+            {"script": "episode_1.json", "field": "title", "value": 123},
+        )
+        assert out.get("is_error") is True
+        assert _load(ctx)["title"] == "标题"
+
+    async def test_rejects_path_in_script_arg(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_episode_meta_tool(ctx),
+            {"script": "../x.json", "field": "title", "value": "x"},
         )
         assert out.get("is_error") is True
 
@@ -530,3 +587,68 @@ class TestPatchProjectSettings:
         )
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "白衣剑客"
+
+
+class TestPatchProjectOverview:
+    """patch_project overview 分支：四字段白名单 merge 编辑，概述不存在时创建，三选一互斥。"""
+
+    async def test_set_overview_fields(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_project_tool(ctx),
+            {"overview": {"synopsis": "一句话", "genre": "悬疑", "theme": "复仇", "world_setting": "近未来"}},
+        )
+        assert out.get("is_error") is not True
+        ov = ctx.pm.load_project("demo")["overview"]
+        assert ov["synopsis"] == "一句话"
+        assert ov["genre"] == "悬疑"
+        assert ov["theme"] == "复仇"
+        assert ov["world_setting"] == "近未来"
+        assert "已更新" in _text(out)
+
+    async def test_merge_preserves_untouched_fields(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"overview": {"synopsis": "原始梗概", "genre": "原题材"}})
+        out = await _call(patch_project_tool(ctx), {"overview": {"genre": "悬疑"}})
+        assert out.get("is_error") is not True
+        ov = ctx.pm.load_project("demo")["overview"]
+        assert ov["genre"] == "悬疑"
+        assert ov["synopsis"] == "原始梗概"  # 未传字段保留
+
+    async def test_creates_overview_when_absent(self, ctx: ToolContext) -> None:
+        assert "overview" not in ctx.pm.load_project("demo")
+        out = await _call(patch_project_tool(ctx), {"overview": {"synopsis": "新建概述"}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["overview"]["synopsis"] == "新建概述"
+
+    async def test_non_whitelist_key_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"overview": {"title": "x"}})
+        assert out.get("is_error") is True
+        assert "title" not in ctx.pm.load_project("demo").get("overview", {})
+
+    async def test_non_string_value_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"overview": {"synopsis": 1}})
+        assert out.get("is_error") is True
+        assert "overview" not in ctx.pm.load_project("demo")
+
+    async def test_empty_overview_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"overview": {}})
+        assert out.get("is_error") is True
+
+    async def test_noop_when_same_value(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"overview": {"synopsis": "同值"}})
+        out = await _call(patch_project_tool(ctx), {"overview": {"synopsis": "同值"}})
+        assert out.get("is_error") is not True
+        assert "无变更" in _text(out)
+
+    async def test_overview_with_settings_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_project_tool(ctx),
+            {"overview": {"synopsis": "x"}, "settings": {"episode_target_units": 1}},
+        )
+        assert out.get("is_error") is True
+
+    async def test_overview_with_table_rejected(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_project_tool(ctx),
+            {"overview": {"synopsis": "x"}, "table": "characters", "entries": {"a": {"description": "b"}}},
+        )
+        assert out.get("is_error") is True

@@ -4,7 +4,22 @@ Prompt 工具函数
 提供结构化 Prompt 到 YAML 格式的转换功能。
 """
 
+import re
+
 import yaml
+
+# 风格值开头的「画风：」前缀（全角/半角冒号）。新版风格模版已去前缀，此处兼容存量 project.json。
+_STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
+
+
+def normalize_style(style: str | None) -> str:
+    """去掉风格值开头的「画风：」前缀并 strip 两端空白；幂等（已无前缀则原样返回）。
+
+    存量项目的 style 取自旧版风格模版（值以「画风：」开头），叠加英文 ``Style:`` 标签会渲染成
+    ``Style: 画风：...`` 的中英混叠。新版模版已去前缀，本函数在注入前兜底清理存量值。
+    """
+    return _STYLE_PREFIX_RE.sub("", (style or "").strip())
+
 
 # 预设选项定义
 SHOT_TYPES = [
@@ -51,7 +66,7 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
         YAML 格式字符串，用于 Gemini API 调用
     """
     ordered = {
-        "Style": project_style,
+        "Style": normalize_style(project_style),
         "Scene": image_prompt["scene"],
         "Composition": {
             "shot_type": image_prompt["composition"]["shot_type"],

@@ -45,7 +45,10 @@ MESSAGES = {
     "invalid_upload_type": "无效的上传类型: {upload_type}",
     "missing_filename": "上传的文件缺少文件名",
     "unsupported_image_type": "不支持的文件类型 {ext}，允许的类型: {allowed}",
+    "unsupported_video_type": "不支持的视频类型 {ext}，允许的类型: {allowed}",
+    "upload_too_large": "上传文件超过大小上限（{max_mb} MB）",
     "invalid_image_file": "无效的图片文件，无法解析",
+    "internal_server_error": "服务器内部错误，请稍后重试",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_step_num": "无效的步骤编号: {step_num}",
@@ -138,6 +141,9 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids 与现有单元不匹配",
     "ref_script_missing": "该集绑定的剧本文件不存在",
     "ref_script_rebound": "该集剧本绑定已变更，请重试",
+    # Episode meta
+    "episode_not_found": "第 {episode} 集不存在或尚无剧本文件",
+    "episode_title_empty": "分集标题不能为空",
     "about_update_check_failed": "检查更新失败，请稍后重试",
     "about_version_read_failed": "读取应用版本失败",
     # Image Capability

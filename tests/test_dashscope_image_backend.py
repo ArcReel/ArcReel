@@ -80,8 +80,8 @@ class TestTextToImage:
         body = client.post.call_args.kwargs["json"]
         content = body["input"]["messages"][0]["content"]
         assert content == [{"text": "a fox"}]
-        # qwen 系按默认 aspect_ratio=9:16 选授权像素档（不再一律 1:1 方图）
-        assert body["parameters"]["size"] == "1536*2688"
+        # qwen 融合系列按默认 aspect_ratio=9:16 算精确比例，受 2048² 预算夹取
+        assert body["parameters"]["size"] == "1440*2560"
         assert body["parameters"]["n"] == 1
         assert body["parameters"]["watermark"] is False
         assert body["parameters"]["prompt_extend"] is False
@@ -101,10 +101,10 @@ class TestTextToImage:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-            # 默认 aspect_ratio=9:16，wan 像素方式按比例选值（满足 wan 总像素/比例约束）
+            # 默认 aspect_ratio=9:16，wan 方式二像素值按比例精确算（默认 2K 档短边 1440）
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1536*2688"
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1440*2560"
 
     async def test_explicit_tier_translated_to_aspect_pixels(self, tmp_path: Path):
         client = _mock_client(_img_response())
@@ -114,14 +114,14 @@ class TestTextToImage:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-            # 档位词「2K」按比例换算成显式像素，绝不原样下传（否则 wan 文生图会被强制方图）
+            # 档位词「2K」（短边 1440）按比例算精确像素，绝不原样下传（否则 wan 文生图会被强制方图）
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="2K")
             )
 
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1536*2688"
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1440*2560"
 
-    async def test_explicit_pixel_size_honored(self, tmp_path: Path):
+    async def test_custom_pixel_size_strips_embedded_ratio(self, tmp_path: Path):
         client = _mock_client(_img_response())
         download = AsyncMock()
         p1, p2 = _patches(client, download)
@@ -129,14 +129,18 @@ class TestTextToImage:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-            # caller 显式给像素值时原样 honor（比例已由 caller 决定）
+            # 自定义像素值（16:9 的 1920*1080）只贡献 min 当短边，比例仍由项目 aspect_ratio=9:16 决定
             await b.generate(
                 ImageGenerationRequest(
                     prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="1920*1080"
                 )
             )
 
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1920*1080"
+        # min(1920,1080)=1080 → 9:16 精确（t=8）→ 1152*2048，而非输入的 16:9
+        size = client.post.call_args.kwargs["json"]["parameters"]["size"]
+        w, h = (int(x) for x in size.split("*"))
+        assert w * 16 == h * 9 and w < h
+        assert size == "1152*2048"
 
     async def test_low_tier_translated_to_aspect_pixels(self, tmp_path: Path):
         client = _mock_client(_img_response())
@@ -146,12 +150,12 @@ class TestTextToImage:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
-            # 1K 档同样按比例换算（2K 等比 ×0.5）
+            # 1K 档（短边 1024）按比例精确算
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="1K")
             )
 
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1344*768"
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "1792*1008"
 
     async def test_landscape_aspect_picks_wide_size(self, tmp_path: Path):
         client = _mock_client(_img_response())
@@ -163,7 +167,52 @@ class TestTextToImage:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9"))
 
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "2688*1536"
+        # 16:9 精确，受 2048² 预算夹取 → 2560*1440
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "2560*1440"
+
+    async def test_qwen_fusion_custom_pixel_strips_embedded_ratio(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+            # registry 的 qwen resolutions 是带比例的像素值（如 16:9 的 2688*1536）；项目 9:16 时
+            # 取 min=1536 当短边、比例仍走 9:16，修复「resolution 像素值压过项目比例」
+            await b.generate(
+                ImageGenerationRequest(
+                    prompt="x", output_path=tmp_path / "o.png", aspect_ratio="9:16", image_size="2688*1536"
+                )
+            )
+
+        size = client.post.call_args.kwargs["json"]["parameters"]["size"]
+        w, h = (int(x) for x in size.split("*"))
+        assert w * 16 == h * 9 and w < h  # 精确 9:16，非输入的 16:9
+        assert size == "1440*2560"
+
+
+class TestEditSeriesSize:
+    async def test_edit_plus_precise_size_within_per_dim_limit(self, tmp_path: Path):
+        client = _mock_client(_img_response())
+        download = AsyncMock()
+        ref = _make_ref(tmp_path, "ref.png")
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            # 编辑系列宽高均 ∈ [512, 2048]：9:16 受 max_long_edge=2048 收口 → 1152*2048（精确）
+            b = DashScopeImageBackend(api_key="sk", model="qwen-image-edit-plus")
+            await b.generate(
+                ImageGenerationRequest(
+                    prompt="edit", output_path=tmp_path / "o.png", aspect_ratio="9:16", reference_images=[ref]
+                )
+            )
+
+        size = client.post.call_args.kwargs["json"]["parameters"]["size"]
+        w, h = (int(x) for x in size.split("*"))
+        assert w * 16 == h * 9 and max(w, h) <= 2048
+        assert size == "1152*2048"
 
 
 class TestImageToImage:
@@ -245,11 +294,11 @@ class TestCapabilityGating:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image-pro")
-            # 4K 在 pro 文生图允许，但仍按比例换算成显式像素（4K 预算 = 2K 等比 ×2），不下传「4K」档位
+            # 4K 在 pro 文生图允许，按比例精确算（4K 短边 2160、预算 4096²），不下传「4K」档位
             await b.generate(
                 ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="4K")
             )
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "5376*3072"
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "3840*2160"
 
     async def test_wan_non_pro_4k_t2i_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend
@@ -309,11 +358,12 @@ class TestCapabilityGating:
         with p1, p2:
             from lib.image_backends.dashscope import DashScopeImageBackend
 
-            # 窄幅尺寸总像素在 2048×2048 预算内（4096*512=2.1M < 4.19M），合法、不应被门控误拒
-            # （按"任意维度>2048"判会错杀这类比例尺寸，故门控用总像素而非单维阈值）
+            # 窄幅尺寸总像素在 2048×2048 预算内（4096*512=2.1M < 4.19M）→ 门控不误拒
+            # （门控用总像素而非单维阈值，否则会错杀这类比例尺寸）。size 取 min(4096,512)=512
+            # 当短边、比例由默认 aspect_ratio=9:16 决定（剥离自带的 8:1）。
             b = DashScopeImageBackend(api_key="sk", model="wan2.7-image")
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", image_size="4096*512"))
-        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "4096*512"
+        assert client.post.call_args.kwargs["json"]["parameters"]["size"] == "576*1024"
 
     async def test_all_refs_unreadable_oserror_raises(self, tmp_path: Path):
         from lib.image_backends.dashscope import DashScopeImageBackend

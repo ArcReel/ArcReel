@@ -578,7 +578,12 @@ class ProjectManager:
                 e,
             )
         else:
-            metadata["total_scenes"] = len(items)
+            # 损坏脚本可能混入非 dict 元素（如 ["foo", {...}]）——它们在读取路径
+            # （get_pending_scenes 等）与写入路径（batch_update 索引 / update_scene_asset 循环）
+            # 都被当作不存在过滤掉，metadata 重算一并排除：否则 total_scenes 会多计、
+            # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
+            scene_items = [item for item in items if isinstance(item, dict)]
+            metadata["total_scenes"] = len(scene_items)
             # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判。
             # ``.get(k, default)`` 仅在键缺失时返回 default，键存在但值为 None（脏数据）会
             # 返回 None 让 sum() 抛 TypeError——显式判 None 视为缺失，与同函数前面对 metadata
@@ -595,7 +600,7 @@ class ProjectManager:
                     return int(value)
                 return default_duration
 
-            metadata["estimated_duration_seconds"] = sum(_duration(item) for item in items)
+            metadata["estimated_duration_seconds"] = sum(_duration(item) for item in scene_items)
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)
@@ -1126,6 +1131,10 @@ class ProjectManager:
             items, id_field, _kind = resolve_items(script)
 
             for item in items:
+                # 损坏脚本的非 dict 元素跳过（镜像 script_editor._find_index 的 isinstance 守卫），
+                # 避免 item.get(id_field) 抛 AttributeError；未命中仍走下方 else 的 KeyError fail-loud。
+                if not isinstance(item, dict):
+                    continue
                 if str(item.get(id_field)) == str(scene_id):
                     assets = item.get("generated_assets")
                     if not isinstance(assets, dict):
@@ -1176,8 +1185,9 @@ class ProjectManager:
             content_mode = script.get("content_mode", "narration")
             items, id_field, _kind = resolve_items(script)
 
-            # 建立 scene_id → item 索引，避免 O(N*M) 查找
-            item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items}
+            # 建立 scene_id → item 索引，避免 O(N*M) 查找。损坏脚本的非 dict 元素过滤掉
+            # （镜像 script_editor._existing_ids），命中这类 id 的 update 会落 missing → KeyError fail-loud。
+            item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items if isinstance(item, dict)}
             missing: list[str] = []
 
             for scene_id, asset_type, asset_path in updates:
@@ -1231,7 +1241,8 @@ class ProjectManager:
             assets = item.get("generated_assets")
             return not isinstance(assets, dict) or not assets.get(asset_type)
 
-        return [item for item in items if _missing(item)]
+        # 损坏脚本的非 dict 元素直接剔除（镜像 script_editor._existing_ids 的过滤），UI 不渲染垃圾项。
+        return [item for item in items if isinstance(item, dict) and _missing(item)]
 
     # ==================== 文件路径工具 ====================
 
@@ -1276,7 +1287,8 @@ class ProjectManager:
             assets = item.get("generated_assets")
             return not isinstance(assets, dict) or not assets.get("storyboard_image")
 
-        return [item for item in items if _missing_storyboard(item)]
+        # 同 get_pending_scenes：非 dict 元素剔除，镜像 script_editor._existing_ids。
+        return [item for item in items if isinstance(item, dict) and _missing_storyboard(item)]
 
     # ==================== 项目级元数据管理 ====================
 

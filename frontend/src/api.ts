@@ -107,6 +107,16 @@ export interface VersionInfo {
   file_url?: string;
   prompt?: string;
   restored_from?: number;
+  /** 版本来源标记；"manual_upload" 表示用户手动上传 */
+  source?: string;
+}
+
+/** 镜头/单元媒体上传的统一响应。 */
+export interface ShotUploadResult {
+  success: boolean;
+  path: string;
+  version: number;
+  asset_fingerprints: Record<string, number>;
 }
 
 /** Options for {@link API.openTaskStream}. */
@@ -678,6 +688,21 @@ class API {
     );
   }
 
+  /** 更新分集顶层元数据（当前仅 title）。以剧本顶层 title 为唯一真相源，后端会镜像到 project.json。 */
+  static async updateEpisode(
+    projectName: string,
+    episode: number,
+    updates: { title: string }
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      }
+    );
+  }
+
   // ==================== 片段管理（说书模式） ====================
 
   /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */
@@ -763,6 +788,42 @@ class API {
       used_encoding?: string | null;
       chapter_count?: number;
     };
+  }
+
+  /** 单文件 multipart 上传 POST，返回 JSON 响应体。 */
+  private static async postFileUpload<T>(url: string, file: File): Promise<T> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${API_BASE}${url}`, withAuth({ method: "POST", body: formData }));
+    await throwIfNotOk(response, "上传失败");
+    return (await response.json()) as T;
+  }
+
+  /** 上传分镜图或镜头视频，替换该镜头的 AI 生成资产（storyboard/grid 模式）。 */
+  static async uploadShotMedia(
+    projectName: string,
+    scriptFile: string,
+    shotId: string,
+    kind: "storyboard" | "video",
+    file: File
+  ): Promise<ShotUploadResult> {
+    const url =
+      `/projects/${encodeURIComponent(projectName)}/shots/${encodeURIComponent(shotId)}` +
+      `/upload/${kind}?script_file=${encodeURIComponent(scriptFile)}`;
+    return API.postFileUpload<ShotUploadResult>(url, file);
+  }
+
+  /** 上传参考生视频单元的成片视频。 */
+  static async uploadReferenceUnitVideo(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    file: File
+  ): Promise<ShotUploadResult> {
+    const url =
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}` +
+      `/units/${encodeURIComponent(unitId)}/upload-video`;
+    return API.postFileUpload<ShotUploadResult>(url, file);
   }
 
   static async listFiles(

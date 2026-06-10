@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react";
 import { API } from "@/api";
+import { useProjectsStore } from "@/stores/projects-store";
+import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
+import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, deriveUnitStatus } from "./unit-status";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
@@ -18,6 +21,12 @@ export interface UnitPreviewPanelProps {
   /** Actual already-spent cost; rendered in the metadata block. */
   actualCost?: CostBreakdown;
   onGenerate?: (unitId: string) => void;
+  /** 上传成片视频（替换该单元的 AI 生成视频）；未提供时不显示上传入口 */
+  onUploadVideo?: (unitId: string, file: File) => void | Promise<void>;
+  /** 上传进行中 */
+  uploadingVideo?: boolean;
+  /** 版本恢复后的刷新回调（重新拉取 units） */
+  onRestored?: () => void | Promise<void>;
 }
 
 function hasCost(b: CostBreakdown | undefined): boolean {
@@ -34,8 +43,14 @@ export function UnitPreviewPanel({
   estimatedCost,
   actualCost,
   onGenerate,
+  onUploadVideo,
+  uploadingVideo,
+  onRestored,
 }: UnitPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
+  const clip = unit?.generated_assets.video_clip ?? null;
+  // 上传/还原后路径不变，靠 fingerprint cache-bust 让 <video> 重新拉取
+  const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));
 
   if (!unit) {
     return (
@@ -46,8 +61,7 @@ export function UnitPreviewPanel({
   }
 
   const effectiveStatus = status ?? deriveUnitStatus(unit);
-  const clip = unit.generated_assets.video_clip;
-  const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip) : null;
+  const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip, clipFp) : null;
 
   // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
   // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。
@@ -70,6 +84,24 @@ export function UnitPreviewPanel({
           {t("reference_preview_label")}
         </span>
         <span className="flex-1" />
+        {onUploadVideo && (
+          <UploadIconButton
+            accept={UPLOAD_VIDEO_ACCEPT}
+            label={t("media_upload_video")}
+            busy={uploadingVideo}
+            disabled={inFlight}
+            onSelect={(f) => void onUploadVideo(unit.unit_id, f)}
+          />
+        )}
+        {projectName && (
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="reference_videos"
+            resourceId={unit.unit_id}
+            onRestore={onRestored}
+            iconOnly
+          />
+        )}
         <StatusBadge status={effectiveStatus} size="md" />
       </div>
 

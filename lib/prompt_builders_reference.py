@@ -115,7 +115,7 @@ def build_reference_video_prompt(
 a. **unit_id**：保留 step1 中的 `E{episode}U{{序号}}`（当前为第 {episode} 集），不要改格式。
 
 b. **shots**：1-4 个 Shot。
-    - `duration`：整数秒，取值必须在当前模型支持列表中：{durations_desc}。{max_duration_line}
+    - `duration`：整数秒（1-15），用于在同一段视频内编排时间段。{max_duration_line}
     - `text`：镜头描述，聚焦此刻可见画面（语言遵循上方"输出语言"约束）。仅用 `@[名称]` 引用角色 / 场景 / 道具——**不要**写外貌、服装、场景细节（这些由参考图提供视觉一致性）。
         - 好例：「@[角色A] 立于 @[场景A] 前，左手紧握 @[道具A]，目光投向远处」。
         - 反例：「身穿某色服装的角色A 站在某色场景A 前，手里紧握着某色道具A」（外貌 / 服装 / 颜色应由参考图承担）。
@@ -129,7 +129,7 @@ c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
         - prop: {", ".join(prop_names) or "（无）"}
     - 每个 shot `text` 中出现的 `@[名称]` 都要在 references 注册一次。{max_refs_line}
 
-d. **duration_seconds**：所有 shot `duration` 之和；不要手动覆盖。
+d. **duration_seconds**：所有 shot `duration` 之和，且**必须**等于当前模型支持列表中的某个值：{durations_desc}。请据此编排各 shot 时长，使其相加正好落在该集合内。
 
 # 顶层字段
 

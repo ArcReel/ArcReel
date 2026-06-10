@@ -60,7 +60,7 @@ jobs:
         run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
       - name: Upload backend coverage
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
@@ -119,7 +119,7 @@ jobs:
             --cov=lib --cov=server --cov-report=xml:coverage-pg.xml
 
       - name: Upload PG coverage
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage-pg.xml
@@ -161,7 +161,7 @@ jobs:
         run: pnpm test:coverage
 
       - name: Upload frontend coverage
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: frontend/coverage/lcov.info

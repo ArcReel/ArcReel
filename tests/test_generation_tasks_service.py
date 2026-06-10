@@ -244,10 +244,9 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
-            lambda project_name, changes, source="worker": emitted_batches.append(
+            lambda project_name, changes: emitted_batches.append(
                 {
                     "project_name": project_name,
-                    "source": source,
                     "changes": list(changes),
                 }
             ),
@@ -592,7 +591,7 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
-            lambda project_name, changes, source: captured.append(changes),
+            lambda project_name, changes: captured.append(changes),
         )
 
         project_path = tmp_path / "demo"
@@ -616,6 +615,69 @@ class TestGenerationTasks:
         assert "asset_fingerprints" in change
         assert "storyboards/scene_E1S01.png" in change["asset_fingerprints"]
         assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
+
+    def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
+        """宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径"""
+        from lib.grid.models import FrameCell, GridGeneration
+        from lib.grid_manager import GridManager
+
+        project_path = tmp_path / "demo"
+        (project_path / "storyboards").mkdir(parents=True)
+        (project_path / "grids").mkdir()
+        (project_path / "grids" / "grid_1.png").write_bytes(b"grid")
+        (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"img")
+        (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"img2")
+        outside = tmp_path / "outside.png"
+        outside.write_bytes(b"secret")
+
+        grid = GridGeneration(
+            id="grid_1",
+            episode=1,
+            script_file="ep01.json",
+            scene_ids=["E1S01"],
+            grid_image_path="grids/grid_1.png",
+            rows=2,
+            cols=2,
+            cell_count=4,
+            frame_chain=[
+                FrameCell(
+                    index=0,
+                    row=0,
+                    col=0,
+                    frame_type="first",
+                    next_scene_id="E1S01",
+                    image_path="storyboards/scene_E1S01.png",
+                ),
+                FrameCell(
+                    index=1,
+                    row=0,
+                    col=1,
+                    frame_type="transition",
+                    # 项目内的绝对路径：允许纳入，但指纹 key 必须归一为相对路径
+                    image_path=str(project_path / "storyboards" / "scene_E1S02.png"),
+                ),
+                FrameCell(index=2, row=1, col=0, frame_type="transition", image_path="../outside.png"),
+                FrameCell(index=3, row=1, col=1, frame_type="transition", image_path=str(outside)),
+            ],
+            status="completed",
+            prompt=None,
+            provider="p",
+            model="m",
+            grid_size="2K",
+            created_at="2026-01-01T00:00:00Z",
+        )
+        GridManager(project_path).save(grid)
+
+        fake_pm = _FakePM(project_path)
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        fps = generation_tasks.compute_affected_fingerprints("demo", "grid", "grid_1")
+
+        assert "grids/grid_1.png" in fps
+        assert "storyboards/scene_E1S01.png" in fps
+        assert "storyboards/scene_E1S02.png" in fps
+        assert all("outside" not in key for key in fps)
+        assert all(not key.startswith("/") for key in fps)
 
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

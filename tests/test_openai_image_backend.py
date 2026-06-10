@@ -74,8 +74,8 @@ class TestOpenAIImageBackend:
         with patch("lib.openai_shared.AsyncOpenAI"):
             from lib.image_backends.openai import OpenAIImageBackend
 
-            backend = OpenAIImageBackend(api_key="test-key", model="gpt-image-1-mini")
-            assert backend.model == "gpt-image-1-mini"
+            backend = OpenAIImageBackend(api_key="test-key", model="custom-image-model")
+            assert backend.model == "custom-image-model"
 
     def test_capabilities(self):
         with patch("lib.openai_shared.AsyncOpenAI"):
@@ -112,7 +112,7 @@ class TestOpenAIImageBackend:
         mock_client.images.generate.assert_awaited_once()
         call_kwargs = mock_client.images.generate.call_args[1]
         assert call_kwargs["model"] == "gpt-image-2"
-        assert call_kwargs["size"] == "1024x1792"  # 9:16
+        assert call_kwargs["size"] == "1008x1792"  # 9:16 精确（1K 短边 1024）
         assert call_kwargs["quality"] == "medium"  # 1K
         # GPT Image 模型族不支持 response_format；严格兼容网关会 400，因此绝不能传
         assert "response_format" not in call_kwargs
@@ -144,6 +144,9 @@ class TestOpenAIImageBackend:
         mock_client.images.generate.assert_not_awaited()
         edit_kwargs = mock_client.images.edit.call_args[1]
         assert "response_format" not in edit_kwargs
+        # I2I 与 T2I 对称下传 size：默认 9:16 + image_size=None → 兜底 720 短边 → 720x1280。
+        # 修复前 images.edit 完全不传 size，比例被上游默认覆盖。
+        assert edit_kwargs["size"] == "720x1280"
 
     async def test_empty_data_raises(self, tmp_path: Path):
         """OpenAI 返回空 data 数组时，应抛出清晰的 RuntimeError 而非 IndexError。"""
@@ -206,7 +209,7 @@ class TestOpenAIImageBackend:
         assert output_path.read_bytes() == downloaded
 
     async def test_size_mapping(self, tmp_path: Path):
-        """验证 (image_size, aspect_ratio) → size 复合 key 映射。"""
+        """验证 aspect_ratio 精确决定 size（1K 短边 1024，比例零偏差）。"""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
@@ -216,8 +219,8 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
-            # image_size="1K" 下遍历不同 aspect_ratio
-            for aspect, expected_size in [("16:9", "1792x1024"), ("1:1", "1024x1024"), ("9:16", "1024x1792")]:
+            # image_size="1K"（短边 1024）下遍历不同 aspect_ratio，比例精确
+            for aspect, expected_size in [("16:9", "1792x1008"), ("1:1", "1024x1024"), ("9:16", "1008x1792")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.png"
                 request = ImageGenerationRequest(
                     prompt="test",
@@ -240,7 +243,7 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
-            # "4K" 未在 _SIZE_MAP 中，会走 passthrough 分支，quality 不会被设置，所以只测有映射的
+            # quality 仍按 image_size 档位映射；遍历有映射的档位
             for img_size, expected_quality in [("512px", "low"), ("1K", "medium"), ("2K", "high")]:
                 output_path = tmp_path / f"output_{img_size}.png"
                 request = ImageGenerationRequest(

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, parse_aspect_ratio, resolution_to_short_edge
 from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
@@ -29,44 +30,62 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "sora-2"
 
-_SIZE_MAP: dict[tuple[str, str], str] = {
-    ("720p", "9:16"): "720x1280",
-    ("720p", "16:9"): "1280x720",
-    ("1080p", "9:16"): "1080x1920",
-    ("1080p", "16:9"): "1920x1080",
-    ("1024p", "9:16"): "1024x1792",
-    ("1024p", "16:9"): "1792x1024",
-}
-
-# resolution=None 时按 aspect_ratio 兜底的最小 size。OpenAI 官方协议下 size 是唯一
-# 传比例的通道，不传则中转聚合（NewAPI / huitongkeji 等）会让各家上游用自己的默认
-# 比例，导致同一项目里输出比例横/方/竖随模型而变。720p 与 NewAPIVideoBackend 的
-# _DEFAULT_SIZE 一致，被所有上游模型接受。
-_FALLBACK_SIZE_BY_ASPECT: dict[str, str] = {
-    "9:16": "720x1280",
-    "16:9": "1280x720",
-}
+# sora 合法 size 按 model 能力 + 分辨率档分级（OpenAI 官方 changelog / 模型页）：
+# - sora-2（base）：仅 720p —— 9:16 720x1280 / 16:9 1280x720。
+# - sora-2-pro：720p 同上 +（2026-03 起）1080p —— 9:16 1080x1920 / 16:9 1920x1080。
+# SDK 的 VideoSize Literal 滞后（只列 720/1024 档、漏 1080），以官方模型页为准；
+# 不再保留 1024x1792 / 1792x1024（4:7，违背比例优先，且已被 1080p 精确档取代）。
+# 非任意 WxH，只能吸附合法档：比例优先选档，分辨率档只决定 720p vs 1080p 子集（清晰度其次）。
+_SORA_SIZES_720P: tuple[str, ...] = ("720x1280", "1280x720")
+_SORA_SIZES_1080P: tuple[str, ...] = ("1080x1920", "1920x1080")
+# 向后兼容的并集导出（外部/测试引用「全部合法档」）。
+_SORA_LEGAL_SIZES: tuple[str, ...] = _SORA_SIZES_720P + _SORA_SIZES_1080P
+_SORA_1080P_MIN_SHORT = 1080
 
 
-def _resolve_size(resolution: str | None, aspect_ratio: str) -> str | None:
-    """解析 size：None → 按 aspect 兜底；已知复合 key 映射；未知 → warning 后透传。"""
-    if resolution is None:
-        fallback = _FALLBACK_SIZE_BY_ASPECT.get(aspect_ratio)
-        if fallback is None:
-            logger.warning(
-                "OpenAI video: resolution 未配置且 aspect=%r 无兜底，size 字段不传，比例由上游默认决定",
-                aspect_ratio,
-            )
-        return fallback
-    mapped = _SIZE_MAP.get((resolution, aspect_ratio))
-    if mapped is not None:
-        return mapped
-    logger.warning(
-        "OpenAI video: 未知 (resolution=%r, aspect=%r)，原样作为 size 透传",
-        resolution,
-        aspect_ratio,
-    )
-    return resolution
+def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
+    """比例优先：在 model+分辨率档对应的 sora 合法档中选比例最接近 aspect_ratio 的；并列取像素更高者。
+
+    分辨率档只决定 720p vs 1080p 子集、不决定比例：sora-2-pro 选 1080p 时 9:16→1080x1920（精确且高清），
+    sora-2（base）或缺分辨率时落 720p（缺分辨率默认 720P，不擅自升 1080p 以免超额计费）。size 必传以锁定
+    比例，绝不出现「不传 size → 上游默认比例」。其它比例（1:1/21:9 等）sora 无对应档，吸附后告警。
+    """
+    aw, ah = parse_aspect_ratio(aspect_ratio)
+    target = aw / ah
+    is_pro = "pro" in model.lower()
+    short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
+    # sora 支持的短边档：base 仅 720；pro 增 1080。按「最近档」选（等距取更高档），避免把
+    # short=1000 这类自定义分辨率值无故降到 720p（floor 会误降，最近档不会）。
+    supported_shorts = [720, _SORA_1080P_MIN_SHORT] if is_pro else [720]
+    achieved_short = min(supported_shorts, key=lambda s: (abs(s - short), -s))
+    legal = _SORA_SIZES_1080P if achieved_short == _SORA_1080P_MIN_SHORT else _SORA_SIZES_720P
+    if short > achieved_short:
+        # 请求高于模型可达档（base 请 1080p、或 pro 请 4K）：封顶并提示清晰度让位
+        logger.warning(
+            "OpenAI video: model=%s 无法满足分辨率请求 %s（短边 %d），输出封顶到 %dp 档（清晰度让位比例）",
+            model,
+            resolution,
+            short,
+            achieved_short,
+        )
+
+    def _score(size: str) -> tuple[float, int]:
+        w, h = (int(x) for x in size.split("x"))
+        return abs(w / h - target), -(w * h)  # 比例差小优先；并列取像素更多
+
+    chosen = min(legal, key=_score)
+    # 9:16 / 16:9 精确命中；其它比例（如 1:1 / 21:9）sora 无对应档，吸附后比例必然偏差，
+    # 与上游协议无关地告警，避免静默产出错比例视频（图片路径同样在超界时告警）。
+    cw, ch = (int(x) for x in chosen.split("x"))
+    if abs(cw / ch - target) > 0.01:
+        logger.warning(
+            "OpenAI video: aspect_ratio=%s 无精确 sora 档，吸附到 %s（比例偏差，输出非项目设定比例）",
+            aspect_ratio,
+            chosen,
+        )
+    # 后置不变量：只返回 sora 合法档全集内的尺寸，防止未来改档逻辑时静默产出非法 size。
+    assert chosen in _SORA_LEGAL_SIZES, f"_resolve_size produced illegal sora size: {chosen}"
+    return chosen
 
 
 class OpenAIVideoBackend:
@@ -103,9 +122,8 @@ class OpenAIVideoBackend:
             "model": self._model,
             "seconds": str(request.duration_seconds),
         }
-        size = _resolve_size(request.resolution, request.aspect_ratio)
-        if size is not None:
-            kwargs["size"] = size
+        # 始终下传合法 size 以锁定比例（sora 固定档，不传则上游用自家默认比例）
+        kwargs["size"] = _resolve_size(self._model, request.resolution, request.aspect_ratio)
 
         # 收集所有参考图：start_image + reference_images
         refs = []

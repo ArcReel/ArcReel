@@ -24,19 +24,25 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     onUpdatePrompt,
     onGenerateStoryboard,
     onGenerateVideo,
+    onSaveTitle,
+    canEditTitle,
   }: {
     episodeScript: unknown;
     onUpdatePrompt?: (segmentId: string, field: string, value: unknown) => void;
     onGenerateStoryboard?: (segmentId: string) => void;
     onGenerateVideo?: (segmentId: string) => void;
+    onSaveTitle?: (title: string) => Promise<void>;
+    canEditTitle?: boolean;
   }) => (
     <div data-testid="timeline-canvas">
       <div data-testid="timeline-has-script">{episodeScript ? "yes" : "no"}</div>
+      <div data-testid="timeline-can-edit-title">{canEditTitle ? "yes" : "no"}</div>
       <button onClick={() => onUpdatePrompt?.("SEG-1", "image_prompt", "new prompt")}>
         update-prompt
       </button>
       <button onClick={() => onGenerateStoryboard?.("SEG-1")}>generate-storyboard</button>
       <button onClick={() => onGenerateVideo?.("SEG-1")}>generate-video</button>
+      <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>save-title</button>
     </div>
   ),
 }));
@@ -434,6 +440,56 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero", "hero description");
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
+      expect(useAppStore.getState().toast?.tone).toBe("error");
+    });
+  });
+
+  it("saves the episode title and shows a success toast", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "updateEpisode").mockResolvedValue({ success: true });
+
+    renderAt("/episodes/1");
+
+    // script_file 存在 → 标题可编辑入口透传为 true
+    expect(screen.getByTestId("timeline-can-edit-title")).toHaveTextContent("yes");
+
+    fireEvent.click(screen.getByText("save-title"));
+    await waitFor(() => {
+      expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
+      expect(API.getProject).toHaveBeenCalled();
+      expect(useAppStore.getState().toast?.text).toContain("分集标题已更新");
+      expect(useAppStore.getState().toast?.tone).toBe("success");
+    });
+  });
+
+  it("reports episode title update failure with an error toast", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "updateEpisode").mockRejectedValue(new Error("episode title failed"));
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("save-title"));
+    await waitFor(() => {
+      expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
+      expect(useAppStore.getState().toast?.text).toContain("更新分集标题失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
   });

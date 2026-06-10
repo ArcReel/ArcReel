@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost } from "@/utils/cost-format";
 import type { ReferenceVideoUnit } from "@/types";
@@ -8,9 +9,11 @@ export interface EpisodeHeaderProps {
   episode: number;
   title: string;
   units: ReferenceVideoUnit[];
+  onSaveTitle?: (next: string) => Promise<void>;
+  canEditTitle?: boolean;
 }
 
-export function EpisodeHeader({ episode, title, units }: EpisodeHeaderProps) {
+export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle }: EpisodeHeaderProps) {
   const { t } = useTranslation("dashboard");
   const epCost = useCostStore((s) => s._episodeIndex.get(episode));
 
@@ -58,12 +61,13 @@ export function EpisodeHeader({ episode, title, units }: EpisodeHeaderProps) {
             </span>
           </span>
         </div>
-        <h1
-          className="m-0 truncate text-[26px] font-medium leading-[1.15] tracking-tight"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          {title}
-        </h1>
+        <EditableEpisodeTitle
+          title={title}
+          canEdit={Boolean(canEditTitle && onSaveTitle)}
+          onSave={onSaveTitle ?? (async () => {})}
+          headingClassName="m-0 truncate text-[26px] font-medium leading-[1.15] tracking-tight"
+          headingStyle={{ fontFamily: "var(--font-display)" }}
+        />
       </div>
 
       <div className="flex shrink-0 items-stretch gap-0">

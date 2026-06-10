@@ -122,6 +122,30 @@ def test_build_reference_video_prompt_max_duration_none_skips_segment():
     assert "当前模型上限" not in prompt
 
 
+def test_build_reference_video_prompt_constrains_unit_total_to_supported():
+    """约束的是 unit 总时长（各 shot 之和）∈ supported，而非单个 shot 成员。
+
+    参考视频发给 API 的是 unit.duration_seconds（各 shot 之和），故 prompt 必须把"必须取支持值"
+    挂到总和上；per-shot duration 只保留 1-15 合理性，不再要求每个 shot 都是 supported 成员。
+    """
+    prompt = build_reference_video_prompt(
+        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        style="s",
+        style_description="d",
+        characters={"甲": {"description": "d"}},
+        scenes={},
+        props={},
+        units_md="stub",
+        supported_durations=[4, 8, 12],
+        max_refs=9,
+        max_duration=12,
+        episode=1,
+    )
+    # 支持集合出现，且与"之和 / 必须"绑定（约束挂在总和上）
+    assert "4/8/12s" in prompt
+    assert "之和" in prompt and "必须" in prompt
+
+
 def test_build_reference_video_prompt_injects_episode_constraints():
     """reference_video prompt 必须告知 LLM 当前 episode，避免 unit_id 跨集污染（#574）。"""
     prompt = build_reference_video_prompt(

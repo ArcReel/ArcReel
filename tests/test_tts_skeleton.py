@@ -12,7 +12,7 @@ from lib.audio_backends.base import AudioCapability, AudioSynthesisResult
 from lib.data_validator import DataValidator
 from lib.db.base import Base
 from lib.db.repositories.usage_repo import UsageRepository
-from lib.generation_worker import GenerationWorker, ProviderPool
+from lib.generation_worker import CapacityTable, GenerationWorker, SlotTable
 from lib.media_generator import MediaGenerator
 from lib.resource_paths import RESOURCE_TYPES, resource_extension, resource_relative_path
 from lib.script_models import GeneratedAssets
@@ -193,24 +193,38 @@ class TestUsageStatsAudioCount:
 
 
 class TestWorkerAudioLane:
-    def test_provider_pool_audio_room(self):
-        pool = ProviderPool(provider_id="dashscope", image_max=0, video_max=0, audio_max=2)
-        assert pool.has_audio_room()
-        pool.audio_inflight["a"] = object()  # type: ignore[assignment]
-        pool.audio_inflight["b"] = object()  # type: ignore[assignment]
-        assert not pool.has_audio_room()
+    def test_lane_limits_audio_projection(self):
+        # 支持 audio 的 provider 投影出上限，不支持的 lane → 0
+        assert CapacityTable._lane_limits({"audio"}, 5, 3, 10) == {"image": 0, "video": 0, "audio": 10}
+        assert CapacityTable._lane_limits({"image", "video"}, 5, 3, 10)["audio"] == 0
 
-    def test_audio_max_zero_no_room(self):
-        pool = ProviderPool(provider_id="x", image_max=1, video_max=1, audio_max=0)
-        assert not pool.has_audio_room()
+    async def test_audio_room_via_slot_table(self):
+        slots = SlotTable()
+        dummy = asyncio.get_running_loop().create_future()
+        dummy.set_result(None)
+        assert slots.has_room("dashscope", "audio", 2)
+        slots.register("dashscope", "audio", "a", dummy)
+        slots.register("dashscope", "audio", "b", dummy)
+        assert not slots.has_room("dashscope", "audio", 2)
+        # cap=0（provider 不支持 audio）始终无空位
+        assert not slots.has_room("x", "audio", 0)
 
-    def test_pool_full_providers_audio(self):
-        w = GenerationWorker.__new__(GenerationWorker)
-        full = ProviderPool(provider_id="dashscope", image_max=0, video_max=0, audio_max=1)
-        full.audio_inflight["t"] = object()  # type: ignore[assignment]
-        w._pools = {"dashscope": full}
+    async def test_pool_full_providers_audio(self):
+        class _Q:
+            async def claim_next_task(self, media_type, **_kwargs):
+                return None
+
+        w = GenerationWorker(
+            queue=_Q(),  # type: ignore[arg-type]
+            capacity=CapacityTable(
+                _limits={"dashscope": {"image": 0, "video": 0, "audio": 1}},
+                _defaults={"image": 5, "video": 3, "audio": 10},
+            ),
+        )
+        dummy = asyncio.get_running_loop().create_future()
+        dummy.set_result(None)
+        w._slots.register("dashscope", "audio", "t", dummy)
         assert w._pool_full_providers("audio") == frozenset({"dashscope"})
-        assert w._any_pool_has_room("audio") is False
 
     async def test_claim_routes_audio_to_audio_lane(self, monkeypatch):
         from lib import generation_worker as gw
@@ -231,9 +245,13 @@ class TestWorkerAudioLane:
                     }
                 return None
 
-        w = GenerationWorker.__new__(GenerationWorker)
-        w.queue = _Q()
-        w._pools = {"dashscope": ProviderPool(provider_id="dashscope", image_max=0, video_max=0, audio_max=2)}
+        w = GenerationWorker(
+            queue=_Q(),  # type: ignore[arg-type]
+            capacity=CapacityTable(
+                _limits={"dashscope": {"image": 0, "video": 0, "audio": 2}},
+                _defaults={"image": 5, "video": 3, "audio": 10},
+            ),
+        )
 
         async def _fake_extract(task):
             return "dashscope"
@@ -247,6 +265,6 @@ class TestWorkerAudioLane:
 
         claimed = await w._claim_tasks()
         assert claimed is True
-        pool = w._pools["dashscope"]
-        assert "T1" in pool.audio_inflight
-        await asyncio.gather(*pool.audio_inflight.values())
+        assert w._slots.occupied("dashscope", "audio") == 1
+        assert w._slots.find_by_task("T1") is not None
+        await asyncio.gather(*w._slots.all_active_tasks(), return_exceptions=True)

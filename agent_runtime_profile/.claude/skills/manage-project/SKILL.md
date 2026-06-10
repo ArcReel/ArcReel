@@ -1,6 +1,6 @@
 ---
 name: manage-project
-description: 项目管理工具集。使用场景：(1) 分集切分——探测切分点并执行切分，(2) 新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert 或写顶层 settings 字段）。提供 peek（预览）+ split（执行）的渐进式切分工作流，以及角色/场景/道具与项目级 settings 写入。
+description: 项目管理工具集。使用场景：(1) 分集切分——探测切分点并执行切分，(2) 新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert、写顶层 settings 字段或编辑项目概述 overview）。提供 peek（预览）+ split（执行）的渐进式切分工作流，以及角色/场景/道具、项目级 settings 与项目概述写入。
 user-invocable: false
 ---
 
@@ -14,7 +14,7 @@ user-invocable: false
 |------|------|--------|
 | `peek_split_point.py` | 探测目标字数附近的上下文和自然断点 | 主 agent（阶段 2） |
 | `split_episode.py` | 执行分集切分，生成 episode_N.txt + _remaining.txt | 主 agent（阶段 2） |
-| `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）或顶层 settings 字段 | subagent / 主 agent |
+| `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | subagent / 主 agent |
 | `mcp__arcreel__get_video_capabilities`（SDK tool） | 查当前项目视频模型能力（model 粒度，所有生成模式通用） | **subagent**（执行任务时自行查询） |
 
 ## 分集切分工作流
@@ -78,13 +78,17 @@ mcp__arcreel__patch_project({"table": "scenes", "entries": {"场景名": {"descr
 mcp__arcreel__patch_project({"table": "props", "entries": {"道具名": {"description": "..."}}})
 mcp__arcreel__patch_project({"settings": {"episode_target_units": 1000}})
 mcp__arcreel__patch_project({"settings": {"source_language": "en"}})
+mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与救赎"}})
 ```
 
-**两种调用形态二选一**：传 `{"table", "entries"}` 走资产 upsert，传 `{"settings"}` 走顶层字段写入；
-两者同时给出或都不给会被拒。`settings` 白名单字段：
+**三种调用形态三选一**：传 `{"table", "entries"}` 走资产 upsert，传 `{"settings"}` 走顶层字段写入，
+传 `{"overview"}` 走项目概述编辑；同时给出多个或都不给会被拒。`settings` 白名单字段：
 
 - `episode_target_units`：`int >= 1` 设置 / `null` 清除
 - `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。**仅在 overview 跳过或失败、且用户明确确认语言后写入**；正常路径由 overview 生成自动落盘
+
+`overview` 白名单字段：`synopsis` / `genre` / `theme` / `world_setting`，**merge 语义**（只改传入字段、
+概述不存在时创建）。**修订概述需用户显式意图驱动**（避免静默覆盖人工编辑过的字段）。
 
 工具返回会区分**新增 N 个 / 合并改字段 N 个**,并显式列出被忽略的字段（``reference_image`` /
 ``character_sheet`` 等系统管理字段、``type`` / ``importance`` 等已废弃字段）。结构非法（如缺

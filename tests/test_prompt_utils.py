@@ -4,10 +4,27 @@ from lib.prompt_utils import (
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
+    normalize_style,
     validate_camera_motion,
     validate_shot_type,
     video_prompt_to_yaml,
 )
+
+
+class TestNormalizeStyle:
+    def test_strips_leading_huafeng_prefix(self):
+        assert normalize_style("画风：真人电视剧风格，大师级构图") == "真人电视剧风格，大师级构图"
+
+    def test_strips_halfwidth_colon_and_whitespace(self):
+        assert normalize_style("  画风: 国风3D  ") == "国风3D"
+
+    def test_idempotent_when_no_prefix(self):
+        assert normalize_style("Anime") == "Anime"
+        assert normalize_style("油画三渲二画风：参考双城之战") == "油画三渲二画风：参考双城之战"
+
+    def test_empty_and_none_safe(self):
+        assert normalize_style("") == ""
+        assert normalize_style(None) == ""
 
 
 class TestPromptUtils:
@@ -26,6 +43,12 @@ class TestPromptUtils:
         assert parsed["Style"] == "Anime"
         assert parsed["Scene"] == "夜雨中的街道"
         assert parsed["Composition"]["shot_type"] == "Medium Shot"
+
+    def test_image_prompt_to_yaml_strips_legacy_huafeng_style(self):
+        # 存量 project.json 的 style 带「画风：」前缀，注入 YAML 前兜底清理，避免 Style: 画风：叠加
+        data = {"scene": "x", "composition": {"shot_type": "Medium Shot", "lighting": "", "ambiance": ""}}
+        parsed = yaml.safe_load(image_prompt_to_yaml(data, "画风：真人电视剧风格"))
+        assert parsed["Style"] == "真人电视剧风格"
 
     def test_video_prompt_to_yaml_includes_dialogue_conditionally(self):
         with_dialogue = {

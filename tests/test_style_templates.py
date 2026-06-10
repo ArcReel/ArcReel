@@ -33,9 +33,21 @@ def test_legacy_map_targets_exist():
     assert LEGACY_STYLE_MAP["3D Animation"] == "anim_3d_cg"
 
 
+def test_no_preset_starts_with_huafeng_prefix():
+    # 预设值不再以「画风：」开头（避免叠加英文 Style: 标签渲染成 "Style: 画风："）。
+    # anim_arcane 是唯一例外：其「画风」是复合词「油画三渲二画风」的一部分，非可删前缀。
+    for tpl_id, data in STYLE_TEMPLATES.items():
+        if tpl_id == "anim_arcane":
+            assert data["prompt"].startswith("油画三渲二画风：")
+            continue
+        # 全角/半角冒号都要排除，与 normalize_style 的清理口径（画风： / 画风:）一致
+        assert not data["prompt"].startswith(("画风：", "画风:")), tpl_id
+
+
 def test_resolve_template_prompt_ok():
     prompt = resolve_template_prompt("live_premium_drama")
     assert "精品短剧" in prompt or "真人电视剧" in prompt
+    assert not prompt.startswith("画风：")
 
 
 def test_resolve_template_prompt_unknown_raises():

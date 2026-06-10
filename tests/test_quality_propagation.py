@@ -26,7 +26,7 @@ class TestImageGenerationResultQualityField:
         result = ImageGenerationResult(
             image_path=Path("/tmp/img.png"),
             provider="openai",
-            model="gpt-image-1.5",
+            model="gpt-image-2",
         )
         assert result.quality is None
 
@@ -37,7 +37,7 @@ class TestImageGenerationResultQualityField:
             result = ImageGenerationResult(
                 image_path=Path("/tmp/img.png"),
                 provider="openai",
-                model="gpt-image-1.5",
+                model="gpt-image-2",
                 quality=quality_value,
             )
             assert result.quality == quality_value
@@ -48,7 +48,7 @@ class TestImageGenerationResultQualityField:
         result = ImageGenerationResult(
             image_path=Path("/tmp/img.png"),
             provider="openai",
-            model="gpt-image-1.5",
+            model="gpt-image-2",
             quality=None,
         )
         assert result.quality is None
@@ -210,7 +210,7 @@ class TestUsageRepositoryQualityToCostCalculator:
         mock_row.id = 1
         mock_row.provider = PROVIDER_OPENAI
         mock_row.call_type = "image"
-        mock_row.model = "gpt-image-1.5"
+        mock_row.model = "gpt-image-2"
         mock_row.resolution = "1K"
         mock_row.duration_seconds = None
         mock_row.generate_audio = True
@@ -250,7 +250,7 @@ class TestUsageRepositoryQualityToCostCalculator:
         mock_row.id = 1
         mock_row.provider = PROVIDER_OPENAI
         mock_row.call_type = "image"
-        mock_row.model = "gpt-image-1.5"
+        mock_row.model = "gpt-image-2"
         mock_row.resolution = "1K"
         mock_row.duration_seconds = None
         mock_row.generate_audio = True

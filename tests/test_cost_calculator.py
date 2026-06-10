@@ -263,36 +263,17 @@ class TestOpenAICost:
         assert currency == "USD"
         assert amount == pytest.approx(0.75)
 
-    def test_openai_image_cost_square(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-1.5", quality="medium")
+    def test_openai_image_cost_low(self):
+        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-2", quality="low")
         assert currency == "USD"
-        assert amount == pytest.approx(0.034)  # 默认 1024x1024
-
-    def test_openai_image_cost_portrait(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", quality="medium", size="1024x1792"
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(0.051)
+        assert amount == pytest.approx(0.006)  # 默认 1024x1024
 
     def test_openai_image_cost_landscape(self):
         amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", quality="high", size="1792x1024"
+            "openai", "image", model="gpt-image-2", quality="high", size="1792x1024"
         )
         assert currency == "USD"
-        assert amount == pytest.approx(0.200)
-
-    def test_openai_image_cost_low(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-1-mini", quality="low")
-        assert currency == "USD"
-        assert amount == pytest.approx(0.005)
-
-    def test_openai_image_cost_mini_portrait(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1-mini", quality="medium", size="1024x1792"
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(0.017)
+        assert amount == pytest.approx(0.317)
 
     def test_openai_video_cost(self):
         amount, currency = cost_calculator.calculate_cost("openai", "video", duration_seconds=8, model="sora-2")
@@ -334,18 +315,19 @@ class TestOpenAICost:
     def test_unified_entry_openai(self):
         amount, _ = cost_calculator.calculate_cost("openai", "text", input_tokens=500_000, output_tokens=100_000)
         assert amount == pytest.approx(0.375 + 0.45)
-        amount, _ = cost_calculator.calculate_cost("openai", "image", model="gpt-image-1.5", quality="high")
-        assert amount == pytest.approx(0.133)  # 默认 1024x1024
+        amount, _ = cost_calculator.calculate_cost("openai", "image", model="gpt-image-2", quality="high")
+        assert amount == pytest.approx(0.211)  # 默认 1024x1024
         amount, _ = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", quality="high", size="1024x1792"
+            "openai", "image", model="gpt-image-2", quality="high", size="1024x1792"
         )
-        assert amount == pytest.approx(0.200)
+        assert amount == pytest.approx(0.317)
         amount, _ = cost_calculator.calculate_cost("openai", "video", duration_seconds=12, model="sora-2")
         assert amount == pytest.approx(1.20)
 
 
 class TestOpenAIImageTokenCost:
-    """token-based 主路径与 (quality, size) 兜底（aspect_ratio 反查 size 的回归）。"""
+    """token-based 主路径与 (quality, size) 兜底。计费与输出尺寸解耦（adr 0011）：
+    兜底不再按 (resolution, aspect_ratio) 反查 size，无显式 size 即落默认 1024x1024 档。"""
 
     def test_token_cost_gpt_image_2(self):
         # image_in × 8 + image_out × 30 + text_in × 5 + text_out × 0
@@ -361,26 +343,6 @@ class TestOpenAIImageTokenCost:
         assert currency == "USD"
         assert amount == pytest.approx((10_000 * 8 + 2_000 * 30 + 500 * 5 + 100 * 0) / 1_000_000)
 
-    def test_token_cost_gpt_image_1_5_text_output(self):
-        # gpt-image-1.5 text output 费率 $10/M，与 gpt-image-2 不同。
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", text_output_tokens=200
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(200 * 10 / 1_000_000)
-
-    def test_token_cost_gpt_image_1_mini(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai",
-            "image",
-            model="gpt-image-1-mini",
-            image_input_tokens=5_000,
-            image_output_tokens=1_000,
-            text_input_tokens=300,
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx((5_000 * 2.5 + 1_000 * 8 + 300 * 2) / 1_000_000)
-
     def test_zero_tokens_still_uses_token_path(self):
         # 所有 token 至少有一个非 None 时走 token 主路径，即使全为 0。
         amount, _ = cost_calculator.calculate_cost(
@@ -394,35 +356,35 @@ class TestOpenAIImageTokenCost:
         )
         assert amount == pytest.approx(0.0)
 
-    def test_fallback_resolves_size_from_resolution_aspect(self):
-        # 所有 token 入参 None 时走 fallback；resolution+aspect_ratio 反查 size map。
+    def test_fallback_no_size_uses_default_square(self):
+        # 所有 token 入参 None 时走 fallback；无显式 size → 默认 1024x1024（不再反查 resolution+aspect）。
         amount, _ = cost_calculator.calculate_cost(
             "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16"
         )
-        # 1K + 9:16 → 1024x1792 → high 0.317
-        assert amount == pytest.approx(0.317)
+        # high + 1024x1024 → 0.211（旧反查会得 0.317，已废弃）
+        assert amount == pytest.approx(0.211)
 
-    def test_fallback_aspect_dependent(self):
-        # 相同 quality 不同 aspect_ratio 应得到不同金额（修复前一律按 1024x1024 0.211）。
+    def test_fallback_aspect_independent(self):
+        # 计费与尺寸解耦：相同 quality 下不同 aspect_ratio 的兜底金额一致（均落默认 1024x1024）。
         common = {"model": "gpt-image-2", "quality": "high", "resolution": "1K"}
         amount_1_1, _ = cost_calculator.calculate_cost("openai", "image", aspect_ratio="1:1", **common)
         amount_9_16, _ = cost_calculator.calculate_cost("openai", "image", aspect_ratio="9:16", **common)
         amount_16_9, _ = cost_calculator.calculate_cost("openai", "image", aspect_ratio="16:9", **common)
-        assert amount_1_1 == pytest.approx(0.211)  # 1024x1024
-        assert amount_9_16 == pytest.approx(0.317)  # 1024x1792
-        assert amount_16_9 == pytest.approx(0.317)  # 1792x1024
-        assert amount_1_1 != amount_9_16, "aspect 1:1 和 9:16 必须算出不同金额"
+        assert amount_1_1 == pytest.approx(0.211)
+        assert amount_9_16 == pytest.approx(0.211)
+        assert amount_16_9 == pytest.approx(0.211)
+        assert amount_1_1 == amount_9_16, "兜底计费不再随 aspect 变化（尺寸解耦）"
 
-    def test_fallback_explicit_size_overrides_resolution_aspect(self):
-        # size kwarg 优先于 resolution+aspect_ratio。
+    def test_fallback_explicit_size_used(self):
+        # 显式 size kwarg 仍被兜底计费采用（resolution/aspect_ratio 不参与）。
         amount, _ = cost_calculator.calculate_cost(
             "openai",
             "image",
             model="gpt-image-2",
             quality="medium",
             resolution="1K",
-            aspect_ratio="1:1",  # 反查会得到 1024x1024
-            size="1024x1792",  # 显式 size 覆盖
+            aspect_ratio="1:1",
+            size="1024x1792",  # 显式 size
         )
         assert amount == pytest.approx(0.106)  # gpt-image-2 medium 1024x1792
 
@@ -437,7 +399,8 @@ class TestOpenAIImageTokenCost:
         assert currency == "USD"
         assert amount == pytest.approx((2_200 * 30 + 350 * 5) / 1_000_000)
 
-    def test_unified_entry_fallback_with_aspect_ratio(self):
+    def test_unified_entry_fallback_aspect_independent(self):
+        # 统一入口的兜底同样与 aspect 解耦：均落默认 1024x1024 档
         amount_1_1, _ = cost_calculator.calculate_cost(
             "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="1:1"
         )
@@ -445,5 +408,5 @@ class TestOpenAIImageTokenCost:
             "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16"
         )
         assert amount_1_1 == pytest.approx(0.211)
-        assert amount_9_16 == pytest.approx(0.317)
-        assert amount_1_1 != amount_9_16
+        assert amount_9_16 == pytest.approx(0.211)
+        assert amount_1_1 == amount_9_16

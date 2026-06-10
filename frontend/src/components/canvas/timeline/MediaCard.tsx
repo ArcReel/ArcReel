@@ -5,6 +5,11 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import {
+  UPLOAD_IMAGE_ACCEPT,
+  UPLOAD_VIDEO_ACCEPT,
+  UploadIconButton,
+} from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
 import { VersionTimeMachine } from "./VersionTimeMachine";
@@ -35,7 +40,18 @@ interface MediaCardProps {
   onGenerate?: () => void;
   /** 版本恢复回调 */
   onRestore?: () => Promise<void> | void;
+  /** 自主上传回调（替换该镜头的分镜图/视频）；未提供时不显示上传入口 */
+  onUpload?: (file: File) => Promise<void> | void;
+  /** 本卡片的上传请求进行中 */
+  uploading?: boolean;
+  /** 其他上传进行中等需要互斥的场景：禁用上传入口但不显示 spinner */
+  uploadDisabled?: boolean;
 }
+
+const UPLOAD_ACCEPT: Record<MediaKind, string> = {
+  storyboard: UPLOAD_IMAGE_ACCEPT,
+  video: UPLOAD_VIDEO_ACCEPT,
+};
 
 export function MediaCard({
   kind,
@@ -51,6 +67,9 @@ export function MediaCard({
   estimatedCost,
   onGenerate,
   onRestore,
+  onUpload,
+  uploading,
+  uploadDisabled,
 }: MediaCardProps) {
   const { t } = useTranslation("dashboard");
 
@@ -91,6 +110,19 @@ export function MediaCard({
           {title}
         </span>
         <span className="flex-1" />
+        {onUpload && (
+          <UploadIconButton
+            accept={UPLOAD_ACCEPT[kind]}
+            label={
+              kind === "storyboard"
+                ? t("media_upload_storyboard")
+                : t("media_upload_video")
+            }
+            busy={uploading}
+            disabled={generating || uploadDisabled}
+            onSelect={(f) => void onUpload(f)}
+          />
+        )}
         <VersionTimeMachine
           projectName={projectName}
           resourceType={resourceType}

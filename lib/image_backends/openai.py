@@ -8,6 +8,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Literal
 
+from lib.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -18,9 +19,6 @@ from lib.image_backends.base import (
 from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import (
     OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP,
-)
-from lib.openai_shared import (
-    OPENAI_IMAGE_SIZE_MAP as _SIZE_MAP,
 )
 from lib.openai_shared import (
     OPENAI_RETRYABLE_ERRORS,
@@ -35,34 +33,51 @@ DEFAULT_MODEL = "gpt-image-2"
 _MAX_REFERENCE_IMAGES = 16
 ImageBackendMode = Literal["both", "generations_only", "edits_only"]
 
+# gpt-image-2 / gpt-image-2-2026-04-21：size 接受任意 WxH，宽高均被 16 整除，比例 1:3~3:1；
+# ≤2560x1440 稳定，~3840x2160 实验性，最大 3840x2160（4K）。
+_GPT_IMAGE_MAX_LONG_EDGE = 3840
+_GPT_IMAGE_STABLE_LONG_EDGE = 2560
+_GPT_IMAGE_MAX_RATIO = 3.0
+
+# 档位 → quality 大小写不敏感（与 resolution_to_short_edge 同口径）：用户自定义档位词可能写
+# "2k"/"4K "，不归一会让 size 解析成功但 quality 静默丢失。自定义 WxH（无档位）→ None。
+_QUALITY_MAP_CI = {k.lower(): v for k, v in _QUALITY_MAP.items()}
+
+
+def _quality_for(image_size: str | None) -> str | None:
+    return _QUALITY_MAP_CI.get(image_size.strip().lower()) if image_size else None
+
 
 def _resolve_openai_params(
     image_size: str | None,
     aspect_ratio: str,
 ) -> dict[str, str]:
-    """根据 image_size 返回 {size, quality} 子集。
+    """按「比例优先、清晰度其次」算出 {size, quality}。
 
-    - None → 空 dict（全不传，走 SDK 默认）
-    - 标准 token → 查 _SIZE_MAP 得 size，_QUALITY_MAP 得 quality
-    - 未知 token（例如 "1024x1024"）→ warning 后作为 size 透传，不传 quality
+    比例永远来自 aspect_ratio；image_size（档位 / 自定义 WxH / None）只决定清晰度短边，
+    自定义 WxH 剥离其自带比例（取 min 当短边）。image_size=None 时按默认 720P 短边兜底，
+    仍下传精确比例 size——不再回退 SDK 默认（否则中转网关会用自家默认比例，丢掉项目比例）。
     """
-    if image_size is None:
-        return {}
-
-    mapped_size = _SIZE_MAP.get((image_size, aspect_ratio))
-    if mapped_size is not None:
-        params: dict[str, str] = {"size": mapped_size}
-        quality = _QUALITY_MAP.get(image_size)
-        if quality:
-            params["quality"] = quality
-        return params
-
-    logger.warning(
-        "OpenAI image: 未知 image_size=%r (aspect=%r)，原样作为 size 透传",
-        image_size,
+    short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
+    w, h = aspect_size(
         aspect_ratio,
+        short,
+        round_to=16,
+        max_long_edge=_GPT_IMAGE_MAX_LONG_EDGE,
+        max_ratio=_GPT_IMAGE_MAX_RATIO,
     )
-    return {"size": image_size}
+    if max(w, h) > _GPT_IMAGE_STABLE_LONG_EDGE:
+        logger.warning(
+            "OpenAI image: 尺寸 %dx%d 长边超过稳定区 %d，进入实验性高分辨率区间",
+            w,
+            h,
+            _GPT_IMAGE_STABLE_LONG_EDGE,
+        )
+    params: dict[str, str] = {"size": f"{w}x{h}"}
+    quality = _quality_for(image_size)
+    if quality:
+        params["quality"] = quality
+    return params
 
 
 class OpenAIImageBackend:
@@ -151,22 +166,20 @@ class OpenAIImageBackend:
                     model=self._model,
                     detail="all reference images failed to open",
                 )
+            # I2I 与 T2I 对称下传 size/quality——否则 images.edit 不带 size，比例由上游默认决定，
+            # 项目 aspect_ratio 静默失效（用户实测正是 I2I 路径出图比例错）。
+            edit_kwargs: dict = {
+                "model": self._model,
+                "image": image_files,
+                "prompt": request.prompt,
+            }
+            edit_kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
             logger.info(
                 "调用 %s 图片 SDK (I2I) kwargs=%s",
                 self.name,
-                format_kwargs_for_log(
-                    {
-                        "model": self._model,
-                        "image_count": len(image_files),
-                        "prompt": request.prompt,
-                    }
-                ),
+                format_kwargs_for_log({**edit_kwargs, "image": f"<{len(image_files)} files>"}),
             )
-            response = await self._client.images.edit(
-                model=self._model,
-                image=image_files,
-                prompt=request.prompt,
-            )
+            response = await self._client.images.edit(**edit_kwargs)
         finally:
             stack.close()
         return await self._save_and_return(response, request)
@@ -180,7 +193,7 @@ class OpenAIImageBackend:
             )
         await save_image_from_response_item(data[0], request.output_path)
         logger.info("OpenAI 图片生成完成: %s", request.output_path)
-        quality = _QUALITY_MAP.get(request.image_size) if request.image_size else None
+        quality = _quality_for(request.image_size)
 
         img_in = img_out = txt_in = txt_out = None
         usage = getattr(response, "usage", None)

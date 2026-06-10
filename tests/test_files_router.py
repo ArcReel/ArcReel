@@ -119,12 +119,12 @@ class TestFilesRouter:
             assert clue.status_code == 200
             assert clue.json()["path"] == "props/玉佩.jpg"
 
-            storyboard = client.post(
+            # 分镜/视频上传走 shot_uploads 路由，通用上传不再支持 storyboard 类型
+            legacy_storyboard = client.post(
                 "/api/v1/projects/demo/upload/storyboard?name=E1S01",
                 files={"file": ("storyboard.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
-            assert storyboard.status_code == 200
-            assert storyboard.json()["path"] == "storyboards/scene_E1S01.jpg"
+            assert legacy_storyboard.status_code == 400
 
             invalid_ext = client.post(
                 "/api/v1/projects/demo/upload/source",
@@ -248,13 +248,6 @@ class TestFilesRouter:
             )
             assert character_missing_entity.status_code == 200
             assert character_missing_entity.json()["path"] == "characters/不存在角色.jpg"
-
-            storyboard_no_name = client.post(
-                "/api/v1/projects/demo/upload/storyboard",
-                files={"file": ("board.jpg", _img_bytes("JPEG"), "image/jpeg")},
-            )
-            assert storyboard_no_name.status_code == 200
-            assert storyboard_no_name.json()["path"] == "storyboards/board.jpg"
 
     def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
