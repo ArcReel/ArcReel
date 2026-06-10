@@ -134,15 +134,14 @@ class TestDashScopeAudioBackend:
         assert "speech_rate" not in body["input"]
 
     async def test_http_error_raises(self, tmp_path: Path):
-        err_resp = MagicMock()
-        err_resp.status_code = 400
-        err_resp.text = "bad request"
+        # 4xx 透出 httpx.HTTPStatusError（与其余 backend 一致），不嵌响应体进异常消息
+        err_resp = httpx.Response(400, text="bad request", request=httpx.Request("POST", "https://x"))
         client = _mock_client(err_resp, _download_response())
         with patch("httpx.AsyncClient", return_value=client):
             from lib.audio_backends.dashscope import DashScopeAudioBackend
 
             b = DashScopeAudioBackend(api_key="sk")
-            with pytest.raises(RuntimeError, match="返回 400"):
+            with pytest.raises(httpx.HTTPStatusError):
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
 
     async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
@@ -185,18 +184,18 @@ class TestDashScopeAudioBackend:
         assert not out.exists()
 
     async def test_download_http_error_raises(self, tmp_path: Path, monkeypatch):
-        # 下载 4xx：raise 且不写文件、合成 POST 不被重跑
+        # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑
         monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
-        err_resp = MagicMock()
-        err_resp.status_code = 404
+        err_resp = httpx.Response(404, request=httpx.Request("GET", "https://x/out.wav"))
         client = _mock_client(_synth_response(), err_resp)
         with patch("httpx.AsyncClient", return_value=client):
             from lib.audio_backends.dashscope import DashScopeAudioBackend
 
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "err.wav"
-            with pytest.raises(RuntimeError, match="音频下载返回 404"):
+            with pytest.raises(httpx.HTTPStatusError):
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
         assert client.post.call_count == 1
+        assert client.get.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
         assert not out.exists()

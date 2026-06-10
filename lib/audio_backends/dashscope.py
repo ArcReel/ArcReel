@@ -114,7 +114,10 @@ class DashScopeAudioBackend:
                 headers=dashscope_headers(self._api_key),
             )
             if resp.status_code >= 400:
-                raise RuntimeError(f"DashScope 语音合成接口返回 {resp.status_code}: {resp.text[:500]}")
+                # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code；
+                # body 先落日志保留可诊断性，不嵌进异常消息以免重试的子串匹配误判 4xx 可重试。
+                logger.warning("DashScope 语音合成接口返回 %s: %s", resp.status_code, resp.text[:500])
+                resp.raise_for_status()
             return extract_audio_url(resp.json())
 
     @with_retry_async(
@@ -127,8 +130,9 @@ class DashScopeAudioBackend:
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             resp = await client.get(url)
             if resp.status_code >= 400:
-                raise RuntimeError(f"DashScope 音频下载返回 {resp.status_code}: {url}")
+                logger.warning("DashScope 音频下载返回 %s: %s", resp.status_code, url)
+                resp.raise_for_status()
             if not resp.content:
-                # 200 但空体（代理/range 异常）：不写 0 字节 wav，触发下载重试。
+                # 200 但空体（代理/range 异常）：不写 0 字节 wav，直接失败。
                 raise RuntimeError(f"DashScope 音频下载返回空内容: {url}")
             output_path.write_bytes(resp.content)

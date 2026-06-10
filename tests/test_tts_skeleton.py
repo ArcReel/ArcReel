@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.audio_backends.base import AudioCapability, AudioSynthesisResult
@@ -146,23 +147,15 @@ class TestGenerateAudioAsync:
             raise RuntimeError("boom")
 
         gen._audio_backend.synthesize = _raise
-        try:
+        with pytest.raises(RuntimeError):
             await gen.generate_audio_async(text="x", resource_id="E1S02", voice="Cherry")
-            raised = False
-        except RuntimeError:
-            raised = True
-        assert raised
         assert gen.usage_tracker.finished[-1]["status"] == "failed"
 
     async def test_no_backend_raises(self, tmp_path: Path):
         gen = _build_generator(tmp_path)
         gen._audio_backend = None
-        try:
+        with pytest.raises(RuntimeError):
             await gen.generate_audio_async(text="x", resource_id="E1S03", voice="Cherry")
-            raised = False
-        except RuntimeError:
-            raised = True
-        assert raised
 
     async def test_regenerate_tracks_existing_file(self, tmp_path: Path):
         # 重新生成时旧文件须先经 ensure_current_tracked 记录进版本历史
