@@ -36,8 +36,8 @@
     "react-dom": "^19.2.7",
     "react-i18next": "^17.0.8",
     "streamdown": "^2.5.0",
-    "wouter": "^3.9.0",
-    "zustand": "^5.0.13"
+    "wouter": "^3.10.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
