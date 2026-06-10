@@ -27,7 +27,7 @@ skills:
 
 使用 Read 工具读取 `project.json`（相对 session cwd），确认：
 - content_mode 字段（narration 或 drama）
-- generation_mode 字段（项目顶层，注意目标集的 `episodes[i].generation_mode` 可覆盖；`effective_mode = episode.generation_mode or project.generation_mode or "storyboard"`）
+- generation_mode 字段（项目顶层，注意目标集的 `episodes[i].generation_mode` 可覆盖；`effective_mode = episode.generation_mode or project.generation_mode or "storyboard"`，其中 `episode` 指 `project.json` 的 `episodes[]` 数组中 `episode == N` 的那一项）
 - characters、scenes、props 已有数据
 
 使用 Glob 工具确认中间文件存在，按 `effective_mode` × `content_mode` 三分支检查：
