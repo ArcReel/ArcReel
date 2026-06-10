@@ -137,7 +137,13 @@ class DashScopeAudioBackend:
             resp = await client.get(url)
             if resp.status_code >= 400:
                 logger.warning("DashScope 音频下载返回 %s: %s", resp.status_code, safe_url)
-                resp.raise_for_status()
+                # 不用 raise_for_status：它生成的异常文本携带完整预签名 URL；
+                # 手动构造保留异常类型与 .response.status_code，消息只带脱敏 URL。
+                raise httpx.HTTPStatusError(
+                    f"DashScope 音频下载返回 {resp.status_code}: {safe_url}",
+                    request=resp.request,
+                    response=resp,
+                )
             if not resp.content:
                 # 200 但空体：不写 0 字节 wav
                 raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")

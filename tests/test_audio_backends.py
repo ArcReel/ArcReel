@@ -206,18 +206,23 @@ class TestDashScopeAudioBackend:
         assert out.read_bytes() == b"ok"
 
     async def test_download_http_error_raises(self, tmp_path: Path, monkeypatch):
-        # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑
+        # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑；
+        # 异常文本不携带预签名 query（有效期内等同下载凭证）
         monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
-        err_resp = httpx.Response(404, request=httpx.Request("GET", "https://x/out.wav"))
-        client = _mock_client(_synth_response(), err_resp)
+        signed_url = "https://x/out.wav?Expires=1&Signature=topsecret"
+        err_resp = httpx.Response(404, request=httpx.Request("GET", signed_url))
+        client = _mock_client(_synth_response(signed_url), err_resp)
         with patch("httpx.AsyncClient", return_value=client):
             from lib.audio_backends.dashscope import DashScopeAudioBackend
 
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "err.wav"
-            with pytest.raises(httpx.HTTPStatusError):
+            with pytest.raises(httpx.HTTPStatusError) as excinfo:
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
+        assert "Signature" not in str(excinfo.value)
+        assert "https://x/out.wav" in str(excinfo.value)
+        assert excinfo.value.response.status_code == 404
         assert client.post.call_count == 1
         assert client.get.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
         assert not out.exists()
