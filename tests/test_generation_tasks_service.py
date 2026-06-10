@@ -566,7 +566,8 @@ class TestGenerationTasks:
 
         async def _fake_resolve_video_backend(project_name, resolver, payload):
             assert project_name == "demo"
-            return fake_video_backend, "unused", "video-model"
+            # 4 元组：(video_backend, video_backend_type, video_model, provider_id)
+            return fake_video_backend, "unused", "video-model", "gemini-aistudio"
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
@@ -584,6 +585,9 @@ class TestGenerationTasks:
 
         assert generator._image_backend is None
         assert generator._video_backend is fake_video_backend
+        # 纯视频任务：video provider_id 透传到咽喉层，image provider_id 为 None（无作用域报错）
+        assert generator._video_provider_id == "gemini-aistudio"
+        assert generator._image_provider_id is None
 
     def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
         """生成成功事件应携带 asset_fingerprints"""

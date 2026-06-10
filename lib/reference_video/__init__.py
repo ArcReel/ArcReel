@@ -1,7 +1,6 @@
 from lib.reference_video.errors import (
     MissingReferenceError,
     ProviderUnsupportedFeatureError,
-    RequestPayloadTooLargeError,
 )
 from lib.reference_video.shot_parser import (
     assemble_shots_text,
@@ -14,7 +13,6 @@ from lib.reference_video.shot_parser import (
 __all__ = [
     "MissingReferenceError",
     "ProviderUnsupportedFeatureError",
-    "RequestPayloadTooLargeError",
     "assemble_shots_text",
     "compute_duration_from_shots",
     "parse_prompt",

@@ -6,9 +6,7 @@ Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §5.2
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +16,9 @@ from lib.asset_types import BUCKET_KEY, SHEET_KEY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.image_utils import compress_image_bytes
 from lib.prompt_builders import append_video_negative_tail
 from lib.reference_video import assemble_shots_text, render_prompt_for_backend
-from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
+from lib.reference_video.errors import MissingReferenceError
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
@@ -64,41 +61,6 @@ def _resolve_unit_references(
     if missing:
         raise MissingReferenceError(missing=missing)
     return resolved
-
-
-def _compress_references_to_tempfiles(
-    source_paths: list[Path],
-    *,
-    long_edge: int = 2048,
-    quality: int = 85,
-) -> list[Path]:
-    """把每张 sheet 压到 JPEG bytes 并写入 NamedTemporaryFile，返回 Path 列表。
-
-    调用方须在 finally 里对每个返回 Path 调用 .unlink(missing_ok=True)。
-    """
-    temp_paths: list[Path] = []
-    try:
-        for src in source_paths:
-            tmp = tempfile.NamedTemporaryFile(
-                prefix="refvid-",
-                suffix=".jpg",
-                delete=False,
-            )
-            tmp_path = Path(tmp.name)
-            temp_paths.append(tmp_path)
-            try:
-                raw = src.read_bytes()
-                compressed = compress_image_bytes(raw, max_long_edge=long_edge, quality=quality)
-                tmp.write(compressed)
-            finally:
-                tmp.close()
-    except Exception:
-        # 任何阶段失败都立刻清理已创建的 temp files，避免磁盘泄露
-        for p in temp_paths:
-            with contextlib.suppress(Exception):
-                p.unlink(missing_ok=True)
-        raise
-    return temp_paths
 
 
 def _render_unit_prompt(unit: dict) -> str:
@@ -279,51 +241,19 @@ async def execute_reference_video_task(
         unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
     rendered_prompt = _render_unit_prompt(unit_for_prompt)
 
-    # 7. 压缩到临时文件（2048px/q=85）→ 首次调用
-    tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)
-    output_path: Path | None = None
-    version = 0
-    video_uri: str | None = None
-    try:
-        try:
-            output_path, version, _, video_uri = await generator.generate_video_async(
-                prompt=rendered_prompt,
-                resource_type="reference_videos",
-                resource_id=resource_id,
-                reference_images=tmp_refs,
-                aspect_ratio=project.get("aspect_ratio", "9:16"),
-                duration_seconds=effective_duration,
-                resolution=resolution,
-                task_id=task_id,
-            )
-        except RequestPayloadTooLargeError:
-            # 二次压缩重试（1024px/q=70）
-            for p in tmp_refs:
-                p.unlink(missing_ok=True)
-            tmp_refs = await asyncio.to_thread(
-                _compress_references_to_tempfiles,
-                constrained_refs,
-                long_edge=1024,
-                quality=70,
-            )
-            warnings.append({"key": "ref_payload_too_large", "params": {}})
-            output_path, version, _, video_uri = await generator.generate_video_async(
-                prompt=rendered_prompt,
-                resource_type="reference_videos",
-                resource_id=resource_id,
-                reference_images=tmp_refs,
-                aspect_ratio=project.get("aspect_ratio", "9:16"),
-                duration_seconds=effective_duration,
-                resolution=resolution,
-                task_id=task_id,
-            )
-    finally:
-        for p in tmp_refs:
-            with contextlib.suppress(Exception):
-                p.unlink(missing_ok=True)
-
-    if output_path is None:
-        raise RuntimeError("generate_video_async returned None output_path")
+    # 7. 直接把源路径交给咽喉层 generate_video_async —— 参考上传副本的压缩、降档梯子与 413 兜底
+    #    统一由 MediaGenerator 负责（发完即删的临时字节），此处不再预压缩、不再管理临时文件，
+    #    避免双压。数量裁剪 + [图N] 索引对齐已在上游完成，咽喉层压缩 1:1 保序保数，职责不重叠。
+    output_path, version, _, video_uri = await generator.generate_video_async(
+        prompt=rendered_prompt,
+        resource_type="reference_videos",
+        resource_id=resource_id,
+        reference_images=constrained_refs,
+        aspect_ratio=project.get("aspect_ratio", "9:16"),
+        duration_seconds=effective_duration,
+        resolution=resolution,
+        task_id=task_id,
+    )
 
     return await _finalize_reference_video_unit(
         project_name=project_name,

@@ -476,3 +476,33 @@ class TestPersist:
         assert persist.call_args.args[0] == "db-task-1"
         assert persist.call_args.args[1] == "job-9"
         assert persist.call_args.kwargs["provider"] == PROVIDER_DASHSCOPE
+
+
+class TestSubmit413:
+    async def test_submit_413_surfaces_httpstatuserror_no_retry(self, tmp_path: Path):
+        err413 = _resp({"code": "PayloadTooLarge"}, status_code=413)
+        err413.raise_for_status = MagicMock(side_effect=_http_error(413, "Request Entity Too Large"))
+        post = AsyncMock(return_value=err413)
+        client = _client(post=post)
+        download = AsyncMock()
+        ref1 = _ref(tmp_path, "a.png")
+        p1, p2, p3 = _patches(client, download)
+        with p1, p2, p3:
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
+            with pytest.raises(httpx.HTTPStatusError) as ei:
+                await b.generate(
+                    VideoGenerationRequest(
+                        prompt="[Image 1] x",
+                        output_path=tmp_path / "o.mp4",
+                        reference_images=[ref1],
+                        resolution="720p",
+                        aspect_ratio="16:9",
+                        duration_seconds=5,
+                    )
+                )
+        # 保留 status_code 让咽喉层识别 413；413 非 retryable → fail-fast 单次提交
+        assert ei.value.response.status_code == 413
+        assert post.call_count == 1
+        download.assert_not_called()

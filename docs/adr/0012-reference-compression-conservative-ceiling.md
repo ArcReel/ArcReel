@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 参考图压缩用保守通用上限 + 被动 413，只动上传副本

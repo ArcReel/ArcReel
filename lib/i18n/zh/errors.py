@@ -130,6 +130,7 @@ MESSAGES = {
     "ref_duration_exceeded": "参考视频单元时长 {duration}s 超出 {model} 上限 {max_duration}s，已裁剪",
     "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
+    "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
     "ref_sora_single_ref": "Sora 参考模式暂不支持多图，已降级为单图",
     "ref_shot_parse_fallback": "未识别到 Shot N (Xs): 标记，按单镜头处理",
     "ref_episode_not_found": "第 {episode} 集不存在",

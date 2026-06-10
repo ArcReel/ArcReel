@@ -171,7 +171,10 @@ class DashScopeImageBackend:
                 headers=dashscope_headers(self._api_key),
             )
             if resp.status_code >= 400:
-                raise RuntimeError(f"DashScope 图像接口返回 {resp.status_code}: {resp.text[:500]}")
+                # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code，
+                # 让咽喉层能识别 413 走降档重试；body 先落日志保留可诊断性。
+                logger.warning("DashScope 图像接口返回 %s: %s", resp.status_code, resp.text[:500])
+                resp.raise_for_status()
             data = resp.json()
 
         url = extract_image_url(data)

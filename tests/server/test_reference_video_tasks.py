@@ -7,10 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
+from lib.reference_video.errors import MissingReferenceError
 from server.services.reference_video_tasks import (
     _apply_provider_constraints,
-    _compress_references_to_tempfiles,
     _render_unit_prompt,
     _resolve_unit_references,
 )
@@ -122,35 +121,6 @@ def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     with pytest.raises(MissingReferenceError) as excinfo:
         _resolve_unit_references(project, proj_dir, bad_refs)
     assert ("prop", "不存在的道具") in excinfo.value.missing
-
-
-def _make_png_bytes() -> bytes:
-    import io
-
-    from PIL import Image
-
-    img = Image.new("RGB", (3000, 2000), color=(200, 100, 50))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def test_compress_references_returns_temp_paths(tmp_path: Path):
-    src = tmp_path / "big.png"
-    src.write_bytes(_make_png_bytes())
-    temps = _compress_references_to_tempfiles([src, src])
-    try:
-        assert len(temps) == 2
-        for p in temps:
-            assert p.exists()
-            assert p.stat().st_size > 0
-    finally:
-        for p in temps:
-            p.unlink(missing_ok=True)
-
-
-def test_compress_references_empty_input(tmp_path: Path):
-    assert _compress_references_to_tempfiles([]) == []
 
 
 def test_render_unit_prompt_rejects_empty_shots():
@@ -612,6 +582,14 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
         async def video_generate_audio(self, _project_name=None):
             return False
 
+        async def reference_payload_limits(self, _provider_id=None):
+            from lib.config.service import (
+                _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+                _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            )
+
+            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+
     # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 UsageTracker 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir
@@ -621,6 +599,8 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     real_gen._video_backend = _FakeVideoBackend()
     real_gen._user_id = "u1"
     real_gen._config = _FakeConfigResolver()
+    real_gen._image_provider_id = None
+    real_gen._video_provider_id = None
     real_gen.versions = VersionManager(proj_dir)
     real_gen.usage_tracker = _FakeUsage()
 
@@ -656,7 +636,10 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """R2V 退场回归：executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），
+    压缩下沉咽喉层——不再预压缩到临时文件、不再有 R2V 层的二次压缩重试。
+    """
     proj_dir = _write_project(tmp_path)
 
     from server.services import reference_video_tasks as rvt
@@ -670,12 +653,12 @@ async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: 
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
+    captured: dict = {}
     call_count = {"n": 0}
 
     async def _fake_generate_video_async(**kwargs):
         call_count["n"] += 1
-        if call_count["n"] == 1:
-            raise RequestPayloadTooLargeError()
+        captured["reference_images"] = kwargs.get("reference_images")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -705,8 +688,16 @@ async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: 
         {"script_file": "scripts/episode_1.json"},
         user_id="u1",
     )
-    assert call_count["n"] == 2
+    # 单次调用：R2V 层不再做二次压缩重试
+    assert call_count["n"] == 1
     assert result["resource_id"] == "E1U1"
+    # 传给咽喉层的恰是源 sheet 路径（项目目录内真实文件），而非临时压缩副本——
+    # 压缩已下沉到 MediaGenerator 咽喉层
+    refs = [Path(p).resolve() for p in captured["reference_images"]]
+    assert refs == [
+        (proj_dir / "characters" / "张三.png").resolve(),
+        (proj_dir / "scenes" / "酒馆.png").resolve(),
+    ]
 
 
 @pytest.mark.asyncio
