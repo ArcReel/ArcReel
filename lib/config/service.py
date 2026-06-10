@@ -202,7 +202,10 @@ class ConfigService:
         return self._parse_backend(raw, _DEFAULT_AUDIO_BACKEND)
 
     async def get_narration_voice(self) -> str:
-        return await self._setting_repo.get("narration_voice", _DEFAULT_NARRATION_VOICE)
+        # 空白 setting 视为未配置，与项目级覆盖的 strip 语义一致，避免空音色进 TTS 请求
+        raw = await self._setting_repo.get("narration_voice", "")
+        voice = raw.strip()
+        return voice or _DEFAULT_NARRATION_VOICE
 
     @staticmethod
     def _validate_provider(provider: str) -> None:

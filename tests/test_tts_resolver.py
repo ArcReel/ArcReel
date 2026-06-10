@@ -160,3 +160,23 @@ class TestServiceDefaultAudioBackend:
                 assert await svc.get_default_audio_backend() == ("dashscope", "qwen3-tts-flash")
         finally:
             await engine.dispose()
+
+
+class TestServiceNarrationVoice:
+    async def test_blank_setting_falls_back_to_default(self):
+        # 全局 setting 被保存成空白时回退默认值，与项目级覆盖的 strip 语义一致
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                svc = ConfigService(session)
+                await svc.set_setting("narration_voice", "  ")
+                await session.commit()
+                assert await svc.get_narration_voice() == "Cherry"
+
+                await svc.set_setting("narration_voice", "Ethan")
+                await session.commit()
+                assert await svc.get_narration_voice() == "Ethan"
+        finally:
+            await engine.dispose()
