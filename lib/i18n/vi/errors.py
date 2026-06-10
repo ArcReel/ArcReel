@@ -48,6 +48,7 @@ MESSAGES = {
     "unsupported_video_type": "Định dạng video không hỗ trợ {ext}. Các loại cho phép: {allowed}",
     "upload_too_large": "Tệp tải lên vượt quá giới hạn dung lượng ({max_mb} MB)",
     "invalid_image_file": "Tệp ảnh không hợp lệ, không thể phân tích",
+    "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",

@@ -93,7 +93,8 @@ async def upload_shot_media(
             await asyncio.to_thread(versions.ensure_current_tracked, resource_type, shot_id, target, "")
 
             if kind == "storyboard":
-                content = await file.read()
+                # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
+                content = await file.read(max_bytes + 1)
                 if len(content) > max_bytes:
                     raise UploadTooLargeError(max_bytes)
                 try:
@@ -155,5 +156,6 @@ async def upload_shot_media(
     except HTTPException:
         raise
     except Exception as e:
+        # 不回传 str(e)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from e

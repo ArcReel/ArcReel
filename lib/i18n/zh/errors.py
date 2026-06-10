@@ -48,6 +48,7 @@ MESSAGES = {
     "unsupported_video_type": "不支持的视频类型 {ext}，允许的类型: {allowed}",
     "upload_too_large": "上传文件超过大小上限（{max_mb} MB）",
     "invalid_image_file": "无效的图片文件，无法解析",
+    "internal_server_error": "服务器内部错误，请稍后重试",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_step_num": "无效的步骤编号: {step_num}",

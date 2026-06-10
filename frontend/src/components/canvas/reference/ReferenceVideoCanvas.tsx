@@ -116,9 +116,11 @@ export function ReferenceVideoCanvas({
 
   const tasksByUnit = useMemo(() => {
     const map = new Map<string, (typeof relevantTasks)[number]>();
-    // 任务列表按 updated_at 倒序：保留首个出现的（最新）任务行，重试时不被旧失败行盖住
+    // store 不保证顺序（SSE upsert 原位更新、初始列表排序属后端实现细节）：
+    // 显式取 updated_at 最新的任务行，重试时不被旧失败行盖住
     for (const tk of relevantTasks) {
-      if (!map.has(tk.resource_id)) map.set(tk.resource_id, tk);
+      const prev = map.get(tk.resource_id);
+      if (!prev || tk.updated_at > prev.updated_at) map.set(tk.resource_id, tk);
     }
     return map;
   }, [relevantTasks]);

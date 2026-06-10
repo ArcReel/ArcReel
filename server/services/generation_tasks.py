@@ -621,6 +621,19 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
                 project_path / "grids" / f"{resource_id}.png",
             )
         )
+        # 宫格切割还会覆写多个 canonical 分镜图，实际写入的 cell 路径持久化在
+        # grid 记录的 frame_chain 中，一并纳入指纹让前端对这些文件 cache-bust；
+        # 记录缺失/损坏时降级为只报宫格主图。
+        try:
+            from lib.grid_manager import GridManager
+
+            grid = GridManager(project_path).get(resource_id)
+        except Exception:
+            grid = None
+        if grid is not None:
+            for frame in grid.frame_chain:
+                if frame.image_path:
+                    paths.append((frame.image_path, project_path / frame.image_path))
     elif task_type == "reference_video":
         paths.append(
             (

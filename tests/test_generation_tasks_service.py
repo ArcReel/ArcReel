@@ -616,6 +616,54 @@ class TestGenerationTasks:
         assert "storyboards/scene_E1S01.png" in change["asset_fingerprints"]
         assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
+    def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
+        """宫格指纹应包含切割覆写的 canonical 分镜图，前端才能对其 cache-bust"""
+        from lib.grid.models import FrameCell, GridGeneration
+        from lib.grid_manager import GridManager
+
+        project_path = tmp_path / "demo"
+        (project_path / "storyboards").mkdir(parents=True)
+        (project_path / "grids").mkdir()
+        (project_path / "grids" / "grid_1.png").write_bytes(b"grid")
+        (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"img")
+
+        grid = GridGeneration(
+            id="grid_1",
+            episode=1,
+            script_file="ep01.json",
+            scene_ids=["E1S01"],
+            grid_image_path="grids/grid_1.png",
+            rows=2,
+            cols=2,
+            cell_count=4,
+            frame_chain=[
+                FrameCell(
+                    index=0,
+                    row=0,
+                    col=0,
+                    frame_type="first",
+                    next_scene_id="E1S01",
+                    image_path="storyboards/scene_E1S01.png",
+                ),
+                FrameCell(index=1, row=0, col=1, frame_type="placeholder"),
+            ],
+            status="completed",
+            prompt=None,
+            provider="p",
+            model="m",
+            grid_size="2K",
+            created_at="2026-01-01T00:00:00Z",
+        )
+        GridManager(project_path).save(grid)
+
+        fake_pm = _FakePM(project_path)
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        fps = generation_tasks.compute_affected_fingerprints("demo", "grid", "grid_1")
+
+        assert "grids/grid_1.png" in fps
+        assert "storyboards/scene_E1S01.png" in fps
+
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

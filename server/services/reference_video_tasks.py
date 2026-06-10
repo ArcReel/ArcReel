@@ -337,16 +337,17 @@ async def execute_reference_video_task(
     )
 
 
-def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | None, thumb_rel: str | None) -> bool:
+def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | None, thumb_rel: str | None) -> None:
     """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
 
     生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。
     新结果不含 video_uri / 缩略图时清空旧值，避免指向过期 URI / 已删除文件。
-    返回是否找到该 unit。
+    剧本不含 video_units 或 unit 不存在时抛 KeyError——写回失败必须让调用方可见，
+    finalize 不能在剧本未更新时静默成功；还原侧的跨集同步把 KeyError 当正常跳过。
     """
     units = script.get("video_units")
     if not isinstance(units, list):
-        return False
+        raise KeyError("video_units")
     for u in units:
         if not isinstance(u, dict) or u.get("unit_id") != resource_id:
             continue
@@ -361,8 +362,8 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
         else:
             ga.pop("video_thumbnail", None)
         ga["status"] = "completed"
-        return True
-    return False
+        return
+    raise KeyError(resource_id)
 
 
 async def _finalize_reference_video_unit(

@@ -48,6 +48,7 @@ MESSAGES = {
     "unsupported_video_type": "Unsupported video type {ext}. Allowed types: {allowed}",
     "upload_too_large": "Uploaded file exceeds the size limit ({max_mb} MB)",
     "invalid_image_file": "Invalid image file, could not be parsed",
+    "internal_server_error": "Internal server error, please try again later",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_step_num": "Invalid step number: {step_num}",

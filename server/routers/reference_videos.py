@@ -456,8 +456,12 @@ async def upload_unit_video(
     except FileNotFoundError as exc:
         # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
         raise HTTPException(status_code=404, detail=_t("ref_script_missing")) from exc
+    except KeyError as exc:
+        # finalize 写回时 unit 已被并发删除（落盘后绑定重查到锁内写回之间的窄竞态）
+        raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id)) from exc
     except HTTPException:
         raise
     except Exception as exc:
+        # 不回传 str(exc)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

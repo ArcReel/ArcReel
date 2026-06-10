@@ -145,11 +145,10 @@ def _sync_reference_video_metadata(
     """
 
     def _apply(script_name: str) -> None:
-        # 资产回写热路径：只动 unit.generated_assets，豁免结构校验（与 update_scene_asset 对齐）
+        # 资产回写热路径：只动 unit.generated_assets，豁免结构校验（与 update_scene_asset 对齐）。
+        # 该集脚本不含此 unit 时 apply_unit_video_assets 抛 KeyError，锁内冒出即跳过写回。
         with get_project_manager().locked_script(project_name, script_name, validate=False) as script:
-            if not apply_unit_video_assets(script, resource_id, video_uri=None, thumb_rel=None):
-                # 该集脚本不含此 unit：锁内抛出让 locked_script 跳过写回
-                raise KeyError(resource_id)
+            apply_unit_video_assets(script, resource_id, video_uri=None, thumb_rel=None)
 
     _sync_scripts_best_effort(project_path, _apply)
 

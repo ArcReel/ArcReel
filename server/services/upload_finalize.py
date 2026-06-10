@@ -98,7 +98,7 @@ async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: 
         await asyncio.to_thread(_copy_limited, src, tmp_path, max_bytes)
         await asyncio.to_thread(tmp_path.replace, target)
     except BaseException:
-        await asyncio.to_thread(tmp_path.unlink, True)
+        await asyncio.to_thread(tmp_path.unlink, missing_ok=True)
         raise
 
 
