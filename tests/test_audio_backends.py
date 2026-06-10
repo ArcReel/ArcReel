@@ -164,8 +164,10 @@ class TestDashScopeAudioBackend:
         assert client.get.call_count == 2
         assert out.read_bytes() == b"ok"
 
-    async def test_empty_download_rejected_no_file(self, tmp_path: Path, monkeypatch):
-        # 200 但空体：不写 0 字节 wav，且合成 POST 不被重跑。
+    async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, monkeypatch):
+        # 200 但空体视为瞬态：重试到下载上限后失败，不写 0 字节 wav，合成 POST 不被重跑。
+        from lib.retry import DOWNLOAD_MAX_ATTEMPTS
+
         monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         client = AsyncMock()
         client.post = AsyncMock(return_value=_synth_response())
@@ -181,7 +183,27 @@ class TestDashScopeAudioBackend:
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
         assert client.post.call_count == 1
+        assert client.get.call_count == DOWNLOAD_MAX_ATTEMPTS
         assert not out.exists()
+
+    async def test_empty_download_transient_recovers(self, tmp_path: Path, monkeypatch):
+        # 空体一次后恢复：重试拿到字节落盘，合成 POST 不被重跑
+        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
+        client = AsyncMock()
+        client.post = AsyncMock(return_value=_synth_response())
+        client.get = AsyncMock(side_effect=[_download_response(b""), _download_response(b"ok")])
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.dashscope import DashScopeAudioBackend
+
+            b = DashScopeAudioBackend(api_key="sk")
+            out = tmp_path / "recover.wav"
+            await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
+
+        assert client.post.call_count == 1
+        assert client.get.call_count == 2
+        assert out.read_bytes() == b"ok"
 
     async def test_download_http_error_raises(self, tmp_path: Path, monkeypatch):
         # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑

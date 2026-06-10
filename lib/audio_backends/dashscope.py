@@ -38,6 +38,10 @@ DEFAULT_MODEL = "qwen3-tts-flash"
 _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
 
+class _EmptyDownloadError(RuntimeError):
+    """200 但空响应体（瞬时代理/CDN 异常），视为瞬态触发下载重试。"""
+
+
 class DashScopeAudioBackend:
     """阿里百炼语音合成后端（同步 multimodal 端点）。"""
 
@@ -123,16 +127,18 @@ class DashScopeAudioBackend:
     @with_retry_async(
         max_attempts=DOWNLOAD_MAX_ATTEMPTS,
         backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=DASHSCOPE_RETRYABLE_ERRORS,
+        retryable_errors=(*DASHSCOPE_RETRYABLE_ERRORS, _EmptyDownloadError),
     )
     async def _download_audio(self, url: str, output_path: Path) -> None:
         """下载合成音频（非计费段，可独立多次重试）。"""
+        # 日志与异常只带去掉 query 的 URL：预签名参数在有效期内等同下载凭证
+        safe_url = url.split("?", 1)[0]
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             resp = await client.get(url)
             if resp.status_code >= 400:
-                logger.warning("DashScope 音频下载返回 %s: %s", resp.status_code, url)
+                logger.warning("DashScope 音频下载返回 %s: %s", resp.status_code, safe_url)
                 resp.raise_for_status()
             if not resp.content:
-                # 200 但空体（代理/range 异常）：不写 0 字节 wav，直接失败。
-                raise RuntimeError(f"DashScope 音频下载返回空内容: {url}")
+                # 200 但空体：不写 0 字节 wav
+                raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
             output_path.write_bytes(resp.content)
