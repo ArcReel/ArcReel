@@ -24,6 +24,7 @@ from lib.reference_video import assemble_shots_text, render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
+from lib.version_manager import VersionManager
 from server.services.generation_tasks import assert_duration_supported, get_media_generator, get_project_manager
 
 logger = logging.getLogger(__name__)
@@ -331,9 +332,37 @@ async def execute_reference_video_task(
         output_path=output_path,
         version=version,
         video_uri=video_uri,
-        generator=generator,
+        versions=generator.versions,
         warnings=warnings,
     )
+
+
+def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | None, thumb_rel: str | None) -> bool:
+    """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
+
+    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。
+    新结果不含 video_uri / 缩略图时清空旧值，避免指向过期 URI / 已删除文件。
+    返回是否找到该 unit。
+    """
+    units = script.get("video_units")
+    if not isinstance(units, list):
+        return False
+    for u in units:
+        if not isinstance(u, dict) or u.get("unit_id") != resource_id:
+            continue
+        ga = u.setdefault("generated_assets", {})
+        ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+        if video_uri:
+            ga["video_uri"] = video_uri
+        else:
+            ga.pop("video_uri", None)
+        if thumb_rel:
+            ga["video_thumbnail"] = thumb_rel
+        else:
+            ga.pop("video_thumbnail", None)
+        ga["status"] = "completed"
+        return True
+    return False
 
 
 async def _finalize_reference_video_unit(
@@ -345,7 +374,7 @@ async def _finalize_reference_video_unit(
     output_path: Path,
     version: int,
     video_uri: str | None,
-    generator: Any,
+    versions: VersionManager,
     warnings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normal + resume 共用：抽缩略图、写 unit.generated_assets、返回 result dict。"""
@@ -364,30 +393,16 @@ async def _finalize_reference_video_unit(
         pm = get_project_manager()
         # 资产回写热路径：只动 unit.generated_assets，结构不可能因此变坏，豁免结构校验。
         with pm.locked_script(project_name, script_file, validate=False) as script:
-            for u in script.get("video_units") or []:
-                if u.get("unit_id") == resource_id:
-                    ga = u.setdefault("generated_assets", {})
-                    ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
-                    # 重跑时若新结果不含 video_uri / 缩略图，清空旧值，避免指向过期 URI / 已删除文件
-                    if video_uri:
-                        ga["video_uri"] = video_uri
-                    else:
-                        ga.pop("video_uri", None)
-                    if thumb_rel:
-                        ga["video_thumbnail"] = thumb_rel
-                    else:
-                        ga.pop("video_thumbnail", None)
-                    ga["status"] = "completed"
-                    break
+            apply_unit_video_assets(script, resource_id, video_uri=video_uri, thumb_rel=thumb_rel)
 
     await asyncio.to_thread(_update_unit_assets)
 
     def _latest_created_at() -> str | None:
-        history = generator.versions.get_versions("reference_videos", resource_id) or {}
-        versions = history.get("versions") or []
-        if not versions:
+        history = versions.get_versions("reference_videos", resource_id) or {}
+        records = history.get("versions") or []
+        if not records:
             return None
-        return versions[-1].get("created_at")
+        return records[-1].get("created_at")
 
     created_at = await asyncio.to_thread(_latest_created_at)
 

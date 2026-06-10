@@ -45,6 +45,8 @@ MESSAGES = {
     "invalid_upload_type": "Invalid upload type: {upload_type}",
     "missing_filename": "Uploaded file is missing a filename",
     "unsupported_image_type": "Unsupported file type {ext}. Allowed types: {allowed}",
+    "unsupported_video_type": "Unsupported video type {ext}. Allowed types: {allowed}",
+    "upload_too_large": "Uploaded file exceeds the size limit ({max_mb} MB)",
     "invalid_image_file": "Invalid image file, could not be parsed",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",

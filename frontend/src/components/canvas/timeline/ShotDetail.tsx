@@ -25,7 +25,11 @@ import { NotesDrawer } from "./NotesDrawer";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { Popover } from "@/components/ui/Popover";
+import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { errMsg } from "@/utils/async";
 import {
   isStructuredImagePrompt,
   isStructuredVideoPrompt,
@@ -42,6 +46,8 @@ interface ShotDetailProps {
   contentMode: "narration" | "drama";
   aspectRatio: "9:16" | "16:9";
   projectName: string;
+  /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
+  scriptFile?: string;
   isGridMode?: boolean;
   /** Total shot count for "1/N" indicator */
   selectedIndex: number;
@@ -271,6 +277,7 @@ export function ShotDetail({
   contentMode,
   aspectRatio,
   projectName,
+  scriptFile,
   isGridMode,
   selectedIndex,
   totalCount,
@@ -302,6 +309,32 @@ export function ShotDetail({
     video_prompt: vp,
   }));
   const [saving, setSaving] = useState(false);
+  const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
+
+  const handleUpload = async (kind: "storyboard" | "video", file: File) => {
+    // 单镜头同时只允许一个上传：两张卡写同一后端资源族，避免并发覆写
+    if (!scriptFile || uploadingKind) return;
+    setUploadingKind(kind);
+    try {
+      const result = await API.uploadShotMedia(projectName, scriptFile, segmentId, kind, file);
+      useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+      // 复用版本恢复的刷新管线（refreshProject 等由父级回调承载）
+      if (kind === "storyboard") {
+        await onRestoreStoryboard?.();
+      } else {
+        await onRestoreVideo?.();
+      }
+      useAppStore
+        .getState()
+        .pushToast(t("media_upload_success", { id: segmentId }), "success");
+    } catch (err) {
+      useAppStore
+        .getState()
+        .pushToast(t("media_upload_failed", { message: errMsg(err) }), "error");
+    } finally {
+      setUploadingKind(null);
+    }
+  };
 
   const upstreamSig = useMemo(
     () => stableSig({ ip, vp }),
@@ -605,6 +638,9 @@ export function ShotDetail({
         estimatedCost={sbEstimate ?? undefined}
         onGenerate={() => onGenerateStoryboard?.(segmentId)}
         onRestore={onRestoreStoryboard}
+        onUpload={scriptFile ? (file) => handleUpload("storyboard", file) : undefined}
+        uploading={uploadingKind === "storyboard"}
+        uploadDisabled={uploadingKind !== null}
         generateDisabled={dirty || saving}
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
@@ -621,6 +657,9 @@ export function ShotDetail({
         estimatedCost={vidEstimate ?? undefined}
         onGenerate={() => onGenerateVideo?.(segmentId)}
         onRestore={onRestoreVideo}
+        onUpload={scriptFile ? (file) => handleUpload("video", file) : undefined}
+        uploading={uploadingKind === "video"}
+        uploadDisabled={uploadingKind !== null}
       />
     </div>
   );

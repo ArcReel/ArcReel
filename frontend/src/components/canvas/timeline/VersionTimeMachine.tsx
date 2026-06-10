@@ -9,7 +9,7 @@ import { errMsg } from "@/utils/async";
 
 interface VersionTimeMachineProps {
   projectName: string;
-  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props";
+  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props" | "reference_videos";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
@@ -47,6 +47,7 @@ export function VersionTimeMachine({
   const resourcePath =
     resourceType === "storyboards" ? `storyboards/scene_${resourceId}.png` :
     resourceType === "videos" ? `videos/scene_${resourceId}.mp4` :
+    resourceType === "reference_videos" ? `reference_videos/${resourceId}.mp4` :
     resourceType === "characters" ? `characters/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     `props/${resourceId}.png`;
@@ -318,7 +319,7 @@ export function VersionTimeMachine({
 
                     {/* Media preview */}
                     {selectedInfo.file_url &&
-                      (resourceType === "videos" ? (
+                      (resourceType === "videos" || resourceType === "reference_videos" ? (
                         // eslint-disable-next-line jsx-a11y/media-has-caption -- 生成式预览视频暂无字幕源，将来如引入字幕生成则移除此 disable
                         <video
                           src={selectedInfo.file_url}
@@ -341,7 +342,10 @@ export function VersionTimeMachine({
 
                     {/* Prompt text */}
                     <p className="line-clamp-4 text-[11px] leading-5 text-gray-400">
-                      {selectedInfo.prompt || t("version_no_notes")}
+                      {selectedInfo.prompt ||
+                        (selectedInfo.source === "manual_upload"
+                          ? t("version_manual_upload")
+                          : t("version_no_notes"))}
                     </p>
 
 

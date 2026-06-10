@@ -45,6 +45,8 @@ MESSAGES = {
     "invalid_upload_type": "无效的上传类型: {upload_type}",
     "missing_filename": "上传的文件缺少文件名",
     "unsupported_image_type": "不支持的文件类型 {ext}，允许的类型: {allowed}",
+    "unsupported_video_type": "不支持的视频类型 {ext}，允许的类型: {allowed}",
+    "upload_too_large": "上传文件超过大小上限（{max_mb} MB）",
     "invalid_image_file": "无效的图片文件，无法解析",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",

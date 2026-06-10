@@ -17,6 +17,7 @@ import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { PreprocessingView } from "@/components/canvas/timeline/PreprocessingView";
+import { API } from "@/api";
 import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
@@ -115,7 +116,10 @@ export function ReferenceVideoCanvas({
 
   const tasksByUnit = useMemo(() => {
     const map = new Map<string, (typeof relevantTasks)[number]>();
-    for (const tk of relevantTasks) map.set(tk.resource_id, tk);
+    // 任务列表按 updated_at 倒序：保留首个出现的（最新）任务行，重试时不被旧失败行盖住
+    for (const tk of relevantTasks) {
+      if (!map.has(tk.resource_id)) map.set(tk.resource_id, tk);
+    }
     return map;
   }, [relevantTasks]);
 
@@ -125,7 +129,9 @@ export function ReferenceVideoCanvas({
       let st: UnitStatus = u.generated_assets.video_clip ? "ready" : "pending";
       const queueRow = tasksByUnit.get(u.unit_id);
       if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
-      else if (queueRow?.status === "failed") st = "failed";
+      // 失败任务行 DB 持久化、不会过期：手动上传成片后单元已有可播放资产，
+      // 不再让历史失败覆盖 ready（与 timeline/grid 画布用 toast 提示失败的语义对齐）
+      else if (queueRow?.status === "failed" && !u.generated_assets.video_clip) st = "failed";
       else if (optimisticUnitIds.has(u.unit_id) && !queueRow) st = "running";
       map[u.unit_id] = st;
     }
@@ -187,6 +193,38 @@ export function ReferenceVideoCanvas({
       }
     },
     [generate, projectName, episode, t],
+  );
+
+  const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
+
+  const handleUploadVideo = useCallback(
+    async (unitId: string, file: File) => {
+      setUploadingUnitIds((s) => {
+        const next = new Set(s);
+        next.add(unitId);
+        return next;
+      });
+      try {
+        const result = await API.uploadReferenceUnitVideo(projectName, episode, unitId, file);
+        useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+        await loadUnits(projectName, episode);
+        useAppStore.getState().pushToast(t("media_upload_success", { id: unitId }), "success");
+      } catch (e) {
+        toastError(e, (msg) => t("media_upload_failed", { message: msg }));
+      } finally {
+        setUploadingUnitIds((s) => {
+          const next = new Set(s);
+          next.delete(unitId);
+          return next;
+        });
+      }
+    },
+    [projectName, episode, loadUnits, t],
+  );
+
+  const handleUnitsRefresh = useCallback(
+    () => loadUnits(projectName, episode),
+    [loadUnits, projectName, episode],
   );
 
   const handleBatchGenerate = useCallback(async () => {
@@ -719,6 +757,9 @@ export function ReferenceVideoCanvas({
                           estimatedCost={estimatedCost}
                           actualCost={actualCost}
                           onGenerate={onGenerateVoid}
+                          onUploadVideo={handleUploadVideo}
+                          uploadingVideo={uploadingUnitIds.has(selected.unit_id)}
+                          onRestored={handleUnitsRefresh}
                         />
                       </div>
                     )}
@@ -742,6 +783,9 @@ export function ReferenceVideoCanvas({
                   estimatedCost={estimatedCost}
                   actualCost={actualCost}
                   onGenerate={onGenerateVoid}
+                  onUploadVideo={handleUploadVideo}
+                  uploadingVideo={selected ? uploadingUnitIds.has(selected.unit_id) : false}
+                  onRestored={handleUnitsRefresh}
                 />
               </div>
             )}

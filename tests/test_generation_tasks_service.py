@@ -244,10 +244,9 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
-            lambda project_name, changes, source="worker": emitted_batches.append(
+            lambda project_name, changes: emitted_batches.append(
                 {
                     "project_name": project_name,
-                    "source": source,
                     "changes": list(changes),
                 }
             ),
@@ -592,7 +591,7 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
-            lambda project_name, changes, source: captured.append(changes),
+            lambda project_name, changes: captured.append(changes),
         )
 
         project_path = tmp_path / "demo"

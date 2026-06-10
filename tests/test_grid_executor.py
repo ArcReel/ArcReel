@@ -234,6 +234,13 @@ class TestExecuteGridTask:
         assert updated_grid_data["status"] == "completed"
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
 
+        # 切割写入 canonical 分镜路径须登记版本（先补登旧文件，覆写后记新版本），
+        # 否则版本面板的「当前版本」与磁盘内容脱节
+        assert mock_generator.versions.ensure_current_tracked.called
+        add_calls = mock_generator.versions.add_version.call_args_list
+        assert add_calls
+        assert all(c.kwargs["resource_type"] == "storyboards" and c.kwargs["source"] == "grid_split" for c in add_calls)
+
     async def test_execute_grid_task_writes_clean_filenames(self, project_with_script, grid_json):
         """切割后 cell 文件名为 scene_{id}.png（无 _first/_last 后缀），且不再更新 storyboard_last_image。"""
         from PIL import Image

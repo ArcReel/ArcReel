@@ -129,11 +129,120 @@ class TestVersionsRouter:
             unsupported = client.post("/api/v1/projects/demo/versions/unknown/Alice/restore/1")
             assert unsupported.status_code == 400
 
-            # grids/reference_videos 是 VersionManager 合法类型，但本路由不放行其还原
+            # grids 是 VersionManager 合法类型，但本路由不放行其还原
             # （无还原后元数据同步分支），行为保持为 400——不因路径形状收敛而被静默放开。
-            for unrestorable in ("grids", "reference_videos"):
-                resp = client.post(f"/api/v1/projects/demo/versions/{unrestorable}/x/restore/1")
-                assert resp.status_code == 400
+            resp = client.post("/api/v1/projects/demo/versions/grids/x/restore/1")
+            assert resp.status_code == 400
+
+    def test_reference_video_restore_returns_thumbnail_fingerprint(self, tmp_path, monkeypatch):
+        """reference_videos 还原放行：清缩略图并以 fingerprint=0 通知前端失效。"""
+        from lib.project_manager import ProjectManager
+
+        real_pm = ProjectManager(tmp_path)
+        real_pm.create_project("demo")
+        real_pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        real_pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "E1",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "video_units": [
+                    {
+                        "unit_id": "E1U1",
+                        "generated_assets": {
+                            "video_clip": "reference_videos/E1U1.mp4",
+                            "video_uri": "https://stale",
+                            "video_thumbnail": "reference_videos/thumbnails/E1U1.jpg",
+                            "status": "completed",
+                        },
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = real_pm.get_project_path("demo")
+        thumb = project_path / "reference_videos" / "thumbnails" / "E1U1.jpg"
+        thumb.parent.mkdir(parents=True, exist_ok=True)
+        thumb.write_bytes(b"jpg")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/versions/reference_videos/E1U1/restore/1")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["file_path"] == "reference_videos/E1U1.mp4"
+            assert body["asset_fingerprints"]["reference_videos/thumbnails/E1U1.jpg"] == 0
+
+        # 缩略图文件被删除；unit 元数据清掉过期 video_uri / video_thumbnail
+        assert not thumb.exists()
+        script = real_pm.load_script("demo", "episode_1.json")
+        ga = script["video_units"][0]["generated_assets"]
+        assert ga["video_clip"] == "reference_videos/E1U1.mp4"
+        assert "video_uri" not in ga
+        assert "video_thumbnail" not in ga
+        assert ga["status"] == "completed"
+
+    def test_video_restore_clears_stale_uri_and_thumbnail_metadata(self, tmp_path, monkeypatch):
+        """videos 还原同步剧本元数据：还原的是历史本地文件，过期 provider URI 与已删缩略图须清空。"""
+        from lib.project_manager import ProjectManager
+
+        real_pm = ProjectManager(tmp_path)
+        real_pm.create_project("demo")
+        real_pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        real_pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "E1",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "t",
+                        "duration_seconds": 5,
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/scene_E1S01.png",
+                            "video_clip": "videos/scene_E1S01.mp4",
+                            "video_uri": "https://stale-provider-uri",
+                            "video_thumbnail": "thumbnails/scene_E1S01.jpg",
+                            "status": "completed",
+                        },
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = real_pm.get_project_path("demo")
+        thumb = project_path / "thumbnails" / "scene_E1S01.jpg"
+        thumb.parent.mkdir(parents=True, exist_ok=True)
+        thumb.write_bytes(b"jpg")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/versions/videos/E1S01/restore/1")
+            assert resp.status_code == 200
+            assert resp.json()["asset_fingerprints"]["thumbnails/scene_E1S01.jpg"] == 0
+
+        assert not thumb.exists()
+        ga = real_pm.load_script("demo", "episode_1.json")["segments"][0]["generated_assets"]
+        assert ga["video_clip"] == "videos/scene_E1S01.mp4"
+        assert ga["video_uri"] is None
+        assert ga["video_thumbnail"] is None
+        assert ga["status"] == "completed"
 
     def test_resolve_resource_path_rejects_traversal(self):
         """resource_id 拼出的绝对路径若逃出项目目录，必须 400（路径遍历防护）。
