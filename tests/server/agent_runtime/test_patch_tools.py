@@ -652,3 +652,36 @@ class TestPatchProjectOverview:
             {"overview": {"synopsis": "x"}, "table": "characters", "entries": {"a": {"description": "b"}}},
         )
         assert out.get("is_error") is True
+
+
+class TestPatchProjectBriefSetting:
+    """brief 是 ad 项目的创作诉求短文本，经 settings 白名单写入/清除；非 ad 项目拒绝。"""
+
+    @pytest.fixture
+    def ad_ctx(self, tmp_path: Path) -> ToolContext:
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("ad-demo", content_mode="ad")
+        pm.create_project_metadata("ad-demo", "Ad Demo", "Realistic", "ad", target_duration=60)
+        return ToolContext(project_name="ad-demo", projects_root=tmp_path, pm=pm)
+
+    async def test_set_brief_on_ad_project(self, ad_ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ad_ctx), {"settings": {"brief": "突出 3 秒速干卖点"}})
+        assert out.get("is_error") is not True
+        assert ad_ctx.pm.load_project("ad-demo")["brief"] == "突出 3 秒速干卖点"
+
+    async def test_clear_brief_on_ad_project(self, ad_ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ad_ctx), {"settings": {"brief": "x"}})
+        out = await _call(patch_project_tool(ad_ctx), {"settings": {"brief": None}})
+        assert out.get("is_error") is not True
+        assert "brief" not in ad_ctx.pm.load_project("ad-demo")
+
+    async def test_brief_rejected_on_non_ad_project(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"brief": "x"}})
+        assert out.get("is_error") is True
+        assert "brief" not in ctx.pm.load_project("demo")
+
+    async def test_non_string_brief_rejected(self, ad_ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ad_ctx), {"settings": {"brief": 42}})
+        assert out.get("is_error") is True
+        # 创建时写入的 brief=""（可空）不被非法写入污染
+        assert ad_ctx.pm.load_project("ad-demo")["brief"] == ""

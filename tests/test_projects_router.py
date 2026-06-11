@@ -25,6 +25,14 @@ class _FakePM:
                 "style": "",
                 "episodes": [],
             },
+            "ad-ready": {
+                "title": "Ad Ready",
+                "style": "Realistic",
+                "content_mode": "ad",
+                "target_duration": 60,
+                "brief": "",
+                "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
+            },
         }
         self.scripts = {
             ("ready", "episode_1.json"): {
@@ -86,6 +94,8 @@ class _FakePM:
         default_duration=None,
         style_template_id=None,
         extras=None,
+        target_duration=None,
+        brief=None,
     ):
         payload = {
             "title": (title or name),
@@ -94,6 +104,15 @@ class _FakePM:
             "aspect_ratio": aspect_ratio,
             "episodes": [],
         }
+        if content_mode == "ad":
+            # 镜像真实 ProjectManager 的 ad 形状：常量直接取自生产代码，避免第二份真相
+            from lib.project_manager import ProjectManager
+
+            payload["target_duration"] = (
+                target_duration if target_duration is not None else ProjectManager.AD_DEFAULT_TARGET_DURATION
+            )
+            payload["brief"] = brief if brief is not None else ""
+            payload["episodes"] = [dict(ProjectManager.AD_SINGLE_EPISODE)]
         if default_duration is not None:
             payload["default_duration"] = default_duration
         if style_template_id is not None:
@@ -303,6 +322,109 @@ class TestProjectsRouter:
 
             get_script_missing = client.get("/api/v1/projects/ready/scripts/missing.json")
             assert get_script_missing.status_code == 404
+
+    def test_create_ad_project(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            # 默认档位：不传 target_duration → 60；brief 可空；episodes 恒单条；无 default_duration
+            created = client.post(
+                "/api/v1/projects",
+                json={"name": "ad-default", "title": "Ad", "content_mode": "ad", "aspect_ratio": "9:16"},
+            )
+            assert created.status_code == 200
+            project = created.json()["project"]
+            assert project["content_mode"] == "ad"
+            assert project["target_duration"] == 60
+            assert project["brief"] == ""
+            assert project["episodes"] == [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}]
+            assert "default_duration" not in project
+
+            # 数据层不硬枚举：任意正整数秒合法
+            custom = client.post(
+                "/api/v1/projects",
+                json={"name": "ad-custom", "content_mode": "ad", "target_duration": 47, "brief": "卖点"},
+            )
+            assert custom.status_code == 200
+            assert custom.json()["project"]["target_duration"] == 47
+            assert custom.json()["project"]["brief"] == "卖点"
+
+    def test_create_ad_project_rejects_incompatible_fields(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            # ad 不暴露 default_duration
+            with_default = client.post(
+                "/api/v1/projects",
+                json={"name": "ad-a", "content_mode": "ad", "default_duration": 8},
+            )
+            assert with_default.status_code == 400
+
+            # ad 不开放 grid
+            with_grid = client.post(
+                "/api/v1/projects",
+                json={"name": "ad-b", "content_mode": "ad", "generation_mode": "grid"},
+            )
+            assert with_grid.status_code == 400
+
+            # 非正整数 target_duration 被请求模型拒绝
+            bad_duration = client.post(
+                "/api/v1/projects",
+                json={"name": "ad-c", "content_mode": "ad", "target_duration": 0},
+            )
+            assert bad_duration.status_code == 422
+
+            # target_duration / brief 仅 ad 可用
+            narration_with_td = client.post(
+                "/api/v1/projects",
+                json={"name": "n-a", "content_mode": "narration", "target_duration": 60},
+            )
+            assert narration_with_td.status_code == 400
+            narration_with_brief = client.post(
+                "/api/v1/projects",
+                json={"name": "n-b", "content_mode": "narration", "brief": "x"},
+            )
+            assert narration_with_brief.status_code == 400
+
+    def test_patch_ad_project_fields(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            # content_mode 创建后不可变：补 ad 同样 400
+            rejected_mode = client.patch(
+                "/api/v1/projects/ready",
+                json={"content_mode": "ad"},
+            )
+            assert rejected_mode.status_code == 400
+
+            # ad 项目 target_duration 接受任意正整数秒
+            updated = client.patch(
+                "/api/v1/projects/ad-ready",
+                json={"target_duration": 23},
+            )
+            assert updated.status_code == 200
+            assert updated.json()["project"]["target_duration"] == 23
+
+            # brief 可改可清（清为空字符串）
+            brief_set = client.patch(
+                "/api/v1/projects/ad-ready",
+                json={"brief": "新卖点"},
+            )
+            assert brief_set.status_code == 200
+            assert brief_set.json()["project"]["brief"] == "新卖点"
+            brief_clear = client.patch(
+                "/api/v1/projects/ad-ready",
+                json={"brief": None},
+            )
+            assert brief_clear.status_code == 200
+            assert brief_clear.json()["project"]["brief"] == ""
+
+            # ad 项目不持有 default_duration / 不开放 grid / target_duration 不可清空
+            assert client.patch("/api/v1/projects/ad-ready", json={"default_duration": 8}).status_code == 400
+            assert client.patch("/api/v1/projects/ad-ready", json={"generation_mode": "grid"}).status_code == 400
+            assert client.patch("/api/v1/projects/ad-ready", json={"target_duration": None}).status_code == 400
+
+            # 非 ad 项目不接受 target_duration / brief
+            assert client.patch("/api/v1/projects/ready", json={"target_duration": 60}).status_code == 400
+            assert client.patch("/api/v1/projects/ready", json={"brief": "x"}).status_code == 400
 
     def test_scene_segment_and_overview_endpoints(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)

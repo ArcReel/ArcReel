@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
 from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
 from lib.json_io import load_json_or_none
+from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import effective_mode
 
 
@@ -51,7 +52,8 @@ class DataValidator:
 
     # content_mode 严格只表达"内容类型"；"视频来源"维度由 generation_mode 字段
     # 表达，通过 project_manager.effective_mode 解析。
-    VALID_CONTENT_MODES = {"narration", "drama"}
+    # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
+    VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
     VALID_SHOT_DURATION_RANGE = (1, 15)
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
@@ -197,6 +199,43 @@ class DataValidator:
             except ValidationError as exc:
                 errors.append(f"{prefix}: outline 不合法: {_pydantic_error_summary(exc)}")
 
+    @staticmethod
+    def _validate_ad_project_fields(
+        project: dict[str, Any],
+        content_mode: Any,
+        errors: list[str],
+    ) -> None:
+        """广告/短片项目的专属字段与恒单集约束。
+
+        target_duration / brief 仅 ad 项目持有；ad 项目不持有 default_duration
+        （镜头按目标总时长预算逐个规划，单镜头偏好无意义），episodes 恒为第 1 集单条。
+        """
+        if content_mode != "ad":
+            if project.get("target_duration") is not None:
+                errors.append("target_duration 仅广告/短片项目（content_mode=ad）可用")
+            if project.get("brief") is not None:
+                errors.append("brief 仅广告/短片项目（content_mode=ad）可用")
+            return
+
+        target_duration = project.get("target_duration")
+        if target_duration is None:
+            errors.append("缺少必填字段: target_duration（广告/短片项目的目标总时长，秒）")
+        elif not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+            errors.append(f"target_duration 值无效: {target_duration!r}，必须为正整数秒")
+
+        brief = project.get("brief")
+        if brief is not None and not isinstance(brief, str):
+            errors.append("brief 必须是字符串")
+
+        if project.get("default_duration") is not None:
+            errors.append("广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）")
+
+        episodes = project.get("episodes")
+        if not isinstance(episodes, list) or (
+            len(episodes) != 1 or not isinstance(episodes[0], dict) or episodes[0].get("episode") != 1
+        ):
+            errors.append("广告/短片项目 episodes 必须恒为第 1 集单条")
+
     def _validate_project_payload(
         self,
         project: dict[str, Any],
@@ -213,6 +252,8 @@ class DataValidator:
             errors.append("缺少必填字段: content_mode")
         elif content_mode not in self.VALID_CONTENT_MODES:
             errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
+
+        self._validate_ad_project_fields(project, content_mode, errors)
 
         if not project.get("style"):
             errors.append("缺少必填字段: style")
@@ -565,6 +606,100 @@ class DataValidator:
                     errors,
                 )
 
+    def _validate_shots(
+        self,
+        shots: list[dict[str, Any]] | Any,
+        project_characters: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
+        project_products: set[str],
+        errors: list[str],
+        warnings: list[str],
+        *,
+        project_dir: Path | None = None,
+    ) -> None:
+        """验证 shots（ad 模式）：平铺镜头列表，口播文案一等，产品按名字引用。"""
+        if not isinstance(shots, list) or not shots:
+            errors.append("ad 剧本缺少 shots 数组或为空")
+            return
+
+        for index, shot in enumerate(shots):
+            prefix = f"shots[{index}]"
+            if not isinstance(shot, dict):
+                errors.append(f"{prefix}: 必须是对象")
+                continue
+
+            shot_id = shot.get("shot_id")
+            if not shot_id:
+                errors.append(f"{prefix}: 缺少必填字段 shot_id")
+            elif not isinstance(shot_id, str) or not self.ID_PATTERN.match(shot_id):
+                errors.append(f"{prefix}: shot_id 格式错误 '{shot_id}'，应为 E{{n}}S{{nn}}")
+
+            duration = shot.get("duration_seconds")
+            if duration is None:
+                warnings.append(f"{prefix}: 缺少 duration_seconds，将按 0 计入总时长")
+            elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须为正整数")
+
+            if "voiceover_text" not in shot:
+                errors.append(f"{prefix}: 缺少必填字段 voiceover_text（口播文案，可为空字符串）")
+            elif not isinstance(shot.get("voiceover_text"), str):
+                errors.append(f"{prefix}: voiceover_text 必须是字符串")
+
+            section = shot.get("section")
+            if section is not None and not isinstance(section, str):
+                errors.append(f"{prefix}: section 必须是字符串")
+
+            self._validate_segment_refs(
+                prefix,
+                shot.get("characters_in_shot"),
+                project_characters,
+                errors,
+                warnings,
+                field_label="characters_in_shot",
+                kind_label="角色",
+            )
+            self._validate_segment_refs(
+                prefix,
+                shot.get("scenes"),
+                project_scenes,
+                errors,
+                warnings,
+                field_label="scenes",
+                kind_label="场景",
+            )
+            self._validate_segment_refs(
+                prefix,
+                shot.get("props"),
+                project_props,
+                errors,
+                warnings,
+                field_label="props",
+                kind_label="道具",
+            )
+            self._validate_segment_refs(
+                prefix,
+                shot.get("products_in_shot"),
+                project_products,
+                errors,
+                warnings,
+                field_label="products_in_shot",
+                kind_label="产品",
+            )
+
+            if not shot.get("image_prompt"):
+                errors.append(f"{prefix}: 缺少必填字段 image_prompt")
+            if not shot.get("video_prompt"):
+                errors.append(f"{prefix}: 缺少必填字段 video_prompt")
+
+            if project_dir is not None:
+                self._validate_generated_assets(
+                    project_dir,
+                    prefix,
+                    shot.get("generated_assets"),
+                    errors,
+                )
+
     def _validate_reference_video_script(
         self,
         video_units: list[dict[str, Any]] | Any,
@@ -679,9 +814,10 @@ class DataValidator:
         if novel is not None and not isinstance(novel, dict):
             errors.append("novel 字段必须是对象")
 
-        # "视频来源"维度由 generation_mode 表达；content_mode 只决定 narration vs
-        # drama 之间如何排布数据（segments vs scenes）。
-        is_reference = effective_mode(project=project, episode=episode) == "reference_video"
+        # "视频来源"维度由 generation_mode 表达；content_mode 决定剧本数据排布
+        # （segments / scenes / shots）。ad 剧本骨架唯一、不随生成路径更换：
+        # 即使 generation_mode=reference_video 也按 shots 校验（见 docs/adr/0033）。
+        is_reference = content_mode != "ad" and effective_mode(project=project, episode=episode) == "reference_video"
         if is_reference:
             self._validate_reference_video_script(
                 episode.get("video_units", []),
@@ -698,6 +834,18 @@ class DataValidator:
                 project_characters,
                 project_scenes,
                 project_props,
+                errors,
+                warnings,
+                project_dir=project_dir,
+            )
+        elif content_mode == "ad":
+            raw_products = project.get("products")
+            self._validate_shots(
+                episode.get("shots", []),
+                project_characters,
+                project_scenes,
+                project_props,
+                set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
                 errors,
                 warnings,
                 project_dir=project_dir,

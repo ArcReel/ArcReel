@@ -38,6 +38,10 @@ class TestBuildEpisodeScriptModel:
         model = build_episode_script_model("drama", [4, 6, 8])
         assert _duration_enum(model) == [4, 6, 8]
 
+    def test_ad_duration_rendered_as_enum(self):
+        model = build_episode_script_model("ad", [4, 6, 8])
+        assert _duration_enum(model) == [4, 6, 8]
+
     def test_enum_replaces_open_range(self):
         """约束后的 schema 不应再带原 ge/le 区间（minimum/maximum）。"""
         field_schema = _duration_field_schema(build_episode_script_model("narration", [4, 6, 8]))
@@ -119,6 +123,36 @@ class TestConstrainedValidation:
         }
         with pytest.raises(ValidationError):
             model.model_validate(payload)
+
+    def test_ad_out_of_set_duration_rejected(self):
+        """ad 走 storyboard 路径时同样按 supported_durations 硬枚举，不落 drama 形状。"""
+        model = build_episode_script_model("ad", [4, 6, 8])
+        payload = {
+            "title": "短片",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "section": "hook",
+                    "duration_seconds": 5,
+                    "voiceover_text": "口播",
+                    "image_prompt": {
+                        "scene": "场景",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+                    },
+                    "video_prompt": {
+                        "action": "转身",
+                        "camera_motion": "Static",
+                        "ambiance_audio": "风声",
+                        "dialogue": [],
+                    },
+                }
+            ],
+        }
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+        payload["shots"][0]["duration_seconds"] = 6
+        validated = model.model_validate(payload)
+        assert validated.shots[0].duration_seconds == 6
 
 
 class TestReferenceVideoModel:

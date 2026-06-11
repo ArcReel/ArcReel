@@ -24,3 +24,29 @@ class TestGridRouterExists:
     def test_router_has_regenerate_endpoint(self):
         paths = [r.path for r in router.routes]
         assert any("regenerate" in p for p in paths)
+
+
+class TestAdProjectRejected:
+    def test_generate_grid_rejects_ad_project(self, monkeypatch):
+        """广告/短片项目不开放宫格生视频：动作端点直接 400。"""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from server.auth import CurrentUserInfo, get_current_user
+        from server.routers import grids
+
+        class _AdPM:
+            def load_project(self, name):
+                return {"content_mode": "ad", "title": "Ad", "episodes": []}
+
+        monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(grids.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/grid/1",
+                json={"script_file": "episode_1.json"},
+            )
+        assert resp.status_code == 400

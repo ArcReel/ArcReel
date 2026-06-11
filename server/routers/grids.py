@@ -97,6 +97,10 @@ async def generate_grid(
     """
     try:
         project = get_project_manager().load_project(project_name)
+        # 广告/短片项目不开放宫格生视频（宫格单格分辨率与产品高保真目标冲突），
+        # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
+        if project.get("content_mode") == "ad":
+            raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
         script = get_project_manager().load_script(project_name, req.script_file)
         project_path = get_project_manager().get_project_path(project_name)
 

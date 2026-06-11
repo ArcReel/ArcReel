@@ -149,6 +149,7 @@ export function CreateProjectModal() {
     contentMode: "narration",
     aspectRatio: "9:16",
     generationMode: "storyboard",
+    targetDuration: 60,
   });
 
   const [models, setModels] = useState<ModelConfigValue>({
@@ -266,12 +267,16 @@ export function CreateProjectModal() {
         modelSettings[effectiveImageT2I] = { resolution: models.imageResolution };
       }
 
+      const isAd = basics.contentMode === "ad";
       const resp = await API.createProject({
         title: basics.title.trim(),
         content_mode: basics.contentMode,
         aspect_ratio: basics.aspectRatio,
         generation_mode: basics.generationMode,
-        default_duration: models.defaultDuration,
+        // ad 不暴露 default_duration（按目标总时长逐镜头规划），改传 target_duration
+        ...(isAd
+          ? { target_duration: basics.targetDuration }
+          : { default_duration: models.defaultDuration }),
         style_template_id: style.mode === "template" ? style.templateId : null,
         video_backend: models.videoBackend || null,
         image_provider_t2i: models.imageBackendT2I || null,
@@ -407,6 +412,7 @@ export function CreateProjectModal() {
               onCancel={handleClose}
               data={step2Data}
               error={step2Error}
+              hideDuration={basics.contentMode === "ad"}
             />
           )}
           {step === 3 && (

@@ -98,6 +98,10 @@ MESSAGES = {
     "unsupported_discovery_format": "Connection test not supported for {discovery_format}",
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
+    "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
+    "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
+    "ad_grid_not_supported": "Ad/short-video projects do not support grid video generation",
+    "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
     "project_id_not_editable": "content_mode cannot be modified after project creation",
     "project_deleted": "Project '{name}' deleted",
     "scene_updated": "Scene '{scene_id}' updated",

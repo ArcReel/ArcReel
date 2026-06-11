@@ -42,6 +42,8 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const { t } = useTranslation(["dashboard", "common"]);
   const tRef = useRef(t);
   tRef.current = t;
+  // 广告/短片项目恒单集：界面隐藏「集」语义，区块按单视频呈现
+  const isAd = projectData?.content_mode === "ad";
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
   const getEpisodeCost = useCostStore((s) => s.getEpisodeCost);
   const costLoading = useCostStore((s) => s.loading);
@@ -247,7 +249,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             >
               {projectData.content_mode === "narration"
                 ? t("narration_visuals_mode")
-                : t("drama_animation_mode")}
+                : projectData.content_mode === "ad"
+                  ? t("ad_short_video_mode")
+                  : t("drama_animation_mode")}
             </p>
           </div>
         </header>
@@ -650,9 +654,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   className="display-serif text-[15px] font-semibold tracking-tight"
                   style={{ color: "var(--color-text)" }}
                 >
-                  {t("episodes_title")}
+                  {isAd ? t("ad_video_section_title") : t("episodes_title")}
                 </h3>
-                {(projectData.episodes?.length ?? 0) > 0 && (
+                {!isAd && (projectData.episodes?.length ?? 0) > 0 && (
                   <span
                     className="num text-[10.5px]"
                     style={{ color: "var(--color-text-4)" }}
@@ -681,21 +685,23 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                           boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
                         }}
                       >
-                        <span
-                          className="rounded px-1.5 py-0.5 text-[10.5px] font-bold"
-                          style={{
-                            color: "var(--color-accent-2)",
-                            background: "var(--color-accent-dim)",
-                            border: "1px solid var(--color-accent-soft)",
-                          }}
-                        >
-                          E{ep.episode}
-                        </span>
+                        {!isAd && (
+                          <span
+                            className="rounded px-1.5 py-0.5 text-[10.5px] font-bold"
+                            style={{
+                              color: "var(--color-accent-2)",
+                              background: "var(--color-accent-dim)",
+                              border: "1px solid var(--color-accent-soft)",
+                            }}
+                          >
+                            E{ep.episode}
+                          </span>
+                        )}
                         <span style={{ color: "var(--color-text)", fontFamily: "var(--font-sans)" }}>
-                          {ep.title}
+                          {ep.title || (isAd ? projectData.title : "")}
                         </span>
                         <span style={{ color: "var(--color-text-4)" }}>
-                          {t("segments_and_status", {
+                          {t(isAd ? "shots_and_status" : "segments_and_status", {
                             count: ep.scenes_count ?? "?",
                             status: t(`episode_status_label_${ep.status ?? "draft"}`),
                           })}

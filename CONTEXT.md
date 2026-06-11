@@ -184,6 +184,10 @@ _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范
 把同一段落多个场景合并成一张 N 格联合大图一次生成（grid_4/6/9）、再切割成各场景首尾帧的分镜生成路径；与逐张图生视频（storyboard）同为 generation_mode 下的「分镜→视频」路径，核心价值在一次生成保证画风/角色一致。
 _Avoid_: 把 reference_video 当作与 grid/storyboard 同维度的第三个平级取值——它跳过分镜、是凌驾于 content_mode 之上的独立骨架，并非这种「分镜→视频」路径；逐张模式的规范值是 storyboard，而非旧用语 single。
 
+**广告/短片模式（ad）**：
+content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。剧本骨架为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签，八值引导不硬枚举）与一等口播文案 `voiceover_text`；项目恒单集（episodes 恒为第 1 集单条），项目级新字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；generation_mode 仅开放 storyboard 与 reference_video（见 `docs/adr/0033`）。
+_Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有按 content_mode 分派的机制必须显式处理第三值；把 AdShot 与 video_unit 内的 shot（参考生视频子镜头）混为一谈——前者是剧本骨架的平铺镜头、后者是 unit 内时间编排。
+
 **video_unit / shot（参考生视频单元）**：
 参考生视频模式下的生成单元：一个 video_unit 含 1–4 个 shot（子镜头），整 unit 共享一组按顺序编号的参考图（`[图N]`），跳过分镜直接由资产图生成；剧本用 `video_units[]` 而非 `segments[]` / `scenes[]` 组织。
 _Avoid_: 把 shot 与 segment（说书片段）/ DramaScene（剧集场景）混为一谈；「scene」在参考模式下三义须分辨——场景资产（scene_sheet）、剧本分镜场景（DramaScene）、镜头（shot）。
@@ -215,7 +219,7 @@ _Avoid_: 与 ManagedSession（会话内存状态容器）混为一谈——actor
 _Avoid_: 用「.claude」「CLAUDE.md」笼统指代——开发态 `.claude/` 与 agent profile 是两套；也不要称为 agent config（与 Anthropic 凭证的 agent_config 路由重名）。
 
 **profile 物化（materialization）**：
-把 agent profile 按 manifest + sha256 复制进每个项目目录的过程，只同步声明过且校验通过的文件，并按项目 content_mode 选 `CLAUDE.{narration,drama}.md` 变体落盘为单一 `CLAUDE.md`。
+把 agent profile 按 manifest + sha256 复制进每个项目目录的过程，只同步声明过且校验通过的文件，并按项目 content_mode 选 `CLAUDE.{narration,drama,ad}.md` 变体落盘为单一 `CLAUDE.md`。
 _Avoid_: 用「同步 / 复制 / deploy」泛指——物化特指 manifest 驱动 + 变体投影 + sha256 三态的受控写入；变体源文件名（`CLAUDE.narration.md`）≠ 项目端逻辑文件名（`CLAUDE.md`）。
 
 **agent 沙箱（agent sandbox）**：

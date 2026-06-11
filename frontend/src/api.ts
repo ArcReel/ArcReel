@@ -197,10 +197,14 @@ export interface SegmentUpdatePayload {
 export interface CreateProjectPayload {
   title: string;
   name?: string;
-  content_mode?: "narration" | "drama";
+  content_mode?: "narration" | "drama" | "ad";
   aspect_ratio?: "9:16" | "16:9";
   generation_mode?: GenerationMode;
   default_duration?: number | null;
+  /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
+  target_duration?: number;
+  /** 仅 ad：创作诉求短文本（可空）。 */
+  brief?: string | null;
   style_template_id?: string | null;
   video_backend?: string | null;
   image_backend?: string | null;

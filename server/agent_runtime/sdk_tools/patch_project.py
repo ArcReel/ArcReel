@@ -23,7 +23,7 @@ _TABLES = ("characters", "scenes", "props")
 # 顶层 settings 白名单。新增项 append 到 tuple,并在 _validate_setting_value 加分支。
 # source_language: overview 生成是非必经路径(generate_overview=false / overview 失败时
 # 源语言不会落盘),需要给 agent 在用户确认后写入的恢复通道,带 zh/en/vi enum 校验防乱填。
-_SETTINGS_WHITELIST = ("episode_target_units", "source_language")
+_SETTINGS_WHITELIST = ("episode_target_units", "source_language", "brief")
 _SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
 
 # 项目概述（project["overview"]）可经本工具编辑的字段白名单。merge 语义:只改传入字段。
@@ -119,6 +119,10 @@ def _apply_settings(ctx: ToolContext, settings: dict[str, Any]) -> dict[str, Any
     diagnostics: dict[str, tuple[str, Any]] = {}
 
     def _mutate(project: dict[str, Any]) -> None:
+        # brief 仅广告/短片项目可用（与 DataValidator / 路由层同一约束），
+        # 在持锁读到 content_mode 后门控，整体失败不落盘
+        if "brief" in settings and project.get("content_mode") != "ad":
+            raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
         for key, value in settings.items():
             current = project.get(key)
             if value is None:
@@ -196,6 +200,12 @@ def _validate_setting_value(key: str, value: Any) -> None:
             return
         if not isinstance(value, str) or value not in _SOURCE_LANGUAGE_VALUES:
             raise ValueError(f"source_language 必须是 {list(_SOURCE_LANGUAGE_VALUES)} 之一或 null,收到 {value!r}")
+        return
+    if key == "brief":
+        if value is None:
+            return
+        if not isinstance(value, str):
+            raise ValueError(f"brief 必须是字符串或 null,收到 {value!r}")
         return
     # 不应到这,白名单校验在调用前
     raise ValueError(f"settings 字段 {key!r} 缺类型校验")

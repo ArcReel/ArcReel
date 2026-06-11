@@ -103,3 +103,18 @@ class TestStoryboardSequence:
             ("E1S03", None),
             ("E1S04", "E1S03"),
         ]
+
+
+class TestAdStoryboardItems:
+    def test_ad_script_resolves_shots_with_chars_field(self):
+        from lib.storyboard_sequence import get_storyboard_items
+
+        script = {
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01", "characters_in_shot": ["主播"]}],
+        }
+        items, id_field, char_field, scenes_field, props_field = get_storyboard_items(script)
+        assert id_field == "shot_id"
+        assert char_field == "characters_in_shot"
+        assert (scenes_field, props_field) == ("scenes", "props")
+        assert items[0]["shot_id"] == "E1S01"

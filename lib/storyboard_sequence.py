@@ -27,7 +27,7 @@ PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
 
 
 def get_storyboard_items(script: dict) -> tuple[list[dict], str, str, str, str]:
-    """返回 narration/drama 模式剧本的分镜列表 + 各引用字段名。
+    """返回 narration/drama/ad 模式剧本的分镜列表 + 各引用字段名。
 
     ``reference_video`` 模式没有 storyboard 一说（视频按 ``video_units`` 直出，
     见 ``server/agent_runtime/sdk_tools/enqueue_videos.py`` 的 reference 分支），
@@ -44,11 +44,13 @@ def get_storyboard_items(script: dict) -> tuple[list[dict], str, str, str, str]:
         return ([], "unit_id", "characters_in_unit", "scenes", "props")
 
     items, id_field, kind = resolve_items(script)
-    if kind == "segments":
-        char_field = "characters_in_segment"
-    else:
-        # kind == "scenes"（drama 或 narration 数据落 scenes 键的历史兼容路径）
-        char_field = "characters_in_scene"
+    # 角色引用字段名按 kind 显式分派；未知 kind 沿用历史兜底落 scenes 字段名
+    # （narration 数据落 scenes 键的历史兼容路径也归于此）。
+    char_field = {
+        "segments": "characters_in_segment",
+        "scenes": "characters_in_scene",
+        "shots": "characters_in_shot",
+    }.get(kind, "characters_in_scene")
     return (items, id_field, char_field, "scenes", "props")
 
 

@@ -103,7 +103,7 @@ export interface ModelSettingEntry {
 
 export interface ProjectData {
   title: string;
-  content_mode: "narration" | "drama";
+  content_mode: "narration" | "drama" | "ad";
   style: string;
   style_template_id?: string | null;
   style_image?: string;
@@ -111,6 +111,10 @@ export interface ProjectData {
   overview?: ProjectOverview;
   aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
   default_duration?: number | null;     // 新增
+  /** 仅 ad：目标总时长（秒）。 */
+  target_duration?: number;
+  /** 仅 ad：创作诉求短文本（可空）。 */
+  brief?: string;
   schema_version?: number;
   episodes: EpisodeMeta[];
   characters: Record<string, Character>;

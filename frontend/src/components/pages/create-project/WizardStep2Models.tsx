@@ -32,6 +32,8 @@ export interface WizardStep2ModelsProps {
   onCancel: () => void;
   data: WizardStep2Data | null;
   error: string | null;
+  /** ad 项目不暴露 default_duration（镜头时长按目标总时长规划）。 */
+  hideDuration?: boolean;
 }
 
 export function WizardStep2Models({
@@ -42,6 +44,7 @@ export function WizardStep2Models({
   onCancel,
   data,
   error,
+  hideDuration = false,
 }: WizardStep2ModelsProps) {
   const { t } = useTranslation(["common", "templates"]);
   const loading = !data && !error;
@@ -76,6 +79,7 @@ export function WizardStep2Models({
             providerNames: data.options.providerNames,
           }}
           globalDefaults={data.globalDefaults}
+          enable={hideDuration ? { duration: false } : undefined}
         />
       )}
 

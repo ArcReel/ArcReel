@@ -111,7 +111,7 @@ def append_video_negative_tail(prompt: str) -> str:
 def build_storyboard_suffix(content_mode: str = "narration", *, aspect_ratio: str | None = None) -> str:
     """分镜图构图后缀。优先 aspect_ratio，缺省按 content_mode 推导。"""
     if aspect_ratio is None:
-        ratio = "9:16" if content_mode == "narration" else "16:9"
+        ratio = "9:16" if content_mode in {"narration", "ad"} else "16:9"
     else:
         ratio = aspect_ratio
     if ratio == "9:16":

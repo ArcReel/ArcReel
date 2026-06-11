@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
   LayoutDashboard,
   BookOpen,
   Users,
@@ -48,6 +49,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const sceneCount = Object.keys(currentProjectData?.scenes ?? {}).length;
   const propCount = Object.keys(currentProjectData?.props ?? {}).length;
   const episodes = currentProjectData?.episodes ?? [];
+  // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
+  const isAd = currentProjectData?.content_mode === "ad";
 
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
   const [sourceCount, setSourceCount] = useState<number>(0);
@@ -114,9 +117,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     return location === item.path || location.startsWith(item.path + "/");
   };
 
-  const filteredEps = episodes.filter(
-    (ep) => !search || ep.title.includes(search) || String(ep.episode).includes(search),
-  );
+  // ad 隐藏搜索框，残留的 search state 不参与过滤，避免唯一视频入口被吞
+  const filteredEps = isAd
+    ? episodes
+    : episodes.filter(
+        (ep) => !search || ep.title.includes(search) || String(ep.episode).includes(search),
+      );
 
   return (
     <aside
@@ -207,51 +213,59 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               className="text-[10.5px] font-bold uppercase"
               style={{ color: "var(--color-text-4)", letterSpacing: "0.8px" }}
             >
-              {t("dashboard:episodes_section_title")}
+              {isAd
+                ? t("dashboard:ad_video_section_title")
+                : t("dashboard:episodes_section_title")}
             </span>
-            <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
-              {episodes.length}
-            </span>
-            <span className="flex-1" />
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              className="grid h-5 w-5 place-items-center rounded focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                background: "oklch(0.28 0.012 250 / 0.6)",
-                color: "var(--color-text-3)",
-              }}
-              title={t("dashboard:add_episode_unavailable")}
-              aria-label={t("dashboard:add_episode")}
-            >
-              <Plus className="h-3 w-3" />
-            </button>
+            {!isAd && (
+              <>
+                <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+                  {episodes.length}
+                </span>
+                <span className="flex-1" />
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="grid h-5 w-5 place-items-center rounded focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    background: "oklch(0.28 0.012 250 / 0.6)",
+                    color: "var(--color-text-3)",
+                  }}
+                  title={t("dashboard:add_episode_unavailable")}
+                  aria-label={t("dashboard:add_episode")}
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              </>
+            )}
           </div>
 
-          <div className="px-2.5 pb-2">
-            <div
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
-              style={{
-                background: "oklch(0.16 0.010 250 / 0.6)",
-                border: "1px solid var(--color-hairline)",
-              }}
-            >
-              <Search
-                className="h-3 w-3 shrink-0"
-                style={{ color: "var(--color-text-4)" }}
-              />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t("dashboard:episode_search_placeholder")}
-                aria-label={t("dashboard:episode_search_placeholder")}
-                className="min-w-0 flex-1 bg-transparent text-xs outline-none focus-ring"
-                style={{ color: "var(--color-text)" }}
-              />
+          {!isAd && (
+            <div className="px-2.5 pb-2">
+              <div
+                className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
+                style={{
+                  background: "oklch(0.16 0.010 250 / 0.6)",
+                  border: "1px solid var(--color-hairline)",
+                }}
+              >
+                <Search
+                  className="h-3 w-3 shrink-0"
+                  style={{ color: "var(--color-text-4)" }}
+                />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={t("dashboard:episode_search_placeholder")}
+                  aria-label={t("dashboard:episode_search_placeholder")}
+                  className="min-w-0 flex-1 bg-transparent text-xs outline-none focus-ring"
+                  style={{ color: "var(--color-text)" }}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex-1 overflow-y-auto px-2 pb-2.5">
             {filteredEps.length === 0 ? (
@@ -270,6 +284,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   ep={ep}
                   active={ep.episode === activeEp}
                   onClick={() => setLocation(`/episodes/${ep.episode}`)}
+                  showEpisodeBadge={!isAd}
+                  fallbackTitle={isAd ? currentProjectData?.title : undefined}
                 />
               ))
             )}
@@ -278,10 +294,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       ) : (
         <div className="flex-1 overflow-y-auto px-2.5 py-1.5">
           {filteredEps.map((ep) => {
-            const epLabel = t("dashboard:episode_collapsed_button_label", {
-              episode: ep.episode,
-              title: ep.title,
-            });
+            const epLabel = isAd
+              ? t("dashboard:ad_video_section_title")
+              : t("dashboard:episode_collapsed_button_label", {
+                  episode: ep.episode,
+                  title: ep.title,
+                });
             return (
             <button
               key={ep.episode}
@@ -298,7 +316,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     : "var(--color-text-3)",
               }}
             >
-              E{ep.episode}
+              {isAd ? <Clapperboard className="h-4 w-4" aria-hidden /> : `E${ep.episode}`}
             </button>
             );
           })}

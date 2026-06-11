@@ -20,6 +20,7 @@ from pydantic_core import ErrorDetails
 from lib.data_validator import ValidationResult
 from lib.script_editor import resolve_kind
 from lib.script_models import (
+    AdEpisodeScript,
     DramaEpisodeScript,
     NarrationEpisodeScript,
     ReferenceVideoScript,
@@ -38,6 +39,7 @@ _KIND_MODEL: dict[str, type[BaseModel]] = {
     "video_units": ReferenceVideoScript,
     "scenes": DramaEpisodeScript,
     "segments": NarrationEpisodeScript,
+    "shots": AdEpisodeScript,
 }
 
 

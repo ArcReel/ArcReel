@@ -68,6 +68,11 @@ export function GridImageToVideoCanvas({
 }: GridImageToVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
+  // grid 画布仅服务 narration/drama（ad 不开放宫格生视频）；
+  // 子视图按窄类型接收，ad 显式不进（不落 drama 兜底）。
+  // 未知/脏 content_mode 沿用历史兜底落 drama 视图，仅 ad 显式排除。
+  const editorContentMode: "narration" | "drama" | null =
+    contentMode === "narration" ? "narration" : contentMode === "ad" ? null : "drama";
 
   const hasScript = Boolean(episodeScript);
   const showTabs = Boolean(hasDraft);
@@ -103,7 +108,9 @@ export function GridImageToVideoCanvas({
         ? []
         : contentMode === "narration"
           ? ((episodeScript as NarrationEpisodeScript).segments ?? [])
-          : ((episodeScript as DramaEpisodeScript).scenes ?? []),
+          : contentMode === "drama"
+            ? ((episodeScript as DramaEpisodeScript).scenes ?? [])
+            : [],
     [contentMode, episodeScript, projectData],
   );
 
@@ -269,28 +276,28 @@ export function GridImageToVideoCanvas({
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "preprocessing" && hasDraft ? (
+        {activeTab === "preprocessing" && hasDraft && editorContentMode ? (
           <div className="h-full overflow-y-auto p-4">
             <PreprocessingView
               projectName={projectName}
               episode={episode}
-              contentMode={contentMode}
+              contentMode={editorContentMode}
             />
           </div>
-        ) : activeTab === "grid_preview" ? (
+        ) : activeTab === "grid_preview" && editorContentMode ? (
           <GridPreviewView
             projectName={projectName}
             episode={episode}
             scriptFile={scriptFile}
             segments={segments}
-            contentMode={contentMode}
+            contentMode={editorContentMode}
             aspectRatio={aspectRatio}
             onGenerateGrid={onGenerateGrid}
           />
-        ) : episodeScript && segments.length > 0 ? (
+        ) : episodeScript && segments.length > 0 && editorContentMode ? (
           <ShotSplitView
             segments={segments}
-            contentMode={contentMode}
+            contentMode={editorContentMode}
             aspectRatio={aspectRatio}
             projectName={projectName}
             scriptFile={scriptFile}

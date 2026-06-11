@@ -407,7 +407,8 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
         return val
     if isinstance(val, dict) and resource_type in val:
         return val[resource_type]
-    return "9:16" if project.get("content_mode", "narration") == "narration" else "16:9"
+    # narration/ad 默认竖屏，drama（含未知值的历史兜底）默认横屏
+    return "9:16" if project.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
 
 
 def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:

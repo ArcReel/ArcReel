@@ -203,3 +203,53 @@ class TestInvalidReferenceVideo:
         unit = _unit(shots=shots, duration=5)
         result = validate_script_structure(_reference([unit]))
         assert not result.valid
+
+
+def _ad_shot(shot_id: str = "E1S01", duration: int = 3) -> dict:
+    return {
+        "shot_id": shot_id,
+        "section": "hook",
+        "duration_seconds": duration,
+        "voiceover_text": "口播文案",
+        "image_prompt": {
+            "scene": "场景描述",
+            "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+        },
+        "video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"},
+    }
+
+
+def _ad(shots: list[dict] | None = None) -> dict:
+    return {
+        "title": "短片",
+        "content_mode": "ad",
+        "novel": {"title": "", "chapter": ""},
+        "shots": shots if shots is not None else [_ad_shot()],
+    }
+
+
+class TestAdScripts:
+    def test_valid_ad(self):
+        assert validate_script_structure(_ad()).valid
+
+    def test_ad_detected_by_content_mode(self):
+        """ad 剧本按 AdEpisodeScript 校验，不落 narration/drama 模型。"""
+        bad = _ad()
+        del bad["shots"][0]["voiceover_text"]
+        result = validate_script_structure(bad)
+        assert not result.valid
+        assert any("voiceover_text" in e for e in result.errors)
+
+    def test_ad_detected_by_shots_key_when_content_mode_absent(self):
+        script = _ad()
+        del script["content_mode"]
+        assert validate_script_structure(script).valid
+
+    def test_resolve_kind_and_items_for_ad(self):
+        from lib.script_editor import resolve_items, resolve_kind
+
+        script = _ad()
+        assert resolve_kind(script) == "shots"
+        items, id_field, kind = resolve_items(script)
+        assert (id_field, kind) == ("shot_id", "shots")
+        assert items[0]["shot_id"] == "E1S01"

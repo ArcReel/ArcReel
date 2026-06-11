@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,11 @@ class CreateProjectRequest(BaseModel):
     content_mode: ContentMode | None = "narration"
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
+    # 仅 content_mode=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
+    # 数据层不硬枚举，任意正整数合法。
+    target_duration: int | None = Field(default=None, gt=0)
+    # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
+    brief: str | None = None
     generation_mode: str | None = None
     # ===== 新增 =====
     style_template_id: str | None = None
@@ -109,6 +114,10 @@ class UpdateProjectRequest(BaseModel):
     content_mode: ContentMode | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
+    # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
+    target_duration: int | None = Field(default=None, gt=0)
+    # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
+    brief: str | None = None
     generation_mode: str | None = None
     video_backend: str | None = None
     image_backend: str | None = None
@@ -462,6 +471,20 @@ async def create_project(
             if req.image_backend:
                 raise HTTPException(status_code=400, detail=_t("deprecated_image_backend"))
 
+            # 模式专属字段互斥：target_duration/brief 仅 ad 可用；
+            # ad 不暴露 default_duration、不开放 grid 生成模式
+            content_mode = req.content_mode or "narration"
+            if content_mode == "ad":
+                if req.default_duration is not None:
+                    raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
+                if req.generation_mode == "grid":
+                    raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
+            else:
+                if req.target_duration is not None:
+                    raise HTTPException(status_code=400, detail=_t("ad_only_field", field="target_duration"))
+                if req.brief is not None:
+                    raise HTTPException(status_code=400, detail=_t("ad_only_field", field="brief"))
+
             # 与 update 路径对称：校验所有 backend 字段
             for field_name in (
                 "video_backend",
@@ -506,6 +529,8 @@ async def create_project(
                     default_duration=req.default_duration,
                     style_template_id=req.style_template_id,
                     extras=extras or None,
+                    target_duration=req.target_duration,
+                    brief=req.brief,
                 )
             return {"success": True, "name": project_name, "project": project}
 
@@ -620,6 +645,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 
             def _mutate(project: dict) -> None:
                 # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
+                is_ad = project.get("content_mode") == "ad"
                 if req.title is not None:
                     project["title"] = req.title
                 if req.style is not None:
@@ -648,15 +674,29 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
                     project["aspect_ratio"] = req.aspect_ratio
                 if "generation_mode" in req.model_fields_set:
+                    if is_ad and req.generation_mode == "grid":
+                        raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
                     if req.generation_mode is None:
                         project.pop("generation_mode", None)
                     else:
                         project["generation_mode"] = req.generation_mode
                 if "default_duration" in req.model_fields_set:
+                    if is_ad and req.default_duration is not None:
+                        raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
                     if req.default_duration is None:
                         project.pop("default_duration", None)
                     else:
                         project["default_duration"] = req.default_duration
+                if "target_duration" in req.model_fields_set:
+                    if not is_ad:
+                        raise HTTPException(status_code=400, detail=_t("ad_only_field", field="target_duration"))
+                    if req.target_duration is None:
+                        raise HTTPException(status_code=400, detail=_t("ad_target_duration_required"))
+                    project["target_duration"] = req.target_duration
+                if "brief" in req.model_fields_set:
+                    if not is_ad:
+                        raise HTTPException(status_code=400, detail=_t("ad_only_field", field="brief"))
+                    project["brief"] = req.brief if req.brief is not None else ""
 
                 if "style_template_id" in req.model_fields_set:
                     if req.style_template_id is None:
@@ -695,6 +735,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     existing_list = project.get("episodes", [])
                     patch_map: dict[int, EpisodePatch] = {}
                     for ep in req.episodes:
+                        if is_ad and ep.generation_mode == "grid":
+                            raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
                         patch_map[ep.episode] = ep  # 重复编号：后者覆盖前者
 
                     new_episodes: list[dict] = []

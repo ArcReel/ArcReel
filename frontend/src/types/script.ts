@@ -149,4 +149,34 @@ export interface DramaEpisodeScript {
   scenes: DramaScene[];
 }
 
-export type EpisodeScript = NarrationEpisodeScript | DramaEpisodeScript;
+/** 广告/短片模式镜头（平铺 shots[]，口播文案一等）。 */
+export interface AdShot {
+  shot_id: string;
+  /** 带货框架段落标签（hook/painpoint/... 八值引导，不硬枚举）。 */
+  section: string;
+  duration_seconds: DurationSeconds;
+  /** 口播文案，字幕导出与后续配音的唯一来源。 */
+  voiceover_text: string;
+  characters_in_shot?: string[];
+  scenes?: string[];
+  props?: string[];
+  /** 产品名称引用，非空即产品镜头。 */
+  products_in_shot?: string[];
+  image_prompt: ImagePrompt | string;
+  video_prompt: VideoPrompt | string;
+  transition_to_next: TransitionType;
+  note?: string;
+  generated_assets?: GeneratedAssets;
+}
+
+export interface AdEpisodeScript {
+  episode: number;
+  title: string;
+  content_mode: "ad";
+  duration_seconds: number;
+  schema_version?: number;
+  novel: NovelInfo;
+  shots: AdShot[];
+}
+
+export type EpisodeScript = NarrationEpisodeScript | DramaEpisodeScript | AdEpisodeScript;

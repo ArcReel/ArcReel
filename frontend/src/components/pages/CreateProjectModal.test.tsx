@@ -228,3 +228,67 @@ describe("CreateProjectModal", () => {
     expect(API.uploadStyleImage).not.toHaveBeenCalled();
   });
 });
+
+describe("CreateProjectModal ad mode", () => {
+  beforeEach(() => {
+    navigateMock.mockClear();
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    useProjectsStore.setState({ showCreateModal: true });
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
+    vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "createProject").mockResolvedValue({
+      success: true,
+      name: "ad-proj",
+      project: {} as never,
+    });
+  });
+
+  it("submits ad project with target_duration and without default_duration", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "ad demo" } });
+    fireEvent.click(screen.getByText(/广告\/短片/));
+    // 改选 30 秒档
+    fireEvent.click(screen.getByRole("radio", { name: /30\s*秒/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+
+    expect(API.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "ad demo",
+        content_mode: "ad",
+        aspect_ratio: "9:16",
+        target_duration: 30,
+      })
+    );
+    const payload = vi.mocked(API.createProject).mock.calls[0][0];
+    expect("default_duration" in payload).toBe(false);
+    expect(navigateMock).toHaveBeenCalledWith("/app/projects/ad-proj");
+  });
+
+  it("does not send target_duration for narration projects", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    const payload = vi.mocked(API.createProject).mock.calls[0][0];
+    expect("target_duration" in payload).toBe(false);
+  });
+});

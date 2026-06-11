@@ -59,6 +59,11 @@ export function TimelineCanvas({
 }: TimelineCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
+  // 分镜编辑子视图当前仅支持 narration/drama 两种剧本形状；
+  // ad 的镜头编辑视图随带货脚本生成一并落地，未落地前显式不进编辑器（不落 drama 兜底）。
+  // 未知/脏 content_mode 沿用历史兜底落 drama 视图，仅 ad 显式排除。
+  const editorContentMode: "narration" | "drama" | null =
+    contentMode === "narration" ? "narration" : contentMode === "ad" ? null : "drama";
 
   const hasScript = Boolean(episodeScript);
   const showTabs = Boolean(hasDraft);
@@ -96,7 +101,9 @@ export function TimelineCanvas({
         ? []
         : contentMode === "narration"
           ? ((episodeScript as NarrationEpisodeScript).segments ?? [])
-          : ((episodeScript as DramaEpisodeScript).scenes ?? []),
+          : contentMode === "drama"
+            ? ((episodeScript as DramaEpisodeScript).scenes ?? [])
+            : [],
     [contentMode, episodeScript, projectData],
   );
 
@@ -250,18 +257,18 @@ export function TimelineCanvas({
 
       {/* 主体 */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "preprocessing" && hasDraft ? (
+        {activeTab === "preprocessing" && hasDraft && editorContentMode ? (
           <div className="h-full overflow-y-auto p-4">
             <PreprocessingView
               projectName={projectName}
               episode={episode}
-              contentMode={contentMode}
+              contentMode={editorContentMode}
             />
           </div>
-        ) : episodeScript && segments.length > 0 ? (
+        ) : episodeScript && segments.length > 0 && editorContentMode ? (
           <ShotSplitView
             segments={segments}
-            contentMode={contentMode}
+            contentMode={editorContentMode}
             aspectRatio={aspectRatio}
             projectName={projectName}
             scriptFile={scriptFile}

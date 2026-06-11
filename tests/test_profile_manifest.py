@@ -417,14 +417,14 @@ def test_profile_misconfigured_error_is_runtime_error() -> None:
 def test_valid_content_modes_constant() -> None:
     from lib.profile_manifest import VALID_CONTENT_MODES
 
-    assert VALID_CONTENT_MODES == frozenset({"narration", "drama"})
+    assert VALID_CONTENT_MODES == frozenset({"narration", "drama", "ad"})
 
 
 # ---------- resolve_profile_files_for_mode ----------
 
 
 def _make_profile(tmp_path: Path) -> Path:
-    """构造典型 profile：通用文件 + narration/drama 变体配对。"""
+    """构造典型 profile：通用文件 + narration/drama/ad 变体配对。"""
     profile = tmp_path / "profile"
     (profile / ".claude" / "skills" / "manga-workflow").mkdir(parents=True)
     (profile / ".claude" / "agents").mkdir(parents=True)
@@ -433,9 +433,11 @@ def _make_profile(tmp_path: Path) -> Path:
     # CLAUDE.md 变体配对
     (profile / "CLAUDE.narration.md").write_text("narration top")
     (profile / "CLAUDE.drama.md").write_text("drama top")
+    (profile / "CLAUDE.ad.md").write_text("ad top")
     # SKILL.md 变体配对
     (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.narration.md").write_text("nar skill")
     (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.drama.md").write_text("dra skill")
+    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.ad.md").write_text("ad skill")
     return profile
 
 
@@ -460,6 +462,40 @@ def test_resolve_for_drama_picks_drama_variants(tmp_path: Path) -> None:
 
     assert mapping[".claude/skills/manga-workflow/SKILL.md"] == ".claude/skills/manga-workflow/SKILL.drama.md"
     assert mapping["CLAUDE.md"] == "CLAUDE.drama.md"
+
+
+def test_resolve_for_ad_picks_ad_variants(tmp_path: Path) -> None:
+    from lib.profile_manifest import resolve_profile_files_for_mode
+
+    profile = _make_profile(tmp_path)
+    mapping = resolve_profile_files_for_mode(profile, "ad")
+
+    assert mapping["CLAUDE.md"] == "CLAUDE.ad.md"
+    assert mapping[".claude/skills/manga-workflow/SKILL.md"] == ".claude/skills/manga-workflow/SKILL.ad.md"
+
+
+def test_repo_profile_resolves_for_every_content_mode() -> None:
+    """仓库内置 profile 的变体配对必须覆盖全部 content_mode——任一模式建项目都能物化。"""
+    from lib.profile_manifest import VALID_CONTENT_MODES, resolve_profile_files_for_mode
+
+    repo_profile = Path(__file__).resolve().parent.parent / "agent_runtime_profile"
+    for mode in sorted(VALID_CONTENT_MODES):
+        mapping = resolve_profile_files_for_mode(repo_profile, mode)  # type: ignore[arg-type]
+        assert mapping["CLAUDE.md"] == f"CLAUDE.{mode}.md"
+
+
+def test_sync_ad_project_writes_ad_variant(tmp_path: Path) -> None:
+    from lib.profile_manifest import sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = tmp_path / "proj_root_ad"
+    project.mkdir(parents=True)
+
+    sync_profile_to_project(profile, project, content_mode="ad")
+
+    assert (project / "CLAUDE.md").read_text() == "ad top"
+    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "ad skill"
+    assert not (project / "CLAUDE.ad.md").exists()
 
 
 def test_resolve_unpaired_variant_raises(tmp_path: Path) -> None:

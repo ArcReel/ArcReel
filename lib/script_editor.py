@@ -24,11 +24,11 @@ class ScriptEditError(ValueError):
     """剧本编辑操作非法（id 未命中、数组越界、拆分份数不足、字段路径不存在等）。"""
 
 
-_KIND_ID_FIELD = {"video_units": "unit_id", "scenes": "scene_id", "segments": "segment_id"}
+_KIND_ID_FIELD = {"video_units": "unit_id", "scenes": "scene_id", "segments": "segment_id", "shots": "shot_id"}
 
 
 def resolve_kind(script: dict[str, Any]) -> str:
-    """判别剧本当前的分镜数组种类：返回 ``"video_units"`` / ``"scenes"`` / ``"segments"``。
+    """判别剧本当前的分镜数组种类：返回 ``"video_units"`` / ``"scenes"`` / ``"segments"`` / ``"shots"``。
 
     **数据形状优先,``generation_mode`` 不参与路由**:配置改了 reference 但数据还在
     ``segments`` 的 partial migration 中间态下,若让 ``generation_mode`` 单向赢,整集脚本
@@ -38,18 +38,20 @@ def resolve_kind(script: dict[str, Any]) -> str:
     它自己的 ``generation_mode`` 分流决定。
 
     判别顺序:
-    1. ``video_units`` 在场且 ``segments`` / ``scenes`` 都不在 → reference(避免 storyboard
-       脚本被误塞的游离 ``video_units`` 抢走判别)
-    2. ``content_mode`` 为权威(``drama`` → scenes,``narration`` → segments)
+    1. ``video_units`` 在场且 ``segments`` / ``scenes`` / ``shots`` 都不在 → reference(避免
+       storyboard 脚本被误塞的游离 ``video_units`` 抢走判别)
+    2. ``content_mode`` 为权威(``drama`` → scenes,``narration`` → segments,``ad`` → shots)
     3. ``content_mode=narration`` 但数据落 ``scenes`` 键(无 ``segments``)的历史遗留兼容
     4. ``content_mode`` 缺失时按顶层键存在性推断
 
     `_select_model`(结构校验)/ `resolve_items`(编辑核心)/ 写盘统一入口的 metadata 重算共用
     本判别,三处只此一处真相、不漂移。
     """
-    if "video_units" in script and "segments" not in script and "scenes" not in script:
+    if "video_units" in script and not any(k in script for k in ("segments", "scenes", "shots")):
         return "video_units"
     content_mode = script.get("content_mode")
+    if content_mode == "ad":
+        return "shots"
     if content_mode == "drama":
         return "scenes"
     if content_mode == "narration":
@@ -60,6 +62,8 @@ def resolve_kind(script: dict[str, Any]) -> str:
         return "segments"
     if "scenes" in script and "segments" not in script:
         return "scenes"
+    if "shots" in script and "segments" not in script:
+        return "shots"
     return "segments"
 
 
@@ -117,7 +121,7 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if parts[0] == "generated_assets":
         # patch 是纯字段 setter，资产生命周期与剧本编辑解耦（见 ADR-0003）。
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
-    if parts[0] in {"segment_id", "scene_id", "unit_id"}:
+    if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
         # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
         # agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
         # 或产生重复 id 歧义。增减分镜走 insert_segment / split_segment / remove_segment 工具。

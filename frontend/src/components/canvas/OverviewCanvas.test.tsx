@@ -112,3 +112,35 @@ describe("OverviewCanvas", () => {
     expect(screen.getByRole("button", { name: "创建概述" })).toBeInTheDocument();
   });
 });
+
+describe("OverviewCanvas ad mode", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    vi.restoreAllMocks();
+  });
+
+  it("hides episode semantics for ad projects", () => {
+    render(
+      <OverviewCanvas
+        projectName="ad-demo"
+        projectData={makeProjectData({
+          content_mode: "ad",
+          target_duration: 60,
+          brief: "卖点",
+          episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],
+        })}
+      />,
+    );
+    // 不出现「集」概念：无 E1 徽标、无「剧集」标题
+    expect(screen.queryByText("E1")).not.toBeInTheDocument();
+    expect(screen.queryByText("剧集")).not.toBeInTheDocument();
+    // 改为「视频」区块标题
+    expect(screen.getByText("视频")).toBeInTheDocument();
+  });
+
+  it("keeps episode semantics for narration projects", () => {
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+    expect(screen.getByText("E1")).toBeInTheDocument();
+  });
+});

@@ -412,3 +412,84 @@ class TestStatusCalculator:
         assert pm.load_calls == ["scripts/episode_2.json"]
         assert status["episodes_summary"]["total"] == 2
         assert status["episodes_summary"]["scripted"] == 2
+
+
+class TestAdStatusCalculation:
+    """广告/短片模式（平铺 shots[]）的状态与统计计算。"""
+
+    def test_select_ad_mode_and_items(self):
+        mode, items = StatusCalculator._select_content_mode_and_items(
+            {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]}
+        )
+        assert mode == "ad"
+        assert len(items) == 1
+
+    def test_select_ad_by_duck_typing_when_content_mode_absent(self):
+        mode, items = StatusCalculator._select_content_mode_and_items({"shots": [{"shot_id": "E1S01"}]})
+        assert mode == "ad"
+        assert len(items) == 1
+
+    def test_calculate_episode_stats_for_ad(self, tmp_path):
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+
+        stats = calc.calculate_episode_stats(
+            "demo",
+            {
+                "content_mode": "ad",
+                "shots": [
+                    {"duration_seconds": 3, "generated_assets": {"storyboard_image": "a.png"}},
+                    {"duration_seconds": 5},
+                ],
+            },
+        )
+        assert stats["status"] == "in_production"
+        assert stats["scenes_count"] == 2
+        assert stats["duration_seconds"] == 8
+        assert stats["storyboards"] == {"total": 2, "completed": 1}
+        assert stats["videos"] == {"total": 2, "completed": 0}
+
+    def test_ad_missing_duration_counts_zero(self, tmp_path):
+        # ad 无单镜头默认时长偏好：缺 duration_seconds 的镜头按 0 计入，
+        # 不挪用 narration(4)/drama(8) 的默认值污染 target_duration 对照
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        stats = calc.calculate_episode_stats(
+            "demo",
+            {"content_mode": "ad", "shots": [{"duration_seconds": 3}, {}]},
+        )
+        assert stats["duration_seconds"] == 3
+
+    def test_enrich_script_aggregates_ad_references(self, tmp_path):
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "duration_seconds": 3,
+                    "characters_in_shot": ["主播"],
+                    "scenes": ["客厅"],
+                    "props": ["速干杯"],
+                },
+                {
+                    "shot_id": "E1S02",
+                    "duration_seconds": 5,
+                    "characters_in_shot": [],
+                    "scenes": ["客厅"],
+                    "props": [],
+                },
+            ],
+        }
+        enriched = calc.enrich_script(script)
+        assert enriched["metadata"]["total_scenes"] == 2
+        assert enriched["duration_seconds"] == 8
+        assert enriched["characters_in_episode"] == ["主播"]
+        assert enriched["scenes_in_episode"] == ["客厅"]
+        assert enriched["props_in_episode"] == ["速干杯"]
+
+    def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
+        """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
+        segments > scenes > shots（依赖 SCRIPT_SHAPES 注册顺序，本测试钉住该顺序）。"""
+        mode, _ = StatusCalculator._select_content_mode_and_items({"segments": [{}], "scenes": [{}], "shots": [{}]})
+        assert mode == "narration"
+        mode, _ = StatusCalculator._select_content_mode_and_items({"scenes": [{}], "shots": [{}]})
+        assert mode == "drama"

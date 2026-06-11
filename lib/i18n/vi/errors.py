@@ -98,6 +98,10 @@ MESSAGES = {
     "unsupported_discovery_format": "Kiểm tra kết nối không hỗ trợ với {discovery_format}",
     # Projects
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
+    "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
+    "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
+    "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ chế độ tạo video dạng lưới",
+    "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
     "project_id_not_editable": "content_mode không thể chỉnh sửa sau khi tạo dự án",
     "project_deleted": "Đã xóa dự án '{name}'",
     "scene_updated": "Đã cập nhật cảnh '{scene_id}'",

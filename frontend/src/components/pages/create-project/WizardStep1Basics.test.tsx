@@ -8,6 +8,7 @@ const baseValue = {
   contentMode: "narration" as const,
   aspectRatio: "9:16" as const,
   generationMode: "storyboard" as const,
+  targetDuration: 60,
 };
 
 describe("WizardStep1Basics", () => {
@@ -162,7 +163,7 @@ describe("WizardStep1Basics", () => {
     const onChange = vi.fn();
     render(
       <WizardStep1Basics
-        value={{ title: "t", contentMode: "narration", aspectRatio: "9:16", generationMode: "storyboard" }}
+        value={{ ...baseValue, title: "t" }}
         onChange={onChange}
         onNext={() => {}}
         onCancel={() => {}}
@@ -170,5 +171,92 @@ describe("WizardStep1Basics", () => {
     );
     fireEvent.click(screen.getByRole("radio", { name: /Reference-to-Video|参考生视频/ }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ generationMode: "reference_video" }));
+  });
+
+  it("emits onChange with ad content mode", () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={baseValue}
+        onChange={onChange}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByText(/广告\/短片|Ad \/ Short Video/));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ contentMode: "ad" }),
+    );
+  });
+
+  it("switching to ad resets grid generation mode to storyboard", () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, generationMode: "grid" as const }}
+        onChange={onChange}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByText(/广告\/短片|Ad \/ Short Video/));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ contentMode: "ad", generationMode: "storyboard" }),
+    );
+  });
+
+  it("shows four target duration tiers with 60s selected by default for ad", () => {
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, contentMode: "ad" as const }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    for (const tier of ["15", "30", "60", "90"]) {
+      expect(screen.getByRole("radio", { name: new RegExp(`${tier}\\s*秒`) })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("radio", { name: /60\s*秒/ })).toBeChecked();
+  });
+
+  it("hides target duration tiers outside ad mode", () => {
+    render(
+      <WizardStep1Basics
+        value={baseValue}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("radio", { name: /15\s*秒/ })).not.toBeInTheDocument();
+  });
+
+  it("emits onChange when a target duration tier is clicked", () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, contentMode: "ad" as const }}
+        onChange={onChange}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: /30\s*秒/ }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ targetDuration: 30 }),
+    );
+  });
+
+  it("disables grid generation mode for ad", () => {
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, contentMode: "ad" as const }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /Grid-to-Video|宫格生视频/ })).toBeDisabled();
   });
 });

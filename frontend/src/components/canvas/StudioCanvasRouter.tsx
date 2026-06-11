@@ -40,7 +40,9 @@ function resolveSegmentPrompt(
   const seg =
     script.content_mode === "narration"
       ? script.segments.find((s) => s.segment_id === segmentId)
-      : script.scenes.find((s) => s.scene_id === segmentId);
+      : script.content_mode === "ad"
+        ? script.shots.find((s) => s.shot_id === segmentId)
+        : script.scenes.find((s) => s.scene_id === segmentId);
   return {
     resolvedFile,
     prompt: seg?.[field] ?? "",

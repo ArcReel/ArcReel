@@ -256,6 +256,56 @@ class DramaEpisodeScript(BaseModel):
     scenes: list[DramaScene] = Field(description="场景列表")
 
 
+# ============ 广告/短片模式（Ad） ============
+
+
+class AdShot(BaseModel):
+    """广告/短片模式的镜头——平铺 shots[] 的最小单元。
+
+    ``section`` 是带货框架段落标签（hook/痛点/亮相/卖点/演示/信任/促销/CTA 八值引导，
+    不硬枚举，留给 prompt 资产约束）；``voiceover_text`` 是一等口播文案，字幕导出与
+    后续 TTS 的单一来源。产品按名字引用 ``products_in_shot``（对应 project.json 的
+    products bucket），氛围镜头该列表为空。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    shot_id: str = Field(description="镜头 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    section: str = Field(description="带货框架段落标签（如 hook/painpoint/reveal/selling_point/demo/trust/promo/cta）")
+    duration_seconds: int = Field(ge=1, le=60, description="镜头时长（秒）")
+    voiceover_text: str = Field(description="口播文案（必须完整可照稿配音，可为空字符串）")
+    characters_in_shot: list[str] = Field(default_factory=list, description="出场角色名称列表")
+    scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
+    props: list[str] = Field(default_factory=list, description="出场道具名称列表")
+    products_in_shot: list[str] = Field(default_factory=list, description="出场产品名称列表，非空即产品镜头")
+    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
+    video_prompt: VideoPrompt = Field(description="视频生成提示词")
+    # 见 NarrationSegment.transition_to_next 说明
+    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
+    # 见 NarrationSegment 同名字段说明。
+    note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
+    generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
+        default_factory=GeneratedAssets, description="生成资源状态"
+    )
+
+
+class AdEpisodeScript(BaseModel):
+    """广告/短片模式剧集脚本（恒单集，剧本即第 1 集脚本文件）。
+
+    注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
+    详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
+    """
+
+    title: str = Field(description="短片标题")
+    # 见 NarrationEpisodeScript.content_mode 说明
+    content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="内容模式")
+    # 见 NarrationEpisodeScript.duration_seconds 说明。
+    duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
+    # 见 NarrationEpisodeScript.novel 说明
+    novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
+    shots: list[AdShot] = Field(description="镜头列表")
+
+
 # ============ 参考生视频模式（Reference Video） ============
 
 
@@ -350,20 +400,22 @@ class ScriptShape:
 SCRIPT_SHAPES: dict[str, ScriptShape] = {
     "narration": ScriptShape("segments", "segment_id", "characters_in_segment"),
     "drama": ScriptShape("scenes", "scene_id", "characters_in_scene"),
+    "ad": ScriptShape("shots", "shot_id", "characters_in_shot"),
 }
 
 
 def script_shape(content_mode: str) -> ScriptShape:
     """返回该 content_mode 的剧本形状。
 
-    忠实于既有二分语义（``"segments" if content_mode == "narration" else "scenes"``）：
-    只有 ``"narration"`` 返回 narration 形状，其余一切（含未知值）落 drama。
+    已注册模式（narration/drama/ad）显式命中各自形状；未知值（老项目缺失或
+    手编脏值）沿用历史兜底落 drama。
 
     reference_video 模式用 video_units/unit_id/references 组织，结构不同，不经此分派
     （由 project_archive 的专用分支处理）。
     """
-    if content_mode == "narration":
-        return SCRIPT_SHAPES["narration"]
+    shape = SCRIPT_SHAPES.get(content_mode)
+    if shape is not None:
+        return shape
     return SCRIPT_SHAPES["drama"]
 
 
@@ -401,8 +453,8 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     - 在 response_schema（结构化输出）里渲染为 JSON-schema ``enum``（单值时为 ``const``）→ LLM 生成层即被卡死；
     - ``model_validate`` 时强制成员校验。
 
-    仅服务 narration / drama 两种内容模式（忠实 ``script_shape`` 的二分：仅 ``"narration"`` 走
-    narration，其余落 drama）。reference_video 不经此路：其 API 消费的是 ``unit.duration_seconds``
+    服务 narration / drama / ad 三种内容模式（与 ``script_shape`` 同口径：已注册模式显式
+    分派，未知值落 drama）。reference_video 不经此路：其 API 消费的是 ``unit.duration_seconds``
     （各 shot 之和），与单 shot 枚举不对应，沿用静态 ``ReferenceVideoScript``。
     """
     duration_type = _duration_literal(supported_durations)
@@ -414,6 +466,13 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
             "NarrationEpisodeScript",
             __base__=NarrationEpisodeScript,
             segments=(list[segment], Field(description="片段列表")),
+        )
+    if content_mode == "ad":
+        shot = _constrained_duration_item(AdShot, duration_type, "镜头时长（秒），必须取 supported_durations 中的值")
+        return create_model(
+            "AdEpisodeScript",
+            __base__=AdEpisodeScript,
+            shots=(list[shot], Field(description="镜头列表")),
         )
     scene = _constrained_duration_item(DramaScene, duration_type, "场景时长（秒），必须取 supported_durations 中的值")
     return create_model(

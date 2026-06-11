@@ -8,10 +8,15 @@ import type { GenerationMode } from "@/utils/generation-mode";
 
 export interface WizardStep1Value {
   title: string;
-  contentMode: "narration" | "drama";
+  contentMode: "narration" | "drama" | "ad";
   aspectRatio: "9:16" | "16:9";
   generationMode: GenerationMode;
+  /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
+  targetDuration: number;
 }
+
+/** 广告/短片目标总时长的 UI 档位（数据层不硬枚举，任意正整数秒合法）。 */
+export const AD_TARGET_DURATION_TIERS = [15, 30, 60, 90] as const;
 
 export interface WizardStep1BasicsProps {
   value: WizardStep1Value;
@@ -105,13 +110,72 @@ export function WizardStep1Basics({
             />
             {t("dashboard:drama_animation")}
           </label>
+          <label className={radioCardClass(value.contentMode === "ad")}>
+            <input
+              type="radio"
+              name="contentMode"
+              value="ad"
+              checked={value.contentMode === "ad"}
+              onChange={() =>
+                onChange({
+                  ...value,
+                  contentMode: "ad",
+                  // ad 不开放宫格生视频：残留 grid 选择回落到默认 storyboard
+                  generationMode: value.generationMode === "grid" ? "storyboard" : value.generationMode,
+                })
+              }
+              className="sr-only"
+            />
+            {t("dashboard:ad_short_video")}
+          </label>
         </div>
         <p className="mt-2 text-[11.5px] leading-[1.55] text-text-3">
           {value.contentMode === "narration"
             ? t("dashboard:content_mode_narration_desc")
-            : t("dashboard:content_mode_drama_desc")}
+            : value.contentMode === "drama"
+              ? t("dashboard:content_mode_drama_desc")
+              : t("dashboard:content_mode_ad_desc")}
         </p>
       </div>
+
+      {/* Target Duration（仅 ad）。原生 radio：方向键切换开箱即用 */}
+      {value.contentMode === "ad" && (
+        <div>
+          <FieldLabel>{t("dashboard:target_duration_label")}</FieldLabel>
+          <div
+            className="flex flex-wrap gap-2"
+            role="radiogroup"
+            aria-label={t("dashboard:target_duration_label")}
+          >
+            {AD_TARGET_DURATION_TIERS.map((tier) => {
+              const active = value.targetDuration === tier;
+              return (
+                <label
+                  key={tier}
+                  className={
+                    "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent " +
+                    (active
+                      ? "border-accent/45 bg-accent-dim text-accent-2"
+                      : "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text")
+                  }
+                  style={active ? { boxShadow: "0 0 18px -8px var(--color-accent-glow)" } : undefined}
+                >
+                  <input
+                    type="radio"
+                    name="targetDuration"
+                    value={tier}
+                    checked={active}
+                    onChange={() => onChange({ ...value, targetDuration: tier })}
+                    aria-label={t("dashboard:duration_seconds_value_text", { value: tier })}
+                    className="sr-only"
+                  />
+                  {t("dashboard:duration_seconds_value_text", { value: tier })}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Aspect Ratio */}
       <div>
@@ -168,6 +232,7 @@ export function WizardStep1Basics({
         <GenerationModeSelector
           value={value.generationMode}
           onChange={(next) => onChange({ ...value, generationMode: next })}
+          disabledModes={value.contentMode === "ad" ? ["grid"] : undefined}
         />
       </div>
 

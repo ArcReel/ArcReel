@@ -98,6 +98,10 @@ MESSAGES = {
     "unsupported_discovery_format": "供应商 {discovery_format} 暂不支持连接测试",
     # Projects
     "unknown_style_template": "未知的风格模版: {template_id}",
+    "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
+    "ad_no_default_duration": "广告/短片项目不支持默认时长，镜头时长按目标总时长规划",
+    "ad_grid_not_supported": "广告/短片项目不支持宫格生视频模式",
+    "ad_target_duration_required": "广告/短片项目必须设置目标总时长（正整数秒）",
     "project_id_not_editable": "项目创建后不支持修改 content_mode",
     "project_deleted": "项目 '{name}' 已删除",
     "scene_updated": "场景 '{scene_id}' 已更新",

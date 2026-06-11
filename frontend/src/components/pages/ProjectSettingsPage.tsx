@@ -129,6 +129,7 @@ export function ProjectSettingsPage() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [projectTitle, setProjectTitle] = useState<string>("");
+  const [contentMode, setContentMode] = useState<string>("narration");
   const [saving, setSaving] = useState(false);
 
   // ── Style picker state (independent save flow) ─────────────────────────────
@@ -208,6 +209,7 @@ export function ProjectSettingsPage() {
       setGenerationMode(gm);
       setDefaultDuration(dd);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
+      setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
 
       // model_settings 的 key 以 effective backend（override ‖ global default）读写，
       // 与 handleSave 保持一致；legacy video_model_settings 作为旧项目兼容回退。
@@ -554,6 +556,7 @@ export function ProjectSettingsPage() {
                     textOverview: globalDefaults.textOverview ?? "",
                     textStyle: globalDefaults.textStyle ?? "",
                   }}
+                  enable={contentMode === "ad" ? { duration: false } : undefined}
                 />
               </SectionCard>
 
@@ -610,6 +613,7 @@ export function ProjectSettingsPage() {
                   <GenerationModeSelector
                     value={generationMode}
                     onChange={setGenerationMode}
+                    disabledModes={contentMode === "ad" ? ["grid"] : undefined}
                   />
                 </fieldset>
               </SectionCard>

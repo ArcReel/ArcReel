@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { Clapperboard } from "lucide-react";
 import type { EpisodeMeta } from "@/types";
 import { useCostStore } from "@/stores/cost-store";
 import { totalBreakdown } from "@/utils/cost-format";
@@ -7,6 +8,10 @@ interface EpisodeCardProps {
   ep: EpisodeMeta;
   active: boolean;
   onClick: () => void;
+  /** ad 项目隐藏集语义：徽标不显示 E{n}，改用场记板图标。 */
+  showEpisodeBadge?: boolean;
+  /** ep.title 为空时的兜底显示文本（ad 项目用项目标题）。 */
+  fallbackTitle?: string;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -29,7 +34,13 @@ const STATUS_LABEL_KEY: Record<string, string> = {
  * 侧栏分集卡片：左缩略 (E1 字符) + 中标题/状态/进度 + 右费用。
  * Active 态有 accent 紫边框 + 玻璃面板背景。
  */
-export function EpisodeCard({ ep, active, onClick }: EpisodeCardProps) {
+export function EpisodeCard({
+  ep,
+  active,
+  onClick,
+  showEpisodeBadge = true,
+  fallbackTitle,
+}: EpisodeCardProps) {
   const { t } = useTranslation(["dashboard"]);
   const status = ep.status ?? "draft";
   const statusColor = STATUS_COLOR[status] ?? STATUS_COLOR.draft;
@@ -92,7 +103,7 @@ export function EpisodeCard({ ep, active, onClick }: EpisodeCardProps) {
             : "inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px var(--color-hairline-soft)",
         }}
       >
-        {`E${ep.episode}`}
+        {showEpisodeBadge ? `E${ep.episode}` : <Clapperboard className="h-4 w-4" aria-hidden />}
       </div>
 
       <div className="min-w-0">
@@ -103,7 +114,7 @@ export function EpisodeCard({ ep, active, onClick }: EpisodeCardProps) {
             fontWeight: active ? 600 : 500,
           }}
         >
-          {ep.title}
+          {ep.title || fallbackTitle || ""}
         </div>
         <div className="mt-[3px] flex items-center gap-1.5">
           <span

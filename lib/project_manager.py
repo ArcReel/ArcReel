@@ -590,7 +590,9 @@ class ProjectManager:
             # 返回 None 让 sum() 抛 TypeError——显式判 None 视为缺失，与同函数前面对 metadata
             # 缺字段时按 setdefault 兜底的语义一致：脏值不阻塞 metadata 重算，但若 default 也
             # 失真（如 reference 模式未填 duration_seconds），下游 estimated 字段仍是近似值。
-            default_duration = 4 if kind == "segments" else 8
+            # shots（ad）无单镜头默认时长偏好，缺失按 0 计（与 StatusCalculator 口径一致）；
+            # 未知 kind 沿用历史兜底 8。
+            default_duration = {"segments": 4, "scenes": 8, "shots": 0}.get(kind, 8)
 
             def _duration(item: dict) -> int:
                 value = item.get("duration_seconds")
@@ -1487,6 +1489,11 @@ class ProjectManager:
         if not legacy:
             project.pop("video_model_settings", None)
 
+    # 广告/短片项目恒单集：episodes 恒为第 1 集单条，剧本即第 1 集脚本文件
+    AD_SINGLE_EPISODE = {"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}
+    # 创建入口未传 target_duration 时的数据层兜底（与创建向导默认档位同值）
+    AD_DEFAULT_TARGET_DURATION = 60
+
     def create_project_metadata(
         self,
         project_name: str,
@@ -1497,6 +1504,8 @@ class ProjectManager:
         default_duration: int | None = None,
         style_template_id: str | None = None,
         extras: dict | None = None,
+        target_duration: int | None = None,
+        brief: str | None = None,
     ) -> dict:
         """
         创建新的项目元数据文件
@@ -1505,9 +1514,27 @@ class ProjectManager:
         image_provider_i2i / text_backend_{script,overview,style}）。调用方负责剔除空值，
         本方法只按字面写入 extras 中已有的键——退役的单字段 image_backend 不在写入范围
         （解析链不再读取、写边界已拒绝），调用方不应再传入。
+
+        `target_duration` / `brief` 仅 content_mode=ad 可用；ad 项目不持有
+        `default_duration`，且 episodes 恒为第 1 集单条。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
+        resolved_mode = content_mode or "narration"
+
+        # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
+        if resolved_mode == "ad":
+            if default_duration is not None:
+                raise ValueError("广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）")
+            if target_duration is not None and (
+                not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0
+            ):
+                raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
+        else:
+            if target_duration is not None:
+                raise ValueError("target_duration 仅广告/短片项目（content_mode=ad）可用")
+            if brief is not None:
+                raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
 
         # schema_version 与 CURRENT_SCHEMA_VERSION 对齐：新项目即最新形态，
         # 避免被启动迁移误处理（如 v0→v1 在"未含 clues 字段"时误清空 scenes/props）。
@@ -1518,7 +1545,7 @@ class ProjectManager:
             # 允许空字符串:前端会以 i18n「未命名项目」兜底显示,避免把 slug
             # 风格的 project_name 固化为用户可见的标题。
             "title": project_title,
-            "content_mode": content_mode or "narration",
+            "content_mode": resolved_mode,
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
@@ -1531,6 +1558,12 @@ class ProjectManager:
                 "updated_at": datetime.now(UTC).isoformat(),
             },
         }
+        if resolved_mode == "ad":
+            project["target_duration"] = (
+                target_duration if target_duration is not None else self.AD_DEFAULT_TARGET_DURATION
+            )
+            project["brief"] = brief if brief is not None else ""
+            project["episodes"] = [dict(self.AD_SINGLE_EPISODE)]
         if default_duration is not None:
             project["default_duration"] = default_duration
         if style_template_id is not None:
