@@ -77,12 +77,13 @@
 #    (c) empty-body review (state=COMMENTED, body="") with no new inline
 #
 # 5. Trigger-command dedup matches comments that START with the command (case-insensitive,
-#    leading whitespace tolerated, trailing text allowed). Prefix matching — not full-line —
+#    leading spaces/tabs tolerated, trailing text allowed). Prefix matching — not full-line —
 #    so a human-issued "/gemini review (re: security fix)" still registers for dedup, while
 #    a comment merely MENTIONING a command mid-text does not (substring matching would
 #    swallow pushback comments that quote a command, silently suppressing real triggers).
-#    Note: jq's regex anchors ^/$ bind to the whole string, not lines — a command on the
-#    second line of a comment is NOT matched; keep commands at the start of the comment.
+#    Leading whitespace is [ \t] only, NOT \s: \s matches \n, which would also register a
+#    command sitting on the second line after a blank first line — keep the matcher aligned
+#    with the documented contract (command at the very start of the comment).
 #
 # 6. Quota / rate-limit errors from Codex are PR-level ISSUE comments, NOT reviews/inline/reactions.
 #    Codex emits e.g. "You have reached your Codex usage limits..." as a plain PR comment — easy to miss.
@@ -337,7 +338,7 @@ jq -n \
            (.author.login != "coderabbitai"
             and .author.login != "gemini-code-assist"
             and .author.login != "chatgpt-codex-connector")
-           and (.body | test("^\\s*(/gemini review|@codex review|@coderabbitai resume)(\\s|$)"; "i"))
+           and (.body | test("^[ \\t]*(/gemini review|@codex review|@coderabbitai resume)(\\s|$)"; "i"))
          )
        | {author: .author.login, createdAt, body: (.body | gsub("^\\s+|\\s+$"; ""))}]
   }
