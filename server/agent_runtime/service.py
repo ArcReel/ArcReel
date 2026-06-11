@@ -920,6 +920,7 @@ class AssistantService:
         "generate-storyboard": "images",
         "generate-grid": "grid-2x2",
         "generate-video": "film",
+        "generate-narration-audio": "audio-lines",
         "generate-assets": "users",
         "compose-video": "scissors",
     }

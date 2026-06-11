@@ -1093,6 +1093,7 @@ export default {
   'tool_name_generate_video_scene': 'Generate video (scene)',
   'tool_name_generate_video_all': 'Generate video (all)',
   'tool_name_generate_video_selected': 'Generate video (selected)',
+  'tool_name_generate_narration_audio': 'Generate narration audio',
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_normalize_drama_script': 'Normalize drama script',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
@@ -1108,6 +1109,7 @@ export default {
   'skill_name_generate_storyboard': 'Generate storyboard',
   'skill_name_generate_grid': 'Generate grid',
   'skill_name_generate_video': 'Generate video',
+  'skill_name_generate_narration_audio': 'Generate narration audio',
   'skill_name_generate_assets': 'Generate assets',
   'skill_name_compose_video': 'Compose video',
   // PendingQuestionWizard

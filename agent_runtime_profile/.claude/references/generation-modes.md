@@ -41,6 +41,11 @@ Step 7 视频
   storyboard / grid  → dispatch generate-assets (video)
   reference_video    → dispatch generate-assets (video)
                        mcp__arcreel__generate_video_episode 检测 video_units 后路由到 task_type="reference_video"
+
+Step 8 旁白配音（仅 narration 内容模式）
+  storyboard / grid  → dispatch generate-assets (narration_audio)
+                       mcp__arcreel__generate_narration_audio 按段以 novel_text 合成
+  reference_video    → 跳过（无 segments）
 ```
 
 ## 视频规格
@@ -66,7 +71,8 @@ projects/{name}/          # ← session cwd 已在此
 ├── storyboards/          # storyboard / grid 模式（分镜图）
 ├── grids/                # grid 模式（宫格图）
 ├── reference_videos/     # reference_video 模式视频输出
-└── videos/               # storyboard / grid 模式视频输出
+├── videos/               # storyboard / grid 模式视频输出
+└── audio/                # 旁白音频（仅 narration 内容模式，首次生成时创建）
 ```
 
 > 参考 `docs/google-genai-docs/nano-banana.md` 第 365 行起的 Prompting guide and strategies。

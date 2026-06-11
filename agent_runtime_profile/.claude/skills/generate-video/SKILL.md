@@ -55,7 +55,7 @@ Prompt 由 MCP 工具内部自动构建，根据 content_mode 选择不同策略
 
 **video_prompt**（用于视频生成）：action、camera_motion、ambiance_audio、dialogue、narration（仅 drama）
 
-- 说书模式：`novel_text` 不参与视频生成（后期人工配音），`dialogue` 仅包含原文中的角色对话
+- 说书模式：`novel_text` 不参与视频生成（旁白经 `generate-narration-audio` 单独配音），`dialogue` 仅包含原文中的角色对话
 - 剧集动画模式：包含完整的对话、旁白、音效
 - Negative prompt 自动排除 BGM
 

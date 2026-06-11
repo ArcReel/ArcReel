@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { useTranslation } from "react-i18next";
 import type { LucideIcon } from "lucide-react";
 import {
+  AudioLines,
   Clapperboard,
   Film,
   Grid2x2,
@@ -20,6 +21,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   film: Film,
   users: Users,
   scissors: Scissors,
+  "audio-lines": AudioLines,
 };
 
 /** Resolve skill display name from i18n; returns undefined on miss so caller can fall back to /skill-name. */

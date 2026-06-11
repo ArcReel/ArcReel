@@ -1094,6 +1094,7 @@ export default {
   'tool_name_generate_video_scene': '生成视频（单场景）',
   'tool_name_generate_video_all': '生成视频（全部）',
   'tool_name_generate_video_selected': '生成视频（多选）',
+  'tool_name_generate_narration_audio': '生成旁白配音',
   'tool_name_generate_episode_script': '生成剧本',
   'tool_name_normalize_drama_script': '规范化剧本',
   'tool_name_get_video_capabilities': '查询视频模型能力',
@@ -1109,6 +1110,7 @@ export default {
   'skill_name_generate_storyboard': '生成分镜图',
   'skill_name_generate_grid': '生成宫格图',
   'skill_name_generate_video': '生成视频',
+  'skill_name_generate_narration_audio': '生成旁白配音',
   'skill_name_generate_assets': '生成资产图',
   'skill_name_compose_video': '合成视频',
   // PendingQuestionWizard
