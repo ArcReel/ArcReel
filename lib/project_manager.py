@@ -1631,8 +1631,21 @@ class ProjectManager:
         通过 update_project 在单一文件锁内完成 read-modify-write，避免并发批量新增时
         的 lost-update 竞态。
         """
-        entries = {validate_asset_name(name): entry for name, entry in entries.items()}
         spec = ASSET_SPECS[asset_type]
+        # 与 upsert_assets 同口径：strip 后等价的 key（{"李白", "  李白  "}）不允许静默
+        # 互相覆盖，整批 fail-loud 不落盘，让调用方感知 collision 并去重。
+        normalized_entries: dict[str, dict] = {}
+        raw_keys_by_normalized: dict[str, str] = {}
+        for raw_name, entry in entries.items():
+            name = validate_asset_name(raw_name)
+            if name in normalized_entries:
+                raise ValueError(
+                    f"{spec.bucket_key} 的 entries 含规范化后冲突的 name {name!r}："
+                    f"原始键 {raw_keys_by_normalized[name]!r} 与 {raw_name!r} 在 strip 后等价"
+                )
+            normalized_entries[name] = entry
+            raw_keys_by_normalized[name] = raw_name
+        entries = normalized_entries
         added = 0
 
         def _mutate(project):

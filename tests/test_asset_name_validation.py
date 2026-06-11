@@ -37,6 +37,48 @@ class TestValidateAssetName:
         with pytest.raises(ValueError):
             validate_asset_name(bad)
 
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "a:b",
+            "a*b",
+            "a?b",
+            'a"b',
+            "a<b",
+            "a>b",
+            "a|b",
+            "a\nb",
+            "a\rb",
+            "a\tb",
+            "a\x1fb",
+            "a\x7fb",
+            "尾随点.",
+            "CON",
+            "con",
+            "Nul",
+            "COM1",
+            "lpt9",
+            "CON.backup",
+        ],
+    )
+    def test_windows_unsafe_names_rejected(self, bad):
+        """名称会拼进文件名，Windows 上保留字符 / 控制字符 / 尾随点 / 保留设备名
+        会"校验通过但写盘失败"；项目须可跨平台迁移，所有平台统一拒绝。"""
+        with pytest.raises(ValueError):
+            validate_asset_name(bad)
+
+    def test_non_string_reports_type_error(self):
+        with pytest.raises(ValueError, match="必须是字符串"):
+            validate_asset_name(None)
+        with pytest.raises(ValueError, match="必须是字符串"):
+            validate_asset_name(123)
+
+    def test_reserved_device_names_not_overmatched(self):
+        # 仅精确（首个点段）匹配保留设备名，CON1 / CONAN / COM10 这类合法名不误杀
+        assert validate_asset_name("CON1") == "CON1"
+        assert validate_asset_name("CONAN") == "CONAN"
+        assert validate_asset_name("COM10") == "COM10"
+
 
 @pytest.fixture
 def pm(tmp_path):
@@ -60,6 +102,12 @@ class TestProjectManagerCreationEntryPoints:
         with pytest.raises(ValueError):
             pm.add_scenes_batch("demo", {"庙/宇": {"description": "d"}})
         assert "庙/宇" not in pm.load_project("demo").get("scenes", {})
+
+    def test_add_batch_rejects_normalized_collision(self, pm):
+        """strip 后等价的两个 key 不允许静默覆盖，整批 fail-loud 不落盘（与 upsert_assets 一致）。"""
+        with pytest.raises(ValueError, match="冲突"):
+            pm.add_scenes_batch("demo", {"庙宇": {"description": "a"}, "  庙宇  ": {"description": "b"}})
+        assert "庙宇" not in pm.load_project("demo").get("scenes", {})
 
     def test_upsert_assets_rejects_slash(self, pm):
         with pytest.raises(ValueError):
