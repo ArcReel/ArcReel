@@ -46,10 +46,12 @@ def _load_schema_version(project_dir: Path) -> int:
         return -1  # 跳过非项目目录
     try:
         data = json.loads(pj.read_text(encoding="utf-8"))
+        # or 0：显式 null 与字段缺失同义（v0）；int 解析留在 try 内——schema_version
+        # 不可解析与 JSON 损坏同口径跳过，不让单个损坏项目中断整个迁移循环
+        return int(data.get("schema_version") or 0)
     except Exception:
-        logger.warning("project.json 损坏，跳过：%s", project_dir)
+        logger.warning("project.json 损坏或 schema_version 不可解析，跳过：%s", project_dir)
         return -1
-    return int(data.get("schema_version", 0))
 
 
 def _backup_project_json(project_dir: Path, from_version: int) -> None:

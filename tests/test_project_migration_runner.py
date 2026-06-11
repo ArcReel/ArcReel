@@ -128,6 +128,19 @@ def test_skip_underscore_dirs(tmp_projects: Path):
     assert "_global_assets" not in summary.migrated
 
 
+def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):
+    """schema_version 不可解析的项目按损坏跳过：不盖戳、不中断其他项目迁移。"""
+    _write_project(tmp_projects, "broken", {"schema_version": "corrupted"})
+    _write_project(tmp_projects, "ok", {"schema_version": 1, "video_backend": "seedance/x"})
+
+    summary = run_project_migrations(tmp_projects)
+
+    assert "broken" not in summary.migrated + summary.failed + summary.skipped
+    assert "ok" in summary.migrated
+    data = json.loads((tmp_projects / "broken" / "project.json").read_text(encoding="utf-8"))
+    assert data["schema_version"] == "corrupted"  # 原样保留，待人工修复
+
+
 def test_error_isolated_not_abort(tmp_projects: Path, monkeypatch):
     _write_project(tmp_projects, "broken", {"name": "broken"})
     _write_project(tmp_projects, "ok", {"schema_version": CURRENT_SCHEMA_VERSION, "name": "ok"})
