@@ -15,6 +15,7 @@ const MEDIA_LABELS: Record<string, string> = {
   text: "media_type_text",
   image: "media_type_image",
   video: "media_type_video",
+  audio: "media_type_audio",
 };
 
 const READY_BADGE_STYLE: CSSProperties = {

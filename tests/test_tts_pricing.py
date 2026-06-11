@@ -1,10 +1,10 @@
-"""TTS 按字符计费：PerCharacter 策略 + lookup 钉死 audio 计费类型 + cost_calculator 内置/自定义分支。"""
+"""TTS 按字符计费：PerCharacter 策略 + lookup 钉死 audio 计费类型 + cost_calculator 内置分支。"""
 
 from __future__ import annotations
 
 import pytest
 
-from lib.cost_calculator import CostCalculator, cost_calculator
+from lib.cost_calculator import cost_calculator
 from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
 from lib.pricing.types import PerCharacter
@@ -78,8 +78,5 @@ class TestBuiltinAudioCost:
         assert amount == pytest.approx(0.0)
 
 
-class TestCustomAudioCostRaises:
-    def test_custom_audio_raises_not_implemented(self):
-        # 自定义供应商 audio 通路未接入：显式 raise 而非静默记零（price_input 非 None 才走到分支）。
-        with pytest.raises(NotImplementedError):
-            CostCalculator._calculate_custom_cost("audio", price_input=0.5, currency="CNY")
+# 自定义供应商 audio 计费（按用户填写的每万字符单价）覆盖在 tests/test_custom_cost.py，
+# 与 text/image/video 的自定义计费测试同址；本文件只覆盖内置 per_character 路径。

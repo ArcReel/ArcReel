@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.custom_provider.backends import (
+    CustomAudioBackend,
+    CustomImageBackend,
+    CustomTextBackend,
+    CustomVideoBackend,
+)
 from lib.custom_provider.endpoints import get_endpoint_spec
 
 if TYPE_CHECKING:
@@ -16,7 +21,7 @@ def create_custom_backend(
     provider: CustomProvider,
     model_id: str,
     endpoint: str,
-) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend:
+) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend:
     """按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。
 
     Args:

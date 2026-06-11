@@ -1,4 +1,5 @@
-"""AudioBackend 家族测试：registry 注册/创建 + DashScopeAudioBackend（mock httpx，同步端点）+ extract_audio_url。"""
+"""AudioBackend 家族测试：registry 注册/创建 + DashScopeAudioBackend（mock httpx，同步端点）
++ OpenAIAudioBackend（mock SDK client，/v1/audio/speech）+ extract_audio_url。"""
 
 from __future__ import annotations
 
@@ -233,3 +234,120 @@ class TestDashScopeAudioBackend:
         assert client.post.call_count == 1
         assert client.get.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
         assert not out.exists()
+
+
+def _mock_speech_client(content: bytes = b"RIFFwavbytes") -> AsyncMock:
+    speech_resp = MagicMock()
+    speech_resp.content = content
+    client = AsyncMock()
+    client.audio.speech.create = AsyncMock(return_value=speech_resp)
+    return client
+
+
+class TestOpenAIAudioBackend:
+    async def test_synthesize_request_and_bytes(self, tmp_path: Path):
+        mock_client = _mock_speech_client()
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", base_url="https://relay.example.com/v1", model="tts-1")
+            out = tmp_path / "o.wav"
+            result = await b.synthesize(AudioSynthesisRequest(text="你好世界", output_path=out, voice="alloy"))
+
+        kwargs = mock_client.audio.speech.create.call_args.kwargs
+        assert kwargs["model"] == "tts-1"
+        assert kwargs["input"] == "你好世界"
+        assert kwargs["voice"] == "alloy"
+        # 输出格式跟随落盘扩展名（资源路径约定 .wav）
+        assert kwargs["response_format"] == "wav"
+        # 字节落盘 + 结果字段
+        assert out.read_bytes() == b"RIFFwavbytes"
+        assert result.model == "tts-1"
+        assert result.characters == len("你好世界")
+        assert result.output_path == out
+
+    def test_metadata(self):
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+            from lib.providers import PROVIDER_OPENAI
+
+            b = OpenAIAudioBackend(api_key="sk", model="gpt-4o-mini-tts")
+            assert b.name == PROVIDER_OPENAI
+            assert b.model == "gpt-4o-mini-tts"
+            assert b.capabilities == {AudioCapability.TEXT_TO_SPEECH}
+
+    def test_provider_name_override(self):
+        # 包装层（自定义供应商）可用真实 provider 记账
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1", provider_name="custom-7")
+            assert b.name == "custom-7"
+
+    async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
+        mock_client = _mock_speech_client()
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1")
+            await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "a.wav", voice="alloy"))
+            assert "speed" not in mock_client.audio.speech.create.call_args.kwargs
+
+            await b.synthesize(
+                AudioSynthesisRequest(text="hi", output_path=tmp_path / "b.wav", voice="alloy", speed=1.5)
+            )
+            assert mock_client.audio.speech.create.call_args.kwargs["speed"] == 1.5
+
+    async def test_language_type_not_sent(self, tmp_path: Path):
+        # /v1/audio/speech 无语种字段（DashScope 特有），不应混入请求
+        mock_client = _mock_speech_client()
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1")
+            await b.synthesize(
+                AudioSynthesisRequest(text="hi", output_path=tmp_path / "c.wav", voice="alloy", language_type="Chinese")
+            )
+        kwargs = mock_client.audio.speech.create.call_args.kwargs
+        assert "language_type" not in kwargs
+        assert "language" not in kwargs
+
+    async def test_unknown_suffix_falls_back_to_wav(self, tmp_path: Path):
+        mock_client = _mock_speech_client()
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1")
+            await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "x.bin", voice="alloy"))
+        assert mock_client.audio.speech.create.call_args.kwargs["response_format"] == "wav"
+
+    async def test_empty_body_rejected_no_file_no_rebill(self, tmp_path: Path):
+        # 200 + 空体：不落 0 字节文件、不重试（重试 = 再次计费）
+        mock_client = _mock_speech_client(content=b"")
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1")
+            out = tmp_path / "empty.wav"
+            with pytest.raises(RuntimeError, match="空响应体"):
+                await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="alloy"))
+
+        assert mock_client.audio.speech.create.call_count == 1
+        assert not out.exists()
+
+    async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
+        # 写盘瞬态失败（消息含可重试模式）不应回头重跑会再次计费的合成调用
+        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
+        mock_client = _mock_speech_client()
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1")
+            out_dir = tmp_path / "missing-dir"
+            with pytest.raises(OSError):
+                # 父目录不存在 → write_bytes 抛 OSError；伪造含 "timed out" 的消息走最坏路径
+                req = AudioSynthesisRequest(text="hi", output_path=out_dir / "o.wav", voice="alloy")
+                with patch.object(type(req.output_path), "write_bytes", side_effect=OSError("Connection timed out")):
+                    await b.synthesize(req)
+
+        assert mock_client.audio.speech.create.call_count == 1, "写盘失败不得重跑计费的合成调用"

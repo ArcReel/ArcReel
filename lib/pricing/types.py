@@ -9,6 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+# 按字符计费的计价单位：费率均以「每万字符」声明（PerCharacter 与自定义供应商 audio 共用此口径）。
+CHARACTERS_PER_PRICING_UNIT = 10_000
+
 
 @dataclass(frozen=True)
 class PerToken:

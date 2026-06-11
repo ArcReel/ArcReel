@@ -3,7 +3,7 @@
 // 放弃编译期窄类型换取「新增 endpoint 不再需要改前端类型」。
 export type EndpointKey = string;
 
-export type MediaType = "text" | "image" | "video";
+export type MediaType = "text" | "image" | "video" | "audio";
 
 export type ImageCap = "text_to_image" | "image_to_image";
 

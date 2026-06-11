@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, useCallback } from "react";
-import { ChevronDown, Type, Image as ImageIcon, Film } from "lucide-react";
+import { ChevronDown, Type, Image as ImageIcon, Film, AudioLines } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Popover } from "@/components/ui/Popover";
 import type { EndpointKey, ImageCap, MediaType } from "@/types";
@@ -26,9 +26,11 @@ const MEDIA_META: Record<MediaType, { Icon: typeof Type; labelKey: string }> = {
   text: { Icon: Type, labelKey: "endpoint_text_group" },
   image: { Icon: ImageIcon, labelKey: "endpoint_image_group" },
   video: { Icon: Film, labelKey: "endpoint_video_group" },
+  audio: { Icon: AudioLines, labelKey: "endpoint_audio_group" },
 };
 
-const MEDIA_ORDER: MediaType[] = ["text", "image", "video"];
+// 分组顺序派生自 MEDIA_META 的声明顺序，新增媒体类型只需在上方加一条
+const MEDIA_ORDER = Object.keys(MEDIA_META) as MediaType[];
 
 interface EndpointSelectProps {
   value: EndpointKey;

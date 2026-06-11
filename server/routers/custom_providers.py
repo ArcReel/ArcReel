@@ -50,12 +50,26 @@ router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
 
 _CONNECTION_TEST_TIMEOUT = 15  # 秒
 
+# 全局 DB settings 中可能引用自定义供应商的键（删除 provider / 删除 model 时清理悬空引用）
 _BACKEND_SETTING_KEYS = (
     "default_video_backend",
     "default_image_backend",
     "default_image_backend_t2i",
     "default_image_backend_i2i",
     "default_text_backend",
+    "default_audio_backend",
+    "text_backend_script",
+    "text_backend_overview",
+    "text_backend_style",
+)
+
+# project.json 中的项目级覆盖键（与全局键名不同：resolver 按媒体读 video_backend /
+# audio_backend / image_provider_*，文本任务键与全局同名），清理项目悬空引用时用此集合
+_PROJECT_BACKEND_KEYS = (
+    "video_backend",
+    "audio_backend",
+    "image_provider_t2i",
+    "image_provider_i2i",
     "text_backend_script",
     "text_backend_overview",
     "text_backend_style",
@@ -270,7 +284,7 @@ def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str])
 def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> None:
     """校验默认模型互斥。
 
-    - text / video endpoint：同一 media_type 至多 1 个 is_default=True（保留旧规则）。
+    - 非 image endpoint（text / video / audio）：同一 media_type 至多 1 个 is_default=True。
     - image endpoint：image capability 集合两两不相交（即同一 capability 至多 1 个默认）。
     """
     text_video_defaults: dict[str, list[str]] = {}
@@ -501,7 +515,7 @@ async def delete_provider(
     await session.commit()
     await _invalidate_caches(request)
     # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
-    await asyncio.to_thread(_cleanup_project_refs, prefix, _BACKEND_SETTING_KEYS)
+    await asyncio.to_thread(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
 
 
 # ---------------------------------------------------------------------------

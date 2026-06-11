@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.custom_provider.backends import (
+    CustomAudioBackend,
+    CustomImageBackend,
+    CustomTextBackend,
+    CustomVideoBackend,
+)
 from lib.custom_provider.factory import create_custom_backend
 
 
@@ -97,6 +102,32 @@ class TestEndpointDispatch:
         # 仅 host → 补全 vidu 协议挂载路径 /ent/v2
         mock_cls.assert_called_once_with(
             api_key="sk-test", base_url="https://relay.example.com/ent/v2", model="viduq3-turbo"
+        )
+
+    @patch("lib.custom_provider.endpoints.OpenAIAudioBackend")
+    def test_openai_tts(self, mock_cls):
+        provider = _make_provider()
+        result = create_custom_backend(provider=provider, model_id="tts-1", endpoint="openai-tts")
+        assert isinstance(result, CustomAudioBackend)
+        assert result.name == "custom-42"
+        assert result.model == "tts-1"
+        # provider_name 让 delegate 记账/日志归因到真实 provider 而非内置 openai
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+            model="tts-1",
+            provider_name="custom-42",
+        )
+
+    @patch("lib.custom_provider.endpoints.OpenAIAudioBackend")
+    def test_openai_tts_appends_v1(self, mock_cls):
+        provider = _make_provider(base_url="https://relay.example.com")
+        create_custom_backend(provider=provider, model_id="speech-1.5", endpoint="openai-tts")
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://relay.example.com/v1",
+            model="speech-1.5",
+            provider_name="custom-42",
         )
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")

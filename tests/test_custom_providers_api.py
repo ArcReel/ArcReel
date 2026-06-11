@@ -217,6 +217,7 @@ class TestEndpointCatalog:
             "vidu-video",
             "dashscope-image",
             "dashscope-async-video",
+            "openai-tts",
         }
 
     def test_descriptor_shape(self, client: TestClient):
@@ -742,6 +743,7 @@ class TestDeleteProviderCleansGlobalSettings:
         svc = ConfigService(session)
         await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
         await svc.set_setting("default_image_backend", f"custom-{pid}/dall-e-3")
+        await svc.set_setting("default_audio_backend", f"custom-{pid}/tts-1")
         await svc.set_setting("default_video_backend", "gemini-aistudio/veo-3")  # 不应被清理
         await session.commit()
 
@@ -756,6 +758,7 @@ class TestDeleteProviderCleansGlobalSettings:
         # 验证引用被清理
         assert await svc.get_setting("default_text_backend", "") == ""
         assert await svc.get_setting("default_image_backend", "") == ""
+        assert await svc.get_setting("default_audio_backend", "") == ""
         # 不相关的设置应保留
         assert await svc.get_setting("default_video_backend", "") == "gemini-aistudio/veo-3"
 
@@ -785,11 +788,20 @@ class TestDeleteProviderCleansProjectRefs:
         mock_pm.update_project.assert_called_once()
         call_args = mock_pm.update_project.call_args
         assert call_args[0][0] == "project-a"
-        # 执行 mutate_fn 验证清理逻辑
+        # 执行 mutate_fn 验证清理逻辑：覆盖项目级媒体覆盖键（与全局设置键名不同）
         mutate_fn = call_args[0][1]
-        test_proj = {"text_backend_script": f"{prefix}gpt-4o", "title": "Test"}
+        test_proj = {
+            "text_backend_script": f"{prefix}gpt-4o",
+            "video_backend": f"{prefix}sora-2",
+            "audio_backend": f"{prefix}tts-1",
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",  # 非本 provider，保留
+            "title": "Test",
+        }
         mutate_fn(test_proj)
         assert "text_backend_script" not in test_proj
+        assert "video_backend" not in test_proj
+        assert "audio_backend" not in test_proj
+        assert test_proj["image_provider_t2i"].startswith("gemini-aistudio/")  # 其他供应商引用保留
         assert test_proj["title"] == "Test"  # 无关字段保留
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lib.pricing.types import (
+    CHARACTERS_PER_PRICING_UNIT,
     PerCharacter,
     PerImageByResolution,
     PerImageFlat,
@@ -136,7 +137,7 @@ def _per_character(pricing: PerCharacter, params: PricingParams) -> tuple[float,
     # 字符数复用通用计数字段 usage_tokens 承载（与 _per_token_video / _vidu 同模式，免新增 DB 列）。
     model = params.model or pricing.default_model
     rate = pricing.rates.get(model, pricing.rates.get(pricing.default_model, 0.0))
-    amount = (params.usage_tokens or 0) / 10_000 * rate
+    amount = (params.usage_tokens or 0) / CHARACTERS_PER_PRICING_UNIT * rate
     return amount, pricing.currency
 
 

@@ -14,8 +14,14 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+from lib.audio_backends.openai import OpenAIAudioBackend
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
-from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.custom_provider.backends import (
+    CustomAudioBackend,
+    CustomImageBackend,
+    CustomTextBackend,
+    CustomVideoBackend,
+)
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -42,12 +48,15 @@ class EndpointSpec:
     """单条 endpoint 的元数据 + backend 构造闭包。"""
 
     key: str  # "openai-chat"
-    media_type: str  # "text" | "image" | "video"
+    media_type: str  # "text" | "image" | "video" | "audio"
     family: str  # "openai" | "google" | "newapi"
     display_name_key: str  # 前端 i18n key（dashboard ns）
     request_method: str  # "POST"
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
-    build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
+    build_backend: Callable[
+        [CustomProvider, str],
+        CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
+    ]
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
     # 参考生视频单镜头参考图上限；仅 video 类有意义。
     # 显式 int：原样下传作为硬约束（0 表示不接受参考图，executor 据此将 references 裁剪为 0 张）。
@@ -107,6 +116,19 @@ def _build_gemini_image(provider, model_id: str) -> CustomImageBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_openai_tts(provider, model_id: str) -> CustomAudioBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    # provider_name 让 delegate 日志与 AudioSynthesisResult.provider 归因到真实 provider，
+    # 与包装层 .name 的记账身份一致，而非内置 openai。
+    delegate = OpenAIAudioBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        provider_name=provider.provider_id,
+    )
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
@@ -295,6 +317,15 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_dashscope_image,
     ),
+    "openai-tts": EndpointSpec(
+        key="openai-tts",
+        media_type="audio",
+        family="openai",
+        display_name_key="endpoint_openai_tts_display",
+        request_method="POST",
+        request_path_template="/v1/audio/speech",
+        build_backend=_build_openai_tts,
+    ),
     "dashscope-async-video": EndpointSpec(
         key="dashscope-async-video",
         media_type="video",
@@ -401,6 +432,11 @@ _VIDEO_PATTERN = re.compile(
     r"vidu2(?:\.0)?(?:[-_].*)?|viduq3(?:[-_].*)?",
     re.IGNORECASE,
 )
+# TTS 模型 id 识别（tts-1 / gpt-4o-mini-tts / speech-1.5 / cosyvoice 等）。
+# 刻意不含裸 "audio"：gpt-4o-audio-preview 等 chat 音频模态模型会被误归 TTS。
+_AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
+# 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
+_ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
@@ -417,7 +453,9 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     3) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
     4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
     5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
-    6) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+    6) TTS 家族（tts/speech/cosyvoice）→ "openai-tts"（audio 仅 OpenAI 兼容一条端点，
+       不分 discovery_format；precedence 在 text 默认之前）
+    7) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
@@ -443,4 +481,6 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
         return "openai-video"
     if is_image:
         return "gemini-image" if discovery_format == "google" else "openai-images"
+    if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
+        return "openai-tts"
     return "gemini-generate" if discovery_format == "google" else "openai-chat"

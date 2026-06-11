@@ -100,6 +100,48 @@ class TestCustomVideoCost:
         assert abs(amount - 0.4) < 0.0001
 
 
+class TestCustomAudioCost:
+    """Test audio (TTS) cost calculation for custom providers."""
+
+    def test_custom_audio_cost_per_character(self):
+        # usage_tokens 承载合成字符数；单价按每万字符计（与内置 per_character kind 同口径）
+        calc = CostCalculator()
+        amount, currency = calc.calculate_cost(
+            "custom-6",
+            "audio",
+            model="tts-1",
+            usage_tokens=5_000,
+            custom_price_input=0.8,
+            custom_currency="CNY",
+        )
+        assert currency == "CNY"
+        # 5000 / 10_000 * 0.8 = 0.4
+        assert abs(amount - 0.4) < 0.0001
+
+    def test_custom_audio_cost_no_characters_is_zero(self):
+        calc = CostCalculator()
+        amount, currency = calc.calculate_cost(
+            "custom-6",
+            "audio",
+            model="tts-1",
+            custom_price_input=0.8,
+            custom_currency="USD",
+        )
+        assert amount == 0.0
+        assert currency == "USD"
+
+    def test_custom_audio_null_price_returns_zero(self):
+        calc = CostCalculator()
+        amount, currency = calc.calculate_cost(
+            "custom-6",
+            "audio",
+            model="tts-1",
+            usage_tokens=5_000,
+        )
+        assert amount == 0.0
+        assert currency == "USD"
+
+
 class TestCustomCostNullPrice:
     """Test that null/missing price returns 0."""
 

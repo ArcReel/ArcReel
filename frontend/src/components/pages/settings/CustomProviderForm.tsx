@@ -678,8 +678,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       )}
                     </div>
 
-                    {/* Resolution row */}
-                    {media !== "text" && (
+                    {/* Resolution row（仅 image/video，audio 无分辨率维度） */}
+                    {(media === "image" || media === "video") && (
                       <div className="mt-2 flex items-center gap-2 pl-6">
                         <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
                           {t("resolution_label")}

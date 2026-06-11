@@ -108,6 +108,36 @@ class TestDiscoverModelsOpenAI:
         assert image_models[1]["is_default"] is False
 
     @patch("lib.custom_provider.discovery.OpenAI")
+    async def test_tts_model_derives_audio_media_type(self, mock_openai_cls):
+        """TTS 模型推到 openai-tts，audio 自成 media_type 默认组（不与 text 默认互斥）。"""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+
+        model_a = MagicMock()
+        model_a.id = "gpt-4o"
+        model_b = MagicMock()
+        model_b.id = "tts-1"
+        model_c = MagicMock()
+        model_c.id = "tts-1-hd"
+        mock_client.models.list.return_value = [model_a, model_b, model_c]
+
+        from lib.custom_provider.discovery import discover_models
+
+        result = await discover_models(
+            discovery_format="openai",
+            base_url="https://api.example.com/v1",
+            api_key="sk-test",
+        )
+
+        audio_models = [m for m in result if m["endpoint"] == "openai-tts"]
+        text_models = [m for m in result if m["endpoint"] == "openai-chat"]
+        assert [m["model_id"] for m in audio_models] == ["tts-1", "tts-1-hd"]
+        # audio 组首个为默认，且不影响 text 组自己的默认
+        assert audio_models[0]["is_default"] is True
+        assert audio_models[1]["is_default"] is False
+        assert text_models[0]["is_default"] is True
+
+    @patch("lib.custom_provider.discovery.OpenAI")
     async def test_all_enabled(self, mock_openai_cls):
         """所有发现的模型都应标记为 is_enabled=True。"""
         mock_client = MagicMock()

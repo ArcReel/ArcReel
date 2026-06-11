@@ -1,5 +1,5 @@
 """execute_tts_task 执行链单测：文本来源三分支 / 写回 narration_audio /
-_get_or_create_audio_backend 缓存与自定义供应商拒绝 / get_media_generator(needs_audio) /
+_get_or_create_audio_backend 缓存与自定义供应商路径 / get_media_generator(needs_audio) /
 compute_affected_fingerprints tts 分支 / 任务注册表。"""
 
 from __future__ import annotations
@@ -117,9 +117,22 @@ class TestExecuteTtsTask:
 
 
 class TestGetOrCreateAudioBackend:
-    async def test_custom_provider_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            await generation_tasks._get_or_create_audio_backend("custom-3", {}, None)
+    async def test_custom_provider_routes_to_custom_factory(self, monkeypatch):
+        sentinel = object()
+        calls = []
+
+        async def _fake_create_custom(provider_name, model_id, media_type):
+            calls.append((provider_name, model_id, media_type))
+            return sentinel
+
+        monkeypatch.setattr(generation_tasks, "_create_custom_backend", _fake_create_custom)
+        monkeypatch.setattr(generation_tasks, "_backend_cache", {})
+
+        b1 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, None)
+        b2 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, None)
+
+        assert b1 is sentinel and b2 is sentinel
+        assert calls == [("custom-3", "tts-1", "audio")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_builtin_created_and_cached(self, monkeypatch):
         created = []

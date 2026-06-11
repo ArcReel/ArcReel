@@ -10,7 +10,7 @@ from __future__ import annotations
 from lib.custom_provider import is_custom_provider
 from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
-from lib.pricing.types import PerSecondMatrix, PerTokenVideo
+from lib.pricing.types import CHARACTERS_PER_PRICING_UNIT, PerSecondMatrix, PerTokenVideo
 from lib.providers import CallType
 
 
@@ -61,6 +61,7 @@ class CostCalculator:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 duration_seconds=duration_seconds,
+                usage_tokens=usage_tokens,
             )
 
         # 文本无 token 数据时无从计费，保留早返回。
@@ -136,6 +137,7 @@ class CostCalculator:
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         duration_seconds: int | None = None,
+        usage_tokens: int | None = None,
     ) -> tuple[float, str]:
         """根据调用方预查的价格信息计算自定义供应商费用。"""
         if price_input is None:
@@ -152,9 +154,9 @@ class CostCalculator:
         elif call_type == "video":
             return (duration_seconds or 8) * price_input, cur
         elif call_type == "audio":
-            # 自定义供应商 audio 通路尚未接入（resolve 仅解析内置 registry）；显式抛错而非
-            # fall through 到下方静默记零，避免将来悄悄按 0 计费且难在测试里被发现。
-            raise NotImplementedError("custom provider audio cost calculation not implemented yet")
+            # usage_tokens 承载合成字符数（与 _per_character 同模式）；单价口径为每万字符，
+            # 与内置 per_character pricing kind 共用同一计价单位常量。
+            return (usage_tokens or 0) / CHARACTERS_PER_PRICING_UNIT * price_input, cur
         return 0.0, cur
 
 

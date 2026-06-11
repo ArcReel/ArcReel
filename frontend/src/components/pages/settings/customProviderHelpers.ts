@@ -12,6 +12,7 @@ export function priceLabel(
   const media = endpointToMediaType[endpoint];
   if (media === "video") return { input: t("price_per_second"), output: "" };
   if (media === "image") return { input: t("price_per_image"), output: "" };
+  if (media === "audio") return { input: t("price_per_10k_chars"), output: "" };
   return { input: t("price_per_m_input"), output: t("price_per_m_output") };
 }
 
@@ -27,7 +28,7 @@ export function urlPreviewFor(format: DiscoveryFormat, rawBaseUrl: string): stri
   return `${base}/v1beta/models`;
 }
 
-/** 切 default：text/video 同 media_type 内互斥；image 按 capability 集合交集互斥。
+/** 切 default：非 image 媒体类型（text/video/audio）同 media_type 内互斥；image 按 capability 集合交集互斥。
  *  互斥清理仅在 enabling（false→true）时触发——取消已有默认（true→false）时不应连带清掉
  *  其他默认项，否则一次"取消"会误删兄弟槽位（如 wildcard ↔ split-edits 的 I2I 重叠）。
  *  catalog 未加载或 endpoint 不在映射内时降级为「单行 toggle」——避免所有 endpoint
@@ -47,7 +48,7 @@ export function toggleDefaultReducer<T extends ModelLike>(
   if (targetMedia === undefined) {
     return rows.map((r) => (r.key === targetKey ? { ...r, is_default: isEnabling } : r));
   }
-  // text / video：仅 enabling 时清同 media_type 其他默认
+  // 非 image（text/video/audio）：仅 enabling 时清同 media_type 其他默认
   if (targetMedia !== "image") {
     return rows.map((r) => {
       if (r.key === targetKey) return { ...r, is_default: isEnabling };

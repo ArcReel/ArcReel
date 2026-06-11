@@ -18,6 +18,7 @@ const ENDPOINT_TO_MEDIA: Record<string, MediaType> = {
   "gemini-image": "image",
   "openai-video": "video",
   "newapi-video": "video",
+  "openai-tts": "audio",
 };
 
 const ENDPOINT_TO_CAPS: Record<string, ImageCap[]> = {
@@ -39,6 +40,10 @@ describe("priceLabel", () => {
   it("text endpoint → per-M-token labels", () => {
     expect(priceLabel("openai-chat", ENDPOINT_TO_MEDIA, id).input).toBe("price_per_m_input");
     expect(priceLabel("gemini-generate", ENDPOINT_TO_MEDIA, id).output).toBe("price_per_m_output");
+  });
+  it("audio endpoint → per-10k-characters label", () => {
+    expect(priceLabel("openai-tts", ENDPOINT_TO_MEDIA, id).input).toBe("price_per_10k_chars");
+    expect(priceLabel("openai-tts", ENDPOINT_TO_MEDIA, id).output).toBe("");
   });
 });
 

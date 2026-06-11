@@ -30,12 +30,13 @@ class TestRegistry:
             "vidu-video",
             "dashscope-image",
             "dashscope-async-video",
+            "openai-tts",
         }
 
     def test_each_spec_has_required_fields(self):
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
-            assert spec.media_type in {"text", "image", "video"}
+            assert spec.media_type in {"text", "image", "video", "audio"}
             assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope"}
             assert spec.display_name_key.startswith("endpoint_")
             assert callable(spec.build_backend)
@@ -117,10 +118,22 @@ class TestRegistry:
         with pytest.raises(ValueError, match="non-callable video_caps_for_model"):
             _validate_video_caps_declarations()
 
+    def test_audio_endpoint_spec(self):
+        spec = ENDPOINT_REGISTRY["openai-tts"]
+        assert spec.media_type == "audio"
+        assert spec.family == "openai"
+        assert spec.request_path_template == "/v1/audio/speech"
+        # 非 video/image endpoint：不声明 video caps / image capabilities
+        assert spec.video_max_reference_images is None
+        assert spec.video_caps_for_model is None
+        assert spec.image_capabilities is None
+
     def test_media_type_groups(self):
         text_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "text"}
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
+        audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
+        assert audio_keys == {"openai-tts"}
         assert text_keys == {"openai-chat", "gemini-generate"}
         assert image_keys == {
             "openai-images",
@@ -212,7 +225,20 @@ class TestInferEndpoint:
             ("vidu2", "openai", "openai-video"),
             ("vidu2.0", "openai", "openai-video"),
             ("provider:vidu2.0", "openai", "openai-video"),
-            ("vidu-tts", "openai", "openai-chat"),
+            # ── audio（TTS）识别：precedence 在 text 默认之前 ──
+            ("tts-1", "openai", "openai-tts"),
+            ("tts-1-hd", "openai", "openai-tts"),
+            ("gpt-4o-mini-tts", "openai", "openai-tts"),
+            ("vidu-tts", "openai", "openai-tts"),  # tts 尾缀优先于 text 默认
+            ("speech-1.5", "openai", "openai-tts"),  # Fish Audio 风格 id
+            ("cosyvoice-v2", "openai", "openai-tts"),
+            # audio endpoint 仅 OpenAI 兼容一条，google 发现格式同样归 openai-tts
+            ("tts-1", "google", "openai-tts"),
+            # 不应误伤：含 audio 字样的 chat 模型、ASR（语音转文字）、视频/图像家族仍按原分支
+            ("gpt-4o-audio-preview", "openai", "openai-chat"),
+            ("whisper-1", "openai", "openai-chat"),
+            ("speech-to-text-1", "openai", "openai-chat"),
+            ("transcribe-speech-1", "openai", "openai-chat"),
         ],
     )
     def test_infer(self, model_id, discovery_format, expected):

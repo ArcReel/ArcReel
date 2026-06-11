@@ -1,11 +1,17 @@
-"""CustomTextBackend / CustomImageBackend / CustomVideoBackend 单元测试。"""
+"""CustomTextBackend / CustomImageBackend / CustomVideoBackend / CustomAudioBackend 单元测试。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
+from lib.custom_provider.backends import (
+    CustomAudioBackend,
+    CustomImageBackend,
+    CustomTextBackend,
+    CustomVideoBackend,
+)
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.video_backends.base import VideoCapability, VideoGenerationRequest, VideoGenerationResult
@@ -189,3 +195,60 @@ class TestCustomVideoBackend:
         backend = CustomVideoBackend(provider_id="full-provider", delegate=delegate, model="veo-3")
 
         assert backend.capabilities == all_caps
+
+
+# ---------------------------------------------------------------------------
+# CustomAudioBackend
+# ---------------------------------------------------------------------------
+
+
+class TestCustomAudioBackend:
+    def test_properties(self):
+        delegate = AsyncMock()
+        delegate.capabilities = {AudioCapability.TEXT_TO_SPEECH}
+        backend = CustomAudioBackend(provider_id="custom-9", delegate=delegate, model="tts-1")
+
+        assert backend.name == "custom-9"
+        assert backend.model == "tts-1"
+        assert backend.capabilities == {AudioCapability.TEXT_TO_SPEECH}
+
+    def test_capabilities_delegated(self):
+        delegate = AsyncMock()
+        delegate.capabilities = {AudioCapability.TEXT_TO_SPEECH}
+        backend = CustomAudioBackend(provider_id="audio-provider", delegate=delegate, model="speech-1.5")
+
+        assert backend.capabilities is delegate.capabilities
+
+    async def test_synthesize_delegates(self, tmp_path: Path):
+        output_path = tmp_path / "out.wav"
+        expected_result = AudioSynthesisResult(
+            provider="custom-9",
+            model="tts-1",
+            characters=4,
+            output_path=output_path,
+        )
+        delegate = AsyncMock()
+        delegate.synthesize = AsyncMock(return_value=expected_result)
+        delegate.capabilities = {AudioCapability.TEXT_TO_SPEECH}
+
+        backend = CustomAudioBackend(provider_id="custom-9", delegate=delegate, model="tts-1")
+        request = AudioSynthesisRequest(text="你好世界", output_path=output_path, voice="alloy")
+        result = await backend.synthesize(request)
+
+        assert result is expected_result
+        delegate.synthesize.assert_awaited_once_with(request)
+
+    async def test_synthesize_passes_request_unchanged(self, tmp_path: Path):
+        output_path = tmp_path / "seg.wav"
+        delegate = AsyncMock()
+        delegate.synthesize = AsyncMock(
+            return_value=AudioSynthesisResult(provider="x", model="y", characters=2, output_path=output_path)
+        )
+        delegate.capabilities = set()
+
+        backend = CustomAudioBackend(provider_id="p", delegate=delegate, model="m")
+        request = AudioSynthesisRequest(text="hi", output_path=output_path, voice="alloy", speed=1.2)
+        await backend.synthesize(request)
+
+        call_args = delegate.synthesize.call_args[0]
+        assert call_args[0] is request

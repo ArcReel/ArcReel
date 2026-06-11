@@ -270,7 +270,7 @@ async def _get_or_create_audio_backend(
     *,
     default_audio_model: str | None = None,
 ):
-    """获取或创建 AudioBackend 实例（带缓存）。本期仅内置 DashScope，自定义供应商 audio 通路是 follow-up。"""
+    """获取或创建 AudioBackend 实例（带缓存）。"""
     from lib.audio_backends import create_backend
 
     effective_model = provider_settings.get("model") or default_audio_model or None
@@ -278,9 +278,11 @@ async def _get_or_create_audio_backend(
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
 
+    # 自定义供应商走独立工厂路径
     if is_custom_provider(provider_name):
-        # 自定义供应商 audio 后端创建尚未接入；显式抛错而非静默走未注册路径，便于将来定位。
-        raise NotImplementedError("custom provider audio backend not implemented yet")
+        backend = await _create_custom_backend(provider_name, effective_model, "audio")
+        _backend_cache[cache_key] = backend
+        return backend
 
     backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
     kwargs: dict = {}

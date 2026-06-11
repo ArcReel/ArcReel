@@ -44,7 +44,9 @@ class CustomProviderModel(TimestampMixin, Base):
     endpoint: Mapped[str] = mapped_column(String(32), nullable=False)  # ENDPOINT_REGISTRY key
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    price_unit: Mapped[str | None] = mapped_column(String(16), nullable=True)  # "token" | "image" | "second"
+    price_unit: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )  # "token" | "image" | "second" | "character"
     price_input: Mapped[float | None] = mapped_column(Float, nullable=True)
     price_output: Mapped[float | None] = mapped_column(Float, nullable=True)  # only for text
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "USD" | "CNY"

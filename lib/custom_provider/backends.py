@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from lib.audio_backends.base import AudioBackend, AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.image_backends.base import ImageBackend, ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.video_backends.base import (
@@ -62,6 +63,30 @@ class CustomImageBackend:
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         return await self._delegate.generate(request)
+
+
+class CustomAudioBackend:
+    """自定义供应商语音合成后端包装类。"""
+
+    def __init__(self, *, provider_id: str, delegate: AudioBackend, model: str) -> None:
+        self._provider_id = provider_id
+        self._delegate = delegate
+        self._model = model
+
+    @property
+    def name(self) -> str:
+        return self._provider_id
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def capabilities(self) -> set[AudioCapability]:
+        return self._delegate.capabilities
+
+    async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
+        return await self._delegate.synthesize(request)
 
 
 class CustomVideoBackend:
