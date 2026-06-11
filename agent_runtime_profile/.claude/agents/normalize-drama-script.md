@@ -54,7 +54,7 @@ mcp__arcreel__get_video_capabilities({})
 
 ### 情况 A：首次生成规范化剧本
 
-如果 `drafts/episode_{N}/step1_normalized_script.md` 不存在：
+**触发**：`drafts/episode_{N}/step1_normalized_script.md` **不存在**（典型路径：manga-workflow 状态检测路由到单集预处理阶段）。两种情况的分支以**文件存在性为准**，主 agent 传入的操作类型仅作意图参考。
 
 **Step 1**: 检查文件状态
 
@@ -80,7 +80,7 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 ### 情况 B：修改已有规范化剧本
 
-如果 `drafts/episode_{N}/step1_normalized_script.md` 已存在：
+**触发**：`drafts/episode_{N}/step1_normalized_script.md` **已存在**，且主 agent 传入了用户的修改意见（用户驱动，不经状态检测——如阶段间确认时选「重做此阶段」或直接提出修改要求）：
 
 **Step 1**: 读取现有剧本
 
@@ -93,6 +93,8 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 - 调整时长
 - 更改 segment_break 标记
 - 新增或删除场景行
+
+**修改必重生 JSON**：中间文件修改完成后，若 `scripts/episode_{N}.json` 已存在，旧 JSON **不会自动跟随更新**——主 agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新中间文件 + 旧 JSON」的陈旧组合。在返回摘要中明确提示这一点。
 
 ### Step 3（两种情况均执行）：返回摘要
 
@@ -112,7 +114,8 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 **文件位置**:
 - `drafts/episode_{N}/step1_normalized_script.md`
 
-下一步：主 agent 可 dispatch `create-episode-script` subagent 生成 JSON 剧本。
+下一步：首次生成（情况 A）→ 主 agent 可 dispatch `create-episode-script` subagent 生成 JSON 剧本；
+修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
 ```
 
 ## 输出格式参考
@@ -133,5 +136,5 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 - 场景 ID 格式：E{集数}S{两位序号}（集数 = 当前 episode，由调用工具时的 `episode` 参数决定）
 - 每个场景宜为一个独立的视觉画面，可在指定时长内完成
-- 时长取自 Step 0 查得的 `supported_durations`；优先贴近 `default_duration`，复杂画面（打斗 / 大场面 / 情绪铺陈）可取更长值，不超过 `max_duration`
+- 时长决策序（高到低）：硬约束（取值必须在 Step 0 查得的 `supported_durations` 内，不超过 `max_duration`）> `default_duration` 偏好（非 null 时优先贴近）> 按内容取值（复杂画面如打斗 / 大场面 / 情绪铺陈可取更长值）
 - segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）
