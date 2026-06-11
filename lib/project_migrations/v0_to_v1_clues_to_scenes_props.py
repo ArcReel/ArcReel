@@ -87,7 +87,7 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
             data = load_json(sp)
         except Exception:
             continue
-        if data.get("schema_version", 0) >= 1:
+        if (data.get("schema_version") or 0) >= 1:
             continue
 
         # v0 剧本中线索引用历史字段：clues / clues_in_segment / clues_in_scene。
@@ -143,7 +143,8 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
     if not pj.exists():
         return
     data = load_json(pj)
-    current_version = data.get("schema_version", 0)
+    # or 0：显式 null 与字段缺失同义（v0），直接比较 None >= 1 会 TypeError
+    current_version = data.get("schema_version") or 0
 
     # 自愈：schema_version>=1 但 clues/ 仍存在 → 补跑文件/剧本迁移
     if current_version >= 1:

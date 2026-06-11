@@ -141,6 +141,26 @@ def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):
     assert data["schema_version"] == "corrupted"  # 原样保留，待人工修复
 
 
+def test_falsy_or_bool_schema_version_skipped_not_v0(tmp_projects: Path):
+    """空串 / bool 等不可解析版本号按损坏跳过，不误当 v0 重跑迁移。"""
+    for name, bad in [("empty", ""), ("bool-true", True), ("bool-false", False)]:
+        _write_project(tmp_projects, name, {"schema_version": bad})
+
+    summary = run_project_migrations(tmp_projects)
+
+    for name in ("empty", "bool-true", "bool-false"):
+        assert name not in summary.migrated + summary.failed + summary.skipped
+
+
+def test_explicit_null_schema_version_treated_as_v0(tmp_projects: Path):
+    """显式 null 与字段缺失同义（v0），正常走完整迁移链。"""
+    _write_project(tmp_projects, "p1", {"schema_version": None, "episodes": []})
+    summary = run_project_migrations(tmp_projects)
+    assert "p1" in summary.migrated
+    data = json.loads((tmp_projects / "p1" / "project.json").read_text(encoding="utf-8"))
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
+
+
 def test_error_isolated_not_abort(tmp_projects: Path, monkeypatch):
     _write_project(tmp_projects, "broken", {"name": "broken"})
     _write_project(tmp_projects, "ok", {"schema_version": CURRENT_SCHEMA_VERSION, "name": "ok"})

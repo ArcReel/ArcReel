@@ -88,7 +88,8 @@ def migrate_v1_to_v2(project_dir: Path) -> None:
     if not pj.exists():
         return
     data = load_json(pj)
-    if data.get("schema_version", 0) >= 2:
+    # or 0：显式 null 与字段缺失同义（v0），直接比较 None >= 2 会 TypeError
+    if (data.get("schema_version") or 0) >= 2:
         return
     migrated = migrate_project_dict(data)
     migrated["schema_version"] = 2
