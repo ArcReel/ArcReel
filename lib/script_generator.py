@@ -435,8 +435,7 @@ class ScriptGenerator:
                 "请先完成本集预处理"
             )
 
-        with open(step1_path, encoding="utf-8") as f:
-            return f.read()
+        return step1_path.read_text(encoding="utf-8")
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
         """
