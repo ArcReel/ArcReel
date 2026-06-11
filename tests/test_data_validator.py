@@ -449,3 +449,131 @@ class TestDataValidator:
 
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert result.valid, f"导出预检查不应被 scene_type 阻断,errors={result.errors}"
+
+
+class TestEpisodeLedgerFields:
+    """分集账本字段：全部可缺失（旧式条目），存在时按 lib.episode_ledger 模型校验形状。"""
+
+    def _validate(self, tmp_path, episode_entry=None, planning_cursor="__absent__"):
+        payload = _project_payload()
+        if episode_entry is not None:
+            payload["episodes"] = [episode_entry]
+        if planning_cursor != "__absent__":
+            payload["planning_cursor"] = planning_cursor
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+    def _entry(self, **ledger_fields):
+        return {"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json", **ledger_fields}
+
+    def test_legacy_entry_without_ledger_fields_is_valid(self, tmp_path):
+        result = self._validate(tmp_path, self._entry())
+        assert result.valid, result.errors
+
+    def test_full_ledger_entry_is_valid(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            self._entry(
+                source_range={"source_file": "source/novel.txt", "start": 0, "end": 100},
+                hook="悬念钩子",
+                outline={"story_beats": ["开端", "冲突"], "next_episode_teaser": "下集更精彩"},
+                ledger_status="planned",
+            ),
+            planning_cursor={"source_file": "source/novel.txt", "offset": 100},
+        )
+        assert result.valid, result.errors
+
+    def test_empty_title_allowed_on_episode_entry(self, tmp_path):
+        # 回填新建的孤儿条目 title 为空串；写入方（剧本同步）在剧本缺 title 时也写 ""
+        entry = self._entry()
+        entry["title"] = ""
+        result = self._validate(tmp_path, entry)
+        assert result.valid, result.errors
+
+    def test_missing_title_still_reported(self, tmp_path):
+        entry = self._entry()
+        del entry["title"]
+        result = self._validate(tmp_path, entry)
+        assert any("title" in e for e in result.errors)
+
+    def test_invalid_ledger_status_rejected(self, tmp_path):
+        result = self._validate(tmp_path, self._entry(ledger_status="done"))
+        assert any("ledger_status" in e for e in result.errors)
+
+    def test_malformed_source_range_rejected(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            self._entry(source_range={"source_file": "source/novel.txt", "start": 100, "end": 1}),
+        )
+        assert any("source_range" in e for e in result.errors)
+
+    def test_unanchored_with_source_range_rejected(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            self._entry(
+                ledger_status="unanchored",
+                source_range={"source_file": "source/novel.txt", "start": 0, "end": 1},
+            ),
+        )
+        assert any("unanchored" in e for e in result.errors)
+
+    def test_non_string_hook_rejected(self, tmp_path):
+        result = self._validate(tmp_path, self._entry(hook=123))
+        assert any("hook" in e for e in result.errors)
+
+    def test_malformed_outline_rejected(self, tmp_path):
+        result = self._validate(tmp_path, self._entry(outline={"story_beats": "不是列表"}))
+        assert any("outline" in e for e in result.errors)
+
+    def test_malformed_planning_cursor_rejected(self, tmp_path):
+        result = self._validate(tmp_path, planning_cursor={"offset": -1})
+        assert any("planning_cursor" in e for e in result.errors)
+
+    def test_null_planning_cursor_is_valid(self, tmp_path):
+        result = self._validate(tmp_path, planning_cursor=None)
+        assert result.valid, result.errors
+
+    def test_tree_validation_allows_missing_script_for_ledgered_entry(self, tmp_path):
+        """账本条目的 script_file 是前瞻性契约：剧本尚未生成不算 tree 校验错误。"""
+        payload = _project_payload()
+        payload["episodes"] = [
+            {
+                "episode": 1,
+                "title": "",
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "planned",
+                "source_range": {"source_file": "source/novel.txt", "start": 0, "end": 5},
+            }
+        ]
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert not any("script_file" in e for e in result.errors), result.errors
+
+    def test_tree_validation_missing_script_still_blocks_legacy_entry(self, tmp_path):
+        """旧式条目（无 ledger_status）维持原不变量：script_file 必须实际存在。"""
+        payload = _project_payload()
+        payload["episodes"] = [{"episode": 1, "title": "x", "script_file": "scripts/episode_1.json"}]
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert any("episodes[0].script_file" in e for e in result.errors)
+
+    def test_tree_validation_traversal_still_rejected_for_ledgered_entry(self, tmp_path):
+        """missing_ok 只豁免「文件不存在」，路径越界对账本条目照常拒绝。"""
+        payload = _project_payload()
+        payload["episodes"] = [
+            {
+                "episode": 1,
+                "title": "",
+                "script_file": "../outside.json",
+                "ledger_status": "planned",
+            }
+        ]
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert any("越界" in e for e in result.errors)

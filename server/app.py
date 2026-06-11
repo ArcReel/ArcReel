@@ -333,21 +333,10 @@ async def lifespan(app: FastAPI):
     # Run Alembic migrations (auto-creates tables on first start)
     await init_db()
 
-    # Run any pending project.json schema migrations (file-based).
-    # Both calls are synchronous filesystem walks — offload to a worker thread
-    # so they don't block the event loop during uvicorn startup.
     projects_root = app_data_dir()
-    migration_summary = await asyncio.to_thread(run_project_migrations, projects_root)
-    if migration_summary.migrated or migration_summary.failed:
-        logger.info(
-            "Project migrations: migrated=%s skipped=%d failed=%s",
-            migration_summary.migrated,
-            len(migration_summary.skipped),
-            migration_summary.failed,
-        )
-    await asyncio.to_thread(cleanup_stale_backups, projects_root, 7)
 
-    # 源文件编码迁移（幂等；失败不阻塞启动）
+    # 源文件编码迁移（幂等；失败不阻塞启动）。必须先于 schema 迁移：
+    # v2→v3 账本回填按 UTF-8 读源文，历史编码项目若后转换会被错锁 unanchored。
     source_migration_summary = await _migrate_source_encoding_on_startup(projects_root)
     migrated_total = sum(len(s.get("migrated") or []) for s in source_migration_summary.values())
     failed_total = sum(len(s.get("failed") or []) for s in source_migration_summary.values())
@@ -358,6 +347,19 @@ async def lifespan(app: FastAPI):
             failed_total,
             len(source_migration_summary),
         )
+
+    # Run any pending project.json schema migrations (file-based).
+    # Both calls are synchronous filesystem walks — offload to a worker thread
+    # so they don't block the event loop during uvicorn startup.
+    migration_summary = await asyncio.to_thread(run_project_migrations, projects_root)
+    if migration_summary.migrated or migration_summary.failed:
+        logger.info(
+            "Project migrations: migrated=%s skipped=%d failed=%s",
+            migration_summary.migrated,
+            len(migration_summary.skipped),
+            migration_summary.failed,
+        )
+    await asyncio.to_thread(cleanup_stale_backups, projects_root, 7)
 
     # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
     # Runs once (marker-gated); failures are non-fatal and logged.

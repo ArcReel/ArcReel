@@ -20,6 +20,7 @@ from lib.project_manager import ProjectManager, effective_mode
 from lib.project_migrations.runner import migrate_project_dir
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_models import script_shape
+from lib.source_loader.migration import migrate_project_source_encoding
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +288,9 @@ class ProjectArchiveService:
                     # 启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的旧归档需在此补跑，
                     # 否则解析链不再读 legacy 字段会让该项目静默回退全局默认。放在安装**前** → 迁移若抛错，
                     # staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目目录，无需回滚已落盘安装。
+                    # 编码迁移先于 schema 迁移：v2→v3 账本回填按 UTF-8 读源文，
+                    # GBK 等历史编码若不先转换会让全部集文件错锁 unanchored。
+                    migrate_project_source_encoding(staging_dir)
                     migrate_project_dir(staging_dir)
 
                     self._install_project_dir(
@@ -615,12 +619,22 @@ class ProjectArchiveService:
 
                 script_path = project_dir / script_path_rel
                 if not script_path.exists():
-                    diagnostics.add(
-                        "blocking",
-                        "missing_script_file",
-                        f"{script_location}: 引用的文件不存在: {script_path_rel}",
-                        location=script_location,
-                    )
+                    if episode_meta.get("ledger_status") is not None:
+                        # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
+                        # 拆分先于剧本存在是设计内状态，不阻断归档往返
+                        diagnostics.add(
+                            "warnings",
+                            "missing_script_file",
+                            f"{script_location}: 剧本尚未生成: {script_path_rel}",
+                            location=script_location,
+                        )
+                    else:
+                        diagnostics.add(
+                            "blocking",
+                            "missing_script_file",
+                            f"{script_location}: 引用的文件不存在: {script_path_rel}",
+                            location=script_location,
+                        )
                     continue
 
                 script_payload = self._load_json_file(script_path)

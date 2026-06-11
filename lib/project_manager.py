@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.json_io import atomic_write_json, load_json, load_json_or_none
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
@@ -1521,6 +1522,7 @@ class ProjectManager:
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
+            "planning_cursor": None,
             "characters": {},
             "scenes": {},
             "props": {},
@@ -2063,7 +2065,7 @@ class ProjectManager:
         contents = []
         total_chars = 0
         for file_path in sorted(source_dir.glob("*")):
-            if not (file_path.is_file() and file_path.suffix.lower() in [".txt", ".md"]):
+            if not (file_path.is_file() and file_path.suffix.lower() in SOURCE_TEXT_SUFFIXES):
                 continue
 
             raw = file_path.read_bytes()

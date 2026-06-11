@@ -12,6 +12,8 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
+
 from .errors import SourceDecodeError
 from .txt import decode_txt
 
@@ -34,7 +36,7 @@ def migrate_project_source_encoding(project_dir: Path) -> MigrationSummary:
     for file_path in sorted(source_dir.iterdir()):
         if not file_path.is_file():
             continue
-        if file_path.suffix.lower() not in {".txt", ".md"}:
+        if file_path.suffix.lower() not in SOURCE_TEXT_SUFFIXES:
             continue
 
         raw_bytes = file_path.read_bytes()

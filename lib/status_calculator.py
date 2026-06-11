@@ -6,7 +6,8 @@
 """
 
 import logging
-from pathlib import Path
+
+from lib.path_safety import safe_exists
 
 logger = logging.getLogger(__name__)
 
@@ -100,17 +101,6 @@ class StatusCalculator:
             "storyboards": {"total": total, "completed": 0},
             "videos": {"total": total, "completed": video_done},
         }
-
-    @staticmethod
-    def _safe_exists(base: Path, rel_path: str) -> bool:
-        """检查 rel_path 是否为 base 目录内的合法相对路径且文件存在（防止路径穿越）"""
-        if not rel_path:
-            return False
-        try:
-            full = (base / rel_path).resolve()
-            return full.is_relative_to(base.resolve()) and full.exists()
-        except (OSError, ValueError):
-            return False
 
     def _load_episode_script(
         self,
@@ -286,17 +276,17 @@ class StatusCalculator:
         # 角色统计
         chars = project.get("characters", {})
         chars_total = len(chars)
-        chars_done = sum(1 for c in chars.values() if self._safe_exists(project_dir, c.get("character_sheet", "")))
+        chars_done = sum(1 for c in chars.values() if safe_exists(project_dir, c.get("character_sheet", "")))
 
         # 场景统计
         scenes = project.get("scenes", {})
         scenes_total = len(scenes)
-        scenes_done = sum(1 for s in scenes.values() if self._safe_exists(project_dir, s.get("scene_sheet", "")))
+        scenes_done = sum(1 for s in scenes.values() if safe_exists(project_dir, s.get("scene_sheet", "")))
 
         # 道具统计
         props = project.get("props", {})
         props_total = len(props)
-        props_done = sum(1 for p in props.values() if self._safe_exists(project_dir, p.get("prop_sheet", "")))
+        props_done = sum(1 for p in props.values() if safe_exists(project_dir, p.get("prop_sheet", "")))
 
         # 每集状态：优先使用预加载数据，否则自行加载
         if _preloaded_episodes_stats is not None:

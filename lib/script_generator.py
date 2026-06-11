@@ -7,7 +7,6 @@ script_generator.py - 剧本生成器
 import json
 import logging
 import re
-import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
@@ -18,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.episode_ledger import normalize_source_text
 from lib.project_manager import ProjectManager, effective_mode
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -576,14 +576,15 @@ class ScriptGenerator:
                 source_path = self.project_path / "source" / f"episode_{episode}.txt"
                 if source_path.is_file():
                     source_lang = self.project_json.get("source_language", "zh")
-                    # NFC normalize 边界:LLM 输出几乎必然 NFC,源若为 NFD(越南语 macOS
+                    # 归一化边界:LLM 输出几乎必然 NFC,源若为 NFD(越南语 macOS
                     # 文件名等罕见场景)会让 \w word boundary 把组合重音拆词,导致 expected
-                    # 偏大触发 false drift。统一 NFC 后比较 fair。
-                    source_text = unicodedata.normalize("NFC", source_path.read_text(encoding="utf-8"))
+                    # 偏大触发 false drift。两侧统一过账本归一化函数(NFC + 换行折叠,
+                    # 后者对计数无影响)后比较 fair。
+                    source_text = normalize_source_text(source_path.read_text(encoding="utf-8"))
                     expected = count_reading_units(source_text, source_lang)
                     actual = sum(
                         count_reading_units(
-                            unicodedata.normalize("NFC", str(seg.get("novel_text") or "")),
+                            normalize_source_text(str(seg.get("novel_text") or "")),
                             source_lang,
                         )
                         for seg in script_data.get("segments") or []

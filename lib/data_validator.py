@@ -11,7 +11,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
+from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
 from lib.json_io import load_json_or_none
 from lib.project_manager import effective_mode
 
@@ -36,6 +39,11 @@ class ValidationResult:
         if self.warnings:
             msg += f"\n警告 ({len(self.warnings)}):\n" + "\n".join(f"  - {warning}" for warning in self.warnings)
         return msg
+
+
+def _pydantic_error_summary(exc: ValidationError) -> str:
+    """把 ValidationError 压成单行 ``字段: 原因`` 摘要，供 errors 列表内嵌。"""
+    return "; ".join(f"{'.'.join(str(part) for part in err['loc']) or '<root>'}: {err['msg']}" for err in exc.errors())
 
 
 class DataValidator:
@@ -94,6 +102,7 @@ class DataValidator:
         raw_path: str,
         *,
         default_dir: str | None = None,
+        missing_ok: bool = False,
     ) -> tuple[str | None, str | None]:
         normalized = str(raw_path).strip().replace("\\", "/")
         if not normalized:
@@ -120,6 +129,8 @@ class DataValidator:
             if resolved.exists():
                 return candidate.as_posix(), None
 
+        if missing_ok:
+            return None, None
         return None, f"引用的文件不存在: {normalized}"
 
     def _validate_local_reference(
@@ -131,6 +142,7 @@ class DataValidator:
         *,
         default_dir: str | None = None,
         allow_external: bool = False,
+        missing_ok: bool = False,
     ) -> str | None:
         if value in (None, ""):
             return None
@@ -152,10 +164,38 @@ class DataValidator:
             project_dir,
             raw_value,
             default_dir=default_dir,
+            missing_ok=missing_ok,
         )
         if error:
             errors.append(f"{field_name}: {error}")
         return resolved_path
+
+    @staticmethod
+    def _validate_episode_ledger_fields(episode: dict[str, Any], prefix: str, errors: list[str]) -> None:
+        """分集账本字段的形状校验（全部可缺失 = 旧式条目），形状真相源复用 lib.episode_ledger 模型。"""
+        ledger_status = episode.get("ledger_status")
+        if ledger_status is not None and ledger_status not in LEDGER_STATUSES:
+            errors.append(f"{prefix}: ledger_status 值无效: {ledger_status!r}，必须是 {sorted(LEDGER_STATUSES)}")
+
+        source_range = episode.get("source_range")
+        if source_range is not None:
+            try:
+                SourceRange.model_validate(source_range)
+            except ValidationError as exc:
+                errors.append(f"{prefix}: source_range 不合法: {_pydantic_error_summary(exc)}")
+        if ledger_status == "unanchored" and source_range is not None:
+            errors.append(f"{prefix}: unanchored 条目的 source_range 必须为 null（失锚集不持有原文范围）")
+
+        hook = episode.get("hook")
+        if hook is not None and not isinstance(hook, str):
+            errors.append(f"{prefix}: hook 必须是字符串")
+
+        outline = episode.get("outline")
+        if outline is not None:
+            try:
+                EpisodeOutline.model_validate(outline)
+            except ValidationError as exc:
+                errors.append(f"{prefix}: outline 不合法: {_pydantic_error_summary(exc)}")
 
     def _validate_project_payload(
         self,
@@ -189,14 +229,25 @@ class DataValidator:
 
                 if not isinstance(episode.get("episode"), int):
                     errors.append(f"{prefix}: 缺少必填字段 episode (整数)")
-                if not episode.get("title"):
-                    errors.append(f"{prefix}: 缺少必填字段 title")
+                # title 允许空串：写入方（剧本同步/账本回填）在标题未知时即写 ""，
+                # 待用户或智能体后续命名
+                if not isinstance(episode.get("title"), str):
+                    errors.append(f"{prefix}: 缺少必填字段 title (字符串，可为空)")
 
                 script_file = episode.get("script_file")
                 if not script_file:
                     errors.append(f"{prefix}: 缺少必填字段 script_file")
                 elif not isinstance(script_file, str):
                     errors.append(f"{prefix}: script_file 必须是字符串")
+
+                self._validate_episode_ledger_fields(episode, prefix, errors)
+
+        planning_cursor = project.get("planning_cursor")
+        if planning_cursor is not None:
+            try:
+                PlanningCursor.model_validate(planning_cursor)
+            except ValidationError as exc:
+                errors.append(f"planning_cursor 不合法: {_pydantic_error_summary(exc)}")
 
         characters = project.get("characters", {})
         if isinstance(characters, dict):
@@ -791,6 +842,9 @@ class DataValidator:
                     errors,
                     f"episodes[{index}].script_file",
                     default_dir="scripts",
+                    # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
+                    # 拆分先于剧本存在是设计内状态；路径越界仍照常报错
+                    missing_ok=episode_meta.get("ledger_status") is not None,
                 )
                 if not resolved_path:
                     continue

@@ -288,7 +288,7 @@ class TestProjectArchiveService:
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
 
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
-        """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口被迁移到 v2。"""
+        """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
         import json as _json
 
         pm = ProjectManager(tmp_path / "projects")
@@ -310,8 +310,10 @@ class TestProjectArchiveService:
 
         result = service.import_project_archive(archive_path, uploaded_filename="legacy.zip")
 
+        from lib.project_migrations import CURRENT_SCHEMA_VERSION
+
         installed = _json.loads((pm.get_project_path(result.project_name) / "project.json").read_text(encoding="utf-8"))
-        assert installed["schema_version"] == 2
+        assert installed["schema_version"] == CURRENT_SCHEMA_VERSION
         assert installed["image_provider_t2i"] == "gemini-vertex/imagen-3"
         assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
         assert "image_backend" not in installed
@@ -344,6 +346,49 @@ class TestProjectArchiveService:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
         assert any("episodes[0].script_file" in error for error in exc_info.value.errors)
+
+    def test_import_allows_missing_script_for_ledgered_entry(self, tmp_path):
+        """账本条目（带 ledger_status）的剧本可以尚未生成：导入放行并落 warning。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        project = pm.load_project("demo")
+        project["episodes"][0]["ledger_status"] = "planned"
+        pm.save_project("demo", project)
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "ledgered-missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="ledgered.zip")
+        assert any("episodes[0].script_file" in w for w in result.warnings)
+
+    def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
+        """迁移补建的孤儿集条目（剧本未生成）不破坏导出→再导入往返。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project = pm.load_project("demo")
+        project["episodes"].append(
+            {
+                "episode": 2,
+                "title": "",
+                "script_file": "scripts/episode_2.json",
+                "source_range": None,
+                "ledger_status": "unanchored",
+            }
+        )
+        pm.save_project("demo", project)
+
+        archive_path, _ = service.export_project("demo")
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="rename",
+        )
+        imported = result.project
+        assert imported["episodes"][1]["ledger_status"] == "unanchored"
 
     @pytest.mark.parametrize(
         ("field_name", "target_path"),

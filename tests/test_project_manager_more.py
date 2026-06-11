@@ -97,6 +97,16 @@ class TestProjectManagerMore:
         )
         assert project["image_provider_t2i"] == "openai/gpt-image-1"
 
+    def test_create_project_metadata_is_latest_schema_with_planning_cursor(self, tmp_path):
+        """新项目即最新 schema 形态：版本对齐迁移目标版本，planning_cursor 以 null 初始。"""
+        from lib.project_migrations import CURRENT_SCHEMA_VERSION
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        project = pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        assert project["schema_version"] == CURRENT_SCHEMA_VERSION
+        assert project["planning_cursor"] is None
+
     def test_project_identifier_validation_and_empty_title(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 

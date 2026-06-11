@@ -36,37 +36,34 @@ def test_skip_already_current(tmp_projects: Path):
 
 
 def test_migrate_bumps_through_all_versions(tmp_projects: Path, monkeypatch):
-    """runner 逐级跑到 CURRENT_SCHEMA_VERSION（此处 v0→v1→v2）。"""
+    """runner 逐级跑到 CURRENT_SCHEMA_VERSION（此处 v0→v1→v2→v3）。"""
     _write_project(tmp_projects, "p1", {"name": "p1"})  # 无 schema_version
 
     called: list[int] = []
 
-    def fake_v0(project_dir: Path) -> None:
-        called.append(0)
-        data = json.loads((project_dir / "project.json").read_text())
-        data["schema_version"] = 1
-        (project_dir / "project.json").write_text(json.dumps(data))
+    def _fake(from_version: int):
+        def migrator(project_dir: Path) -> None:
+            called.append(from_version)
+            data = json.loads((project_dir / "project.json").read_text())
+            data["schema_version"] = from_version + 1
+            (project_dir / "project.json").write_text(json.dumps(data))
 
-    def fake_v1(project_dir: Path) -> None:
-        called.append(1)
-        data = json.loads((project_dir / "project.json").read_text())
-        data["schema_version"] = 2
-        (project_dir / "project.json").write_text(json.dumps(data))
+        return migrator
 
     monkeypatch.setattr(
         "lib.project_migrations.runner.MIGRATORS",
-        {0: fake_v0, 1: fake_v1},
+        {v: _fake(v) for v in range(CURRENT_SCHEMA_VERSION)},
     )
 
     summary = run_project_migrations(tmp_projects)
     assert "p1" in summary.migrated
-    assert called == [0, 1]
+    assert called == list(range(CURRENT_SCHEMA_VERSION))
     data = json.loads((tmp_projects / "p1" / "project.json").read_text())
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
 
 
 def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
-    """用真实 MIGRATORS：v1 项目经 runner 归一化 legacy provider 名并升到 v2。"""
+    """用真实 MIGRATORS：v1 项目经 runner 归一化 legacy provider 名并升到最新版本。"""
     _write_project(
         tmp_projects,
         "p1",
@@ -75,10 +72,39 @@ def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
     summary = run_project_migrations(tmp_projects)
     assert "p1" in summary.migrated
     data = json.loads((tmp_projects / "p1" / "project.json").read_text())
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["video_backend"] == "ark/x"
     assert data["image_provider_t2i"] == "gemini-vertex/y"
     assert "image_backend" not in data
+
+
+def test_real_v2_to_v3_backfills_ledger_via_runner(tmp_projects: Path):
+    """用真实 MIGRATORS：v2 项目经 runner 回填分集账本并产生版本化备份。"""
+    novel = "第一集的正文内容。第二集还没拆出来的余文。"
+    p = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": 2,
+            "episodes": [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}],
+        },
+    )
+    source = p / "source"
+    source.mkdir()
+    (source / "novel.txt").write_text(novel, encoding="utf-8")
+    (source / "episode_1.txt").write_text("第一集的正文内容。", encoding="utf-8")
+    (source / "_remaining.txt").write_text("第二集还没拆出来的余文。", encoding="utf-8")
+
+    summary = run_project_migrations(tmp_projects)
+    assert "p1" in summary.migrated
+    data = json.loads((p / "project.json").read_text(encoding="utf-8"))
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
+    # 回填语义细节由 test_project_migration_v2_v3 / test_episode_ledger 专测，
+    # 此处只验证迁移器经 MIGRATORS 注册生效与 runner 外围行为
+    assert data["episodes"][0]["ledger_status"] == "planned"
+    assert data["planning_cursor"] is not None
+    assert (source / "_remaining.txt").exists()  # 余文保留，旧拆分流程不受影响
+    assert list(p.glob("project.json.bak.v2-*"))  # runner 自动版本化备份
 
 
 def test_migrate_project_dir_single_project(tmp_projects: Path):
