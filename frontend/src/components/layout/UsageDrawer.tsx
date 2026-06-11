@@ -4,6 +4,7 @@ import {
   Image,
   Video,
   FileText,
+  AudioLines,
   AlertCircle,
   DollarSign,
   ChevronLeft,
@@ -32,12 +33,14 @@ const TYPE_TONE: Record<CallType, { color: string; label: string }> = {
   video: { color: "oklch(0.78 0.13 305)", label: "video_type_label" },
   text: { color: "oklch(0.78 0.10 155)", label: "text_type_label" },
   image: { color: "oklch(0.80 0.10 230)", label: "image_type_label" },
+  audio: { color: "oklch(0.80 0.11 75)", label: "audio_type_label" },
 };
 
 const TYPE_ICON: Record<CallType, typeof Image> = {
   video: Video,
   text: FileText,
   image: Image,
+  audio: AudioLines,
 };
 
 export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDrawerProps) {

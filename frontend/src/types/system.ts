@@ -4,6 +4,9 @@ export interface SystemConfigSettings {
   default_image_backend_t2i?: string;
   default_image_backend_i2i?: string;
   default_text_backend: string;
+  default_audio_backend?: string;
+  narration_voice?: string;
+  narration_speed?: number | null;
   text_backend_script: string;
   text_backend_overview: string;
   text_backend_style: string;
@@ -23,6 +26,7 @@ export interface SystemConfigOptions {
   video_backends: string[];
   image_backends: string[];
   text_backends: string[];
+  audio_backends?: string[];
   provider_names?: Record<string, string>;
 }
 
@@ -54,6 +58,9 @@ export interface SystemConfigPatch {
   default_image_backend_t2i?: string;
   default_image_backend_i2i?: string;
   default_text_backend?: string;
+  default_audio_backend?: string;
+  narration_voice?: string;
+  narration_speed?: number | null;
   text_backend_script?: string;
   text_backend_overview?: string;
   text_backend_style?: string;

@@ -7,7 +7,7 @@ import { API, ConflictError } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
-import { formatCost, totalBreakdown } from "@/utils/cost-format";
+import { costEntries, formatCost, totalBreakdown } from "@/utils/cost-format";
 import { errMsg } from "@/utils/async";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
@@ -610,6 +610,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     rows={[
                       { label: t("storyboard"), value: formatCost(projectTotals.estimate.image) },
                       { label: t("video"), value: formatCost(projectTotals.estimate.video) },
+                      ...(costEntries(projectTotals.estimate.audio).length > 0
+                        ? [{ label: t("media_narration_title"), value: formatCost(projectTotals.estimate.audio) }]
+                        : []),
                     ]}
                     total={formatCost(totalBreakdown(projectTotals.estimate))}
                     totalLabel={t("cost_total_short")}
@@ -620,6 +623,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     rows={[
                       { label: t("storyboard"), value: formatCost(projectTotals.actual.image) },
                       { label: t("video"), value: formatCost(projectTotals.actual.video) },
+                      ...(costEntries(projectTotals.actual.audio).length > 0
+                        ? [{ label: t("media_narration_title"), value: formatCost(projectTotals.actual.audio) }]
+                        : []),
                       ...(["characters", "scenes", "props"] as const)
                         .map((kind) => {
                           const bucket = projectTotals.actual[kind];
@@ -714,6 +720,12 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                               imageValue={formatCost(epCost.totals.estimate.image)}
                               videoLabel={t("video")}
                               videoValue={formatCost(epCost.totals.estimate.video)}
+                              audioLabel={t("media_narration_title")}
+                              audioValue={
+                                costEntries(epCost.totals.estimate.audio).length > 0
+                                  ? formatCost(epCost.totals.estimate.audio)
+                                  : undefined
+                              }
                               total={formatCost(totalBreakdown(epCost.totals.estimate))}
                               totalLabel={t("total")}
                               accent="warm"
@@ -725,6 +737,12 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                               imageValue={formatCost(epCost.totals.actual.image)}
                               videoLabel={t("video")}
                               videoValue={formatCost(epCost.totals.actual.video)}
+                              audioLabel={t("media_narration_title")}
+                              audioValue={
+                                costEntries(epCost.totals.actual.audio).length > 0
+                                  ? formatCost(epCost.totals.actual.audio)
+                                  : undefined
+                              }
                               total={formatCost(totalBreakdown(epCost.totals.actual))}
                               totalLabel={t("total")}
                               accent="good"
@@ -843,6 +861,8 @@ function CostInline({
   imageValue,
   videoLabel,
   videoValue,
+  audioLabel,
+  audioValue,
   total,
   totalLabel,
   accent,
@@ -852,6 +872,8 @@ function CostInline({
   imageValue: string;
   videoLabel: string;
   videoValue: string;
+  audioLabel?: string;
+  audioValue?: string;
   total: string;
   totalLabel: string;
   accent: "warm" | "good";
@@ -867,6 +889,14 @@ function CostInline({
         {videoLabel}{" "}
       </span>
       <span style={{ color: "var(--color-text-2)" }}>{videoValue}</span>
+      {audioLabel != null && audioValue != null && (
+        <>
+          <span className="ml-2" style={{ color: "var(--color-text-4)" }}>
+            {audioLabel}{" "}
+          </span>
+          <span style={{ color: "var(--color-text-2)" }}>{audioValue}</span>
+        </>
+      )}
       <span className="ml-2" style={{ color: "var(--color-text-4)" }}>
         {totalLabel}{" "}
       </span>

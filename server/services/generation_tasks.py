@@ -913,12 +913,15 @@ async def execute_tts_task(
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
-    voice = await ConfigResolver(async_session_factory).resolve_narration_voice(project)
+    resolver = ConfigResolver(async_session_factory)
+    voice = await resolver.resolve_narration_voice(project)
+    speed = await resolver.resolve_narration_speed(project)
 
     _, version = await generator.generate_audio_async(
         text=text,
         resource_id=resource_id,
         voice=voice,
+        speed=speed,
     )
 
     audio_rel = resource_relative_path("audio", resource_id)

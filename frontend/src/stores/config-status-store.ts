@@ -12,7 +12,7 @@ export interface ConfigIssue {
   label: string;
 }
 
-async function getConfigIssues(): Promise<ConfigIssue[]> {
+async function getConfigStatus(): Promise<{ issues: ConfigIssue[]; availableMediaTypes: string[] }> {
   const issues: ConfigIssue[] = [];
 
   const [{ providers }, { providers: customProviders }, configRes] = await Promise.all([
@@ -75,7 +75,11 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
     });
   }
 
-  return issues;
+  // audio 是可选能力（仅说书旁白用），缺失不进 issues 红点；
+  // 可用性经 availableMediaTypes 暴露给生成入口做"请先配置 audio 供应商"前置提示。
+  const availableMediaTypes = ["image", "video", "text", "audio"].filter(hasMediaType);
+
+  return { issues, availableMediaTypes };
 }
 
 // ---------------------------------------------------------------------------
@@ -84,11 +88,15 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
 
 interface ConfigStatusState {
   issues: ConfigIssue[];
+  /** 当前已就绪供应商（含自定义）覆盖到的媒体类型集合。 */
+  availableMediaTypes: string[];
   isComplete: boolean;
   loading: boolean;
   initialized: boolean;
   /** 进行中刷新期间又收到 refresh() 时置位,本轮完成后补跑一次,避免丢掉最后一次请求的数据。 */
   pendingRefresh: boolean;
+  /** 是否有就绪供应商支持该媒体类型（如 hasMediaType("audio")）。 */
+  hasMediaType: (type: string) => boolean;
   fetch: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -103,8 +111,8 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
     for (;;) {
       set({ loading: true, pendingRefresh: false });
       try {
-        const issues = await getConfigIssues();
-        set({ issues, isComplete: issues.length === 0, initialized: true });
+        const { issues, availableMediaTypes } = await getConfigStatus();
+        set({ issues, availableMediaTypes, isComplete: issues.length === 0, initialized: true });
       } catch {
         // 失败保持 initialized=false,下次仍可重试。
       }
@@ -118,10 +126,13 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
 
   return {
     issues: [],
+    availableMediaTypes: [],
     isComplete: true,
     loading: false,
     initialized: false,
     pendingRefresh: false,
+
+    hasMediaType: (type: string) => get().availableMediaTypes.includes(type),
 
     fetch: async () => {
       if (get().initialized) return;

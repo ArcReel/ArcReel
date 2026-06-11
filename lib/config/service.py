@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal
@@ -206,6 +207,25 @@ class ConfigService:
         raw = await self._setting_repo.get("narration_voice", "")
         voice = raw.strip()
         return voice or _DEFAULT_NARRATION_VOICE
+
+    async def get_narration_speed(self) -> float | None:
+        """旁白语速（全局 setting）。未设置/损坏值返回 None，由各 audio backend 按自身能力处理。"""
+        raw = await self._setting_repo.get("narration_speed", "")
+        return self.parse_narration_speed(raw)
+
+    @staticmethod
+    def parse_narration_speed(raw: str) -> float | None:
+        """把存储态语速字符串解析为有效正有限数；空白/非数值/非正/inf/nan 一律视为未设置。"""
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            speed = float(text)
+        except ValueError:
+            return None
+        if not math.isfinite(speed) or speed <= 0:
+            return None
+        return speed
 
     @staticmethod
     def _validate_provider(provider: str) -> None:

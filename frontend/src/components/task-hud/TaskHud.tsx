@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Image,
   Video,
+  AudioLines,
   Check,
   X,
   Loader2,
@@ -515,6 +516,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
 
   const imageTasks = tasks.filter((task) => task.media_type === "image");
   const videoTasks = tasks.filter((task) => task.media_type === "video");
+  const audioTasks = tasks.filter((task) => task.media_type === "audio");
 
   return (
     <GlassPopover
@@ -638,6 +640,20 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             tasks={videoTasks}
             onCancel={voidPromise(handleCancelSingle)}
           />
+          {audioTasks.length > 0 && (
+            <>
+              <div
+                className="h-px"
+                style={{ background: "var(--color-hairline-soft)" }}
+              />
+              <ChannelSection
+                title={t("audio_channel")}
+                icon={AudioLines}
+                tasks={audioTasks}
+                onCancel={voidPromise(handleCancelSingle)}
+              />
+            </>
+          )}
         </div>
 
         {/* Cancel confirmation */}

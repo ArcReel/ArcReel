@@ -21,6 +21,7 @@ import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
+import { NarrationAudioCard } from "./NarrationAudioCard";
 import { NotesDrawer } from "./NotesDrawer";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
@@ -61,10 +62,12 @@ interface ShotDetailProps {
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
+  onGenerateNarration?: (segmentId: string) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
+  generatingNarration?: boolean;
   durationOptions?: number[];
 }
 
@@ -286,10 +289,12 @@ export function ShotDetail({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onGenerateNarration,
   onRestoreStoryboard,
   onRestoreVideo,
   generatingStoryboard,
   generatingVideo,
+  generatingNarration,
   durationOptions = [],
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
@@ -443,6 +448,7 @@ export function ShotDetail({
 
   const sbEstimate = segCost?.estimate?.image;
   const vidEstimate = segCost?.estimate?.video;
+  const narrationEstimate = segCost?.estimate?.audio;
 
   const assets = segment.generated_assets;
   const hasStoryboard = !!assets?.storyboard_image;
@@ -661,6 +667,19 @@ export function ShotDetail({
         uploading={uploadingKind === "video"}
         uploadDisabled={uploadingKind !== null}
       />
+      {contentMode === "narration" && (
+        <NarrationAudioCard
+          projectName={projectName}
+          segmentId={segmentId}
+          novelText={novelText}
+          assetPath={assets?.narration_audio ?? null}
+          generating={generatingNarration}
+          generateDisabled={dirty || saving}
+          generateDisabledHint={dirty ? dirtyHint : undefined}
+          estimatedCost={narrationEstimate ?? undefined}
+          onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
+        />
+      )}
     </div>
   );
 

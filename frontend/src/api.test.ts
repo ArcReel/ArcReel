@@ -207,6 +207,8 @@ describe("API", () => {
 
       await API.generateStoryboard("demo", "seg-1", "img", "episode_1.json");
       await API.generateVideo("demo", "seg-1", "vid", "episode_1.json");
+      await API.generateNarrationAudio("demo", "seg-1", "episode_1.json");
+      await API.generateEpisodeNarrationAudio("demo", "episode_1.json");
       await API.generateCharacter("demo", "Hero", "prompt");
       await API.generateProjectScene("demo", "Temple", "prompt");
       await API.generateProjectProp("demo", "Sword", "prompt");
@@ -272,6 +274,14 @@ describe("API", () => {
           script_file: "episode_1.json",
           duration_seconds: 4,
         }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/tts/seg-1", {
+        method: "POST",
+        body: JSON.stringify({ script_file: "episode_1.json" }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/tts", {
+        method: "POST",
+        body: JSON.stringify({ script_file: "episode_1.json" }),
       });
     });
 

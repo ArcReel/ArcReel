@@ -66,6 +66,7 @@ def tts_env(monkeypatch, tmp_path):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(gen))
     monkeypatch.setattr(ConfigResolver, "resolve_narration_voice", _async_return("Cherry"))
+    monkeypatch.setattr(ConfigResolver, "resolve_narration_speed", _async_return(None))
     return pm, gen
 
 
@@ -96,6 +97,17 @@ class TestExecuteTtsTask:
         assert wb["asset_path"] == "audio/segment_E1S01.wav"
         assert wb["scene_id"] == "E1S01"
         assert wb["script_filename"] == "episode_1.json"
+
+    async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
+        pm, gen = tts_env
+        monkeypatch.setattr(ConfigResolver, "resolve_narration_speed", _async_return(1.5))
+        await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好"})
+        assert gen.audio_calls[0]["speed"] == 1.5
+
+    async def test_unset_narration_speed_passes_none(self, tts_env):
+        pm, gen = tts_env
+        await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好"})
+        assert gen.audio_calls[0]["speed"] is None
 
     async def test_no_text_no_script_file_raises(self, tts_env):
         with pytest.raises(ValueError, match="payload.text 或 payload.script_file"):

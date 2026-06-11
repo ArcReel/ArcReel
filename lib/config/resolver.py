@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -279,6 +280,20 @@ class ConfigResolver:
                 if isinstance(override, str) and override.strip():
                     return override.strip()
             return await svc.get_narration_voice()
+
+    async def resolve_narration_speed(self, project: dict | None) -> float | None:
+        """解析旁白语速：project.json 顶层 ``narration_speed`` > 全局 setting > None（不传给 backend）。
+
+        损坏的覆盖值（非数值/非正/非有限）按未设置处理，回退下一级。
+        """
+        async with self._open_session() as (session, svc):
+            if project is not None:
+                override = project.get("narration_speed")
+                if isinstance(override, (int, float)) and not isinstance(override, bool):
+                    speed = float(override)
+                    if math.isfinite(speed) and speed > 0:
+                        return speed
+            return await svc.get_narration_speed()
 
     async def video_capabilities(self, project_name: str | None = None) -> dict:
         """解析当前项目视频 model 的综合能力 + 用户项目偏好。

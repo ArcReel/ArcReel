@@ -1064,6 +1064,44 @@ class API {
   }
 
   /**
+   * 生成单段旁白配音（文本由后端从剧本 novel_text 读取）
+   * @param projectName - 项目名称
+   * @param segmentId - 片段 ID
+   * @param scriptFile - 剧本文件名
+   */
+  static async generateNarrationAudio(
+    projectName: string,
+    segmentId: string,
+    scriptFile: string
+  ): Promise<{ success: boolean; task_id: string; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/generate/tts/${encodeURIComponent(segmentId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ script_file: scriptFile }),
+      }
+    );
+  }
+
+  /**
+   * 批量生成全集旁白配音（只入队缺少旁白且有原文的段）
+   * @param projectName - 项目名称
+   * @param scriptFile - 剧本文件名
+   */
+  static async generateEpisodeNarrationAudio(
+    projectName: string,
+    scriptFile: string
+  ): Promise<{ success: boolean; task_ids: string[]; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/generate/tts`,
+      {
+        method: "POST",
+        body: JSON.stringify({ script_file: scriptFile }),
+      }
+    );
+  }
+
+  /**
    * 生成角色设计图
    * @param projectName - 项目名称
    * @param charName - 角色名称

@@ -108,6 +108,59 @@ describe("config-status-store", () => {
     expect(useConfigStatusStore.getState().issues.length).toBeGreaterThan(0);
   });
 
+  it("exposes hasMediaType for audio without flagging it as a config issue", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(
+      makeProviders([
+        {
+          id: "dashscope",
+          display_name: "DashScope",
+          status: "ready",
+          media_types: ["image", "video", "text", "audio"],
+          capabilities: [],
+          configured_keys: ["api_key"],
+          missing_keys: [],
+          models: {},
+        },
+      ]),
+    );
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
+    );
+
+    await useConfigStatusStore.getState().fetch();
+
+    expect(useConfigStatusStore.getState().hasMediaType("audio")).toBe(true);
+    expect(useConfigStatusStore.getState().issues).toHaveLength(0);
+  });
+
+  it("reports audio unavailable when no ready provider supports it, still without an issue entry", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(
+      makeProviders([
+        {
+          id: "gemini",
+          display_name: "Google Gemini",
+          status: "ready",
+          media_types: ["image", "video", "text"],
+          capabilities: [],
+          configured_keys: ["api_key"],
+          missing_keys: [],
+          models: {},
+        },
+      ]),
+    );
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
+    );
+
+    await useConfigStatusStore.getState().fetch();
+
+    expect(useConfigStatusStore.getState().hasMediaType("audio")).toBe(false);
+    // audio 是可选能力,缺失不进 issues 红点
+    expect(useConfigStatusStore.getState().issues).toHaveLength(0);
+  });
+
   it("coalesces a refresh requested while one is in flight instead of dropping it", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

@@ -13,7 +13,7 @@ export type TaskStatus =
   | "succeeded"
   | "failed"
   | "cancelled";
-export type TaskMediaType = "image" | "video";
+export type TaskMediaType = "image" | "video" | "audio";
 
 export interface TaskItem {
   task_id: string;

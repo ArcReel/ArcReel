@@ -247,6 +247,9 @@ def enqueue_and_wait_sync(**kwargs) -> dict[str, Any]:
 # plain-string-only asset prompts still flow through the image branch (no scene key).
 _VIDEO_TASK_TYPES = frozenset({"video"})
 _IMAGE_STRUCTURED_TASK_TYPES = frozenset({"storyboard"})
+# 旁白合成任务：文本默认由执行层从剧本 novel_text 读取，prompt 允许缺省；
+# 显式传入时必须是非空字符串（作为待合成文本覆盖）。
+_TTS_TASK_TYPES = frozenset({"tts"})
 
 
 def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> None:
@@ -273,6 +276,15 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
         else:
             raise TaskSpecValidationError("prompt_must_be_string_or_object")
         return
+
+    if task_type in _TTS_TASK_TYPES:
+        if prompt is None:
+            return
+        if isinstance(prompt, str):
+            if not prompt.strip():
+                raise TaskSpecValidationError("prompt_text_empty")
+            return
+        raise TaskSpecValidationError("prompt_must_be_string_or_object")
 
     if task_type in _IMAGE_STRUCTURED_TASK_TYPES and isinstance(prompt, dict):
         if not is_structured_image_prompt(prompt):

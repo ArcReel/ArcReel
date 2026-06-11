@@ -59,7 +59,7 @@ export interface ProviderCredential {
   created_at: string;
 }
 
-export type CallType = "image" | "video" | "text";
+export type CallType = "image" | "video" | "text" | "audio";
 
 export interface UsageStat {
   provider: string;
