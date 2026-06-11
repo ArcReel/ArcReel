@@ -18,10 +18,10 @@ import re
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from lib.path_safety import safe_exists
 
@@ -40,6 +40,19 @@ _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
 
 
+def _validate_rel_posix_path(value: str) -> str:
+    """``source_file`` 的路径语义：项目根相对 POSIX 路径，拒绝绝对路径 / ``..`` / 反斜杠。
+
+    形状校验放行这些值会让按路径读源文的消费方越出项目目录。
+    """
+    if not value or "\\" in value:
+        raise ValueError("source_file 必须是项目内相对 POSIX 路径")
+    parts = PurePosixPath(value).parts
+    if PurePosixPath(value).is_absolute() or ".." in parts:
+        raise ValueError("source_file 不能是绝对路径或包含 ..")
+    return value
+
+
 class SourceRange(BaseModel):
     """集对应的原文素材范围。
 
@@ -52,6 +65,11 @@ class SourceRange(BaseModel):
     source_file: str
     start: int = Field(ge=0)
     end: int = Field(ge=0)
+
+    @field_validator("source_file")
+    @classmethod
+    def _check_source_file(cls, value: str) -> str:
+        return _validate_rel_posix_path(value)
 
     @model_validator(mode="after")
     def _check_order(self) -> SourceRange:
@@ -76,6 +94,11 @@ class PlanningCursor(BaseModel):
 
     source_file: str
     offset: int = Field(ge=0)
+
+    @field_validator("source_file")
+    @classmethod
+    def _check_source_file(cls, value: str) -> str:
+        return _validate_rel_posix_path(value)
 
 
 def normalize_source_text(text: str) -> str:

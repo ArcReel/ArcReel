@@ -507,6 +507,18 @@ class TestEpisodeLedgerFields:
         )
         assert any("source_range" in e for e in result.errors)
 
+    def test_escaping_source_file_rejected(self, tmp_path):
+        # source_file 是消费方按路径读源文的依据，越界值（..）必须在校验层拒绝
+        result = self._validate(
+            tmp_path,
+            self._entry(source_range={"source_file": "../outside.txt", "start": 0, "end": 1}),
+        )
+        assert any("source_range" in e for e in result.errors)
+
+    def test_absolute_planning_cursor_source_file_rejected(self, tmp_path):
+        result = self._validate(tmp_path, planning_cursor={"source_file": "/etc/passwd", "offset": 0})
+        assert any("planning_cursor" in e for e in result.errors)
+
     def test_unanchored_with_source_range_rejected(self, tmp_path):
         result = self._validate(
             tmp_path,

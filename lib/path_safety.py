@@ -12,5 +12,6 @@ def safe_exists(base: Path, rel_path: str) -> bool:
     try:
         full = (base / rel_path).resolve()
         return full.is_relative_to(base.resolve()) and full.exists()
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
+        # TypeError：rel_path 来自 project.json 原始字段，脏数据（dict/int）按「不存在」处理
         return False

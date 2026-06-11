@@ -21,7 +21,8 @@ def migrate_v2_to_v3(project_dir: Path) -> None:
     if not pj.exists():
         return
     data = load_json(pj)
-    if data.get("schema_version", 0) >= 3:
+    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
+    if int(data.get("schema_version") or 0) >= 3:
         return
     migrated = backfill_episode_ledger(project_dir, data)
     migrated["schema_version"] = 3

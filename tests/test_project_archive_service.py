@@ -390,6 +390,28 @@ class TestProjectArchiveService:
         imported = result.project
         assert imported["episodes"][1]["ledger_status"] == "unanchored"
 
+    def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
+        """源文件编码无法识别时导入不中止（局部损坏不阻断整体），failed 文件浮到导入 warnings。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+
+        archive_path = tmp_path / "bad-encoding.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        from lib.source_loader.migration import MigrationSummary
+
+        monkeypatch.setattr(
+            project_archive_module,
+            "migrate_project_source_encoding",
+            lambda _dir: MigrationSummary(failed=["novel.txt"]),
+        )
+
+        result = service.import_project_archive(archive_path, uploaded_filename="bad.zip")
+        assert any("novel.txt" in w and "编码" in w for w in result.warnings)
+
     @pytest.mark.parametrize(
         ("field_name", "target_path"),
         [

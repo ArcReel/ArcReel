@@ -56,6 +56,26 @@ def test_version_guard_skips_already_v3(tmp_path: Path):
     assert "ledger_status" not in entry
 
 
+def test_string_schema_version_is_normalized(tmp_path: Path):
+    """历史 project.json 可能存字符串版本号，守卫做 int 归一化而非抛 TypeError。"""
+    d = _write(tmp_path, {"schema_version": "2", "episodes": []})
+    migrate_v2_to_v3(d)
+    assert _load(d)["schema_version"] == 3
+
+
+def test_string_schema_version_guard_skips_v3(tmp_path: Path):
+    d = _write(
+        tmp_path,
+        {
+            "schema_version": "3",
+            "episodes": [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}],
+        },
+    )
+    migrate_v2_to_v3(d)
+    entry = _load(d)["episodes"][0]
+    assert "ledger_status" not in entry
+
+
 def test_double_run_idempotent_at_file_level(tmp_path: Path):
     d = _write(tmp_path, {"schema_version": 2, "episodes": []})
     migrate_v2_to_v3(d)

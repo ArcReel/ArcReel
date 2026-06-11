@@ -24,7 +24,7 @@ def tmp_projects(tmp_path: Path) -> Path:
 def _write_project(root: Path, name: str, data: dict) -> Path:
     d = root / name
     d.mkdir(parents=True, exist_ok=True)
-    (d / "project.json").write_text(json.dumps(data, ensure_ascii=False))
+    (d / "project.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return d
 
 
@@ -44,9 +44,9 @@ def test_migrate_bumps_through_all_versions(tmp_projects: Path, monkeypatch):
     def _fake(from_version: int):
         def migrator(project_dir: Path) -> None:
             called.append(from_version)
-            data = json.loads((project_dir / "project.json").read_text())
+            data = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
             data["schema_version"] = from_version + 1
-            (project_dir / "project.json").write_text(json.dumps(data))
+            (project_dir / "project.json").write_text(json.dumps(data), encoding="utf-8")
 
         return migrator
 
@@ -58,7 +58,7 @@ def test_migrate_bumps_through_all_versions(tmp_projects: Path, monkeypatch):
     summary = run_project_migrations(tmp_projects)
     assert "p1" in summary.migrated
     assert called == list(range(CURRENT_SCHEMA_VERSION))
-    data = json.loads((tmp_projects / "p1" / "project.json").read_text())
+    data = json.loads((tmp_projects / "p1" / "project.json").read_text(encoding="utf-8"))
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
 
 
@@ -71,7 +71,7 @@ def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
     )
     summary = run_project_migrations(tmp_projects)
     assert "p1" in summary.migrated
-    data = json.loads((tmp_projects / "p1" / "project.json").read_text())
+    data = json.loads((tmp_projects / "p1" / "project.json").read_text(encoding="utf-8"))
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["video_backend"] == "ark/x"
     assert data["image_provider_t2i"] == "gemini-vertex/y"
@@ -111,7 +111,7 @@ def test_migrate_project_dir_single_project(tmp_projects: Path):
     """单项目入口（供导入路径复用）：v1 项目走完整链升到 v2 并归一化 legacy 名。"""
     d = _write_project(tmp_projects, "imported", {"schema_version": 1, "image_backend": "vertex/y"})
     assert migrate_project_dir(d) is True
-    data = json.loads((d / "project.json").read_text())
+    data = json.loads((d / "project.json").read_text(encoding="utf-8"))
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["image_provider_t2i"] == "gemini-vertex/y"
     assert "image_backend" not in data
@@ -121,7 +121,7 @@ def test_migrate_project_dir_single_project(tmp_projects: Path):
 
 def test_skip_underscore_dirs(tmp_projects: Path):
     (tmp_projects / "_global_assets").mkdir()
-    (tmp_projects / "_global_assets" / "keep.txt").write_text("x")
+    (tmp_projects / "_global_assets" / "keep.txt").write_text("x", encoding="utf-8")
     _write_project(tmp_projects, "p1", {"schema_version": CURRENT_SCHEMA_VERSION, "name": "p1"})
     summary = run_project_migrations(tmp_projects)
     assert "_global_assets" not in summary.skipped
@@ -145,8 +145,8 @@ def test_cleanup_old_backups(tmp_projects: Path):
     p = _write_project(tmp_projects, "p1", {"schema_version": 1})
     old = p / "project.json.bak.v0-100000000"
     new = p / "project.json.bak.v0-9999999999"
-    old.write_text("old")
-    new.write_text("new")
+    old.write_text("old", encoding="utf-8")
+    new.write_text("new", encoding="utf-8")
 
     old_clues_dir = p / "clues.bak.v0-100000000"
     new_clues_dir = p / "clues.bak.v0-9999999999"
@@ -177,9 +177,9 @@ def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
     (p / "clues" / "nested" / "deep.png").write_bytes(b"deep")
 
     def noop_migrator(project_dir: Path) -> None:
-        data = json.loads((project_dir / "project.json").read_text())
+        data = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
         data["schema_version"] = 1
-        (project_dir / "project.json").write_text(json.dumps(data))
+        (project_dir / "project.json").write_text(json.dumps(data), encoding="utf-8")
 
     monkeypatch.setattr("lib.project_migrations.runner.MIGRATORS", {0: noop_migrator})
     run_project_migrations(tmp_projects)
