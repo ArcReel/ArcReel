@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from lib.episode_planner import EpisodePlanner, EpisodePlanningError, ReplanConfirmationRequired
+from lib.episode_planner import (
+    EpisodePlanner,
+    EpisodePlanningError,
+    PlanningConflictError,
+    ReplanConfirmationRequired,
+)
 from lib.text_backends.base import TextGenerationResult
 
 # 源文：三段剧情，句子互不重复，锚点可唯一定位
@@ -342,6 +347,52 @@ class TestPlan:
         assert result.episodes == []
         assert fake.requests == []
 
+    async def test_plan_advances_to_next_source_when_current_exhausted(self, tmp_path: Path):
+        """多源文件：当前源文件已规划完时，自动从下一个源文件起点续规划。"""
+        source2 = "第二部 新的征程。李恒踏入上界，结识了新的同伴。"
+        anchor2 = "结识了新的同伴。"
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        (project_dir / "source" / "novel2.txt").write_text(source2, encoding="utf-8")
+        (project_dir / "source" / "episode_1.txt").write_text(SOURCE, encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "新的征程", "hook": "上界有什么", "end_anchor": anchor2}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert "第二部" in fake.requests[0].prompt  # 窗口取自下一个源文件
+        project = _load_project(project_dir)
+        eps = {e["episode"]: e for e in project["episodes"]}
+        assert eps[2]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(source2)}
+        assert project["planning_cursor"] == {"source_file": "source/novel2.txt", "offset": len(source2)}
+        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == source2
+        assert result.source_exhausted is True  # 第二个文件也到结尾，且没有更多源文件
+
+    async def test_plan_not_exhausted_when_more_source_files_remain(self, tmp_path: Path):
+        """规划到当前源文件结尾但还有后续源文件：不报源文耗尽。"""
+        project_dir = _write_project(tmp_path)
+        (project_dir / "source" / "novel2.txt").write_text("第二部 新的征程。", encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP2},
+                        {"title": "乙", "hook": "乙", "end_anchor": "卷入漩涡之中。"},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.source_exhausted is False
+        cursor = _load_project(project_dir)["planning_cursor"]
+        assert cursor == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
+
     async def test_plan_keeps_unanchored_episode_file_untouched(self, tmp_path: Path):
         """unanchored 集的物理文件是其最终记录：规划提交既不重写也不删除它。"""
         unanchored_text = "这段内容在源文里找不到，是人工改过的。"
@@ -532,6 +583,31 @@ class TestReplan:
         with pytest.raises(EpisodePlanningError, match="unanchored|失锚"):
             await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
 
+    async def test_replan_confirmed_rejects_newly_consumed_during_execution(self, tmp_path: Path):
+        """确认后的重排执行期间又有集被消费：旧确认不覆盖新消费集，提交中止。"""
+        project_dir = _planned_three(tmp_path, statuses=("planned", "consumed", "planned"))
+
+        class _ConsumingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                # 模拟模型调用期间第 3 集被并发消费
+                project = _load_project(project_dir)
+                for entry in project["episodes"]:
+                    if entry["episode"] == 3:
+                        entry["ledger_status"] = "consumed"
+                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _ConsumingGenerator(
+            [_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])]
+        )
+
+        with pytest.raises(PlanningConflictError, match="新的已消费集"):
+            await EpisodePlanner(project_dir, generator=fake).replan(2, "重排", confirm_consumed=True)
+
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[2]["title"] == "第2集"  # 重排未生效
+        assert eps[3]["ledger_status"] == "consumed"
+
     async def test_replan_rejects_unknown_from_episode(self, tmp_path: Path):
         project_dir = _planned_three(tmp_path)
 
@@ -552,3 +628,39 @@ class TestReplan:
 
         assert len(fake.requests) == 2
         assert "末尾" in fake.requests[1].prompt
+
+
+class TestReconcileFailFast:
+    """派生文件对账的错误分支必须中止提交：提交成功 ⇒ 对账完成。"""
+
+    @staticmethod
+    def _corrupt_entry_1(project_dir: Path, mutate) -> str:
+        """改写第 1 集账本条目制造脏数据，返回改写后的 project.json 原文。"""
+        project = _load_project(project_dir)
+        mutate(project["episodes"][0])
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        return (project_dir / "project.json").read_text(encoding="utf-8")
+
+    async def test_commit_aborts_when_anchored_entry_has_invalid_source_range(self, tmp_path: Path):
+        """账本中锚定集的原文范围类型非法：提交中止，账本与派生文件零变更。"""
+        project_dir = _planned_three(tmp_path)
+        before = self._corrupt_entry_1(project_dir, lambda e: e["source_range"].update(start="0"))
+        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+
+        with pytest.raises(EpisodePlanningError, match="对账"):
+            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+        assert (project_dir / "source" / "episode_3.txt").exists()  # 旧文件未被清理
+
+    async def test_commit_aborts_when_entry_source_file_missing(self, tmp_path: Path):
+        """账本引用的源文件缺失：派生文件重写失败中止提交，不留半成品账本。"""
+        project_dir = _planned_three(tmp_path)
+        before = self._corrupt_entry_1(project_dir, lambda e: e["source_range"].update(source_file="source/gone.txt"))
+        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+
+        with pytest.raises(EpisodePlanningError, match="重写失败"):
+            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+        assert (project_dir / "source" / "episode_3.txt").exists()

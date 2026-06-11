@@ -263,15 +263,23 @@ class EpisodePlanner:
     # ---------------------------------------------------------------- plan
 
     async def plan(self) -> PlanResult:
-        """规划下一批集：从 planning_cursor 起的窗口产出剧情弧完整的集并提交账本。"""
+        """规划下一批集：从 planning_cursor 起的窗口产出剧情弧完整的集并提交账本。
+
+        当前源文件已无剩余有效内容时按文件名序自动推进到下一个源文件；
+        ``source_exhausted=True`` 表示全部源文件都已规划完毕。
+        """
         project = backfill_episode_ledger(self.project_path, self.pm.load_project(self.project_name))
         start_ref = self._effective_start(project)
         source_rel, start = start_ref
         text = self._load_normalized_source(source_rel)
         if start > len(text):
             raise EpisodePlanningError(f"规划起点越界：{source_rel} 长度 {len(text)}，起点 {start}；请检查账本")
-        if not text[start:].strip():
-            return PlanResult(episodes=[], cursor=project.get("planning_cursor"), source_exhausted=True)
+        while not text[start:].strip():
+            next_rel = self._next_source_rel(source_rel)
+            if next_rel is None:
+                return PlanResult(episodes=[], cursor=project.get("planning_cursor"), source_exhausted=True)
+            source_rel, start = next_rel, 0
+            text = self._load_normalized_source(source_rel)
 
         window_chars = self._setting_int(project, "planning_window_chars", DEFAULT_PLANNING_WINDOW_CHARS)
         max_episodes = self._setting_int(project, "planning_max_episodes", DEFAULT_PLANNING_MAX_EPISODES)
@@ -340,7 +348,9 @@ class EpisodePlanner:
             p["planning_cursor"] = {"source_file": source_rel, "offset": start + ends[-1]}
             self._reconcile_derived_files(p, {source_rel: text})
             committed["cursor"] = p["planning_cursor"]
-            committed["exhausted"] = window_is_final and not text[start + ends[-1] :].strip()
+            committed["exhausted"] = (
+                window_is_final and not text[start + ends[-1] :].strip() and self._next_source_rel(source_rel) is None
+            )
 
         self.pm.update_project(self.project_name, _commit)
         return PlanResult(
@@ -412,7 +422,8 @@ class EpisodePlanner:
             if (current.source_rel, current.start, current.end) != (scope.source_rel, scope.start, scope.end):
                 raise PlanningConflictError("重排期间账本被并发修改，本次结果作废；请重新调用重排")
             now_consumed = [num for num, entry in current.affected if entry.get("ledger_status") == "consumed"]
-            if any(num not in consumed for num in now_consumed) and not confirm_consumed:
+            # 用户确认的是读取时刻的已消费清单，期间新消费的集不在确认范围内，必须重新确认
+            if any(num not in consumed for num in now_consumed):
                 raise PlanningConflictError("重排期间出现新的已消费集，需重新确认后再执行")
             old_status = {num: str(entry.get("ledger_status") or "") for num, entry in current.affected}
             old_script_file = {num: entry.get("script_file") for num, entry in current.affected}
@@ -611,6 +622,15 @@ class EpisodePlanner:
             raise EpisodePlanningError("source/ 下没有可规划的源文件（.txt/.md），请先上传小说原文")
         return (sources[0].rel_path, 0)
 
+    def _next_source_rel(self, rel: str) -> str | None:
+        """按文件名序返回 ``rel`` 之后的下一个候选源文件；``rel`` 不在候选或已是最后一个时返回 None。"""
+        rels = [doc.rel_path for doc in discover_sources(self.project_path)]
+        try:
+            idx = rels.index(rel)
+        except ValueError:
+            return None
+        return rels[idx + 1] if idx + 1 < len(rels) else None
+
     def _load_normalized_source(self, rel: str) -> str:
         path = self.project_path / rel
         base = self.project_path.resolve()
@@ -639,6 +659,10 @@ class EpisodePlanner:
         unanchored 集的物理文件即其最终记录，既不重写也不删除。余文文件
         ``_remaining.txt`` 已由账本游标取代，一并清理。每次提交全量对账使
         中途崩溃后重跑即可自愈。
+
+        锚定集的原文范围非法或源文不可读时抛错中止提交（账本写回随之回滚），
+        保证"提交成功 ⇒ 账本内每一集的派生文件已按账本重写"；残留文件删除
+        失败仅告警——残留不在账本中，账本驱动的下游不会读到它。
         """
         source_dir = self.project_path / "source"
         # source/ 是符号链接时拒绝写入：派生文件会落到链接目标（可能在项目外）
@@ -656,7 +680,7 @@ class EpisodePlanner:
                 continue
             source_range = entry.get("source_range")
             if not isinstance(source_range, Mapping):
-                continue
+                raise EpisodePlanningError(f"第 {num} 集缺少原文范围记录，无法完成派生文件对账，提交已中止")
             rel = source_range.get("source_file")
             seg_start = source_range.get("start")
             seg_end = source_range.get("end")
@@ -667,14 +691,13 @@ class EpisodePlanner:
                 or isinstance(seg_start, bool)
                 or isinstance(seg_end, bool)
             ):
-                continue
+                raise EpisodePlanningError(f"第 {num} 集原文范围记录非法，无法完成派生文件对账，提交已中止")
             text = text_cache.get(rel)
             if text is None:
                 try:
                     text = self._load_normalized_source(rel)
                 except EpisodePlanningError as exc:
-                    logger.warning("第 %d 集派生文件重写失败，跳过：%s", num, exc)
-                    continue
+                    raise EpisodePlanningError(f"第 {num} 集派生文件重写失败，提交已中止：{exc}") from exc
                 text_cache[rel] = text
             source_dir.mkdir(exist_ok=True)
             (source_dir / f"episode_{num}.txt").write_text(text[seg_start:seg_end], encoding="utf-8")

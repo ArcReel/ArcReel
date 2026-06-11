@@ -1143,3 +1143,28 @@ async def test_replan_episodes_rejects_missing_instructions(fake_ctx: ToolContex
 
     out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2})
     assert out.get("is_error") is True
+
+
+async def test_replan_episodes_rejects_string_confirm_consumed(fake_ctx: ToolContext) -> None:
+    """confirm_consumed 是确认安全边界：非布尔值（如字符串 "false"）必须拒绝而非真值化。"""
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    out = await _call(
+        mod.replan_episodes_tool(fake_ctx),
+        {"from_episode": 2, "instructions": "重排", "confirm_consumed": "false"},
+    )
+    assert out.get("is_error") is True
+    assert "confirm_consumed" in out["content"][0]["text"]
+
+
+async def test_replan_episodes_rejects_non_integer_from_episode(fake_ctx: ToolContext) -> None:
+    """from_episode 必须是 JSON 整数：布尔与字符串都拒绝。"""
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    for bad in (True, "2"):
+        out = await _call(
+            mod.replan_episodes_tool(fake_ctx),
+            {"from_episode": bad, "instructions": "重排"},
+        )
+        assert out.get("is_error") is True
+        assert "from_episode" in out["content"][0]["text"]

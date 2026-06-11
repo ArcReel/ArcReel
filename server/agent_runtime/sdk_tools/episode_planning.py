@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -18,8 +17,6 @@ from lib.episode_planner import (
     ReplanConfirmationRequired,
 )
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
-
-logger = logging.getLogger(__name__)
 
 
 def _format_summary(result: PlanResult, *, header: str) -> str:
@@ -91,13 +88,20 @@ def replan_episodes_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            from_episode = int(args["from_episode"])
-            if from_episode < 1:
-                raise ValueError(f"from_episode 必须是正整数，收到 {from_episode}")
-            instructions = str(args["instructions"]).strip()
+            raw_from_episode = args["from_episode"]
+            if not isinstance(raw_from_episode, int) or isinstance(raw_from_episode, bool) or raw_from_episode < 1:
+                raise ValueError(f"from_episode 必须是正整数，收到 {raw_from_episode!r}")
+            from_episode = raw_from_episode
+            raw_instructions = args["instructions"]
+            if not isinstance(raw_instructions, str):
+                raise ValueError(f"instructions 必须是字符串，收到 {type(raw_instructions).__name__}")
+            instructions = raw_instructions.strip()
             if not instructions:
                 raise ValueError("instructions 不能为空")
-            confirm_consumed = bool(args.get("confirm_consumed"))
+            raw_confirm = args.get("confirm_consumed", False)
+            if not isinstance(raw_confirm, bool):
+                raise ValueError(f"confirm_consumed 必须是布尔值（JSON true/false），收到 {raw_confirm!r}")
+            confirm_consumed = raw_confirm
 
             planner = await EpisodePlanner.create(ctx.project_path)
             result = await planner.replan(from_episode, instructions, confirm_consumed=confirm_consumed)
