@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.17.0](https://github.com/ArcReel/ArcReel/compare/v0.16.1...v0.17.0) (2026-06-11)
+
+
+### ✨ 新功能
+
+* **generation:** 参考图自动压缩，多张大参考图不再因超请求体上限导致生成失败 ([#745](https://github.com/ArcReel/ArcReel/issues/745)) ([ddc85c4](https://github.com/ArcReel/ArcReel/commit/ddc85c404da899ef5fcca0b16af54743fe9bfff0))
+* **projects:** 分集标题与项目概述支持用户与智能体编辑 ([#744](https://github.com/ArcReel/ArcReel/issues/744)) ([983691b](https://github.com/ArcReel/ArcReel/commit/983691bd3f4ced1f3740f3cd0adc64c922b10ce5))
+* 分镜图与镜头视频支持手动上传，覆盖图生视频/宫格/参考生视频三种模式 ([#750](https://github.com/ArcReel/ArcReel/issues/750)) ([351f8f2](https://github.com/ArcReel/ArcReel/commit/351f8f239fd170de277578caa332f1c9b9956d36))
+
+
+### 🐛 Bug 修复
+
+* OpenAI 官方端点文本生成改用 max_completion_tokens，修复 gpt-5/o 系列模型生成失败 ([#714](https://github.com/ArcReel/ArcReel/issues/714)) ([6c70cd9](https://github.com/ArcReel/ArcReel/commit/6c70cd994bd03a054ef0b93669c4388d8f85932e))
+
+
+### 📚 文档
+
+* 历史设计稿沉淀为 CONTEXT 术语表与 19 条架构决策记录（ADR 0012-0030） ([#748](https://github.com/ArcReel/ArcReel/issues/748)) ([46fb68f](https://github.com/ArcReel/ArcReel/commit/46fb68f2a306b79914839364c8ae8c0b313eab2a))
+* 记录分集拆分重设计决策（ADR 0031/0032：分集账本与服务端分集规划） ([#756](https://github.com/ArcReel/ArcReel/issues/756)) ([fc5c318](https://github.com/ArcReel/ArcReel/commit/fc5c3187caf3d3f12b6d23c4734f26acca04be0c))
+
 ## [0.16.1](https://github.com/ArcReel/ArcReel/compare/v0.16.0...v0.16.1) (2026-06-08)
 
 
