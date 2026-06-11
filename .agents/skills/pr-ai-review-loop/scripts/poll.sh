@@ -76,9 +76,13 @@
 #    (b) PR-level +1 reaction with NO comment (silent pass)
 #    (c) empty-body review (state=COMMENTED, body="") with no new inline
 #
-# 5. Trigger-command dedup MUST normalize whitespace + case.
-#    "@CodeRabbitAI Resume" / " @coderabbitai resume " / "@coderabbitai resume\n" all count as the same command.
-#    Use `test("...";"i")` with leading/trailing \s* — keep this regex consistent everywhere.
+# 5. Trigger-command dedup matches comments that START with the command (case-insensitive,
+#    leading whitespace tolerated, trailing text allowed). Prefix matching — not full-line —
+#    so a human-issued "/gemini review (re: security fix)" still registers for dedup, while
+#    a comment merely MENTIONING a command mid-text does not (substring matching would
+#    swallow pushback comments that quote a command, silently suppressing real triggers).
+#    Note: jq's regex anchors ^/$ bind to the whole string, not lines — a command on the
+#    second line of a comment is NOT matched; keep commands at the start of the comment.
 #
 # 6. Quota / rate-limit errors from Codex are PR-level ISSUE comments, NOT reviews/inline/reactions.
 #    Codex emits e.g. "You have reached your Codex usage limits..." as a plain PR comment — easy to miss.
@@ -133,8 +137,11 @@ gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "
   exit 5
 }
 
-# REST endpoints — gh api wraps each page in []; --paginate yields concatenated arrays
-# (one big array, not a stream), which --slurpfile correctly reads as a single value.
+# REST endpoints. --paginate output shape differs by mode (verified empirically):
+#   - WITHOUT --jq/-q: gh merges all pages of an array endpoint into ONE JSON array,
+#     so --slurpfile sees a single value — unwrap with [0].
+#   - WITH -q: the projection runs per page, emitting one JSON value PER PAGE
+#     (concatenated stream) — unwrap with `add` (see sub-query D).
 # user.login here is WITH [bot] suffix.
 
 # Sub-query A — REST issue comments. Used to get CodeRabbit walkthrough's updated_at
@@ -187,9 +194,10 @@ if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?state=open&per_page=100" -
 fi
 
 # Combine everything in jq. Bot login normalization happens here so consumers see consistent keys.
-# --slurpfile wraps each file in [...]; unwrap with [0] at the top. Sub-query D/E files may
-# hold multiple page values (--paginate), so they are unwrapped with `add` instead (flattens
-# pages, tolerates a single page).
+# --slurpfile wraps each file in [...]. Unwrap rule: files written WITHOUT -q hold one
+# merged array (gh merges pages) — [0] suffices; sub-query D is written WITH -q, so it
+# holds one array PER PAGE — only `add` flattens that correctly ([0] would drop pages 2+).
+# `add` also equals [0] on single-value files, so D/E both use it.
 jq -n \
   --slurpfile main_w "$TMPDIR/main.json" \
   --slurpfile sub_a_w "$TMPDIR/sub_a.json" \
@@ -329,7 +337,7 @@ jq -n \
            (.author.login != "coderabbitai"
             and .author.login != "gemini-code-assist"
             and .author.login != "chatgpt-codex-connector")
-           and (.body | test("^\\s*(/gemini review|@codex review|@coderabbitai resume)\\s*$"; "i"))
+           and (.body | test("^\\s*(/gemini review|@codex review|@coderabbitai resume)(\\s|$)"; "i"))
          )
        | {author: .author.login, createdAt, body: (.body | gsub("^\\s+|\\s+$"; ""))}]
   }

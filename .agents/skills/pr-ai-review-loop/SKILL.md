@@ -63,12 +63,12 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 | `checks_failing` 非空(CI 红) | 就地修复并 push——CI 红会阻塞 reviewer 触发;修不动(重试仍红 / 根因在 main)才暂停询问 |
 | 某家参审 reviewer 未审当前 HEAD | 按 reviewers.md 该家「触发」规则决定等待或发触发命令 |
 | 至少一家有本轮新 actionable 评论(判定见 reviewers.md) | 进入步骤 3 |
-| `security_alerts.open_introduced` 非空但无对应新评论 | 上一轮没修干净(bot 不重复提醒)——把 alert 数据(rule / path / url)直接带入步骤 3,按数据修而非按评论修 |
-| CodeQL 分析未完成 | 等待(不阻塞其它缺口的处理) |
+| `security_alerts.open_introduced` 非空但无对应新评论 | 上一轮没修干净(bot 不重复提醒)——把 alert 数据(rule / path / url)直接带入步骤 3,按数据修而非按评论修。前提:CodeQL 分析完成且成功(门槛 1 口径)——分析未完成时差集基于过期数据,归入下行等待 |
+| CodeQL 分析未完成 | 等待(不阻塞其它缺口的处理,但阻塞终核——分析完成前不得宣布"缺口均消失") |
 | 以上缺口均消失 | 做目标状态**终核**(含 CodeQL 门槛逐条);全过则退出循环并简短汇报,发现遗留则按对应缺口处理 |
 | 未全部达成且无可执行动作(reviewer 响应中) | 按「轮询节奏」表等待下一轮 |
 
-**fix-up 跳过**:发触发命令前先跑 `classify_commits.sh`;若本轮 push 全为 fix-up(nit、format、typo、单字段调整、小 bug 修复)**且该家对上一已审 HEAD 已通过**,跳过手动触发 Gemini 与 Codex,沿用其通过结论(顺延口径见 reviewers.md),等 CodeRabbit 自动跟即可;该家还有未解决评论时不得跳过。例外:Gemini cold-start fallback 不受此限(该场景下整个 PR 还没经过任何 Gemini review)。
+**fix-up 跳过**:发触发命令前先跑 `classify_commits.sh`;若本轮 push 全为 fix-up(nit、format、typo、单字段调整、小 bug 修复)**且该家对上一已审 HEAD 已通过**,跳过手动触发 Gemini 与 Codex,沿用其通过结论(顺延口径见 reviewers.md);该家还有未解决评论时不得跳过。本跳过仅作用于需手动触发的 Gemini / Codex——CodeRabbit 自动跟审每次 push,不在跳过范围,最终 HEAD 始终有它过目。例外:Gemini cold-start fallback 不受此限(该场景下整个 PR 还没经过任何 Gemini review)。
 
 执行完触发动作后,按「轮询节奏」表选择延迟,调用 `ScheduleWakeup`。
 
@@ -84,7 +84,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 
 ## 轮询节奏
 
-每轮 poll 与决策完成后,调用 `ScheduleWakeup` 安排下一次唤醒。唤醒 prompt 写明 skill 名与 PR 号(例:"继续 pr-ai-review-loop:对 PR #N 重跑 poll.sh 走步骤 1"),即使唤醒发生在上下文压缩之后也能无损重入。延迟取值:
+每轮 poll 与决策完成后,调用 `ScheduleWakeup` 安排下一次唤醒。唤醒 prompt 写明 skill 名与 PR 号,可附上一轮动作摘要(例:"继续 pr-ai-review-loop:对 PR #N 重跑 poll.sh 走步骤 1;上轮已发 /gemini review 等响应")。重入语义:判定所需的全部事实由唤醒后的现场 poll 重建(无状态原则),摘要只是省一次推导,不作判定依据——即使唤醒发生在上下文压缩之后,重跑步骤 1 即可继续。延迟取值:
 
 | 场景 | 延迟 | 备注 |
 |---|---|---|
@@ -111,7 +111,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 - **bot 报错**(如 "Internal error"、"Token limit exceeded"):贴出错误内容,询问是否强制重跑(`@coderabbitai full review` 或 `/gemini review`)
 - **`quota_alerts` 非空**:bot 留下了 quota / rate limit 报错,贴出 `body_head`,询问停用该家继续其他家,还是等 quota 恢复后再 push
 - **`codeql_checks` 有 conclusion 为 failure / cancelled / timed_out**:分析失败,alerts 数据停留在上次成功分析,不能做终核;询问是否重跑失败的 workflow
-- **`security_alerts.available == false`**(且不满足 reviewers.md 的"未接入"判定):贴出 `unavailable_hint`,security 门槛无法机器核对,请人工确认后再退出
+- **`security_alerts.available == false`**:贴出 `unavailable_hint`,按 reviewers.md「仓库未接入」段判别权限问题与未接入——两种情形都需用户确认,不得自动跳过 security 门槛
 - **`gh` 401/403**:请用户运行 `gh auth refresh -s repo`
 - **脚本报 `POLL_ERROR:`**:重试一次(网络抖动常见),再失败贴出 stderr
 - **review 评论语义模糊**,`receiving-code-review` 无法判定是否 pushback:贴出原文请用户定夺
