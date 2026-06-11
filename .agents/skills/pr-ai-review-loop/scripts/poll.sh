@@ -12,6 +12,9 @@
 #   "pr_created_at": "<ISO8601>",                       # PR createdAt (issue creation time) — distinct from last_push_at
 #   "head": "<sha>",                                    # current PR head commit SHA
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
+#   "commits": [{oid, committedDate}],                  # full commit list (includes pre-PR development commits)
+#   "round_estimate": <int>,                            # fix-round count: commits with committedDate > pr_created_at, clustered
+#                                                       # by >5min gaps (rebase refreshes all dates => underestimates; heuristic only)
 #   "coderabbit": {
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
 #       "id":                 <int>,                    # REST issue comment id — stable across walkthrough rewrites
@@ -33,8 +36,21 @@
 #     "comments":  [...],
 #     "reactions": [{content, created_at}]              # +1 reaction on PR = silent ack — see PITFALL 4
 #   },
-#   "inline_comments_by_user": {                        # PR-level inline review comments grouped by bot
-#     "<bot[bot]>": [{id, path, commit_id, created_at, severity_alt, is_ack, body_head}]  # id = REST PR review comment id
+#   "inline_comments_by_user": {                        # PR-level inline review comments grouped by bot — includes
+#     "<bot[bot]>": [{id, path, commit_id, created_at, severity_alt, is_ack, body_head}]  # github-code-quality[bot] and
+#   },                                                  # github-advanced-security[bot]; id = REST PR review comment id
+#   "codeql_checks": [{name, app, status, conclusion}], # CodeQL-related check runs on current HEAD (Analyze (*) /
+#                                                       # codeql-required / CodeQL, or runs owned by the code scanning apps)
+#   "checks_failing": [{name, conclusion}],             # ALL check runs on current HEAD with a failing-ish conclusion
+#                                                       # (failure/timed_out/cancelled/action_required/startup_failure);
+#                                                       # red CI can block reviewers, so fix it before waiting on them
+#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 7
+#     "available": <bool>,                              # false = alerts API unreachable (missing scope / no merge-ref analysis); gate must degrade
+#     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false — helps distinguish
+#                                                       # 404 not-enabled vs 403 missing-scope vs no-analysis (note: GitHub returns
+#                                                       # 404 for missing permissions too, so treat as a hint, not proof)
+#     "pr_ref": "refs/pull/<n>/merge",
+#     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]  # open alerts introduced by this PR
 #   },
 #   "quota_alerts": [...],                              # PR-level issue comments matching quota keywords (bots emit quota errors as plain comments, not reviews)
 #   "own_trigger_comments": [...]                       # human-authored /gemini review / @codex review / @coderabbitai resume
@@ -67,6 +83,11 @@
 # 6. Quota / rate-limit errors from Codex are PR-level ISSUE comments, NOT reviews/inline/reactions.
 #    Codex emits e.g. "You have reached your Codex usage limits..." as a plain PR comment — easy to miss.
 #    Captured into quota_alerts so the skill catches it on the first poll.
+#
+# 7. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
+#    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
+#    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
+#    repo-global and identical across refs, so a set difference on number is exact.
 
 set -euo pipefail
 
@@ -76,6 +97,11 @@ if [[ $# -lt 1 ]]; then
 fi
 
 PR="$1"
+
+if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+  echo "POLL_ERROR: PR_NUMBER must be a number, got: $PR" >&2
+  exit 2
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "POLL_ERROR: gh CLI not found on PATH" >&2
@@ -133,13 +159,47 @@ gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$TMPDIR/sub_c.js
   exit 5
 }
 
+# Sub-query D — check runs on the PR head. Feeds two projections: codeql_checks (exit
+# gate: "analysis finished before declaring PASS") and checks_failing (red CI can block
+# reviewers). --paginate with -q runs the projection per page, emitting one array per
+# page; downstream slurpfile flattens with `add` (same as sub-query E).
+HEAD_SHA=$(jq -r '.headRefOid' "$TMPDIR/main.json")
+gh api "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs?per_page=100" --paginate -q '[.check_runs[] | {name, app: .app.slug, status, conclusion}]' > "$TMPDIR/sub_d.json" 2>"$TMPDIR/gh_check_runs.err" || {
+  echo "POLL_ERROR: REST check-runs fetch failed" >&2
+  cat "$TMPDIR/gh_check_runs.err" >&2
+  exit 5
+}
+
+# Sub-query E — code scanning alerts (security exit gate). This API can fail for benign
+# reasons (token missing security-events scope, merge ref not analyzed yet, merge
+# conflict), so degrade to available=false instead of failing the whole poll.
+SECURITY_ALERTS_AVAILABLE=true
+SECURITY_ALERTS_HINT=""
+if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate > "$TMPDIR/sub_e_pr.json" 2>"$TMPDIR/gh_alerts_pr.err"; then
+  SECURITY_ALERTS_AVAILABLE=false
+  SECURITY_ALERTS_HINT="pr-ref: $(head -n 2 "$TMPDIR/gh_alerts_pr.err" | tr '\n' ' ' | cut -c1-300)"
+  echo '[]' > "$TMPDIR/sub_e_pr.json"
+fi
+if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?state=open&per_page=100" --paginate > "$TMPDIR/sub_e_base.json" 2>"$TMPDIR/gh_alerts_base.err"; then
+  SECURITY_ALERTS_AVAILABLE=false
+  SECURITY_ALERTS_HINT="${SECURITY_ALERTS_HINT} base: $(head -n 2 "$TMPDIR/gh_alerts_base.err" | tr '\n' ' ' | cut -c1-300)"
+  echo '[]' > "$TMPDIR/sub_e_base.json"
+fi
+
 # Combine everything in jq. Bot login normalization happens here so consumers see consistent keys.
-# --slurpfile wraps each file in [...]; unwrap with [0] at the top.
+# --slurpfile wraps each file in [...]; unwrap with [0] at the top. Sub-query D/E files may
+# hold multiple page values (--paginate), so they are unwrapped with `add` instead (flattens
+# pages, tolerates a single page).
 jq -n \
   --slurpfile main_w "$TMPDIR/main.json" \
   --slurpfile sub_a_w "$TMPDIR/sub_a.json" \
   --slurpfile sub_b_w "$TMPDIR/sub_b.json" \
   --slurpfile sub_c_w "$TMPDIR/sub_c.json" \
+  --slurpfile sub_d_w "$TMPDIR/sub_d.json" \
+  --slurpfile sub_e_pr_w "$TMPDIR/sub_e_pr.json" \
+  --slurpfile sub_e_base_w "$TMPDIR/sub_e_base.json" \
+  --argjson security_available "$SECURITY_ALERTS_AVAILABLE" \
+  --arg security_hint "$SECURITY_ALERTS_HINT" \
   '
   ($main_w[0]) as $main
   | ($sub_a_w[0]) as $sub_a
@@ -169,7 +229,7 @@ jq -n \
     (test("<!--\\s*<review_comment_addressed>")) or (test("^### Summary"));
 
   def inline_by_bot:
-    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector)\\[bot\\]$"))]
+    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]
     | group_by(.user.login)
     | map({
         key:   .[0].user.login,
@@ -180,7 +240,7 @@ jq -n \
           created_at,
           severity_alt: ([.body | capture("!\\[(?<s>[^\\]]+)\\]")] | .[0].s // null),
           is_ack:       (.body | is_ack_body),
-          body_head:    (.body | .[0:200])
+          body_head:    (.body | .[0:400])
         })
       })
     | from_entries;
@@ -207,6 +267,13 @@ jq -n \
     pr_created_at: $main.createdAt,
     head:          $main.headRefOid,
     last_push_at:  ($main.commits | last.committedDate),
+    commits:       [$main.commits[] | {oid, committedDate}],
+    round_estimate:
+      ([$main.commits[] | select(.committedDate > $main.createdAt) | .committedDate]
+       | sort | map(fromdateiso8601)
+       | reduce .[] as $t ({prev: 0, n: 0};
+           if ($t - .prev) > 300 then {prev: $t, n: (.n + 1)} else {prev: $t, n: .n} end)
+       | .n),
 
     coderabbit: {
       walkthrough:    cr_walkthrough_rest,
@@ -226,6 +293,33 @@ jq -n \
     },
 
     inline_comments_by_user: inline_by_bot,
+
+    codeql_checks:
+      [($sub_d_w | add)[]
+       | select((.app == "github-advanced-security" or .app == "github-code-quality")
+                or (.name | test("^Analyze \\(|^codeql-required$|^CodeQL$")))],
+
+    checks_failing:
+      [($sub_d_w | add)[]
+       | select(.conclusion | IN("failure", "timed_out", "cancelled", "action_required", "startup_failure"))
+       | {name, conclusion}],
+
+    security_alerts: {
+      available: $security_available,
+      unavailable_hint: (if $security_available then null else $security_hint end),
+      pr_ref: ("refs/pull/" + ($main.number | tostring) + "/merge"),
+      open_introduced:
+        (($sub_e_base_w | add | map(.number)) as $base_numbers
+         | [($sub_e_pr_w | add)[]
+            | select(.number as $n | $base_numbers | index($n) | not)
+            | {number,
+               rule:              .rule.id,
+               severity:          .rule.severity,
+               security_severity: .rule.security_severity_level,
+               tool:              .tool.name,
+               path:              .most_recent_instance.location.path,
+               url:               .html_url}])
+    },
 
     quota_alerts: quota_alerts,
 
