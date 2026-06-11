@@ -87,13 +87,50 @@ class ScriptGenerator:
         self.project_json = self._load_project_json()
         self.content_mode = self.project_json.get("content_mode", "narration")
 
-    def _effective_generation_mode(self, episode: int) -> str:
-        """按 episode → project → 默认 storyboard 回退解析 generation_mode。"""
-        episode_dict = next(
-            (ep for ep in (self.project_json.get("episodes") or []) if ep.get("episode") == episode),
+    def _episode_entry(self, episode: int) -> dict:
+        """按集号取 project.json episodes 条目；缺失返回空 dict。"""
+        return next(
+            (
+                ep
+                for ep in (self.project_json.get("episodes") or [])
+                if isinstance(ep, dict) and ep.get("episode") == episode
+            ),
             {},
         )
-        return effective_mode(project=self.project_json, episode=episode_dict)
+
+    def _effective_generation_mode(self, episode: int) -> str:
+        """按 episode → project → 默认 storyboard 回退解析 generation_mode。"""
+        return effective_mode(project=self.project_json, episode=self._episode_entry(episode))
+
+    @staticmethod
+    def _entry_outline(entry: dict) -> dict:
+        """账本条目的 outline 字段归一化为 dict（缺失/形状异常返回空 dict）。"""
+        raw_outline = entry.get("outline")
+        return raw_outline if isinstance(raw_outline, dict) else {}
+
+    def _ledger_outline_context(self, episode: int) -> tuple[dict | None, dict | None]:
+        """从分集账本条目提取 drama 剧本生成的规划输入：(本集大纲, 下集大纲)。
+
+        大纲 dict 含 title / hook / story_beats / next_episode_teaser。条目无任何
+        规划数据（旧式条目，规划工具尚未写入）时对应项为 None，prompt 退回纯中间
+        文件输入；末集无下集，第二项为 None。
+        """
+
+        def _context(entry: dict) -> dict | None:
+            outline = self._entry_outline(entry)
+            raw_beats = outline.get("story_beats")
+            ctx = {
+                "title": entry.get("title"),
+                "hook": entry.get("hook"),
+                # 非 list 形状（手编损坏）按缺失处理，避免字符串被逐字符渲染进 prompt
+                "story_beats": raw_beats if isinstance(raw_beats, list) else [],
+                "next_episode_teaser": outline.get("next_episode_teaser"),
+            }
+            if not ctx["hook"] and not ctx["story_beats"] and not ctx["next_episode_teaser"]:
+                return None
+            return ctx
+
+        return _context(self._episode_entry(episode)), _context(self._episode_entry(episode + 1))
 
     @classmethod
     async def create(cls, project_path: str | Path) -> "ScriptGenerator":
@@ -181,6 +218,7 @@ class ScriptGenerator:
             # 避免生成出执行层 assert_duration_supported 会拒、或漏到供应商 API 报错的非成员时长。
             schema = build_episode_script_model("narration", supported_durations)
         else:
+            episode_outline, next_episode_outline = self._ledger_outline_context(episode)
             prompt = build_drama_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -193,6 +231,8 @@ class ScriptGenerator:
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
+                episode_outline=episode_outline,
+                next_episode_outline=next_episode_outline,
             )
             schema = build_episode_script_model("drama", supported_durations)
 
@@ -272,6 +312,7 @@ class ScriptGenerator:
                 episode=episode,
             )
         else:
+            episode_outline, next_episode_outline = self._ledger_outline_context(episode)
             return build_drama_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -284,6 +325,8 @@ class ScriptGenerator:
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
+                episode_outline=episode_outline,
+                next_episode_outline=next_episode_outline,
             )
 
     async def _fetch_video_capabilities(self) -> dict | None:
@@ -371,27 +414,28 @@ class ScriptGenerator:
             return json.load(f)
 
     def _load_step1(self, episode: int) -> str:
-        """加载 Step 1 的 Markdown 文件，支持两种文件命名"""
+        """加载 Step 1 的 Markdown 中间文件。
+
+        每种模式只对应一个期望文件，缺失时显式报错并指明期望路径——不降级改读
+        其他模式的中间文件（静默 fallback 会让剧本基于错误模式的中间产物生成）。
+        """
         drafts_path = self.project_path / "drafts" / f"episode_{episode}"
         gen_mode = self._effective_generation_mode(episode)
         if gen_mode == "reference_video":
-            primary_path = drafts_path / "step1_reference_units.md"
-            fallback_path = None
+            step1_path = drafts_path / "step1_reference_units.md"
         elif self.content_mode == "narration":
-            primary_path = drafts_path / "step1_segments.md"
-            fallback_path = drafts_path / "step1_normalized_script.md"
+            step1_path = drafts_path / "step1_segments.md"
         else:
-            primary_path = drafts_path / "step1_normalized_script.md"
-            fallback_path = drafts_path / "step1_segments.md"
+            step1_path = drafts_path / "step1_normalized_script.md"
 
-        if not primary_path.exists():
-            if fallback_path is not None and fallback_path.exists():
-                logger.warning("未找到 Step 1 文件: %s，改用 %s", primary_path, fallback_path)
-                primary_path = fallback_path
-            else:
-                raise FileNotFoundError(f"未找到 Step 1 文件: {primary_path}")
+        if not step1_path.exists():
+            raise FileNotFoundError(
+                f"未找到 Step 1 中间文件: {step1_path}；"
+                f"content_mode={self.content_mode}, generation_mode={gen_mode} 期望该文件，"
+                "请先完成本集预处理"
+            )
 
-        with open(primary_path, encoding="utf-8") as f:
+        with open(step1_path, encoding="utf-8") as f:
             return f.read()
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
@@ -476,6 +520,12 @@ class ScriptGenerator:
             script_data["generation_mode"] = "reference_video"
         else:
             script_data.setdefault("content_mode", self.content_mode)
+
+        # 集级钩子/下集预告：分集账本是钩子设计的单一真相源，强制以账本值覆盖
+        # （LLM 不参与填写，model_dump 只会留下 None 默认值）。账本无规划数据时为 None。
+        entry = self._episode_entry(ep)
+        script_data["hook"] = entry.get("hook")
+        script_data["next_episode_teaser"] = self._entry_outline(entry).get("next_episode_teaser")
 
         # 添加小说信息
         # 注意守卫语义：novel 字段已 SkipJsonSchema 隐藏，但 default_factory=NovelInfo

@@ -50,6 +50,51 @@ def _valid_narration_response() -> dict:
     }
 
 
+def _write_drama_ledger_project(project_path: Path, episodes: list[dict], characters: dict | None = None) -> None:
+    """写一个带分集账本条目的最小 drama 项目 project.json。"""
+    _write_json(
+        project_path / "project.json",
+        {
+            "title": "项目",
+            "content_mode": "drama",
+            "overview": {},
+            "characters": characters or {},
+            "style": "古风",
+            "style_description": "cinematic",
+            "_supported_durations": [4, 6, 8],
+            "episodes": episodes,
+        },
+    )
+
+
+def _valid_drama_response() -> dict:
+    return {
+        "title": "第一集",
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "duration_seconds": 8,
+                "segment_break": False,
+                "characters_in_scene": ["姜月茴"],
+                "image_prompt": {
+                    "scene": "场景",
+                    "composition": {
+                        "shot_type": "Medium Shot",
+                        "lighting": "暖光",
+                        "ambiance": "薄雾",
+                    },
+                },
+                "video_prompt": {
+                    "action": "转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [],
+                },
+            }
+        ],
+    }
+
+
 class _FakeTextBackend:
     def __init__(self, response_text: str = "{}"):
         self._response_text = response_text
@@ -110,7 +155,9 @@ class TestScriptGenerator:
         assert "E1S01 | 片段" in prompt
         assert "姜月茴" in prompt
 
-    async def test_load_step1_falls_back_when_primary_missing(self, tmp_path):
+    async def test_load_step1_narration_missing_raises_without_fallback(self, tmp_path):
+        """narration 集缺 step1_segments.md 时显式报错并指明期望文件；
+        即使 drama 模式的中间文件存在也不得降级改读。"""
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
@@ -122,11 +169,144 @@ class TestScriptGenerator:
                 "clues": {},
             },
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "fallback")
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "其他模式中间文件")
 
         generator = ScriptGenerator(project_path)
-        content = generator._load_step1(1)
-        assert content == "fallback"
+        with pytest.raises(FileNotFoundError, match="step1_segments.md"):
+            generator._load_step1(1)
+
+    async def test_load_step1_drama_missing_raises_without_fallback(self, tmp_path):
+        """drama 集缺 step1_normalized_script.md 时显式报错；不得降级改读 narration 的拆分表。"""
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "overview": {},
+                "characters": {},
+                "clues": {},
+            },
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "其他模式中间文件")
+
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(FileNotFoundError, match="step1_normalized_script.md"):
+            generator._load_step1(1)
+
+    async def test_drama_prompt_includes_current_and_next_episode_outlines(self, tmp_path):
+        """drama 剧本生成输入须包含账本里本集大纲（故事节点/钩子/下集预告）与下集大纲。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [
+                {
+                    "episode": 1,
+                    "title": "初入江湖",
+                    "script_file": "scripts/episode_1.json",
+                    "hook": "少年坠崖生死未卜",
+                    "outline": {
+                        "story_beats": ["少年下山", "初遇黑衣人"],
+                        "next_episode_teaser": "崖底神秘人出手相救",
+                    },
+                    "ledger_status": "planned",
+                },
+                {
+                    "episode": 2,
+                    "title": "绝处逢生",
+                    "script_file": "scripts/episode_2.json",
+                    "hook": "神秘人身份揭晓",
+                    "outline": {
+                        "story_beats": ["崖底醒来", "拜师学艺"],
+                        "next_episode_teaser": None,
+                    },
+                    "ledger_status": "planned",
+                },
+            ],
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 本集大纲：故事节点 / 集尾钩子 / 下集预告语
+        assert "少年下山" in prompt
+        assert "初遇黑衣人" in prompt
+        assert "少年坠崖生死未卜" in prompt
+        assert "崖底神秘人出手相救" in prompt
+        # 下集大纲：用于衔接的下一集内容
+        assert "绝处逢生" in prompt
+        assert "崖底醒来" in prompt
+
+    async def test_drama_prompt_last_episode_without_next_outline(self, tmp_path):
+        """末集（账本无下一集条目）正常生成 prompt：含本集大纲，不渲染下集大纲段。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [
+                {
+                    "episode": 1,
+                    "title": "大结局",
+                    "script_file": "scripts/episode_1.json",
+                    "hook": "尘埃落定",
+                    "outline": {"story_beats": ["决战", "告别"], "next_episode_teaser": None},
+                    "ledger_status": "planned",
+                },
+            ],
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        assert "决战" in prompt
+        assert "尘埃落定" in prompt
+        assert "<next_episode_outline>" not in prompt
+
+    async def test_drama_prompt_without_ledger_outline_omits_outline_section(self, tmp_path):
+        """旧式条目（账本无规划数据）：prompt 不渲染大纲段，生成不受影响。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        assert "E1S01 | 场景" in prompt
+        assert "<episode_outline>" not in prompt
+        assert "<next_episode_outline>" not in prompt
+        assert "末场" not in prompt
+
+    async def test_drama_prompt_requires_hook_to_land_in_final_scene(self, tmp_path):
+        """账本有钩子/预告时，prompt 须要求其落地到末场内容（而非只停留在规划文档）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [
+                {
+                    "episode": 1,
+                    "title": "初入江湖",
+                    "script_file": "scripts/episode_1.json",
+                    "hook": "少年坠崖生死未卜",
+                    "outline": {
+                        "story_beats": ["少年下山"],
+                        "next_episode_teaser": "崖底神秘人出手相救",
+                    },
+                    "ledger_status": "planned",
+                },
+            ],
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 落地要求与钩子内容须同时在场：仅有指引而无钩子（或反之）都不构成可执行要求
+        assert "末场" in prompt
+        assert "少年坠崖生死未卜" in prompt
 
     async def test_parse_response_invalid_json_raises(self, tmp_path):
         project_path = tmp_path / "demo"
@@ -171,6 +351,69 @@ class TestScriptGenerator:
         assert payload["duration_seconds"] == 4
         assert payload["metadata"]["generator"] == "fake-model"
         assert "created_at" in payload["metadata"]
+
+    async def test_generate_injects_hook_and_teaser_from_ledger(self, tmp_path):
+        """剧本 JSON 的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [
+                {
+                    "episode": 1,
+                    "title": "初入江湖",
+                    "script_file": "scripts/episode_1.json",
+                    "hook": "少年坠崖生死未卜",
+                    "outline": {
+                        "story_beats": ["少年下山"],
+                        "next_episode_teaser": "崖底神秘人出手相救",
+                    },
+                    "ledger_status": "planned",
+                },
+            ],
+            characters={"姜月茴": {}},
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+
+        fake = _FakeTextGenerator(json.dumps(_valid_drama_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps():
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+        output = await generator.generate(1)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert payload["hook"] == "少年坠崖生死未卜"
+        assert payload["next_episode_teaser"] == "崖底神秘人出手相救"
+
+    async def test_generate_without_ledger_hook_leaves_fields_null(self, tmp_path):
+        """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {},
+                "characters": {"姜月茴": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+                "_supported_durations": [4, 6, 8],
+                "episodes": [
+                    {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
+                ],
+            },
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
+
+        fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        output = await generator.generate(1)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert payload["hook"] is None
+        assert payload["next_episode_teaser"] is None
 
     async def test_generate_overrides_hallucinated_episode_field(self, tmp_path):
         """AI 返回带错误 episode 字段时，CLI 参数 episode 必须胜出。

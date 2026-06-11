@@ -290,6 +290,52 @@ class TestStatusCalculator:
         assert ep2["script_status"] == "none"
         assert ep2["status"] == "draft"
 
+    def test_stale_ledger_episode_regresses_to_pending_preprocess(self, tmp_path):
+        """账本标 stale 的集：读时状态回退为待预处理（script_status=none），已有产物不删除。
+
+        重排使该集原文范围失效，剧本/媒体虽存在但已过期；读时回退驱动前端
+        与 agent 走重做流程，旧产物沿覆盖/版本机制保留可回滚。
+        """
+        project_root = tmp_path / "projects"
+        (project_root / "demo" / "drafts" / "episode_1").mkdir(parents=True)
+        (project_root / "demo" / "drafts" / "episode_1" / "step1_segments.md").write_text("ok", encoding="utf-8")
+        project = {
+            "overview": {"synopsis": "test"},
+            "characters": {},
+            "scenes": {},
+            "props": {},
+            "episodes": [
+                {"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "stale"},
+                {"episode": 2, "script_file": "scripts/episode_2.json", "ledger_status": "consumed"},
+            ],
+        }
+        scripts = {
+            "episode_1.json": {
+                "content_mode": "narration",
+                "segments": [
+                    {"duration_seconds": 4, "generated_assets": {"storyboard_image": "a.png", "video_clip": "b.mp4"}}
+                ],
+            },
+            "episode_2.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
+        }
+        calc = StatusCalculator(_FakePM(project_root, project, scripts))
+
+        enriched = calc.enrich_project("demo", project)
+
+        ep1 = enriched["episodes"][0]
+        # stale 集即使剧本与分段草稿都在，也回退为待预处理
+        assert ep1["script_status"] == "none"
+        assert ep1["status"] == "draft"
+        assert ep1["videos"] == {"total": 0, "completed": 0}
+        # 不删除任何产物：条目仍保留剧本引用与账本状态
+        assert ep1["script_file"] == "scripts/episode_1.json"
+        assert ep1["ledger_status"] == "stale"
+        # 非 stale 集不受影响
+        ep2 = enriched["episodes"][1]
+        assert ep2["script_status"] == "generated"
+        # 项目级汇总同步回退：仅 1 集计为已生成剧本
+        assert enriched["status"]["episodes_summary"]["scripted"] == 1
+
     def test_enrich_script(self, tmp_path):
         script = {
             "content_mode": "narration",

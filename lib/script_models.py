@@ -196,6 +196,10 @@ class NarrationEpisodeScript(BaseModel):
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # novel 由 _add_metadata 注入 {项目 title, f"第N集"};compose-video 用 chapter 作输出文件名,LLM 自由发挥反而不可预测
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
+    # hook / next_episode_teaser 由 _add_metadata 从分集账本注入（账本是钩子设计的
+    # 单一真相源，LLM 不参与填写）；账本无规划数据时为 null。
+    hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
+    next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
     segments: list[NarrationSegment] = Field(description="片段列表")
 
 
@@ -253,6 +257,9 @@ class DramaEpisodeScript(BaseModel):
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
+    # 见 NarrationEpisodeScript 同名字段说明。
+    hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
+    next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
     scenes: list[DramaScene] = Field(description="场景列表")
 
 
@@ -332,6 +339,9 @@ class ReferenceVideoScript(BaseModel):
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
+    # 见 NarrationEpisodeScript 同名字段说明。
+    hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
+    next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
 
 

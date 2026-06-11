@@ -237,6 +237,30 @@ class TestLLMSchemaExclusion:
             assert "scene_type" not in keys, f"{model.__name__} 不应有 scene_type"
             assert "transition_to_next" not in keys, f"{model.__name__} 不应有 transition_to_next"
 
+    def test_schema_excludes_hook_and_teaser_including_derived_models(self):
+        """hook / next_episode_teaser 由分集账本注入，LLM 不该看到——
+        含 build_*_script_model 动态约束子类（response_schema 实际取自它们）。"""
+        from lib.script_models import (
+            DramaEpisodeScript,
+            NarrationEpisodeScript,
+            ReferenceVideoScript,
+            build_episode_script_model,
+            build_reference_video_script_model,
+        )
+
+        models = (
+            NarrationEpisodeScript,
+            DramaEpisodeScript,
+            ReferenceVideoScript,
+            build_episode_script_model("narration", [4, 6, 8]),
+            build_episode_script_model("drama", [4, 6, 8]),
+            build_reference_video_script_model([4, 8]),
+        )
+        for model in models:
+            top_props = set(model.model_json_schema()["properties"].keys())
+            assert "hook" not in top_props, f"{model.__name__} 顶层不应有 hook"
+            assert "next_episode_teaser" not in top_props, f"{model.__name__} 顶层不应有 next_episode_teaser"
+
 
 class TestRuntimeBackwardCompat:
     """LLM schema 隐藏的字段在 Python 端 model_validate 时仍能接受旧数据,并由 default 兜底。"""

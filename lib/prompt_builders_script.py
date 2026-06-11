@@ -50,6 +50,51 @@ def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
     return f"{aspect_ratio} 构图"
 
 
+def _format_outline_lines(outline: dict) -> str:
+    """渲染分集大纲条目：故事节点 / 集尾钩子 / 下集预告语，缺失的行省略。"""
+    lines: list[str] = []
+    beats = outline.get("story_beats") or []
+    if beats:
+        lines.append("故事节点：")
+        lines.extend(f"- {beat}" for beat in beats)
+    if outline.get("hook"):
+        lines.append(f"集尾钩子：{outline['hook']}")
+    if outline.get("next_episode_teaser"):
+        lines.append(f"下集预告语：{outline['next_episode_teaser']}")
+    return "\n".join(lines)
+
+
+# 钩子落地要求：集尾钩子与下集预告是分集规划的核心设计，必须体现在成片末场，
+# 而不是只停留在规划文档里。仅在账本提供了钩子/预告时渲染。
+_HOOK_LANDING_GUIDE = (
+    "集尾钩子与下集预告不能只停留在大纲：末场（最后一个或几个分镜）的画面与对白"
+    "必须实际呈现集尾钩子的戏剧内容，让悬念定格在画面上；有下集预告语时，"
+    "用结尾画面或对白自然引出它，不要生硬插入「下集预告」字样的旁白。"
+)
+
+
+def _format_episode_outline_block(episode_outline: dict | None, next_episode_outline: dict | None) -> str:
+    """渲染本集大纲 + 下集大纲两个上下文块；无规划数据时返回空串（prompt 不渲染该段）。"""
+    parts: list[str] = []
+    if episode_outline:
+        parts.append(f"""<episode_outline>
+本集大纲（分集规划设计，剧本改编应覆盖全部故事节点）：
+{_format_outline_lines(episode_outline)}
+</episode_outline>""")
+        if episode_outline.get("hook") or episode_outline.get("next_episode_teaser"):
+            parts.append(_HOOK_LANDING_GUIDE)
+    if next_episode_outline:
+        title = next_episode_outline.get("title")
+        title_line = f"下集标题：{title}\n" if title else ""
+        parts.append(f"""<next_episode_outline>
+下集大纲（仅用于设计本集结尾的衔接，不要把下集情节提前写进本集）：
+{title_line}{_format_outline_lines(next_episode_outline)}
+</next_episode_outline>""")
+    if not parts:
+        return ""
+    return "\n\n".join(parts) + "\n\n"
+
+
 # ---------------------------------------------------------------------------
 # 字段写作指导（drama / narration 共用）
 # ---------------------------------------------------------------------------
@@ -199,12 +244,19 @@ def build_drama_prompt(
     default_duration: int | None = None,
     aspect_ratio: str = "16:9",
     target_language: str = "中文",
+    episode_outline: dict | None = None,
+    next_episode_outline: dict | None = None,
 ) -> str:
-    """构建剧集动画模式的剧本生成 prompt。"""
+    """构建剧集动画模式的剧本生成 prompt。
+
+    ``episode_outline`` / ``next_episode_outline`` 来自分集账本（title / hook /
+    story_beats / next_episode_teaser），None 表示账本无规划数据，prompt 不渲染大纲段。
+    """
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
     pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
+    outline_block = _format_episode_outline_block(episode_outline, next_episode_outline)
 
     return f"""# 角色与任务
 
@@ -248,7 +300,7 @@ def build_drama_prompt(
 
 shots 表每行是一个分镜，包含：分镜 ID（E{episode}S{{序号}}，当前为第 {episode} 集）、分镜描述、{_format_duration_constraint(supported_durations, default_duration)}、是否为 segment_break。
 
-<episode_constraints>
+{outline_block}<episode_constraints>
 当前正在生成第 {episode} 集。本集所有 scene_id 必须严格使用 `E{episode}S{{两位序号}}` 格式（如 E{episode}S01、E{episode}S02），不得使用其他集号前缀。
 若 shots 表里出现非 `E{episode}` 前缀（如 E1S..），视为脏数据，请按当前集号 `E{episode}` 重写。
 </episode_constraints>
