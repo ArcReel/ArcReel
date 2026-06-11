@@ -229,13 +229,14 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        # 本集大纲：故事节点 / 集尾钩子 / 下集预告语
+        # 本集大纲：本集标题 / 故事节点 / 集尾钩子 / 下集预告语
+        assert "本集标题：初入江湖" in prompt
         assert "少年下山" in prompt
         assert "初遇黑衣人" in prompt
         assert "少年坠崖生死未卜" in prompt
         assert "崖底神秘人出手相救" in prompt
         # 下集大纲：用于衔接的下一集内容
-        assert "绝处逢生" in prompt
+        assert "下集标题：绝处逢生" in prompt
         assert "崖底醒来" in prompt
 
     async def test_drama_prompt_last_episode_without_next_outline(self, tmp_path):

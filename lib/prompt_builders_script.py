@@ -77,9 +77,11 @@ def _format_episode_outline_block(episode_outline: dict | None, next_episode_out
     """渲染本集大纲 + 下集大纲两个上下文块；无规划数据时返回空串（prompt 不渲染该段）。"""
     parts: list[str] = []
     if episode_outline:
+        title = episode_outline.get("title")
+        title_line = f"本集标题：{title}\n" if title else ""
         parts.append(f"""<episode_outline>
 本集大纲（分集规划设计，剧本改编应覆盖全部故事节点）：
-{_format_outline_lines(episode_outline)}
+{title_line}{_format_outline_lines(episode_outline)}
 </episode_outline>""")
         if episode_outline.get("hook") or episode_outline.get("next_episode_teaser"):
             parts.append(_HOOK_LANDING_GUIDE)
