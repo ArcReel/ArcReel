@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.asset_types import ASSET_SPECS
+from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -83,6 +83,12 @@ def build_asset_router(
         _user: CurrentUser,
         _t: Translator,
     ):
+        # 名称会被拼进文件路径与单段路由参数，路径不安全的名字在边界即拒绝，
+        # 否则后续生成与按名访问（PATCH/DELETE/{name}）全部失效。
+        try:
+            name = validate_asset_name(req.name)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.name))
         try:
             extras = req.model_extra or {}
 
@@ -92,11 +98,11 @@ def build_asset_router(
                 for field in spec.extra_string_fields:
                     entry[field] = extras.get(field, "")
                 with project_change_source("webui"):
-                    ok = manager._add_asset(asset_type, project_name, req.name, entry)
+                    ok = manager._add_asset(asset_type, project_name, name, entry)
                 if not ok:
-                    raise HTTPException(status_code=409, detail=_t(keys["exists"], name=req.name))
+                    raise HTTPException(status_code=409, detail=_t(keys["exists"], name=name))
                 data = manager.load_project(project_name)
-                return {"success": True, result_key: data[spec.bucket_key][req.name]}
+                return {"success": True, result_key: data[spec.bucket_key][name]}
 
             return await asyncio.to_thread(_sync)
         except FileNotFoundError:

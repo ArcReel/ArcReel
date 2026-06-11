@@ -62,6 +62,19 @@ class TestAssetRouterFactory:
             # reference_image 是 character 的 extra 字段，create 时未传则默认 ""
             assert entry["reference_image"] == ""
 
+    def test_character_post_400_on_path_unsafe_name(self, monkeypatch):
+        """名字含路径分隔符须在 HTTP 边界拒绝：这类名字会让生成（嵌套文件路径）
+        与后续单段路由（PATCH/DELETE/{name}）全部失效。"""
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            for bad_name in ("李白/诗人", "a\\b", ".."):
+                resp = client.post(
+                    "/api/v1/projects/demo/characters",
+                    json={"name": bad_name, "description": "x"},
+                )
+                assert resp.status_code == 400, bad_name
+                assert bad_name not in fake_pm.projects["demo"]["characters"]
+
     def test_character_post_409_on_duplicate(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {

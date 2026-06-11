@@ -73,3 +73,20 @@ ASSET_TYPES: frozenset[str] = frozenset(ASSET_SPECS.keys())
 BUCKET_KEY: dict[str, str] = {t: s.bucket_key for t, s in ASSET_SPECS.items()}
 
 SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
+
+ILLEGAL_ASSET_NAME_CHARS: tuple[str, ...] = ("/", "\\", "\0")
+
+
+def validate_asset_name(name: object) -> str:
+    """校验并规范化（strip）资产名，非法时抛 ValueError，合法时返回 strip 后的名字。
+
+    资产名全链路被当作单段路径组件使用：文件名（``characters/{name}.png``、
+    ``versions/{type}/{name}_v{n}_{ts}.png``）与 REST 路由的单段路径参数。含路径
+    分隔符、空字节或 ``..`` 的名字会产生嵌套路径与无法匹配的 URL，须在创建入口拒绝。
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("资产名称不能为空或仅含空白字符")
+    cleaned = name.strip()
+    if ".." in cleaned or any(c in cleaned for c in ILLEGAL_ASSET_NAME_CHARS):
+        raise ValueError(f"资产名称 {cleaned!r} 含非法字符：不允许路径分隔符（/ \\）、空字节或 ..")
+    return cleaned

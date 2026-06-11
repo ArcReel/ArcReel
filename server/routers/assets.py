@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from lib.app_data_dir import app_data_dir
-from lib.asset_types import ASSET_TYPES, BUCKET_KEY, SHEET_KEY
+from lib.asset_types import ASSET_TYPES, BUCKET_KEY, SHEET_KEY, validate_asset_name
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
@@ -35,15 +35,13 @@ def get_project_manager() -> ProjectManager:
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
-_ILLEGAL_NAME_CHARS = ("/", "\\", "\0")
-
 
 def _validate_asset_name(name: str, _t: Translator) -> str:
-    """拒绝包含路径分隔符 / 空字节 / .. 的名字；防止路径穿越。"""
-    cleaned = (name or "").strip()
-    if not cleaned or ".." in cleaned or any(c in cleaned for c in _ILLEGAL_NAME_CHARS):
+    """HTTP 边界包装：路径不安全的名字（分隔符 / 空字节 / ..）返回 400。"""
+    try:
+        return validate_asset_name(name)
+    except ValueError:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name))
-    return cleaned
 
 
 def _serialize(asset) -> dict:
