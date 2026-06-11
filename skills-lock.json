@@ -79,6 +79,12 @@
       "skillPath": "skills/engineering/tdd/SKILL.md",
       "computedHash": "15a7b5e36383ebadb2dec5e586679e55e9663d292da418926b8da6fc0ef27d84"
     },
+    "teach": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/teach/SKILL.md",
+      "computedHash": "9bbda5627df9d1d46082c7d839f53a04b2a884451f7f7c45fc9860d852b19453"
+    },
     "to-issues": {
       "source": "mattpocock/skills",
       "sourceType": "github",
