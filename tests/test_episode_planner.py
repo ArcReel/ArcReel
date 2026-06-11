@@ -1,0 +1,554 @@
+"""分集规划服务的行为测试（mock 文本后端，不触真实 LLM）。
+
+只断言外部行为：账本内容、派生文件、planning_cursor、报错与返回摘要；
+不断言 prompt 文本细节或内部调用次数（重试语义除外——重试是对外契约）。
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from lib.episode_planner import EpisodePlanner, EpisodePlanningError, ReplanConfirmationRequired
+from lib.text_backends.base import TextGenerationResult
+
+# 源文：三段剧情，句子互不重复，锚点可唯一定位
+SOURCE = (
+    "第一章 山村少年。李恒在山村长大，自幼习得吐纳之法。"
+    "一日他在后山偶得一枚古玉，玉中藏着剑诀。"
+    "第二章 下山。李恒辞别师父，踏上去往青云城的路。"
+    "城门口他撞见了被追杀的少女。"
+    "第三章 风波。少女身份成谜，李恒被卷入漩涡之中。"
+)
+
+ANCHOR_EP1 = "玉中藏着剑诀。"
+ANCHOR_EP2 = "被追杀的少女。"
+
+
+def _end_of(anchor: str) -> int:
+    return SOURCE.index(anchor) + len(anchor)
+
+
+class _FakeTextGenerator:
+    """按顺序回放预置响应的 TextGenerator 替身，并记录每次请求。"""
+
+    def __init__(self, responses: list[str]):
+        self._responses = list(responses)
+        self.requests = []
+        self.model = "fake-model"
+
+    async def generate(self, request, project_name=None):
+        self.requests.append(request)
+        if not self._responses:
+            raise AssertionError("FakeTextGenerator 预置响应已耗尽")
+        text = self._responses.pop(0)
+        return TextGenerationResult(text=text, provider="fake", model="fake-model")
+
+
+def _write_project(
+    tmp_path: Path,
+    *,
+    content_mode: str = "narration",
+    episodes: list | None = None,
+    planning_cursor: dict | None = None,
+    extra: dict | None = None,
+    source_text: str = SOURCE,
+) -> Path:
+    project_dir = tmp_path / "demo-proj"
+    (project_dir / "source").mkdir(parents=True)
+    project = {
+        "schema_version": 3,
+        "title": "测试项目",
+        "content_mode": content_mode,
+        "generation_mode": "storyboard",
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "episodes": episodes or [],
+        "planning_cursor": planning_cursor,
+    }
+    if extra:
+        project.update(extra)
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    (project_dir / "source" / "novel.txt").write_text(source_text, encoding="utf-8")
+    return project_dir
+
+
+def _load_project(project_dir: Path) -> dict:
+    return json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+
+
+def _plan_response(episodes: list[dict]) -> str:
+    return json.dumps({"episodes": episodes}, ensure_ascii=False)
+
+
+class TestPlan:
+    async def test_plan_writes_ledger_derives_files_and_advances_cursor(self, tmp_path: Path):
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1},
+                        {"title": "城门遇袭", "hook": "少女为何被追杀", "end_anchor": ANCHOR_EP2},
+                    ]
+                )
+            ]
+        )
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        result = await planner.plan()
+
+        project = _load_project(project_dir)
+        eps = project["episodes"]
+        assert [e["episode"] for e in eps] == [1, 2]
+        assert eps[0]["title"] == "古玉藏诀"
+        assert eps[0]["hook"] == "玉中剑诀来历成谜"
+        assert eps[0]["ledger_status"] == "planned"
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
+        assert eps[1]["source_range"] == {
+            "source_file": "source/novel.txt",
+            "start": _end_of(ANCHOR_EP1),
+            "end": _end_of(ANCHOR_EP2),
+        }
+        assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP2)}
+
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        ep2 = (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8")
+        assert ep1 == SOURCE[: _end_of(ANCHOR_EP1)]
+        assert ep2 == SOURCE[_end_of(ANCHOR_EP1) : _end_of(ANCHOR_EP2)]
+
+        assert [s.episode for s in result.episodes] == [1, 2]
+        assert result.episodes[0].title == "古玉藏诀"
+        assert result.episodes[0].hook == "玉中剑诀来历成谜"
+        assert result.episodes[0].reading_units > 0
+        assert result.source_exhausted is False
+
+    async def test_plan_backfills_old_flow_episodes_before_planning(self, tmp_path: Path):
+        """旧拆分流程留下的集（无账本字段 + 余文文件）先回填再续规划，余文文件随提交清理。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[{"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}],
+        )
+        ep1_end = _end_of(ANCHOR_EP1)
+        (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:ep1_end], encoding="utf-8")
+        (project_dir / "source" / "_remaining.txt").write_text(SOURCE[ep1_end:], encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "城门遇袭", "hook": "少女为何被追杀", "end_anchor": ANCHOR_EP2}])]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        project = _load_project(project_dir)
+        eps = {e["episode"]: e for e in project["episodes"]}
+        assert eps[1]["ledger_status"] == "planned"  # 回填吸收旧集
+        assert eps[1]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": ep1_end}
+        assert eps[2]["source_range"] == {
+            "source_file": "source/novel.txt",
+            "start": ep1_end,
+            "end": _end_of(ANCHOR_EP2),
+        }
+        # 规划窗口从回填出的进度续起：发给模型的原文不含第 1 集内容
+        assert ANCHOR_EP1 not in fake.requests[0].prompt
+        assert ANCHOR_EP2 in fake.requests[0].prompt
+        assert not (project_dir / "source" / "_remaining.txt").exists()
+        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[
+            ep1_end : _end_of(ANCHOR_EP2)
+        ]
+
+    async def test_plan_retries_with_failure_reason_when_anchor_invalid(self, tmp_path: Path):
+        """机械校验失败自动重试：锚点不存在 → 重试 prompt 附失败原因，第二轮通过。"""
+        project_dir = _write_project(tmp_path)
+        bad_anchor = "这句话不在原文里。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "坏", "hook": "坏", "end_anchor": bad_anchor}]),
+                _plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}]),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 2
+        retry_prompt = fake.requests[1].prompt
+        assert bad_anchor in retry_prompt  # 失败原因指明具体锚点
+        assert "不存在" in retry_prompt
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+        project = _load_project(project_dir)
+        assert len(project["episodes"]) == 1
+
+    async def test_plan_retries_on_ambiguous_and_non_monotonic_anchors(self, tmp_path: Path):
+        """锚点不唯一 / 范围不连续同样触发重试，失败原因可区分。"""
+        repeated = "李恒抬头看了看天。"
+        source = "山中清晨。" + repeated + "他继续赶路。" + repeated + "夜幕降临，他找到了破庙。"
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": repeated}]),  # 出现两次
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": "他继续赶路。"},
+                        {"title": "乙", "hook": "乙", "end_anchor": "山中清晨。"},  # 早于上一集结尾
+                    ]
+                ),
+                _plan_response([{"title": "丙", "hook": "丙", "end_anchor": "他继续赶路。"}]),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 3
+        assert "2 次" in fake.requests[1].prompt  # 不唯一：报出现次数
+        assert "连续" in fake.requests[2].prompt  # 不连续：报范围推进问题
+        assert [s.title for s in result.episodes] == ["丙"]
+
+    async def test_plan_raises_and_leaves_project_untouched_after_retry_exhaustion(self, tmp_path: Path):
+        """重试耗尽：抛 EpisodePlanningError，账本与文件零变更（原子性）。"""
+        project_dir = _write_project(tmp_path)
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        bad = _plan_response([{"title": "坏", "hook": "坏", "end_anchor": "不在原文里"}])
+        fake = _FakeTextGenerator([bad, bad, bad])
+
+        with pytest.raises(EpisodePlanningError):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+        assert not list((project_dir / "source").glob("episode_*.txt"))
+
+    async def test_plan_drama_writes_outline_to_ledger(self, tmp_path: Path):
+        """drama 条目加厚为分集大纲：story_beats + next_episode_teaser 落账本 outline。"""
+        project_dir = _write_project(tmp_path, content_mode="drama")
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {
+                            "title": "古玉藏诀",
+                            "hook": "玉中剑诀来历成谜",
+                            "end_anchor": ANCHOR_EP1,
+                            "story_beats": ["山村习武", "后山得玉"],
+                            "next_episode_teaser": "下集李恒下山",
+                        }
+                    ]
+                )
+            ]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["outline"] == {
+            "story_beats": ["山村习武", "后山得玉"],
+            "next_episode_teaser": "下集李恒下山",
+        }
+
+    async def test_plan_drama_rejects_response_missing_story_beats(self, tmp_path: Path):
+        """drama 模式缺 story_beats 的输出被 schema 校验打回重试。"""
+        project_dir = _write_project(tmp_path, content_mode="drama")
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1}]),
+                _plan_response(
+                    [
+                        {
+                            "title": "甲",
+                            "hook": "甲",
+                            "end_anchor": ANCHOR_EP1,
+                            "story_beats": ["节点"],
+                            "next_episode_teaser": None,
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 2
+        assert "schema" in fake.requests[1].prompt
+
+    async def test_plan_window_setting_limits_prompt_window(self, tmp_path: Path):
+        """planning_window_chars 项目设置覆盖内部默认：窗口外内容不进 prompt。"""
+        window_chars = _end_of(ANCHOR_EP1) + 4
+        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "钩子", "end_anchor": ANCHOR_EP1}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert ANCHOR_EP2 not in fake.requests[0].prompt  # 窗口被截断
+        assert result.source_exhausted is False
+        cursor = _load_project(project_dir)["planning_cursor"]
+        assert cursor == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+
+    async def test_plan_max_episodes_setting_truncates_batch(self, tmp_path: Path):
+        """planning_max_episodes 覆盖每批集数上限：超出的集截断留给下一批。"""
+        project_dir = _write_project(tmp_path, extra={"planning_max_episodes": 1})
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert [s.title for s in result.episodes] == ["甲"]
+        project = _load_project(project_dir)
+        assert len(project["episodes"]) == 1
+        assert project["planning_cursor"]["offset"] == _end_of(ANCHOR_EP1)
+
+    async def test_plan_final_window_with_whitespace_tail_marks_source_exhausted(self, tmp_path: Path):
+        """规划到全文结尾（仅剩空白）：末集贴齐文末，cursor 到文末，报告源文耗尽。"""
+        source = SOURCE + "\n\n"
+        project_dir = _write_project(tmp_path, source_text=source)
+        last_anchor = "卷入漩涡之中。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP2},
+                        {"title": "乙", "hook": "乙", "end_anchor": last_anchor},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.source_exhausted is True
+        project = _load_project(project_dir)
+        assert project["planning_cursor"]["offset"] == len(source)
+        assert project["episodes"][-1]["source_range"]["end"] == len(source)
+        ep2_file = (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8")
+        assert ep2_file.endswith("漩涡之中。\n\n")
+
+    async def test_plan_on_exhausted_source_returns_without_llm_call(self, tmp_path: Path):
+        """游标已到文末：直接返回 source_exhausted，不调模型、不动账本。"""
+        project_dir = _write_project(
+            tmp_path,
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        fake = _FakeTextGenerator([])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.source_exhausted is True
+        assert result.episodes == []
+        assert fake.requests == []
+
+    async def test_plan_keeps_unanchored_episode_file_untouched(self, tmp_path: Path):
+        """unanchored 集的物理文件是其最终记录：规划提交既不重写也不删除它。"""
+        unanchored_text = "这段内容在源文里找不到，是人工改过的。"
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[
+                {
+                    "episode": 1,
+                    "title": "失锚集",
+                    "script_file": "scripts/episode_1.json",
+                    "source_range": None,
+                    "ledger_status": "unanchored",
+                }
+            ],
+            planning_cursor={"source_file": "source/novel.txt", "offset": 0},
+        )
+        (project_dir / "source" / "episode_1.txt").write_text(unanchored_text, encoding="utf-8")
+        fake = _FakeTextGenerator([_plan_response([{"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1}])])
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == unanchored_text
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[1]["ledger_status"] == "unanchored"
+        assert eps[2]["ledger_status"] == "planned"
+
+
+def _entry(num: int, start: int, end: int, *, status: str = "planned", title: str | None = None) -> dict:
+    return {
+        "episode": num,
+        "title": title or f"第{num}集",
+        "script_file": f"scripts/episode_{num}.json",
+        "source_range": {"source_file": "source/novel.txt", "start": start, "end": end},
+        "hook": f"钩子{num}",
+        "ledger_status": status,
+    }
+
+
+def _planned_three(tmp_path: Path, *, statuses: tuple[str, str, str] = ("planned", "planned", "planned")) -> Path:
+    """已规划 3 集（覆盖全文）的项目：[0,a) [a,b) [b,文末)，cursor 在文末。"""
+    a, b = _end_of(ANCHOR_EP1), _end_of(ANCHOR_EP2)
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, 0, a, status=statuses[0]),
+            _entry(2, a, b, status=statuses[1]),
+            _entry(3, b, len(SOURCE), status=statuses[2]),
+        ],
+        planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+    )
+    for num, (s, e) in enumerate([(0, a), (a, b), (b, len(SOURCE))], start=1):
+        (project_dir / "source" / f"episode_{num}.txt").write_text(SOURCE[s:e], encoding="utf-8")
+    return project_dir
+
+
+class TestReplan:
+    async def test_replan_repartitions_from_episode_keeping_prior_fixed(self, tmp_path: Path):
+        """replan 重排 from_episode 起的范围：之前的集不动，新布局落账本并重写派生文件。"""
+        project_dir = _planned_three(tmp_path)
+        a = _end_of(ANCHOR_EP1)
+        new_anchor = "踏上去往青云城的路。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "辞别下山", "hook": "青云城里有什么", "end_anchor": new_anchor},
+                        {"title": "城门风波", "hook": "少女是谁", "end_anchor": "卷入漩涡之中。"},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾")
+
+        prompt = fake.requests[0].prompt
+        assert "第2集在下山处收尾" in prompt  # 用户意见进 prompt
+        assert "钩子1" in prompt  # 之前的集作为已定上下文
+        assert ANCHOR_EP1 not in prompt  # 已定范围的原文不重发
+
+        project = _load_project(project_dir)
+        eps = {e["episode"]: e for e in project["episodes"]}
+        assert len(eps) == 3
+        assert eps[1]["title"] == "第1集"  # 未受影响
+        assert eps[2]["title"] == "辞别下山"
+        new_mid = SOURCE.index(new_anchor) + len(new_anchor)
+        assert eps[2]["source_range"] == {"source_file": "source/novel.txt", "start": a, "end": new_mid}
+        assert eps[3]["source_range"] == {"source_file": "source/novel.txt", "start": new_mid, "end": len(SOURCE)}
+        assert eps[2]["ledger_status"] == "planned"
+        # cursor 不变（重排范围闭合）
+        assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
+        # 派生文件重写一致
+        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[a:new_mid]
+        assert (project_dir / "source" / "episode_3.txt").read_text(encoding="utf-8") == SOURCE[new_mid:]
+        assert [s.episode for s in result.episodes] == [2, 3]
+        assert result.stale_episodes == []
+
+    async def test_replan_requires_confirmation_for_consumed_episodes(self, tmp_path: Path):
+        """波及已消费集且未确认：返回受影响清单，账本与文件零变更。"""
+        project_dir = _planned_three(tmp_path, statuses=("consumed", "consumed", "planned"))
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        fake = _FakeTextGenerator([])
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
+
+        assert isinstance(result, ReplanConfirmationRequired)
+        assert result.consumed_episodes == [2]
+        assert fake.requests == []  # 未确认不调模型
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+
+    async def test_replan_confirmed_marks_consumed_as_stale(self, tmp_path: Path):
+        """确认后重排：被波及的已消费集在新布局中标 stale（产物不删，状态拉回重做）。"""
+        project_dir = _planned_three(tmp_path, statuses=("consumed", "consumed", "planned"))
+        new_anchor = "踏上去往青云城的路。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "辞别下山", "hook": "甲", "end_anchor": new_anchor},
+                        {"title": "城门风波", "hook": "乙", "end_anchor": "卷入漩涡之中。"},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "重排", confirm_consumed=True)
+
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[1]["ledger_status"] == "consumed"  # 未波及
+        assert eps[2]["ledger_status"] == "stale"
+        assert eps[3]["ledger_status"] == "planned"  # 原第 3 集本就未消费
+        assert result.stale_episodes == [2]
+
+    async def test_replan_shrinking_episode_count_cleans_removed_files(self, tmp_path: Path):
+        """重排集数变少：被移除集号的派生文件清理，账本不留旧条目。"""
+        project_dir = _planned_three(tmp_path)
+        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+
+        await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+
+        project = _load_project(project_dir)
+        assert [e["episode"] for e in project["episodes"]] == [1, 2]
+        a = _end_of(ANCHOR_EP1)
+        assert project["episodes"][1]["source_range"] == {
+            "source_file": "source/novel.txt",
+            "start": a,
+            "end": len(SOURCE),
+        }
+        assert not (project_dir / "source" / "episode_3.txt").exists()
+
+    async def test_replan_writes_global_volume_preference_back_to_settings(self, tmp_path: Path):
+        """全局性意见（每集体量）回写项目设置，后续批次自动继承。"""
+        project_dir = _planned_three(tmp_path)
+        response = json.dumps(
+            {
+                "episodes": [
+                    {"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"},
+                ],
+                "episode_target_units": 800,
+            },
+            ensure_ascii=False,
+        )
+        fake = _FakeTextGenerator([response])
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "整体每集再短一点，800字左右")
+
+        assert _load_project(project_dir)["episode_target_units"] == 800
+        assert result.settings_updated == {"episode_target_units": 800}
+
+    async def test_replan_rejects_unanchored_in_affected_range(self, tmp_path: Path):
+        """重排范围波及 unanchored 集：拒绝执行（失锚集锁定，不参与重排）。"""
+        a = _end_of(ANCHOR_EP1)
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[
+                _entry(1, 0, a),
+                {
+                    "episode": 2,
+                    "title": "失锚集",
+                    "script_file": "scripts/episode_2.json",
+                    "source_range": None,
+                    "ledger_status": "unanchored",
+                },
+            ],
+            planning_cursor={"source_file": "source/novel.txt", "offset": a},
+        )
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="unanchored|失锚"):
+            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
+
+    async def test_replan_rejects_unknown_from_episode(self, tmp_path: Path):
+        project_dir = _planned_three(tmp_path)
+
+        with pytest.raises(EpisodePlanningError, match="from_episode"):
+            await EpisodePlanner(project_dir, generator=_FakeTextGenerator([])).replan(9, "重排")
+
+    async def test_replan_retries_until_layout_covers_span_end(self, tmp_path: Path):
+        """重排范围闭合：新布局没盖到范围末尾时打回重试。"""
+        project_dir = _planned_three(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "踏上去往青云城的路。"}]),  # 留尾巴
+                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "卷入漩涡之中。"}]),
+            ]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
+
+        assert len(fake.requests) == 2
+        assert "末尾" in fake.requests[1].prompt

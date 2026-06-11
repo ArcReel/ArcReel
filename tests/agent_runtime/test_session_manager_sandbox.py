@@ -385,7 +385,10 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
 @pytest.mark.parametrize(
     "command,expected",
     [
-        ("python .claude/skills/manage-project/scripts/peek_split_point.py --proj=x", "PermissionResultAllow"),
+        (
+            "python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.json",
+            "PermissionResultAllow",
+        ),
         ("ffmpeg -i in.mp4 out.mp4", "PermissionResultAllow"),
         ("ffprobe in.mp4", "PermissionResultAllow"),
         ("cat /etc/passwd", "PermissionResultDeny"),

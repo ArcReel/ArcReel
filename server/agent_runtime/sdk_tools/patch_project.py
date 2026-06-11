@@ -23,8 +23,17 @@ _TABLES = ("characters", "scenes", "props")
 # 顶层 settings 白名单。新增项 append 到 tuple,并在 _validate_setting_value 加分支。
 # source_language: overview 生成是非必经路径(generate_overview=false / overview 失败时
 # 源语言不会落盘),需要给 agent 在用户确认后写入的恢复通道,带 zh/en/vi enum 校验防乱填。
-_SETTINGS_WHITELIST = ("episode_target_units", "source_language", "brief")
+# planning_window_chars / planning_max_episodes: 分集规划工具的窗口字数与每批集数覆盖项,
+# null 时回退工具内部默认。
+_SETTINGS_WHITELIST = (
+    "episode_target_units",
+    "source_language",
+    "brief",
+    "planning_window_chars",
+    "planning_max_episodes",
+)
 _SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
+_POSITIVE_INT_SETTINGS = ("episode_target_units", "planning_window_chars", "planning_max_episodes")
 
 # 项目概述（project["overview"]）可经本工具编辑的字段白名单。merge 语义:只改传入字段。
 _OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
@@ -189,11 +198,11 @@ def _format_overview_result(updated: dict[str, str]) -> str:
 
 def _validate_setting_value(key: str, value: Any) -> None:
     """settings 字段值类型校验。新增白名单字段时在此 dispatch。"""
-    if key == "episode_target_units":
+    if key in _POSITIVE_INT_SETTINGS:
         if value is None:
             return
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError(f"episode_target_units 必须是正整数或 null,收到 {value!r}")
+            raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}")
         return
     if key == "source_language":
         if value is None:

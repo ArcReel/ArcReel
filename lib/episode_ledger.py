@@ -111,7 +111,7 @@ def normalize_source_text(text: str) -> str:
 
 
 @dataclass
-class _SourceDoc:
+class SourceDoc:
     """候选源文件：归一化全文 + 顺序先验游标（上一集匹配末尾）。"""
 
     rel_path: str
@@ -128,7 +128,7 @@ def _read_text_or_none(path: Path) -> str | None:
         return None
 
 
-def _episode_num(value: Any) -> int | None:
+def parse_episode_num(value: Any) -> int | None:
     """宽松解析条目集号：int（排除 bool——True 会与第 1 集同键碰撞）或纯数字
     字符串（历史手编数据），其余返回 None（条目原样保留，不参与回填）。"""
     if isinstance(value, int) and not isinstance(value, bool):
@@ -138,7 +138,7 @@ def _episode_num(value: Any) -> int | None:
     return None
 
 
-def _discover_sources(project_dir: Path) -> list[_SourceDoc]:
+def discover_sources(project_dir: Path) -> list[SourceDoc]:
     """枚举 source/ 直下一级的候选源文件（.txt/.md），按文件名排序。
 
     排除派生集文件（episode_N.txt）、下划线/点前缀文件（_remaining.txt 等）与
@@ -147,7 +147,7 @@ def _discover_sources(project_dir: Path) -> list[_SourceDoc]:
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
         return []
-    docs: list[_SourceDoc] = []
+    docs: list[SourceDoc] = []
     for path in sorted(source_dir.iterdir()):
         name = path.name
         if not path.is_file() or name.startswith(("_", ".")):
@@ -157,11 +157,11 @@ def _discover_sources(project_dir: Path) -> list[_SourceDoc]:
         text = _read_text_or_none(path)
         if text is None:
             continue
-        docs.append(_SourceDoc(rel_path=f"source/{name}", text=normalize_source_text(text)))
+        docs.append(SourceDoc(rel_path=f"source/{name}", text=normalize_source_text(text)))
     return docs
 
 
-def _discover_episode_files(project_dir: Path) -> dict[int, Path]:
+def discover_episode_files(project_dir: Path) -> dict[int, Path]:
     """枚举派生集文件 source/episode_N.txt → {集号: 路径}。"""
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
@@ -175,8 +175,8 @@ def _discover_episode_files(project_dir: Path) -> dict[int, Path]:
 
 
 def _find_in_sources(
-    sources: list[_SourceDoc], needle: str, preferred: _SourceDoc | None
-) -> tuple[_SourceDoc, int, int] | None:
+    sources: list[SourceDoc], needle: str, preferred: SourceDoc | None
+) -> tuple[SourceDoc, int, int] | None:
     """在候选源文件中精确匹配 needle，返回 (源文件, start, end)。
 
     两遍搜索：第一遍按局部性先验顺序（上一集命中的文件优先）从各文件游标
@@ -209,8 +209,8 @@ def _has_downstream(project_dir: Path, episode_num: int, entry: Mapping[str, Any
 
 def _derive_cursor(
     project_dir: Path,
-    sources: list[_SourceDoc],
-    last_doc: _SourceDoc | None,
+    sources: list[SourceDoc],
+    last_doc: SourceDoc | None,
     last_end: tuple[str, int] | None,
 ) -> dict[str, Any] | None:
     """把滚动余文文件的起点换算为 planning_cursor。
@@ -218,8 +218,8 @@ def _derive_cursor(
     余文缺失/为空/匹配不上时回退到最后一个 anchored 集的末尾（同为精确证据）；
     完全无证据返回 None。空余文必须跳过匹配——``str.find("")`` 恒为 0，会把
     游标错锚到文件头。余文匹配位置若回退进最后锚定集所在文件的已消费范围
-    （崩溃残留/陈旧余文），以锚定证据为准。文件本身保留：旧拆分流程仍以它为
-    下一集源文件，物理废除随流程切换进行。
+    （崩溃残留/陈旧余文），以锚定证据为准。回填本身只读不删文件；余文文件由
+    规划工具在首次提交时清理（账本游标取代其进度指针职责）。
     """
     remaining = project_dir / "source" / "_remaining.txt"
     if remaining.is_file():
@@ -253,12 +253,12 @@ def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> di
         return data  # 形状异常留给 data_validator 报告，回填不处理
 
     episodes: list[Any] = [dict(e) if isinstance(e, dict) else e for e in raw_episodes]
-    episode_files = _discover_episode_files(project_dir)
+    episode_files = discover_episode_files(project_dir)
 
     by_num: dict[int, dict[str, Any]] = {}
     for entry in episodes:
         if isinstance(entry, dict):
-            num = _episode_num(entry.get("episode"))
+            num = parse_episode_num(entry.get("episode"))
             if num is not None:
                 by_num.setdefault(num, entry)  # 重复集号首见优先，其余原样保留
 
@@ -270,16 +270,16 @@ def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> di
             episodes.append(entry)
             by_num[num] = entry
 
-    if all(isinstance(e, dict) and _episode_num(e.get("episode")) is not None for e in episodes):
-        episodes.sort(key=lambda e: _episode_num(e["episode"]) or 0)
+    if all(isinstance(e, dict) and parse_episode_num(e.get("episode")) is not None for e in episodes):
+        episodes.sort(key=lambda e: parse_episode_num(e["episode"]) or 0)
     data["episodes"] = episodes
 
     pending = [num for num in by_num if by_num[num].get("ledger_status") is None]
     if not pending and data.get("planning_cursor") is not None:
         return data  # 无待回填条目且游标已有值：跳过源文读取（重跑快路径）
 
-    sources = _discover_sources(project_dir)
-    last_doc: _SourceDoc | None = None
+    sources = discover_sources(project_dir)
+    last_doc: SourceDoc | None = None
     last_end: tuple[str, int] | None = None
     for num in sorted(by_num):
         entry = by_num[num]
@@ -297,7 +297,7 @@ def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> di
                         last_doc = doc
             continue
 
-        anchored: tuple[_SourceDoc, int, int] | None = None
+        anchored: tuple[SourceDoc, int, int] | None = None
         path = episode_files.get(num)
         if path is not None:
             raw = _read_text_or_none(path)

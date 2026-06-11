@@ -1018,3 +1018,128 @@ class TestBuildPrompt:
         assert "画风：" not in out
         assert out.startswith("Style: 真人电视剧风格")
         assert out.endswith("村口黄昏的长镜头")
+
+
+# ---------------------------------------------------------------------------
+# episode_planning — plan_episodes / replan_episodes 薄包装
+# ---------------------------------------------------------------------------
+
+
+def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
+    """构造可注入的 EpisodePlanner 替身：create() 工厂 + plan/replan 返回预置结果。"""
+
+    class _FakePlanner:
+        def __init__(self) -> None:
+            pass
+
+        @classmethod
+        async def create(cls, project_path):
+            if captured is not None:
+                captured["project_path"] = project_path
+            return cls()
+
+        async def plan(self):
+            if isinstance(result, BaseException):
+                raise result
+            return result
+
+        async def replan(self, from_episode, instructions, *, confirm_consumed=False):
+            if captured is not None:
+                captured["replan_args"] = (from_episode, instructions, confirm_consumed)
+            if isinstance(result, BaseException):
+                raise result
+            return result
+
+    return _FakePlanner
+
+
+async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    result = PlanResult(
+        episodes=[
+            EpisodePlanSummary(
+                episode=1, title="古玉藏诀", hook="剑诀来历成谜", reading_units=812, ledger_status="planned"
+            ),
+            EpisodePlanSummary(
+                episode=2, title="城门遇袭", hook="少女是谁", reading_units=903, ledger_status="planned"
+            ),
+        ],
+        cursor={"source_file": "source/novel.txt", "offset": 1715},
+    )
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "古玉藏诀" in text and "剑诀来历成谜" in text and "812" in text
+    assert "城门遇袭" in text
+    assert captured["project_path"] == fake_ctx.project_path
+
+
+async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_planner import PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    result = PlanResult(episodes=[], cursor=None, source_exhausted=True)
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+
+    assert out.get("is_error") is not True
+    assert "全部规划" in out["content"][0]["text"]
+
+
+async def test_plan_episodes_error_envelope(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_planner import EpisodePlanningError
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(EpisodePlanningError("校验耗尽")))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+
+    assert out.get("is_error") is True
+    assert "校验耗尽" in out["content"][0]["text"]
+
+
+async def test_replan_episodes_passes_args_and_reports_stale(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    result = PlanResult(
+        episodes=[EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="stale")],
+        cursor=None,
+        stale_episodes=[2],
+        settings_updated={"episode_target_units": 800},
+    )
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
+    out = await _call(
+        mod.replan_episodes_tool(fake_ctx),
+        {"from_episode": 2, "instructions": "每集短一点", "confirm_consumed": True},
+    )
+
+    assert out.get("is_error") is not True
+    assert captured["replan_args"] == (2, "每集短一点", True)
+    text = out["content"][0]["text"]
+    assert "stale" in text
+    assert "episode_target_units" in text
+
+
+async def test_replan_episodes_confirmation_required(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_planner import ReplanConfirmationRequired
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(ReplanConfirmationRequired(consumed_episodes=[2, 3])))
+    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": "重排"})
+
+    assert out.get("is_error") is not True  # 预期内的流程出口，不是错误
+    text = out["content"][0]["text"]
+    assert "已消费" in text and "confirm_consumed" in text
+
+
+async def test_replan_episodes_rejects_missing_instructions(fake_ctx: ToolContext) -> None:
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2})
+    assert out.get("is_error") is True
