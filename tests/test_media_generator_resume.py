@@ -24,6 +24,7 @@ class _FakeVideoResult:
         self.video_uri = "video-uri-resume"
         self.usage_tokens = 0
         self.generate_audio = True
+        self.duration_seconds = 8
 
 
 class _FakeVideoBackend:
@@ -319,6 +320,7 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
             self.video_uri = "video-uri-resume"
             self.usage_tokens = 12345  # 模拟 Ark 返回的 completion_tokens
             self.generate_audio = True
+            self.duration_seconds = 8
 
     class _ArkLikeBackend:
         name = "ark"
@@ -439,6 +441,7 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
             self.video_uri = "video-uri-resume"
             self.usage_tokens = 1234
             self.generate_audio = False  # provider 实际降级到无音频
+            self.duration_seconds = 8
 
     class _AudioDowngradeBackend:
         name = "fake"
@@ -470,3 +473,49 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
     assert len(gen.usage_tracker.finalized) == 1
     call = gen.usage_tracker.finalized[0]
     assert call["generate_audio"] is False, "generate_audio 必须透传 backend 返回的实际值"
+
+
+@pytest.mark.asyncio
+async def test_resume_passes_billed_duration_to_finalize(tmp_path):
+    """DashScope 的 resume 与 generate 走同一段 poll，result.duration_seconds 可能是
+    含输入参考视频时长的实际计费时长；resume 必须把它透传到 finalize_pending_by_call_id，
+    与 generate 路径 finish_call(billed_duration_seconds=...) 等价记账。"""
+
+    class _BilledDurationResult:
+        def __init__(self) -> None:
+            self.video_uri = "video-uri-resume"
+            self.usage_tokens = 0
+            self.generate_audio = True
+            self.duration_seconds = 15  # 请求 8 秒，provider 按 15 秒计费
+
+    class _BilledDurationBackend:
+        name = "dashscope"
+        model = "wan2.7-r2v"
+
+        def __init__(self) -> None:
+            self.calls: list[Any] = []
+
+        async def generate(self, request):
+            raise AssertionError("generate 不应被 resume 路径调用")
+
+        async def resume_video(self, job_id, request):
+            self.calls.append((job_id, request))
+            request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            request.output_path.write_bytes(b"fake-resume-video")
+            return _BilledDurationResult()
+
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _BilledDurationBackend()
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        duration_seconds="8",
+        task_id="T-1",
+        api_call_id=42,
+    )
+
+    assert len(gen.usage_tracker.finalized) == 1
+    call = gen.usage_tracker.finalized[0]
+    assert call["billed_duration_seconds"] == 15, "实际计费时长必须透传，否则 resume 路径回落请求时长记账"

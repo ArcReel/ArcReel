@@ -62,6 +62,7 @@ class UsageTracker:
         service_tier: str = "default",
         usage_tokens: int | None = None,
         generate_audio: bool | None = None,
+        billed_duration_seconds: int | None = None,
     ) -> int:
         async with self._session_factory() as session:
             repo = UsageRepository(session)
@@ -73,6 +74,7 @@ class UsageTracker:
                 service_tier=service_tier,
                 usage_tokens=usage_tokens,
                 generate_audio=generate_audio,
+                billed_duration_seconds=billed_duration_seconds,
             )
 
     async def finish_call(

@@ -708,8 +708,8 @@ class MediaGenerator:
             video_uri = result.video_uri
 
             # Track usage with provider info
-            # result.duration_seconds 是 backend 回报的实际计费时长（如 DashScope usage.duration
-            # 含输入参考视频时长）；多数后端回显请求时长，透传无行为差异。
+            # result.duration_seconds 是 backend 回报的实际计费/生成时长（如 DashScope
+            # usage.duration 含输入参考视频时长、vidu 为校正后的合法档位），缺省等于请求时长。
             await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
@@ -835,6 +835,9 @@ class MediaGenerator:
         # generate_audio 从 backend 返回值透传：provider 在 submit 后可能降级/关闭音频，
         # 与 generate 路径 finish_call(generate_audio=result.generate_audio) 等价，
         # 避免按请求值误计费。
+        # billed_duration_seconds 同样从 backend 返回值透传：DashScope 的 resume 与 generate
+        # 走同一段 poll，会提取 usage.duration 实际计费时长；不透传则同一笔调用经 resume
+        # 完成时账本回落请求时长，与 generate 路径记账分叉。
         # finalize 失败时不吞异常，让 worker finally 兜底处理（与 ResumeExpired 分支一致）。
         # WHERE status='pending' 仍保护幂等性，已 success 行不会被 touch。
         if api_call_id is not None:
@@ -844,6 +847,7 @@ class MediaGenerator:
                 service_tier=version_metadata.get("service_tier", "default"),
                 usage_tokens=result.usage_tokens,
                 generate_audio=result.generate_audio,
+                billed_duration_seconds=result.duration_seconds,
             )
         else:
             logger.warning(
