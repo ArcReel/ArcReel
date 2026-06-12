@@ -88,11 +88,10 @@ class ArkVideoBackend:
         保持 backend 为单一真相源。
         """
         if ArkVideoBackend._is_seedance_2(model):
-            # generate() 把 first_frame / reference_image 以 role 区分组装进同一 content，
-            # 首帧语义保持，故声明首帧叠加参考能力。
-            return VideoCapabilities(
-                last_frame=True, reference_images=True, max_reference_images=9, reference_images_with_start_frame=True
-            )
+            # API 拒绝首帧/尾帧与参考素材混合请求（InvalidParameter: first/last frame content
+            # cannot be mixed with reference media content，实测）——参考图是与首尾帧互斥的
+            # 参考生视频模式，故不声明首帧叠加参考能力；若上游后续放开混合可重新开启。
+            return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
         return VideoCapabilities()
 
     @property

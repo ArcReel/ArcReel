@@ -15,13 +15,15 @@ class TestVideoCapabilities:
         assert caps.reference_images_with_start_frame is False
 
     def test_start_frame_overlay_declared_per_backend(self):
-        """首帧叠加参考能力按后端组装事实声明：互斥实现（见图切端点/单槽合并）必须为 False。"""
+        """首帧叠加参考能力按后端 API 实际裁决声明：互斥实现（见图切端点/单槽合并/服务端拒绝）必须为 False。"""
         from lib.video_backends.ark import ArkVideoBackend
         from lib.video_backends.dashscope import DashScopeVideoBackend
         from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
         from lib.video_backends.vidu import ViduVideoBackend
 
-        assert ArkVideoBackend.video_capabilities_for_model("seedance-2.0").reference_images_with_start_frame is True
+        # Ark API 实测拒绝首帧与参考素材混合（InvalidParameter: first/last frame content
+        # cannot be mixed with reference media content）——参考图是与首帧互斥的参考生视频模式
+        assert ArkVideoBackend.video_capabilities_for_model("seedance-2.0").reference_images_with_start_frame is False
         assert V2VideoGenerationsBackend.video_capabilities_for_model("any").reference_images_with_start_frame is True
         # wan2.7-r2v 官方形态即「带首帧的参考生视频」；happyhorse-r2v 无首帧能力，叠加无从谈起
         assert (
@@ -120,7 +122,7 @@ class TestVideoCapabilitiesForModel:
         """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。
 
         patch 掉 create_ark_client：本测试只验证 property→静态方法的委托，不应在 __init__ 里真实
-        构造 Ark SDK client（那正是本 PR 要移出 caps 路径的依赖）。"""
+        构造 Ark SDK client（caps 路径不依赖 client）。"""
         from unittest.mock import patch
 
         from lib.video_backends.ark import ArkVideoBackend
