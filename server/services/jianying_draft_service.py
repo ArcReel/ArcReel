@@ -45,7 +45,8 @@ _SUBTITLE_TEXT_FIELDS: dict[str, str] = {
 
 from lib.path_safety import safe_resolve
 from lib.project_manager import ProjectManager, effective_mode
-from lib.script_models import script_shape
+from lib.reference_video.ad_units import ad_shots_by_id
+from lib.script_models import ad_shot_duration_seconds, script_shape
 
 logger = logging.getLogger(__name__)
 
@@ -144,12 +145,7 @@ class JianyingDraftService:
         规划时长（与生成请求一致）；unit 间转场取末位成员镜头的 ``transition_to_next``。
         悬空 shot_id（索引过期）按缺失成员跳过其字幕，不阻断导出。
         """
-        shots = script.get("shots")
-        shots_by_id: dict[str, dict] = {}
-        if isinstance(shots, list):
-            for shot in shots:
-                if isinstance(shot, dict) and isinstance(shot.get("shot_id"), str):
-                    shots_by_id[shot["shot_id"]] = shot
+        shots_by_id = ad_shots_by_id(script)
 
         clips: list[dict[str, Any]] = []
         units = script.get("reference_units")
@@ -172,8 +168,7 @@ class JianyingDraftService:
             for shot in member_shots:
                 if shot is None:
                     continue
-                duration = shot.get("duration_seconds")
-                duration = duration if isinstance(duration, int) and not isinstance(duration, bool) else 0
+                duration = ad_shot_duration_seconds(shot)
                 text = shot.get("voiceover_text")
                 if isinstance(text, str) and text and duration > 0:
                     spans.append({"offset_seconds": offset, "duration_seconds": duration, "text": text})

@@ -10,7 +10,7 @@ ad 剧本骨架唯一（shots 是内容唯一真相，见 docs/adr/0033）；ref
 
 from __future__ import annotations
 
-from lib.script_models import GeneratedAssets
+from lib.script_models import GeneratedAssets, ad_shot_duration_seconds
 
 #: 单个 video_unit 最多容纳的镜头数，与 ``ReferenceVideoUnit.shots`` 的
 #: ``max_length=4`` 同口径（一个 unit 是一次视频生成调用的最小粒度）。
@@ -45,14 +45,6 @@ def _unit_references(shots: list[dict]) -> list[dict]:
     return references
 
 
-def _shot_duration(shot: dict) -> int:
-    """镜头时长（秒）。脏数据（缺失/非正整数/bool）按 0 计，与 ``ad_script_total_duration`` 同口径。"""
-    value = shot.get("duration_seconds")
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return 0
-
-
 def derive_ad_reference_units(
     shots: object,
     *,
@@ -73,6 +65,10 @@ def derive_ad_reference_units(
     """
     if not isinstance(shots, list):
         return []
+    # 非正上限是无意义约束（上游解析对 0/缺失已归一为 None，这里兜防御）：
+    # 若按字面执行会把所有镜头逼成单镜头 unit，按"无上限"处理
+    if max_unit_duration is not None and max_unit_duration <= 0:
+        max_unit_duration = None
 
     groups: list[list[dict]] = []
     current: list[dict] = []
@@ -82,7 +78,7 @@ def derive_ad_reference_units(
         # 分组必须对降级保存的原始 dict 也稳健且可复现。
         if not isinstance(shot, dict) or not isinstance(shot.get("shot_id"), str) or not shot["shot_id"]:
             continue
-        duration = _shot_duration(shot)
+        duration = ad_shot_duration_seconds(shot)
         over_count = len(current) >= AD_UNIT_MAX_SHOTS
         over_duration = (
             max_unit_duration is not None and bool(current) and current_duration + duration > max_unit_duration
@@ -151,6 +147,20 @@ def sync_ad_reference_units(
     return merged
 
 
+def ad_shots_by_id(script: dict) -> dict[str, dict]:
+    """按 shot_id 索引 shots（内容唯一真相）；脏条目（非 dict / 缺 shot_id）跳过。
+
+    索引水合（``resolve_ad_unit_shots``）与剪映导出的字幕对齐共用此构造。
+    """
+    shots = script.get("shots")
+    by_id: dict[str, dict] = {}
+    if isinstance(shots, list):
+        for shot in shots:
+            if isinstance(shot, dict) and isinstance(shot.get("shot_id"), str) and shot["shot_id"]:
+                by_id[shot["shot_id"]] = shot
+    return by_id
+
+
 def resolve_ad_unit_shots(script: dict, unit: dict) -> list[dict]:
     """按索引条目的 shot_ids 从 shots（内容唯一真相）水合成员镜头，保持索引顺序。
 
@@ -158,12 +168,7 @@ def resolve_ad_unit_shots(script: dict, unit: dict) -> list[dict]:
         ValueError: 任一 shot_id 在 shots 中不存在——索引已过期（镜头被删除/改 ID
             后未重新派生），调用方应提示重新派生分组。
     """
-    shots = script.get("shots")
-    by_id: dict[str, dict] = {}
-    if isinstance(shots, list):
-        for shot in shots:
-            if isinstance(shot, dict) and isinstance(shot.get("shot_id"), str):
-                by_id[shot["shot_id"]] = shot
+    by_id = ad_shots_by_id(script)
 
     resolved: list[dict] = []
     missing: list[str] = []
@@ -242,7 +247,7 @@ def render_ad_unit_prompt(shots: list[dict], *, style: str | None = None) -> str
         text = _shot_prompt_text(shot)
         if not text:
             continue
-        lines.append(f"Shot {n} ({_shot_duration(shot)}s): {text}")
+        lines.append(f"Shot {n} ({ad_shot_duration_seconds(shot)}s): {text}")
     if not lines:
         return ""
     if style and (normalized := normalize_style(style)):

@@ -366,24 +366,31 @@ REFERENCE_SHOT_DURATION_RANGE: tuple[int, int] = (1, 15)
 AD_TARGET_DURATION_DRIFT_THRESHOLD = 0.20
 
 
+def ad_shot_duration_seconds(shot: object) -> int:
+    """ad 单镜头时长（秒）的脏数据归一口径：非 dict 条目、非正整数时长
+    （bool 按 int 子类排除）一律按 0 计、不抛。
+
+    求和观察（``ad_script_total_duration``）、派生分组与剪映字幕对齐共用此
+    单一真相源，避免三处各自维护同一判定。
+    """
+    if not isinstance(shot, dict):
+        return 0
+    value = shot.get("duration_seconds")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return 0
+
+
 def ad_script_total_duration(shots: object) -> int:
     """ad 剧本 shots 总时长（秒）。
 
     与 target_duration 偏差观察的求和口径单一真相源（``ScriptGenerator`` 探针与
-    ``DataValidator`` 共用）：跳过非 dict 条目与非正整数时长（bool 按 int 子类排除），
-    脏数据按 0 计、不抛——求和服务于"仅 warn"的轻量观察与 metadata 统计，
-    对降级保存的原始 dict 也要稳健。
+    ``DataValidator`` 共用）：脏数据按 0 计、不抛（见 ``ad_shot_duration_seconds``）——
+    求和服务于"仅 warn"的轻量观察与 metadata 统计，对降级保存的原始 dict 也要稳健。
     """
     if not isinstance(shots, list):
         return 0
-    total = 0
-    for shot in shots:
-        if not isinstance(shot, dict):
-            continue
-        value = shot.get("duration_seconds")
-        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-            total += value
-    return total
+    return sum(ad_shot_duration_seconds(shot) for shot in shots)
 
 
 class Shot(BaseModel):
