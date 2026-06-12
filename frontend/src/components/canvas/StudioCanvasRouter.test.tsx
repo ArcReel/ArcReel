@@ -202,6 +202,48 @@ function makeScript(): EpisodeScript {
   };
 }
 
+function makeAdScript(): EpisodeScript {
+  return {
+    episode: 1,
+    title: "广告视频",
+    content_mode: "ad",
+    duration_seconds: 30,
+    novel: { title: "n", chapter: "1" },
+    shots: [
+      {
+        shot_id: "SEG-1",
+        section: "hook",
+        duration_seconds: 5,
+        voiceover_text: "口播文案",
+        image_prompt: "ad image prompt",
+        video_prompt: "ad video prompt",
+        transition_to_next: "cut",
+      },
+    ],
+  };
+}
+
+function makeDramaScript(): EpisodeScript {
+  return {
+    episode: 1,
+    title: "EP1",
+    content_mode: "drama",
+    duration_seconds: 6,
+    novel: { title: "n", chapter: "1" },
+    scenes: [
+      {
+        scene_id: "SEG-1",
+        duration_seconds: 6,
+        segment_break: false,
+        characters_in_scene: ["Hero"],
+        image_prompt: "drama image prompt",
+        video_prompt: "drama video prompt",
+        transition_to_next: "cut",
+      },
+    ],
+  };
+}
+
 function renderAt(path: string) {
   const { hook } = memoryLocation({ path });
   return render(
@@ -418,6 +460,84 @@ describe("StudioCanvasRouter", () => {
         4,
       );
       expect(useAppStore.getState().toast?.text).toContain("生成视频失败");
+    });
+  });
+
+  it("resolves ad shots by shot_id when generating storyboard and video", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentScripts: { "episode_1.json": makeAdScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ content_mode: "ad" }),
+      scripts: { "episode_1.json": makeAdScript() },
+    });
+    vi.spyOn(API, "generateStoryboard").mockResolvedValue({
+      success: true,
+      task_id: "t-sb",
+      message: "已提交",
+    });
+    vi.spyOn(API, "generateVideo").mockResolvedValue({
+      success: true,
+      task_id: "t-v",
+      message: "已提交",
+    });
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("generate-storyboard"));
+    await waitFor(() => {
+      expect(API.generateStoryboard).toHaveBeenCalledWith(
+        "demo",
+        "SEG-1",
+        "ad image prompt",
+        "episode_1.json",
+      );
+      expect(useAppStore.getState().toast?.tone).toBe("success");
+    });
+
+    fireEvent.click(screen.getByText("generate-video"));
+    await waitFor(() => {
+      // duration 取镜头自身 duration_seconds(5),不回退默认值 4
+      expect(API.generateVideo).toHaveBeenCalledWith(
+        "demo",
+        "SEG-1",
+        "ad video prompt",
+        "episode_1.json",
+        5,
+      );
+    });
+  });
+
+  it("resolves drama scenes by scene_id when generating storyboard", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "drama" }),
+      currentScripts: { "episode_1.json": makeDramaScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ content_mode: "drama" }),
+      scripts: { "episode_1.json": makeDramaScript() },
+    });
+    vi.spyOn(API, "generateStoryboard").mockResolvedValue({
+      success: true,
+      task_id: "t-sb",
+      message: "已提交",
+    });
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("generate-storyboard"));
+    await waitFor(() => {
+      expect(API.generateStoryboard).toHaveBeenCalledWith(
+        "demo",
+        "SEG-1",
+        "drama image prompt",
+        "episode_1.json",
+      );
     });
   });
 
