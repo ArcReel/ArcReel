@@ -313,7 +313,12 @@ async def patch_provider_config(
             try:
                 await svc.set_provider_config(provider_id, key, value, flush=False)
             except ProviderConfigValueError as exc:
-                raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
+                # 错误文案中的字段名换成 UI 同款 label（如 Image Max Workers），与表单展示一致
+                params = dict(exc.params)
+                meta = _FIELD_META.get(exc.key)
+                if meta is not None:
+                    params["field"] = meta["label"]
+                raise HTTPException(status_code=422, detail=_t(exc.code, **params)) from exc
 
     await session.commit()
 

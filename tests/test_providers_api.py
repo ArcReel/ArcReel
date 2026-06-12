@@ -482,9 +482,9 @@ class TestPatchProviderConfigMaxWorkersValidation:
             resp = client.patch("/api/v1/providers/dashscope/config", json={key: bad_value})
         assert resp.status_code == 422
         detail = resp.json()["detail"]
-        # 消息已经过 Translator 渲染（非裸 key id），且包含字段名便于定位
+        # 消息已经过 Translator 渲染（非裸 key id），且包含 UI 同款字段 Label 便于定位
         assert detail != "max_workers_must_be_nonnegative_integer"
-        assert key in detail
+        assert providers._FIELD_META[key]["label"] in detail
 
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
     def test_error_message_renders_in_all_locales(self, locale: str):
@@ -493,7 +493,7 @@ class TestPatchProviderConfigMaxWorkersValidation:
         assert resp.status_code == 422
         detail = resp.json()["detail"]
         assert detail != "max_workers_must_be_nonnegative_integer"
-        assert "video_max_workers" in detail
+        assert providers._FIELD_META["video_max_workers"]["label"] in detail
         assert "abc" in detail
 
     @pytest.mark.parametrize("good_value", ["0", "5"])

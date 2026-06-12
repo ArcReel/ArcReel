@@ -258,6 +258,12 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     onSaved?.();
   }, [providerId, onSaved]);
 
+  // 用户编辑草稿时同步清掉上一次保存失败的错误，避免旧文案滞留误导
+  const handleDraftEdit = useCallback<React.Dispatch<React.SetStateAction<Record<string, string>>>>((action) => {
+    setSaveError(null);
+    setDraft(action);
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     // providerId 变化时重置草稿/详情/错误后再异步拉取，属于动作驱动重置
@@ -393,7 +399,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           {showAdvanced && (
             <div className="mt-3 space-y-4">
               {detail.fields.map((field) => (
-                <FieldEditor key={field.key} field={field} draft={draft} setDraft={setDraft} />
+                <FieldEditor key={field.key} field={field} draft={draft} setDraft={handleDraftEdit} />
               ))}
               {hasDraft && (
                 <div className="pt-1">
