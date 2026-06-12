@@ -104,3 +104,9 @@ class TestProductFidelityTail:
         result = append_product_fidelity_tail("双产品同框", ["保温杯", "杯刷"])
         assert "「保温杯」" in result
         assert "「杯刷」" in result
+
+    def test_single_string_treated_as_single_product(self):
+        """误传单字符串按单产品名处理，而非逐字符迭代拼出畸形指令。"""
+        result = append_product_fidelity_tail("产品特写", "保温杯")
+        assert "「保温杯」" in result
+        assert "「保」" not in result
