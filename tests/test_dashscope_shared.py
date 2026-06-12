@@ -168,6 +168,12 @@ class TestExtractors:
         assert extract_billing_duration({"usage": {"duration": 0}}) is None
         assert extract_billing_duration({"usage": {"duration": -3}}) is None
 
+    def test_extract_billing_duration_over_limit_falls_back(self):
+        # 超出合理上限（24h）视为 provider 回报异常，回 None，防超大数值写入 DB Integer 列溢出
+        assert extract_billing_duration({"usage": {"duration": 86401}}) is None
+        assert extract_billing_duration({"usage": {"duration": 1e100}}) is None
+        assert extract_billing_duration({"usage": {"duration": 86400}}) == 86400
+
     def test_extract_billing_duration_non_dict_usage(self):
         # usage 为非 dict 真值（畸形上游）→ 归一化为空、回 None，不抛 AttributeError
         assert extract_billing_duration({"usage": [1, 2]}) is None

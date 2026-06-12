@@ -159,6 +159,7 @@ class TestGrokVideoBackend:
             (-10, 5),  # 负值回落请求时长
             ("unknown", 5),  # 不可解析回落请求时长
             (float("inf"), 5),  # 溢出回落请求时长
+            (1e100, 5),  # 超出合理上限回落请求时长，防 DB Integer 列溢出
             (None, 5),  # 缺失回落请求时长
         ],
     )

@@ -23,6 +23,10 @@ from lib.video_backends.base import (
 
 logger = logging.getLogger(__name__)
 
+# 计费时长合理上限（24 小时）：超出视为 provider 回报异常，回落请求时长，
+# 防止超大数值写入账本的 DB Integer 列时溢出。
+_MAX_BILLED_DURATION_SECONDS = 86400
+
 
 class GrokVideoBackend:
     """xAI Grok 视频生成后端。"""
@@ -68,12 +72,12 @@ class GrokVideoBackend:
 
         video_url = response.url
         # SDK 响应字段未类型化，收窄为 int 才能作为实际计费时长落账本的 Integer 列；
-        # 先经 float 接受 "15.0" 这类浮点字符串；缺失/不可解析（含 inf/nan）/非正值
-        # 回落请求时长，保证 VideoGenerationResult 携带的时长恒为正。
+        # 先经 float 接受 "15.0" 这类浮点字符串；缺失/不可解析（含 inf/nan）/非正/超出
+        # 合理上限的值回落请求时长，保证 VideoGenerationResult 携带的时长恒为正且可落库。
         raw_duration = getattr(response, "duration", None)
         try:
             actual_duration = int(float(raw_duration)) if raw_duration is not None else request.duration_seconds
-            if actual_duration <= 0:
+            if not 0 < actual_duration <= _MAX_BILLED_DURATION_SECONDS:
                 actual_duration = request.duration_seconds
         except (TypeError, ValueError, OverflowError):
             actual_duration = request.duration_seconds

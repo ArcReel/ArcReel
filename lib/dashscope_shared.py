@@ -75,6 +75,10 @@ DASHSCOPE_POLL_INTERVAL_SECONDS = 15.0
 # 已知路径后缀，派生 host 时剥除以容忍用户填入完整 base（含地域切换）。
 _KNOWN_SUFFIXES = ("/compatible-mode/v1", "/api/v1")
 
+# 计费时长合理上限（24 小时）：超出视为 provider 回报异常，回 None 由 caller 回落请求时长，
+# 防止超大数值写入账本的 DB Integer 列时溢出。
+_MAX_BILLED_DURATION_SECONDS = 86400
+
 
 def resolve_dashscope_api_key(api_key: str | None = None) -> str:
     if api_key is None or not api_key.strip():
@@ -189,7 +193,8 @@ def extract_billing_duration(payload: dict) -> int | None:
     """从 usage.duration 取真实计费时长（wan2.7-r2v 含输入视频时长）。
 
     容忍 int / float / 数字字符串；按 half-up 取整（4.5→5）而非截断或银行家舍入，避免少计费秒数。
-    非正值（0 / 负 / 无法解析）一律回 None，由 caller 回落请求时长，不记 0 秒账。
+    非正值（0 / 负 / 无法解析）与超出合理上限（24h，防超大数值写入 DB Integer 列溢出）
+    一律回 None，由 caller 回落请求时长，不记 0 秒账。
     """
     raw = _as_dict(payload.get("usage")).get("duration")
     if raw is None:
@@ -198,7 +203,7 @@ def extract_billing_duration(payload: dict) -> int | None:
         value = int(Decimal(str(raw)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     except (InvalidOperation, TypeError, ValueError):
         return None
-    return value if value > 0 else None
+    return value if 0 < value <= _MAX_BILLED_DURATION_SECONDS else None
 
 
 # ── 同步图像响应工具 ──────────────────────────────────────────────────────────
