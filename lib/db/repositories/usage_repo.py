@@ -256,12 +256,15 @@ class UsageRepository(BaseRepository):
         # provider 回报的实际计费时长覆盖 start_call 时的请求时长（如 DashScope usage.duration
         # 含输入参考视频时长）；非正值视同未提供，回落请求时长，不记 0 秒账。
         # 显式 cost_amount 仍优先于按时长的自动计算，但实际计费时长照常回写账本。
-        if billed_duration_seconds is not None and billed_duration_seconds > 0:
-            row.duration_seconds = billed_duration_seconds
+        # 走局部变量 + UPDATE 列回写而非 ORM 属性赋值，避免 autoflush 对同一行额外多发一条 UPDATE。
+        effective_duration_seconds = (
+            billed_duration_seconds
+            if billed_duration_seconds is not None and billed_duration_seconds > 0
+            else row.duration_seconds
+        )
 
         # 后端回写的实际 generate_audio 覆盖 start_call 时的请求值
-        if generate_audio is not None:
-            row.generate_audio = generate_audio
+        effective_generate_audio = generate_audio if generate_audio is not None else row.generate_audio
 
         # Calculate duration
         try:
@@ -307,8 +310,8 @@ class UsageRepository(BaseRepository):
                 model=row.model,
                 resolution=row.resolution,
                 aspect_ratio=row.aspect_ratio,
-                duration_seconds=row.duration_seconds,
-                generate_audio=bool(row.generate_audio),
+                duration_seconds=effective_duration_seconds,
+                generate_audio=bool(effective_generate_audio),
                 usage_tokens=usage_tokens,
                 service_tier=service_tier,
                 input_tokens=input_tokens,
@@ -332,6 +335,8 @@ class UsageRepository(BaseRepository):
                 status=status,
                 finished_at=finished_at,
                 duration_ms=duration_ms,
+                duration_seconds=effective_duration_seconds,
+                generate_audio=effective_generate_audio,
                 retry_count=retry_count,
                 cost_amount=final_cost_amount,
                 currency=final_currency,

@@ -68,10 +68,13 @@ class GrokVideoBackend:
 
         video_url = response.url
         # SDK 响应字段未类型化，收窄为 int 才能作为实际计费时长落账本的 Integer 列；
-        # 先经 float 接受 "15.0" 这类浮点字符串，缺失/不可解析（含 inf/nan）回落请求时长。
+        # 先经 float 接受 "15.0" 这类浮点字符串；缺失/不可解析（含 inf/nan）/非正值
+        # 回落请求时长，保证 VideoGenerationResult 携带的时长恒为正。
         raw_duration = getattr(response, "duration", None)
         try:
             actual_duration = int(float(raw_duration)) if raw_duration is not None else request.duration_seconds
+            if actual_duration <= 0:
+                actual_duration = request.duration_seconds
         except (TypeError, ValueError, OverflowError):
             actual_duration = request.duration_seconds
 
