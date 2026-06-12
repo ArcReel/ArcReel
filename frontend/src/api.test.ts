@@ -168,7 +168,7 @@ describe("API", () => {
   });
 
   describe("request-based wrappers", () => {
-    it("covers project, character, scene, prop, script and generation endpoints", async () => {
+    it("covers project, character, scene, prop, product, script and generation endpoints", async () => {
       const requestSpy = vi
         .spyOn(API, "request")
         .mockResolvedValue({ success: true } as never);
@@ -190,6 +190,10 @@ describe("API", () => {
       await API.addProjectProp("demo", "Sword", "rusty");
       await API.updateProjectProp("demo", "Sword", { description: "shiny" });
       await API.deleteProjectProp("demo", "Sword");
+      await API.addProjectProduct("demo", "Phone", "sleek");
+      await API.addProjectProduct("demo", "Phone", "sleek", "Acme");
+      await API.updateProjectProduct("demo", "Phone", { description: "matte" });
+      await API.deleteProjectProduct("demo", "Phone");
 
       await API.getScript("demo", "episode 1.json");
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
@@ -210,6 +214,7 @@ describe("API", () => {
       await API.generateCharacter("demo", "Hero", "prompt");
       await API.generateProjectScene("demo", "Temple", "prompt");
       await API.generateProjectProp("demo", "Sword", "prompt");
+      await API.generateProjectProduct("demo", "Phone", "prompt");
 
       expect(requestSpy).toHaveBeenCalledWith("/projects");
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
@@ -243,6 +248,25 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/props", {
         method: "POST",
         body: JSON.stringify({ name: "Sword", description: "rusty" }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products", {
+        method: "POST",
+        body: JSON.stringify({ name: "Phone", description: "sleek" }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products", {
+        method: "POST",
+        body: JSON.stringify({ name: "Phone", description: "sleek", brand: "Acme" }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products/Phone", {
+        method: "PATCH",
+        body: JSON.stringify({ description: "matte" }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products/Phone", {
+        method: "DELETE",
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/product/Phone", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "prompt" }),
       });
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/scripts/episode%201.json",

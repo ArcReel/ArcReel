@@ -24,6 +24,8 @@ class _FakePM:
         }
 
     def _add_asset(self, asset_type, project_name, name, entry):
+        # 守住路由 → spec 的绑定：products 路由若误传其他资产类型应当即失败
+        assert asset_type == "product", f"products 路由应传 asset_type='product'，实际为 {asset_type!r}"
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
         bucket = self.projects[project_name].setdefault("products", {})

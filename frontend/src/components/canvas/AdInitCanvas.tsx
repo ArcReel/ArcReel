@@ -43,7 +43,11 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasProduct = productName.trim() !== "" && description.trim() !== "";
-  const canSubmit = !submitting && (brief.trim() !== "" || hasProduct);
+  // 产品区有任意输入（名称/描述/图片）即视为用户想建产品：此时必须信息完整才能提交，
+  // 避免 brief-only 提交静默丢弃已填的产品信息与已选图片
+  const productDirty = productName.trim() !== "" || description.trim() !== "" || files.length > 0;
+  const productIncomplete = productDirty && !hasProduct;
+  const canSubmit = !submitting && (hasProduct || (brief.trim() !== "" && !productDirty));
 
   const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files ?? []);
@@ -217,6 +221,16 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
             placeholder={t("dashboard:product_desc_placeholder")}
           />
         </div>
+
+        {productIncomplete && (
+          <p
+            role="alert"
+            className="mt-2 text-[11.5px]"
+            style={{ color: "var(--color-danger-2)" }}
+          >
+            {t("dashboard:ad_init_product_incomplete_hint")}
+          </p>
+        )}
 
         <div className="mt-2 flex items-start gap-2">
           <input

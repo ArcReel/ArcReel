@@ -131,6 +131,33 @@ vi.mock("./lorebook/PropCard", () => ({
   ),
 }));
 
+vi.mock("./lorebook/ProductsPage", () => ({
+  ProductsPage: ({
+    products,
+    onUpdateProduct,
+    onGenerateProduct,
+    onAddProduct,
+  }: {
+    products: Record<string, { description: string }>;
+    onUpdateProduct: (name: string, updates: Record<string, unknown>) => void;
+    onGenerateProduct: (name: string) => void;
+    onAddProduct: (name: string, description: string, brand: string) => Promise<void>;
+  }) => (
+    <div data-testid="products-page" data-names={Object.keys(products).join(",")}>
+      <button onClick={() => onUpdateProduct("Phone", { description: "new product desc" })}>
+        update-product
+      </button>
+      <button onClick={() => onGenerateProduct("Phone")}>generate-product</button>
+      <button onClick={() => void onAddProduct("NewPhone", "desc", "Acme").catch(() => {})}>
+        add-product
+      </button>
+      <button onClick={() => void onAddProduct("NewPhone", "desc", "").catch(() => {})}>
+        add-product-no-brand
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("./lorebook/AddCharacterForm", () => ({
   AddCharacterForm: ({
     onSubmit,
@@ -411,6 +438,93 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword", "rusty sword");
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
+    });
+  });
+
+  it("runs product callbacks and reports API failures with toast", async () => {
+    const projectData = makeProjectData({
+      products: { Phone: { description: "sleek phone" } },
+    });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: projectData,
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: projectData,
+      scripts: { "episode_1.json": makeScript() },
+    });
+    const updateSpy = vi.spyOn(API, "updateProjectProduct").mockResolvedValue({ success: true });
+    const generateSpy = vi
+      .spyOn(API, "generateProjectProduct")
+      .mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+    const addSpy = vi.spyOn(API, "addProjectProduct").mockResolvedValue({ success: true });
+
+    renderAt("/products");
+    expect(screen.getByTestId("products-page")).toHaveAttribute("data-names", "Phone");
+
+    fireEvent.click(screen.getByText("update-product"));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("demo", "Phone", {
+        description: "new product desc",
+      });
+      expect(API.getProject).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByText("generate-product"));
+    await waitFor(() => {
+      expect(generateSpy).toHaveBeenCalledWith("demo", "Phone", "sleek phone");
+      expect(useAppStore.getState().toast?.text).toContain("标准参考图生成任务已提交");
+      expect(useAppStore.getState().toast?.tone).toBe("success");
+    });
+
+    fireEvent.click(screen.getByText("add-product"));
+    await waitFor(() => {
+      expect(addSpy).toHaveBeenCalledWith("demo", "NewPhone", "desc", "Acme");
+      expect(useAppStore.getState().toast?.text).toContain("已添加");
+    });
+
+    fireEvent.click(screen.getByText("add-product-no-brand"));
+    await waitFor(() => {
+      expect(addSpy).toHaveBeenCalledWith("demo", "NewPhone", "desc", undefined);
+    });
+  });
+
+  it("reports product callback failures with error toasts", async () => {
+    const projectData = makeProjectData({
+      products: { Phone: { description: "sleek phone" } },
+    });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: projectData,
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: projectData,
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "updateProjectProduct").mockRejectedValue(new Error("product update failed"));
+    vi.spyOn(API, "generateProjectProduct").mockRejectedValue(new Error("product generate failed"));
+    vi.spyOn(API, "addProjectProduct").mockRejectedValue(new Error("product add failed"));
+
+    renderAt("/products");
+
+    fireEvent.click(screen.getByText("update-product"));
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toContain("更新产品失败");
+      expect(useAppStore.getState().toast?.tone).toBe("error");
+    });
+
+    fireEvent.click(screen.getByText("generate-product"));
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toContain("提交失败");
+    });
+
+    fireEvent.click(screen.getByText("add-product"));
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toContain("添加失败");
     });
   });
 

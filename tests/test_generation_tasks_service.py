@@ -394,6 +394,28 @@ class TestGenerationTasks:
         await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "保温杯"})
         assert fake_generator.image_calls[0]["reference_images"] is None
 
+    def test_collect_product_reference_images_rejects_path_escape(self, tmp_path):
+        """reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件。"""
+        project_path = _prepare_files(tmp_path)
+        outside = tmp_path / "outside.jpg"
+        outside.write_bytes(b"jpg")
+        project = {
+            "products": {
+                "保温杯": {
+                    "reference_images": [
+                        str(outside),
+                        "../outside.jpg",
+                        "products/refs/../../../outside.jpg",
+                        "products/refs/保温杯_1.jpg",
+                    ],
+                }
+            }
+        }
+
+        result = generation_tasks._collect_product_reference_images(project, project_path, "保温杯")
+
+        assert result == [project_path / "products" / "refs" / "保温杯_1.jpg"]
+
     def test_product_fingerprints(self, monkeypatch, tmp_path):
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")

@@ -1210,6 +1210,7 @@ export default {
   'ad_init_brief_placeholder': 'Describe the video you want: audience, tone, key selling points, call to action...',
   'ad_init_generate_sheet_label': 'Generate standardized product reference sheet',
   'ad_init_generate_sheet_hint': 'Turns casual photos into a standardized multi-angle sheet; review and regenerate on the product page',
+  'ad_init_product_incomplete_hint': 'Product info is incomplete: fill in both the product name and description, or clear the product section to submit a brief-only project',
   'ad_init_images_selected': '{{count}} selected',
   'ad_init_submit': 'Start Creating',
   'ad_init_submitting': 'Submitting...',

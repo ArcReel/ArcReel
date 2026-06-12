@@ -1260,6 +1260,7 @@ export default {
   'ad_init_brief_placeholder': 'Mô tả video bạn muốn: đối tượng, phong cách, điểm bán hàng chính, lời kêu gọi hành động...',
   'ad_init_generate_sheet_label': 'Tạo ảnh tham chiếu sản phẩm chuẩn',
   'ad_init_generate_sheet_hint': 'Chuyển ảnh chụp thường thành bản thiết kế đa góc chuẩn; xem xét và tạo lại trên trang sản phẩm',
+  'ad_init_product_incomplete_hint': 'Thông tin sản phẩm chưa đầy đủ: hãy điền cả tên và mô tả sản phẩm, hoặc xóa trống khu vực sản phẩm để chỉ gửi Brief sáng tạo',
   'ad_init_images_selected': 'Đã chọn {{count}} ảnh',
   'ad_init_submit': 'Bắt đầu sáng tạo',
   'ad_init_submitting': 'Đang gửi...',

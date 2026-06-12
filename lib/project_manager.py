@@ -123,6 +123,7 @@ class ProjectManager:
         "characters",
         "scenes",
         "props",
+        "products",
         "storyboards",
         "videos",
         "thumbnails",
@@ -412,6 +413,7 @@ class ProjectManager:
             "characters": [],
             "scenes": [],
             "props": [],
+            "products": [],
             "storyboards": [],
             "videos": [],
             "outputs": [],
@@ -433,6 +435,8 @@ class ProjectManager:
                     status["scenes"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
                 elif subdir == "props":
                     status["props"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
+                elif subdir == "products":
+                    status["products"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
                 elif subdir == "storyboards":
                     status["storyboards"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
                 elif subdir == "videos":

@@ -22,6 +22,7 @@ from lib.i18n import DEFAULT_LOCALE
 from lib.i18n import _ as i18n_translate
 from lib.image_backends.base import ImageCapabilityError
 from lib.media_generator import MediaGenerator
+from lib.path_safety import safe_exists
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from lib.prompt_builders import build_character_prompt, build_product_prompt, build_prop_prompt, build_scene_prompt
@@ -1212,7 +1213,8 @@ def _collect_product_reference_images(project: dict, project_path: Path, resourc
     refs = entry.get("reference_images")
     if not isinstance(refs, list):
         return None
-    existing = [path for ref in refs if isinstance(ref, str) and ref if (path := project_path / ref) and path.exists()]
+    # safe_exists 同时兜住脏数据（非字符串）、越出项目目录的绝对路径 / `..` 穿越与文件缺失
+    existing = [project_path / ref for ref in refs if safe_exists(project_path, ref)]
     if refs and not existing:
         # 声明了原图却全部缺失：sheet 生成静默退化为纯文生图会丢失保真锚定，
         # 留观测痕迹便于诊断（不阻塞——文件缺失可能是归档迁移等正常历史原因）

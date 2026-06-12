@@ -91,4 +91,31 @@ describe("AdInitCanvas", () => {
     fireEvent.change(screen.getByLabelText("产品描述"), { target: { value: "不锈钢" } });
     expect(submit).toBeEnabled();
   });
+
+  it("blocks brief-only submit while the product section is partially filled", () => {
+    render(<AdInitCanvas projectName="ad-demo" onDone={onDone} />);
+    const submit = screen.getByRole("button", { name: "开始创作" });
+
+    // brief 已填 + 产品区部分填写（只有名称）：不可提交并出现提示，防止静默丢弃产品信息
+    fireEvent.change(screen.getByLabelText("创作 Brief"), { target: { value: "通用短片" } });
+    expect(submit).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("产品名称"), { target: { value: "保温杯" } });
+    expect(submit).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("产品信息不完整");
+
+    // 只选了图片同样视为产品区已填写
+    fireEvent.change(screen.getByLabelText("产品名称"), { target: { value: "" } });
+    expect(submit).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("产品图"), {
+      target: { files: [makeFile("front.jpg")] },
+    });
+    expect(submit).toBeDisabled();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+
+    // 补全产品信息后恢复可提交，提示消失
+    fireEvent.change(screen.getByLabelText("产品名称"), { target: { value: "保温杯" } });
+    fireEvent.change(screen.getByLabelText("产品描述"), { target: { value: "不锈钢" } });
+    expect(submit).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
