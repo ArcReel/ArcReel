@@ -754,6 +754,21 @@ class TestReplan:
 
         assert fake.requests == []
 
+    async def test_replan_rejects_inverted_range_entry(self, tmp_path: Path):
+        """单集反向范围（start >= end）是脏数据：即使能被相邻集合并吸收也必须拒绝重排。"""
+        a = _end_of(ANCHOR_EP1)
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, a), _entry(2, a, a - 3), _entry(3, a - 3, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="范围无效"):
+            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
+
+        assert fake.requests == []
+
     async def test_replan_across_source_files_recuts_each_file_slice(self, tmp_path: Path):
         """跨源文件重排：按文件拆 slice 独立重切，集号跨文件连续，文件边界即集边界，cursor 不动。"""
         project_dir = _planned_two_files(tmp_path)

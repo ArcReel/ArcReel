@@ -581,6 +581,10 @@ class EpisodePlanner:
                 or isinstance(seg_end, bool)
             ):
                 raise EpisodePlanningError(f"第 {num} 集原文范围记录不完整，无法重排")
+            # 零宽/反向范围是脏数据：反向条目若恰好与前一集首尾相接会把合并 slice 的 end 拉回，
+            # 静默缩小重排覆盖范围并绕过 slice 级校验，必须在条目级拦截
+            if seg_start >= seg_end:
+                raise EpisodePlanningError(f"第 {num} 集原文范围无效（start={seg_start} >= end={seg_end}），无法重排")
             if slices and slices[-1].source_rel == rel:
                 # 同文件相邻条目必须首尾相接：断档/重叠意味着账本与原文覆盖不一致，
                 # 静默合并会把范围之外的原文一并重切，必须 fail-fast
