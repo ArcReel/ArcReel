@@ -251,6 +251,61 @@ class TestCapacityTable:
             if "video" not in meta.media_types:
                 assert table.get(pid, "video") == 0
 
+    @staticmethod
+    def _stub_from_db_sources(monkeypatch, configs: dict[str, dict[str, str]]) -> None:
+        """把 from_db 的两个数据源（provider config / 自定义供应商）替换为内存数据。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        for env in ("IMAGE_MAX_WORKERS", "VIDEO_MAX_WORKERS", "AUDIO_MAX_WORKERS"):
+            monkeypatch.delenv(env, raising=False)
+
+        class _FakeSessionCtx:
+            async def __aenter__(self):
+                return MagicMock()
+
+            async def __aexit__(self, *exc_info):
+                return False
+
+        monkeypatch.setattr("lib.db.safe_session_factory", lambda: _FakeSessionCtx())
+        monkeypatch.setattr(
+            "lib.config.service.ConfigService.get_all_provider_configs",
+            AsyncMock(return_value=configs),
+        )
+        monkeypatch.setattr(
+            "lib.db.repositories.custom_provider_repo.CustomProviderRepository.list_providers_with_models",
+            AsyncMock(return_value=[]),
+        )
+
+    @pytest.mark.parametrize("dirty", ["", "3.7", "abc"])
+    async def test_from_db_dirty_value_falls_back_per_key(self, monkeypatch, caplog, dirty):
+        """单个 key 的存量脏值只回退该 key 默认值并告警，不拖垮整表加载。"""
+        import logging
+
+        self._stub_from_db_sources(
+            monkeypatch,
+            {
+                "ark": {"image_max_workers": dirty, "video_max_workers": "2"},
+                "gemini-aistudio": {"image_max_workers": "7"},
+            },
+        )
+
+        with caplog.at_level(logging.WARNING, logger="lib.generation_worker"):
+            table = await CapacityTable.from_db()
+
+        # 脏 key 回退 env 默认值（image=5）并告警
+        assert table.get("ark", "image") == 5
+        assert "image_max_workers" in caplog.text
+        # 同 provider 其余合法 key、其他 provider 的配置正常生效
+        assert table.get("ark", "video") == 2
+        assert table.get("gemini-aistudio", "image") == 7
+
+    async def test_from_db_negative_value_clamps_to_zero(self, monkeypatch):
+        """可解析的负数沿用 clamp 语义（→0），不视为脏值回退默认。"""
+        self._stub_from_db_sources(monkeypatch, {"ark": {"video_max_workers": "-1"}})
+
+        table = await CapacityTable.from_db()
+        assert table.get("ark", "video") == 0
+
 
 class TestGenerationWorker:
     @pytest.mark.asyncio

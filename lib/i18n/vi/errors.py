@@ -77,6 +77,7 @@ MESSAGES = {
     "source_conflict": "Tệp nguồn '{existing}' đã tồn tại; gợi ý đổi tên: '{suggested}'",
     # Providers
     "unknown_provider": "Nhà cung cấp không xác định: {provider_id}",
+    "max_workers_must_be_nonnegative_integer": "{field} phải là số nguyên không âm, đã nhận: {value}",
     "credentials_not_found": "Không tìm thấy thông tin xác thực",
     "vertex_json_read_failed": "Không đọc được tệp đã tải lên",
     "vertex_json_too_large": "Tệp thông tin xác thực quá lớn",

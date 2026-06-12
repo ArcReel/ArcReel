@@ -436,6 +436,62 @@ class TestPatchProviderConfig:
         mock_svc.set_provider_config.assert_awaited_once_with("gemini-aistudio", "api_key", "AIza-test", flush=False)
 
 
+class TestPatchProviderConfigMaxWorkersValidation:
+    """容量键（*_max_workers）写入校验：非法值 422 + 可读消息，合法值正常保存。
+
+    走真实 ConfigService + 内存 DB，覆盖 router → service → repository 全链路。
+    """
+
+    @staticmethod
+    def _make_db_app(locale: str = "zh") -> FastAPI:
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from lib.db.base import Base
+
+        app = FastAPI()
+
+        async def _override_session():
+            engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            sm = async_sessionmaker(engine, expire_on_commit=False)
+            async with sm() as s:
+                yield s
+            await engine.dispose()
+
+        app.dependency_overrides[get_async_session] = _override_session
+        app.dependency_overrides[get_translator] = lambda: make_translator(locale)
+        app.include_router(providers.router, prefix="/api/v1")
+        return app
+
+    @pytest.mark.parametrize("bad_value", ["", "3.7", "abc", "-1"])
+    @pytest.mark.parametrize("key", ["image_max_workers", "video_max_workers", "audio_max_workers"])
+    def test_invalid_value_returns_422(self, key: str, bad_value: str):
+        with TestClient(self._make_db_app()) as client:
+            resp = client.patch("/api/v1/providers/dashscope/config", json={key: bad_value})
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        # 消息已经过 Translator 渲染（非裸 key id），且包含字段名便于定位
+        assert detail != "max_workers_must_be_nonnegative_integer"
+        assert key in detail
+
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_error_message_renders_in_all_locales(self, locale: str):
+        with TestClient(self._make_db_app(locale)) as client:
+            resp = client.patch("/api/v1/providers/dashscope/config", json={"video_max_workers": "abc"})
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert detail != "max_workers_must_be_nonnegative_integer"
+        assert "video_max_workers" in detail
+        assert "abc" in detail
+
+    @pytest.mark.parametrize("good_value", ["0", "5"])
+    def test_valid_value_returns_204(self, good_value: str):
+        with TestClient(self._make_db_app()) as client:
+            resp = client.patch("/api/v1/providers/dashscope/config", json={"audio_max_workers": good_value})
+        assert resp.status_code == 204
+
+
 # ---------------------------------------------------------------------------
 # POST /providers/{id}/test — 连接测试
 # ---------------------------------------------------------------------------

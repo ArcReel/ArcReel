@@ -77,6 +77,7 @@ MESSAGES = {
     "source_conflict": "Source file '{existing}' already exists; suggested rename: '{suggested}'",
     # Providers
     "unknown_provider": "Unknown provider: {provider_id}",
+    "max_workers_must_be_nonnegative_integer": "{field} must be a non-negative integer, got: {value}",
     "credentials_not_found": "Credentials not found",
     "vertex_json_read_failed": "Failed to read the uploaded file",
     "vertex_json_too_large": "Credentials file is too large",

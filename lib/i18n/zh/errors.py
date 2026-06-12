@@ -77,6 +77,7 @@ MESSAGES = {
     "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
     # Providers
     "unknown_provider": "未知供应商: {provider_id}",
+    "max_workers_must_be_nonnegative_integer": "{field} 必须是非负整数，收到：{value}",
     "credentials_not_found": "凭证不存在",
     "vertex_json_read_failed": "读取上传文件失败",
     "vertex_json_too_large": "凭证文件过大",

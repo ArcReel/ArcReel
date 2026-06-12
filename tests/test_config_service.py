@@ -89,3 +89,28 @@ async def test_get_default_backend_fallback(config_service: ConfigService):
 async def test_unknown_provider_raises(config_service: ConfigService):
     with pytest.raises(ValueError, match="Unknown provider"):
         await config_service.set_provider_config("unknown-provider", "key", "val")
+
+
+@pytest.mark.parametrize("key", ["image_max_workers", "video_max_workers", "audio_max_workers"])
+@pytest.mark.parametrize("value", ["", "3.7", "abc", "-1"])
+async def test_set_max_workers_rejects_invalid_values(config_service: ConfigService, key: str, value: str):
+    from lib.config.service import ProviderConfigValueError
+
+    with pytest.raises(ProviderConfigValueError) as exc_info:
+        await config_service.set_provider_config("dashscope", key, value)
+    assert exc_info.value.key == key
+    assert exc_info.value.value == value
+
+
+@pytest.mark.parametrize("value", ["0", "5"])
+async def test_set_max_workers_accepts_nonnegative_integers(config_service: ConfigService, value: str):
+    await config_service.set_provider_config("ark", "image_max_workers", value)
+    config = await config_service.get_provider_config("ark")
+    assert config["image_max_workers"] == value
+
+
+async def test_set_other_number_keys_not_restricted_to_integers(config_service: ConfigService):
+    # request_gap / *_rpm 语义允许小数，不受容量键的非负整数校验约束
+    await config_service.set_provider_config("gemini-aistudio", "request_gap", "0.5")
+    config = await config_service.get_provider_config("gemini-aistudio")
+    assert config["request_gap"] == "0.5"

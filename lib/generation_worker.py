@@ -63,6 +63,22 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     return max(minimum, value)
 
 
+def _parse_lane_max(config: dict[str, str], key: str, default: int, provider_id: str) -> int:
+    """逐 key 容错解析单条 lane 的并发上限。
+
+    解析失败回退默认值并告警，不让单个坏值（写入校验上线前的存量脏数据）拖垮
+    整表加载；可解析的负数沿用 clamp 语义（→0，即该 lane fail-fast）。
+    """
+    raw = config.get(key)
+    if raw is None:
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        logger.warning("供应商 %s 的 %s 配置值非法（%r），回退默认值 %d", provider_id, key, raw, default)
+        return default
+
+
 @dataclass
 class CapacityTable:
     """Per-provider concurrency limits keyed by ``provider_id × media_type``.
@@ -135,9 +151,9 @@ class CapacityTable:
             all_configs = await svc.get_all_provider_configs()
             for provider_id, meta in PROVIDER_REGISTRY.items():
                 config = all_configs.get(provider_id, {})
-                image_max = max(0, int(config.get("image_max_workers", str(default_image))))
-                video_max = max(0, int(config.get("video_max_workers", str(default_video))))
-                audio_max = max(0, int(config.get("audio_max_workers", str(default_audio))))
+                image_max = _parse_lane_max(config, "image_max_workers", default_image, provider_id)
+                video_max = _parse_lane_max(config, "video_max_workers", default_video, provider_id)
+                audio_max = _parse_lane_max(config, "audio_max_workers", default_audio, provider_id)
                 # _lane_limits 统一负责"不支持的 lane → 0"，三个装载路径共用同一投影点
                 limits[provider_id] = cls._lane_limits(meta.media_types, image_max, video_max, audio_max)
 
