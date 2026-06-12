@@ -227,14 +227,13 @@ class JianyingDraftService:
         for start_us, audio_path in narration_placements:
             try:
                 narration_materials.append((start_us, AudioMaterial(audio_path)))
-            except (ValueError, TypeError, OSError, RuntimeError) as exc:
-                # RuntimeError：libmediainfo 打不开文件（占用/读错误）时由 pymediainfo 抛出
+            except Exception as exc:
+                # 解析失败不阻断导出：文件占用/损坏/底层库自定义异常均按跳过处理
                 logger.warning("旁白音频无法解析，已跳过: %s (%s)", audio_path, exc)
 
         # 旁白音频段：时长取音频文件真实时长，不与视频对齐；
         # 仅当超长音频会与下一段旁白重叠时收口到其起点，保证草稿可导出（用户在剪映手动精调）
-        if narration_materials:
-            script_file.add_track(TrackType.audio, "旁白")
+        narration_track_added = False
         for material_index, (start_us, audio_material) in enumerate(narration_materials):
             duration_us = audio_material.duration
             if material_index + 1 < len(narration_materials):
@@ -245,6 +244,10 @@ class JianyingDraftService:
             if duration_us <= 0:
                 logger.warning("旁白音频有效时长不足，已跳过: %s", audio_material.path)
                 continue
+            # 音轨仅在确有有效片段时创建，避免全部被过滤后留下空轨
+            if not narration_track_added:
+                script_file.add_track(TrackType.audio, "旁白")
+                narration_track_added = True
             audio_seg = AudioSegment(audio_material, trange(start_us, duration_us))
             script_file.add_segment(audio_seg, "旁白")
 
@@ -349,12 +352,14 @@ class JianyingDraftService:
             # 6. 将素材移入草稿目录（暂存区内容即全部已暂存素材）
             assets_dir = draft_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
-            assets_root = assets_dir.resolve()
+            # normpath + startswith 做越界守卫：纯字符串规范化，不触发文件系统访问，
+            # 且是静态分析可识别的收敛模式（resolve/is_relative_to 不被识别）
+            assets_root = os.path.normpath(assets_dir)
             for staged in staging_dir.iterdir():
-                dest = (assets_root / staged.name).resolve()
-                if not dest.is_relative_to(assets_root):
+                dest = os.path.normpath(os.path.join(assets_root, staged.name))
+                if not dest.startswith(assets_root + os.sep):
                     raise ValueError(f"路径越界，拒绝写入: {dest}")
-                shutil.move(str(staged), str(dest))
+                shutil.move(str(staged), dest)
 
             # 7. 路径后处理：staging 路径 → 用户本地路径
             draft_content_path = draft_dir / "draft_content.json"

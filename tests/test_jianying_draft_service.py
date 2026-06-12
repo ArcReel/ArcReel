@@ -429,7 +429,7 @@ class TestNarrationAudioTrack:
 
     def test_audio_open_failure_skipped_without_error(self, tmp_path, monkeypatch):
         """音频文件解析阶段抛出运行时错误（如被占用）时跳过该段配音，导出不报错"""
-        import server.services.jianying_draft_service as svc_module
+        from server.services.jianying_draft_service import JianyingDraftService
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
@@ -441,7 +441,7 @@ class TestNarrationAudioTrack:
         def raise_runtime_error(*args, **kwargs):
             raise RuntimeError("An error occurred while opening the file")
 
-        monkeypatch.setattr(svc_module, "AudioMaterial", raise_runtime_error)
+        monkeypatch.setattr("server.services.jianying_draft_service.AudioMaterial", raise_runtime_error)
 
         draft_dir = tmp_path / "drafts" / "占用草稿"
         clips = [
@@ -453,7 +453,7 @@ class TestNarrationAudioTrack:
             },
         ]
 
-        svc = svc_module.JianyingDraftService.__new__(svc_module.JianyingDraftService)
+        svc = JianyingDraftService.__new__(JianyingDraftService)
         svc._generate_draft(
             draft_dir=draft_dir,
             draft_name="占用草稿",
@@ -468,7 +468,7 @@ class TestNarrationAudioTrack:
 
     def test_zero_duration_audio_skipped_without_error(self, tmp_path, monkeypatch):
         """音频有效时长为 0（解析异常或被收口到 0）时跳过该段配音，导出不报错"""
-        import server.services.jianying_draft_service as svc_module
+        from server.services.jianying_draft_service import JianyingDraftService
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
@@ -482,7 +482,7 @@ class TestNarrationAudioTrack:
                 self.path = path
                 self.duration = 0
 
-        monkeypatch.setattr(svc_module, "AudioMaterial", ZeroDurationAudioMaterial)
+        monkeypatch.setattr("server.services.jianying_draft_service.AudioMaterial", ZeroDurationAudioMaterial)
 
         draft_dir = tmp_path / "drafts" / "零时长草稿"
         clips = [
@@ -494,7 +494,7 @@ class TestNarrationAudioTrack:
             },
         ]
 
-        svc = svc_module.JianyingDraftService.__new__(svc_module.JianyingDraftService)
+        svc = JianyingDraftService.__new__(JianyingDraftService)
         svc._generate_draft(
             draft_dir=draft_dir,
             draft_name="零时长草稿",
@@ -506,6 +506,7 @@ class TestNarrationAudioTrack:
 
         content = json.loads((draft_dir / "draft_content.json").read_text(encoding="utf-8"))
         assert content.get("materials", {}).get("audios", []) == []
+        assert all(t.get("type") != "audio" for t in content.get("tracks", []))
 
     def test_overlong_audio_clamped_to_next_narration_start(self, tmp_path):
         """前段音频长过下一段音频的起点时收口到起点，导出不报错"""
@@ -735,7 +736,7 @@ class TestExportEpisodeDraft:
         pm, project_dir = self._setup_project(tmp_path)
         self._add_narration_audio(project_dir, "S1")  # S2 缺 narration_audio，应跳过不报错
         svc = JianyingDraftService(pm)
-        draft_path = "/Users/test/drafts"
+        draft_path = "/mock/JianyingDrafts"
 
         zip_path = svc.export_episode_draft(project_name="demo", episode=1, draft_path=draft_path)
 
@@ -771,7 +772,7 @@ class TestExportEpisodeDraft:
         script_path.write_text(json.dumps(script_data, ensure_ascii=False), encoding="utf-8")
 
         svc = JianyingDraftService(pm)
-        zip_path = svc.export_episode_draft(project_name="demo", episode=1, draft_path="/Users/test/drafts")
+        zip_path = svc.export_episode_draft(project_name="demo", episode=1, draft_path="/mock/JianyingDrafts")
 
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
