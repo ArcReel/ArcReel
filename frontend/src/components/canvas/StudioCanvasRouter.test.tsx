@@ -717,6 +717,39 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
+  it("reports move failure and toasts when the reorder request fails", async () => {
+    const script = makeAdScript() as AdEpisodeScript;
+    script.shots.push({
+      shot_id: "SEG-2",
+      section: "cta",
+      duration_seconds: 3,
+      voiceover_text: "立即下单",
+      image_prompt: "p2",
+      video_prompt: "v2",
+      transition_to_next: "cut",
+    });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentScripts: { "episode_1.json": script },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ content_mode: "ad" }),
+      scripts: { "episode_1.json": script },
+    });
+    vi.spyOn(API, "reorderShots").mockRejectedValue(new Error("server boom"));
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("move-shot-later"));
+    await waitFor(() => {
+      expect(screen.getByText("move-shot-later")).toHaveAttribute("data-move-result", "false");
+    });
+    expect(useAppStore.getState().toast?.text).toContain("server boom");
+    expect(useAppStore.getState().toast?.tone).toBe("error");
+  });
+
   it("reports move failure when local refresh fails after a successful reorder", async () => {
     const script = makeAdScript() as AdEpisodeScript;
     script.shots.push({

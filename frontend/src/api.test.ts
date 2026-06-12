@@ -198,6 +198,8 @@ describe("API", () => {
       await API.getScript("demo", "episode 1.json");
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
       await API.updateSegment("demo", "segment-1", { y: 2 });
+      await API.updateShot("demo", "E1S01", "episode_1.json", { voiceover_text: "新口播" });
+      await API.reorderShots("demo", "episode_1.json", ["E1S02", "E1S01"]);
       await API.updateEpisode("demo", 3, { title: "新标题" });
 
       await API.getSystemConfig();
@@ -280,6 +282,14 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/segments/segment-1", {
         method: "PATCH",
         body: JSON.stringify({ y: 2 }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-shots/E1S01", {
+        method: "PATCH",
+        body: JSON.stringify({ script_file: "episode_1.json", updates: { voiceover_text: "新口播" } }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-shots/reorder", {
+        method: "POST",
+        body: JSON.stringify({ script_file: "episode_1.json", shot_ids: ["E1S02", "E1S01"] }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes/3", {
         method: "PATCH",
