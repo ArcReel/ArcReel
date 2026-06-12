@@ -444,20 +444,31 @@ class TestPatchProviderConfigMaxWorkersValidation:
 
     @staticmethod
     def _make_db_app(locale: str = "zh") -> FastAPI:
+        from contextlib import asynccontextmanager
+
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
         from lib.db.base import Base
 
-        app = FastAPI()
+        # engine 由 lifespan 持有：TestClient 上下文退出时必然 dispose——若放在
+        # session 依赖的 yield 之后，路由抛 HTTPException 时会被跳过而泄漏 engine
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        sm = async_sessionmaker(engine, expire_on_commit=False)
 
-        async def _override_session():
-            engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        @asynccontextmanager
+        async def _lifespan(_app: FastAPI):
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            sm = async_sessionmaker(engine, expire_on_commit=False)
+            try:
+                yield
+            finally:
+                await engine.dispose()
+
+        app = FastAPI(lifespan=_lifespan)
+
+        async def _override_session():
             async with sm() as s:
                 yield s
-            await engine.dispose()
 
         app.dependency_overrides[get_async_session] = _override_session
         app.dependency_overrides[get_translator] = lambda: make_translator(locale)

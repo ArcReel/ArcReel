@@ -246,6 +246,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   const hasDraft = Object.keys(draft).length > 0;
@@ -264,6 +265,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     setDraft({});
     setDetail(null);
     setLoadError(null);
+    setSaveError(null);
     voidCall(
       API.getProviderConfig(providerId)
         .then((res) => {
@@ -281,6 +283,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const patch: Record<string, string | null> = {};
       for (const [key, value] of Object.entries(draft)) {
@@ -291,6 +294,9 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       setDetail(updated);
       setDraft({});
       onSaved?.();
+    } catch (err) {
+      // 后端校验失败（如 Max Workers 非法值）返回已本地化的 detail，直接展示
+      setSaveError(errMsg(err));
     } finally {
       setSaving(false);
     }
@@ -391,6 +397,19 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
               ))}
               {hasDraft && (
                 <div className="pt-1">
+                  {saveError && (
+                    <p
+                      aria-live="polite"
+                      className="mb-2 rounded-[6px] px-2.5 py-1.5 text-[11.5px]"
+                      style={{
+                        background: "var(--color-warm-tint)",
+                        color: "var(--color-warm-bright)",
+                        border: "1px solid var(--color-warm-ring)",
+                      }}
+                    >
+                      {saveError}
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={() => void handleSave()}

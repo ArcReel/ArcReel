@@ -67,16 +67,19 @@ def _parse_lane_max(config: dict[str, str], key: str, default: int, provider_id:
     """逐 key 容错解析单条 lane 的并发上限。
 
     解析失败回退默认值并告警，不让单个坏值（写入校验上线前的存量脏数据）拖垮
-    整表加载；可解析的负数沿用 clamp 语义（→0，即该 lane fail-fast）。
+    整表加载；可解析的负数沿用 clamp 语义（→0，即该 lane fail-fast）并告警。
     """
     raw = config.get(key)
     if raw is None:
         return default
     try:
-        return max(0, int(raw))
+        parsed = int(raw)
     except ValueError:
         logger.warning("供应商 %s 的 %s 配置值非法（%r），回退默认值 %d", provider_id, key, raw, default)
         return default
+    if parsed < 0:
+        logger.warning("供应商 %s 的 %s 配置值为负（%r），按 0 处理（该 lane 关闭）", provider_id, key, raw)
+    return max(0, parsed)
 
 
 @dataclass

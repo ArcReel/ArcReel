@@ -299,12 +299,17 @@ class TestCapacityTable:
         assert table.get("ark", "video") == 2
         assert table.get("gemini-aistudio", "image") == 7
 
-    async def test_from_db_negative_value_clamps_to_zero(self, monkeypatch):
-        """可解析的负数沿用 clamp 语义（→0），不视为脏值回退默认。"""
+    async def test_from_db_negative_value_clamps_to_zero(self, monkeypatch, caplog):
+        """可解析的负数沿用 clamp 语义（→0），不视为脏值回退默认，但留告警可观测。"""
+        import logging
+
         self._stub_from_db_sources(monkeypatch, {"ark": {"video_max_workers": "-1"}})
 
-        table = await CapacityTable.from_db()
+        with caplog.at_level(logging.WARNING, logger="lib.generation_worker"):
+            table = await CapacityTable.from_db()
+
         assert table.get("ark", "video") == 0
+        assert "video_max_workers" in caplog.text
 
 
 class TestGenerationWorker:

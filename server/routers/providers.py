@@ -313,10 +313,7 @@ async def patch_provider_config(
             try:
                 await svc.set_provider_config(provider_id, key, value, flush=False)
             except ProviderConfigValueError as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail=_t("max_workers_must_be_nonnegative_integer", field=exc.key, value=exc.value),
-                ) from exc
+                raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
 
     await session.commit()
 

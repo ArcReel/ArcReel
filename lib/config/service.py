@@ -29,16 +29,23 @@ _DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 # 写入层校验为非负整数的容量键（与 CapacityTable 的三条 lane 一一对应）。
 # 其余 number 字段（image_rpm / video_rpm / request_gap）语义不同（允许小数），不在此列。
 _MAX_WORKERS_KEYS = frozenset({"image_max_workers", "video_max_workers", "audio_max_workers"})
+_MAX_WORKERS_CODE = "max_workers_must_be_nonnegative_integer"
 
 
 class ProviderConfigValueError(ValueError):
-    """provider 配置值校验失败；携带 key/value，由 router 层渲染 user-facing 文案。"""
+    """provider 配置值校验失败。
 
-    def __init__(self, provider: str, key: str, value: str) -> None:
-        super().__init__(f"invalid value for {provider}.{key}: {value!r} (expected a non-negative integer)")
+    携带 i18n message code + 渲染参数（key 而非译文），router 层 ``_t(exc.code, **exc.params)``
+    泛化翻译为 user-facing 文案，无需感知具体校验规则。
+    """
+
+    def __init__(self, provider: str, key: str, value: str, *, code: str) -> None:
+        super().__init__(f"invalid value for {provider}.{key}: {value!r} ({code})")
         self.provider = provider
         self.key = key
         self.value = value
+        self.code = code
+        self.params: dict[str, str] = {"field": key, "value": value}
 
 
 # DB setting key → environment variable name
@@ -123,6 +130,10 @@ class ConfigService:
     ) -> None:
         self._validate_provider(provider)
         self._validate_value(provider, key, value)
+        if key in _MAX_WORKERS_KEYS:
+            # 入库统一规范化为 ASCII 数字串（int() 接受 " 5 " / "+5" / "1_0" / 全角数字等
+            # 非规范形态），保证任何读取方拿到的都是可直接解析、可在 number 输入框回显的值
+            value = str(int(value))
         meta = PROVIDER_REGISTRY[provider]
         is_secret = key in meta.secret_keys
         await self._provider_repo.set(provider, key, value, is_secret=is_secret, flush=flush)
@@ -260,9 +271,9 @@ class ConfigService:
         try:
             parsed = int(value)
         except ValueError:
-            raise ProviderConfigValueError(provider, key, value) from None
+            raise ProviderConfigValueError(provider, key, value, code=_MAX_WORKERS_CODE) from None
         if parsed < 0:
-            raise ProviderConfigValueError(provider, key, value)
+            raise ProviderConfigValueError(provider, key, value, code=_MAX_WORKERS_CODE)
 
     @staticmethod
     def _parse_backend(raw: str, fallback: str) -> tuple[str, str]:

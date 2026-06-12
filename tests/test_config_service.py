@@ -100,6 +100,9 @@ async def test_set_max_workers_rejects_invalid_values(config_service: ConfigServ
         await config_service.set_provider_config("dashscope", key, value)
     assert exc_info.value.key == key
     assert exc_info.value.value == value
+    # router 依赖 code/params 泛化渲染 i18n 文案，契约在此 pin 住
+    assert exc_info.value.code == "max_workers_must_be_nonnegative_integer"
+    assert exc_info.value.params == {"field": key, "value": value}
 
 
 @pytest.mark.parametrize("value", ["0", "5"])
@@ -107,6 +110,14 @@ async def test_set_max_workers_accepts_nonnegative_integers(config_service: Conf
     await config_service.set_provider_config("ark", "image_max_workers", value)
     config = await config_service.get_provider_config("ark")
     assert config["image_max_workers"] == value
+
+
+@pytest.mark.parametrize(("raw", "canonical"), [(" 5 ", "5"), ("+5", "5"), ("1_0", "10")])
+async def test_set_max_workers_canonicalizes_on_write(config_service: ConfigService, raw: str, canonical: str):
+    # int() 接受的非规范形态统一规范化入库，读取方与 number 输入框拿到的都是纯数字串
+    await config_service.set_provider_config("ark", "video_max_workers", raw)
+    config = await config_service.get_provider_config("ark")
+    assert config["video_max_workers"] == canonical
 
 
 async def test_set_other_number_keys_not_restricted_to_integers(config_service: ConfigService):
