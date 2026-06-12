@@ -286,6 +286,62 @@ class TestCostEstimationService:
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("ep2.json" in m for m in warnings), warnings
 
+    async def test_audio_estimate_per_segment_by_characters(self, db_factory):
+        """旁白配音预估 = novel_text 字符数 × 按字符费率；models 含 audio 条目。"""
+        from lib.config.service import ConfigService
+
+        async with db_factory() as session:
+            await ConfigService(session).set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        script = _make_script(1, ["E1S001", "E1S002"], [6, 8])
+        script["segments"][0]["novel_text"] = "字" * 100
+        script["segments"][1]["novel_text"] = ""
+        scripts = {"ep1.json": script}
+
+        result = await service.compute(project_data, scripts, project_name="test")
+
+        assert result["models"]["audio"] == {"provider": "dashscope", "model": "qwen3-tts-flash"}
+        segments = result["episodes"][0]["segments"]
+        # qwen3-tts-flash 按 ¥0.8/万字符：100 字 → 0.008 CNY
+        assert segments[0]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
+        # 无原文的段不产生旁白预估
+        assert segments[1]["estimate"]["audio"] == {}
+        # 集/项目两级合计纳入 audio
+        assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
+        assert result["project_totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
+
+    async def test_audio_actual_costs_included(self, db_factory):
+        """旁白实际费用按 segment 聚合进 actual.audio。"""
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        cid = await tracker.start_call("proj", "audio", "qwen3-tts-flash", provider="dashscope", segment_id="E1S001")
+        await tracker.finish_call(cid, status="success", output_path="a.wav", usage_tokens=100)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
+
+        result = await service.compute(project_data, scripts, project_name="proj")
+
+        seg = result["episodes"][0]["segments"][0]
+        assert seg["actual"]["audio"]["CNY"] == pytest.approx(0.008)
+        assert result["project_totals"]["actual"]["audio"]["CNY"] == pytest.approx(0.008)
+
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)
         tracker = UsageTracker(session_factory=db_factory)

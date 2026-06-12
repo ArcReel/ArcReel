@@ -21,6 +21,7 @@ import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
+import { NarrationAudioCard } from "./NarrationAudioCard";
 import { NotesDrawer } from "./NotesDrawer";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
@@ -61,10 +62,12 @@ interface ShotDetailProps {
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
+  onGenerateNarration?: (segmentId: string) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
+  generatingNarration?: boolean;
   durationOptions?: number[];
 }
 
@@ -286,15 +289,18 @@ export function ShotDetail({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onGenerateNarration,
   onRestoreStoryboard,
   onRestoreVideo,
   generatingStoryboard,
   generatingVideo,
+  generatingNarration,
   durationOptions = [],
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
   const novelText = getNovelText(segment, contentMode);
+  const hasNarrationText = novelText.trim().length > 0;
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
 
   const ip = segment.image_prompt;
@@ -443,6 +449,7 @@ export function ShotDetail({
 
   const sbEstimate = segCost?.estimate?.image;
   const vidEstimate = segCost?.estimate?.video;
+  const narrationEstimate = segCost?.estimate?.audio;
 
   const assets = segment.generated_assets;
   const hasStoryboard = !!assets?.storyboard_image;
@@ -503,7 +510,7 @@ export function ShotDetail({
         )}
       </div>
 
-      {(novelText || contentMode === "narration") && (
+      {(hasNarrationText || contentMode === "narration") && (
         <div>
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"
@@ -528,7 +535,7 @@ export function ShotDetail({
               className="display-serif m-0 text-[13px]"
               style={{ lineHeight: 1.65, color: "var(--color-text)" }}
             >
-              {novelText || t("no_original_text")}
+              {hasNarrationText ? novelText.trim() : t("no_original_text")}
             </p>
           </div>
         </div>
@@ -661,6 +668,19 @@ export function ShotDetail({
         uploading={uploadingKind === "video"}
         uploadDisabled={uploadingKind !== null}
       />
+      {contentMode === "narration" && (
+        <NarrationAudioCard
+          projectName={projectName}
+          segmentId={segmentId}
+          novelText={novelText}
+          assetPath={assets?.narration_audio ?? null}
+          generating={generatingNarration}
+          generateDisabled={!hasNarrationText || dirty || saving}
+          generateDisabledHint={!hasNarrationText ? t("no_original_text") : dirty ? dirtyHint : undefined}
+          estimatedCost={narrationEstimate ?? undefined}
+          onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
+        />
+      )}
     </div>
   );
 

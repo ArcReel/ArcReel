@@ -90,6 +90,7 @@ export interface GeneratedAssets {
   video_clip: string | null;
   video_thumbnail: string | null;
   video_uri: string | null;
+  narration_audio?: string | null;       // narration audio file path
   status: AssetStatus;
 }
 

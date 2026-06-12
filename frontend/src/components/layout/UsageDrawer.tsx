@@ -4,6 +4,7 @@ import {
   Image,
   Video,
   FileText,
+  AudioLines,
   AlertCircle,
   DollarSign,
   ChevronLeft,
@@ -32,12 +33,14 @@ const TYPE_TONE: Record<CallType, { color: string; label: string }> = {
   video: { color: "oklch(0.78 0.13 305)", label: "video_type_label" },
   text: { color: "oklch(0.78 0.10 155)", label: "text_type_label" },
   image: { color: "oklch(0.80 0.10 230)", label: "image_type_label" },
+  audio: { color: "oklch(0.80 0.11 75)", label: "audio_type_label" },
 };
 
 const TYPE_ICON: Record<CallType, typeof Image> = {
   video: Video,
   text: FileText,
   image: Image,
+  audio: AudioLines,
 };
 
 export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDrawerProps) {
@@ -140,7 +143,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
 
       {/* Stats summary */}
       <div
-        className="grid grid-cols-5 gap-2 px-4 py-3"
+        className="grid grid-cols-6 gap-2 px-4 py-3"
         style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
       >
         <StatBlock
@@ -175,6 +178,11 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           label={t("text_type_label")}
           value={String(stats?.text_count ?? 0)}
           icon={<FileText className="h-3 w-3" style={{ color: TYPE_TONE.text.color }} />}
+        />
+        <StatBlock
+          label={t("audio_type_label")}
+          value={String(stats?.audio_count ?? 0)}
+          icon={<AudioLines className="h-3 w-3" style={{ color: TYPE_TONE.audio.color }} />}
         />
         <StatBlock
           label={t("failed_type_label")}

@@ -247,6 +247,9 @@ def enqueue_and_wait_sync(**kwargs) -> dict[str, Any]:
 # plain-string-only asset prompts still flow through the image branch (no scene key).
 _VIDEO_TASK_TYPES = frozenset({"video"})
 _IMAGE_STRUCTURED_TASK_TYPES = frozenset({"storyboard"})
+# 旁白合成任务：文本默认由执行层从剧本 novel_text 读取，prompt 允许缺省；
+# 显式传入时必须是非空字符串（作为待合成文本覆盖）。
+_TTS_TASK_TYPES = frozenset({"tts"})
 
 
 def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> None:
@@ -273,6 +276,15 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
         else:
             raise TaskSpecValidationError("prompt_must_be_string_or_object")
         return
+
+    if task_type in _TTS_TASK_TYPES:
+        if prompt is None:
+            return
+        if isinstance(prompt, str):
+            if not prompt.strip():
+                raise TaskSpecValidationError("prompt_text_empty")
+            return
+        raise TaskSpecValidationError("tts_prompt_must_be_string_or_null")
 
     if task_type in _IMAGE_STRUCTURED_TASK_TYPES and isinstance(prompt, dict):
         if not is_structured_image_prompt(prompt):
@@ -352,6 +364,10 @@ class TaskSpec:
         # extra_payload 不得携带守卫点已校验的保留键，否则调用方能绕过单一守卫点
         # 把未校验的 prompt / script_file 入队。
         reserved = {"prompt", "script_file"}
+        # tts 执行层读 payload.text 优先于 prompt（历史任务排空通道）；新入队一律走
+        # 受校验的 prompt，不允许借 extra_payload.text 绕过结构校验。
+        if task_type in _TTS_TASK_TYPES:
+            reserved = reserved | {"text"}
         if extra_payload and (conflict := reserved & extra_payload.keys()):
             raise ValueError(f"extra_payload contains reserved keys: {', '.join(sorted(conflict))}")
 

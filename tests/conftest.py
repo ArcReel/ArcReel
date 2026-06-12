@@ -54,6 +54,26 @@ def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> 
     )
 
 
+def make_test_audio(path: Path, *, duration_sec: float = 1.0) -> None:
+    """使用 ffmpeg 生成极短测试音频（正弦波 wav，pcm_s16le 为 ffmpeg 内置编码器）"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={duration_sec}",
+            "-c:a",
+            "pcm_s16le",
+            str(path),
+        ],
+        capture_output=True,
+        check=True,
+    )
+
+
 @pytest.fixture(autouse=True)
 def _reset_app_data_dir_cache():
     """``app_data_dir()`` uses ``functools.cache`` for production; reset it between

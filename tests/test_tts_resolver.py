@@ -123,6 +123,84 @@ class TestResolveNarrationVoice:
             await engine.dispose()
 
 
+class TestResolveNarrationSpeed:
+    async def test_project_override_wins(self):
+        factory, engine = await _make_factory()
+        try:
+            resolver = ConfigResolver(factory)
+            assert await resolver.resolve_narration_speed({"narration_speed": 1.5}) == 1.5
+        finally:
+            await engine.dispose()
+
+    async def test_global_setting_when_no_override(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                await ConfigService(session).set_setting("narration_speed", "1.2")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            assert await resolver.resolve_narration_speed(None) == 1.2
+            assert await resolver.resolve_narration_speed({}) == 1.2
+        finally:
+            await engine.dispose()
+
+    async def test_none_when_unset(self):
+        factory, engine = await _make_factory()
+        try:
+            resolver = ConfigResolver(factory)
+            assert await resolver.resolve_narration_speed(None) is None
+        finally:
+            await engine.dispose()
+
+    async def test_invalid_values_treated_as_unset(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                await ConfigService(session).set_setting("narration_speed", "not-a-number")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            assert await resolver.resolve_narration_speed(None) is None
+            # 项目级损坏值同样按未设置处理，回退全局/None
+            assert await resolver.resolve_narration_speed({"narration_speed": "fast"}) is None
+        finally:
+            await engine.dispose()
+
+    async def test_invalid_project_value_falls_back_to_global(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                await ConfigService(session).set_setting("narration_speed", "1.2")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            # 项目级损坏值按未设置处理后回退到全局有效值，而非直接 None
+            assert await resolver.resolve_narration_speed({"narration_speed": "fast"}) == 1.2
+        finally:
+            await engine.dispose()
+
+    async def test_non_positive_and_non_finite_treated_as_unset(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            resolver = ConfigResolver(factory)
+            # 项目级非正/非有限值不进 TTS 请求
+            for bad in (0, -1.5, float("nan"), float("inf")):
+                assert await resolver.resolve_narration_speed({"narration_speed": bad}) is None
+            # 全局 setting 损坏成非有限值同样按未设置处理
+            async with factory() as session:
+                await ConfigService(session).set_setting("narration_speed", "inf")
+                await session.commit()
+            assert await resolver.resolve_narration_speed(None) is None
+        finally:
+            await engine.dispose()
+
+
 class TestPublicAudioResolverApi:
     async def test_default_audio_backend_reads_global_setting(self):
         from lib.config.service import ConfigService

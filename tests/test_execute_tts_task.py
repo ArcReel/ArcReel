@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -66,6 +67,7 @@ def tts_env(monkeypatch, tmp_path):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(gen))
     monkeypatch.setattr(ConfigResolver, "resolve_narration_voice", _async_return("Cherry"))
+    monkeypatch.setattr(ConfigResolver, "resolve_narration_speed", _async_return(None))
     return pm, gen
 
 
@@ -96,6 +98,17 @@ class TestExecuteTtsTask:
         assert wb["asset_path"] == "audio/segment_E1S01.wav"
         assert wb["scene_id"] == "E1S01"
         assert wb["script_filename"] == "episode_1.json"
+
+    async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
+        pm, gen = tts_env
+        monkeypatch.setattr(ConfigResolver, "resolve_narration_speed", _async_return(1.5))
+        await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好"})
+        assert gen.audio_calls[0]["speed"] == 1.5
+
+    async def test_unset_narration_speed_passes_none(self, tts_env):
+        pm, gen = tts_env
+        await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好"})
+        assert gen.audio_calls[0]["speed"] is None
 
     async def test_no_text_no_script_file_raises(self, tts_env):
         with pytest.raises(ValueError, match="payload.text 或 payload.script_file"):
@@ -128,8 +141,9 @@ class TestGetOrCreateAudioBackend:
         monkeypatch.setattr(generation_tasks, "_create_custom_backend", _fake_create_custom)
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
-        b1 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, None)
-        b2 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, None)
+        resolver = cast(ConfigResolver, None)  # 自定义供应商分支不会触达 resolver
+        b1 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
+        b2 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
 
         assert b1 is sentinel and b2 is sentinel
         assert calls == [("custom-3", "tts-1", "audio")], "第二次调用须命中缓存，不再重建 backend"
@@ -146,11 +160,12 @@ class TestGetOrCreateAudioBackend:
         monkeypatch.setattr(generation_tasks, "_fill_simple_provider_kwargs", _async_return(None))
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
+        resolver = cast(ConfigResolver, None)  # _fill_simple_provider_kwargs 已 mock，不触达 resolver
         b1 = await generation_tasks._get_or_create_audio_backend(
-            "dashscope", {}, None, default_audio_model="qwen3-tts-flash"
+            "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
         b2 = await generation_tasks._get_or_create_audio_backend(
-            "dashscope", {}, None, default_audio_model="qwen3-tts-flash"
+            "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
         assert b1 is sentinel and b2 is sentinel
         assert len(created) == 1, "第二次调用须命中缓存，不再重建 backend"
@@ -173,7 +188,10 @@ class TestGetOrCreateAudioBackend:
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
         await generation_tasks._get_or_create_audio_backend(
-            "dashscope", {"model": "explicit-model"}, None, default_audio_model="fallback-model"
+            "dashscope",
+            {"model": "explicit-model"},
+            cast(ConfigResolver, None),  # _fill_simple_provider_kwargs 已 mock，不触达 resolver
+            default_audio_model="fallback-model",
         )
         assert filled == ["explicit-model"]
 

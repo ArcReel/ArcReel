@@ -33,6 +33,8 @@ interface TimelineCanvasProps {
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
@@ -52,6 +54,8 @@ export function TimelineCanvas({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onGenerateNarration,
+  onGenerateEpisodeNarration,
   onRestoreStoryboard,
   onRestoreVideo,
   onSaveTitle,
@@ -110,7 +114,7 @@ export function TimelineCanvas({
   // 任务派生 loading
   const tasks = useTasksStore((s) => s.tasks);
   const isGenerating = useCallback(
-    (taskType: "storyboard" | "video", segmentId: string): boolean =>
+    (taskType: "storyboard" | "video" | "tts", segmentId: string): boolean =>
       tasks.some(
         (t) =>
           t.task_type === taskType &&
@@ -127,6 +131,27 @@ export function TimelineCanvas({
   const generatingVideo = useCallback(
     (segId: string) => isGenerating("video", segId),
     [isGenerating],
+  );
+  const generatingNarration = useCallback(
+    (segId: string) => isGenerating("tts", segId),
+    [isGenerating],
+  );
+  // 批量旁白进行中：当前分集还有未完结的 tts 任务时禁用批量按钮，避免重复入队；
+  // 按本集 segment 范围判定，不影响其他分集的批量入口
+  const currentSegmentIds = useMemo(
+    () => new Set(segments.map((s) => ("segment_id" in s ? s.segment_id : s.scene_id))),
+    [segments],
+  );
+  const narrationBatchBusy = useMemo(
+    () =>
+      tasks.some(
+        (t) =>
+          t.task_type === "tts" &&
+          t.project_name === projectName &&
+          currentSegmentIds.has(t.resource_id) &&
+          (t.status === "queued" || t.status === "running"),
+      ),
+    [tasks, projectName, currentSegmentIds],
   );
 
   if (!projectData || (!episodeScript && !hasDraft)) {
@@ -163,6 +188,7 @@ export function TimelineCanvas({
   ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
   const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
   const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
+  const handleGenNarration = (segId: string) => onGenerateNarration?.(segId, scriptFile);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -251,6 +277,18 @@ export function TimelineCanvas({
               <Sparkles className="h-3 w-3" />
               <span>{t("batch_generate_videos")}</span>
             </button>
+            {contentMode === "narration" && onGenerateEpisodeNarration && (
+              <button
+                type="button"
+                className="sv-navbtn inline-flex items-center gap-1.5"
+                disabled={narrationBatchBusy}
+                onClick={() => onGenerateEpisodeNarration(scriptFile)}
+                title={t("batch_generate_narration")}
+              >
+                <Sparkles className="h-3 w-3" />
+                <span>{t("batch_generate_narration")}</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -276,10 +314,12 @@ export function TimelineCanvas({
             onUpdatePrompt={handleUpdatePrompt}
             onGenerateStoryboard={handleGenSb}
             onGenerateVideo={handleGenVid}
+            onGenerateNarration={handleGenNarration}
             onRestoreStoryboard={onRestoreStoryboard}
             onRestoreVideo={onRestoreVideo}
             generatingStoryboard={generatingStoryboard}
             generatingVideo={generatingVideo}
+            generatingNarration={generatingNarration}
             durationOptions={durationOptions}
           />
         ) : null}

@@ -21,10 +21,12 @@ interface ShotSplitViewProps {
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
+  onGenerateNarration?: (segmentId: string) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
   generatingStoryboard?: (segmentId: string) => boolean;
   generatingVideo?: (segmentId: string) => boolean;
+  generatingNarration?: (segmentId: string) => boolean;
   durationOptions?: number[];
 }
 
@@ -47,10 +49,12 @@ export function ShotSplitView({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onGenerateNarration,
   onRestoreStoryboard,
   onRestoreVideo,
   generatingStoryboard,
   generatingVideo,
+  generatingNarration,
   durationOptions,
 }: ShotSplitViewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -125,10 +129,12 @@ export function ShotSplitView({
         onUpdatePrompt={onUpdatePrompt}
         onGenerateStoryboard={onGenerateStoryboard}
         onGenerateVideo={onGenerateVideo}
+        onGenerateNarration={onGenerateNarration}
         onRestoreStoryboard={onRestoreStoryboard}
         onRestoreVideo={onRestoreVideo}
         generatingStoryboard={generatingStoryboard?.(segmentId)}
         generatingVideo={generatingVideo?.(segmentId)}
+        generatingNarration={generatingNarration?.(segmentId)}
         durationOptions={durationOptions}
       />
     </div>

@@ -156,6 +156,9 @@ class TestGetSystemConfig:
             "text_backend_script",
             "text_backend_overview",
             "text_backend_style",
+            "default_audio_backend",
+            "narration_voice",
+            "narration_speed",
         }
         assert set(settings.keys()) == expected_keys
 
@@ -176,6 +179,7 @@ class TestGetSystemConfig:
         options = res.json()["options"]
         assert options["video_backends"] == []
         assert options["image_backends"] == []
+        assert options["audio_backends"] == []
 
     def test_options_include_multiple_ready_providers(self):
         mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio", "ark"])
@@ -217,6 +221,37 @@ class TestGetSystemConfig:
         assert settings["default_video_backend"] == "gemini-vertex/veo-3.1-fast-generate-001"
         assert settings["video_generate_audio"] is True
         assert settings["anthropic_base_url"] == "https://proxy.example.com"
+
+    def test_options_include_audio_backends(self):
+        mock_svc = _make_mock_svc(ready_providers=["dashscope"])
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        options = res.json()["options"]
+        assert "dashscope/qwen3-tts-flash" in options["audio_backends"]
+
+    def test_audio_settings_reflect_stored_values(self):
+        mock_svc = _make_mock_svc(
+            settings={
+                "default_audio_backend": "dashscope/qwen3-tts-flash",
+                "narration_voice": "Ethan",
+                "narration_speed": "1.2",
+            }
+        )
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        settings = res.json()["settings"]
+        assert settings["default_audio_backend"] == "dashscope/qwen3-tts-flash"
+        assert settings["narration_voice"] == "Ethan"
+        assert settings["narration_speed"] == 1.2
+
+    def test_audio_settings_default_empty(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        settings = res.json()["settings"]
+        assert settings["default_audio_backend"] == ""
+        assert settings["narration_voice"] == ""
+        assert settings["narration_speed"] is None
 
     def test_video_generate_audio_defaults_to_true_on_empty_db(self):
         """新装系统 DB 为空时，GET /system/config 应返回 video_generate_audio=True，
@@ -343,6 +378,62 @@ class TestPatchSystemConfig:
         settings = res.json()["settings"]
         assert settings["anthropic_model"] == "claude-sonnet-4-20250514"
         assert settings["claude_code_subagent_model"] == "claude-haiku-4-20250514"
+
+    def test_patch_sets_audio_backend_and_voice(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={
+                    "default_audio_backend": "dashscope/qwen3-tts-flash",
+                    "narration_voice": "Cherry",
+                    "narration_speed": 1.5,
+                },
+            )
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["default_audio_backend"] == "dashscope/qwen3-tts-flash"
+        assert settings["narration_voice"] == "Cherry"
+        assert settings["narration_speed"] == 1.5
+
+    def test_patch_rejects_non_positive_narration_speed(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"narration_speed": 0},
+            )
+        assert res.status_code == 422
+
+    def test_patch_rejects_non_finite_narration_speed(self):
+        # Pydantic lax 模式会把 "nan"/"inf" 字符串转成 float，必须在卫生校验层拒绝
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            for raw in ("nan", "inf", "-inf"):
+                res = client.patch(
+                    "/api/v1/system/config",
+                    json={"narration_speed": raw},
+                )
+                assert res.status_code == 422, raw
+
+    def test_patch_clears_narration_speed_with_null(self):
+        mock_svc = _make_mock_svc(settings={"narration_speed": "1.5"})
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"narration_speed": None},
+            )
+        assert res.status_code == 200
+        assert res.json()["settings"]["narration_speed"] is None
+
+    def test_patch_rejects_invalid_audio_backend(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"default_audio_backend": "unknown-provider/some-model"},
+            )
+        assert res.status_code == 400
 
     def test_patch_returns_full_response(self):
         mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])

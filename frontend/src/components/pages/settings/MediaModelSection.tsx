@@ -117,6 +117,7 @@ export function MediaModelSection() {
   const videoBackends: string[] = options.video_backends ?? [];
   const imageBackends: string[] = options.image_backends ?? [];
   const textBackends: string[] = options.text_backends ?? [];
+  const audioBackends: string[] = options.audio_backends ?? [];
 
   const currentVideo = draft.default_video_backend ?? settings.default_video_backend ?? "";
   const currentImageT2I =
@@ -130,6 +131,10 @@ export function MediaModelSection() {
     settings.default_image_backend ??
     "";
   const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
+  const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
+  const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
+  const currentNarrationSpeed =
+    "narration_speed" in draft ? draft.narration_speed : settings.narration_speed;
 
   const emptyHint = (msg: string) => (
     <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">
@@ -246,6 +251,71 @@ export function MediaModelSection() {
         ) : (
           emptyHint(t("no_text_providers_hint"))
         )}
+      </SectionCard>
+
+      {/* Audio (narration TTS) */}
+      <SectionCard kicker="Audio Channel" title={t("default_audio_model")}>
+        {audioBackends.length > 0 ? (
+          <ProviderModelSelect
+            value={currentAudioBackend}
+            options={audioBackends}
+            providerNames={allProviderNames}
+            onChange={(v) => setDraft((prev) => ({ ...prev, default_audio_backend: v }))}
+            allowDefault
+            defaultLabel={t("auto_select")}
+            defaultHint={t("auto")}
+            aria-label={t("default_audio_model")}
+          />
+        ) : (
+          emptyHint(t("no_audio_providers_hint"))
+        )}
+
+        <div className="mt-4 space-y-3.5">
+          <div>
+            <label
+              htmlFor="narration-voice-input"
+              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+            >
+              {t("narration_voice_label")}
+            </label>
+            <input
+              id="narration-voice-input"
+              type="text"
+              value={currentNarrationVoice}
+              onChange={(e) => setDraft((prev) => ({ ...prev, narration_voice: e.target.value }))}
+              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <p className="mt-1 text-[11px] text-text-4">{t("narration_voice_hint")}</p>
+          </div>
+          <div>
+            <label
+              htmlFor="narration-speed-input"
+              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+            >
+              {t("narration_speed_label")}
+            </label>
+            <input
+              id="narration-speed-input"
+              type="number"
+              min={0.1}
+              step={0.1}
+              value={currentNarrationSpeed ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setDraft((prev) => {
+                  if (raw === "") return { ...prev, narration_speed: null };
+                  const next = Number(raw);
+                  // 仅过滤非有限数：NaN/Infinity 会被 JSON 序列化为 null 误触"清除"语义。
+                  // 0/负数允许临时存在（键入 0.5 会先经过 0），正数约束由保存时后端校验兜底。
+                  if (!Number.isFinite(next)) return prev;
+                  return { ...prev, narration_speed: next };
+                });
+              }}
+              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
+          </div>
+        </div>
       </SectionCard>
 
       {/* Footer */}

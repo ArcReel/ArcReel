@@ -9,6 +9,7 @@ is managed by the providers router.
 from __future__ import annotations
 
 import logging
+import math
 import tomllib
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -54,6 +55,7 @@ class _OptionsDict(TypedDict):
     video_backends: list[str]
     image_backends: list[str]
     text_backends: list[str]
+    audio_backends: list[str]
     provider_names: dict[str, str]
 
 
@@ -133,9 +135,15 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
         "video_backends": [],
         "image_backends": [],
         "text_backends": [],
+        "audio_backends": [],
     }
     provider_names: dict[str, str] = {}
-    _MEDIA_TO_BUCKET = {"video": "video_backends", "image": "image_backends", "text": "text_backends"}
+    _MEDIA_TO_BUCKET = {
+        "video": "video_backends",
+        "image": "image_backends",
+        "text": "text_backends",
+        "audio": "audio_backends",
+    }
 
     for provider_id, meta in PROVIDER_REGISTRY.items():
         if provider_id not in ready_providers:
@@ -179,6 +187,9 @@ class SystemConfigPatchRequest(BaseModel):
     default_image_backend_t2i: str | None = None
     default_image_backend_i2i: str | None = None
     default_text_backend: str | None = None
+    default_audio_backend: str | None = None
+    narration_voice: str | None = None
+    narration_speed: float | None = None
     video_generate_audio: bool | None = None
     anthropic_api_key: str | None = None
     anthropic_base_url: str | None = None
@@ -242,12 +253,18 @@ async def get_system_config(
         if active_cred is not None:
             anthropic_key = active_cred.api_key
 
+    # 语速 setting 为字符串存储，损坏值（手工改库等）按未设置处理
+    narration_speed = ConfigService.parse_narration_speed(all_s.get("narration_speed", ""))
+
     settings: dict[str, Any] = {
         "default_video_backend": all_s.get("default_video_backend", ""),
         "default_image_backend": all_s.get("default_image_backend", ""),
         "default_image_backend_t2i": all_s.get("default_image_backend_t2i", ""),
         "default_image_backend_i2i": all_s.get("default_image_backend_i2i", ""),
         "default_text_backend": all_s.get("default_text_backend", ""),
+        "default_audio_backend": all_s.get("default_audio_backend", ""),
+        "narration_voice": all_s.get("narration_voice", ""),
+        "narration_speed": narration_speed,
         "video_generate_audio": video_generate_audio,
         "anthropic_api_key": {
             "is_set": bool(anthropic_key),
@@ -329,12 +346,28 @@ async def patch_system_config(
         "default_image_backend_t2i",
         "default_image_backend_i2i",
         "default_text_backend",
+        "default_audio_backend",
     ):
         if backend_key in patch:
             value = str(patch[backend_key] or "").strip()
             if value:
                 validate_backend_value(value, backend_key, _t)
             await svc.set_setting(backend_key, value)
+
+    # 旁白音色：可配置字符串 id（照供应商文档填），空串 = 清除回落服务默认
+    if "narration_voice" in patch:
+        await svc.set_setting("narration_voice", str(patch["narration_voice"] or "").strip())
+
+    # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），具体取值范围由各供应商自行约束；null = 清除
+    if "narration_speed" in patch:
+        speed = patch["narration_speed"]
+        if speed is None:
+            await svc.set_setting("narration_speed", "")
+        else:
+            speed = float(speed)
+            if not math.isfinite(speed) or speed <= 0:
+                raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
+            await svc.set_setting("narration_speed", str(speed))
 
     # Boolean settings
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:

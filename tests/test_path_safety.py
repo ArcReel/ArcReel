@@ -16,9 +16,9 @@ def test_missing_file_returns_false(tmp_path: Path):
 
 
 def test_directory_returns_false(tmp_path: Path):
-    # 调用方语义均指向文件；目录路径属于脏数据，不得当作文件传给下游读取
-    (tmp_path / "refs").mkdir()
-    assert safe_exists(tmp_path, "refs") is False
+    # 素材路径只接受文件，目录视同不存在
+    (tmp_path / "subdir").mkdir()
+    assert safe_exists(tmp_path, "subdir") is False
 
 
 def test_traversal_rejected(tmp_path: Path):

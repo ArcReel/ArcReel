@@ -150,6 +150,38 @@ class TestTaskSpecFromRequest:
             )
         assert exc.value.code == "prompt_text_empty"
 
+    def test_tts_null_prompt_builds_spec(self):
+        # 旁白文本默认由执行层从剧本 novel_text 读取，prompt 留空合法。
+        spec = TaskSpec.from_request(task_type="tts", media_type="audio", resource_id="E1S01", prompt=None)
+        assert spec.payload == {"prompt": None}
+
+    def test_tts_string_prompt_builds_spec(self):
+        spec = TaskSpec.from_request(task_type="tts", media_type="audio", resource_id="E1S01", prompt="夜色深沉")
+        assert spec.payload == {"prompt": "夜色深沉"}
+
+    def test_tts_empty_string_prompt_rejected(self):
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="tts", media_type="audio", resource_id="E1S01", prompt="  \n")
+        assert exc.value.code == "prompt_text_empty"
+
+    def test_tts_object_prompt_rejected(self):
+        # tts 只接受非空字符串或留空，对象类型用专用错误码标明实际约束。
+        with pytest.raises(TaskSpecValidationError) as exc:
+            TaskSpec.from_request(task_type="tts", media_type="audio", resource_id="E1S01", prompt={"text": "x"})
+        assert exc.value.code == "tts_prompt_must_be_string_or_null"
+
+    def test_tts_extra_payload_text_rejected(self):
+        # text 是 tts 执行层优先读取的字段，必须与 prompt 同走守卫点，不得经 extra_payload 绕过。
+        with pytest.raises(ValueError) as exc:
+            TaskSpec.from_request(
+                task_type="tts",
+                media_type="audio",
+                resource_id="E1S01",
+                prompt="夜色深沉",
+                extra_payload={"text": "未校验的文本"},
+            )
+        assert "reserved" in str(exc.value)
+
     def test_empty_resource_id_rejected(self):
         with pytest.raises(ValueError):
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="", prompt="跑")
