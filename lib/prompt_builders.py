@@ -126,9 +126,11 @@ def append_product_fidelity_tail(prompt: str, product_names: Sequence[str]) -> s
 
     仅在产品参考图实际注入请求时调用（分镜图与视频两层共用同一份指令文本）——
     指令指向"产品参考图"，参考缺席时追加只会误导模型。``product_names`` 为空
-    返回原 prompt；重复调用幂等。误传单个字符串按单产品名处理（str 本身满足
-    Sequence[str]，按字符迭代会拼出逐字括注的畸形指令）。
+    （含 None 脏数据）返回原 prompt；重复调用幂等。误传单个字符串按单产品名处理
+    （str 本身满足 Sequence[str]，按字符迭代会拼出逐字括注的畸形指令）。
     """
+    if not product_names:
+        return prompt
     if isinstance(product_names, str):
         product_names = (product_names,)
     names = "".join(f"「{name}」" for name in product_names if name)

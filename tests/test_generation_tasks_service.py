@@ -1039,6 +1039,21 @@ class TestAdProductFidelityStoryboard:
         ]
         assert generator.image_calls[0]["prompt"] == "氛围开场"
 
+    def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
+        """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""
+        project_path = _prepare_files(tmp_path)
+        project = {"products": {"保温杯": {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+
+        for dirty in ("保温杯", {"保温杯": True}, 7):
+            item = {"shot_id": "E1S02", "products_in_shot": dirty}
+            assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
+
+        # 缺失 / None / 空列表是氛围镜头的正常表达，同样返回空列表
+        for empty in (None, []):
+            item = {"shot_id": "E1S01", "products_in_shot": empty}
+            assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
+        assert generation_tasks._collect_shot_product_references(project, project_path, {"shot_id": "E1S01"}) == []
+
 
 class _FakeVideoBackend:
     def __init__(self, capabilities):

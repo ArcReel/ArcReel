@@ -622,15 +622,23 @@ def _collect_shot_product_references(project: dict, project_path: Path, item: di
     "kind": "sheet"|"original"}`` 列表——label 供支持内联标签的后端绑定图与产品名，
     name 供高保真指令点名（指令只点名实际注入了参考的产品），kind 供截断时让 sheet
     优先存活；调用方负责把该列表排在其它参考之前（排序绝对优先）。氛围镜头
-    （列表为空）返回空列表，零产品图。脏数据（products 非 dict、产品名非字符串、
-    引用不存在的产品）按既有装配口径跳过不抛。
+    （列表为空）返回空列表，零产品图。脏数据（products_in_shot 非列表、products
+    非 dict、产品名非字符串、引用不存在的产品）按既有装配口径跳过不抛。
     """
     spec = ASSET_SPECS["product"]
     products = project.get(spec.bucket_key)
     if not isinstance(products, dict):
         products = {}
     references: list[dict] = []
-    for name in item.get("products_in_shot") or []:
+    raw_products_in_shot = item.get("products_in_shot")
+    if not isinstance(raw_products_in_shot, (list, tuple)):
+        if raw_products_in_shot:
+            logger.warning(
+                "products_in_shot 类型异常（%s），产品参考注入跳过",
+                type(raw_products_in_shot).__name__,
+            )
+        return references
+    for name in raw_products_in_shot:
         if not isinstance(name, str):
             logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
             continue
