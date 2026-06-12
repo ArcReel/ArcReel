@@ -14,6 +14,11 @@ from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.providers import PROVIDER_GEMINI, CallType
 
+# 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
+# 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
+# 解析侧（grok / dashscope extractor）的 clamp 引用同一常量，保持口径一致。
+MAX_BILLED_DURATION_SECONDS = 86400
+
 
 def _classify_asset_output_path(output_path: str | None) -> str:
     """从 api_call.output_path 推断资产类型（characters/scenes/props/products/other）。
@@ -160,12 +165,12 @@ class UsageRepository(BaseRepository):
         # （与 finish_call 同语义；用于 cost_calculator 输入及 UPDATE 回写）
         effective_generate_audio = generate_audio if generate_audio is not None else row.generate_audio
 
-        # provider 回报的实际计费时长覆盖请求时长（与 finish_call 同覆盖语义，非正值视同
-        # 未提供）。走局部变量 + UPDATE 列回写而非 ORM 属性赋值，让覆盖继续受
+        # provider 回报的实际计费时长覆盖请求时长（与 finish_call 同覆盖语义，非正或超出
+        # 合理上限视同未提供）。走局部变量 + UPDATE 列回写而非 ORM 属性赋值，让覆盖继续受
         # WHERE status='pending' 幂等守卫保护，不被 autoflush 绕过。
         effective_duration_seconds = (
             billed_duration_seconds
-            if billed_duration_seconds is not None and billed_duration_seconds > 0
+            if billed_duration_seconds is not None and 0 < billed_duration_seconds <= MAX_BILLED_DURATION_SECONDS
             else row.duration_seconds
         )
 
@@ -254,12 +259,12 @@ class UsageRepository(BaseRepository):
             return
 
         # provider 回报的实际计费时长覆盖 start_call 时的请求时长（如 DashScope usage.duration
-        # 含输入参考视频时长）；非正值视同未提供，回落请求时长，不记 0 秒账。
+        # 含输入参考视频时长）；非正或超出合理上限的值视同未提供，回落请求时长，不记 0 秒账。
         # 显式 cost_amount 仍优先于按时长的自动计算，但实际计费时长照常回写账本。
         # 走局部变量 + UPDATE 列回写而非 ORM 属性赋值，避免 autoflush 对同一行额外多发一条 UPDATE。
         effective_duration_seconds = (
             billed_duration_seconds
-            if billed_duration_seconds is not None and billed_duration_seconds > 0
+            if billed_duration_seconds is not None and 0 < billed_duration_seconds <= MAX_BILLED_DURATION_SECONDS
             else row.duration_seconds
         )
 

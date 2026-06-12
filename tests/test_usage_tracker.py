@@ -111,6 +111,28 @@ class TestUsageTracker:
         assert item["duration_seconds"] == 6
         assert item["cost_amount"] == pytest.approx(6 * 0.4)
 
+    async def test_billed_duration_over_limit_falls_back_to_request_duration(self, tracker):
+        """超出合理上限（24h）的计费时长视同未提供：repo 写入层兜底全部 backend，
+        防超大数值写入 DB Integer 列溢出。"""
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-001",
+            resolution="4k",
+            duration_seconds=6,
+            generate_audio=False,
+        )
+        await tracker.finish_call(
+            call_id,
+            status="success",
+            output_path="v.mp4",
+            billed_duration_seconds=86401,
+        )
+
+        item = (await tracker.get_calls(project_name="demo"))["items"][0]
+        assert item["duration_seconds"] == 6
+        assert item["cost_amount"] == pytest.approx(6 * 0.4)
+
     async def test_billed_duration_omitted_keeps_request_duration(self, tracker):
         """不提供实际计费时长时，请求时长入账，成本按请求时长计算（现状行为）。"""
         call_id = await tracker.start_call(

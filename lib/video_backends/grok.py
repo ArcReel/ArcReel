@@ -8,6 +8,7 @@ import logging
 from datetime import timedelta
 from pathlib import Path
 
+from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.grok_shared import create_grok_client, grok_should_retry
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GROK
@@ -22,10 +23,6 @@ from lib.video_backends.base import (
 )
 
 logger = logging.getLogger(__name__)
-
-# 计费时长合理上限（24 小时）：超出视为 provider 回报异常，回落请求时长，
-# 防止超大数值写入账本的 DB Integer 列时溢出。
-_MAX_BILLED_DURATION_SECONDS = 86400
 
 
 class GrokVideoBackend:
@@ -80,14 +77,15 @@ class GrokVideoBackend:
             if raw_duration is not None:
                 parsed = float(raw_duration)
                 # 上下限基于取整前的原始数值判断：86400.9 已超 24h，不得因取整落回上限内被接受
-                if 0 < parsed <= _MAX_BILLED_DURATION_SECONDS:
+                if 0 < parsed <= MAX_BILLED_DURATION_SECONDS:
                     # half-up 取整与 dashscope extract_billing_duration 同口径，避免截断少计费秒数；
                     # (0, 0.5) 取整到 0 时同样回落，保持结果恒为正
                     rounded = int(parsed + 0.5)
                     if rounded > 0:
                         actual_duration = rounded
         except (TypeError, ValueError, OverflowError):
-            pass
+            # 解析失败属预期内回落（SDK 字段未类型化），保留请求时长即可，无需上抛
+            logger.debug("Grok 回报的 duration 无法解析: %r，回落请求时长 %s 秒", raw_duration, actual_duration)
 
         await download_video(video_url, request.output_path)
         logger.info("Grok 视频下载完成: %s", request.output_path)

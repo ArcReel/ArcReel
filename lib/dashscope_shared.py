@@ -22,6 +22,7 @@ from pathlib import Path
 
 import httpx
 
+from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.retry import BASE_RETRYABLE_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -74,10 +75,6 @@ DASHSCOPE_POLL_INTERVAL_SECONDS = 15.0
 
 # 已知路径后缀，派生 host 时剥除以容忍用户填入完整 base（含地域切换）。
 _KNOWN_SUFFIXES = ("/compatible-mode/v1", "/api/v1")
-
-# 计费时长合理上限（24 小时）：超出视为 provider 回报异常，回 None 由 caller 回落请求时长，
-# 防止超大数值写入账本的 DB Integer 列时溢出。
-_MAX_BILLED_DURATION_SECONDS = 86400
 
 
 def resolve_dashscope_api_key(api_key: str | None = None) -> str:
@@ -203,7 +200,7 @@ def extract_billing_duration(payload: dict) -> int | None:
         decimal_value = Decimal(str(raw))
         # 上限基于取整前的原始数值判断：86400.4 已超 24h，不得因 half-up 落回上限内被接受
         # （NaN 参与比较抛 InvalidOperation，与解析失败同路径回 None）
-        if not 0 < decimal_value <= _MAX_BILLED_DURATION_SECONDS:
+        if not 0 < decimal_value <= MAX_BILLED_DURATION_SECONDS:
             return None
         value = int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     except (InvalidOperation, TypeError, ValueError):
