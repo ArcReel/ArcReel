@@ -19,7 +19,7 @@ interface Props {
   onGenerateScene: (name: string) => void;
   onAddScene: (name: string, description: string) => Promise<void>;
   onRestoreSceneVersion?: () => Promise<void> | void;
-  onRefreshProject?: () => Promise<void> | void;
+  onRefreshProject?: () => Promise<unknown> | void;
   generatingSceneNames?: Set<string>;
 }
 

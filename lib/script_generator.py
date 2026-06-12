@@ -315,13 +315,15 @@ class ScriptGenerator:
         target_duration = self.project_json.get("target_duration")
         if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
             raise ValueError(f"广告/短片项目缺少合法的 target_duration（正整数秒），当前为 {target_duration!r}")
+        # 统一 `or` 兜底：project.json 手工编辑时字段可能显式为 null，
+        # `.get(key, default)` 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。
         return build_ad_prompt(
-            project_overview=self.project_json.get("overview", {}),
-            style=self.project_json.get("style", ""),
-            style_description=self.project_json.get("style_description", ""),
-            characters=self.project_json.get("characters", {}),
-            scenes=self.project_json.get("scenes", {}),
-            props=self.project_json.get("props", {}),
+            project_overview=self.project_json.get("overview") or {},
+            style=self.project_json.get("style") or "",
+            style_description=self.project_json.get("style_description") or "",
+            characters=self.project_json.get("characters") or {},
+            scenes=self.project_json.get("scenes") or {},
+            props=self.project_json.get("props") or {},
             products=self.project_json.get("products") or {},
             brief=self.project_json.get("brief") or "",
             target_duration=target_duration,

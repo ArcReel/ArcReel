@@ -180,9 +180,9 @@ export function StudioCanvasRouter() {
     return names;
   }, [tasks, currentProjectName]);
 
-  // 刷新项目数据
-  const refreshProject = useCallback(async (invalidateKeys: string[] = []) => {
-    if (!currentProjectName) return;
+  // 刷新项目数据；返回本地 store 是否已同步成功，供调用方决定是否推进依赖新顺序的 UI 状态
+  const refreshProject = useCallback(async (invalidateKeys: string[] = []): Promise<boolean> => {
+    if (!currentProjectName) return false;
     try {
       const res = await API.getProject(currentProjectName);
       useProjectsStore.getState().setCurrentProject(
@@ -194,8 +194,10 @@ export function StudioCanvasRouter() {
       if (invalidateKeys.length > 0) {
         useAppStore.getState().invalidateEntities(invalidateKeys);
       }
+      return true;
     } catch {
-      // 静默失败
+      // 静默失败：多数调用方只做尽力刷新，由返回值交调用方自行判断
+      return false;
     }
   }, [currentProjectName]);
 
@@ -246,8 +248,9 @@ export function StudioCanvasRouter() {
     [ids[index], ids[target]] = [ids[target], ids[index]];
     try {
       await API.reorderShots(currentProjectName, resolvedFile, ids);
-      await refreshProject();
-      return true;
+      // 仅在本地 store 已写回新顺序时报告成功：刷新失败时 segments 仍是旧序，
+      // 此时推进 selectedIndex 会让详情面板静默切到相邻镜头。
+      return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("reorder_shot_failed", { message: errMsg(err) }), "error");
       return false;

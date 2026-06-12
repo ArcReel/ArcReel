@@ -26,7 +26,7 @@ interface CharacterCardProps {
   onSave: (name: string, payload: CharacterSavePayload) => Promise<void>;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => Promise<void> | void;
-  onReload?: () => Promise<void> | void;
+  onReload?: () => Promise<unknown> | void;
   generating?: boolean;
 }
 

@@ -935,6 +935,37 @@ class TestAdScriptGeneration:
         # 不得落入参考视频 video_units prompt
         assert "video_units" not in prompt
 
+    async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
+        """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "速干杯",
+                "content_mode": "ad",
+                "generation_mode": "storyboard",
+                "target_duration": 30,
+                "brief": None,
+                "overview": None,
+                "characters": None,
+                "scenes": None,
+                "props": None,
+                "products": None,
+                "style": None,
+                "style_description": None,
+                "aspect_ratio": "9:16",
+                "_supported_durations": [4, 6, 8],
+                "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
+            },
+        )
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # products 归一化为空 → 自动分流通用短片 prompt，不落带货框架
+        assert "带货八段框架" not in prompt
+        assert isinstance(prompt, str) and prompt
+
     async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
         """generate 写盘 ad 剧本：shots 骨架、content_mode=ad、total_shots 与总时长统计。"""
         project_path = tmp_path / "demo"

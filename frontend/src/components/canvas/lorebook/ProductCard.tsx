@@ -22,7 +22,7 @@ interface ProductCardProps {
   onUpdate: (name: string, updates: Partial<Product>) => void;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => void | Promise<void>;
-  onReload?: () => void | Promise<void>;
+  onReload?: () => void | Promise<unknown>;
   generating?: boolean;
 }
 

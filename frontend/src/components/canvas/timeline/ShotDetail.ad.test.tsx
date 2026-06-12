@@ -145,6 +145,9 @@ describe("ShotDetail ad 模式", () => {
     renderDetail({ onMoveShot, movePending: true, selectedIndex: 1 });
     expect(screen.getByRole("button", { name: "前移镜头" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "后移镜头" })).toBeDisabled();
+    // 切镜导航同样锁定：完成回调按当前索引偏移，在途切镜会让选中态跳到错误镜头
+    expect(screen.getByRole("button", { name: "上一镜" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下一镜" })).toBeDisabled();
   });
 
   it("非 ad 模式不渲染移动按钮", () => {

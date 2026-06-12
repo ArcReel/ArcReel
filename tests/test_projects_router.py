@@ -751,6 +751,36 @@ class TestProjectsRouter:
             )
             assert rejected.status_code == 400
 
+    def test_corrupted_shots_shape_fails_loud_not_silently_wiped(self, tmp_path, monkeypatch):
+        """shots 非列表 / 含非对象元素时返回 422，且不被 reorder 空排列覆盖成 []。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": "oops"}
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            # 非列表 shots：reorder 传空排列也必须 422，不得把损坏数据覆盖成空列表
+            wiped = client.post(
+                "/api/v1/projects/ad-ready/script-shots/reorder",
+                json={"script_file": "episode_1.json", "shot_ids": []},
+            )
+            assert wiped.status_code == 422
+            assert fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"] == "oops"
+
+            # PATCH 路径同样 422，而非误导性的 404
+            patched = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={"script_file": "episode_1.json", "updates": {"voiceover_text": "x"}},
+            )
+            assert patched.status_code == 422
+
+            # 列表含非对象元素：同样 fail loud
+            fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": [{"shot_id": "a"}, 42]}
+            mixed = client.post(
+                "/api/v1/projects/ad-ready/script-shots/reorder",
+                json={"script_file": "episode_1.json", "shot_ids": ["a"]},
+            )
+            assert mixed.status_code == 422
+
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
         """项目 API 应返回 asset_fingerprints 字段"""
         fake_pm = _FakePM(tmp_path)

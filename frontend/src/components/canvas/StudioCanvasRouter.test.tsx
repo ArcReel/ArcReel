@@ -37,7 +37,11 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     scriptFile?: string;
     durationOptions?: number[];
     onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
-    onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => void;
+    onMoveShot?: (
+      shotId: string,
+      direction: "earlier" | "later",
+      scriptFile?: string,
+    ) => Promise<boolean> | void;
     onGenerateStoryboard?: (segmentId: string) => void;
     onGenerateVideo?: (segmentId: string) => void;
     onGenerateNarration?: (segmentId: string) => void;
@@ -52,7 +56,16 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       <button onClick={() => onUpdatePrompt?.("SEG-1", "image_prompt", "new prompt", scriptFile)}>
         update-prompt
       </button>
-      <button onClick={() => onMoveShot?.("SEG-1", "later", scriptFile)}>move-shot-later</button>
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
+          void Promise.resolve(onMoveShot?.("SEG-1", "later", scriptFile)).then((moved) => {
+            el.setAttribute("data-move-result", String(moved));
+          });
+        }}
+      >
+        move-shot-later
+      </button>
       <button onClick={() => onGenerateStoryboard?.("SEG-1")}>generate-storyboard</button>
       <button onClick={() => onGenerateVideo?.("SEG-1")}>generate-video</button>
       <button onClick={() => onGenerateNarration?.("SEG-1")}>generate-narration</button>
@@ -697,6 +710,40 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("move-shot-later"));
     await waitFor(() => {
       expect(reorderSpy).toHaveBeenCalledWith("demo", "episode_1.json", ["SEG-2", "SEG-1"]);
+    });
+    // 重排 + 本地刷新都成功 → 报告移动成功
+    await waitFor(() => {
+      expect(screen.getByText("move-shot-later")).toHaveAttribute("data-move-result", "true");
+    });
+  });
+
+  it("reports move failure when local refresh fails after a successful reorder", async () => {
+    const script = makeAdScript() as AdEpisodeScript;
+    script.shots.push({
+      shot_id: "SEG-2",
+      section: "cta",
+      duration_seconds: 3,
+      voiceover_text: "立即下单",
+      image_prompt: "p2",
+      video_prompt: "v2",
+      transition_to_next: "cut",
+    });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentScripts: { "episode_1.json": script },
+    });
+
+    // 重排接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
+    // 必须报告失败，否则调用方会推进 selectedIndex 切到错误镜头
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+    vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("move-shot-later"));
+    await waitFor(() => {
+      expect(screen.getByText("move-shot-later")).toHaveAttribute("data-move-result", "false");
     });
   });
 

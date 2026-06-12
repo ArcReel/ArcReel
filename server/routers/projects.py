@@ -907,7 +907,13 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     if script.get("content_mode") != "ad" or "shots" not in script:
         raise HTTPException(status_code=400, detail=_t("ad_mode_required"))
     shots = script.get("shots")
-    return shots if isinstance(shots, list) else []
+    # 非法形状 fail loud：静默降级为空列表会让 reorder 在客户端传空 shot_ids 时
+    # 把损坏的 shots 覆盖成 []，直接丢数据。ValueError 由路由统一转 422。
+    if not isinstance(shots, list):
+        raise ValueError("ad script field 'shots' must be a list")
+    if not all(isinstance(s, dict) for s in shots):
+        raise ValueError("ad script field 'shots' contains non-object elements")
+    return shots
 
 
 @router.patch("/projects/{name}/script-shots/{shot_id}")

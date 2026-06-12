@@ -23,7 +23,7 @@ interface PropCardProps {
   onUpdate: (name: string, updates: Partial<Prop>) => void;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => void | Promise<void>;
-  onReload?: () => void | Promise<void>;
+  onReload?: () => void | Promise<unknown>;
   generating?: boolean;
 }
 

@@ -18,7 +18,7 @@ interface Props {
   onGenerateProduct: (name: string) => void;
   onAddProduct: (name: string, description: string, brand: string) => Promise<void>;
   onRestoreProductVersion?: () => Promise<void> | void;
-  onRefreshProject?: () => Promise<void> | void;
+  onRefreshProject?: () => Promise<unknown> | void;
   generatingProductNames?: Set<string>;
 }
 

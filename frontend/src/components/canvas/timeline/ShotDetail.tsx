@@ -822,7 +822,9 @@ export function ShotDetail({
     </div>
   );
 
-  const navDisabled = dirty || saving;
+  // 重排在途也要锁定切镜：ShotSplitView 在移动完成回调里按当前 selectedIndex 偏移，
+  // 在途切镜会让偏移作用到新选中项，选中态跳到错误镜头。
+  const navDisabled = dirty || saving || !!movePending;
 
   return (
     <div
@@ -873,8 +875,8 @@ export function ShotDetail({
               <button
                 type="button"
                 onClick={() => void onMoveShot(segmentId, "earlier")}
-                disabled={navDisabled || movePending || selectedIndex === 0}
-                title={navDisabled ? dirtyHint : t("shot_move_earlier")}
+                disabled={navDisabled || selectedIndex === 0}
+                title={dirty || saving ? dirtyHint : t("shot_move_earlier")}
                 className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label={t("shot_move_earlier")}
               >
@@ -883,8 +885,8 @@ export function ShotDetail({
               <button
                 type="button"
                 onClick={() => void onMoveShot(segmentId, "later")}
-                disabled={navDisabled || movePending || selectedIndex === totalCount - 1}
-                title={navDisabled ? dirtyHint : t("shot_move_later")}
+                disabled={navDisabled || selectedIndex === totalCount - 1}
+                title={dirty || saving ? dirtyHint : t("shot_move_later")}
                 className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label={t("shot_move_later")}
               >
@@ -896,7 +898,7 @@ export function ShotDetail({
             type="button"
             onClick={onPrev}
             disabled={navDisabled}
-            title={navDisabled ? dirtyHint : t("shot_detail_prev")}
+            title={dirty || saving ? dirtyHint : t("shot_detail_prev")}
             className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={t("shot_detail_prev")}
           >
@@ -906,7 +908,7 @@ export function ShotDetail({
             type="button"
             onClick={onNext}
             disabled={navDisabled}
-            title={navDisabled ? dirtyHint : t("shot_detail_next")}
+            title={dirty || saving ? dirtyHint : t("shot_detail_next")}
             className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={t("shot_detail_next")}
           >

@@ -19,7 +19,7 @@ interface Props {
   onGenerateCharacter: (name: string) => void;
   onAddCharacter: (name: string, description: string, voiceStyle: string, referenceFile?: File | null) => Promise<void>;
   onRestoreCharacterVersion?: () => Promise<void> | void;
-  onRefreshProject?: () => Promise<void> | void;
+  onRefreshProject?: () => Promise<unknown> | void;
   generatingCharacterNames?: Set<string>;
 }
 

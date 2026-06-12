@@ -19,7 +19,7 @@ interface Props {
   onGenerateProp: (name: string) => void;
   onAddProp: (name: string, description: string) => Promise<void>;
   onRestorePropVersion?: () => Promise<void> | void;
-  onRefreshProject?: () => Promise<void> | void;
+  onRefreshProject?: () => Promise<unknown> | void;
   generatingPropNames?: Set<string>;
 }
 
