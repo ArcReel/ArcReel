@@ -16,6 +16,8 @@ from typing import Any
 
 import pyJianYingDraft as draft
 from pyJianYingDraft import (
+    AudioMaterial,
+    AudioSegment,
     ClipSettings,
     TextBorder,
     TextSegment,
@@ -34,6 +36,7 @@ _TRANSITION_MAP: dict[str, TransitionType] = {
     "dissolve": TransitionType.叠化,
 }
 
+from lib.path_safety import safe_resolve
 from lib.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
@@ -74,11 +77,9 @@ class JianyingDraftService:
             if not video_clip:
                 continue
 
-            abs_path = (project_dir / video_clip).resolve()
-            if not abs_path.is_relative_to(project_dir.resolve()):
-                logger.warning("video_clip 路径越界，已跳过: %s", video_clip)
-                continue
-            if not abs_path.exists():
+            abs_path = safe_resolve(project_dir, video_clip)
+            if abs_path is None:
+                logger.warning("video_clip 不可用（越界或文件不存在），已跳过: %s", video_clip)
                 continue
 
             clips.append(
@@ -89,6 +90,7 @@ class JianyingDraftService:
                     "abs_path": abs_path,
                     "novel_text": item.get("novel_text", ""),
                     "transition_to_next": item.get("transition_to_next", "cut"),
+                    "narration_audio_abs": safe_resolve(project_dir, assets.get("narration_audio")),
                 }
             )
 
@@ -104,6 +106,25 @@ class JianyingDraftService:
         if aspect == "9:16":
             return 1080, 1920
         return 1920, 1080
+
+    @staticmethod
+    def _stage_file(src: Path, staging_dir: Path) -> Path:
+        """将素材文件硬链接（失败时复制）到暂存区，返回暂存路径
+
+        暂存区为扁平目录：来源文件同名时自动改名，避免覆盖已暂存的素材。
+        同一来源的去重由调用方按源路径判定（不依赖 inode 比较，FAT/exFAT 等
+        无稳定文件 ID 的文件系统上 samefile 会误判）。
+        """
+        dst = staging_dir / src.name
+        rename_index = 1
+        while dst.exists():
+            dst = staging_dir / f"{src.stem}_{rename_index}{src.suffix}"
+            rename_index += 1
+        try:
+            dst.hardlink_to(src)
+        except OSError:
+            shutil.copy2(src, dst)
+        return dst
 
     # ------------------------------------------------------------------
     # 内部方法：草稿生成
@@ -162,6 +183,7 @@ class JianyingDraftService:
         # 逐片段添加
         offset_us = 0
         last_index = len(clips) - 1
+        narration_placements: list[tuple[int, str]] = []
         for index, clip in enumerate(clips):
             # 预读实际视频时长
             material = VideoMaterial(clip["local_path"])
@@ -193,7 +215,35 @@ class JianyingDraftService:
                 )
                 script_file.add_segment(text_seg)
 
+            # 旁白音频：记录摆放位置（按视频片段 offset），统一在视频排布完成后添加
+            narration_audio_local = clip.get("narration_audio_local")
+            if narration_audio_local:
+                narration_placements.append((offset_us, narration_audio_local))
+
             offset_us += actual_duration_us
+
+        # 旁白素材：先解析全部音频文件，不可解析（截断/空文件等）的跳过不报错
+        narration_materials: list[tuple[int, AudioMaterial]] = []
+        for start_us, audio_path in narration_placements:
+            try:
+                narration_materials.append((start_us, AudioMaterial(audio_path)))
+            except (ValueError, TypeError, OSError, RuntimeError) as exc:
+                # RuntimeError：libmediainfo 打不开文件（占用/读错误）时由 pymediainfo 抛出
+                logger.warning("旁白音频无法解析，已跳过: %s (%s)", audio_path, exc)
+
+        # 旁白音频段：时长取音频文件真实时长，不与视频对齐；
+        # 仅当超长音频会与下一段旁白重叠时收口到其起点，保证草稿可导出（用户在剪映手动精调）
+        if narration_materials:
+            script_file.add_track(TrackType.audio, "旁白")
+        for material_index, (start_us, audio_material) in enumerate(narration_materials):
+            duration_us = audio_material.duration
+            if material_index + 1 < len(narration_materials):
+                window_us = narration_materials[material_index + 1][0] - start_us
+                if duration_us > window_us:
+                    logger.warning("旁白音频长过下一段起点，已收口: %s", audio_material.path)
+                    duration_us = window_us
+            audio_seg = AudioSegment(audio_material, trange(start_us, duration_us))
+            script_file.add_segment(audio_seg, "旁白")
 
         script_file.save()
 
@@ -266,15 +316,21 @@ class JianyingDraftService:
             staging_dir = tmp_dir / "staging"
             staging_dir.mkdir()
 
+            # 同一来源文件（safe_resolve 已规范化路径）只暂存一次，多段引用共享同一暂存副本
+            staged_by_src: dict[Path, Path] = {}
+
+            def stage_once(src: Path) -> str:
+                if src not in staged_by_src:
+                    staged_by_src[src] = self._stage_file(src, staging_dir)
+                return str(staged_by_src[src])
+
             local_clips = []
             for clip in clips:
-                src = clip["abs_path"]
-                dst = staging_dir / src.name
-                try:
-                    dst.hardlink_to(src)
-                except OSError:
-                    shutil.copy2(src, dst)
-                local_clips.append({**clip, "local_path": str(dst)})
+                local_clip = {**clip, "local_path": stage_once(clip["abs_path"])}
+                audio_src = clip.get("narration_audio_abs")
+                if audio_src:
+                    local_clip["narration_audio_local"] = stage_once(audio_src)
+                local_clips.append(local_clip)
 
             # 5. 生成草稿（create_draft 会重建 draft_dir）
             draft_dir = tmp_dir / draft_name
@@ -287,13 +343,11 @@ class JianyingDraftService:
                 content_mode=content_mode,
             )
 
-            # 6. 将素材移入草稿目录
+            # 6. 将素材移入草稿目录（暂存区内容即全部已暂存素材）
             assets_dir = draft_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
-            for clip in local_clips:
-                src = Path(clip["local_path"])
-                dst = assets_dir / src.name
-                shutil.move(str(src), str(dst))
+            for staged in staging_dir.iterdir():
+                shutil.move(str(staged), str(assets_dir / staged.name))
 
             # 7. 路径后处理：staging 路径 → 用户本地路径
             draft_content_path = draft_dir / "draft_content.json"
