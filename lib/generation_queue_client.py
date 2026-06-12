@@ -284,7 +284,7 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
             if not prompt.strip():
                 raise TaskSpecValidationError("prompt_text_empty")
             return
-        raise TaskSpecValidationError("prompt_must_be_string_or_object")
+        raise TaskSpecValidationError("tts_prompt_must_be_string_or_null")
 
     if task_type in _IMAGE_STRUCTURED_TASK_TYPES and isinstance(prompt, dict):
         if not is_structured_image_prompt(prompt):

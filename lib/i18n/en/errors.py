@@ -35,6 +35,7 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action cannot be empty",
     "video_prompt_dialogue_array": "prompt.dialogue must be an array",
     "video_task_submitted": "Video generation task for '{segment_id}' submitted",
+    "tts_prompt_must_be_string_or_null": "tts task prompt must be a non-empty string or omitted",
     "tts_task_submitted": "Narration audio task for '{segment_id}' submitted",
     "tts_batch_submitted": "Submitted {count} narration audio tasks",
     "tts_batch_none_missing": "All shots already have narration audio; nothing to generate",

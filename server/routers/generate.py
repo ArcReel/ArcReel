@@ -381,6 +381,9 @@ async def generate_tts_batch(
 
         project, missing_ids = await asyncio.to_thread(_sync)
 
+        if not missing_ids:
+            return {"success": True, "task_ids": [], "message": _t("tts_batch_none_missing")}
+
         provider_id = await _require_audio_provider_configured(project, _t)
 
         task_ids: list[str] = []

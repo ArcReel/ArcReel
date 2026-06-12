@@ -300,6 +300,7 @@ export function ShotDetail({
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
   const novelText = getNovelText(segment, contentMode);
+  const hasNarrationText = novelText.trim().length > 0;
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
 
   const ip = segment.image_prompt;
@@ -674,8 +675,8 @@ export function ShotDetail({
           novelText={novelText}
           assetPath={assets?.narration_audio ?? null}
           generating={generatingNarration}
-          generateDisabled={dirty || saving}
-          generateDisabledHint={dirty ? dirtyHint : undefined}
+          generateDisabled={!hasNarrationText || dirty || saving}
+          generateDisabledHint={!hasNarrationText ? t("no_original_text") : dirty ? dirtyHint : undefined}
           estimatedCost={narrationEstimate ?? undefined}
           onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
         />

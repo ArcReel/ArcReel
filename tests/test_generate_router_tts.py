@@ -214,3 +214,22 @@ class TestGenerateTtsBatch:
             )
             assert res.status_code == 400
             assert fake_queue.calls == []
+
+    def test_none_missing_skips_provider_check(self, tmp_path, monkeypatch):
+        """无缺段时直接返回成功：即使 audio 供应商未配置也不应 400。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        for seg in fake_pm.script["segments"]:
+            seg["generated_assets"] = {"narration_audio": f"audio/segment_{seg['segment_id']}.wav"}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue, audio_provider_ready=False)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["success"] is True
+            assert body["task_ids"] == []
+            assert fake_queue.calls == []

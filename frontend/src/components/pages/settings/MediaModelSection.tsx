@@ -300,12 +300,16 @@ export function MediaModelSection() {
               min={0.1}
               step={0.1}
               value={currentNarrationSpeed ?? ""}
-              onChange={(e) =>
-                setDraft((prev) => ({
-                  ...prev,
-                  narration_speed: e.target.value === "" ? null : Number(e.target.value),
-                }))
-              }
+              onChange={(e) => {
+                const raw = e.target.value;
+                setDraft((prev) => {
+                  if (raw === "") return { ...prev, narration_speed: null };
+                  const next = Number(raw);
+                  // 后端只接受正有限数；NaN/Infinity 会被 JSON 序列化为 null 触发"清除"语义，这里直接忽略非法输入
+                  if (!Number.isFinite(next) || next <= 0) return prev;
+                  return { ...prev, narration_speed: next };
+                });
+              }}
               className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
             <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
