@@ -273,6 +273,7 @@ describe("stores", () => {
       image_count: 5,
       video_count: 2,
       text_count: 0,
+      audio_count: 0,
       failed_count: 1,
       total_count: 8,
     });

@@ -136,16 +136,22 @@ export function TimelineCanvas({
     (segId: string) => isGenerating("tts", segId),
     [isGenerating],
   );
-  // 批量旁白进行中：本项目还有未完结的 tts 任务时禁用批量按钮，避免重复入队
+  // 批量旁白进行中：当前分集还有未完结的 tts 任务时禁用批量按钮，避免重复入队；
+  // 按本集 segment 范围判定，不影响其他分集的批量入口
+  const currentSegmentIds = useMemo(
+    () => new Set(segments.map((s) => ("segment_id" in s ? s.segment_id : s.scene_id))),
+    [segments],
+  );
   const narrationBatchBusy = useMemo(
     () =>
       tasks.some(
         (t) =>
           t.task_type === "tts" &&
           t.project_name === projectName &&
+          currentSegmentIds.has(t.resource_id) &&
           (t.status === "queued" || t.status === "running"),
       ),
-    [tasks, projectName],
+    [tasks, projectName, currentSegmentIds],
   );
 
   if (!projectData || (!episodeScript && !hasDraft)) {

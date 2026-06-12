@@ -347,9 +347,9 @@ async def generate_tts(
         raise
     except ScriptEditError as e:
         raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.post("/projects/{project_name}/generate/tts")
@@ -407,9 +407,9 @@ async def generate_tts_batch(
         raise
     except ScriptEditError as e:
         raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 资产设计图生成（character / scene / prop 共用） ====================

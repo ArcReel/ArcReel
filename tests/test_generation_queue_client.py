@@ -170,6 +170,18 @@ class TestTaskSpecFromRequest:
             TaskSpec.from_request(task_type="tts", media_type="audio", resource_id="E1S01", prompt={"text": "x"})
         assert exc.value.code == "tts_prompt_must_be_string_or_null"
 
+    def test_tts_extra_payload_text_rejected(self):
+        # text 是 tts 执行层优先读取的字段，必须与 prompt 同走守卫点，不得经 extra_payload 绕过。
+        with pytest.raises(ValueError) as exc:
+            TaskSpec.from_request(
+                task_type="tts",
+                media_type="audio",
+                resource_id="E1S01",
+                prompt="夜色深沉",
+                extra_payload={"text": "未校验的文本"},
+            )
+        assert "reserved" in str(exc.value)
+
     def test_empty_resource_id_rejected(self):
         with pytest.raises(ValueError):
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="", prompt="跑")

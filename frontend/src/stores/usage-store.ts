@@ -13,6 +13,7 @@ export interface UsageStats {
   image_count: number;
   video_count: number;
   text_count: number;
+  audio_count: number;
   failed_count: number;
   total_count: number;
 }

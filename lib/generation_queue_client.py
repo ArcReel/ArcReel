@@ -364,6 +364,10 @@ class TaskSpec:
         # extra_payload 不得携带守卫点已校验的保留键，否则调用方能绕过单一守卫点
         # 把未校验的 prompt / script_file 入队。
         reserved = {"prompt", "script_file"}
+        # tts 执行层读 payload.text 优先于 prompt（历史任务排空通道）；新入队一律走
+        # 受校验的 prompt，不允许借 extra_payload.text 绕过结构校验。
+        if task_type in _TTS_TASK_TYPES:
+            reserved = reserved | {"text"}
         if extra_payload and (conflict := reserved & extra_payload.keys()):
             raise ValueError(f"extra_payload contains reserved keys: {', '.join(sorted(conflict))}")
 
