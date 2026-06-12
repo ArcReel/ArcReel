@@ -292,6 +292,52 @@ async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, mon
     assert any(w["key"] == "ref_too_many_images" for w in result["warnings"])
 
 
+def test_clamp_zero_max_refs_drops_all_entries():
+    """max_refs == 0（模型不支持参考图）裁到空集 + warning，不得当作「无上限」放行。"""
+    from server.services.reference_video_tasks import _clamp_ad_reference_entries
+
+    entries = [{"image": Path("a.png"), "label": "产品「按摩仪」标准多角度参考图", "name": "按摩仪", "kind": "sheet"}]
+    clamped, warnings = _clamp_ad_reference_entries(entries, 0, provider="ark", model="seedance")
+
+    assert clamped == []
+    assert [w["key"] for w in warnings] == ["ref_too_many_images"]
+
+
+def test_clamp_none_max_refs_keeps_all_entries():
+    """max_refs is None（能力未解析）不裁剪，交由 backend 自行报错。"""
+    from server.services.reference_video_tasks import _clamp_ad_reference_entries
+
+    entries = [{"image": Path("a.png"), "label": "x", "name": "按摩仪", "kind": "sheet"}]
+    clamped, warnings = _clamp_ad_reference_entries(entries, None, provider="ark", model="seedance")
+
+    assert clamped == entries
+    assert warnings == []
+
+
+@pytest.mark.asyncio
+async def test_ad_dirty_asset_bucket_skips_with_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """project.json 资产 bucket 形状损坏（非 dict）时软跳过该参考 + warning，不抛 AttributeError。"""
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_ad_project(tmp_path)
+    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    project["characters"] = []
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    fake_generator = _wire_executor(proj_dir, monkeypatch)
+
+    result = await rvt.execute_reference_video_task(
+        "ad-demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    kwargs = fake_generator.generate_video_async.call_args.kwargs
+    ref_names = [p.name for p in kwargs["reference_images"]]
+    assert ref_names == ["按摩仪.png", "按摩仪_原图.jpg"]
+    assert any(w["key"] == "ref_ad_reference_skipped" and w["params"]["name"] == "小美" for w in result["warnings"])
+
+
 @pytest.mark.asyncio
 async def test_ad_stale_index_fails_loud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """镜头被删后索引悬空 → fail-loud 提示重新派生，不静默生成残缺视频。"""

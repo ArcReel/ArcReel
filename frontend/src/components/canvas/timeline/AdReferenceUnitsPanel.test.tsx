@@ -127,4 +127,58 @@ describe("AdReferenceUnitsPanel", () => {
 
     expect(await screen.findByText(/需重新派生/)).toBeInTheDocument();
   });
+
+  it("加载失败展示错误而非空态提示", async () => {
+    mockedAPI.listAdReferenceUnits.mockRejectedValue(new Error("加载炸了"));
+
+    renderPanel();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("加载炸了");
+    expect(screen.queryByText(/先派生分组/)).not.toBeInTheDocument();
+  });
+
+  it("批量生成时前一 unit 的失败不被后续调用清掉", async () => {
+    const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S2"] })];
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
+    mockedAPI.deriveAdReferenceUnits.mockResolvedValue({ units });
+    mockedAPI.generateReferenceVideoUnit
+      .mockRejectedValueOnce(new Error("U1 入队失败"))
+      .mockResolvedValueOnce({ task_id: "t2", deduped: false });
+
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /全部生成/ }));
+
+    await waitFor(() => expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("alert")).toHaveTextContent("U1 入队失败");
+  });
+
+  it("批量生成按实时任务状态跳过已入队的 unit", async () => {
+    const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S2"] })];
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
+    mockedAPI.deriveAdReferenceUnits.mockImplementation(async () => {
+      // 派生期间另一入口已把 E1U1 入队（模拟批量循环开始前 store 更新）
+      useTasksStore.setState({
+        tasks: [
+          {
+            task_id: "t1",
+            project_name: "demo",
+            task_type: "reference_video",
+            resource_id: "E1U1",
+            status: "queued",
+            updated_at: "2026-06-12T10:00:00Z",
+          },
+        ] as never,
+      });
+      return { units };
+    });
+    mockedAPI.generateReferenceVideoUnit.mockResolvedValue({ task_id: "t2", deduped: false });
+
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /全部生成/ }));
+
+    await waitFor(() =>
+      expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledWith("demo", 1, "E1U2"),
+    );
+    expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledTimes(1);
+  });
 });

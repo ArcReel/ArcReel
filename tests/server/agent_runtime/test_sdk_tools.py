@@ -1303,6 +1303,88 @@ async def test_generate_video_episode_ad_reference_derives_and_enqueues(
     assert script["reference_units"][0]["references"][0] == {"type": "product", "name": "保温杯"}
 
 
+async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """成员/参考集变化导致 sync 重置 unit 后，磁盘残留的同名旧产物不得当作已完成跳过。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    # 旧索引：E1U1 仅含 E1S1 且已完成；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → sync 重置
+    pm.script_payload["reference_units"] = [  # type: ignore[attr-defined]
+        {
+            "unit_id": "E1U1",
+            "shot_ids": ["E1S1"],
+            "references": [{"type": "product", "name": "保温杯"}],
+            "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
+        }
+    ]
+    stale = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_bytes(b"\x00")
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    # 重置后的 unit 必须重新入队，而不是凭旧文件跳过
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
+async def test_generate_video_episode_ad_reference_skips_unchanged_unit_with_output(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """成员与参考集未变且产物在盘的 unit 按已完成跳过，不重复入队。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [  # type: ignore[attr-defined]
+        {
+            "unit_id": "E1U1",
+            "shot_ids": ["E1S1", "E1S2"],
+            "references": [{"type": "product", "name": "保温杯"}],
+            "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
+        }
+    ]
+    done = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_bytes(b"\x00")
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
+        enqueued.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert enqueued == []
+
+
 async def test_generate_video_all_ad_reference_falls_through_to_episode(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

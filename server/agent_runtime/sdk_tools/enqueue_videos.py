@@ -326,11 +326,16 @@ async def _generate_reference_units(
     resume: bool,
     log: list[str],
     build_specs: Callable[[list[dict[str, Any]], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
+    reuse_existing: Callable[[dict[str, Any]], bool] | None = None,
 ) -> list[Path]:
     """unit 批量生成的共享骨架：checkpoint 续传 + 已产出扫描 + 入队等待。
 
     narration/drama（video_units 内容自包含）与 ad（reference_units 派生索引）
     仅 spec 构造不同，经 ``build_specs(units, skip_ids, log)`` 注入。
+
+    ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
+    现行产物复用（None 表示仅凭文件存在即复用）。ad 派生索引在成员/参考集变化
+    时会重置 unit 的 generated_assets，同名旧文件已不可信，须由该判定排除。
     """
     project_dir = ctx.project_path
     ckpt_path = _episode_checkpoint_path(project_dir, episode)
@@ -350,7 +355,7 @@ async def _generate_reference_units(
     for idx, unit in enumerate(units):
         unit_id = unit["unit_id"]
         candidate = output_dir / f"{unit_id}.mp4"
-        if candidate.exists():
+        if candidate.exists() and (reuse_existing is None or reuse_existing(unit)):
             ordered_paths[idx] = candidate
             already_done.append(unit_id)
             if unit_id not in completed:
@@ -454,6 +459,9 @@ async def _run_ad_reference_episode(
             skip_ids=skip,
             log=lg,
         ),
+        # sync 把成员/参考集变化的 unit 重置为待生成；旧同名产物不可复用，
+        # 仅 generated_assets 仍指向产物的 unit 才按磁盘文件跳过
+        reuse_existing=lambda u: bool((u.get("generated_assets") or {}).get("video_clip")),
     )
     header = f"参考直出生成完成，共 {len(paths)} 个 unit"
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}

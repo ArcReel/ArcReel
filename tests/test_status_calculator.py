@@ -541,6 +541,26 @@ class TestAdStatusCalculation:
         assert stats["videos"] == {"total": 0, "completed": 0}
         assert stats["status"] == "draft"
 
+    def test_ad_reference_path_malformed_index_scores_as_not_derived(self, tmp_path):
+        """索引形状损坏（非数组 / 夹非 dict 条目）按未派生计分，不部分计数、不抛错。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        valid_unit = {
+            "unit_id": "E1U1",
+            "shot_ids": ["E1S01"],
+            "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
+        }
+        for malformed in ("garbage", {"unit_id": "E1U1"}, [valid_unit, "junk"]):
+            script = {
+                "content_mode": "ad",
+                "shots": [{"shot_id": "E1S01", "duration_seconds": 3}],
+                "reference_units": malformed,
+            }
+
+            stats = calc.calculate_episode_stats("demo", script, generation_mode="reference_video")
+
+            assert stats["videos"] == {"total": 0, "completed": 0}
+            assert stats["status"] == "draft"
+
     def test_ad_storyboard_path_ignores_leftover_index(self, tmp_path):
         """切回 storyboard 路径后按 shots 计分，残留索引不污染状态。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))

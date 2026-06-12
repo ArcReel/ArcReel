@@ -199,7 +199,8 @@ def _resolve_ad_unit_reference_entries(
             warnings.append({"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": name}})
 
     for rtype, rname in asset_refs:
-        bucket = project.get(BUCKET_KEY[rtype]) or {}
+        raw_bucket = project.get(BUCKET_KEY[rtype])
+        bucket = raw_bucket if isinstance(raw_bucket, dict) else {}
         item = bucket.get(rname)
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if sheet_rel and safe_exists(project_path, sheet_rel):
@@ -226,9 +227,10 @@ def _clamp_ad_reference_entries(
     """超出后端参考张数上限时裁剪 ad 参考条目；产品参考的 sheet 跨产品稳定前置。
 
     与视频层二次注入的截断口径一致（每个产品的锚定 sheet 优先存活）；
-    非产品参考排在产品之后，截断自然先牺牲它们。
+    非产品参考排在产品之后，截断自然先牺牲它们。``max_refs == 0``（模型不支持
+    参考图）裁到空集，与通用路径 ``_apply_provider_constraints`` 的 None 判定同口径。
     """
-    if not max_refs or len(entries) <= max_refs:
+    if max_refs is None or len(entries) <= max_refs:
         return list(entries), []
     products = [e for e in entries if e.get("kind") in ("sheet", "original")]
     others = [e for e in entries if e.get("kind") not in ("sheet", "original")]

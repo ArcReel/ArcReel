@@ -39,8 +39,8 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
         if (!cancelled) setUnits(resp.units);
       })
       .catch((err: unknown) => {
+        // 加载失败保持 units === null（区分「无数据」与「出错」），仅记错误展示
         if (!cancelled) {
-          setUnits([]);
           setError(err instanceof Error ? err.message : String(err));
         }
       });
@@ -81,8 +81,9 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
     }
   };
 
+  // 错误清空只在触发入口做：generateUnit 自身不清，避免批量循环中
+  // 后一个 unit 的调用抹掉前一个 unit 的失败信息
   const generateUnit = async (unitId: string) => {
-    setError(null);
     try {
       await API.generateReferenceVideoUnit(projectName, episode, unitId);
     } catch (err: unknown) {
@@ -90,18 +91,34 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
     }
   };
 
+  // 实时读 store 而非渲染期快照：串行 await 期间其他入口（如单 unit 按钮）
+  // 可能已入队同一 unit
+  const liveBusyUnitIds = () =>
+    new Set(
+      useTasksStore
+        .getState()
+        .tasks.filter(
+          (tk) =>
+            tk.project_name === projectName &&
+            tk.task_type === "reference_video" &&
+            (tk.status === "queued" || tk.status === "running"),
+        )
+        .map((tk) => tk.resource_id),
+    );
+
   const generateAll = async () => {
     // 先重新派生（保证索引与 shots 一致），再为未完成且空闲的 unit 入队
     const fresh = await derive();
     for (const unit of fresh) {
-      if (unit.generated_assets?.video_clip || busyUnitIds.has(unit.unit_id)) continue;
+      if (unit.generated_assets?.video_clip || liveBusyUnitIds().has(unit.unit_id)) continue;
       await generateUnit(unit.unit_id);
     }
   };
 
-  if (units === null) return null;
+  if (units === null && error === null) return null;
 
-  const hasUnits = units.length > 0;
+  const unitList = units ?? [];
+  const hasUnits = unitList.length > 0;
 
   return (
     <div
@@ -136,7 +153,8 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
         )}
       </div>
 
-      {!hasUnits && (
+      {/* 出错时不渲染空态提示，避免「没有数据」与「加载失败」同屏混淆 */}
+      {!hasUnits && !error && (
         <p className="mt-2 text-[12px]" style={{ color: "var(--color-text-4)" }}>
           {t("ad_ref_empty_hint")}
         </p>
@@ -144,7 +162,7 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
 
       {hasUnits && (
         <ul className="mt-2 space-y-1.5">
-          {units.map((unit) => {
+          {unitList.map((unit) => {
             const memberShots = unit.shot_ids.map((sid) => shotById.get(sid));
             const stale = memberShots.some((s) => s === undefined);
             const duration = memberShots.reduce(
@@ -191,7 +209,10 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
                   type="button"
                   className="sv-navbtn inline-flex items-center gap-1"
                   disabled={busy || stale || deriving}
-                  onClick={() => void generateUnit(unit.unit_id)}
+                  onClick={() => {
+                    setError(null);
+                    void generateUnit(unit.unit_id);
+                  }}
                 >
                   <Sparkles className="h-3 w-3" aria-hidden="true" />
                   <span>{busy ? t("ad_ref_generating") : t("ad_ref_generate_unit")}</span>

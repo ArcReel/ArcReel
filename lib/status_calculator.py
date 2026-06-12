@@ -108,9 +108,19 @@ class StatusCalculator:
 
         索引未派生（reference_units 缺失/空）时 videos 计 0/0、状态 draft；
         分镜计数保留 shots 口径（该路径跳过分镜，恒为 0/total，不参与状态判定）。
+        索引形状损坏（非数组 / 夹非 dict 条目）按未派生同口径计分并记 WARN——
+        不部分计数以免坏索引伪装成真实进度；读时计算保持不抛错，数据契约校验
+        归 DataValidator，索引为派生数据、重新派生即愈。
         """
         raw_units = script.get("reference_units")
-        units = [u for u in raw_units if isinstance(u, dict)] if isinstance(raw_units, list) else []
+        units: list[dict] = []
+        if isinstance(raw_units, list) and all(isinstance(u, dict) for u in raw_units):
+            units = raw_units
+        elif raw_units is not None:
+            logger.warning(
+                "reference_units 形状损坏（期望 dict 数组），按未派生计分 episode=%s",
+                script.get("episode"),
+            )
         video_done = sum(1 for u in units if (u.get("generated_assets") or {}).get("video_clip"))
         total_units = len(units)
 
