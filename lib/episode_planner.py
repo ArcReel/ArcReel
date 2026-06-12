@@ -194,18 +194,25 @@ def _resolve_boundaries(
     ordering_valid = True
     for idx, ep in enumerate(drafts, start=1):
         anchor = ep.end_anchor
-        count = window.count(anchor)
-        if count == 0:
+        # str.count 只统计非重叠匹配，会把重叠出现（如 "aaaa" 中的 "aaa"）误判为唯一；
+        # 步进 1 滑动查找收集所有起点，按允许重叠的口径判定 0/1/多次
+        starts: list[int] = []
+        found = window.find(anchor)
+        while found != -1:
+            starts.append(found)
+            found = window.find(anchor, found + 1)
+        if not starts:
             reasons.append(f"第 {idx} 条的 end_anchor 在原文窗口中不存在（必须逐字摘抄，含标点）: {anchor!r}")
             ordering_valid = False
             continue
-        if count > 1:
+        if len(starts) > 1:
             reasons.append(
-                f"第 {idx} 条的 end_anchor 在原文窗口中出现 {count} 次，无法唯一定位，请改用更长或更独特的片段: {anchor!r}"
+                f"第 {idx} 条的 end_anchor 在原文窗口中出现 {len(starts)} 次，无法唯一定位，"
+                f"请改用更长或更独特的片段: {anchor!r}"
             )
             ordering_valid = False
             continue
-        end = window.index(anchor) + len(anchor)
+        end = starts[0] + len(anchor)
         if ordering_valid and end <= pos:
             reasons.append(
                 f"第 {idx} 条的 end_anchor 位置不在上一集结尾之后（各集范围必须连续推进、不重叠）: {anchor!r}"
@@ -571,7 +578,14 @@ class EpisodePlanner:
             ):
                 raise EpisodePlanningError(f"第 {num} 集原文范围记录不完整，无法重排")
             if slices and slices[-1].source_rel == rel:
-                slices[-1].end = max(slices[-1].end, seg_end)
+                # 同文件相邻条目必须首尾相接：断档/重叠意味着账本与原文覆盖不一致，
+                # 静默合并会把范围之外的原文一并重切，必须 fail-fast
+                if seg_start != slices[-1].end:
+                    raise EpisodePlanningError(
+                        f"第 {num} 集与上一集在源文件 {rel} 中的范围不连续"
+                        f"（上一集止于 {slices[-1].end}，本集起于 {seg_start}），账本数据异常，无法重排"
+                    )
+                slices[-1].end = seg_end
             else:
                 # 同一源文件在范围内非连续出现说明集号与源文件顺序错乱：片段会重叠/穿插，必须 fail-fast
                 if rel in seen_rels:
@@ -665,7 +679,8 @@ class EpisodePlanner:
         if isinstance(cursor, Mapping):
             rel = cursor.get("source_file")
             offset = cursor.get("offset")
-            if isinstance(rel, str) and isinstance(offset, int) and not isinstance(offset, bool):
+            # 负 offset 会让后续切片静默从尾部取段，按非法游标忽略
+            if isinstance(rel, str) and isinstance(offset, int) and not isinstance(offset, bool) and offset >= 0:
                 cur = (rel, offset)
         if last is not None and cur is not None:
             if cur[0] == last[0]:
@@ -764,7 +779,11 @@ class EpisodePlanner:
                     "无法完成派生文件对账，提交已中止"
                 )
             source_dir.mkdir(exist_ok=True)
-            (source_dir / f"episode_{num}.txt").write_text(text[seg_start:seg_end], encoding="utf-8")
+            episode_path = source_dir / f"episode_{num}.txt"
+            # 文件级符号链接同样拒绝：write_text 会跟随链接把内容写到链接目标（可能在项目外）
+            if episode_path.is_symlink():
+                raise EpisodePlanningError(f"第 {num} 集派生文件是符号链接，拒绝写入，提交已中止")
+            episode_path.write_text(text[seg_start:seg_end], encoding="utf-8")
         for num, path in discover_episode_files(self.project_path).items():
             if num not in keep:
                 try:

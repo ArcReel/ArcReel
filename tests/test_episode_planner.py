@@ -209,6 +209,35 @@ class TestPlan:
         assert "连续" in fake.requests[2].prompt  # 不连续：报范围推进问题
         assert [s.title for s in result.episodes] == ["丙"]
 
+    async def test_plan_rejects_overlapping_anchor_occurrences_as_ambiguous(self, tmp_path: Path):
+        """锚点重叠出现同样判不唯一：非重叠计数会把 "哪哪哪" 中的 "哪哪" 误判为唯一定位。"""
+        source = "天哪哪哪，山里炸开了锅。李恒收剑而立。"
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "哪哪"}]),  # 重叠出现两次
+                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "李恒收剑而立。"}]),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 2
+        assert "2 次" in fake.requests[1].prompt  # 按允许重叠的口径计数
+        assert [s.title for s in result.episodes] == ["乙"]
+
+    async def test_plan_ignores_negative_cursor_offset(self, tmp_path: Path):
+        """游标 offset 为负：按非法游标忽略，从源文开头规划而非尾部静默取段。"""
+        project_dir = _write_project(tmp_path, planning_cursor={"source_file": "source/novel.txt", "offset": -5})
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
+
     async def test_plan_raises_and_leaves_project_untouched_after_retry_exhaustion(self, tmp_path: Path):
         """重试耗尽：抛 EpisodePlanningError，账本与文件零变更（原子性）。"""
         project_dir = _write_project(tmp_path)
@@ -664,6 +693,21 @@ class TestReplan:
         with pytest.raises(EpisodePlanningError, match="from_episode"):
             await EpisodePlanner(project_dir, generator=_FakeTextGenerator([])).replan(9, "重排")
 
+    async def test_replan_rejects_discontinuous_ranges_in_same_source_file(self, tmp_path: Path):
+        """同源文件内相邻条目断档：静默合并会把范围外的原文一并重切，必须拒绝重排。"""
+        a = _end_of(ANCHOR_EP1)
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, a), _entry(2, a + 3, len(SOURCE))],  # [a, a+3) 断档
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="不连续"):
+            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
+
+        assert fake.requests == []
+
     async def test_replan_across_source_files_recuts_each_file_slice(self, tmp_path: Path):
         """跨源文件重排：按文件拆 slice 独立重切，集号跨文件连续，文件边界即集边界，cursor 不动。"""
         project_dir = _planned_two_files(tmp_path)
@@ -930,3 +974,20 @@ class TestReconcileFailFast:
 
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert (project_dir / "source" / "episode_3.txt").exists()
+
+    async def test_commit_aborts_when_derived_episode_file_is_symlink(self, tmp_path: Path):
+        """派生集文件是符号链接：写入会跟随链接落到项目外，必须中止提交。"""
+        project_dir = _planned_three(tmp_path)
+        outside = tmp_path / "outside.txt"
+        outside.write_text("外部文件", encoding="utf-8")
+        target = project_dir / "source" / "episode_2.txt"
+        target.unlink()
+        target.symlink_to(outside)
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+
+        with pytest.raises(EpisodePlanningError, match="符号链接"):
+            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+
+        assert outside.read_text(encoding="utf-8") == "外部文件"  # 链接目标未被覆写
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
