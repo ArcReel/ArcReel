@@ -149,6 +149,56 @@ class TestGrokVideoBackend:
             assert "image_url" in call_kwargs
             assert call_kwargs["image_url"].startswith("data:image/png;base64,")
 
+    @pytest.mark.parametrize(
+        ("raw_duration", "expected"),
+        [
+            (15, 15),  # 整数直接收窄
+            ("15.0", 15),  # 浮点字符串先经 float 解析
+            (7.8, 7),  # 浮点截断为整数
+            ("unknown", 5),  # 不可解析回落请求时长
+            (float("inf"), 5),  # 溢出回落请求时长
+            (None, 5),  # 缺失回落请求时长
+        ],
+    )
+    async def test_duration_narrowed_to_int_with_fallback(self, output_path: Path, raw_duration, expected):
+        """SDK 回报的 duration 未类型化：可解析数值收窄为 int 作为实际计费时长，否则回落请求时长。"""
+        from lib.video_backends.grok import GrokVideoBackend
+
+        mock_response = MagicMock()
+        mock_response.url = "https://vidgen.x.ai/test/video.mp4"
+        mock_response.duration = raw_duration
+
+        mock_video = MagicMock()
+        mock_video.generate = AsyncMock(return_value=mock_response)
+
+        mock_client = MagicMock()
+        mock_client.video = mock_video
+
+        with patch("lib.video_backends.grok.create_grok_client", return_value=mock_client):
+            backend = GrokVideoBackend(api_key="test-key")
+
+            mock_http_response = AsyncMock()
+            mock_http_response.status_code = 200
+            mock_http_response.raise_for_status = MagicMock()
+            mock_http_response.aiter_bytes = lambda chunk_size=None: _async_iter([b"fake-video-data"])
+
+            mock_http_client = AsyncMock()
+            mock_http_client.stream = _async_context_manager(mock_http_response)
+            mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+            mock_http_client.__aexit__ = AsyncMock(return_value=False)
+
+            with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
+                request = VideoGenerationRequest(
+                    prompt="A cat walking",
+                    output_path=output_path,
+                    duration_seconds=5,
+                    resolution="720p",
+                )
+
+                result = await backend.generate(request)
+
+            assert result.duration_seconds == expected
+
 
 async def _async_iter(items):
     for item in items:

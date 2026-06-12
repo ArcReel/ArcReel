@@ -225,6 +225,34 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["duration_seconds"] == 15, "实际计费时长必须 UPDATE 写回 ApiCall 行"
 
+    async def test_billed_duration_non_positive_falls_back_to_request_duration(self, db_session, monkeypatch):
+        """非正的实际计费时长视同未提供：cost_calculator 入参与账本均回落 start_call 的请求时长。"""
+        from lib import cost_calculator as cc_module
+
+        captured: dict[str, object] = {}
+
+        def _spy_calculate_cost(**kwargs):
+            captured["duration_seconds"] = kwargs.get("duration_seconds", "MISSING")
+            return (2.4, "CNY")
+
+        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
+
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="video",
+            model="wan2.7-r2v",
+            duration_seconds=6,
+            provider="dashscope",
+        )
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, billed_duration_seconds=0)
+        assert affected == 1
+        assert captured["duration_seconds"] == 6, "非正计费时长不得传给 cost_calculator，应回落请求时长"
+
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["duration_seconds"] == 6, "非正计费时长不得写回账本，应保留请求时长"
+
     async def test_does_not_touch_other_pending_call(self, db_session):
         repo = UsageRepository(db_session)
         cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
