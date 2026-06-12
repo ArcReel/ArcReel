@@ -5,13 +5,14 @@
 ``ProjectManager.upsert_assets`` 在单一文件锁内 read-modify-write，apply 后落盘前做结构
 校验，非法则不写。取代脆弱的单行 CLI-JSON 脚本 ``add_assets.py``（且把「只能加」扩为「可改」）。
 
-同一工具同时承担顶层 ``settings`` 字段写入（白名单驱动），首期支持 ``episode_target_units``，
+同一工具同时承担顶层 ``settings`` 字段写入（白名单驱动，见 ``_SETTINGS_WHITELIST``），
 以及项目概述 ``overview``（synopsis/genre/theme/world_setting，merge 语义）的编辑。
 ``table + entries`` / ``settings`` / ``overview`` 三选一,在 ``update_project`` 锁内 RMW 同源。
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -27,12 +28,15 @@ _TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 # 源语言不会落盘),需要给 agent 在用户确认后写入的恢复通道,带 zh/en/vi enum 校验防乱填。
 # planning_window_chars / planning_max_episodes: 分集规划工具的窗口字数与每批集数覆盖项,
 # null 时回退工具内部默认。
+# narration_voice / narration_speed: 项目级旁白音色与语速覆盖项,null 时回退全局配置。
 _SETTINGS_WHITELIST = (
     "episode_target_units",
     "source_language",
     "brief",
     "planning_window_chars",
     "planning_max_episodes",
+    "narration_voice",
+    "narration_speed",
 )
 _SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
 _POSITIVE_INT_SETTINGS = ("episode_target_units", "planning_window_chars", "planning_max_episodes")
@@ -217,6 +221,24 @@ def _validate_setting_value(key: str, value: Any) -> None:
             return
         if not isinstance(value, str):
             raise ValueError(f"brief 必须是字符串或 null,收到 {value!r}")
+        return
+    if key == "narration_voice":
+        if value is None:
+            return
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"narration_voice 必须是非空字符串或 null,收到 {value!r}")
+        return
+    if key == "narration_speed":
+        if value is None:
+            return
+        is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+        try:
+            is_valid = is_number and math.isfinite(value) and value > 0
+        except OverflowError:
+            # 超出 float 范围的巨大整数在 isfinite 的 float 转换中溢出，等同非有限值
+            is_valid = False
+        if not is_valid:
+            raise ValueError(f"narration_speed 必须是正的有限数值或 null,收到 {value!r}")
         return
     # 不应到这,白名单校验在调用前
     raise ValueError(f"settings 字段 {key!r} 缺类型校验")

@@ -661,6 +661,90 @@ class TestPatchProjectSettings:
         assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "白衣剑客"
 
 
+class TestPatchProjectNarrationSettings:
+    """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目级旁白覆盖）。"""
+
+    async def test_set_narration_voice(self, ctx: ToolContext) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Ethan"}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["narration_voice"] == "Ethan"
+        assert "已更新" in _text(out)
+
+    async def test_modify_narration_voice(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Ethan"}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Cherry"}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["narration_voice"] == "Cherry"
+
+    async def test_clear_narration_voice(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Ethan"}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": None}})
+        assert out.get("is_error") is not True
+        assert "narration_voice" not in ctx.pm.load_project("demo")
+        assert "已清除" in _text(out)
+
+    @pytest.mark.parametrize("bad", ["", "   ", "\t\n", 1, 1.5, True, ["Ethan"], {"id": "Ethan"}])
+    async def test_invalid_narration_voice_rejected(self, ctx: ToolContext, bad: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": bad}})
+        assert out.get("is_error") is True
+        assert "narration_voice" not in ctx.pm.load_project("demo")
+
+    @pytest.mark.parametrize("speed", [1.2, 0.5, 2, 1])
+    async def test_set_narration_speed(self, ctx: ToolContext, speed: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": speed}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["narration_speed"] == speed
+
+    async def test_clear_narration_speed(self, ctx: ToolContext) -> None:
+        await _call(patch_project_tool(ctx), {"settings": {"narration_speed": 1.2}})
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": None}})
+        assert out.get("is_error") is not True
+        assert "narration_speed" not in ctx.pm.load_project("demo")
+        assert "已清除" in _text(out)
+
+    @pytest.mark.parametrize("bad", [0, -1.5, float("inf"), float("nan"), True, False, "1.2", "fast", [1.2], 10**400])
+    async def test_invalid_narration_speed_rejected(self, ctx: ToolContext, bad: Any) -> None:
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": bad}})
+        assert out.get("is_error") is True
+        # 超出 float 范围的巨大整数同样收到清晰的校验文案，而非底层溢出信息
+        assert "narration_speed 必须是正的有限数值" in _text(out)
+        assert "narration_speed" not in ctx.pm.load_project("demo")
+
+    async def test_one_invalid_field_rejects_whole_batch(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_project_tool(ctx),
+            {"settings": {"narration_voice": "Ethan", "narration_speed": -1}},
+        )
+        assert out.get("is_error") is True
+        project = ctx.pm.load_project("demo")
+        assert "narration_voice" not in project
+        assert "narration_speed" not in project
+
+    async def test_resolver_uses_values_written_by_tool(self, ctx: ToolContext) -> None:
+        """工具写入与生成端解析读的是同一份顶层字段:写入后 resolver 实际解析出覆盖值。"""
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from lib.config.resolver import ConfigResolver
+        from lib.db.base import Base
+
+        out = await _call(
+            patch_project_tool(ctx),
+            {"settings": {"narration_voice": "Ethan", "narration_speed": 1.2}},
+        )
+        assert out.get("is_error") is not True
+        project = ctx.pm.load_project("demo")
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        try:
+            resolver = ConfigResolver(async_sessionmaker(engine, expire_on_commit=False))
+            assert await resolver.resolve_narration_voice(project) == "Ethan"
+            assert await resolver.resolve_narration_speed(project) == 1.2
+        finally:
+            await engine.dispose()
+
+
 class TestPatchProjectOverview:
     """patch_project overview 分支：四字段白名单 merge 编辑，概述不存在时创建，三选一互斥。"""
 

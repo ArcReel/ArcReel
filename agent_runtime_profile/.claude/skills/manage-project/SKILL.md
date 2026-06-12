@@ -29,6 +29,7 @@ mcp__arcreel__patch_project({"table": "scenes", "entries": {"场景名": {"descr
 mcp__arcreel__patch_project({"table": "props", "entries": {"道具名": {"description": "..."}}})
 mcp__arcreel__patch_project({"settings": {"episode_target_units": 1000}})
 mcp__arcreel__patch_project({"settings": {"source_language": "en"}})
+mcp__arcreel__patch_project({"settings": {"narration_voice": "Ethan", "narration_speed": 1.2}})
 mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与救赎"}})
 ```
 
@@ -39,6 +40,8 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 - `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。优先级：**用户显式配置 > 自动推断**——用户明确指定语言时即可写入（不限于 overview 跳过或失败的场景）；无用户显式确认时不要自行猜测写入，正常路径由 overview 生成自动落盘。发现显式配置与自动推断 / 源文实际语言不一致时，提醒用户（WARN）并按显式配置继续，不阻塞流程
 - `planning_window_chars`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批读取的源文窗口字符数
 - `planning_max_episodes`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批最多产出的集数
+- `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目级旁白音色覆盖，优先于全局设置生效，只影响当前项目
+- `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目级旁白语速覆盖，优先于全局设置生效，只影响当前项目
 
 `overview` 白名单字段：`synopsis` / `genre` / `theme` / `world_setting`，**merge 语义**（只改传入字段、
 概述不存在时创建）。**修订概述需用户显式意图驱动**（避免静默覆盖人工编辑过的字段）。

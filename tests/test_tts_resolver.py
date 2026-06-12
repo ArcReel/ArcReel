@@ -154,6 +154,32 @@ class TestResolveNarrationSpeed:
         finally:
             await engine.dispose()
 
+    async def test_numeric_string_override_accepted(self):
+        factory, engine = await _make_factory()
+        try:
+            resolver = ConfigResolver(factory)
+            # 项目级语速宽容解析：数字字符串与数字同样生效（口径与 default_duration 一致）
+            assert await resolver.resolve_narration_speed({"narration_speed": "1.2"}) == 1.2
+            assert await resolver.resolve_narration_speed({"narration_speed": " 0.8 "}) == 0.8
+            assert await resolver.resolve_narration_speed({"narration_speed": "2"}) == 2.0
+        finally:
+            await engine.dispose()
+
+    async def test_invalid_numeric_string_falls_back(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                await ConfigService(session).set_setting("narration_speed", "1.2")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            # 非正/非有限/空白的字符串覆盖按未设置处理，回退全局
+            for bad in ("0", "-1.5", "inf", "nan", "", "  "):
+                assert await resolver.resolve_narration_speed({"narration_speed": bad}) == 1.2
+        finally:
+            await engine.dispose()
+
     async def test_invalid_values_treated_as_unset(self):
         from lib.config.service import ConfigService
 
