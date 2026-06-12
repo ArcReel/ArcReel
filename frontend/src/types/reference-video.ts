@@ -76,6 +76,26 @@ export interface ReferenceVideoUnit {
   generated_assets: UnitGeneratedAssets;
 }
 
+/** ad 派生分组的参考条目：比 ReferenceResource 多 product 类型（产品绝对优先）。 */
+export interface AdUnitReference {
+  type: AssetKind | "product";
+  name: string;
+}
+
+/**
+ * ad + reference_video 的派生分组索引条目——仅引用 shot_id 与参考集，
+ * 不复制镜头内容（shots 是内容唯一真相）。Mirrors lib/script_models.py AdReferenceUnit。
+ */
+export interface AdReferenceUnit {
+  /** Format: "E{episode}U{index}" */
+  unit_id: string;
+  /** 成员镜头 ID（连续、1-4 个），展示时对照本地剧本 shots 水合 */
+  shot_ids: string[];
+  /** 继承的参考集，产品在前 */
+  references: AdUnitReference[];
+  generated_assets?: Partial<UnitGeneratedAssets> & { video_thumbnail?: string | null };
+}
+
 export interface ReferenceVideoScript {
   episode: number;
   title: string;

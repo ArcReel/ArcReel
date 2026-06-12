@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable
@@ -17,15 +18,21 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
     enqueue_and_wait,
 )
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, effective_mode
 from lib.prompt_utils import is_structured_video_prompt, video_prompt_to_yaml
 from lib.reference_video import assemble_shots_text
+from lib.reference_video.ad_units import (
+    render_ad_unit_prompt,
+    resolve_ad_unit_shots,
+    sync_ad_reference_units,
+)
 from lib.storyboard_sequence import get_storyboard_items
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
     validate_script_filename,
 )
+from server.services.reference_video_tasks import resolve_max_unit_duration
 
 
 def _get_video_prompt(item: dict[str, Any]) -> str:
@@ -46,6 +53,20 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
 
 def _is_reference_script(script: dict[str, Any]) -> bool:
     return script.get("generation_mode") == "reference_video"
+
+
+def _is_ad_reference(ctx: ToolContext, script: dict[str, Any]) -> bool:
+    """ad + reference_video 判定：ad 剧本骨架唯一、不打 generation_mode 戳，
+    生成路径以 project.json（项目级/集级 generation_mode）为真相源。"""
+    project = ctx.pm.load_project(ctx.project_name)
+    if project.get("content_mode") != "ad":
+        return False
+    episode = script.get("episode")
+    meta = next(
+        (e for e in (project.get("episodes") or []) if isinstance(e, dict) and e.get("episode") == episode),
+        None,
+    )
+    return effective_mode(project=project, episode=meta or {}) == "reference_video"
 
 
 # Checkpoint helpers
@@ -261,20 +282,62 @@ async def _submit_with_checkpoint(
     return failures
 
 
-async def _generate_reference_episode(
+def _build_ad_reference_specs(
+    *,
+    script: dict[str, Any],
+    units: list[dict[str, Any]],
+    script_filename: str,
+    style: str | None,
+    skip_ids: list[str] | None,
+    log: list[str],
+) -> tuple[list[TaskSpec], dict[str, int]]:
+    """ad 派生索引 → TaskSpec。成员镜头从 shots（内容唯一真相）水合后渲染 prompt；
+    索引悬空 / 空画面提示词的 unit 跳过并告警，不让一个坏 unit 中断整批
+    （与 ``_build_reference_specs`` 同口径）。"""
+    skip_set = set(skip_ids or [])
+    specs: list[TaskSpec] = []
+    order_map: dict[str, int] = {}
+    for idx, unit in enumerate(units):
+        unit_id = str(unit.get("unit_id") or "")
+        if unit_id in skip_set:
+            continue
+        try:
+            shots = resolve_ad_unit_shots(script, unit)
+            spec = TaskSpec.from_request(
+                task_type="reference_video",
+                media_type="video",
+                resource_id=unit_id,
+                prompt=render_ad_unit_prompt(shots, style=style),
+                script_file=script_filename,
+            )
+        except ValueError as exc:
+            log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
+            continue
+        specs.append(spec)
+        order_map[unit_id] = idx
+    return specs, order_map
+
+
+async def _generate_reference_units(
     *,
     ctx: ToolContext,
-    script: dict[str, Any],
-    script_filename: str,
+    units: list[dict[str, Any]],
     episode: int,
     resume: bool,
     log: list[str],
+    build_specs: Callable[[list[dict[str, Any]], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
+    reuse_existing: Callable[[dict[str, Any]], bool] | None = None,
 ) -> list[Path]:
-    project_dir = ctx.project_path
-    units = script.get("video_units") or []
-    if not units:
-        raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
+    """unit 批量生成的共享骨架：checkpoint 续传 + 已产出扫描 + 入队等待。
 
+    narration/drama（video_units 内容自包含）与 ad（reference_units 派生索引）
+    仅 spec 构造不同，经 ``build_specs(units, skip_ids, log)`` 注入。
+
+    ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
+    现行产物复用（None 表示仅凭文件存在即复用）。ad 派生索引在成员/参考集变化
+    时会重置 unit 的 generated_assets，同名旧文件已不可信，须由该判定排除。
+    """
+    project_dir = ctx.project_path
     ckpt_path = _episode_checkpoint_path(project_dir, episode)
     completed: list[str] = []
     started_at = datetime.now(UTC).isoformat()
@@ -292,7 +355,7 @@ async def _generate_reference_episode(
     for idx, unit in enumerate(units):
         unit_id = unit["unit_id"]
         candidate = output_dir / f"{unit_id}.mp4"
-        if candidate.exists():
+        if candidate.exists() and (reuse_existing is None or reuse_existing(unit)):
             ordered_paths[idx] = candidate
             already_done.append(unit_id)
             if unit_id not in completed:
@@ -300,12 +363,7 @@ async def _generate_reference_episode(
         elif unit_id in completed:
             completed.remove(unit_id)
 
-    specs, order_map = _build_reference_specs(
-        units=units,
-        script_filename=script_filename,
-        skip_ids=already_done,
-        log=log,
-    )
+    specs, order_map = build_specs(units, already_done, log)
     if specs:
         failures = await _submit_with_checkpoint(
             project_name=ctx.project_name,
@@ -340,18 +398,72 @@ async def _run_reference_episode(
 
     All 4 video handlers fall through to whole-episode reference generation
     when ``_is_reference_script`` returns True; this captures the shared tail
-    (resolve episode → call _generate_reference_episode → header + log).
+    (resolve episode → generate units → header + log).
     """
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-    paths = await _generate_reference_episode(
+    units = script.get("video_units") or []
+    if not units:
+        raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
+    paths = await _generate_reference_units(
         ctx=ctx,
-        script=script,
-        script_filename=script_filename,
+        units=units,
         episode=episode,
         resume=resume,
         log=log,
+        build_specs=lambda u, skip, lg: _build_reference_specs(
+            units=u, script_filename=script_filename, skip_ids=skip, log=lg
+        ),
     )
     header = f"第 {episode} 集参考视频生成完成，共 {len(paths)} 个 unit"
+    return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+
+
+async def _run_ad_reference_episode(
+    *,
+    ctx: ToolContext,
+    script_filename: str,
+    resume: bool,
+    log: list[str],
+) -> dict[str, Any]:
+    """ad + reference_video：先（重新）派生分组索引并持久化，再按 unit 批量直出。
+
+    分组是纯函数派生（shots + 供应商时长上限 → 可复现分组）；成员与参考集未变
+    的 unit 保留 generated_assets，已有产物经磁盘扫描跳过重复入队。
+    """
+    project = ctx.pm.load_project(ctx.project_name)
+    max_unit_duration = await resolve_max_unit_duration(project)
+
+    def _sync() -> tuple[dict[str, Any], list[dict[str, Any]], int]:
+        with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+            units = sync_ad_reference_units(script, episode=episode, max_unit_duration=max_unit_duration)
+            return script, units, episode
+
+    script, units, episode = await asyncio.to_thread(_sync)
+    if not units:
+        raise ValueError(f"剧本没有可分组的镜头：{script_filename}")
+    log.append(f"已派生 {len(units)} 个 video_unit（连续镜头分组，索引已写入剧本）")
+
+    style = project.get("style")
+    paths = await _generate_reference_units(
+        ctx=ctx,
+        units=units,
+        episode=episode,
+        resume=resume,
+        log=log,
+        build_specs=lambda u, skip, lg: _build_ad_reference_specs(
+            script=script,
+            units=u,
+            script_filename=script_filename,
+            style=style if isinstance(style, str) else None,
+            skip_ids=skip,
+            log=lg,
+        ),
+        # sync 把成员/参考集变化的 unit 重置为待生成；旧同名产物不可复用，
+        # 仅 generated_assets 仍指向产物的 unit 才按磁盘文件跳过
+        reuse_existing=lambda u: bool((u.get("generated_assets") or {}).get("video_clip")),
+    )
+    header = f"参考直出生成完成，共 {len(paths)} 个 unit"
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
 
@@ -385,6 +497,8 @@ def generate_video_episode_tool(ctx: ToolContext):
                 return await _run_reference_episode(
                     ctx=ctx, script=script, script_filename=script_filename, resume=resume, log=log
                 )
+            if _is_ad_reference(ctx, script):
+                return await _run_ad_reference_episode(ctx=ctx, script_filename=script_filename, resume=resume, log=log)
 
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
@@ -473,6 +587,13 @@ def generate_video_scene_tool(ctx: ToolContext):
                 return await _run_reference_episode(
                     ctx=ctx, script=script, script_filename=script_filename, resume=False, log=log
                 )
+            if _is_ad_reference(ctx, script):
+                ad_log: list[str] = [
+                    f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
+                ]
+                return await _run_ad_reference_episode(
+                    ctx=ctx, script_filename=script_filename, resume=False, log=ad_log
+                )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
@@ -551,6 +672,8 @@ def generate_video_all_tool(ctx: ToolContext):
                 return await _run_reference_episode(
                     ctx=ctx, script=script, script_filename=script_filename, resume=False, log=log
                 )
+            if _is_ad_reference(ctx, script):
+                return await _run_ad_reference_episode(ctx=ctx, script_filename=script_filename, resume=False, log=log)
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
@@ -628,6 +751,11 @@ def generate_video_selected_tool(ctx: ToolContext):
                 return await _run_reference_episode(
                     ctx=ctx, script=script, script_filename=script_filename, resume=resume, log=log
                 )
+            if _is_ad_reference(ctx, script):
+                log.append(
+                    f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
+                )
+                return await _run_ad_reference_episode(ctx=ctx, script_filename=script_filename, resume=resume, log=log)
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")

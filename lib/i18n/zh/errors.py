@@ -162,6 +162,10 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids 与现有单元不匹配",
     "ref_script_missing": "该集绑定的剧本文件不存在",
     "ref_script_rebound": "该集剧本绑定已变更，请重试",
+    "ref_ad_units_derived": "广告/短片项目的视频单元由镜头自动派生，不支持手动增删改；请编辑镜头后重新派生分组",
+    "ref_derive_ad_only": "仅广告/短片项目支持派生分组",
+    "ref_ad_stale_index": "分组索引与镜头不一致，请重新派生分组",
+    "ref_ad_reference_skipped": "「{name}」（{type}）缺少可用参考图，本次生成已跳过该参考",
     # Episode meta
     "episode_not_found": "第 {episode} 集不存在或尚无剧本文件",
     "episode_title_empty": "分集标题不能为空",

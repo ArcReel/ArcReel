@@ -1295,6 +1295,17 @@ export default {
   'ad_init_submitting': 'Đang gửi...',
   'ad_init_success_toast': 'Tư liệu đã sẵn sàng — bắt đầu sáng tạo',
   'ad_init_failed': 'Khởi tạo thất bại: {{message}}',
+
+  // ---- Quảng cáo / video ngắn · nhóm suy ra cho video tham chiếu ----
+  'ad_ref_units_title': 'Nhóm video tham chiếu',
+  'ad_ref_derive': 'Suy ra nhóm',
+  'ad_ref_rederive': 'Suy ra lại nhóm',
+  'ad_ref_generate_all': 'Tạo tất cả',
+  'ad_ref_generate_unit': 'Tạo video',
+  'ad_ref_generating': 'Đang tạo…',
+  'ad_ref_view_video': 'Xem video',
+  'ad_ref_stale': 'Cảnh quay đã thay đổi, cần suy ra lại',
+  'ad_ref_empty_hint': 'Video tham chiếu sẽ tự động nhóm các cảnh quay liên tiếp thành đơn vị video (tối đa 4 cảnh mỗi đơn vị) và tạo video trực tiếp từ ảnh tham chiếu sản phẩm và ảnh thiết kế. Hãy suy ra nhóm trước.',
   'workspace_nav_products': 'Sản phẩm',
   'workspace_nav_scenes': 'Cảnh',
   'workspace_nav_source': 'Tệp gốc',

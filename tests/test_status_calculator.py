@@ -506,6 +506,86 @@ class TestAdStatusCalculation:
         assert stats["storyboards"] == {"total": 2, "completed": 1}
         assert stats["videos"] == {"total": 2, "completed": 0}
 
+    def test_ad_reference_path_scores_videos_by_units(self, tmp_path):
+        """ad + reference_video：视频进度按派生 unit 计，分镜仍按 shots 计（该路径恒 0）。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {
+            "content_mode": "ad",
+            "shots": [
+                {"shot_id": "E1S01", "duration_seconds": 3},
+                {"shot_id": "E1S02", "duration_seconds": 2},
+            ],
+            "reference_units": [
+                {
+                    "unit_id": "E1U1",
+                    "shot_ids": ["E1S01", "E1S02"],
+                    "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
+                },
+            ],
+        }
+
+        stats = calc.calculate_episode_stats("demo", script, generation_mode="reference_video")
+
+        assert stats["videos"] == {"total": 1, "completed": 1}
+        assert stats["status"] == "completed"
+        # 时长口径仍以 shots（内容唯一真相）求和
+        assert stats["duration_seconds"] == 5
+        assert stats["scenes_count"] == 2
+
+    def test_ad_reference_path_without_index_stays_draft(self, tmp_path):
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {"content_mode": "ad", "shots": [{"shot_id": "E1S01", "duration_seconds": 3}]}
+
+        stats = calc.calculate_episode_stats("demo", script, generation_mode="reference_video")
+
+        assert stats["videos"] == {"total": 0, "completed": 0}
+        assert stats["status"] == "draft"
+
+    def test_ad_reference_path_malformed_index_scores_as_not_derived(self, tmp_path):
+        """索引形状损坏（非数组 / 夹非 dict 条目）按未派生计分，不部分计数、不抛错。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        valid_unit = {
+            "unit_id": "E1U1",
+            "shot_ids": ["E1S01"],
+            "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
+        }
+        for malformed in (
+            "garbage",
+            {"unit_id": "E1U1"},
+            [valid_unit, "junk"],
+            [{**valid_unit, "generated_assets": "done"}],
+            [valid_unit, {"unit_id": "E1U2", "shot_ids": [], "generated_assets": ["x"]}],
+        ):
+            script = {
+                "content_mode": "ad",
+                "shots": [{"shot_id": "E1S01", "duration_seconds": 3}],
+                "reference_units": malformed,
+            }
+
+            stats = calc.calculate_episode_stats("demo", script, generation_mode="reference_video")
+
+            assert stats["videos"] == {"total": 0, "completed": 0}
+            assert stats["status"] == "draft"
+
+    def test_ad_storyboard_path_ignores_leftover_index(self, tmp_path):
+        """切回 storyboard 路径后按 shots 计分，残留索引不污染状态。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01", "duration_seconds": 3}],
+            "reference_units": [
+                {
+                    "unit_id": "E1U1",
+                    "shot_ids": ["E1S01"],
+                    "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
+                }
+            ],
+        }
+
+        stats = calc.calculate_episode_stats("demo", script, generation_mode="storyboard")
+
+        assert stats["videos"] == {"total": 1, "completed": 0}
+
     def test_ad_missing_duration_counts_zero(self, tmp_path):
         # ad 无单镜头默认时长偏好：缺 duration_seconds 的镜头按 0 计入，
         # 不挪用 narration(4)/drama(8) 的默认值污染 target_duration 对照

@@ -875,3 +875,73 @@ class TestAdEpisodeValidationEdgeCases:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
         assert not result.valid
         assert any("恒为第 1 集单条" in e for e in result.errors)
+
+
+class TestAdReferenceUnitsValidation:
+    """ad 参考直出派生索引（reference_units）的结构与引用完整性校验。"""
+
+    def _ad_shot(self, shot_id: str = "E1S01", **overrides) -> dict:
+        shot = {
+            "shot_id": shot_id,
+            "section": "hook",
+            "duration_seconds": 3,
+            "voiceover_text": "口播",
+            "characters_in_shot": [],
+            "scenes": [],
+            "props": [],
+            "products_in_shot": [],
+            "image_prompt": "img",
+            "video_prompt": "vid",
+        }
+        shot.update(overrides)
+        return shot
+
+    def _validate(self, tmp_path, shots: list[dict], units):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _ad_project_payload(generation_mode="reference_video"))
+        script = {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "shots": shots}
+        if units is not None:
+            script["reference_units"] = units
+        _write_json(project_dir / "scripts" / "episode_1.json", script)
+        return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+    def test_valid_index_passes(self, tmp_path):
+        units = [
+            {
+                "unit_id": "E1U1",
+                "shot_ids": ["E1S01"],
+                "references": [{"type": "character", "name": "主播"}],
+                "generated_assets": {"status": "pending"},
+            }
+        ]
+        result = self._validate(tmp_path, [self._ad_shot()], units)
+        assert result.valid, result.errors
+
+    def test_missing_index_is_legal(self, tmp_path):
+        result = self._validate(tmp_path, [self._ad_shot()], None)
+        assert result.valid, result.errors
+
+    def test_dangling_shot_id_warns_not_errors(self, tmp_path):
+        """镜头删除后索引短暂悬空是合法中间态（重新派生即愈）：warn 不 error。"""
+        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01", "E1S99"], "references": []}]
+        result = self._validate(tmp_path, [self._ad_shot()], units)
+        assert result.valid, result.errors
+        assert any("E1S99" in w for w in result.warnings)
+
+    def test_malformed_entry_rejected(self, tmp_path):
+        units = ["not-a-dict", {"unit_id": "E1U2"}]
+        result = self._validate(tmp_path, [self._ad_shot()], units)
+        assert not result.valid
+        assert any("reference_units[0]" in e for e in result.errors)
+        assert any("shot_ids" in e for e in result.errors)
+
+    def test_invalid_reference_type_rejected(self, tmp_path):
+        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "voice", "name": "x"}]}]
+        result = self._validate(tmp_path, [self._ad_shot()], units)
+        assert not result.valid
+
+    def test_unregistered_reference_name_warns(self, tmp_path):
+        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "product", "name": "不存在"}]}]
+        result = self._validate(tmp_path, [self._ad_shot()], units)
+        assert result.valid, result.errors
+        assert any("不存在" in w for w in result.warnings)

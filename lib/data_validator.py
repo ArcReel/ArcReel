@@ -840,6 +840,66 @@ class DataValidator:
                     errors,
                 )
 
+    def _validate_ad_reference_units(
+        self,
+        units: Any,
+        shots: Any,
+        registered_names: dict[str, set[str]],
+        errors: list[str],
+        warnings: list[str],
+    ) -> None:
+        """验证 ad 参考直出派生索引（reference_units，可缺省）。
+
+        结构形状问题（非对象条目、缺 shot_ids、非法引用类型）报 error；引用层面的
+        漂移（shot_id 悬空、引用未注册资产）报 warning——shots 是内容唯一真相，
+        镜头删除后索引短暂悬空是合法中间态，重新派生即愈，不应阻塞归档/修复流程。
+        """
+        if units is None:
+            return
+        if not isinstance(units, list):
+            errors.append("reference_units 必须是数组")
+            return
+
+        shot_ids = {s.get("shot_id") for s in shots if isinstance(s, dict)} if isinstance(shots, list) else set()
+        for index, unit in enumerate(units):
+            prefix = f"reference_units[{index}]"
+            if not isinstance(unit, dict):
+                errors.append(f"{prefix}: 必须是对象")
+                continue
+
+            unit_id = unit.get("unit_id")
+            if not unit_id or not isinstance(unit_id, str):
+                errors.append(f"{prefix}: 缺少必填字段 unit_id")
+
+            ids = unit.get("shot_ids")
+            if not isinstance(ids, list) or not ids:
+                errors.append(f"{prefix}: shot_ids 必须是非空数组")
+            else:
+                dangling = [str(sid) for sid in ids if sid not in shot_ids]
+                if dangling:
+                    warnings.append(f"{prefix}: 引用的镜头不存在（{', '.join(dangling)}），需重新派生分组")
+
+            refs = unit.get("references")
+            if refs is None:
+                continue
+            if not isinstance(refs, list):
+                errors.append(f"{prefix}: references 必须是数组")
+                continue
+            for ri, ref in enumerate(refs):
+                if not isinstance(ref, dict):
+                    errors.append(f"{prefix}.references[{ri}]: 必须是对象")
+                    continue
+                rtype = ref.get("type")
+                rname = ref.get("name")
+                if rtype not in registered_names:
+                    errors.append(f"{prefix}.references[{ri}]: type 无效: {rtype!r}")
+                    continue
+                if not rname or not isinstance(rname, str):
+                    errors.append(f"{prefix}.references[{ri}]: name 必须是非空字符串: {rname!r}")
+                    continue
+                if rname not in registered_names[rtype]:
+                    warnings.append(f"{prefix}.references[{ri}]: 引用的{rtype}「{rname}」未注册，需重新派生分组")
+
     def _validate_episode_payload(
         self,
         project_dir: Path,
@@ -916,6 +976,18 @@ class DataValidator:
                 reference_mode=effective_mode(project=project, episode=episode) == "reference_video",
             )
             self._warn_ad_target_duration_drift(project, shots, warnings)
+            self._validate_ad_reference_units(
+                episode.get("reference_units"),
+                shots,
+                {
+                    "character": project_characters,
+                    "scene": project_scenes,
+                    "prop": project_props,
+                    "product": set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
+                },
+                errors,
+                warnings,
+            )
         else:
             self._validate_scenes(
                 episode.get("scenes", []),

@@ -4,8 +4,10 @@ import { useTranslation } from "react-i18next";
 import { PreprocessingView } from "./PreprocessingView";
 import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
+import { AdReferenceUnitsPanel } from "./AdReferenceUnitsPanel";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { effectiveMode } from "@/utils/generation-mode";
 import { getScriptItemId } from "@/utils/script-shape";
 import type {
   EpisodeScript,
@@ -182,6 +184,9 @@ export function TimelineCanvas({
     segments.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
+  // ad + reference_video：镜头按派生分组直出视频，展示分组面板（其余路径不渲染）
+  const adReference =
+    contentMode === "ad" && effectiveMode(projectData, currentEpisodeMeta) === "reference_video";
   const epMeta =
     currentEpisodeMeta ??
     ({
@@ -327,25 +332,36 @@ export function TimelineCanvas({
             />
           </div>
         ) : episodeScript && segments.length > 0 ? (
-          <ShotSplitView
-            segments={segments}
-            contentMode={editorContentMode}
-            aspectRatio={aspectRatio}
-            projectName={projectName}
-            scriptFile={scriptFile}
-            isGridMode={false}
-            onUpdatePrompt={handleUpdatePrompt}
-            onMoveShot={handleMoveShot}
-            onGenerateStoryboard={handleGenSb}
-            onGenerateVideo={handleGenVid}
-            onGenerateNarration={handleGenNarration}
-            onRestoreStoryboard={onRestoreStoryboard}
-            onRestoreVideo={onRestoreVideo}
-            generatingStoryboard={generatingStoryboard}
-            generatingVideo={generatingVideo}
-            generatingNarration={generatingNarration}
-            durationOptions={durationOptions}
-          />
+          <div className="flex h-full flex-col">
+            {adReference && (
+              <AdReferenceUnitsPanel
+                projectName={projectName}
+                episode={episode}
+                shots={segments as AdShot[]}
+              />
+            )}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <ShotSplitView
+                segments={segments}
+                contentMode={editorContentMode}
+                aspectRatio={aspectRatio}
+                projectName={projectName}
+                scriptFile={scriptFile}
+                isGridMode={false}
+                onUpdatePrompt={handleUpdatePrompt}
+                onMoveShot={handleMoveShot}
+                onGenerateStoryboard={handleGenSb}
+                onGenerateVideo={handleGenVid}
+                onGenerateNarration={handleGenNarration}
+                onRestoreStoryboard={onRestoreStoryboard}
+                onRestoreVideo={onRestoreVideo}
+                generatingStoryboard={generatingStoryboard}
+                generatingVideo={generatingVideo}
+                generatingNarration={generatingNarration}
+                durationOptions={durationOptions}
+              />
+            </div>
+          </div>
         ) : null}
       </div>
     </div>

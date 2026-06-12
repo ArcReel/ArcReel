@@ -1245,6 +1245,17 @@ export default {
   'ad_init_submitting': 'Submitting...',
   'ad_init_success_toast': 'Materials ready — time to create',
   'ad_init_failed': 'Initialization failed: {{message}}',
+
+  // ---- Ad / short video · reference-to-video derived grouping ----
+  'ad_ref_units_title': 'Reference-to-video groups',
+  'ad_ref_derive': 'Derive groups',
+  'ad_ref_rederive': 'Re-derive groups',
+  'ad_ref_generate_all': 'Generate all',
+  'ad_ref_generate_unit': 'Generate video',
+  'ad_ref_generating': 'Generating…',
+  'ad_ref_view_video': 'View video',
+  'ad_ref_stale': 'Shots changed, re-derive needed',
+  'ad_ref_empty_hint': 'Reference-to-video groups consecutive shots into video units (up to 4 shots each) and generates videos directly from product references and asset sheets. Derive the groups first.',
   'workspace_nav_products': 'Products',
 
   // ---- Projects lobby · Darkroom ----

@@ -162,6 +162,10 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids do not match existing units",
     "ref_script_missing": "The script file bound to this episode does not exist",
     "ref_script_rebound": "This episode's script binding changed, please retry",
+    "ref_ad_units_derived": "Video units of an ad/short-video project are derived from shots automatically and cannot be edited manually; edit the shots and re-derive the grouping instead",
+    "ref_derive_ad_only": "Deriving video unit groups is only available for ad/short-video projects",
+    "ref_ad_stale_index": "The unit grouping index no longer matches the shots, please re-derive the grouping",
+    "ref_ad_reference_skipped": "'{name}' ({type}) has no usable reference image and was skipped for this generation",
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",

@@ -1023,6 +1023,27 @@ describe("API.referenceVideos", () => {
     expect(res.task_id).toBe("t-1");
   });
 
+  it("listAdReferenceUnits gets the persisted index", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ units: [] }), { status: 200 }));
+    const res = await API.listAdReferenceUnits("proj", 1);
+    expect(res.units).toEqual([]);
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/projects/proj/reference-videos/episodes/1/units");
+  });
+
+  it("deriveAdReferenceUnits posts to derive-units", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ units: [{ unit_id: "E1U1", shot_ids: ["E1S1"], references: [] }] }), {
+        status: 200,
+      }),
+    );
+    const res = await API.deriveAdReferenceUnits("proj", 1);
+    expect(res.units[0]?.unit_id).toBe("E1U1");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/projects/proj/reference-videos/episodes/1/derive-units");
+    expect(init!.method).toBe("POST");
+  });
+
   it("deleteReferenceVideoUnit returns void on 204", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await expect(API.deleteReferenceVideoUnit("proj", 1, "E1U1")).resolves.toBeUndefined();

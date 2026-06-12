@@ -1246,6 +1246,17 @@ export default {
   'ad_init_submitting': '提交中...',
   'ad_init_success_toast': '素材已就绪，开始创作吧',
   'ad_init_failed': '初始化失败: {{message}}',
+
+  // ---- 广告/短片 · 参考直出派生分组 ----
+  'ad_ref_units_title': '参考直出分组',
+  'ad_ref_derive': '派生分组',
+  'ad_ref_rederive': '重新派生分组',
+  'ad_ref_generate_all': '全部生成',
+  'ad_ref_generate_unit': '生成视频',
+  'ad_ref_generating': '生成中…',
+  'ad_ref_view_video': '查看视频',
+  'ad_ref_stale': '镜头已变化，需重新派生',
+  'ad_ref_empty_hint': '参考直出会把连续镜头自动分组为视频单元（每单元最多 4 个镜头），按产品参考与资产图直接生成视频。先派生分组。',
   'workspace_nav_products': '产品',
 
   // ---- 项目大厅 · Darkroom ----

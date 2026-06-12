@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -625,11 +626,6 @@ def _collect_shot_product_references(project: dict, project_path: Path, item: di
     （列表为空）返回空列表，零产品图。脏数据（products_in_shot 非列表、products
     非 dict、产品名非字符串、引用不存在的产品）按既有装配口径跳过不抛。
     """
-    spec = ASSET_SPECS["product"]
-    products = project.get(spec.bucket_key)
-    if not isinstance(products, dict):
-        products = {}
-    references: list[dict] = []
     raw_products_in_shot = item.get("products_in_shot")
     if not isinstance(raw_products_in_shot, (list, tuple)):
         if raw_products_in_shot:
@@ -637,8 +633,25 @@ def _collect_shot_product_references(project: dict, project_path: Path, item: di
                 "products_in_shot 类型异常（%s），产品参考注入跳过",
                 type(raw_products_in_shot).__name__,
             )
-        return references
-    for name in raw_products_in_shot:
+        return []
+    return collect_product_references_for_names(project, project_path, raw_products_in_shot)
+
+
+def collect_product_references_for_names(
+    project: dict,
+    project_path: Path,
+    names: Sequence[str],
+) -> list[dict]:
+    """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
+    ``_collect_shot_product_references``）。分镜/视频按镜头注入与 ad 参考直出
+    按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
+    """
+    spec = ASSET_SPECS["product"]
+    products = project.get(spec.bucket_key)
+    if not isinstance(products, dict):
+        products = {}
+    references: list[dict] = []
+    for name in names:
         if not isinstance(name, str):
             logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
             continue
