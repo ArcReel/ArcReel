@@ -448,6 +448,17 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
         "python .claude/skills/../../../tmp/evil.py",
         "python .claude/skills/../../arcreel_secrets_dumper.py",
         "ffmpeg -i ../../other_project/secret.mp4 out.mp4",
+        # 路径穿越混淆绕过：shell 会把 ".." / .\. 还原成 ..，归一化后必须拒
+        'python .claude/skills/dir/".."/".."/evil.py',
+        "python .claude/skills/dir/'..'/'..'/evil.py",
+        "python .claude/skills/dir/.\\./.\\./evil.py",
+        'ffmpeg -i ".."/".."/secret.mp4 out.mp4',
+        # python 入口必须是 <skill>/scripts/<script>.py：skills 目录下任意其它
+        # 文件（无 scripts/ 段、非 .py、或直接挂在 skill 根）一律不放行
+        "python .claude/skills/evil.py",
+        "python .claude/skills/compose-video/compose_video.py scripts/ep.json",
+        "python .claude/skills/compose-video/scripts/data.json",
+        "python .claude/skills/compose-video/scripts/sub/run.py",
     ],
 )
 async def test_windows_bash_whitelist_blocks_metachar_chains(tmp_path: Path, command: str) -> None:

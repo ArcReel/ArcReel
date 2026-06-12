@@ -335,11 +335,18 @@ class SessionManager:
 
     _BASH_TOOLS: tuple[str, ...] = ("Bash", "BashOutput", "KillBash")
 
+    # python skills 入口前缀。约定形态 ``python .claude/skills/<skill>/scripts/
+    # <script>.py <args>``：脚本路径须落在某 skill 的 scripts/ 下（_SKILL_SCRIPT_RE
+    # 校验），挡住 skills 目录里任意现有/未来文件被当作可执行入口——Windows 回退
+    # 无 sandbox denyExec 兜底，仅靠前缀放行会把整棵 skills 树暴露为可执行面。
+    _PYTHON_SKILLS_PREFIX = "python .claude/skills/"
+    _SKILL_SCRIPT_RE: "re.Pattern[str]" = re.compile(r"^\.claude/skills/[^/]+/scripts/[^/]+\.py$")
+
     # Windows 回退（_sandbox_enabled=False）的 Bash 命令白名单：等价于 PR 沙箱化前
     # main 分支 settings.json permissions.allow 段。也是 _can_use_tool deny hint
     # 文案的单一真相源（_format_bash_whitelist_deny_message 从此派生）。
     _WINDOWS_BASH_PREFIX_WHITELIST: tuple[str, ...] = (
-        "python .claude/skills/",
+        _PYTHON_SKILLS_PREFIX,
         "ffmpeg",
         "ffprobe",
     )
@@ -2563,28 +2570,50 @@ class SessionManager:
     def _is_bash_command_whitelisted(cls, command: str) -> bool:
         """Windows 回退（sandbox 不可用）的 Bash 命令白名单判定。
 
-        纯 startswith 前缀匹配有两类绕过：metachar 链（``ffmpeg ...; evil`` 整串
-        满足前缀，尾部命令照常执行，且 Windows 上无 sandbox denyWrite 兜底）与
-        命令名前缀碰撞（``ffmpegX`` 也以 ``ffmpeg`` 开头）。判定分两步：
+        纯 startswith 前缀匹配有三类绕过：metachar 链（``ffmpeg ...; evil`` 整串
+        满足前缀，尾部命令照常执行，且 Windows 上无 sandbox denyWrite 兜底）、
+        命令名前缀碰撞（``ffmpegX`` 也以 ``ffmpeg`` 开头）、路径穿越（``..`` 逃出
+        skills 目录）。判定分四步：
 
         1. 整串拒 shell metachar（``_BASH_METACHARS_RE``），挡链式/管道/重定向/
            命令替换；
-        2. 整串拒 ``..`` 路径段（``_BASH_PATH_TRAVERSAL_RE``），挡
-           ``python .claude/skills/../../evil.py`` 逃出 skills 目录跑任意脚本；
+        2. 拒 ``..`` 路径段（``_BASH_PATH_TRAVERSAL_RE``）：原串之外，再剥引号、
+           按 Windows 分隔符（``\\``→``/``）与 POSIX 转义（去 ``\\``）两解后各查一遍
+           ——shell 会把 ``".."`` / ``.\\.`` 还原成 ``..``，只查原串会被这类混淆
+           绕过逃出 skills 目录；
         3. 按 token 边界匹配 ``_WINDOWS_BASH_PREFIX_WHITELIST``：不含空格的前缀
-           （ffmpeg/ffprobe）要求命令名完全相等或后跟空格；含空格的前缀
-           （``python .claude/skills/``）空格已锚定命令名，路径段按前缀匹配。
+           （ffmpeg/ffprobe）要求命令名完全相等或后跟空格；
+        4. python skills 入口额外要求首个参数是 ``<skill>/scripts/<script>.py``
+           （``_is_allowed_python_skill_command``），不放行 skills 目录下任意文件。
         """
         cmd = command.strip()
-        if not cmd or cls._BASH_METACHARS_RE.search(cmd) or cls._BASH_PATH_TRAVERSAL_RE.search(cmd):
+        if not cmd or cls._BASH_METACHARS_RE.search(cmd):
             return False
+        unquoted = cmd.replace('"', "").replace("'", "")
+        for variant in (cmd, unquoted.replace("\\", "/"), unquoted.replace("\\", "")):
+            if cls._BASH_PATH_TRAVERSAL_RE.search(variant):
+                return False
         for prefix in cls._WINDOWS_BASH_PREFIX_WHITELIST:
-            if " " in prefix:
+            if prefix == cls._PYTHON_SKILLS_PREFIX:
+                if cmd.startswith(prefix) and cls._is_allowed_python_skill_command(cmd):
+                    return True
+            elif " " in prefix:
                 if cmd.startswith(prefix):
                     return True
             elif cmd == prefix or cmd.startswith(prefix + " "):
                 return True
         return False
+
+    @classmethod
+    def _is_allowed_python_skill_command(cls, cmd: str) -> bool:
+        """``python .claude/skills/...`` 的脚本入口校验：取首个参数（脚本路径），
+        要求匹配 ``.claude/skills/<skill>/scripts/<script>.py``。约束到显式 scripts
+        入口，避免 skills 目录下任意文件在 Windows 回退（无 sandbox 兜底）下可执行。
+        """
+        parts = cmd.split(maxsplit=2)
+        if len(parts) < 2:
+            return False
+        return cls._SKILL_SCRIPT_RE.match(parts[1]) is not None
 
     @classmethod
     def _format_bash_whitelist_deny_message(cls, command: str) -> str:
@@ -2597,6 +2626,7 @@ class SessionManager:
             f"{allowed_lines}\n"
             "且命令不得包含 shell 元字符（; & | < > ` $ 或换行）或 .. 路径穿越——"
             "复合命令请拆成多次独立调用，脚本路径不要用 .. 逃出目录。\n"
+            "python 仅允许跑 .claude/skills/<skill>/scripts/<script>.py 入口脚本。\n"
             "其他 Bash 命令在 Windows 回退模式下不可用。"
         )
 
