@@ -30,7 +30,9 @@ pm = ProjectManager(app_data_dir())
 
 # 经此路由可还原的资源类型（API 面策略）。路径形状委托 lib.resource_paths，但本路由
 # 仅放行有还原后元数据同步分支的这几类；grids 的还原是独立议题。
-_RESTORABLE_RESOURCE_TYPES = frozenset({"storyboards", "videos", "characters", "scenes", "props", "reference_videos"})
+_RESTORABLE_RESOURCE_TYPES = frozenset(
+    {"storyboards", "videos", "characters", "scenes", "props", "products", "reference_videos"}
+)
 
 
 def get_project_manager() -> ProjectManager:
@@ -158,6 +160,7 @@ _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
     "characters": "character",
     "scenes": "scene",
     "props": "prop",
+    "products": "product",
 }
 
 

@@ -12,13 +12,14 @@ import { SourceFilesPage } from "./SourceFilesPage";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
+import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
 import { effectiveMode } from "@/utils/generation-mode";
-import type { Scene, Prop, CustomProviderInfo, ProviderInfo } from "@/types";
+import type { Scene, Prop, Product, CustomProviderInfo, ProviderInfo } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
 // ---------------------------------------------------------------------------
@@ -155,6 +156,19 @@ export function StudioCanvasRouter() {
     for (const t of tasks) {
       if (
         t.task_type === "prop" &&
+        t.project_name === currentProjectName &&
+        (t.status === "queued" || t.status === "running")
+      ) {
+        names.add(t.resource_id);
+      }
+    }
+    return names;
+  }, [tasks, currentProjectName]);
+  const generatingProductNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of tasks) {
+      if (
+        t.task_type === "product" &&
         t.project_name === currentProjectName &&
         (t.status === "queued" || t.status === "running")
       ) {
@@ -400,6 +414,43 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
+  // ---- Product CRUD callbacks ----
+  const handleUpdateProduct = useCallback(async (name: string, updates: Partial<Product>) => {
+    if (!currentProjectName) return;
+    try {
+      await API.updateProjectProduct(currentProjectName, name, updates);
+      await refreshProject();
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("update_product_failed", { message: errMsg(err) }), "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  const handleGenerateProduct = useCallback(async (name: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.generateProjectProduct(
+        currentProjectName,
+        name,
+        currentProjectData?.products?.[name]?.description ?? "",
+      );
+      useAppStore.getState().pushToast(tRef.current("product_task_submitted_toast", { name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+    }
+  }, [currentProjectName, currentProjectData]);
+
+  const handleAddProductSubmit = useCallback(async (name: string, description: string, brand: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.addProjectProduct(currentProjectName, name, description, brand || undefined);
+      await refreshProject();
+      useAppStore.getState().pushToast(tRef.current("product_added_toast", { name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
+      throw err; // ProductFormModal onSubmit 消费：失败时阻止关闭对话框
+    }
+  }, [currentProjectName, refreshProject]);
+
   const handleGenerateGrid = useCallback(async (episode: number, scriptFile: string, sceneIds?: string[]) => {
     if (!currentProjectName) return;
     try {
@@ -429,6 +480,12 @@ export function StudioCanvasRouter() {
   const handleGeneratePropVoid = useCallback((...args: Parameters<typeof handleGenerateProp>) => {
     void handleGenerateProp(...args).catch(console.error);
   }, [handleGenerateProp]);
+  const handleUpdateProductVoid = useCallback((...args: Parameters<typeof handleUpdateProduct>) => {
+    void handleUpdateProduct(...args).catch(console.error);
+  }, [handleUpdateProduct]);
+  const handleGenerateProductVoid = useCallback((...args: Parameters<typeof handleGenerateProduct>) => {
+    void handleGenerateProduct(...args).catch(console.error);
+  }, [handleGenerateProduct]);
 
   if (!currentProjectName) {
     return (
@@ -495,6 +552,19 @@ export function StudioCanvasRouter() {
           onRestorePropVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
           generatingPropNames={generatingPropNames}
+        />
+      </Route>
+
+      <Route path="/products">
+        <ProductsPage
+          projectName={currentProjectName}
+          products={currentProjectData?.products ?? {}}
+          onUpdateProduct={handleUpdateProductVoid}
+          onGenerateProduct={handleGenerateProductVoid}
+          onAddProduct={handleAddProductSubmit}
+          onRestoreProductVersion={handleRestoreAsset}
+          onRefreshProject={refreshProject}
+          generatingProductNames={generatingProductNames}
         />
       </Route>
 

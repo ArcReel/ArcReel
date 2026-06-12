@@ -11,6 +11,7 @@ import { formatCost, totalBreakdown } from "@/utils/cost-format";
 import { errMsg } from "@/utils/async";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
+import { AdInitCanvas } from "./AdInitCanvas";
 import { ConflictModal, type ConflictResolution } from "./ConflictModal";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 
@@ -218,6 +219,12 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const status = projectData.status;
   const overview = projectData.overview;
   const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
+  // ad 项目恒单集（episodes 非空），不会落入 showWelcome；建项后素材全空时进入初始化页：
+  // 上传产品图 + 产品描述 + brief + 可选 sheet 生成。任一素材就绪即切回概览。
+  const showAdInit =
+    isAd &&
+    Object.keys(projectData.products ?? {}).length === 0 &&
+    !(projectData.brief ?? "").trim();
 
   return (
     <div className="h-full overflow-y-auto">
@@ -256,7 +263,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           </div>
         </header>
 
-        {showWelcome ? (
+        {showAdInit ? (
+          <AdInitCanvas projectName={projectName} onDone={refreshProject} />
+        ) : showWelcome ? (
           <WelcomeCanvas
             projectName={projectName}
             projectTitle={projectData.title}
@@ -620,7 +629,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     rows={[
                       { label: t("storyboard"), value: formatCost(projectTotals.actual.image) },
                       { label: t("video"), value: formatCost(projectTotals.actual.video) },
-                      ...(["characters", "scenes", "props"] as const)
+                      ...(["characters", "scenes", "props", "products"] as const)
                         .map((kind) => {
                           const bucket = projectTotals.actual[kind];
                           if (bucket == null) return null;

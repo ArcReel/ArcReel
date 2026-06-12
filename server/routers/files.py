@@ -17,9 +17,9 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.app_data_dir import app_data_dir
-from lib.asset_types import ASSET_TYPES
+from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
 from lib.i18n import Translator
-from lib.image_utils import normalize_uploaded_image
+from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager, effective_mode
 from lib.source_loader import (
@@ -57,6 +57,8 @@ ALLOWED_EXTENSIONS = {
     "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
     "scene": [".png", ".jpg", ".jpeg", ".webp"],
     "prop": [".png", ".jpg", ".jpeg", ".webp"],
+    "product": [".png", ".jpg", ".jpeg", ".webp"],
+    "product_ref": [".png", ".jpg", ".jpeg", ".webp"],
 }
 
 
@@ -94,8 +96,8 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
 @router.get("/global-assets/{asset_type}/{filename}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
-    """服务 _global_assets 下的全局资产图片（character/scene/prop）"""
-    if asset_type not in ASSET_TYPES:
+    """服务 _global_assets 下的全局资产图片（仅全局库类型：character/scene/prop）"""
+    if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
@@ -130,9 +132,10 @@ async def upload_file(
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/character_ref/scene/prop)
+        upload_type: 上传类型 (source/character/character_ref/scene/prop/product/product_ref)
         file: 上传的文件
-        name: 可选，用于角色/场景/道具名称（自动更新元数据）；分镜/视频上传走 shot_uploads 路由
+        name: 可选，用于角色/场景/道具/产品名称（自动更新元数据）；product_ref 必填；
+            分镜/视频上传走 shot_uploads 路由
         on_conflict: source 类型独有 — fail / replace / rename
     """
     if upload_type not in ALLOWED_EXTENSIONS:
@@ -163,6 +166,13 @@ async def upload_file(
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
 
+            # 产品原图列表是这些文件的唯一指针：产品不存在就拒收，避免落下不可见的孤儿文件
+            # （character_ref 等单图类型路径确定、可容忍资产后建，不受此约束）。
+            if upload_type == "product_ref":
+                products = get_project_manager().load_project(project_name).get("products") or {}
+                if not name or name not in products:
+                    raise HTTPException(status_code=404, detail=_t("product_not_found", name=name or ""))
+
             # 确定目标目录
             if upload_type == "source":
                 target_dir = project_dir / "source"
@@ -192,6 +202,15 @@ async def upload_file(
                     filename = f"{name}.png"
                 else:
                     filename = f"{Path(original_filename).stem}.png"
+            elif upload_type == "product":
+                target_dir = project_dir / "products"
+                if name:
+                    filename = f"{name}.png"
+                else:
+                    filename = f"{Path(original_filename).stem}.png"
+            elif upload_type == "product_ref":
+                target_dir = project_dir / "products" / "refs"
+                filename = ""  # 多图累积，唯一文件名在目录就绪后按序号计算
             else:
                 target_dir = project_dir / upload_type
                 filename = original_filename
@@ -200,12 +219,24 @@ async def upload_file(
 
             # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
             nonlocal content
-            if upload_type in ("character", "character_ref", "scene", "prop"):
+            if upload_type in ("character", "character_ref", "scene", "prop", "product"):
                 try:
                     content, ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
                 filename = Path(filename).with_suffix(ext).name
+            elif upload_type == "product_ref":
+                # 产品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
+                # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
+                try:
+                    validate_image_bytes(content)
+                except ValueError:
+                    raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
+                ref_ext = Path(original_filename).suffix.lower() or ".png"
+                seq = 1
+                while (target_dir / f"{name}_{seq}{ref_ext}").exists():
+                    seq += 1
+                filename = f"{name}_{seq}{ref_ext}"
 
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
@@ -222,6 +253,10 @@ async def upload_file(
                 relative_path = f"scenes/{filename}"
             elif upload_type == "prop":
                 relative_path = f"props/{filename}"
+            elif upload_type == "product":
+                relative_path = f"products/{filename}"
+            elif upload_type == "product_ref":
+                relative_path = f"products/refs/{filename}"
             else:
                 relative_path = f"{upload_type}/{filename}"
 
@@ -264,6 +299,29 @@ async def upload_file(
                         )
                 except KeyError:
                     pass  # 道具不存在，忽略
+
+            if upload_type == "product" and name:
+                try:
+                    with project_change_source("webui"):
+                        get_project_manager().update_product_sheet(
+                            project_name,
+                            name,
+                            f"products/{filename}",
+                        )
+                except KeyError:
+                    pass  # 产品不存在，忽略
+
+            if upload_type == "product_ref" and name:
+                try:
+                    with project_change_source("webui"):
+                        get_project_manager().add_product_reference_image(
+                            project_name,
+                            name,
+                            f"products/refs/{filename}",
+                        )
+                except KeyError:
+                    # 入口已校验产品存在；并发删除导致的窗口期竞态按 404 处理
+                    raise HTTPException(status_code=404, detail=_t("product_not_found", name=name))
 
             return {
                 "success": True,
@@ -392,6 +450,7 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
                 "characters": [],
                 "scenes": [],
                 "props": [],
+                "products": [],
                 "storyboards": [],
                 "videos": [],
                 "output": [],

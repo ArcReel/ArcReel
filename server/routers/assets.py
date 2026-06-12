@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from lib.app_data_dir import app_data_dir
-from lib.asset_types import ASSET_TYPES, BUCKET_KEY, SHEET_KEY, validate_asset_name
+from lib.asset_types import BUCKET_KEY, GLOBAL_LIBRARY_ASSET_TYPES, SHEET_KEY, validate_asset_name
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
@@ -118,7 +118,7 @@ async def create_asset(
     voice_style: str = Form(""),
     image: UploadFile | None = File(None),
 ):
-    if type not in ASSET_TYPES:
+    if type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
     name = _validate_asset_name(name, _t)
 
@@ -258,7 +258,7 @@ async def from_project(
     _t: Translator,
 ):
     # 1) 类型合法性
-    if req.resource_type not in ASSET_TYPES:
+    if req.resource_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
 
     # 2) 加载项目

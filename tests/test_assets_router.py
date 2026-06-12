@@ -80,6 +80,22 @@ class TestAssetsCRUD:
         r = client.post("/api/v1/assets", data={"type": "invalid", "name": "X"})
         assert r.status_code == 400
 
+    def test_product_type_excluded_from_global_library(self, _assets_env):
+        """product 是多图列表型资产，单图列模型的全局库不收：create 与 from-project 均 400。"""
+        client = _assets_env["client"]
+        r = client.post("/api/v1/assets", data={"type": "product", "name": "保温杯"})
+        assert r.status_code == 400
+
+        r2 = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "product",
+                "resource_id": "保温杯",
+            },
+        )
+        assert r2.status_code == 400
+
     def test_list_filters_by_q(self, _assets_env):
         client = _assets_env["client"]
         client.post("/api/v1/assets", data={"type": "character", "name": "王小明"})

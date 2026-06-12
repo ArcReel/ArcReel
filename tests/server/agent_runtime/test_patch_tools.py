@@ -426,6 +426,61 @@ class TestPatchProject:
         # 用户上传的 reference_image 不被 agent 覆写
         assert char["reference_image"] == "characters/refs/li_bai.jpg"
 
+    async def test_product_upsert_selling_points_editable(self, ctx: ToolContext) -> None:
+        """products 表对 agent 开放；selling_points 在可编辑白名单内（agent 起草、用户可改），
+        新 entry 的列表字段按 spec 初始化。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "products",
+                "entries": {"保温杯": {"description": "不锈钢保温杯", "selling_points": ["12 小时保温", "一键开盖"]}},
+            },
+        )
+        assert out.get("is_error") is not True
+        product = ctx.pm.load_project("demo")["products"]["保温杯"]
+        assert product["description"] == "不锈钢保温杯"
+        assert product["selling_points"] == ["12 小时保温", "一键开盖"]
+        assert product["reference_images"] == []
+        assert product["product_sheet"] == ""
+        assert product["brand"] == ""
+
+    async def test_product_upsert_strips_reference_images(self, ctx: ToolContext) -> None:
+        """reference_images 是用户上传的原图路径列表（保真验收锚点），不在 agent 白名单——
+        upsert 应静默丢弃且不覆写既有值，更新走专用上传 API。"""
+        await _call(
+            patch_project_tool(ctx),
+            {"table": "products", "entries": {"保温杯": {"description": "不锈钢保温杯"}}},
+        )
+        ctx.pm.add_product_reference_image("demo", "保温杯", "products/refs/保温杯_1.jpg")
+
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "products",
+                "entries": {
+                    "保温杯": {
+                        "description": "改后描述",
+                        "selling_points": ["双层真空"],
+                        "reference_images": [],
+                    }
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        product = ctx.pm.load_project("demo")["products"]["保温杯"]
+        assert product["description"] == "改后描述"
+        assert product["selling_points"] == ["双层真空"]
+        assert product["reference_images"] == ["products/refs/保温杯_1.jpg"]
+
+    async def test_product_upsert_invalid_selling_points_blocked(self, ctx: ToolContext) -> None:
+        """selling_points 须为字符串列表：非法类型被结构校验拦截，不落盘。"""
+        out = await _call(
+            patch_project_tool(ctx),
+            {"table": "products", "entries": {"保温杯": {"description": "杯", "selling_points": "不是列表"}}},
+        )
+        assert out.get("is_error") is True
+        assert "保温杯" not in ctx.pm.load_project("demo").get("products", {})
+
     async def test_response_distinguishes_added_and_merged(self, ctx: ToolContext) -> None:
         """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 agent 验证是否符合预期策略
         (如 analyze-assets subagent 应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""

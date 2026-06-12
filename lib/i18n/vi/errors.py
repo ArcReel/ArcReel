@@ -39,6 +39,7 @@ MESSAGES = {
     "character_task_submitted": "Đã gửi tác vụ tạo thiết kế nhân vật cho '{name}'",
     "scene_task_submitted": "Đã gửi tác vụ tạo thiết kế cảnh cho '{name}'",
     "prop_task_submitted": "Đã gửi tác vụ tạo thiết kế đạo cụ cho '{name}'",
+    "product_task_submitted": "Đã gửi tác vụ tạo ảnh tham chiếu chuẩn cho sản phẩm '{name}'",
     # Files
     "file_not_found": "Tệp không tồn tại: {path}",
     "forbidden_access": "Cấm truy cập tệp ngoài thư mục dự án",
@@ -115,6 +116,9 @@ MESSAGES = {
     "prop_already_exists": "Đạo cụ '{name}' đã tồn tại",
     "prop_not_found": "Không tìm thấy đạo cụ '{name}'",
     "prop_deleted": "Đã xóa đạo cụ '{name}'",
+    "product_already_exists": "Sản phẩm '{name}' đã tồn tại",
+    "product_not_found": "Không tìm thấy sản phẩm '{name}'",
+    "product_deleted": "Đã xóa sản phẩm '{name}'",
     # API Keys
     "jwt_auth_required": "API Key không được phép thực hiện thao tác này, vui lòng dùng xác thực JWT",
     "api_key_name_exists": "Tên '{name}' đã tồn tại",

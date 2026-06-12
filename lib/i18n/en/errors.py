@@ -39,6 +39,7 @@ MESSAGES = {
     "character_task_submitted": "Character design generation task for '{name}' submitted",
     "scene_task_submitted": "Scene design generation task for '{name}' submitted",
     "prop_task_submitted": "Prop design generation task for '{name}' submitted",
+    "product_task_submitted": "Product reference sheet generation task for '{name}' submitted",
     # Files
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",
@@ -115,6 +116,9 @@ MESSAGES = {
     "prop_already_exists": "Prop '{name}' already exists",
     "prop_not_found": "Prop '{name}' not found",
     "prop_deleted": "Prop '{name}' deleted",
+    "product_already_exists": "Product '{name}' already exists",
+    "product_not_found": "Product '{name}' not found",
+    "product_deleted": "Product '{name}' deleted",
     # API Keys
     "jwt_auth_required": "API Key is not authorized to perform this action, please use JWT authentication",
     "api_key_name_exists": "Name '{name}' already exists",

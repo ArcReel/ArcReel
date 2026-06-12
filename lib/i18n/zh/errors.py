@@ -39,6 +39,7 @@ MESSAGES = {
     "character_task_submitted": "角色「{name}」设计图生成任务已提交",
     "scene_task_submitted": "场景「{name}」设计图生成任务已提交",
     "prop_task_submitted": "道具「{name}」设计图生成任务已提交",
+    "product_task_submitted": "产品「{name}」标准参考图生成任务已提交",
     # Files
     "file_not_found": "文件不存在: {path}",
     "forbidden_access": "禁止访问项目目录外的文件",
@@ -115,6 +116,9 @@ MESSAGES = {
     "prop_already_exists": "道具「{name}」已存在",
     "prop_not_found": "道具「{name}」不存在",
     "prop_deleted": "道具「{name}」已删除",
+    "product_already_exists": "产品「{name}」已存在",
+    "product_not_found": "产品「{name}」不存在",
+    "product_deleted": "产品「{name}」已删除",
     # API Keys
     "jwt_auth_required": "API Key 无权执行此操作，请使用 JWT 认证",
     "api_key_name_exists": "名称 '{name}' 已存在",

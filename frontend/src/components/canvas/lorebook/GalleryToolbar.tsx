@@ -5,7 +5,8 @@ interface Props {
   title: string;
   count: number;
   onAdd: () => void;
-  onPickFromLibrary: () => void;
+  /** 未提供时隐藏「从资产库选择」入口（如不入全局库的资产类型）。 */
+  onPickFromLibrary?: () => void;
 }
 
 /**
@@ -52,6 +53,7 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary }: Props
         {String(count).padStart(2, "0")}
       </span>
       <div className="flex-1" />
+      {onPickFromLibrary && (
       <button
         type="button"
         onClick={onPickFromLibrary}
@@ -73,6 +75,7 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary }: Props
         <Package className="h-3.5 w-3.5" />
         {t("assets:from_library")}
       </button>
+      )}
       <button
         type="button"
         onClick={onAdd}

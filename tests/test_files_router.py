@@ -46,6 +46,7 @@ def _client(monkeypatch, tmp_path):
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.add_character("demo", "Alice", "desc")
     pm.add_prop("demo", "玉佩", "古玉")
+    pm.add_product("demo", "保温杯", "不锈钢保温杯")
 
     monkeypatch.setattr(files, "get_project_manager", lambda: pm)
     monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
@@ -175,6 +176,99 @@ class TestFilesRouter:
             assert project["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
             assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.webp"
             assert project["props"]["玉佩"]["prop_sheet"] == "props/玉佩.jpg"
+
+    def test_product_ref_upload_preserves_original_bytes(self, tmp_path, monkeypatch):
+        """产品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
+        client, pm = _client(monkeypatch, tmp_path)
+
+        # 构造一张 >2MB 的 PNG（其他资产上传在该阈值会被压成 JPEG q85）：
+        # 噪声像素不可压缩，保证体积越过阈值
+        import os as _os
+
+        image = Image.frombytes("RGB", (1200, 1200), _os.urandom(1200 * 1200 * 3))
+        buf = BytesIO()
+        image.save(buf, format="PNG")
+        original = buf.getvalue()
+        assert len(original) > 2 * 1024 * 1024
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/product_ref?name=保温杯",
+                files={"file": ("photo.png", original, "image/png")},
+            )
+            assert resp.status_code == 200
+            path = resp.json()["path"]
+            assert path.startswith("products/refs/")
+            assert path.endswith(".png")
+
+            saved = pm.get_project_path("demo") / path
+            assert saved.read_bytes() == original
+
+            project = pm.load_project("demo")
+            assert project["products"]["保温杯"]["reference_images"] == [path]
+
+    def test_product_ref_multiple_uploads_accumulate(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            paths = []
+            for fname in ("front.jpg", "back.jpg"):
+                resp = client.post(
+                    "/api/v1/projects/demo/upload/product_ref?name=保温杯",
+                    files={"file": (fname, _img_bytes("JPEG"), "image/jpeg")},
+                )
+                assert resp.status_code == 200
+                paths.append(resp.json()["path"])
+
+            assert len(set(paths)) == 2
+            project = pm.load_project("demo")
+            assert project["products"]["保温杯"]["reference_images"] == paths
+            project_dir = pm.get_project_path("demo")
+            for p in paths:
+                assert (project_dir / p).exists()
+
+    def test_product_ref_unknown_product_404(self, tmp_path, monkeypatch):
+        """原图列表是文件的唯一指针：产品不存在时拒收，避免落下孤儿文件。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/product_ref?name=不存在",
+                files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 404
+            refs_dir = pm.get_project_path("demo") / "products" / "refs"
+            assert not refs_dir.exists() or not any(refs_dir.iterdir())
+
+    def test_product_ref_invalid_image_rejected(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/product_ref?name=保温杯",
+                files={"file": ("bad.png", b"not-image", "image/png")},
+            )
+            assert resp.status_code == 400
+
+    def test_product_sheet_upload_updates_metadata(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/product?name=保温杯",
+                files={"file": ("sheet.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == "products/保温杯.jpg"
+            project = pm.load_project("demo")
+            assert project["products"]["保温杯"]["product_sheet"] == "products/保温杯.jpg"
+
+    def test_list_files_includes_products(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            client.post(
+                "/api/v1/projects/demo/upload/product?name=保温杯",
+                files={"file": ("sheet.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            listed = client.get("/api/v1/projects/demo/files")
+            assert listed.status_code == 200
+            assert any(item["name"] == "保温杯.jpg" for item in listed.json()["files"]["products"])
 
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)

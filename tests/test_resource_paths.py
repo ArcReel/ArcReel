@@ -84,6 +84,7 @@ class TestResourceTypes:
             "characters",
             "scenes",
             "props",
+            "products",
             "grids",
             "reference_videos",
         }

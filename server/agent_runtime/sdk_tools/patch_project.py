@@ -1,7 +1,7 @@
 """SDK MCP tool for editing project.json assets by table + name 或顶层 settings 字段。
 
-把 agent 对 ``project.json`` 角色/场景/道具的写入收归 ``patch_project``：按 table
-（characters/scenes/props）+ name **upsert**（不存在则加、存在则改字段），经
+把 agent 对 ``project.json`` 角色/场景/道具/产品的写入收归 ``patch_project``：按 table
+（characters/scenes/props/products）+ name **upsert**（不存在则加、存在则改字段），经
 ``ProjectManager.upsert_assets`` 在单一文件锁内 read-modify-write，apply 后落盘前做结构
 校验，非法则不写。取代脆弱的单行 CLI-JSON 脚本 ``add_assets.py``（且把「只能加」扩为「可改」）。
 
@@ -16,9 +16,11 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.asset_types import ASSET_SPECS
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
-_TABLES = ("characters", "scenes", "props")
+# 资产表清单从 ASSET_SPECS 派生，新增资产类型时 schema enum 自动跟进。
+_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 
 # 顶层 settings 白名单。新增项 append 到 tuple,并在 _validate_setting_value 加分支。
 # source_language: overview 生成是非必经路径(generate_overview=false / overview 失败时
@@ -44,7 +46,7 @@ def patch_project_tool(ctx: ToolContext):
                 "table": {
                     "type": "string",
                     "enum": list(_TABLES),
-                    "description": "(资产 upsert 分支)资产表:characters / scenes / props",
+                    "description": "(资产 upsert 分支)资产表:characters / scenes / props / products",
                 },
                 "entries": {
                     "type": "object",

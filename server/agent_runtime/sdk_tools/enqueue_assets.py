@@ -1,4 +1,4 @@
-"""SDK MCP tools for asset image generation (character / scene / prop)."""
+"""SDK MCP tools for asset image generation (character / scene / prop / product)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 # Asset-type emoji shown in tool output. Other display fields (bucket_key,
 # label_zh, subdir) come from lib.asset_types.ASSET_SPECS — the cross-app
 # source of truth.
-_EMOJI: dict[str, str] = {"character": "🧑", "scene": "🏠", "prop": "📦"}
+_EMOJI: dict[str, str] = {"character": "🧑", "scene": "🏠", "prop": "📦", "product": "🛍️"}
 
 ALL_TYPES: tuple[str, ...] = tuple(ASSET_SPECS.keys())
 
@@ -25,6 +25,7 @@ _PENDING_DISPATCH = {
     "character": lambda pm, name: pm.get_pending_characters(name),
     "scene": lambda pm, name: pm.get_pending_project_scenes(name),
     "prop": lambda pm, name: pm.get_pending_project_props(name),
+    "product": lambda pm, name: pm.get_pending_project_products(name),
 }
 
 
@@ -81,13 +82,13 @@ def _build_specs(
 def list_pending_assets_tool(ctx: ToolContext):
     @tool(
         "list_pending_assets",
-        "列出项目内待生成设计图的角色/场景/道具。type 省略则汇总所有类型。",
+        "列出项目内待生成设计图的角色/场景/道具/产品。type 省略则汇总所有类型。",
         {
             "type": "object",
             "properties": {
                 "type": {
                     "type": "string",
-                    "enum": ["character", "scene", "prop"],
+                    "enum": list(ALL_TYPES),
                     "description": "资产类型；不传则列出所有类型的 pending",
                 },
             },
@@ -123,16 +124,16 @@ def list_pending_assets_tool(ctx: ToolContext):
 def generate_assets_tool(ctx: ToolContext):
     @tool(
         "generate_assets",
-        "批量生成角色/场景/道具设计图。"
-        "type 省略则按 character→scene→prop 顺序每类独立 batch；"
+        "批量生成角色/场景/道具/产品设计图。"
+        "type 省略则按 character→scene→prop→product 顺序每类独立 batch；"
         "names 指定具体名称（必须同时给 type）；all=true 表示该 type 的全部 pending。",
         {
             "type": "object",
             "properties": {
                 "type": {
                     "type": "string",
-                    "enum": ["character", "scene", "prop"],
-                    "description": "资产类型；不传等于全部三类",
+                    "enum": list(ALL_TYPES),
+                    "description": "资产类型；不传等于全部类型",
                 },
                 "names": {
                     "type": "array",

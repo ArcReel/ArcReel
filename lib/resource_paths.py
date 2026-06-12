@@ -28,6 +28,7 @@ _PATTERNS: dict[str, ResourcePattern] = {
     "characters": ResourcePattern("characters", ".png"),
     "scenes": ResourcePattern("scenes", ".png"),
     "props": ResourcePattern("props", ".png"),
+    "products": ResourcePattern("products", ".png"),
     "grids": ResourcePattern("grids", ".png"),
     "reference_videos": ResourcePattern("reference_videos", ".mp4"),
     "audio": ResourcePattern("audio", ".wav", prefix="segment_"),

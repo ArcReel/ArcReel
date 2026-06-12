@@ -9,7 +9,7 @@ import { errMsg } from "@/utils/async";
 
 interface VersionTimeMachineProps {
   projectName: string;
-  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props" | "reference_videos";
+  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props" | "products" | "reference_videos";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
@@ -20,7 +20,7 @@ function getImagePreviewHeightClass(
   resourceType: VersionTimeMachineProps["resourceType"],
 ): string {
   if (resourceType === "characters") return "h-80";
-  if (resourceType === "scenes" || resourceType === "props") return "h-56";
+  if (resourceType === "scenes" || resourceType === "props" || resourceType === "products") return "h-56";
   return "h-64";
 }
 

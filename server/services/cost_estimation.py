@@ -259,9 +259,9 @@ class CostEstimationService:
                     ep_act.get(cost_type, {}),
                 )
 
-        # Project-level actual costs (characters/scenes/props 三类资产图 —— segment_id is null)
+        # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
         project_image_by_type = await self._tracker.get_project_image_costs_by_asset_type(project_name)
-        for asset_type in ("characters", "scenes", "props"):
+        for asset_type in ("characters", "scenes", "props", "products"):
             bucket = project_image_by_type.get(asset_type)
             if bucket:
                 proj_act[asset_type] = bucket

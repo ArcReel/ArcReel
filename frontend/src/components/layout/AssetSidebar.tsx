@@ -12,6 +12,7 @@ import {
   Package,
   Plus,
   Search,
+  ShoppingBag,
 } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -48,6 +49,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const characterCount = Object.keys(currentProjectData?.characters ?? {}).length;
   const sceneCount = Object.keys(currentProjectData?.scenes ?? {}).length;
   const propCount = Object.keys(currentProjectData?.props ?? {}).length;
+  const productCount = Object.keys(currentProjectData?.products ?? {}).length;
   const episodes = currentProjectData?.episodes ?? [];
   // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
   const isAd = currentProjectData?.content_mode === "ad";
@@ -110,6 +112,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       icon: Package,
       meta: propCount,
     },
+    // 产品资产仅广告/短片项目使用（v1 单产品设定），其余模式隐藏入口
+    ...(isAd
+      ? [
+          {
+            key: "products",
+            path: "/products",
+            label: t("dashboard:workspace_nav_products"),
+            icon: ShoppingBag,
+            meta: productCount,
+          },
+        ]
+      : []),
   ];
 
   const isNavActive = (item: NavItem): boolean => {

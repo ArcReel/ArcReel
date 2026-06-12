@@ -1,13 +1,13 @@
-"""项目级资产 CRUD 路由的统一工厂（character / scene / prop）。
+"""项目级资产 CRUD 路由的统一工厂（character / scene / prop / product）。
 
-按 lib.asset_types.ASSET_SPECS 驱动，三类资产共用同一份路由模板。每类资产仅用 5 行
+按 lib.asset_types.ASSET_SPECS 驱动，各类资产共用同一份路由模板。每类资产仅用 5 行
 启用：
 
     router = build_asset_router(asset_type="character", pm_getter=lambda: get_project_manager())
 
 工厂内部从 spec 解析 URL 路径段、bucket key、sheet 字段、PATCH 字段白名单
-（description + sheet_field + extra_string_fields）。i18n key 命名差异（scene 用
-历史前缀 "project_scene_*"）通过 _I18N_KEYS 表维护。
+（description + sheet_field + extra_string_fields + extra_list_fields）。i18n key
+命名差异（scene 用历史前缀 "project_scene_*"）通过 _I18N_KEYS 表维护。
 """
 
 from __future__ import annotations
@@ -45,7 +45,16 @@ _I18N_KEYS: dict[str, dict[str, str]] = {
         "not_found": "prop_not_found",
         "deleted": "prop_deleted",
     },
+    "product": {
+        "exists": "product_already_exists",
+        "not_found": "product_not_found",
+        "deleted": "product_deleted",
+    },
 }
+
+
+def _is_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
 class _CreateRequest(BaseModel):
@@ -73,6 +82,7 @@ def build_asset_router(
     keys = _I18N_KEYS[asset_type]
     result_key = asset_type
     update_fields: tuple[str, ...] = ("description", spec.sheet_field, *spec.extra_string_fields)
+    update_list_fields: tuple[str, ...] = spec.extra_list_fields
 
     router = APIRouter()
 
@@ -89,14 +99,22 @@ def build_asset_router(
             name = validate_asset_name(req.name)
         except ValueError:
             raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.name))
+        extras = req.model_extra or {}
+        # 列表字段（reference_images / selling_points 等）在创建时即校验为字符串列表，
+        # 非法类型 422 在边界拦截，避免污染 project.json。
+        for field in spec.extra_list_fields:
+            value = extras.get(field)
+            if value is not None and not _is_string_list(value):
+                raise HTTPException(status_code=422, detail=f"field '{field}' must be a list of strings")
         try:
-            extras = req.model_extra or {}
 
             def _sync():
                 manager = pm_getter()
                 entry: dict[str, Any] = {"description": req.description, spec.sheet_field: ""}
                 for field in spec.extra_string_fields:
                     entry[field] = extras.get(field, "")
+                for field in spec.extra_list_fields:
+                    entry[field] = list(extras.get(field) or [])
                 with project_change_source("webui"):
                     ok = manager._add_asset(asset_type, project_name, name, entry)
                 if not ok:
@@ -121,13 +139,17 @@ def build_asset_router(
         _user: CurrentUser,
         _t: Translator,
     ):
-        # 写入前对所有可写字段做字符串校验。req 是 dict[str, Any]，若客户端传入对象 /
-        # 数组会污染 project.json 并在下游 (例如 execute_character_task 拼接 reference_image
-        # 路径) 引发 TypeError。422 在边界拦截。
+        # 写入前对所有可写字段做类型校验。req 是 dict[str, Any]，若客户端传入错误类型
+        # 会污染 project.json 并在下游 (例如 execute_character_task 拼接 reference_image
+        # 路径) 引发 TypeError。422 在边界拦截。字符串字段须为 str，列表字段须为字符串列表。
         for field in update_fields:
             value = req.get(field)
             if value is not None and not isinstance(value, str):
                 raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
+        for field in update_list_fields:
+            value = req.get(field)
+            if value is not None and not _is_string_list(value):
+                raise HTTPException(status_code=422, detail=f"field '{field}' must be a list of strings")
 
         try:
 
@@ -140,7 +162,7 @@ def build_asset_router(
                     if entry_name not in bucket:
                         raise KeyError(entry_name)
                     entry = bucket[entry_name]
-                    for field in update_fields:
+                    for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
                             entry[field] = req[field]
                     result.update(entry)

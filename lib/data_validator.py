@@ -69,6 +69,7 @@ class DataValidator:
         "characters",
         "scenes",
         "props",
+        "products",
         "reference_videos",
         "storyboards",
         "videos",
@@ -325,6 +326,12 @@ class DataValidator:
             field_label="props",
             kind_label="道具",
         )
+        self._validate_project_catalog(
+            project.get("products") or {},
+            errors,
+            field_label="products",
+            kind_label="产品",
+        )
 
     def _validate_project_catalog(
         self,
@@ -339,8 +346,10 @@ class DataValidator:
             return
         # scene/prop 的 extra_string_fields 当前均为空 tuple（见 ASSET_SPECS），仍按 spec 取
         # 以保持「validator 跟 spec 同步」——将来给 scenes/props 加 extra 字段时无需改本处。
-        asset_type = field_label.rstrip("s")  # "scenes" → "scene"; "props" → "prop"
-        extra_fields = ASSET_SPECS[asset_type].extra_string_fields if asset_type in ASSET_SPECS else ()
+        asset_type = field_label.rstrip("s")  # "scenes" → "scene"; "products" → "product"
+        spec = ASSET_SPECS.get(asset_type)
+        extra_fields = spec.extra_string_fields if spec else ()
+        extra_list_fields = spec.extra_list_fields if spec else ()
         for name, data in catalog.items():
             if not isinstance(data, dict):
                 errors.append(f"{kind_label} '{name}' 数据格式错误，应为对象")
@@ -353,6 +362,21 @@ class DataValidator:
                 val = data.get(field_name)
                 if val is not None and not isinstance(val, str):
                     errors.append(f"{kind_label} '{name}'.{field_name} 必须是字符串，当前为 {type(val).__name__}")
+            for field_name in extra_list_fields:
+                # spec 声明的 extra_list_fields（reference_images / selling_points 等）若存在
+                # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会
+                # 运行时崩。None 视为「未设置」放行，其余类型 fail-loud。
+                val = data.get(field_name)
+                if val is None:
+                    continue
+                if not isinstance(val, list):
+                    errors.append(f"{kind_label} '{name}'.{field_name} 必须是字符串列表，当前为 {type(val).__name__}")
+                    continue
+                for idx, item in enumerate(val):
+                    if not isinstance(item, str):
+                        errors.append(
+                            f"{kind_label} '{name}'.{field_name}[{idx}] 必须是字符串，当前为 {type(item).__name__}"
+                        )
 
     def _validate_segment_refs(
         self,

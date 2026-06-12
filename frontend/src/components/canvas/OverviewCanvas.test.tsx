@@ -10,6 +10,10 @@ vi.mock("./WelcomeCanvas", () => ({
   WelcomeCanvas: () => <div data-testid="welcome-canvas">welcome</div>,
 }));
 
+vi.mock("./AdInitCanvas", () => ({
+  AdInitCanvas: () => <div data-testid="ad-init-canvas">ad-init</div>,
+}));
+
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
     title: "Demo",
@@ -142,5 +146,48 @@ describe("OverviewCanvas ad mode", () => {
   it("keeps episode semantics for narration projects", () => {
     render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
     expect(screen.getByText("E1")).toBeInTheDocument();
+  });
+
+  it("shows ad init canvas when ad project has no products and no brief", () => {
+    render(
+      <OverviewCanvas
+        projectName="ad-demo"
+        projectData={makeProjectData({
+          content_mode: "ad",
+          overview: undefined,
+          target_duration: 60,
+          brief: "",
+          products: {},
+          episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],
+        })}
+      />,
+    );
+    expect(screen.getByTestId("ad-init-canvas")).toBeInTheDocument();
+  });
+
+  it("skips ad init canvas once brief or products exist", () => {
+    render(
+      <OverviewCanvas
+        projectName="ad-demo"
+        projectData={makeProjectData({
+          content_mode: "ad",
+          target_duration: 60,
+          brief: "卖点",
+          episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("ad-init-canvas")).not.toBeInTheDocument();
+  });
+
+  it("never shows ad init canvas for narration projects", () => {
+    render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+    expect(screen.queryByTestId("ad-init-canvas")).not.toBeInTheDocument();
+    expect(screen.getByTestId("welcome-canvas")).toBeInTheDocument();
   });
 });

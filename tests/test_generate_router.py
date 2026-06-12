@@ -44,6 +44,15 @@ class _FakePM:
                     "description": "prop",
                 }
             },
+            "products": {
+                "保温杯": {
+                    "product_sheet": "",
+                    "brand": "",
+                    "reference_images": ["products/refs/保温杯_1.jpg"],
+                    "selling_points": [],
+                    "description": "product",
+                }
+            },
         }
         self.script = {
             "content_mode": "narration",
@@ -300,6 +309,40 @@ class TestGenerateRouter:
             assert call["task_type"] == "prop"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "玉佩"
+
+    def test_product_enqueue_success(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            product = client.post(
+                "/api/v1/projects/demo/generate/product/保温杯",
+                json={"prompt": "不锈钢保温杯"},
+            )
+            assert product.status_code == 200
+            body = product.json()
+            assert body["success"] is True
+
+            call = fake_queue.calls[0]
+            assert call["task_type"] == "product"
+            assert call["media_type"] == "image"
+            assert call["resource_id"] == "保温杯"
+
+    def test_product_enqueue_unknown_product_404(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/product/不存在",
+                json={"prompt": "x"},
+            )
+            assert resp.status_code == 404
+            assert fake_queue.calls == []
 
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

@@ -47,6 +47,7 @@ class _FakePM:
             "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
             "scenes": {"村口": {"description": "黄昏的村口"}},
             "props": {},
+            "products": {"保温杯": {"description": "不锈钢保温杯", "reference_images": [], "selling_points": []}},
             "style": "anime",
             "style_description": "soft pastel",
         }
@@ -87,6 +88,9 @@ class _FakePM:
 
     def get_pending_project_props(self, _name: str) -> list[dict[str, Any]]:
         return []
+
+    def get_pending_project_products(self, _name: str) -> list[dict[str, Any]]:
+        return [{"name": "保温杯", "description": "不锈钢保温杯"}]
 
 
 @pytest.fixture
@@ -178,6 +182,7 @@ async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
     text = out["content"][0]["text"]
     assert "张三" in text
     assert "村口" in text
+    assert "保温杯" in text
 
 
 async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> None:

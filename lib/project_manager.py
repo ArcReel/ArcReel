@@ -1995,20 +1995,62 @@ class ProjectManager:
         """获取待生成设计图的角色列表（无 character_sheet 或文件不存在）"""
         return self._get_pending_assets("character", project_name)
 
+    # ==================== 产品管理（product） ====================
+
+    def update_product_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
+        """更新产品标准参考图（product sheet）路径"""
+        return self._update_asset_sheet("product", project_name, name, sheet_path)
+
+    def get_product(self, project_name: str, name: str) -> dict:
+        """获取产品定义"""
+        return self._get_asset("product", project_name, name)
+
+    def get_pending_project_products(self, project_name: str) -> list[dict]:
+        """无 product_sheet 或文件不存在的产品。"""
+        return self._get_pending_assets("product", project_name)
+
+    def get_product_path(self, project_name: str, filename: str) -> Path:
+        """获取产品图片路径"""
+        return self._get_asset_path("product", project_name, filename)
+
+    def add_product_reference_image(self, project_name: str, product_name: str, ref_path: str) -> dict:
+        """向产品的 reference_images 列表追加一张原图路径（已存在则不重复追加）。
+
+        原图是产品保真的验收锚点，只增不改；删除/重排走资产 PATCH 通道。
+        """
+
+        def _mutate(project: dict) -> None:
+            bucket = project.get("products")
+            if bucket is None or product_name not in bucket:
+                raise KeyError(f"产品 '{product_name}' 不存在")
+            refs = bucket[product_name].setdefault("reference_images", [])
+            if not isinstance(refs, list):
+                raise ValueError(
+                    f"products['{product_name}'].reference_images 必须是列表，当前为 {type(refs).__name__}"
+                )
+            if ref_path not in refs:
+                refs.append(ref_path)
+
+        return self.update_project(project_name, _mutate)
+
     # ==================== 角色/场景/道具直接写入工具 ====================
 
     @staticmethod
     def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:
-        """按 ASSET_SPECS 构造 entry：description + sheet 字段为空 + extra 字段从 source 取或默认 ''。
+        """按 ASSET_SPECS 构造 entry：description + sheet 字段为空 + extra 字段从 source 取或默认。
 
         source 为 None 时（add_character 等单条新增），仅写入 spec 中声明的 extra 字段
-        默认空串；source 提供时（batch 新增），同时允许覆盖 sheet 字段。
+        默认值（字符串字段空串、列表字段空列表）；source 提供时（batch 新增），同时允许
+        覆盖 sheet 字段。source 中的非法类型不在此处修正，由落盘前的结构校验 fail-loud。
         """
         spec = ASSET_SPECS[asset_type]
         data = source or {}
         entry: dict = {"description": description, spec.sheet_field: data.get(spec.sheet_field, "")}
         for field in spec.extra_string_fields:
             entry[field] = data.get(field, "")
+        for field in spec.extra_list_fields:
+            value = data.get(field)
+            entry[field] = value if value is not None else []
         return entry
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
@@ -2025,6 +2067,11 @@ class ProjectManager:
         """直接添加道具到 project.json。已存在返回 False。"""
         entry = self._build_asset_entry("prop", description)
         return self._add_asset("prop", project_name, name, entry)
+
+    def add_product(self, project_name: str, name: str, description: str, brand: str = "") -> bool:
+        """直接添加产品到 project.json。已存在返回 False。"""
+        entry = self._build_asset_entry("product", description, {"brand": brand})
+        return self._add_asset("product", project_name, name, entry)
 
     def add_characters_batch(self, project_name: str, characters: dict[str, dict]) -> int:
         """批量添加角色到 project.json。已存在的跳过，返回新增数量。"""

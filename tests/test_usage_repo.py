@@ -92,6 +92,17 @@ class TestUsageRepository:
         assert len(page2["items"]) == 2
 
 
+class TestClassifyAssetOutputPath:
+    def test_products_bucketed_separately_from_props(self):
+        from lib.db.repositories.usage_repo import _classify_asset_output_path
+
+        assert _classify_asset_output_path("products/保温杯.png") == "products"
+        assert _classify_asset_output_path("/abs/path/products/保温杯.png") == "products"
+        assert _classify_asset_output_path("props/玉佩.png") == "props"
+        assert _classify_asset_output_path("characters/Alice.png") == "characters"
+        assert _classify_asset_output_path(None) == "other"
+
+
 class TestFinalizePendingByCallId:
     """Resume 路径专用：按 call_id 精准翻 pending → success/failed。"""
 

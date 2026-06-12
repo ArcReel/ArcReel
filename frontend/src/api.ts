@@ -666,6 +666,49 @@ class API {
     );
   }
 
+  // ==================== 项目产品管理 ====================
+
+  static async addProjectProduct(
+    projectName: string,
+    name: string,
+    description: string,
+    brand?: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/products`,
+      {
+        method: "POST",
+        body: JSON.stringify(brand ? { name, description, brand } : { name, description }),
+      }
+    );
+  }
+
+  static async updateProjectProduct(
+    projectName: string,
+    productName: string,
+    updates: Record<string, unknown>
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/products/${encodeURIComponent(productName)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      }
+    );
+  }
+
+  static async deleteProjectProduct(
+    projectName: string,
+    productName: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/products/${encodeURIComponent(productName)}`,
+      {
+        method: "DELETE",
+      }
+    );
+  }
+
   // ==================== 场景管理 ====================
 
   static async getScript(
@@ -1128,6 +1171,30 @@ class API {
   }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ prompt }),
+      }
+    );
+  }
+
+  /**
+   * 生成产品标准参考图（product sheet）
+   * @param projectName - 项目名称
+   * @param productName - 产品名称
+   * @param prompt - 产品描述 prompt
+   */
+  static async generateProjectProduct(
+    projectName: string,
+    productName: string,
+    prompt: string
+  ): Promise<{
+    success: boolean;
+    task_id: string;
+    message: string;
+  }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
         body: JSON.stringify({ prompt }),

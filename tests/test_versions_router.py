@@ -114,6 +114,17 @@ class TestVersionsRouter:
             assert restore_resp.json()["file_path"] == "props/玉佩.png"
             assert any(item[0] == "prop" for item in fake_pm.updated)
 
+    def test_get_and_restore_products(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            get_resp = client.get("/api/v1/projects/demo/versions/products/保温杯")
+            assert get_resp.status_code == 200
+
+            restore_resp = client.post("/api/v1/projects/demo/versions/products/保温杯/restore/1")
+            assert restore_resp.status_code == 200
+            assert restore_resp.json()["file_path"] == "products/保温杯.png"
+            assert any(item[0] == "product" for item in fake_pm.updated)
+
     def test_restore_error_mapping(self, monkeypatch):
         client, _ = _client(monkeypatch)
         with client:

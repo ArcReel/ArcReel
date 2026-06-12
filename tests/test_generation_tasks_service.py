@@ -72,6 +72,15 @@ class _FakePM:
             },
             "scenes": {"祠堂": {"scene_sheet": "scenes/祠堂.png"}},
             "props": {"玉佩": {"prop_sheet": "props/玉佩.png"}},
+            "products": {
+                "保温杯": {
+                    "description": "不锈钢保温杯",
+                    "product_sheet": "",
+                    "brand": "",
+                    "reference_images": ["products/refs/保温杯_1.jpg", "products/refs/missing.jpg"],
+                    "selling_points": [],
+                }
+            },
         }
         self.script = {
             "content_mode": "narration",
@@ -185,6 +194,8 @@ def _prepare_files(tmp_path: Path):
     (project_path / "characters" / "refs" / "Alice-ref.png").write_bytes(b"png")
     (project_path / "scenes" / "祠堂.png").write_bytes(b"png")
     (project_path / "props" / "玉佩.png").write_bytes(b"png")
+    (project_path / "products" / "refs").mkdir(parents=True, exist_ok=True)
+    (project_path / "products" / "refs" / "保温杯_1.jpg").write_bytes(b"jpg")
     return project_path
 
 
@@ -336,6 +347,61 @@ class TestGenerationTasks:
             await generation_tasks.execute_generation_task(
                 {"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}}
             )
+
+    async def test_execute_product_task_injects_reference_images(self, tmp_path, monkeypatch):
+        """product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），缺失文件跳过；
+        完成后回写 product_sheet。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        from lib.config.resolver import ProviderModel
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(
+            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
+        )
+
+        result = await generation_tasks.execute_product_task(
+            "demo",
+            "保温杯",
+            {"prompt": "不锈钢保温杯，银色磨砂"},
+        )
+        assert result["resource_type"] == "products"
+        assert result["file_path"] == "products/保温杯.png"
+        assert fake_pm.project["products"]["保温杯"]["product_sheet"] == "products/保温杯.png"
+
+        call = fake_generator.image_calls[0]
+        # 仅存在的原图进入参考；缺失文件跳过
+        assert call["reference_images"] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
+        assert "保温杯" in call["prompt"]
+
+    async def test_execute_product_task_without_refs_is_t2i(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["products"]["保温杯"]["reference_images"] = []
+        fake_generator = _FakeGenerator()
+
+        from lib.config.resolver import ProviderModel
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(
+            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
+        )
+
+        await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "保温杯"})
+        assert fake_generator.image_calls[0]["reference_images"] is None
+
+    def test_product_fingerprints(self, monkeypatch, tmp_path):
+        project_path = _prepare_files(tmp_path)
+        (project_path / "products" / "保温杯.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        fps = generation_tasks.compute_affected_fingerprints("demo", "product", "保温杯")
+        assert "products/保温杯.png" in fps
 
     async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_path):
         """视频生成后应自动提取首帧缩略图"""
