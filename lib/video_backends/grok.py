@@ -72,15 +72,22 @@ class GrokVideoBackend:
 
         video_url = response.url
         # SDK 响应字段未类型化，收窄为 int 才能作为实际计费时长落账本的 Integer 列；
-        # 先经 float 接受 "15.0" 这类浮点字符串；缺失/不可解析（含 inf/nan）/非正/超出
-        # 合理上限的值回落请求时长，保证 VideoGenerationResult 携带的时长恒为正且可落库。
+        # 先经 float 接受 "15.0" 这类浮点字符串。缺失/不可解析（含 inf/nan）/非正/
+        # 超出合理上限的值回落请求时长，保证结果恒为正且可落库。
         raw_duration = getattr(response, "duration", None)
+        actual_duration = request.duration_seconds
         try:
-            actual_duration = int(float(raw_duration)) if raw_duration is not None else request.duration_seconds
-            if not 0 < actual_duration <= _MAX_BILLED_DURATION_SECONDS:
-                actual_duration = request.duration_seconds
+            if raw_duration is not None:
+                parsed = float(raw_duration)
+                # 上下限基于取整前的原始数值判断：86400.9 已超 24h，不得因取整落回上限内被接受
+                if 0 < parsed <= _MAX_BILLED_DURATION_SECONDS:
+                    # half-up 取整与 dashscope extract_billing_duration 同口径，避免截断少计费秒数；
+                    # (0, 0.5) 取整到 0 时同样回落，保持结果恒为正
+                    rounded = int(parsed + 0.5)
+                    if rounded > 0:
+                        actual_duration = rounded
         except (TypeError, ValueError, OverflowError):
-            actual_duration = request.duration_seconds
+            pass
 
         await download_video(video_url, request.output_path)
         logger.info("Grok 视频下载完成: %s", request.output_path)

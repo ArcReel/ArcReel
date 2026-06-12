@@ -200,10 +200,15 @@ def extract_billing_duration(payload: dict) -> int | None:
     if raw is None:
         return None
     try:
-        value = int(Decimal(str(raw)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        decimal_value = Decimal(str(raw))
+        # 上限基于取整前的原始数值判断：86400.4 已超 24h，不得因 half-up 落回上限内被接受
+        # （NaN 参与比较抛 InvalidOperation，与解析失败同路径回 None）
+        if not 0 < decimal_value <= _MAX_BILLED_DURATION_SECONDS:
+            return None
+        value = int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     except (InvalidOperation, TypeError, ValueError):
         return None
-    return value if 0 < value <= _MAX_BILLED_DURATION_SECONDS else None
+    return value if value > 0 else None
 
 
 # ── 同步图像响应工具 ──────────────────────────────────────────────────────────
