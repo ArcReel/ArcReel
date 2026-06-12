@@ -36,10 +36,29 @@ _TRANSITION_MAP: dict[str, TransitionType] = {
     "dissolve": TransitionType.叠化,
 }
 
+# content_mode → 字幕文案源字段。narration 按朗读原文、ad 按每镜头口播文案；
+# 未注册的模式（drama / 未知脏值）不挂字幕轨。
+_SUBTITLE_TEXT_FIELDS: dict[str, str] = {
+    "narration": "novel_text",
+    "ad": "voiceover_text",
+}
+
 from lib.path_safety import safe_resolve
 from lib.project_manager import ProjectManager
+from lib.script_models import script_shape
 
 logger = logging.getLogger(__name__)
+
+
+def _script_content_mode(script: dict) -> str:
+    """读取剧本 content_mode；非字符串脏值归一为空串（落 drama 形状、无字幕轨）。
+
+    旧实现对任意非 "narration" 值都按等值比较降级到 drama 路径；归一后
+    dict 成员判定（``script_shape`` / ``_SUBTITLE_TEXT_FIELDS``）不会因
+    不可哈希的脏值抛 TypeError，降级行为与历史一致。
+    """
+    value = script.get("content_mode", "narration")
+    return value if isinstance(value, str) else ""
 
 
 class JianyingDraftService:
@@ -65,10 +84,16 @@ class JianyingDraftService:
         return script_data, filename
 
     def _collect_video_clips(self, script: dict, project_dir: Path) -> list[dict[str, Any]]:
-        """从剧本中提取已完成视频的片段列表"""
-        content_mode = script.get("content_mode", "narration")
-        items = script.get("segments" if content_mode == "narration" else "scenes", [])
-        id_field = "segment_id" if content_mode == "narration" else "scene_id"
+        """从剧本中提取已完成视频的片段列表
+
+        分镜列表与 id 字段按 ``script_shape`` 分派（narration→segments、drama→scenes、
+        ad→shots，未知模式沿用 drama 形状兜底）；字幕文案按 ``_SUBTITLE_TEXT_FIELDS``
+        取各模式的文案源字段，归一到 ``subtitle_text``。
+        """
+        content_mode = _script_content_mode(script)
+        shape = script_shape(content_mode)
+        items = script.get(shape.items_key, [])
+        subtitle_field = _SUBTITLE_TEXT_FIELDS.get(content_mode)
 
         clips = []
         for item in items:
@@ -82,13 +107,17 @@ class JianyingDraftService:
                 logger.warning("video_clip 不可用（越界或文件不存在），已跳过: %s", video_clip)
                 continue
 
+            # 字幕文案只接受字符串：手编剧本写入数字/列表等脏值时按缺失处理，
+            # 不让单镜头脏数据把整次导出带崩（TextSegment 对非 str 序列化即抛错）
+            subtitle_value = item.get(subtitle_field) if subtitle_field else None
+
             clips.append(
                 {
-                    "id": item.get(id_field, ""),
+                    "id": item.get(shape.id_field, ""),
                     "duration_seconds": item.get("duration_seconds", 8),
                     "video_clip": video_clip,
                     "abs_path": abs_path,
-                    "novel_text": item.get("novel_text", ""),
+                    "subtitle_text": subtitle_value if isinstance(subtitle_value, str) else "",
                     "transition_to_next": item.get("transition_to_next", "cut"),
                     "narration_audio_abs": safe_resolve(project_dir, assets.get("narration_audio")),
                 }
@@ -148,8 +177,8 @@ class JianyingDraftService:
         # 视频轨
         script_file.add_track(TrackType.video)
 
-        # 字幕轨（仅 narration 模式）
-        has_subtitle = content_mode == "narration"
+        # 字幕轨：仅注册了字幕文案源字段的模式（narration/ad）生成；drama 无字幕轨
+        has_subtitle = content_mode in _SUBTITLE_TEXT_FIELDS
         text_style: TextStyle | None = None
         text_border: TextBorder | None = None
         text_shadow: TextShadow | None = None
@@ -204,9 +233,9 @@ class JianyingDraftService:
             script_file.add_segment(video_seg)
 
             # 字幕片段
-            if has_subtitle and clip.get("novel_text"):
+            if has_subtitle and clip.get("subtitle_text"):
                 text_seg = TextSegment(
-                    text=clip["novel_text"],
+                    text=clip["subtitle_text"],
                     timerange=trange(offset_us, actual_duration_us),
                     style=text_style,
                     border=text_border,
@@ -305,7 +334,7 @@ class JianyingDraftService:
         script_data, _ = self._find_episode_script(project_name, project, episode)
 
         # 2. 收集已完成视频
-        content_mode = script_data.get("content_mode", "narration")
+        content_mode = _script_content_mode(script_data)
         clips = self._collect_video_clips(script_data, project_dir)
         if not clips:
             raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
@@ -314,9 +343,16 @@ class JianyingDraftService:
         width, height = self._resolve_canvas_size(project, clips[0]["abs_path"])
 
         # 4. 创建临时目录 + 复制素材到暂存区
-        raw_title = project.get("title", project_name)
+        raw_title = project.get("title")
+        if not isinstance(raw_title, str) or not raw_title.strip():
+            raw_title = project_name
         safe_title = raw_title.replace("/", "_").replace("\\", "_").replace("..", "_")
-        draft_name = f"{safe_title}_第{episode}集"
+        # ad 恒单集且界面不暴露「集」概念，草稿名直接用项目标题
+        draft_name = safe_title if content_mode == "ad" else f"{safe_title}_第{episode}集"
+        # 消毒后可能只剩 pathlib 会丢弃的空段（如标题为 "."）：塌缩的草稿目录会让
+        # create_draft(allow_replace=True) 把 rmtree 落到上层临时目录，这里回退项目名兜底
+        if not draft_name.replace(".", "").strip():
+            draft_name = project_name
         tmp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_"))
         try:
             staging_dir = tmp_dir / "staging"
@@ -343,8 +379,9 @@ class JianyingDraftService:
                     local_clip["narration_audio_local"] = stage_once(audio_src)
                 local_clips.append(local_clip)
 
-            # 5. 生成草稿（create_draft 会重建 draft_dir）
-            draft_dir = tmp_dir / draft_name
+            # 5. 生成草稿（create_draft 会重建 draft_dir；草稿放独立父目录下，
+            # 避免草稿名与暂存区等临时目录同级重名时被 allow_replace 误删）
+            draft_dir = tmp_dir / "draft" / draft_name
             self._generate_draft(
                 draft_dir=draft_dir,
                 draft_name=draft_name,

@@ -9,6 +9,7 @@ from typing import Any
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
 from lib.grid.layout import calculate_grid_layout
+from lib.project_manager import effective_mode
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.usage_tracker import UsageTracker
@@ -143,11 +144,20 @@ class CostEstimationService:
         proj_est: dict[str, CostBreakdown] = {}
         proj_act: dict[str, CostBreakdown] = {}
 
+        content_mode = project_data.get("content_mode", "narration")
+
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
             script = scripts.get(script_file)
             if not script:
                 continue
+
+            # ad 参考生视频路径跳过分镜步骤（剧本骨架唯一，shots 不打 generation_mode 戳，
+            # 不能像 narration/drama 那样靠剧本戳清空条目），分镜图维度按路径显式跳过；
+            # 视频估值仍按镜头时长逐条计算（派生分组按 unit 计费，总时长与逐镜头求和一致）。
+            skip_image_estimate = (
+                content_mode == "ad" and effective_mode(project=project_data, episode=ep_meta) == "reference_video"
+            )
 
             try:
                 raw_segments, id_key, _, _, _ = get_storyboard_items(script)
@@ -205,11 +215,12 @@ class CostEstimationService:
                 est_video: CostBreakdown = {}
                 est_audio: CostBreakdown = {}
 
-                if generation_mode == "grid" and seg_id in grid_cost_per_segment:
-                    cost_amount, cost_currency = grid_cost_per_segment[seg_id]
-                    _add_cost(est_image, cost_amount, cost_currency)
-                elif image_unit_cost:
-                    _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
+                if not skip_image_estimate:
+                    if generation_mode == "grid" and seg_id in grid_cost_per_segment:
+                        cost_amount, cost_currency = grid_cost_per_segment[seg_id]
+                        _add_cost(est_image, cost_amount, cost_currency)
+                    elif image_unit_cost:
+                        _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 try:
                     vid_amount, vid_currency = cost_calculator.calculate_cost(

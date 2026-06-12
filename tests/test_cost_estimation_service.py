@@ -62,6 +62,36 @@ def _make_script(
     }
 
 
+def _make_ad_script(shot_ids: list[str], durations: list[int]) -> dict:
+    """Helper to create an ad episode script dict (平铺 shots[])."""
+    shots = []
+    for sid, dur in zip(shot_ids, durations, strict=True):
+        shots.append(
+            {
+                "shot_id": sid,
+                "section": "hook",
+                "duration_seconds": dur,
+                "voiceover_text": "口播文案" * 10,
+                "products_in_shot": [],
+                "image_prompt": {
+                    "scene": "s",
+                    "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"},
+                },
+                "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "aa"},
+                "transition_to_next": "cut",
+                "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
+            }
+        )
+    return {
+        "episode": 1,
+        "title": "Ad",
+        "content_mode": "ad",
+        "duration_seconds": sum(durations),
+        "novel": {"title": "t", "chapter": "c"},
+        "shots": shots,
+    }
+
+
 class TestCostEstimationService:
     async def test_estimate_single_episode(self, db_factory):
         resolver = ConfigResolver(db_factory)
@@ -341,6 +371,81 @@ class TestCostEstimationService:
         seg = result["episodes"][0]["segments"][0]
         assert seg["actual"]["audio"]["CNY"] == pytest.approx(0.008)
         assert result["project_totals"]["actual"]["audio"]["CNY"] == pytest.approx(0.008)
+
+    async def test_ad_storyboard_estimates_per_shot(self, db_factory):
+        """ad 项目（分镜路径）：逐镜头返回分镜图 + 视频估值，聚合进集/项目两级合计。"""
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "storyboard",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2"], [4, 6])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-proj")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2"]
+        for seg in segments:
+            assert seg["estimate"]["image"], seg
+            assert seg["estimate"]["video"], seg
+        # 视频估值随镜头时长变化（单镜头级估值非整集平摊）
+        assert segments[0]["estimate"]["video"] != segments[1]["estimate"]["video"]
+        assert result["episodes"][0]["totals"]["estimate"]["image"]
+        assert result["project_totals"]["estimate"]["video"]
+
+    async def test_ad_voiceover_does_not_produce_audio_estimate(self, db_factory):
+        """ad 镜头口播文案不产生旁白配音预估（本期草稿导出后在剪映配音）。"""
+        from lib.config.service import ConfigService
+
+        async with db_factory() as session:
+            await ConfigService(session).set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_ad_script(["E1S1"], [4])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-proj")
+
+        assert result["episodes"][0]["segments"][0]["estimate"]["audio"] == {}
+
+    async def test_ad_reference_video_skips_image_estimate(self, db_factory):
+        """ad + 参考生视频路径跳过分镜步骤：不产生分镜图估值，视频估值保留。"""
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2"], [4, 6])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-ref")
+
+        segments = result["episodes"][0]["segments"]
+        assert len(segments) == 2
+        for seg in segments:
+            assert seg["estimate"]["image"] == {}, seg
+            assert seg["estimate"]["video"], seg
+        assert result["project_totals"]["estimate"].get("image", {}) == {}
+        assert result["project_totals"]["estimate"]["video"]
 
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)
