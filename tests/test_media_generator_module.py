@@ -30,10 +30,11 @@ class _FakeImageBackend:
 
 
 class _FakeVideoResult:
-    def __init__(self):
+    def __init__(self, duration_seconds: int = 8):
         self.video_uri = "video-uri"
         self.usage_tokens = 0
         self.generate_audio = True
+        self.duration_seconds = duration_seconds
 
 
 class _FakeVideoBackend:
@@ -42,14 +43,19 @@ class _FakeVideoBackend:
     name = "fake-video"
     model = "video-model"
 
-    def __init__(self):
+    def __init__(self, result_duration_seconds: int | None = None):
         self.calls = []
+        # None = 回显请求时长（多数后端行为）；指定值 = 模拟 provider 回报的实际计费时长
+        self._result_duration_seconds = result_duration_seconds
 
     async def generate(self, request):
         self.calls.append(request)
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         request.output_path.write_bytes(b"fake-video-data")
-        return _FakeVideoResult()
+        duration = (
+            self._result_duration_seconds if self._result_duration_seconds is not None else request.duration_seconds
+        )
+        return _FakeVideoResult(duration_seconds=duration)
 
 
 class _FakeVersions:
@@ -178,6 +184,51 @@ class TestMediaGenerator:
         assert video_path2.name == "scene_E1S02.mp4"
         assert version2 == 2
         assert gen.usage_tracker.started[-1]["call_type"] == "video"
+
+    @pytest.mark.asyncio
+    async def test_video_billed_duration_passed_to_finish_call(self, tmp_path):
+        """backend 返回与请求不同的实际计费时长时，视频路径透传给 finish_call。"""
+        gen = _build_generator(tmp_path)
+        gen._video_backend = _FakeVideoBackend(result_duration_seconds=15)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S10",
+            duration_seconds="6",
+        )
+        assert gen.usage_tracker.started[-1]["duration_seconds"] == 6
+        assert gen.usage_tracker.finished[-1]["billed_duration_seconds"] == 15
+
+    @pytest.mark.asyncio
+    async def test_video_billed_duration_lands_in_ledger(self, tmp_path):
+        """端到端：backend 返回与请求不同的实际计费时长，ApiCall 账本记录 backend 值。"""
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from lib.db.base import Base
+        from lib.usage_tracker import UsageTracker
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        try:
+            gen = _build_generator(tmp_path)
+            gen._video_backend = _FakeVideoBackend(result_duration_seconds=15)
+            tracker = UsageTracker(session_factory=async_sessionmaker(engine, expire_on_commit=False))
+            gen.usage_tracker = tracker
+
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="videos",
+                resource_id="E1S11",
+                duration_seconds="6",
+            )
+
+            item = (await tracker.get_calls(project_name="demo"))["items"][0]
+            assert item["status"] == "success"
+            assert item["duration_seconds"] == 15
+        finally:
+            await engine.dispose()
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_from_config_resolver(self, tmp_path):

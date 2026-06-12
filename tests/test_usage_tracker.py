@@ -68,6 +68,68 @@ class TestUsageTracker:
         assert len(failed["error_message"]) == 500
         assert failed["cost_amount"] == 0
 
+    async def test_billed_duration_overrides_ledger_and_cost(self, tracker):
+        """提供实际计费时长时，ApiCall.duration_seconds 与成本均按该值计算。"""
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-001",
+            resolution="4k",
+            duration_seconds=6,
+            generate_audio=False,
+        )
+        await tracker.finish_call(
+            call_id,
+            status="success",
+            output_path="v.mp4",
+            billed_duration_seconds=15,
+        )
+
+        item = (await tracker.get_calls(project_name="demo"))["items"][0]
+        assert item["duration_seconds"] == 15
+        # 与 test_finish_video_and_failed_call 同定价口径（6 秒 → 2.4，即 0.4/秒），按 15 秒结算
+        assert item["cost_amount"] == pytest.approx(15 * 0.4)
+
+    async def test_billed_duration_omitted_keeps_request_duration(self, tracker):
+        """不提供实际计费时长时，请求时长入账，成本按请求时长计算（现状行为）。"""
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-001",
+            resolution="4k",
+            duration_seconds=6,
+            generate_audio=False,
+        )
+        await tracker.finish_call(call_id, status="success", output_path="v.mp4")
+
+        item = (await tracker.get_calls(project_name="demo"))["items"][0]
+        assert item["duration_seconds"] == 6
+        assert item["cost_amount"] == pytest.approx(6 * 0.4)
+
+    async def test_explicit_cost_amount_wins_but_billed_duration_recorded(self, tracker):
+        """显式 cost_amount（供应商已报实际费用）优先于按时长自动计算；实际计费时长照常回写账本。"""
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-001",
+            resolution="4k",
+            duration_seconds=6,
+            generate_audio=False,
+        )
+        await tracker.finish_call(
+            call_id,
+            status="success",
+            output_path="v.mp4",
+            cost_amount=1.23,
+            currency="CNY",
+            billed_duration_seconds=15,
+        )
+
+        item = (await tracker.get_calls(project_name="demo"))["items"][0]
+        assert item["duration_seconds"] == 15
+        assert item["cost_amount"] == pytest.approx(1.23)
+        assert item["currency"] == "CNY"
+
     async def test_stats_with_date_range_and_project_filter(self, tracker):
         await tracker.finish_call(
             await tracker.start_call("p1", "image", "m", resolution="1K"),

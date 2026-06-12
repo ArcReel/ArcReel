@@ -708,6 +708,8 @@ class MediaGenerator:
             video_uri = result.video_uri
 
             # Track usage with provider info
+            # result.duration_seconds 是 backend 回报的实际计费时长（如 DashScope usage.duration
+            # 含输入参考视频时长）；多数后端回显请求时长，透传无行为差异。
             await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
@@ -715,6 +717,7 @@ class MediaGenerator:
                 usage_tokens=result.usage_tokens,
                 service_tier=version_metadata.get("service_tier", "default"),
                 generate_audio=result.generate_audio,
+                billed_duration_seconds=result.duration_seconds,
             )
         except Exception as e:
             # 记录调用失败
