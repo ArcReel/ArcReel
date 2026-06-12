@@ -268,9 +268,14 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
 
 
 @router.post("/grids/{grid_id}/regenerate")
-async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
+async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser, _t: Translator):
     """重置宫格图状态并重新入队生成任务。"""
     try:
+        project = get_project_manager().load_project(project_name)
+        # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,
+        # 否则残留的历史 grid 记录仍可被重新入队
+        if project.get("content_mode") == "ad":
+            raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
         project_path = get_project_manager().get_project_path(project_name)
         gm = GridManager(project_path)
         grid = gm.get(grid_id)
@@ -284,7 +289,6 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
         grid.model = ""
         gm.save(grid)
 
-        project = get_project_manager().load_project(project_name)
         aspect_ratio = project.get("aspect_ratio", "9:16")
         layout = calculate_grid_layout(len(grid.scene_ids), aspect_ratio)
         grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio

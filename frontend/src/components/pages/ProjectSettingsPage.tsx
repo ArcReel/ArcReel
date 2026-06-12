@@ -386,7 +386,8 @@ export function ProjectSettingsPage() {
         text_backend_style: textStyle || null,
         aspect_ratio: aspectRatio || undefined,
         generation_mode: generationMode,
-        default_duration: defaultDuration,
+        // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
+        ...(contentMode === "ad" ? {} : { default_duration: defaultDuration }),
         model_settings: newModelSettings,
       });
       setModelSettings(newModelSettings);
@@ -402,7 +403,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
+  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
 
   return (
     <div

@@ -482,6 +482,7 @@ def test_repo_profile_resolves_for_every_content_mode() -> None:
     for mode in sorted(VALID_CONTENT_MODES):
         mapping = resolve_profile_files_for_mode(repo_profile, mode)  # type: ignore[arg-type]
         assert mapping["CLAUDE.md"] == f"CLAUDE.{mode}.md"
+        assert mapping[".claude/skills/manga-workflow/SKILL.md"] == f".claude/skills/manga-workflow/SKILL.{mode}.md"
 
 
 def test_sync_ad_project_writes_ad_variant(tmp_path: Path) -> None:

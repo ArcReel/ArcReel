@@ -55,6 +55,26 @@ class TestCreateAdProjectMetadata:
         with pytest.raises(ValueError, match="default_duration"):
             pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", default_duration=8)
 
+    def test_ad_rejects_non_string_brief(self, tmp_path):
+        pm = _pm(tmp_path)
+        pm.create_project("demo-ad", content_mode="ad")
+        with pytest.raises(ValueError, match="brief"):
+            pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", brief=123)  # type: ignore[arg-type]
+
+    def test_extras_cannot_override_core_fields(self, tmp_path):
+        pm = _pm(tmp_path)
+        pm.create_project("demo-ad", content_mode="ad")
+        with pytest.raises(ValueError, match="extras"):
+            pm.create_project_metadata(
+                "demo-ad",
+                "短片",
+                "Realistic",
+                "ad",
+                extras={"default_duration": 8, "video_backend": "vidu"},
+            )
+        with pytest.raises(ValueError, match="extras"):
+            pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", extras={"content_mode": "drama"})
+
     def test_non_ad_rejects_target_duration_and_brief(self, tmp_path):
         pm = _pm(tmp_path)
         pm.create_project("demo", content_mode="narration")

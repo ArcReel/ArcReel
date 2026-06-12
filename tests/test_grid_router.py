@@ -50,3 +50,24 @@ class TestAdProjectRejected:
                 json={"script_file": "episode_1.json"},
             )
         assert resp.status_code == 400
+
+    def test_regenerate_grid_rejects_ad_project(self, monkeypatch):
+        """重生成端点同样封禁 ad:残留的历史 grid 记录不得被重新入队。"""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from server.auth import CurrentUserInfo, get_current_user
+        from server.routers import grids
+
+        class _AdPM:
+            def load_project(self, name):
+                return {"content_mode": "ad", "title": "Ad", "episodes": []}
+
+        monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(grids.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/grids/g-1/regenerate")
+        assert resp.status_code == 400

@@ -1530,6 +1530,8 @@ class ProjectManager:
                 not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0
             ):
                 raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
+            if brief is not None and not isinstance(brief, str):
+                raise ValueError(f"brief 必须是字符串，当前为 {brief!r}")
         else:
             if target_duration is not None:
                 raise ValueError("target_duration 仅广告/短片项目（content_mode=ad）可用")
@@ -1573,6 +1575,12 @@ class ProjectManager:
             # 重新制造被静默忽略的 legacy 形态）。路由层已返回 400，这里再兜一道防非路由调用方。
             if "image_backend" in extras:
                 raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
+            # extras 只许追加可选字段，不得覆盖上方已校验/已构造的核心字段——
+            # 否则非路由调用方可借 extras 绕过模式互斥守卫（如 ad 项目写回 default_duration）。
+            reserved = set(project) | {"default_duration", "style_template_id", "target_duration", "brief"}
+            forbidden = reserved & set(extras)
+            if forbidden:
+                raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")
             project.update(extras)
 
         self.save_project(project_name, project)

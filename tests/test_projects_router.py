@@ -419,6 +419,8 @@ class TestProjectsRouter:
 
             # ad 项目不持有 default_duration / 不开放 grid / target_duration 不可清空
             assert client.patch("/api/v1/projects/ad-ready", json={"default_duration": 8}).status_code == 400
+            # 字段出现即拒绝:null 也不允许(否则会静默删除返回 200,与禁写契约不一致)
+            assert client.patch("/api/v1/projects/ad-ready", json={"default_duration": None}).status_code == 400
             assert client.patch("/api/v1/projects/ad-ready", json={"generation_mode": "grid"}).status_code == 400
             assert client.patch("/api/v1/projects/ad-ready", json={"target_duration": None}).status_code == 400
 

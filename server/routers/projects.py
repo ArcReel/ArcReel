@@ -681,7 +681,9 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     else:
                         project["generation_mode"] = req.generation_mode
                 if "default_duration" in req.model_fields_set:
-                    if is_ad and req.default_duration is not None:
+                    # ad 项目对字段出现本身即拒绝（含 null）：与创建路径"禁写字段"契约一致，
+                    # 避免 null 走删除分支静默返回 200
+                    if is_ad:
                         raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
                     if req.default_duration is None:
                         project.pop("default_duration", None)
