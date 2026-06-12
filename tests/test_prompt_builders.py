@@ -97,8 +97,8 @@ class TestProductFidelityTail:
 
     def test_no_products_returns_prompt_unchanged(self):
         assert append_product_fidelity_tail("氛围镜头", []) == "氛围镜头"
-        # None 脏数据等同为空：早退返回原 prompt，不抛 TypeError
-        assert append_product_fidelity_tail("氛围镜头", None) == "氛围镜头"  # pyright: ignore[reportArgumentType]
+        # None 等同为空：早退返回原 prompt，不抛 TypeError
+        assert append_product_fidelity_tail("氛围镜头", None) == "氛围镜头"
 
     def test_multiple_products_all_named(self):
         result = append_product_fidelity_tail("双产品同框", ["保温杯", "杯刷"])

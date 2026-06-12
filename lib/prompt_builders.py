@@ -121,7 +121,7 @@ def build_product_prompt(name: str, description: str, style: str = "", style_des
 # ---------------------------------------------------------------------------
 
 
-def append_product_fidelity_tail(prompt: str, product_names: Sequence[str]) -> str:
+def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | None) -> str:
     """给产品镜头的生成 prompt 追加高保真还原指令。
 
     仅在产品参考图实际注入请求时调用（分镜图与视频两层共用同一份指令文本）——
