@@ -296,6 +296,9 @@ class V2VideoGenerationsBackend:
             last_frame=True,
             reference_images=True,
             max_reference_images=_DEFAULT_MAX_REFERENCE_IMAGES,
+            # 协议 body 中 image_url（首帧）与 image_urls（参考数组）为共存字段，
+            # build_request_body 同请求组装两者，首帧语义保持。
+            reference_images_with_start_frame=True,
         )
 
     @property

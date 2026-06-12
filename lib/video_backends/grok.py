@@ -56,7 +56,9 @@ class GrokVideoBackend:
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return VideoCapabilities(reference_images=True, max_reference_images=7)
+        # _create_video 以独立 SDK 形参同时下传 image_url（首帧）与 reference_image_urls，
+        # 首帧语义保持，故声明首帧叠加参考能力。
+        return VideoCapabilities(reference_images=True, max_reference_images=7, reference_images_with_start_frame=True)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # Grok 同步型 API，无 job_id 可接续；orphan handler 据 NotImplementedError 标 [resume_unsupported]

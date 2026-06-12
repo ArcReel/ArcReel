@@ -114,6 +114,9 @@ class OpenAIVideoBackend:
     @property
     def video_capabilities(self) -> VideoCapabilities:
         # Sora input_reference 为单张首帧图，参考图上限为 1。
+        # reference_images_with_start_frame 维持 False：generate() 把 start_image 与
+        # reference_images 合并进同一个 input_reference 槽位，叠加会把单图参数变成
+        # 多元素 list（语义未定义）——首帧与参考在 Sora 上共享同一槽位，不可叠加。
         return VideoCapabilities(reference_images=True, max_reference_images=1)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

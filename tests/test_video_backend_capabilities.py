@@ -10,6 +10,29 @@ class TestVideoCapabilities:
         assert caps.last_frame is False
         assert caps.reference_images is False
         assert caps.max_reference_images == 0
+        # 首帧叠加参考必须显式声明：默认 False 保证「reference_images=True 但参考与首帧
+        # 互斥」的后端不会被产品参考注入等叠加场景误选
+        assert caps.reference_images_with_start_frame is False
+
+    def test_start_frame_overlay_declared_per_backend(self):
+        """首帧叠加参考能力按后端组装事实声明：互斥实现（见图切端点/单槽合并）必须为 False。"""
+        from lib.video_backends.ark import ArkVideoBackend
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+        from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
+        from lib.video_backends.vidu import ViduVideoBackend
+
+        assert ArkVideoBackend.video_capabilities_for_model("seedance-2.0").reference_images_with_start_frame is True
+        assert V2VideoGenerationsBackend.video_capabilities_for_model("any").reference_images_with_start_frame is True
+        # wan2.7-r2v 官方形态即「带首帧的参考生视频」；happyhorse-r2v 无首帧能力，叠加无从谈起
+        assert (
+            DashScopeVideoBackend.video_capabilities_for_model("wan2.7-r2v").reference_images_with_start_frame is True
+        )
+        assert (
+            DashScopeVideoBackend.video_capabilities_for_model("happyhorse-1.0-r2v").reference_images_with_start_frame
+            is False
+        )
+        # Vidu 见参考图即切 /reference2video 丢首帧——互斥模式，禁止叠加
+        assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").reference_images_with_start_frame is False
 
     def test_first_last(self):
         caps = VideoCapabilities(last_frame=True)

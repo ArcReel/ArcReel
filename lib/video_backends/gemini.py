@@ -107,6 +107,9 @@ class GeminiVideoBackend:
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
+        # reference_images_with_start_frame 维持 False：Veo 文档（docs/google-genai-docs/veo.md）
+        # 把 Image-to-video 与 Reference images 列为并列模式且未确权可组合，并要求带参考图时
+        # durationSeconds 必须为 8——与短镜头时长冲突会让请求批量被拒；确权后再开启。
         return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

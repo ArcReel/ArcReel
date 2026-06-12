@@ -191,6 +191,9 @@ class ViduVideoBackend:
             last_frame=True,
             reference_images=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
+            # reference_images_with_start_frame 维持 False：_select_endpoint 见参考图即切
+            # /reference2video，start_image 不进请求体（首帧被丢弃），且多数型号不在该端点
+            # 白名单内会直接 RuntimeError——参考图与首帧在 Vidu 上是互斥模式，不可叠加。
         )
 
     @property

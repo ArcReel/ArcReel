@@ -618,27 +618,42 @@ def _collect_shot_product_references(project: dict, project_path: Path, item: di
     """产品镜头（``products_in_shot`` 非空）的产品参考集，分镜图与视频两层共用。
 
     每个产品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
-    原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str}``
-    列表——label 供支持内联标签的后端绑定图与产品名，name 供高保真指令点名（指令
-    只点名实际注入了参考的产品）；调用方负责把该列表排在其它参考之前（排序绝对优先）。
-    氛围镜头（列表为空）返回空列表，零产品图。
+    原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str,
+    "kind": "sheet"|"original"}`` 列表——label 供支持内联标签的后端绑定图与产品名，
+    name 供高保真指令点名（指令只点名实际注入了参考的产品），kind 供截断时让 sheet
+    优先存活；调用方负责把该列表排在其它参考之前（排序绝对优先）。氛围镜头
+    （列表为空）返回空列表，零产品图。脏数据（products 非 dict、产品名非字符串、
+    引用不存在的产品）按既有装配口径跳过不抛。
     """
-    products = project.get("products") or {}
+    spec = ASSET_SPECS["product"]
+    products = project.get(spec.bucket_key)
+    if not isinstance(products, dict):
+        products = {}
     references: list[dict] = []
     for name in item.get("products_in_shot") or []:
+        if not isinstance(name, str):
+            logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
+            continue
         entry = products.get(name)
         if not isinstance(entry, dict):
             logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
             continue
-        collected = 0
-        sheet = entry.get("product_sheet")
+        before = len(references)
+        sheet = entry.get(spec.sheet_field)
         if sheet and safe_exists(project_path, sheet):
-            references.append({"image": project_path / sheet, "label": f"产品「{name}」标准多角度参考图", "name": name})
-            collected += 1
+            references.append(
+                {
+                    "image": project_path / sheet,
+                    "label": f"产品「{name}」标准多角度参考图",
+                    "name": name,
+                    "kind": "sheet",
+                }
+            )
         for original in _collect_product_reference_images(project, project_path, name) or []:
-            references.append({"image": original, "label": f"产品「{name}」实拍原图（保真锚点）", "name": name})
-            collected += 1
-        if not collected:
+            references.append(
+                {"image": original, "label": f"产品「{name}」实拍原图（保真锚点）", "name": name, "kind": "original"}
+            )
+        if len(references) == before:
             logger.warning("产品镜头引用的产品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
     return references
 
@@ -648,33 +663,40 @@ def _product_names_in_references(product_references: list[dict]) -> list[str]:
     return list(dict.fromkeys(ref["name"] for ref in product_references))
 
 
-def _gate_product_references_for_video(generator: Any, product_references: list[dict]) -> list[dict]:
-    """视频层产品参考的能力门控：仅支持参考输入的后端注入，超上限截断。
+def _product_references_for_video(generator: Any, project: dict, project_path: Path, item: dict) -> list[dict]:
+    """视频层产品参考的能力门控收集：仅「首帧上可叠加参考输入」的后端注入。
 
-    不支持参考输入（或能力不可知）的后端返回空列表——正常降级、不报错，
-    视频请求与既有图生视频路径完全一致。截断保序：sheet 在前、原图压阵的
-    注入集裁尾不裁头，保证 sheet 优先存活。
+    门控看 ``reference_images_with_start_frame`` 而非 ``reference_images``——后者在
+    多家后端意味着与首帧互斥的「参考生视频」模式（见 ``VideoCapabilities`` docstring），
+    误注入会丢弃已审核的分镜首帧甚至整请求被拒。不支持（或能力不可知）的后端返回
+    空列表——正常降级、不报错，视频请求与既有图生视频路径完全一致。
+
+    超过 ``max_reference_images`` 上限时截断，截断前把 sheet 稳定前置（跨产品 sheet
+    全部排在原图之前），保证每个产品的锚定 sheet 优先存活；未触发截断时保持
+    「每产品 sheet + 原图压阵」的原始顺序。end_image（首尾帧）路径与本门控无关，
+    该槽位恢复使用时需复核与 max 上限的合并核算。
     """
-    if not product_references:
+    if not item.get("products_in_shot"):
         return []
     backend = getattr(generator, "_video_backend", None)
     caps = getattr(backend, "video_capabilities", None)
-    if caps is None or not getattr(caps, "reference_images", False):
+    if caps is None or not (caps.reference_images and caps.reference_images_with_start_frame):
         logger.info(
-            "视频后端 %s 不支持参考图输入，产品参考二次注入跳过（正常降级）",
+            "视频后端 %s 不支持在首帧请求上叠加参考图，产品参考二次注入跳过（正常降级）",
             getattr(backend, "name", "unknown"),
         )
         return []
-    max_refs = int(getattr(caps, "max_reference_images", 0) or 0)
-    if max_refs and len(product_references) > max_refs:
+    references = _collect_shot_product_references(project, project_path, item)
+    max_refs = caps.max_reference_images
+    if max_refs and len(references) > max_refs:
         logger.warning(
-            "产品参考 %d 张超过视频后端 %s 上限 %d，截断（保序：sheet 优先存活）",
-            len(product_references),
+            "产品参考 %d 张超过视频后端 %s 上限 %d，sheet 前置后截断（每个产品的 sheet 优先存活）",
+            len(references),
             getattr(backend, "name", "unknown"),
             max_refs,
         )
-        return product_references[:max_refs]
-    return product_references
+        references = sorted(references, key=lambda ref: 0 if ref["kind"] == "sheet" else 1)[:max_refs]
+    return references
 
 
 def _resolve_script_episode(project_name: str, script_file: str | None) -> int | None:
@@ -1078,11 +1100,9 @@ async def execute_video_task(
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     # 产品镜头的视频层二次注入：把产品参考注入视频请求（零额外图像成本），
-    # 按后端 reference 能力门控——不支持参考输入的后端正常降级、不报错。
+    # 按后端「首帧叠加参考」能力门控——不支持的后端正常降级、不报错。
     # 首尾帧锚定不在本路径（end_image 槽位保留，capability-gated 后续增强）。
-    _gated_product_refs = _gate_product_references_for_video(
-        generator, _collect_shot_product_references(project, project_path, item)
-    )
+    _gated_product_refs = await asyncio.to_thread(_product_references_for_video, generator, project, project_path, item)
     product_reference_images = [ref["image"] for ref in _gated_product_refs] or None
     if product_reference_images:
         prompt_text = append_product_fidelity_tail(prompt_text, _product_names_in_references(_gated_product_refs))
@@ -1305,9 +1325,10 @@ def _collect_product_reference_images(project: dict, project_path: Path, resourc
     # safe_exists 同时兜住脏数据（非字符串）、越出项目目录的绝对路径 / `..` 穿越与文件缺失
     existing = [project_path / ref for ref in refs if safe_exists(project_path, ref)]
     if refs and not existing:
-        # 声明了原图却全部缺失：sheet 生成静默退化为纯文生图会丢失保真锚定，
-        # 留观测痕迹便于诊断（不阻塞——文件缺失可能是归档迁移等正常历史原因）
-        logger.warning("产品 '%s' 声明了 %d 张原图但磁盘均缺失，sheet 生成退化为纯文生图", resource_id, len(refs))
+        # 声明了原图却全部缺失：下游（sheet 生成 / 镜头保真注入）静默退化会丢失保真锚定，
+        # 留观测痕迹便于诊断（不阻塞——文件缺失可能是归档迁移等正常历史原因）。
+        # 文案保持场景中立：本函数同时服务 sheet 生成与产品镜头参考收集两个调用方。
+        logger.warning("产品 '%s' 声明了 %d 张原图但磁盘均缺失", resource_id, len(refs))
     return existing or None
 
 
