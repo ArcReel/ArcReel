@@ -238,6 +238,24 @@ class TestPlan:
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
+    async def test_plan_continues_from_cursor_advanced_into_next_source_file(self, tmp_path: Path):
+        """游标已合法推进到后一个源文件（如升级回填的失锚项目）：续规划从游标起，不重复规划该文件前缀。"""
+        c = _end_of(ANCHOR2_MID, SOURCE2)
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel2.txt", "offset": c},
+        )
+        (project_dir / "source" / "novel2.txt").write_text(SOURCE2, encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "结伴赶路", "hook": "兽潮来袭", "end_anchor": "途中遭遇兽潮。"}])]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[2]["source_range"] == {"source_file": "source/novel2.txt", "start": c, "end": len(SOURCE2)}
+
     async def test_plan_raises_and_leaves_project_untouched_after_retry_exhaustion(self, tmp_path: Path):
         """重试耗尽：抛 EpisodePlanningError，账本与文件零变更（原子性）。"""
         project_dir = _write_project(tmp_path)
@@ -686,6 +704,34 @@ class TestReplan:
         eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
         assert eps[2]["title"] == "第2集"  # 重排未生效
         assert eps[3]["ledger_status"] == "consumed"
+
+    async def test_replan_rejects_concurrent_boundary_change_within_same_range(self, tmp_path: Path):
+        """执行期间同闭合范围内的切分边界被并发改动：合并范围相同也必须判冲突，不得静默覆盖。"""
+        project_dir = _planned_three(tmp_path)
+        b = _end_of(ANCHOR_EP2)
+
+        class _BoundaryShiftingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                # 模拟模型调用期间第 2/3 集分界被并发挪动（闭合范围不变）
+                project = _load_project(project_dir)
+                for entry in project["episodes"]:
+                    if entry["episode"] == 2:
+                        entry["source_range"]["end"] = b + 2
+                    if entry["episode"] == 3:
+                        entry["source_range"]["start"] = b + 2
+                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _BoundaryShiftingGenerator(
+            [_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])]
+        )
+
+        with pytest.raises(PlanningConflictError, match="并发"):
+            await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
+
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[2]["title"] == "第2集"  # 重排未生效，并发写入的边界保留
+        assert eps[2]["source_range"]["end"] == b + 2
 
     async def test_replan_rejects_unknown_from_episode(self, tmp_path: Path):
         project_dir = _planned_three(tmp_path)

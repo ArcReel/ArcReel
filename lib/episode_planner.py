@@ -482,7 +482,11 @@ class EpisodePlanner:
                 current = self._replan_scope(p, from_episode)
             except EpisodePlanningError as exc:
                 raise PlanningConflictError("重排期间账本被并发修改，本次结果作废；请重新调用重排") from exc
-            if current.slices != scope.slices:
+            # 比较 affected 原始条目而非合并后的 slices：并发重排若改了内部切分但闭合范围相同，
+            # slices 比不出差异，会静默覆盖对方刚提交的新切法（状态变化由下方已消费分支单独处理）
+            if [(num, entry.get("source_range")) for num, entry in current.affected] != [
+                (num, entry.get("source_range")) for num, entry in scope.affected
+            ]:
                 raise PlanningConflictError("重排期间账本被并发修改，本次结果作废；请重新调用重排")
             now_consumed = [num for num, entry in current.affected if entry.get("ledger_status") == "consumed"]
             # 用户确认的是读取时刻的已消费清单，期间新消费的集不在确认范围内，必须重新确认
@@ -685,7 +689,16 @@ class EpisodePlanner:
         if last is not None and cur is not None:
             if cur[0] == last[0]:
                 return (last[0], max(last[1], cur[1]))
-            return last  # 不同文件时以账本末尾为准（账本是真相源，游标可能滞后）
+            # 文件不同时按源文件顺序取更靠后者，与同文件 max 语义一致：游标滞后取账本末尾，
+            # 游标已合法推进到后一个文件（如升级回填的失锚项目）则取游标，避免重复规划该文件前缀
+            rels = [doc.rel_path for doc in discover_sources(self.project_path)]
+            last_idx = rels.index(last[0]) if last[0] in rels else None
+            cur_idx = rels.index(cur[0]) if cur[0] in rels else None
+            if last_idx is None:
+                return cur if cur_idx is not None else last
+            if cur_idx is None or cur_idx < last_idx:
+                return last
+            return cur
         if last is not None:
             return last
         if cur is not None:
@@ -741,6 +754,7 @@ class EpisodePlanner:
         # source/ 是符号链接时拒绝写入：派生文件会落到链接目标（可能在项目外）
         if source_dir.is_symlink():
             raise EpisodePlanningError("source/ 不能是符号链接，拒绝派生集文件")
+        source_dir.mkdir(exist_ok=True)
         keep: set[int] = set()
         for entry in project.get("episodes") or []:
             if not isinstance(entry, dict):
@@ -778,7 +792,6 @@ class EpisodePlanner:
                     f"第 {num} 集原文范围越界（start={seg_start}，end={seg_end}，源文长度 {len(text)}），"
                     "无法完成派生文件对账，提交已中止"
                 )
-            source_dir.mkdir(exist_ok=True)
             episode_path = source_dir / f"episode_{num}.txt"
             # 文件级符号链接同样拒绝：write_text 会跟随链接把内容写到链接目标（可能在项目外）
             if episode_path.is_symlink():
