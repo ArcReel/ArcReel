@@ -40,7 +40,7 @@ MESSAGES = {
     "tts_batch_submitted": "Đã gửi {count} tác vụ tạo thuyết minh",
     "tts_batch_none_missing": "Tất cả phân cảnh đã có thuyết minh, không cần tạo thêm",
     "tts_novel_text_missing": "Phân cảnh '{segment_id}' không có văn bản tiểu thuyết để thuyết minh",
-    "audio_provider_not_configured": "Vui lòng cấu hình nhà cung cấp audio trước: thêm nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói trong Cài đặt → Nhà cung cấp",
+    "audio_provider_not_configured": "Vui lòng cấu hình nhà cung cấp âm thanh trước: thêm nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói trong Cài đặt → Nhà cung cấp",
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo thiết kế nhân vật cho '{name}'",

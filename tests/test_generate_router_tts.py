@@ -155,8 +155,8 @@ class TestGenerateTtsSingle:
                 json={"script_file": "episode_1.json"},
             )
             assert res.status_code == 400
-            # 提示语明确指向 audio 供应商配置入口
-            assert "audio" in res.json()["detail"].lower()
+            # 提示语明确指向音频供应商配置入口
+            assert "音频" in res.json()["detail"]
             assert fake_queue.calls == []
 
 

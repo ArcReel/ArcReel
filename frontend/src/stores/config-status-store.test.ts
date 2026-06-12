@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import type { GetSystemConfigResponse, ProviderInfo } from "@/types";
 import { useConfigStatusStore } from "./config-status-store";
+import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
 function makeConfigResponse(overrides?: Partial<GetSystemConfigResponse["settings"]>): GetSystemConfigResponse {
   return {
@@ -55,6 +56,7 @@ function makeProviders(overrides?: Partial<ProviderInfo>[]): { providers: Provid
 describe("config-status-store", () => {
   beforeEach(() => {
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
@@ -139,6 +141,65 @@ describe("config-status-store", () => {
     // 刷新失败后回到未初始化且清空能力集：任何消费方都不再读到过期数据
     expect(useConfigStatusStore.getState().initialized).toBe(false);
     expect(useConfigStatusStore.getState().availableMediaTypes).toEqual([]);
+  });
+
+  it("detects audio capability from an enabled custom provider model", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(
+      makeProviders([
+        {
+          id: "gemini",
+          display_name: "Google Gemini",
+          status: "ready",
+          media_types: ["image", "video", "text"],
+          capabilities: [],
+          configured_keys: ["api_key"],
+          missing_keys: [],
+          models: {},
+        },
+      ]),
+    );
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({
+      providers: [
+        {
+          id: 1,
+          display_name: "Local TTS",
+          discovery_format: "openai",
+          base_url: "http://localhost:8000/v1",
+          api_key_masked: "sk-***",
+          created_at: "2026-01-01T00:00:00Z",
+          models: [
+            {
+              id: 1,
+              model_id: "tts-1",
+              display_name: "tts-1",
+              endpoint: "openai-tts",
+              is_default: true,
+              is_enabled: true,
+              price_unit: null,
+              price_input: null,
+              price_output: null,
+              currency: null,
+              supported_durations: null,
+              resolution: null,
+            },
+          ],
+        },
+      ],
+    });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
+    );
+    // catalog 已初始化时 getConfigStatus 内的 fetch() 直接短路，endpoint→mediaType 映射取自 state
+    useEndpointCatalogStore.setState({
+      initialized: true,
+      endpointToMediaType: { "openai-tts": "audio" },
+    });
+
+    await useConfigStatusStore.getState().fetch();
+
+    const state = useConfigStatusStore.getState();
+    expect(state.hasMediaType("audio")).toBe(true);
+    expect(state.issues).toHaveLength(0);
   });
 
   it("exposes hasMediaType for audio without flagging it as a config issue", async () => {

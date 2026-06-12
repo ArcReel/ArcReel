@@ -179,6 +179,7 @@ class TestGetSystemConfig:
         options = res.json()["options"]
         assert options["video_backends"] == []
         assert options["image_backends"] == []
+        assert options["audio_backends"] == []
 
     def test_options_include_multiple_ready_providers(self):
         mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio", "ark"])

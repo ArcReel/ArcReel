@@ -40,7 +40,7 @@ MESSAGES = {
     "tts_batch_submitted": "已提交 {count} 个旁白生成任务",
     "tts_batch_none_missing": "所有分镜均已生成旁白，无需补缺",
     "tts_novel_text_missing": "分镜「{segment_id}」没有可配音的小说原文",
-    "audio_provider_not_configured": "请先配置 audio 供应商：在「全局设置 → 供应商」页面配置支持语音合成的供应商",
+    "audio_provider_not_configured": "请先配置音频供应商：在「全局设置 → 供应商」页面配置支持语音合成的供应商",
     "narration_speed_must_be_positive": "旁白语速必须是正数",
     "character_not_found": "角色「{name}」不存在",
     "character_task_submitted": "角色「{name}」设计图生成任务已提交",

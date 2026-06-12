@@ -169,6 +169,20 @@ class TestResolveNarrationSpeed:
         finally:
             await engine.dispose()
 
+    async def test_invalid_project_value_falls_back_to_global(self):
+        from lib.config.service import ConfigService
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                await ConfigService(session).set_setting("narration_speed", "1.2")
+                await session.commit()
+            resolver = ConfigResolver(factory)
+            # 项目级损坏值按未设置处理后回退到全局有效值，而非直接 None
+            assert await resolver.resolve_narration_speed({"narration_speed": "fast"}) == 1.2
+        finally:
+            await engine.dispose()
+
     async def test_non_positive_and_non_finite_treated_as_unset(self):
         from lib.config.service import ConfigService
 

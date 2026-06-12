@@ -745,7 +745,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-narration"));
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("audio 供应商");
+      expect(useAppStore.getState().toast?.text).toContain("音频供应商");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
     expect(generateSpy).not.toHaveBeenCalled();
