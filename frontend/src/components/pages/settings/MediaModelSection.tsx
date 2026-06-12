@@ -305,8 +305,9 @@ export function MediaModelSection() {
                 setDraft((prev) => {
                   if (raw === "") return { ...prev, narration_speed: null };
                   const next = Number(raw);
-                  // 后端只接受正有限数；NaN/Infinity 会被 JSON 序列化为 null 触发"清除"语义，这里直接忽略非法输入
-                  if (!Number.isFinite(next) || next <= 0) return prev;
+                  // 仅过滤非有限数：NaN/Infinity 会被 JSON 序列化为 null 误触"清除"语义。
+                  // 0/负数允许临时存在（键入 0.5 会先经过 0），正数约束由保存时后端校验兜底。
+                  if (!Number.isFinite(next)) return prev;
                   return { ...prev, narration_speed: next };
                 });
               }}

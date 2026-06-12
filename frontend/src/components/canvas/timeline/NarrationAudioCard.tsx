@@ -36,6 +36,8 @@ export function NarrationAudioCard({
   onGenerate,
 }: NarrationAudioCardProps) {
   const { t } = useTranslation("dashboard");
+  // 与 ShotDetail 的按钮禁用判定共用同一套 trim 规则，避免"卡片有正文、按钮却禁用"的矛盾态
+  const hasNovelText = novelText.trim().length > 0;
 
   const assetFp = useProjectsStore((s) =>
     assetPath ? s.getAssetFingerprint(assetPath) : null,
@@ -73,7 +75,7 @@ export function NarrationAudioCard({
           className="display-serif m-0 text-[12.5px]"
           style={{ lineHeight: 1.65, color: "var(--color-text)" }}
         >
-          {novelText || t("no_original_text")}
+          {hasNovelText ? novelText : t("no_original_text")}
         </p>
 
         {audioUrl ? (

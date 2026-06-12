@@ -114,7 +114,9 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
         const { issues, availableMediaTypes } = await getConfigStatus();
         set({ issues, availableMediaTypes, isComplete: issues.length === 0, initialized: true });
       } catch {
-        // 失败保持 initialized=false,下次仍可重试。
+        // 失败回退未初始化：避免消费方把上一次成功的过期能力集当作可信数据
+        // （如旁白入口的前置拦截），同时让下次 fetch() 仍可重试。
+        set({ initialized: false });
       }
       // loading 仅在整条链终止时才置 false:补跑间隙保持 true,避免 true→false→true 闪烁。
       if (!get().pendingRefresh) {

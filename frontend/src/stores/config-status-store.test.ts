@@ -108,6 +108,38 @@ describe("config-status-store", () => {
     expect(useConfigStatusStore.getState().issues.length).toBeGreaterThan(0);
   });
 
+  it("resets initialized when a later refresh fails, so stale capabilities are not trusted", async () => {
+    vi.spyOn(API, "getProviders")
+      .mockResolvedValueOnce(
+        makeProviders([
+          {
+            id: "dashscope",
+            display_name: "DashScope",
+            status: "ready",
+            media_types: ["image", "video", "text", "audio"],
+            capabilities: [],
+            configured_keys: ["api_key"],
+            missing_keys: [],
+            models: {},
+          },
+        ]),
+      )
+      .mockRejectedValueOnce(new Error("temporary failure"));
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
+    );
+
+    await useConfigStatusStore.getState().fetch();
+    expect(useConfigStatusStore.getState().initialized).toBe(true);
+    expect(useConfigStatusStore.getState().hasMediaType("audio")).toBe(true);
+
+    await useConfigStatusStore.getState().refresh();
+
+    // 刷新失败后回到未初始化：依赖 initialized 的消费方（如旁白入口前置拦截）不再使用过期能力集
+    expect(useConfigStatusStore.getState().initialized).toBe(false);
+  });
+
   it("exposes hasMediaType for audio without flagging it as a config issue", async () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(
       makeProviders([

@@ -29,6 +29,11 @@ describe("NarrationAudioCard", () => {
     expect(audio?.getAttribute("aria-label")).toBeTruthy();
   });
 
+  it("falls back to the placeholder when novel text is whitespace-only", () => {
+    renderCard({ novelText: "   \n " });
+    expect(screen.getByText("（暂无原文）")).toBeInTheDocument();
+  });
+
   it("shows a placeholder instead of a player before generation", () => {
     const { container } = renderCard();
     expect(container.querySelector("audio")).toBeNull();
