@@ -48,7 +48,7 @@ class TestCollectVideoClips:
 
         assert len(clips) == 2
         assert clips[0]["id"] == "S1"
-        assert clips[0]["novel_text"] == "从前有座山"
+        assert clips[0]["subtitle_text"] == "从前有座山"
         assert clips[1]["id"] == "S2"
 
     def test_drama_mode_collects_scenes(self, tmp_path):
@@ -76,7 +76,53 @@ class TestCollectVideoClips:
 
         assert len(clips) == 1
         assert clips[0]["id"] == "E1S01"
-        assert clips[0]["novel_text"] == ""
+        assert clips[0]["subtitle_text"] == ""
+
+    def test_ad_mode_collects_shots_with_voiceover_subtitle(self, tmp_path):
+        """ad 模式：收集 shots，字幕文案取每镜头 voiceover_text"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "shot_E1S1.mp4").write_bytes(b"fake")
+        (videos_dir / "shot_E1S2.mp4").write_bytes(b"fake")
+
+        script = {
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S1",
+                    "section": "hook",
+                    "duration_seconds": 4,
+                    "voiceover_text": "还在为脱发烦恼吗",
+                    "generated_assets": {"video_clip": "videos/shot_E1S1.mp4", "status": "completed"},
+                },
+                {
+                    "shot_id": "E1S2",
+                    "section": "cta",
+                    "duration_seconds": 3,
+                    "voiceover_text": "点击下方链接立即下单",
+                    "generated_assets": {"video_clip": "videos/shot_E1S2.mp4", "status": "completed"},
+                },
+                {
+                    "shot_id": "E1S3",
+                    "section": "demo",
+                    "duration_seconds": 5,
+                    "voiceover_text": "未生成的镜头应跳过",
+                    "generated_assets": {"status": "pending"},
+                },
+            ],
+        }
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir)
+
+        assert len(clips) == 2
+        assert clips[0]["id"] == "E1S1"
+        assert clips[0]["subtitle_text"] == "还在为脱发烦恼吗"
+        assert clips[1]["id"] == "E1S2"
+        assert clips[1]["subtitle_text"] == "点击下方链接立即下单"
 
     def test_skips_missing_video_files(self, tmp_path):
         """script 中有记录但文件不存在时跳过"""
@@ -226,8 +272,8 @@ class TestGenerateDraft:
         draft_dir = tmp_path / "drafts" / "测试草稿"
 
         clips = [
-            {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "novel_text": ""},
-            {"id": "S2", "local_path": str(videos_dir / "scene_S2.mp4"), "novel_text": ""},
+            {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "subtitle_text": ""},
+            {"id": "S2", "local_path": str(videos_dir / "scene_S2.mp4"), "subtitle_text": ""},
         ]
 
         svc = JianyingDraftService.__new__(JianyingDraftService)
@@ -254,7 +300,7 @@ class TestGenerateDraft:
         draft_dir = tmp_path / "drafts" / "字幕草稿"
 
         clips = [
-            {"id": "S1", "local_path": str(videos_dir / "seg_S1.mp4"), "novel_text": "从前有座山"},
+            {"id": "S1", "local_path": str(videos_dir / "seg_S1.mp4"), "subtitle_text": "从前有座山"},
         ]
 
         svc = JianyingDraftService.__new__(JianyingDraftService)
@@ -271,6 +317,54 @@ class TestGenerateDraft:
         tracks = content.get("tracks", [])
         assert len(tracks) == 2
 
+    def test_ad_mode_includes_voiceover_subtitle_track(self, tmp_path):
+        """ad 模式生成字幕轨：文本取口播文案，逐镜头与视频时间轴对齐，位于竖屏 safe-zone"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        videos_dir = tmp_path / "videos"
+        videos_dir.mkdir()
+        make_test_video(videos_dir / "shot_E1S1.mp4")
+        make_test_video(videos_dir / "shot_E1S2.mp4")
+
+        draft_dir = tmp_path / "drafts" / "广告草稿"
+
+        clips = [
+            {"id": "E1S1", "local_path": str(videos_dir / "shot_E1S1.mp4"), "subtitle_text": "还在为脱发烦恼吗"},
+            {"id": "E1S2", "local_path": str(videos_dir / "shot_E1S2.mp4"), "subtitle_text": "点击下方链接立即下单"},
+        ]
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        svc._generate_draft(
+            draft_dir=draft_dir,
+            draft_name="广告草稿",
+            clips=clips,
+            width=1080,
+            height=1920,
+            content_mode="ad",
+        )
+
+        content = json.loads((draft_dir / "draft_content.json").read_text(encoding="utf-8"))
+        tracks = content.get("tracks", [])
+        assert len(tracks) == 2
+
+        video_track = next(t for t in tracks if t.get("type") == "video")
+        text_track = next(t for t in tracks if t.get("type") == "text")
+        assert len(text_track["segments"]) == 2
+
+        # 逐镜头与视频时间轴对齐：每条字幕的起点/时长与对应视频段一致
+        for video_seg, text_seg in zip(video_track["segments"], text_track["segments"]):
+            assert text_seg["target_timerange"] == video_seg["target_timerange"]
+
+        # 文本内容为口播文案
+        texts = content["materials"]["texts"]
+        joined = json.dumps(texts, ensure_ascii=False)
+        assert "还在为脱发烦恼吗" in joined
+        assert "点击下方链接立即下单" in joined
+
+        # 竖屏 safe-zone：字幕段下移到画面下方但不贴底（沿用既有竖屏参数）
+        for text_seg in text_track["segments"]:
+            assert text_seg["clip"]["transform"]["y"] == pytest.approx(-0.75)
+
     def test_drama_mode_no_subtitle_track(self, tmp_path):
         """drama 模式不生成字幕轨"""
         from server.services.jianying_draft_service import JianyingDraftService
@@ -282,7 +376,7 @@ class TestGenerateDraft:
         draft_dir = tmp_path / "drafts" / "无字幕草稿"
 
         clips = [
-            {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "novel_text": ""},
+            {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "subtitle_text": ""},
         ]
 
         svc = JianyingDraftService.__new__(JianyingDraftService)
@@ -317,11 +411,11 @@ class TestNarrationAudioTrack:
 
         draft_dir = tmp_path / "drafts" / "旁白草稿"
         clips = [
-            {"id": "S1", "local_path": str(videos_dir / "seg_S1.mp4"), "novel_text": ""},
+            {"id": "S1", "local_path": str(videos_dir / "seg_S1.mp4"), "subtitle_text": ""},
             {
                 "id": "S2",
                 "local_path": str(videos_dir / "seg_S2.mp4"),
-                "novel_text": "",
+                "subtitle_text": "",
                 "narration_audio_local": str(audio_dir / "segment_S2.wav"),
             },
         ]
@@ -367,7 +461,7 @@ class TestNarrationAudioTrack:
             {
                 "id": "S1",
                 "local_path": str(videos_dir / "seg_S1.mp4"),
-                "novel_text": "",
+                "subtitle_text": "",
                 "narration_audio_local": str(audio_dir / "segment_S1.wav"),
             },
         ]
@@ -408,7 +502,7 @@ class TestNarrationAudioTrack:
             {
                 "id": "S1",
                 "local_path": str(videos_dir / "seg_S1.mp4"),
-                "novel_text": "",
+                "subtitle_text": "",
                 "narration_audio_local": str(audio_dir / "segment_S1.wav"),
             },
         ]
@@ -448,7 +542,7 @@ class TestNarrationAudioTrack:
             {
                 "id": "S1",
                 "local_path": str(videos_dir / "seg_S1.mp4"),
-                "novel_text": "",
+                "subtitle_text": "",
                 "narration_audio_local": str(audio_dir / "segment_S1.wav"),
             },
         ]
@@ -489,7 +583,7 @@ class TestNarrationAudioTrack:
             {
                 "id": "S1",
                 "local_path": str(videos_dir / "seg_S1.mp4"),
-                "novel_text": "",
+                "subtitle_text": "",
                 "narration_audio_local": str(audio_dir / "segment_S1.wav"),
             },
         ]
@@ -526,13 +620,13 @@ class TestNarrationAudioTrack:
             {
                 "id": "S1",
                 "local_path": str(videos_dir / "seg_S1.mp4"),
-                "novel_text": "",
+                "subtitle_text": "",
                 "narration_audio_local": str(audio_dir / "segment_S1.wav"),
             },
             {
                 "id": "S2",
                 "local_path": str(videos_dir / "seg_S2.mp4"),
-                "novel_text": "",
+                "subtitle_text": "",
                 "narration_audio_local": str(audio_dir / "segment_S2.wav"),
             },
         ]
@@ -574,7 +668,7 @@ class TestTransitions:
         for i, t in enumerate(transitions):
             path = videos_dir / f"scene_S{i + 1}.mp4"
             make_test_video(path)
-            clips.append({"id": f"S{i + 1}", "local_path": str(path), "novel_text": "", "transition_to_next": t})
+            clips.append({"id": f"S{i + 1}", "local_path": str(path), "subtitle_text": "", "transition_to_next": t})
 
         draft_dir = tmp_path / "drafts" / "转场草稿"
         svc = JianyingDraftService.__new__(JianyingDraftService)
@@ -843,6 +937,137 @@ class TestExportEpisodeDraft:
             raw = json.dumps(content)
             assert "/tmp/" not in raw and "\\Temp\\" not in raw
             assert draft_path in raw
+
+    def _setup_ad_project(self, tmp_path) -> tuple:
+        """创建带视频片段的 ad 项目（恒单集，剧本为平铺 shots[]）"""
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = tmp_path / "projects" / "ad-demo"
+        project_dir.mkdir(parents=True)
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir()
+
+        make_test_video(videos_dir / "shot_E1S1.mp4")
+        make_test_video(videos_dir / "shot_E1S2.mp4")
+
+        project_data = {
+            "title": "防脱洗发水",
+            "content_mode": "ad",
+            "target_duration": 30,
+            "aspect_ratio": "9:16",
+            "episodes": [
+                {"episode": 1, "title": "", "script_file": "scripts/episode_1.json"},
+            ],
+        }
+        (project_dir / "project.json").write_text(json.dumps(project_data, ensure_ascii=False), encoding="utf-8")
+
+        scripts_dir = project_dir / "scripts"
+        scripts_dir.mkdir()
+        script_data = {
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S1",
+                    "section": "hook",
+                    "duration_seconds": 4,
+                    "voiceover_text": "还在为脱发烦恼吗",
+                    "generated_assets": {"video_clip": "videos/shot_E1S1.mp4", "status": "completed"},
+                },
+                {
+                    "shot_id": "E1S2",
+                    "section": "cta",
+                    "duration_seconds": 3,
+                    "voiceover_text": "点击下方链接立即下单",
+                    "generated_assets": {"video_clip": "videos/shot_E1S2.mp4", "status": "completed"},
+                },
+            ],
+        }
+        (scripts_dir / "episode_1.json").write_text(json.dumps(script_data, ensure_ascii=False), encoding="utf-8")
+
+        return pm, project_dir
+
+    def test_ad_export_includes_video_and_subtitle_tracks(self, tmp_path):
+        """ad 项目导出草稿 = 视频轨 + 口播文案字幕轨，打开即完整时间线"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, _ = self._setup_ad_project(tmp_path)
+        svc = JianyingDraftService(pm)
+        draft_path = "/mock/JianyingDrafts"
+
+        zip_path = svc.export_episode_draft(project_name="ad-demo", episode=1, draft_path=draft_path)
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+            assert any("shot_E1S1.mp4" in n for n in names)
+            assert any("shot_E1S2.mp4" in n for n in names)
+
+            content_entry = [n for n in names if "draft_info.json" in n][0]
+            content = json.loads(zf.read(content_entry).decode("utf-8"))
+
+        track_types = [t.get("type") for t in content["tracks"]]
+        assert "video" in track_types
+        assert "text" in track_types
+
+        text_track = next(t for t in content["tracks"] if t.get("type") == "text")
+        assert len(text_track["segments"]) == 2
+        texts_raw = json.dumps(content["materials"]["texts"], ensure_ascii=False)
+        assert "还在为脱发烦恼吗" in texts_raw
+        assert "点击下方链接立即下单" in texts_raw
+
+    def test_ad_export_draft_name_has_no_episode_suffix(self, tmp_path):
+        """ad 项目隐藏「集」概念：草稿名即项目标题，不带「第N集」后缀"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, _ = self._setup_ad_project(tmp_path)
+        svc = JianyingDraftService(pm)
+
+        zip_path = svc.export_episode_draft(project_name="ad-demo", episode=1, draft_path="/mock/JianyingDrafts")
+
+        with zipfile.ZipFile(zip_path) as zf:
+            top_level = {n.split("/")[0] for n in zf.namelist()}
+
+        assert top_level == {"防脱洗发水"}
+
+    def test_ad_export_degenerate_title_falls_back_to_project_name(self, tmp_path):
+        """ad 标题为空/纯点时草稿名回退项目名：塌缩的草稿目录会让导出误删上层临时目录"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, project_dir = self._setup_ad_project(tmp_path)
+        project_path = project_dir / "project.json"
+        for degenerate_title in ("", "  ", "."):
+            project_data = json.loads(project_path.read_text(encoding="utf-8"))
+            project_data["title"] = degenerate_title
+            project_path.write_text(json.dumps(project_data, ensure_ascii=False), encoding="utf-8")
+
+            svc = JianyingDraftService(pm)
+            zip_path = svc.export_episode_draft(project_name="ad-demo", episode=1, draft_path="/mock/Drafts")
+
+            with zipfile.ZipFile(zip_path) as zf:
+                top_level = {n.split("/")[0] for n in zf.namelist()}
+            assert top_level == {"ad-demo"}, f"title={degenerate_title!r}"
+
+    def test_non_string_voiceover_treated_as_missing_subtitle(self, tmp_path):
+        """镜头 voiceover_text 为非字符串脏值时按缺失处理，导出不中断"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, project_dir = self._setup_ad_project(tmp_path)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script_data = json.loads(script_path.read_text(encoding="utf-8"))
+        script_data["shots"][0]["voiceover_text"] = 123
+        script_path.write_text(json.dumps(script_data, ensure_ascii=False), encoding="utf-8")
+
+        svc = JianyingDraftService(pm)
+        zip_path = svc.export_episode_draft(project_name="ad-demo", episode=1, draft_path="/mock/Drafts")
+
+        with zipfile.ZipFile(zip_path) as zf:
+            content_entry = [n for n in zf.namelist() if "draft_info.json" in n][0]
+            content = json.loads(zf.read(content_entry).decode("utf-8"))
+
+        # 脏镜头无字幕，正常镜头字幕保留
+        text_track = next(t for t in content["tracks"] if t.get("type") == "text")
+        assert len(text_track["segments"]) == 1
+        assert "点击下方链接立即下单" in json.dumps(content["materials"]["texts"], ensure_ascii=False)
 
     def test_episode_not_found_raises(self, tmp_path):
         """集数不存在时抛出 FileNotFoundError"""

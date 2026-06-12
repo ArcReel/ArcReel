@@ -611,7 +611,7 @@ def compose_video(
     # 加载剧本（pm.load_script 内部已用 _safe_subpath 过滤 ../ 等逃逸尝试）
     script = pm.load_script(project_name, script_filename)
 
-    # 仅支持 drama 模式（顶层 scenes[]）；narration/reference_video 给友好错误
+    # 仅支持 drama 模式（顶层 scenes[]）；narration/ad/reference_video 给友好错误
     if "scenes" not in script:
         content_mode = script.get("content_mode") or "unknown"
         generation_mode = script.get("generation_mode") or "storyboard"

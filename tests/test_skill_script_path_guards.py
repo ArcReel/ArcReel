@@ -2,7 +2,7 @@
 
 约束：
 - cwd 必须含 project.json，否则脚本拒绝执行
-- compose_video：narration / reference_video 模式给友好错误，不是 KeyError
+- compose_video：narration / ad / reference_video 模式给友好错误，不是 KeyError
 - compose_video：--output 不能逃逸到 output/ 之外
 """
 
@@ -127,6 +127,37 @@ def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
     out = result.stdout + result.stderr
     assert "仅支持 drama 模式" in out
     # 不能出现裸 KeyError
+    assert "KeyError" not in out
+
+
+@_requires_ffmpeg
+def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
+    """ad 模式（顶层 shots[] 无 scenes[]）应给友好错误并指引剪映草稿导出，不是 KeyError。"""
+    (fake_project / "scripts").mkdir(exist_ok=True)
+    (fake_project / "scripts" / "ep_ad.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "ad",
+                "shots": [
+                    {
+                        "shot_id": "E1S1",
+                        "section": "hook",
+                        "duration_seconds": 4,
+                        "voiceover_text": "还在为脱发烦恼吗",
+                        "generated_assets": {"video_clip": "videos/shot_E1S1.mp4"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_ad.json")
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "仅支持 drama 模式" in out
+    assert "content_mode=ad" in out
+    assert "剪映草稿导出" in out
     assert "KeyError" not in out
 
 

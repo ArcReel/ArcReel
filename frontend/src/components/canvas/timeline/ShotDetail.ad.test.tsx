@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
+import { useCostStore } from "@/stores/cost-store";
 import type { AdShot } from "@/types";
 
 function makeShot(overrides: Partial<AdShot> = {}): AdShot {
@@ -138,6 +139,31 @@ describe("ShotDetail ad 模式", () => {
       />,
     );
     expect(screen.getByDisplayValue("用户手改的口播")).toBeInTheDocument();
+  });
+
+  it("镜头级费用预估展示在生成按钮上", () => {
+    useCostStore.setState({
+      _segmentIndex: new Map([
+        [
+          "E1S01",
+          {
+            segment_id: "E1S01",
+            duration_seconds: 4,
+            estimate: { image: { USD: 0.067 }, video: { USD: 0.32 }, audio: {} },
+            actual: { image: {}, video: {}, audio: {} },
+          },
+        ],
+      ]),
+    });
+    const view = renderDetail({ onGenerateStoryboard: vi.fn(), onGenerateVideo: vi.fn() });
+    try {
+      expect(screen.getByText("~$0.07")).toBeInTheDocument();
+      expect(screen.getByText("~$0.32")).toBeInTheDocument();
+    } finally {
+      // 先卸载再重置 store：组件仍挂载时清 store 会触发 act() 外的重渲染告警
+      view.unmount();
+      useCostStore.getState().clear();
+    }
   });
 
   it("重排请求在途时移动按钮禁用（movePending）", () => {
