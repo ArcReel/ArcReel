@@ -122,6 +122,7 @@ class UpdateProjectRequest(BaseModel):
     clear_style_image: bool | None = None
     episodes: list[EpisodePatch] | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
+    comfyui_overrides: dict[str, str | float | int | None] | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -684,6 +685,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     project.pop("model_settings", None)
                 else:
                     project["model_settings"] = req.model_settings
+
+            if "comfyui_overrides" in req.model_fields_set:
+                if req.comfyui_overrides is None:
+                    project.pop("comfyui_overrides", None)
+                else:
+                    project["comfyui_overrides"] = req.comfyui_overrides
 
             if "episodes" in req.model_fields_set and req.episodes is not None:
                 # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中显式提供的字段。

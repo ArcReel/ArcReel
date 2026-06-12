@@ -1,6 +1,6 @@
 import type { EndpointKey, ImageCap, MediaType } from "@/types";
 
-export type DiscoveryFormat = "openai" | "google";
+export type DiscoveryFormat = "openai" | "google" | "comfyui" | "fal";
 export type ModelLike = { key: string; endpoint: EndpointKey; is_default: boolean };
 
 /** 价格行标签 —— mediaType 由调用方从 endpoint-catalog-store 读出注入。 */
@@ -19,6 +19,12 @@ export function priceLabel(
 export function urlPreviewFor(format: DiscoveryFormat, rawBaseUrl: string): string | null {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/, "");
   if (!trimmed) return null;
+  if (format === "comfyui") {
+    return `${trimmed}/models/checkpoints`;
+  }
+  if (format === "fal") {
+    return `${trimmed}/fal-ai/model-name`;
+  }
   if (format === "openai") {
     const base = trimmed.match(/\/v\d+$/) ? trimmed : `${trimmed}/v1`;
     return `${base}/models`;

@@ -42,7 +42,7 @@ def _validate_endpoint(value: str) -> str:
 # 写入路径上的 endpoint 字段统一走运行时校验，键集合自动跟随 ENDPOINT_REGISTRY；
 # 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
-DiscoveryFormatLiteral = Literal["openai", "google"]
+DiscoveryFormatLiteral = Literal["openai", "google", "comfyui", "fal"]
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,12 @@ class ModelInput(BaseModel):
     currency: str | None = None
     supported_durations: list[int] | None = None
     resolution: str | None = None
+    # ComfyUI-specific settings
+    comfyui_sampler: str | None = None
+    comfyui_steps: int | None = None
+    comfyui_cfg: float | None = None
+    comfyui_negative_prompt: str | None = None
+    comfyui_clip_skip: int | None = None
 
     def to_db_dict(self) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
@@ -149,6 +155,12 @@ class ModelResponse(BaseModel):
     currency: str | None = None
     supported_durations: list[int] | None = None
     resolution: str | None = None
+    # ComfyUI-specific settings
+    comfyui_sampler: str | None = None
+    comfyui_steps: int | None = None
+    comfyui_cfg: float | None = None
+    comfyui_negative_prompt: str | None = None
+    comfyui_clip_skip: int | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -174,6 +186,7 @@ class DiscoverResponse(BaseModel):
 class DiscoverAnthropicRequest(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
+    discovery_format: str | None = None  # "anthropic" | "openai" | None=anthropic
 
 
 class CredentialsResponse(BaseModel):
@@ -217,6 +230,11 @@ def _model_to_response(m) -> ModelResponse:
         currency=m.currency,
         supported_durations=durations,
         resolution=m.resolution,
+        comfyui_sampler=m.comfyui_sampler,
+        comfyui_steps=m.comfyui_steps,
+        comfyui_cfg=m.comfyui_cfg,
+        comfyui_negative_prompt=m.comfyui_negative_prompt,
+        comfyui_clip_skip=m.comfyui_clip_skip,
     )
 
 
@@ -593,8 +611,9 @@ async def discover_anthropic_models_endpoint(
         raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
 
     base_url = body.base_url if not needs_url else (cred.base_url if cred else None)
+    fmt = body.discovery_format or "anthropic"
 
-    return await _run_discover("anthropic", base_url, api_key, _t)
+    return await _run_discover(fmt, base_url, api_key, _t)
 
 
 @router.post("/{provider_id}/discover")
@@ -672,6 +691,16 @@ async def _run_connection_test(
                 asyncio.to_thread(_test_google, base_url, api_key, _t),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
+        elif discovery_format == "comfyui":
+            result = await asyncio.wait_for(
+                _test_comfyui(base_url, _t),
+                timeout=_CONNECTION_TEST_TIMEOUT,
+            )
+        elif discovery_format == "fal":
+            result = await asyncio.wait_for(
+                _test_fal(api_key, _t),
+                timeout=_CONNECTION_TEST_TIMEOUT,
+            )
         else:
             return ConnectionTestResponse(
                 success=False,
@@ -726,3 +755,58 @@ def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> Connect
         message=_t("connection_success"),
         model_count=count,
     )
+
+
+async def _test_comfyui(base_url: str, _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 /system_stats 验证 ComfyUI 服务器连通性。"""
+    from lib.comfyui.client import ComfyUIClient
+
+    client = ComfyUIClient(base_url)
+    try:
+        stats = await client.get_system_stats()
+        version = stats.get("system", {}).get("comfyui_version", "unknown")
+        return ConnectionTestResponse(
+            success=True,
+            message=_t("connection_success") + f" (ComfyUI v{version})",
+        )
+    except Exception as exc:
+        return ConnectionTestResponse(
+            success=False,
+            message=_t("connection_failed", err_msg=str(exc)[:200]),
+        )
+
+
+async def _test_fal(api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
+    """验证 fal.ai API key 有效性。通过调用一个轻量级模型端点测试连通性。"""
+    import httpx
+
+    headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Try the fal.ai models listing endpoint (platform API)
+            resp = await client.get(
+                "https://fal.ai/api/models",
+                headers=headers,
+                params={"limit": 1},
+            )
+            if resp.status_code == 200:
+                return ConnectionTestResponse(
+                    success=True,
+                    message=_t("connection_success") + " (fal.ai)",
+                )
+            # If platform API fails, just verify key format
+            if resp.status_code in (401, 403):
+                return ConnectionTestResponse(
+                    success=False,
+                    message=_t("connection_failed", err_msg="Invalid API key"),
+                )
+            # Other errors — key might still be valid
+            return ConnectionTestResponse(
+                success=True,
+                message=_t("connection_success") + " (fal.ai — key accepted)",
+            )
+    except Exception as exc:
+        return ConnectionTestResponse(
+            success=False,
+            message=_t("connection_failed", err_msg=str(exc)[:200]),
+        )

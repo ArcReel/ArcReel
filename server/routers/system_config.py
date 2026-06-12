@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -261,9 +261,12 @@ async def get_system_config(
         "claude_code_subagent_model": all_s.get("claude_code_subagent_model") or None,
         "agent_session_cleanup_delay_seconds": int(all_s.get("agent_session_cleanup_delay_seconds") or "300"),
         "agent_max_concurrent_sessions": int(all_s.get("agent_max_concurrent_sessions") or "5"),
+        "assistant_provider": all_s.get("assistant_provider", "claude") or "claude",
         "text_backend_script": all_s.get("text_backend_script") or "",
         "text_backend_overview": all_s.get("text_backend_overview") or "",
         "text_backend_style": all_s.get("text_backend_style") or "",
+        "image_max_workers": int(all_s.get("image_max_workers") or "3"),
+        "video_max_workers": int(all_s.get("video_max_workers") or "2"),
     }
 
     options = await _build_options(svc, session)
@@ -313,6 +316,7 @@ async def get_system_version(
 @router.patch("/system/config")
 async def patch_system_config(
     req: SystemConfigPatchRequest,
+    request: Request,
     _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     _t: Translator,
@@ -352,6 +356,8 @@ async def patch_system_config(
     _INT_SETTINGS_RANGES = {
         "agent_session_cleanup_delay_seconds": (10, 3600),
         "agent_max_concurrent_sessions": (1, 20),
+        "image_max_workers": (1, 10),
+        "video_max_workers": (1, 10),
     }
     for key, (min_val, max_val) in _INT_SETTINGS_RANGES.items():
         if key in patch and patch[key] is not None:
@@ -370,6 +376,12 @@ async def patch_system_config(
             await svc.set_setting(key, str(value).strip() if value else "")
 
     await session.commit()
+
+    # Reload worker limits if concurrency settings changed
+    if "image_max_workers" in patch or "video_max_workers" in patch:
+        worker = getattr(request.app.state, "generation_worker", None)
+        if worker:
+            await worker.reload_limits()
 
     # Return updated config
     return await get_system_config(_user=_user, svc=svc, session=session)

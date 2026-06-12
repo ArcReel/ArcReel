@@ -36,7 +36,9 @@ export interface AgentCredential {
   sonnet_model: string | null;
   opus_model: string | null;
   subagent_model: string | null;
+  discovery_format: string | null;
   is_active: boolean;
+  priority: number;
   created_at: string | null;
 }
 
@@ -50,6 +52,7 @@ export interface CreateAgentCredentialRequest {
   sonnet_model?: string | null;
   opus_model?: string | null;
   subagent_model?: string | null;
+  discovery_format?: string | null;
   activate?: boolean | null;
 }
 
@@ -93,4 +96,5 @@ export interface TestConnectionRequest {
   base_url?: string | null;
   api_key: string;
   model?: string | null;
+  discovery_format?: string | null;
 }

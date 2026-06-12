@@ -23,14 +23,21 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
 
   const settings = configRes.settings;
 
-  // 1. Check anthropic key
-  if (!settings.anthropic_api_key?.is_set) {
-    issues.push({
-      key: "anthropic",
-      tab: "agent",
-      label: "agent_api_key_not_configured",
-    });
+  // 1. Check agent provider configuration
+  const assistantProvider = settings.assistant_provider || "claude";
+
+  if (assistantProvider === "claude") {
+    // Claude Agent SDK requires Anthropic key
+    if (!settings.anthropic_api_key?.is_set) {
+      issues.push({
+        key: "anthropic",
+        tab: "agent",
+        label: "agent_api_key_not_configured",
+      });
+    }
   }
+  // For "litellm" and "openai" providers, the key is managed in AssistantProviderSection
+  // and stored in system_settings — no global config issue needed here.
 
   // 2. Check any provider supports each media type
   const readyProviders = providers.filter((p) => p.status === "ready");

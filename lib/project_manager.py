@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import portalocker
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS
@@ -70,6 +70,28 @@ class ProjectOverview(BaseModel):
     genre: str = Field(description="题材类型，如：古装宫斗、现代悬疑、玄幻修仙")
     theme: str = Field(description="核心主题，如：复仇与救赎、成长与蜕变")
     world_setting: str = Field(description="时代背景和世界观设定，100-200字")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_keys(cls, data: Any) -> Any:
+        """Accept case-insensitive keys from LLM responses (e.g. Synopsis → synopsis, WorldSetting → world_setting)."""
+        if isinstance(data, dict):
+            field_map = {f.lower(): f for f in cls.model_fields}
+            normalized = {}
+            for k, v in data.items():
+                lower = k.lower()
+                # Direct match
+                if lower in field_map:
+                    normalized[field_map[lower]] = v
+                # Try inserting underscores: WorldSetting → world_setting
+                else:
+                    with_underscores = re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
+                    if with_underscores in field_map:
+                        normalized[field_map[with_underscores]] = v
+                    else:
+                        normalized[lower] = v
+            return normalized
+        return data
 
 
 class ProjectManager:

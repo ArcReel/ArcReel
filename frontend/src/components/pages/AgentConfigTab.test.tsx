@@ -35,6 +35,7 @@ function makeConfigResponse(): GetSystemConfigResponse {
       claude_code_subagent_model: "",
       agent_session_cleanup_delay_seconds: 300,
       agent_max_concurrent_sessions: 5,
+      assistant_provider: "claude",
     },
     options: {
       video_backends: [],
@@ -75,6 +76,7 @@ function makeCredential(overrides?: Partial<AgentCredential>): AgentCredential {
     sonnet_model: null,
     opus_model: null,
     subagent_model: null,
+    discovery_format: null,
     is_active: true,
     created_at: "2026-04-21T00:00:00Z",
     ...overrides,

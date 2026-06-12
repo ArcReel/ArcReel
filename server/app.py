@@ -45,6 +45,7 @@ from server.routers import (
     api_keys,
     assets,
     assistant,
+    assistant_provider,
     characters,
     cost_estimation,
     custom_providers,
@@ -388,6 +389,8 @@ async def lifespan(app: FastAPI):
     worker = create_generation_worker()
     app.state.generation_worker = worker
     await worker.start()
+    # Load settings from DB (overrides env vars)
+    await worker.reload_limits()
     logger.info("GenerationWorker 已启动")
 
     logger.info("启动 ProjectEventService...")
@@ -526,6 +529,7 @@ app.include_router(custom_providers.router, prefix="/api/v1", tags=["自定义�
 app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算"])
 app.include_router(grids.router, prefix="/api/v1", tags=["宫格图"])
 app.include_router(reference_videos.router, prefix="/api/v1", tags=["参考生视频"])
+app.include_router(assistant_provider.router, prefix="/api/v1", tags=["助手供应商"])
 app.include_router(assets.router, prefix="/api/v1", tags=["全局资产库"])
 
 

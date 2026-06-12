@@ -3,7 +3,7 @@
 // 放弃编译期窄类型换取「新增 endpoint 不再需要改前端类型」。
 export type EndpointKey = string;
 
-export type MediaType = "text" | "image" | "video";
+export type MediaType = "text" | "image" | "video" | "audio";
 
 export type ImageCap = "text_to_image" | "image_to_image";
 
@@ -21,7 +21,7 @@ export interface EndpointDescriptor {
 export interface CustomProviderInfo {
   id: number;
   display_name: string;
-  discovery_format: "openai" | "google";
+  discovery_format: "openai" | "google" | "comfyui" | "fal";
   base_url: string;
   api_key_masked: string;
   models: CustomProviderModelInfo[];
@@ -41,6 +41,12 @@ export interface CustomProviderModelInfo {
   currency: string | null;
   supported_durations: number[] | null;
   resolution: string | null;
+  // ComfyUI-specific settings
+  comfyui_sampler: string | null;
+  comfyui_steps: number | null;
+  comfyui_cfg: number | null;
+  comfyui_negative_prompt: string | null;
+  comfyui_clip_skip: number | null;
 }
 
 export interface DiscoveredModel {
@@ -53,7 +59,7 @@ export interface DiscoveredModel {
 
 export interface CustomProviderCreateRequest {
   display_name: string;
-  discovery_format: "openai" | "google";
+  discovery_format: "openai" | "google" | "comfyui" | "fal";
   base_url: string;
   api_key: string;
   models: CustomProviderModelInput[];
@@ -71,6 +77,12 @@ export interface CustomProviderModelInput {
   currency?: string;
   supported_durations?: number[] | null;
   resolution?: string | null;
+  // ComfyUI-specific settings
+  comfyui_sampler?: string | null;
+  comfyui_steps?: number | null;
+  comfyui_cfg?: number | null;
+  comfyui_negative_prompt?: string | null;
+  comfyui_clip_skip?: number | null;
 }
 
 export interface CustomProviderCredentials {
@@ -81,6 +93,7 @@ export interface CustomProviderCredentials {
 export interface AnthropicDiscoverRequest {
   base_url?: string;
   api_key?: string;
+  discovery_format?: string | null;
 }
 
 export interface AnthropicDiscoverResponse {

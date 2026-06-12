@@ -132,6 +132,74 @@ async def probe_messages(
     return ProbeResult(success=True, status_code=resp.status_code, latency_ms=elapsed, error=None)
 
 
+async def probe_messages_openai(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout_s: float = 10.0,
+) -> ProbeResult:
+    """POST {base_url}/v1/chat/completions 发最小请求 (max_tokens=1)。
+
+    判定:
+    - 2xx 且响应 JSON 含 choices → success
+    - 非 2xx → 失败
+    - 网络异常/超时 → 失败
+    """
+    from lib.config.url_utils import ensure_openai_base_url
+
+    url = f"{ensure_openai_base_url(base_url).rstrip('/')}/v1/chat/completions"
+    payload = {
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "ping"}],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    started = time.perf_counter()
+    try:
+        resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s)
+    except httpx.TimeoutException as exc:
+        elapsed = int((time.perf_counter() - started) * 1000)
+        logger.info("probe_messages_openai timeout url=%s elapsed_ms=%d", url, elapsed)
+        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")
+    except httpx.HTTPError as exc:
+        elapsed = int((time.perf_counter() - started) * 1000)
+        logger.info("probe_messages_openai network err url=%s elapsed_ms=%d", url, elapsed)
+        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=_truncate(str(exc)))
+
+    elapsed = int((time.perf_counter() - started) * 1000)
+    logger.info("probe_messages_openai url=%s status=%d elapsed_ms=%d", url, resp.status_code, elapsed)
+
+    if resp.status_code >= 400:
+        return ProbeResult(
+            success=False,
+            status_code=resp.status_code,
+            latency_ms=elapsed,
+            error=_truncate(resp.text),
+        )
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return ProbeResult(
+            success=False,
+            status_code=resp.status_code,
+            latency_ms=elapsed,
+            error="not JSON",
+        )
+    if not isinstance(data, dict) or "choices" not in data:
+        return ProbeResult(
+            success=False,
+            status_code=resp.status_code,
+            latency_ms=elapsed,
+            error="non-openai JSON: missing choices",
+        )
+    return ProbeResult(success=True, status_code=resp.status_code, latency_ms=elapsed, error=None)
+
+
 def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
     """把失败 ProbeResult 映射到 DiagnosisCode。"""
     if result.success:
@@ -191,6 +259,38 @@ async def probe_discovery(
     )
 
 
+async def probe_discovery_openai(
+    *,
+    base_url: str,
+    api_key: str,
+    timeout_s: float = 5.0,
+) -> ProbeResult | None:
+    """GET {base_url}/v1/models 体检 OpenAI 模型发现端点。"""
+    from lib.config.url_utils import ensure_openai_base_url
+
+    url = f"{ensure_openai_base_url(base_url).rstrip('/')}/v1/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    started = time.perf_counter()
+    try:
+        resp = await _get(url=url, headers=headers, timeout_s=timeout_s)
+    except httpx.TimeoutException as exc:
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")
+    except httpx.HTTPError as exc:
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=_truncate(str(exc)))
+
+    elapsed = int((time.perf_counter() - started) * 1000)
+    logger.info("probe_discovery_openai url=%s status=%d", url, resp.status_code)
+    success = 200 <= resp.status_code < 300
+    return ProbeResult(
+        success=success,
+        status_code=resp.status_code,
+        latency_ms=elapsed,
+        error=None if success else _truncate(resp.text),
+    )
+
+
 _DEFAULT_TEST_MODEL = "claude-3-5-sonnet-20241022"
 # 自愈触发条件：messages probe 拿到这些 status 时尝试补 /anthropic 后缀。
 # 选 404/405/502 是因为它们是 anthropic 协议打到 OpenAI 兼容根（如 https://api.deepseek.com）
@@ -221,8 +321,35 @@ async def run_test(
     base_url: str | None,
     api_key: str,
     model: str | None,
+    discovery_format: str | None = None,
 ) -> TestConnectionResponse:
     """完整端到端测试：派生 → messages + discovery 并发 → 自定义模式自愈 → 诊断。"""
+
+    # ── OpenAI format: direct probe, no Anthropic endpoint derivation ──
+    if discovery_format == "openai":
+        if not base_url:
+            raise ValueError("base_url required for openai discovery_format")
+        effective_model = model or "gpt-4"
+        msg, disc = await asyncio.gather(
+            probe_messages_openai(base_url=base_url, api_key=api_key, model=effective_model),
+            probe_discovery_openai(base_url=base_url, api_key=api_key),
+        )
+        overall: Literal["ok", "warn", "fail"]
+        if msg.success:
+            overall = "ok" if (disc is None or disc.success) else "warn"
+        else:
+            overall = "fail"
+        return TestConnectionResponse(
+            overall=overall,
+            messages_probe=msg,
+            discovery_probe=disc,
+            diagnosis=classify_probe_failure(msg) if not msg.success else None,
+            suggestion=None,
+            derived_messages_root=base_url,
+            derived_discovery_root=base_url,
+        )
+
+    # ── Anthropic format (default) ──
     # 1. 派生 endpoints
     if preset_id and preset_id != CUSTOM_SENTINEL_ID:
         preset = get_preset(preset_id)

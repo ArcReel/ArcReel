@@ -13,8 +13,10 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 
+from lib.audio_backends.comfyui import ComfyUIAudioBackend
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
-from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.custom_provider.backends import CustomAudioBackend, CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.custom_provider.fal_backends import FalAudioBackend, FalImageBackend, FalVideoBackend
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.gemini import GeminiImageBackend
 from lib.image_backends.openai import OpenAIImageBackend
@@ -107,6 +109,55 @@ def _build_newapi_video(provider, model_id: str) -> CustomVideoBackend:
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_comfyui_image(provider, model_id: str) -> CustomImageBackend:
+    from lib.image_backends.comfyui import ComfyUIImageBackend
+
+    delegate = ComfyUIImageBackend(base_url=provider.base_url, model=model_id)
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_comfyui_video(provider, model_id: str) -> CustomVideoBackend:
+    from lib.video_backends.comfyui import ComfyUIVideoBackend
+
+    delegate = ComfyUIVideoBackend(base_url=provider.base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_comfyui_audio(provider, model_id: str) -> CustomAudioBackend:
+    delegate = ComfyUIAudioBackend(base_url=provider.base_url, model=model_id)
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_fal_image(provider, model_id: str) -> CustomImageBackend:
+    delegate = FalImageBackend(
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        model=model_id,
+        provider_id=provider.provider_id,
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_fal_video(provider, model_id: str) -> CustomVideoBackend:
+    delegate = FalVideoBackend(
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        model=model_id,
+        provider_id=provider.provider_id,
+    )
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_fal_audio(provider, model_id: str) -> CustomAudioBackend:
+    delegate = FalAudioBackend(
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        model=model_id,
+        provider_id=provider.provider_id,
+    )
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 # ── ENDPOINT_REGISTRY 注册表 ───────────────────────────────────────
 
 
@@ -188,6 +239,62 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/video/generations",
         build_backend=_build_newapi_video,
     ),
+    "comfyui-image": EndpointSpec(
+        key="comfyui-image",
+        media_type="image",
+        family="comfyui",
+        display_name_key="endpoint_comfyui_image_display",
+        request_method="POST",
+        request_path_template="/prompt",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_comfyui_image,
+    ),
+    "comfyui-video": EndpointSpec(
+        key="comfyui-video",
+        media_type="video",
+        family="comfyui",
+        display_name_key="endpoint_comfyui_video_display",
+        request_method="POST",
+        request_path_template="/prompt",
+        build_backend=_build_comfyui_video,
+    ),
+    "comfyui-audio": EndpointSpec(
+        key="comfyui-audio",
+        media_type="audio",
+        family="comfyui",
+        display_name_key="endpoint_comfyui_audio_display",
+        request_method="POST",
+        request_path_template="/prompt",
+        build_backend=_build_comfyui_audio,
+    ),
+    "fal-image": EndpointSpec(
+        key="fal-image",
+        media_type="image",
+        family="fal",
+        display_name_key="endpoint_fal_image_display",
+        request_method="POST",
+        request_path_template="/{model}",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE}),
+        build_backend=_build_fal_image,
+    ),
+    "fal-video": EndpointSpec(
+        key="fal-video",
+        media_type="video",
+        family="fal",
+        display_name_key="endpoint_fal_video_display",
+        request_method="POST",
+        request_path_template="/{model}",
+        build_backend=_build_fal_video,
+    ),
+    "fal-audio": EndpointSpec(
+        key="fal-audio",
+        media_type="audio",
+        family="fal",
+        display_name_key="endpoint_fal_audio_display",
+        request_method="POST",
+        request_path_template="/{model}",
+        build_backend=_build_fal_audio,
+    ),
 }
 
 
@@ -243,6 +350,21 @@ _VIDEO_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# ComfyUI-specific patterns for model filename inference
+_COMFYUI_VIDEO_PATTERN = re.compile(
+    r"wan|cogvideo|hunyuan.?video|animate.?diff|svd|sv3d|cosmos|ltx|mochi|stable.?video",
+    re.IGNORECASE,
+)
+_COMFYUI_AUDIO_PATTERN = re.compile(
+    r"stable.?audio|ace.?step|bark|musicgen",
+    re.IGNORECASE,
+)
+
+_FAL_AUDIO_PATTERN = re.compile(
+    r"tts|speech|audio|bark|musicgen|ace.?step|chatterbox|elevenlabs",
+    re.IGNORECASE,
+)
+
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint。
@@ -251,7 +373,24 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        newapi-video 仅在用户手动选择时使用）
     2) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
     3) 文本（默认）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+
+    ComfyUI 格式:
+    - 视频模型 → "comfyui-video"
+    - 音频模型 → "comfyui-audio"
+    - 默认 → "comfyui-image"
     """
+    if discovery_format == "comfyui":
+        if _COMFYUI_VIDEO_PATTERN.search(model_id):
+            return "comfyui-video"
+        if _COMFYUI_AUDIO_PATTERN.search(model_id):
+            return "comfyui-audio"
+        return "comfyui-image"
+    if discovery_format == "fal":
+        if _FAL_AUDIO_PATTERN.search(model_id):
+            return "fal-audio"
+        if _VIDEO_PATTERN.search(model_id):
+            return "fal-video"
+        return "fal-image"
     if _VIDEO_PATTERN.search(model_id):
         return "openai-video"
     if _IMAGE_PATTERN.search(model_id):

@@ -17,6 +17,9 @@ export interface SystemConfigSettings {
   claude_code_subagent_model: string;
   agent_session_cleanup_delay_seconds: number;
   agent_max_concurrent_sessions: number;
+  assistant_provider: string;
+  image_max_workers: number;
+  video_max_workers: number;
 }
 
 export interface SystemConfigOptions {
@@ -67,4 +70,6 @@ export interface SystemConfigPatch {
   claude_code_subagent_model?: string;
   agent_session_cleanup_delay_seconds?: number;
   agent_max_concurrent_sessions?: number;
+  image_max_workers?: number;
+  video_max_workers?: number;
 }

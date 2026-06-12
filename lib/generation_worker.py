@@ -128,23 +128,34 @@ def _normalize_provider_id(raw: str) -> str:
 
 
 async def _load_pools_from_db() -> dict[str, ProviderPool]:
-    """Load per-provider pool configs from ConfigService + PROVIDER_REGISTRY + custom providers."""
+    """Load per-provider pool configs from ConfigService + PROVIDER_REGISTRY + custom providers.
+
+    Priority: provider_config > system_settings > .env > defaults
+    """
     from lib.config.registry import PROVIDER_REGISTRY
     from lib.config.service import ConfigService
     from lib.db import safe_session_factory
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
-    default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
-    default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+    # Read global defaults from system_settings, fallback to env vars
+    default_image_env = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+    default_video_env = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
 
     pools: dict[str, ProviderPool] = {}
     async with safe_session_factory() as session:
         svc = ConfigService(session)
+        all_settings = await svc.get_all_settings()
         all_configs = await svc.get_all_provider_configs()
+
+        # Global defaults from system_settings (UI), fallback to env vars
+        default_image = int(all_settings.get("image_max_workers", str(default_image_env)) or str(default_image_env))
+        default_video = int(all_settings.get("video_max_workers", str(default_video_env)) or str(default_video_env))
+
         for provider_id, meta in PROVIDER_REGISTRY.items():
             config = all_configs.get(provider_id, {})
             supports_image = "image" in meta.media_types
             supports_video = "video" in meta.media_types
+            # Per-provider override > global default
             image_max = int(config.get("image_max_workers", str(default_image))) if supports_image else 0
             video_max = int(config.get("video_max_workers", str(default_video))) if supports_video else 0
             pools[provider_id] = ProviderPool(
@@ -153,7 +164,7 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
                 video_max=max(0, video_max),
             )
 
-        # 加载自定义供应商的池配置（使用与内置供应商相同的默认值）
+        # Custom providers use global defaults
         from lib.custom_provider.endpoints import endpoint_to_media_type
 
         repo = CustomProviderRepository(session)

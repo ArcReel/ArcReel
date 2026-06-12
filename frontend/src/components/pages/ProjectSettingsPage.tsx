@@ -129,6 +129,14 @@ export function ProjectSettingsPage() {
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [projectTitle, setProjectTitle] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  // ComfyUI overrides
+  const [comfyuiOverrides, setComfyuiOverrides] = useState<{
+    sampler: string;
+    steps: string;
+    cfg: string;
+    negative_prompt: string;
+    clip_skip: string;
+  } | null>(null);
 
   // ── Style picker state (independent save flow) ─────────────────────────────
   const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
@@ -228,6 +236,20 @@ export function ProjectSettingsPage() {
       setVideoResolution(vRes);
       setImageResolution(iRes);
       setModelSettings(ms);
+
+      // Load ComfyUI overrides
+      const rawComfyui = project.comfyui_overrides as Record<string, unknown> | undefined;
+      if (rawComfyui && typeof rawComfyui === "object") {
+        setComfyuiOverrides({
+          sampler: typeof rawComfyui.sampler === "string" ? rawComfyui.sampler : "",
+          steps: rawComfyui.steps != null ? String(rawComfyui.steps) : "",
+          cfg: rawComfyui.cfg != null ? String(rawComfyui.cfg) : "",
+          negative_prompt: typeof rawComfyui.negative_prompt === "string" ? rawComfyui.negative_prompt : "",
+          clip_skip: rawComfyui.clip_skip != null ? String(rawComfyui.clip_skip) : "",
+        });
+      } else {
+        setComfyuiOverrides(null);
+      }
 
       const derivedStyle = deriveStyleValue(project, projectName);
       setStyleValue(derivedStyle);
@@ -385,6 +407,15 @@ export function ProjectSettingsPage() {
         generation_mode: generationMode,
         default_duration: defaultDuration,
         model_settings: newModelSettings,
+        comfyui_overrides: comfyuiOverrides
+          ? {
+              sampler: comfyuiOverrides.sampler || null,
+              steps: comfyuiOverrides.steps ? Number(comfyuiOverrides.steps) : null,
+              cfg: comfyuiOverrides.cfg ? Number(comfyuiOverrides.cfg) : null,
+              negative_prompt: comfyuiOverrides.negative_prompt || null,
+              clip_skip: comfyuiOverrides.clip_skip ? Number(comfyuiOverrides.clip_skip) : null,
+            }
+          : null,
       });
       setModelSettings(newModelSettings);
       initialRef.current = {
@@ -655,6 +686,103 @@ export function ProjectSettingsPage() {
                   </label>
                 </fieldset>
               </SectionCard>
+
+              {/* ComfyUI Overrides */}
+              {(imageBackendT2I || globalDefaults.imageT2I || videoBackend || globalDefaults.video)?.includes("comfyui-") && (
+                <SectionCard
+                  kicker="ComfyUI"
+                  title={t("comfyui_overrides")}
+                  description={t("comfyui_overrides_desc")}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="comfyui-use-global"
+                        checked={comfyuiOverrides === null}
+                        onChange={() => setComfyuiOverrides(comfyuiOverrides === null ? { sampler: "", steps: "", cfg: "", negative_prompt: "", clip_skip: "" } : null)}
+                        className="h-3.5 w-3.5 cursor-pointer rounded border-hairline accent-accent"
+                      />
+                      <label htmlFor="comfyui-use-global" className="text-[12.5px] text-text-2 cursor-pointer">
+                        {t("use_global_settings")}
+                      </label>
+                    </div>
+
+                    {comfyuiOverrides !== null && (
+                      <>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                          <div>
+                            <FieldLabel>{t("comfyui_sampler")}</FieldLabel>
+                            <select
+                              value={comfyuiOverrides.sampler}
+                              onChange={(e) => setComfyuiOverrides({ ...comfyuiOverrides, sampler: e.target.value })}
+                              className={INPUT_CLS}
+                            >
+                              <option value="">{t("default")}</option>
+                              <option value="euler">Euler</option>
+                              <option value="euler_ancestral">Euler a</option>
+                              <option value="euler_cfg_pp">Euler CFG++</option>
+                              <option value="dpmpp_2m">DPM++ 2M</option>
+                              <option value="dpmpp_2m_sde">DPM++ 2M SDE</option>
+                              <option value="dpmpp_sde">DPM++ SDE</option>
+                              <option value="heun">Heun</option>
+                              <option value="lms">LMS</option>
+                            </select>
+                          </div>
+                          <div>
+                            <FieldLabel>{t("comfyui_steps")}</FieldLabel>
+                            <input
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={comfyuiOverrides.steps}
+                              onChange={(e) => setComfyuiOverrides({ ...comfyuiOverrides, steps: e.target.value })}
+                              placeholder="20"
+                              className={INPUT_CLS}
+                            />
+                          </div>
+                          <div>
+                            <FieldLabel>{t("comfyui_cfg")}</FieldLabel>
+                            <input
+                              type="number"
+                              min={1}
+                              max={30}
+                              step={0.5}
+                              value={comfyuiOverrides.cfg}
+                              onChange={(e) => setComfyuiOverrides({ ...comfyuiOverrides, cfg: e.target.value })}
+                              placeholder="7.0"
+                              className={INPUT_CLS}
+                            />
+                          </div>
+                          <div>
+                            <FieldLabel>{t("comfyui_clip_skip")}</FieldLabel>
+                            <input
+                              type="number"
+                              min={1}
+                              max={4}
+                              value={comfyuiOverrides.clip_skip}
+                              onChange={(e) => setComfyuiOverrides({ ...comfyuiOverrides, clip_skip: e.target.value })}
+                              placeholder="1"
+                              className={INPUT_CLS}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <FieldLabel>{t("comfyui_negative_prompt")}</FieldLabel>
+                          <textarea
+                            value={comfyuiOverrides.negative_prompt}
+                            onChange={(e) => setComfyuiOverrides({ ...comfyuiOverrides, negative_prompt: e.target.value })}
+                            placeholder={t("comfyui_negative_prompt_placeholder")}
+                            rows={2}
+                            className={`${INPUT_CLS} resize-none`}
+                          />
+                        </div>
+                        <p className="text-[10px] text-text-4">{t("comfyui_project_override_hint")}</p>
+                      </>
+                    )}
+                  </div>
+                </SectionCard>
+              )}
             </>
           )}
 

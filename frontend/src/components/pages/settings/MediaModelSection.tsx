@@ -248,6 +248,50 @@ export function MediaModelSection() {
         )}
       </SectionCard>
 
+      {/* Concurrency */}
+      <SectionCard kicker="Performance" title={t("generation_concurrency")} description={t("generation_concurrency_desc")}>
+        <div className="space-y-4">
+          <div>
+            <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+              {t("image_max_workers")}
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={draft.image_max_workers ?? settings?.image_max_workers ?? 3}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 1 && val <= 10) {
+                  setDraft((prev) => ({ ...prev, image_max_workers: val }));
+                }
+              }}
+              className="max-w-[100px] rounded-[6px] border border-hairline bg-bg-grad-a px-3 py-1.5 text-[12.5px] text-text transition-colors focus:border-accent focus:outline-none"
+            />
+            <p className="mt-1 text-[11px] text-text-4">{t("image_max_workers_hint")}</p>
+          </div>
+          <div>
+            <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+              {t("video_max_workers")}
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={draft.video_max_workers ?? settings?.video_max_workers ?? 2}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 1 && val <= 10) {
+                  setDraft((prev) => ({ ...prev, video_max_workers: val }));
+                }
+              }}
+              className="max-w-[100px] rounded-[6px] border border-hairline bg-bg-grad-a px-3 py-1.5 text-[12.5px] text-text transition-colors focus:border-accent focus:outline-none"
+            />
+            <p className="mt-1 text-[11px] text-text-4">{t("video_max_workers_hint")}</p>
+          </div>
+        </div>
+      </SectionCard>
+
       {/* Footer */}
       {isDirty && (
         <div className="flex gap-2 pt-1">

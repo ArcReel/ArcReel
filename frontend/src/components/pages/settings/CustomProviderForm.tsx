@@ -46,6 +46,8 @@ const COMPACT_INPUT_CLS =
 const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
   { value: "openai", labelKey: "discovery_format_openai" },
   { value: "google", labelKey: "discovery_format_google" },
+  { value: "comfyui", labelKey: "discovery_format_comfyui" },
+  { value: "fal", labelKey: "discovery_format_fal" },
 ];
 
 interface ModelRow {
@@ -61,6 +63,12 @@ interface ModelRow {
   currency: string;
   resolution: string; // 空串 = null
   supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
+  // ComfyUI settings
+  comfyui_sampler: string;
+  comfyui_steps: string;
+  comfyui_cfg: string;
+  comfyui_negative_prompt: string;
+  comfyui_clip_skip: string;
 }
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
@@ -77,6 +85,12 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     currency: "USD",
     resolution: "",
     supported_durations_text: "",
+    // ComfyUI defaults
+    comfyui_sampler: "",
+    comfyui_steps: "",
+    comfyui_cfg: "",
+    comfyui_negative_prompt: "",
+    comfyui_clip_skip: "",
     ...partial,
   };
 }
@@ -104,6 +118,12 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     currency: m.currency ?? "",
     resolution: m.resolution ?? "",
     supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
+    // ComfyUI settings
+    comfyui_sampler: m.comfyui_sampler ?? "",
+    comfyui_steps: m.comfyui_steps != null ? String(m.comfyui_steps) : "",
+    comfyui_cfg: m.comfyui_cfg != null ? String(m.comfyui_cfg) : "",
+    comfyui_negative_prompt: m.comfyui_negative_prompt ?? "",
+    comfyui_clip_skip: m.comfyui_clip_skip != null ? String(m.comfyui_clip_skip) : "",
   });
 }
 
@@ -125,6 +145,12 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(r.currency ? { currency: r.currency } : {}),
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
     ...(supported_durations ? { supported_durations } : { supported_durations: null }),
+    // ComfyUI settings
+    ...(r.comfyui_sampler ? { comfyui_sampler: r.comfyui_sampler } : { comfyui_sampler: null }),
+    ...(r.comfyui_steps ? { comfyui_steps: parseInt(r.comfyui_steps, 10) } : { comfyui_steps: null }),
+    ...(r.comfyui_cfg ? { comfyui_cfg: parseFloat(r.comfyui_cfg) } : { comfyui_cfg: null }),
+    ...(r.comfyui_negative_prompt ? { comfyui_negative_prompt: r.comfyui_negative_prompt } : { comfyui_negative_prompt: null }),
+    ...(r.comfyui_clip_skip ? { comfyui_clip_skip: parseInt(r.comfyui_clip_skip, 10) } : { comfyui_clip_skip: null }),
   };
 }
 
@@ -693,6 +719,83 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         value={m.supported_durations_text}
                         onChange={(v) => updateModel(m.key, { supported_durations_text: v })}
                       />
+                    )}
+
+                    {/* ComfyUI Settings (only for comfyui-* endpoints) */}
+                    {m.endpoint.startsWith("comfyui-") && (
+                      <div className="mt-2 rounded-[6px] border border-hairline-soft bg-bg-grad-a/35 p-2 pl-6">
+                        <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-accent-2">
+                          {t("comfyui_settings")}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <div>
+                            <label className="block text-[10px] text-text-4">{t("comfyui_sampler")}</label>
+                            <select
+                              value={m.comfyui_sampler}
+                              onChange={(e) => updateModel(m.key, { comfyui_sampler: e.target.value })}
+                              className={`${COMPACT_INPUT_CLS} w-full`}
+                            >
+                              <option value="">{t("default")}</option>
+                              <option value="euler">Euler</option>
+                              <option value="euler_ancestral">Euler a</option>
+                              <option value="euler_cfg_pp">Euler CFG++</option>
+                              <option value="dpmpp_2m">DPM++ 2M</option>
+                              <option value="dpmpp_2m_sde">DPM++ 2M SDE</option>
+                              <option value="dpmpp_sde">DPM++ SDE</option>
+                              <option value="heun">Heun</option>
+                              <option value="lms">LMS</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-text-4">{t("comfyui_steps")}</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={m.comfyui_steps}
+                              onChange={(e) => updateModel(m.key, { comfyui_steps: e.target.value })}
+                              placeholder="20"
+                              className={`${COMPACT_INPUT_CLS} w-full`}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-text-4">{t("comfyui_cfg")}</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={30}
+                              step={0.5}
+                              value={m.comfyui_cfg}
+                              onChange={(e) => updateModel(m.key, { comfyui_cfg: e.target.value })}
+                              placeholder="7.0"
+                              className={`${COMPACT_INPUT_CLS} w-full`}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-text-4">{t("comfyui_clip_skip")}</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={4}
+                              value={m.comfyui_clip_skip}
+                              onChange={(e) => updateModel(m.key, { comfyui_clip_skip: e.target.value })}
+                              placeholder="1"
+                              className={`${COMPACT_INPUT_CLS} w-full`}
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-1.5">
+                          <label className="block text-[10px] text-text-4">{t("comfyui_negative_prompt")}</label>
+                          <textarea
+                            value={m.comfyui_negative_prompt}
+                            onChange={(e) => updateModel(m.key, { comfyui_negative_prompt: e.target.value })}
+                            placeholder={t("comfyui_negative_prompt_placeholder")}
+                            rows={2}
+                            className={`${COMPACT_INPUT_CLS} w-full resize-none`}
+                          />
+                        </div>
+                        <p className="mt-1 text-[9px] text-text-4">{t("comfyui_settings_hint")}</p>
+                      </div>
                     )}
                   </div>
                 );

@@ -350,6 +350,61 @@ class API {
     });
   }
 
+  // ==================== 助手供应商配置 ====================
+
+  static async getAssistantProvider(): Promise<{
+    provider: string;
+    litellm_model: string | null;
+    litellm_api_key_set: boolean;
+    litellm_api_key_masked: string | null;
+    litellm_base_url: string | null;
+    litellm_max_tool_rounds: number;
+    openai_model: string | null;
+    openai_api_key_set: boolean;
+    openai_api_key_masked: string | null;
+    openai_base_url: string | null;
+    model_presets: Array<{ id: string; name: string; provider: string }>;
+  }> {
+    return this.request("/assistant-provider");
+  }
+
+  static async updateAssistantProvider(config: {
+    provider?: string;
+    litellm_model?: string;
+    litellm_api_key?: string;
+    litellm_base_url?: string;
+    litellm_max_tool_rounds?: number;
+    openai_model?: string;
+    openai_api_key?: string;
+    openai_base_url?: string;
+  }): Promise<{ status: string; updated: string }> {
+    return this.request("/assistant-provider", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    });
+  }
+
+  static async testAssistantProviderConnection(config: {
+    model: string;
+    api_key?: string;
+    base_url?: string;
+  }): Promise<{ status: string; model?: string; response?: string; error?: string }> {
+    return this.request("/assistant-provider/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+  }
+
+  static async discoverAssistantModels(config: {
+    base_url: string;
+    api_key?: string;
+  }): Promise<{ status: string; models: string[]; error?: string }> {
+    return this.request("/assistant-provider/discover", {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+  }
+
 
   // ==================== 项目管理 ====================
 
@@ -1601,6 +1656,13 @@ class API {
 
   static async activateAgentCredential(id: number): Promise<{ active_id: number }> {
     return this.request(`/agent/credentials/${id}/activate`, { method: "POST" });
+  }
+
+  static async reorderAgentCredentials(items: Array<{ id: number; priority: number }>): Promise<void> {
+    return this.request("/agent/credentials/reorder", {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    });
   }
 
   static async testAgentCredential(id: number): Promise<TestConnectionResponse> {

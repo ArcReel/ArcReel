@@ -15,6 +15,7 @@ export interface CredentialForm {
   sonnetModel: string;
   opusModel: string;
   subagentModel: string;
+  discoveryFormat: string;
   setApiKey: (v: string) => void;
   setBaseUrl: (v: string) => void;
   setDisplayName: (v: string) => void;
@@ -23,6 +24,7 @@ export interface CredentialForm {
   setSonnetModel: (v: string) => void;
   setOpusModel: (v: string) => void;
   setSubagentModel: (v: string) => void;
+  setDiscoveryFormat: (v: string) => void;
   /** 切预设：清空 model 字段；预设带 base_url+display_name 覆盖；自定义则清空。 */
   setPreset: (id: string) => void;
   /** 与 initial 比对，判断是否有可保存的变更（apiKey 任意非空即视为脏）。 */
@@ -45,6 +47,7 @@ export function useCredentialForm(
   const [sonnetModel, setSonnetModel] = useState(initial?.sonnet_model ?? "");
   const [opusModel, setOpusModel] = useState(initial?.opus_model ?? "");
   const [subagentModel, setSubagentModel] = useState(initial?.subagent_model ?? "");
+  const [discoveryFormat, setDiscoveryFormat] = useState(initial?.discovery_format ?? "");
 
   const setPreset = (id: string) => {
     if (id === presetId) return;
@@ -54,6 +57,7 @@ export function useCredentialForm(
     setSonnetModel("");
     setOpusModel("");
     setSubagentModel("");
+    setDiscoveryFormat("");
     if (id === customSentinelId) {
       setBaseUrl("");
       setDisplayName("");
@@ -72,7 +76,8 @@ export function useCredentialForm(
     haikuModel !== (init?.haiku_model ?? "") ||
     sonnetModel !== (init?.sonnet_model ?? "") ||
     opusModel !== (init?.opus_model ?? "") ||
-    subagentModel !== (init?.subagent_model ?? "");
+    subagentModel !== (init?.subagent_model ?? "") ||
+    discoveryFormat !== (init?.discovery_format ?? "");
 
   const buildRequest = (): CreateAgentCredentialRequest => ({
     preset_id: presetId,
@@ -84,6 +89,7 @@ export function useCredentialForm(
     sonnet_model: sonnetModel || undefined,
     opus_model: opusModel || undefined,
     subagent_model: subagentModel || undefined,
+    discovery_format: discoveryFormat || undefined,
   });
 
   return {
@@ -96,6 +102,7 @@ export function useCredentialForm(
     sonnetModel,
     opusModel,
     subagentModel,
+    discoveryFormat,
     setApiKey,
     setBaseUrl,
     setDisplayName,
@@ -104,6 +111,7 @@ export function useCredentialForm(
     setSonnetModel,
     setOpusModel,
     setSubagentModel,
+    setDiscoveryFormat,
     setPreset,
     isDirty,
     buildRequest,

@@ -33,6 +33,7 @@ function makeConfigResponse(
       claude_code_subagent_model: "",
       agent_session_cleanup_delay_seconds: 300,
       agent_max_concurrent_sessions: 5,
+      assistant_provider: "claude",
       ...overrides,
     },
     options: {

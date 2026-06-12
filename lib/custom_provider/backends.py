@@ -1,10 +1,11 @@
 """自定义供应商 Backend 包装类。
 
-将已有后端（OpenAI/Gemini 等）包装为自定义供应商，覆盖 name 和 model 属性。
+将已有后端（OpenAI/Gemini/ComfyUI 等）包装为自定义供应商，覆盖 name 和 model 属性。
 """
 
 from __future__ import annotations
 
+from lib.audio_backends.base import AudioBackend, AudioGenerationRequest, AudioGenerationResult
 from lib.image_backends.base import ImageBackend, ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.video_backends.base import (
@@ -89,4 +90,24 @@ class CustomVideoBackend:
         return self._delegate.video_capabilities
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        return await self._delegate.generate(request)
+
+
+class CustomAudioBackend:
+    """自定义供应商音频生成后端包装类。"""
+
+    def __init__(self, *, provider_id: str, delegate: AudioBackend, model: str) -> None:
+        self._provider_id = provider_id
+        self._delegate = delegate
+        self._model = model
+
+    @property
+    def name(self) -> str:
+        return self._provider_id
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    async def generate(self, request: AudioGenerationRequest) -> AudioGenerationResult:
         return await self._delegate.generate(request)

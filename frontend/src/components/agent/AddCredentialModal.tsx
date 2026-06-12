@@ -88,6 +88,9 @@ export function AddCredentialModal({
   // bump 一次，async 路径在 await 后比对 session id，不一致则丢弃结果。
   const sessionRef = useRef(0);
 
+  const isCustom = form.presetId === customSentinelId;
+  const effectiveDiscoveryFormat = isCustom ? (form.discoveryFormat || "anthropic") : undefined;
+
   useEffect(() => {
     if (!open || mode !== "create") return;
     let cancelled = false;
@@ -189,6 +192,7 @@ export function AddCredentialModal({
       const res = await API.discoverAnthropicModels({
         base_url: discoverBase,
         api_key: form.apiKey,
+        discovery_format: effectiveDiscoveryFormat,
       });
       if (session !== sessionRef.current) return;
       setModelOptions(res.models.map((m) => m.model_id));
@@ -251,6 +255,7 @@ export function AddCredentialModal({
         base_url: submitBaseUrl,
         api_key: form.apiKey,
         model: form.model || undefined,
+        discovery_format: effectiveDiscoveryFormat,
       });
       if (session !== sessionRef.current) return;
       setTestResult(res);
@@ -419,10 +424,46 @@ export function AddCredentialModal({
                 invalidateDiscoveredModels();
                 invalidateDraftTest();
               }}
-              placeholder="https://api.example.com/anthropic"
+              placeholder={isCustom && form.discoveryFormat === "openai" ? "http://127.0.0.1:8000" : "https://api.example.com/anthropic"}
               className={INPUT_CLS}
             />
           </Field>
+
+          {isCustom && (
+            <Field label={t("discovery_format_label")}>
+              <div className="flex items-center gap-3">
+                <label className="inline-flex items-center gap-1.5 text-[12px] text-text-2">
+                  <input
+                    type="radio"
+                    name="discovery-format"
+                    checked={!form.discoveryFormat || form.discoveryFormat === "anthropic"}
+                    onChange={() => {
+                      form.setDiscoveryFormat("");
+                      invalidateDiscoveredModels();
+                      invalidateDraftTest();
+                    }}
+                    className="accent-accent"
+                  />
+                  Anthropic
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-[12px] text-text-2">
+                  <input
+                    type="radio"
+                    name="discovery-format"
+                    checked={form.discoveryFormat === "openai"}
+                    onChange={() => {
+                      form.setDiscoveryFormat("openai");
+                      invalidateDiscoveredModels();
+                      invalidateDraftTest();
+                    }}
+                    className="accent-accent"
+                  />
+                  {t("discovery_format_openai")}
+                </label>
+              </div>
+              <div className="mt-1 text-[10.5px] text-text-4">{t("discovery_format_help")}</div>
+            </Field>
+          )}
 
           <Field
             label={t("anthropic_api_key")}

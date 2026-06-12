@@ -22,6 +22,7 @@ function makeConfigResponse(overrides?: Partial<GetSystemConfigResponse["setting
       claude_code_subagent_model: "",
       agent_session_cleanup_delay_seconds: 300,
       agent_max_concurrent_sessions: 5,
+      assistant_provider: "claude",
       ...overrides,
     },
     options: {
@@ -89,6 +90,36 @@ describe("config-status-store", () => {
     const { issues, isComplete } = useConfigStatusStore.getState();
     expect(issues).toHaveLength(0);
     expect(isComplete).toBe(true);
+  });
+
+  it("skips anthropic check when provider is litellm", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(
+      makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video", "text"], capabilities: [], configured_keys: ["api_key"], missing_keys: [], models: {} }]),
+    );
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      makeConfigResponse({ assistant_provider: "litellm" }),
+    );
+
+    await useConfigStatusStore.getState().fetch();
+
+    const { issues } = useConfigStatusStore.getState();
+    expect(issues.find((i) => i.key === "anthropic")).toBeUndefined();
+  });
+
+  it("skips anthropic check when provider is openai", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(
+      makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video", "text"], capabilities: [], configured_keys: ["api_key"], missing_keys: [], models: {} }]),
+    );
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      makeConfigResponse({ assistant_provider: "openai" }),
+    );
+
+    await useConfigStatusStore.getState().fetch();
+
+    const { issues } = useConfigStatusStore.getState();
+    expect(issues.find((i) => i.key === "anthropic")).toBeUndefined();
   });
 
   it("allows fetch to retry after a transient error", async () => {

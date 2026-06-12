@@ -52,3 +52,9 @@ class CustomProviderModel(TimestampMixin, Base):
     resolution: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )  # standard token ("1080p"/"2K") or native "WxH"
+    # ComfyUI-specific settings (NULL = use defaults)
+    comfyui_sampler: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    comfyui_steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    comfyui_cfg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    comfyui_negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comfyui_clip_skip: Mapped[int | None] = mapped_column(Integer, nullable=True)

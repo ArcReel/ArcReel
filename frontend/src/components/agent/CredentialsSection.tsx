@@ -162,7 +162,7 @@ export function CredentialsSection() {
       <SectionShell
         kicker="Credentials"
         title={t("agent_credentials")}
-        description={t("anthropic_key_required_desc")}
+        description={t("credentials_section_desc")}
         trailing={
           <button
             type="button"

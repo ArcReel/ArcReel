@@ -93,7 +93,9 @@ class CredentialResponse(BaseModel):
     sonnet_model: str | None
     opus_model: str | None
     subagent_model: str | None
+    discovery_format: str | None
     is_active: bool
+    priority: int
     created_at: str | None
 
 
@@ -111,7 +113,8 @@ class CreateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
-    activate: bool | None = None  # None = 自动 (无 active 时自动 set active)
+    discovery_format: str | None = None  # "anthropic" | "openai" | None=anthropic
+    activate: bool | None = None  # None = auto (set active if no active exists)
 
 
 class UpdateCredentialRequest(BaseModel):
@@ -123,6 +126,11 @@ class UpdateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
+    discovery_format: str | None = None
+
+
+class ReorderRequest(BaseModel):
+    items: list[dict[str, int]]  # [{"id": 1, "priority": 0}, {"id": 2, "priority": 1}]
 
 
 def _cred_to_response(cred) -> CredentialResponse:
@@ -139,7 +147,9 @@ def _cred_to_response(cred) -> CredentialResponse:
         sonnet_model=cred.sonnet_model,
         opus_model=cred.opus_model,
         subagent_model=cred.subagent_model,
+        discovery_format=cred.discovery_format,
         is_active=cred.is_active,
+        priority=cred.priority,
         created_at=dt_to_iso(cred.created_at),
     )
 
@@ -190,6 +200,7 @@ async def create_credential(
         sonnet_model=body.sonnet_model,
         opus_model=body.opus_model,
         subagent_model=body.subagent_model,
+        discovery_format=body.discovery_format,
     )
     # 自动 active 策略：activate=True，或 (activate=None 且当前无 active)
     should_activate = body.activate is True
@@ -268,6 +279,19 @@ async def activate_credential(
     return ActivateResponse(active_id=cred_id)
 
 
+@router.post("/credentials/reorder", status_code=204)
+async def reorder_credentials(
+    body: ReorderRequest,
+    _user: CurrentUser,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    """Reorder credentials by priority for fallback logic."""
+    repo = AgentCredentialRepository(session)
+    await repo.reorder(body.items)
+    await session.commit()
+
+
 # ── Test connection models + endpoints ────────────────────────────
 
 
@@ -298,6 +322,7 @@ class TestConnectionRequest(BaseModel):
     base_url: str | None = None
     api_key: str
     model: str | None = None
+    discovery_format: str | None = None  # "anthropic" | "openai" | None=anthropic
 
 
 def _serialize_probe(p: ProbeResultDC | None) -> ProbeResultModel | None:
@@ -326,10 +351,17 @@ async def _run_and_serialize(
     base_url: str | None,
     api_key: str,
     model: str | None,
+    discovery_format: str | None = None,
     _t: Translator,
 ) -> TestConnectionResponseModel:
     try:
-        result = await run_test(preset_id=preset_id, base_url=base_url, api_key=api_key, model=model)
+        result = await run_test(
+            preset_id=preset_id,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            discovery_format=discovery_format,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=_t("agent_test_validation_error", error=str(exc))) from exc
     return _serialize_test_response(result)
@@ -346,6 +378,7 @@ async def test_connection_draft(
         base_url=body.base_url,
         api_key=body.api_key,
         model=body.model,
+        discovery_format=body.discovery_format,
         _t=_t,
     )
 
@@ -366,5 +399,6 @@ async def test_credential(
         base_url=cred.base_url,
         api_key=cred.api_key,
         model=cred.model,
+        discovery_format=cred.discovery_format,
         _t=_t,
     )

@@ -71,6 +71,10 @@ class AssistantService:
         self._snapshot_cache_max = 128
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
+        # LiteLLM integration (lazy-initialized)
+        self._litellm_client: Any | None = None
+        self._litellm_sessions: dict[str, dict[str, Any]] = {}  # session_id → {project_name, status, turns}
+
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
         """Run async initialization (must be called from event loop).
 
@@ -88,7 +92,50 @@ class AssistantService:
             await self._interrupt_stale_running_sessions()
             self._startup_done = True
 
-    # ==================== Session CRUD ====================
+    # ==================== LiteLLM Integration ====================
+
+    async def _get_litellm_client(self) -> Any | None:
+        """Lazy-initialize and return the LiteLLM/OpenAI client.
+
+        Only returns a client if the ACTIVE credential is OpenAI-compatible.
+        If the active credential is Anthropic-compatible, returns None (use Claude SDK).
+        """
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+        from lib.db import safe_session_factory
+
+        async with safe_session_factory() as session:
+            repo = AgentCredentialRepository(session)
+            cred = await repo.get_active()
+
+        if not cred:
+            return None
+
+        # Only use LiteLLM for OpenAI-compatible credentials
+        if cred.discovery_format != "openai":
+            return None
+
+        if not cred.model or not cred.api_key:
+            return None
+
+        try:
+            from server.agent_runtime.litellm_client import LiteLLMSessionClient
+
+            client = LiteLLMSessionClient(
+                model=cred.model,
+                api_key=cred.api_key,
+                base_url=cred.base_url or None,
+                projects_root=self.projects_root,
+                max_tool_rounds=20,
+            )
+            logger.info("Using LiteLLM provider: %s (model=%s)", cred.display_name, cred.model)
+            return client
+        except Exception as e:
+            logger.warning("LiteLLM provider %s failed: %s", cred.display_name, e)
+            return None
+
+    async def _is_litellm_session(self, session_id: str) -> bool:
+        """Check if a session is managed by LiteLLM."""
+        return session_id in self._litellm_sessions
 
     async def _interrupt_stale_running_sessions(self) -> None:
         """On service restart, stale running sessions cannot safely resume."""
@@ -139,6 +186,18 @@ class AssistantService:
 
     async def get_session(self, session_id: str) -> SessionMeta | None:
         """Get session by ID."""
+        # LiteLLM sessions are tracked in-memory
+        if await self._is_litellm_session(session_id):
+            session_data = self._litellm_sessions[session_id]
+            return SessionMeta(
+                id=session_id,
+                project_name=session_data.get("project_name", ""),
+                title=f"LiteLLM Session",
+                status=session_data.get("status", "idle"),
+                created_at=datetime.now(UTC).isoformat(),
+                updated_at=datetime.now(UTC).isoformat(),
+            )
+
         meta = await self.meta_store.get(session_id)
         if meta and session_id in self.session_manager.sessions:
             # Update status from live session
@@ -148,6 +207,16 @@ class AssistantService:
 
     async def delete_session(self, session_id: str) -> bool:
         """Delete session and cleanup."""
+        # LiteLLM session cleanup
+        if await self._is_litellm_session(session_id):
+            client = await self._get_litellm_client()
+            if client:
+                await client.delete_session(session_id)
+            self._litellm_sessions.pop(session_id, None)
+            self._snapshot_cache.pop(session_id, None)
+            return True
+
+        # Claude session cleanup
         if session_id in self.session_manager.sessions:
             await self.session_manager.close_session(
                 session_id,
@@ -181,6 +250,10 @@ class AssistantService:
 
     async def get_snapshot(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Build a normalized v2 snapshot for history and reconnect."""
+        # LiteLLM session snapshot
+        if await self._is_litellm_session(session_id):
+            return self._build_litellm_snapshot(session_id)
+
         if meta is None:
             meta = await self.meta_store.get(session_id)
             if meta is None:
@@ -245,8 +318,15 @@ class AssistantService:
         """Unified send: create new session or send to existing one."""
         self.pm.get_project_path(project_name)  # Validate project
 
+        # Check if LiteLLM is configured
+        litellm_client = await self._get_litellm_client()
+
         if session_id:
-            # Existing session
+            # Existing session — check if it's a LiteLLM session
+            if await self._is_litellm_session(session_id):
+                return await self._send_litellm(litellm_client, project_name, content, session_id=session_id)
+
+            # Claude session
             meta = await self.meta_store.get(session_id)
             if meta is None:
                 raise FileNotFoundError(f"session not found: {session_id}")
@@ -263,7 +343,11 @@ class AssistantService:
                 await self.session_manager.send_message(session_id, text, meta=meta)
             return {"status": "accepted", "session_id": session_id}
         else:
-            # New session
+            # New session — route to LiteLLM if configured
+            if litellm_client is not None:
+                return await self._send_litellm(litellm_client, project_name, content)
+
+            # Claude session
             text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
             prompt = sdk_prompt if sdk_prompt is not None else text
             new_sdk_session_id = await self.session_manager.send_new_session(
@@ -274,6 +358,105 @@ class AssistantService:
                 locale=locale,
             )
             return {"status": "accepted", "session_id": new_sdk_session_id}
+
+    async def _send_litellm(
+        self,
+        client: Any,
+        project_name: str,
+        content: str,
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Send a message via the LiteLLM client."""
+        from server.agent_runtime.session_client import AssistantEvent
+
+        if session_id is None:
+            session_id = await client.create_session(project_name)
+            self._litellm_sessions[session_id] = {
+                "project_name": project_name,
+                "status": "running",
+                "turns": [],
+            }
+
+        # Collect events into turns for the snapshot
+        session_data = self._litellm_sessions[session_id]
+        session_data["status"] = "running"
+
+        collected_text: list[str] = []
+        current_tool: dict[str, Any] | None = None
+
+        def on_event(event: AssistantEvent) -> None:
+            if event.event_type == "text_delta":
+                collected_text.append(event.data.get("text", ""))
+            elif event.event_type == "tool_use":
+                current_tool = {
+                    "tool_name": event.data.get("tool_name", ""),
+                    "tool_args": event.data.get("tool_args", {}),
+                    "status": "running",
+                }
+            elif event.event_type == "tool_result":
+                if current_tool:
+                    current_tool["status"] = "completed"
+                    current_tool["result_preview"] = event.data.get("result", "")
+                    session_data["turns"].append({
+                        "role": "tool",
+                        "tool_name": current_tool["tool_name"],
+                        "result": current_tool.get("result_preview", ""),
+                    })
+                    current_tool = None
+            elif event.event_type == "done":
+                session_data["status"] = "completed"
+            elif event.event_type == "error":
+                session_data["status"] = "error"
+                session_data["error"] = event.data.get("error", "")
+
+        # Run the assistant loop (blocking until complete)
+        result = await client.send_message(session_id, content, on_event=on_event)
+
+        # Build the final assistant turn
+        full_text = "".join(collected_text)
+        if full_text:
+            session_data["turns"].append({
+                "role": "assistant",
+                "content": [{"type": "text", "text": full_text}],
+            })
+
+        session_data["status"] = result.get("status", "completed")
+        return {"status": "accepted", "session_id": session_id}
+
+    def _build_litellm_snapshot(self, session_id: str) -> dict[str, Any]:
+        """Build a snapshot dict for a LiteLLM session."""
+        session_data = self._litellm_sessions.get(session_id, {})
+        status = session_data.get("status", "idle")
+        turns = session_data.get("turns", [])
+
+        # Convert LiteLLM turns to the format the frontend expects
+        normalized_turns = []
+        for turn in turns:
+            role = turn.get("role", "assistant")
+            if role == "tool":
+                # Tool result turn → show as tool message
+                normalized_turns.append({
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": f"🔧 {turn.get('tool_name', '')}: {turn.get('result', '')[:200]}"}],
+                })
+            elif role == "assistant":
+                content = turn.get("content", [])
+                if isinstance(content, str):
+                    content = [{"type": "text", "text": content}]
+                normalized_turns.append({"role": "assistant", "content": content})
+
+        return {
+            "session_id": session_id,
+            "status": status,
+            "turns": normalized_turns,
+            "draft_turn": None,
+            "pending_questions": [],
+            "pending_approvals": [],
+            "turns_count": len(normalized_turns),
+            "context_long": False,
+            "provider": "litellm",
+        }
 
     @staticmethod
     def _image_block(img: "ImageAttachment") -> dict[str, Any]:
