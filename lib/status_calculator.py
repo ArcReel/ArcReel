@@ -108,13 +108,21 @@ class StatusCalculator:
 
         索引未派生（reference_units 缺失/空）时 videos 计 0/0、状态 draft；
         分镜计数保留 shots 口径（该路径跳过分镜，恒为 0/total，不参与状态判定）。
-        索引形状损坏（非数组 / 夹非 dict 条目）按未派生同口径计分并记 WARN——
-        不部分计数以免坏索引伪装成真实进度；读时计算保持不抛错，数据契约校验
-        归 DataValidator，索引为派生数据、重新派生即愈。
+        索引形状损坏（非数组 / 夹非 dict 条目 / unit 的 generated_assets 非 dict）
+        按未派生同口径计分并记 WARN——不部分计数以免坏索引伪装成真实进度；
+        读时计算保持不抛错，数据契约校验归 DataValidator，索引为派生数据、
+        重新派生即愈。
         """
+
+        def _wellformed(u: object) -> bool:
+            if not isinstance(u, dict):
+                return False
+            ga = u.get("generated_assets")
+            return ga is None or isinstance(ga, dict)
+
         raw_units = script.get("reference_units")
         units: list[dict] = []
-        if isinstance(raw_units, list) and all(isinstance(u, dict) for u in raw_units):
+        if isinstance(raw_units, list) and all(_wellformed(u) for u in raw_units):
             units = raw_units
         elif raw_units is not None:
             logger.warning(

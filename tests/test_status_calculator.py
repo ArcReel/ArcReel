@@ -549,7 +549,13 @@ class TestAdStatusCalculation:
             "shot_ids": ["E1S01"],
             "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
         }
-        for malformed in ("garbage", {"unit_id": "E1U1"}, [valid_unit, "junk"]):
+        for malformed in (
+            "garbage",
+            {"unit_id": "E1U1"},
+            [valid_unit, "junk"],
+            [{**valid_unit, "generated_assets": "done"}],
+            [valid_unit, {"unit_id": "E1U2", "shot_ids": [], "generated_assets": ["x"]}],
+        ):
             script = {
                 "content_mode": "ad",
                 "shots": [{"shot_id": "E1S01", "duration_seconds": 3}],
