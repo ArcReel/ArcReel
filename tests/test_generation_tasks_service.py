@@ -395,7 +395,7 @@ class TestGenerationTasks:
         assert fake_generator.image_calls[0]["reference_images"] is None
 
     def test_collect_product_reference_images_rejects_path_escape(self, tmp_path):
-        """reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件。"""
+        """reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件；目录路径同样跳过。"""
         project_path = _prepare_files(tmp_path)
         outside = tmp_path / "outside.jpg"
         outside.write_bytes(b"jpg")
@@ -406,6 +406,7 @@ class TestGenerationTasks:
                         str(outside),
                         "../outside.jpg",
                         "products/refs/../../../outside.jpg",
+                        "products/refs",
                         "products/refs/保温杯_1.jpg",
                     ],
                 }
