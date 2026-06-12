@@ -162,6 +162,10 @@ MESSAGES = {
     "ref_unit_ids_mismatch": "unit_ids không khớp với các đơn vị hiện có",
     "ref_script_missing": "Tệp kịch bản gắn với tập này không tồn tại",
     "ref_script_rebound": "Liên kết kịch bản của tập này đã thay đổi, vui lòng thử lại",
+    "ref_ad_units_derived": "Các đơn vị video của dự án quảng cáo/video ngắn được tự động suy ra từ các cảnh quay, không thể chỉnh sửa thủ công; hãy chỉnh sửa cảnh quay rồi suy ra lại nhóm",
+    "ref_derive_ad_only": "Chỉ dự án quảng cáo/video ngắn mới hỗ trợ suy ra nhóm đơn vị video",
+    "ref_ad_stale_index": "Chỉ mục nhóm không còn khớp với các cảnh quay, vui lòng suy ra lại nhóm",
+    "ref_ad_reference_skipped": "'{name}' ({type}) không có ảnh tham chiếu khả dụng, đã bỏ qua tham chiếu này trong lần tạo này",
     # Episode meta
     "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
     "episode_title_empty": "Tiêu đề tập không được để trống",

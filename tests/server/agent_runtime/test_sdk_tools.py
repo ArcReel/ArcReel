@@ -1196,3 +1196,136 @@ async def test_replan_episodes_rejects_non_integer_from_episode(fake_ctx: ToolCo
         )
         assert out.get("is_error") is True
         assert "from_episode" in out["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# enqueue_videos — ad + reference_video（派生分组直出）
+# ---------------------------------------------------------------------------
+
+
+def _ad_shot(shot_id: str, duration: int, **overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "shot_id": shot_id,
+        "section": "hook",
+        "duration_seconds": duration,
+        "voiceover_text": "口播",
+        "products_in_shot": [],
+        "image_prompt": {
+            "scene": f"{shot_id} 画面",
+            "composition": {"shot_type": "Close-up", "lighting": "自然光", "ambiance": "明亮"},
+        },
+        "video_prompt": {
+            "action": f"{shot_id} 动作",
+            "camera_motion": "Static",
+            "ambiance_audio": "",
+            "dialogue": [],
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.fixture
+def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
+    from contextlib import contextmanager
+
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = fake_ctx.pm
+    pm.project_payload.update(  # type: ignore[attr-defined]
+        {
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "style": "明亮写实",
+            "episodes": [{"episode": 1, "title": "短片", "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "ad",
+        "episode": 1,
+        "title": "短片",
+        "shots": [
+            _ad_shot("E1S1", 3, products_in_shot=["保温杯"]),
+            _ad_shot("E1S2", 2),
+        ],
+    }
+
+    @contextmanager
+    def _locked(_name: str, _filename: str, **_kw: Any):
+        yield pm.script_payload  # type: ignore[attr-defined]
+
+    pm.locked_script = _locked  # type: ignore[attr-defined]
+
+    async def _fake_max_duration(_project: dict[str, Any]) -> int | None:
+        return 15
+
+    monkeypatch.setattr(mod, "resolve_max_unit_duration", _fake_max_duration)
+    return fake_ctx
+
+
+async def test_generate_video_episode_ad_reference_derives_and_enqueues(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ad + reference_video：自动派生分组、持久化索引、按 unit 入队 reference_video 任务。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            enqueued.append(spec)
+            out = ad_reference_ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(b"\x00")
+            br = BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+            )
+            if on_success:
+                on_success(br)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    assert enqueued[0].task_type == "reference_video"
+    # 派生索引持久化进剧本
+    script = ad_reference_ctx.pm.script_payload  # type: ignore[attr-defined]
+    assert script["reference_units"][0]["shot_ids"] == ["E1S1", "E1S2"]
+    assert script["reference_units"][0]["references"][0] == {"type": "product", "name": "保温杯"}
+
+
+async def test_generate_video_all_ad_reference_falls_through_to_episode(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_all_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out

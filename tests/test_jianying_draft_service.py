@@ -860,8 +860,8 @@ class TestExportEpisodeDraft:
         svc = JianyingDraftService(pm)
         original = svc._collect_video_clips
 
-        def tampered(script_data, project_dir):
-            clips = original(script_data, project_dir)
+        def tampered(script_data, project_dir, **kwargs):
+            clips = original(script_data, project_dir, **kwargs)
             clips[0]["abs_path"] = outside
             return clips
 
@@ -1121,3 +1121,120 @@ class TestExportEpisodeDraft:
         svc = JianyingDraftService(pm)
         with pytest.raises(ValueError, match="请先生成视频"):
             svc.export_episode_draft(project_name="empty", episode=1, draft_path="/tmp")
+
+
+class TestAdReferenceUnitClips:
+    """ad + reference_video：成片是 unit 级视频，字幕按成员镜头在 unit 内对齐。"""
+
+    def _script(self) -> dict:
+        return {
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S1",
+                    "section": "hook",
+                    "duration_seconds": 3,
+                    "voiceover_text": "还在为脱发烦恼吗",
+                    "transition_to_next": "cut",
+                    "generated_assets": {"status": "pending"},
+                },
+                {
+                    "shot_id": "E1S2",
+                    "section": "cta",
+                    "duration_seconds": 2,
+                    "voiceover_text": "点击下方链接立即下单",
+                    "transition_to_next": "fade",
+                    "generated_assets": {"status": "pending"},
+                },
+            ],
+            "reference_units": [
+                {
+                    "unit_id": "E1U1",
+                    "shot_ids": ["E1S1", "E1S2"],
+                    "references": [],
+                    "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
+                },
+                {
+                    "unit_id": "E1U2",
+                    "shot_ids": ["E1S9"],
+                    "references": [],
+                    "generated_assets": {"status": "pending"},
+                },
+            ],
+        }
+
+    def test_collects_unit_clips_with_per_shot_subtitle_spans(self, tmp_path):
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        ref_dir = project_dir / "reference_videos"
+        ref_dir.mkdir(parents=True)
+        (ref_dir / "E1U1.mp4").write_bytes(b"fake")
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(self._script(), project_dir, generation_mode="reference_video")
+
+        assert len(clips) == 1
+        clip = clips[0]
+        assert clip["id"] == "E1U1"
+        assert clip["duration_seconds"] == 5
+        # unit 间转场取末位成员镜头的 transition_to_next
+        assert clip["transition_to_next"] == "fade"
+        assert clip["subtitle_spans"] == [
+            {"offset_seconds": 0, "duration_seconds": 3, "text": "还在为脱发烦恼吗"},
+            {"offset_seconds": 3, "duration_seconds": 2, "text": "点击下方链接立即下单"},
+        ]
+
+    def test_storyboard_path_keeps_shot_clips(self, tmp_path):
+        """同一份剧本走 storyboard 路径时仍按 shots 收集，残留索引不参与。"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "shot_E1S1.mp4").write_bytes(b"fake")
+        script = self._script()
+        script["shots"][0]["generated_assets"] = {"video_clip": "videos/shot_E1S1.mp4", "status": "completed"}
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir, generation_mode="storyboard")
+
+        assert [c["id"] for c in clips] == ["E1S1"]
+
+    def test_generate_draft_renders_span_subtitles_within_unit(self, tmp_path):
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        videos_dir = tmp_path / "videos"
+        videos_dir.mkdir()
+        make_test_video(videos_dir / "E1U1.mp4", duration_sec=5.0)
+
+        draft_dir = tmp_path / "drafts" / "参考直出草稿"
+        clips = [
+            {
+                "id": "E1U1",
+                "local_path": str(videos_dir / "E1U1.mp4"),
+                "subtitle_text": "",
+                "subtitle_spans": [
+                    {"offset_seconds": 0, "duration_seconds": 3, "text": "还在为脱发烦恼吗"},
+                    {"offset_seconds": 3, "duration_seconds": 2, "text": "点击下方链接立即下单"},
+                ],
+            },
+        ]
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        svc._generate_draft(
+            draft_dir=draft_dir,
+            draft_name="参考直出草稿",
+            clips=clips,
+            width=1080,
+            height=1920,
+            content_mode="ad",
+        )
+
+        content = json.loads((draft_dir / "draft_content.json").read_text(encoding="utf-8"))
+        texts = content.get("materials", {}).get("texts", [])
+        assert len(texts) == 2
+        text_track = next(t for t in content.get("tracks", []) if t.get("type") == "text")
+        starts = sorted(seg["target_timerange"]["start"] for seg in text_track["segments"])
+        assert starts[0] == 0
+        assert starts[1] == 3_000_000

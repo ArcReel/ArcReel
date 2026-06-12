@@ -8,7 +8,8 @@
 import logging
 
 from lib.path_safety import safe_exists
-from lib.script_models import SCRIPT_SHAPES
+from lib.project_manager import effective_mode
+from lib.script_models import SCRIPT_SHAPES, ad_script_total_duration
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +66,21 @@ class StatusCalculator:
 
         return ("narration" if content_mode not in SCRIPT_SHAPES else content_mode), []
 
-    def calculate_episode_stats(self, project_name: str, script: dict) -> dict:
-        """计算单集的统计信息 — 按 content_mode 分派。"""
+    def calculate_episode_stats(self, project_name: str, script: dict, *, generation_mode: str | None = None) -> dict:
+        """计算单集的统计信息 — 按 content_mode 分派。
+
+        ``generation_mode`` 由调用方按 project.json 解析（``effective_mode``）传入：
+        ad 剧本不打 generation_mode 戳（骨架唯一），reference_video 路径的视频
+        产物挂在派生索引 ``reference_units`` 的 unit 上而非 shots，计分需按声明的
+        生成路径分派而不能嗅探数据形状（残留索引不应污染 storyboard 路径的状态）。
+        """
         content_mode, items = self._select_content_mode_and_items(script)
 
         if content_mode == "reference_video":
             return self._calculate_reference_video_stats(items)
+
+        if content_mode == "ad" and generation_mode == "reference_video":
+            return self._calculate_ad_reference_stats(script, items)
 
         default_duration = _FALLBACK_ITEM_DURATIONS[content_mode]
         storyboard_done = sum(1 for i in items if i.get("generated_assets", {}).get("storyboard_image"))
@@ -90,6 +100,37 @@ class StatusCalculator:
             "duration_seconds": sum(i.get("duration_seconds", default_duration) for i in items),
             "storyboards": {"total": total, "completed": storyboard_done},
             "videos": {"total": total, "completed": video_done},
+        }
+
+    @staticmethod
+    def _calculate_ad_reference_stats(script: dict, shots: list[dict]) -> dict:
+        """ad + reference_video：视频进度按派生 unit 计，其余口径仍以 shots 为真相。
+
+        索引未派生（reference_units 缺失/空）时 videos 计 0/0、状态 draft；
+        分镜计数保留 shots 口径（该路径跳过分镜，恒为 0/total，不参与状态判定）。
+        """
+        raw_units = script.get("reference_units")
+        units = [u for u in raw_units if isinstance(u, dict)] if isinstance(raw_units, list) else []
+        video_done = sum(1 for u in units if (u.get("generated_assets") or {}).get("video_clip"))
+        total_units = len(units)
+
+        if total_units == 0:
+            status = "draft"
+        elif video_done == total_units:
+            status = "completed"
+        elif video_done > 0:
+            status = "in_production"
+        else:
+            status = "draft"
+
+        total_shots = len(shots)
+        return {
+            "scenes_count": total_shots,
+            "units_count": total_units,
+            "status": status,
+            "duration_seconds": ad_script_total_duration(shots),
+            "storyboards": {"total": total_shots, "completed": 0},
+            "videos": {"total": total_units, "completed": video_done},
         }
 
     @staticmethod
@@ -264,7 +305,9 @@ class StatusCalculator:
                 script_status, script = "none", None
 
             if script_status == "generated" and script is not None:
-                ep_stats = self.calculate_episode_stats(project_name, script)
+                ep_stats = self.calculate_episode_stats(
+                    project_name, script, generation_mode=effective_mode(project=project, episode=ep)
+                )
                 if ep_stats["status"] == "draft":
                     ep_stats["status"] = "scripted"
                 ep_stats["script_status"] = "generated"

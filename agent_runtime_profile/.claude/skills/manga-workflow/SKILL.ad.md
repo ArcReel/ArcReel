@@ -16,9 +16,17 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 4. **资产定义与设计图**：角色/场景/道具定义写入 `project.json` 后 dispatch `generate-assets` subagent 生成设计图；产品 sheet 在产品资产页生成
 5. **一键生成剧本**：调 `mcp__arcreel__generate_episode_script({"episode": 1})`。ad 不需要 step1 中间文件，prompt 直接来自 brief + 产品信息 + 审定的带货八段框架配比表（按 `target_duration` 选档）；`products` 为空时自动分流为通用短片脚本。生成后剧本总时长偏离 `target_duration` 过大只会记日志提醒，不阻塞
 6. **sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前先请用户到产品资产页确认 sheet 与真品一致（不一致就重新生成 sheet），确认后才进入分镜；无 sheet（仅原图）时直接开工。这是工作流约定，没有系统状态强制
-7. **镜头编排与生成**：每镜头口播文案/时长/section 可经 `patch_episode_script` 调整；镜头**顺序**调整只在 WebUI 剧本页提供（agent 侧没有重排工具，用户要求调顺序时引导其到剧本页操作，不要用逐字段互换内容模拟）；storyboard 路径用 `generate-storyboard` / `generate-video` 逐镜头出图出视频。产品镜头（`products_in_shot` 非空）的分镜与视频生成会自动注入产品参考并附高保真指令，prompt 不必复述产品外观；分镜生成后引导用户审核产品形象，不合格的重生成分镜，在产生视频费用前拦截
+7. **镜头编排与生成**：每镜头口播文案/时长/section 可经 `patch_episode_script` 调整；镜头**顺序**调整只在 WebUI 剧本页提供（agent 侧没有重排工具，用户要求调顺序时引导其到剧本页操作，不要用逐字段互换内容模拟）。两条生成路径：
+   - **storyboard 路径**：用 `generate-storyboard` / `generate-video` 逐镜头出图出视频；分镜生成后引导用户审核产品形象，不合格的重生成分镜，在产生视频费用前拦截
+   - **reference_video 路径（参考直出）**：直接调 `mcp__arcreel__generate_video_episode` 一键直出——工具自动把连续镜头派生分组为 video_unit（每 unit ≤4 镜头、总长受供应商上限约束）、把产品参考与资产 sheet 注入各 unit 并入队生成，跳过分镜步骤。镜头编辑后再次调用即自动重新派生，未变化的 unit 不重复生成
+
+   产品镜头（`products_in_shot` 非空）的分镜与视频生成会自动注入产品参考并附高保真指令，prompt 不必复述产品外观
+
+## 路径中途切换
+
+用户把 `generation_mode` 在 storyboard ↔ reference_video 之间切换后，先检查既有镜头时长是否符合新路径约束（storyboard 须取视频模型 `supported_durations` 成员，可经 `mcp__arcreel__get_video_capabilities` 自查；reference 须为 1-15 秒整数）。不符合时**主动**列出越界镜头并建议调整值，经 `patch_episode_script` 修正后再生成——不要直接入队让执行层报错。
 
 ## 边界
 
-- 参考直达（reference_video 派生分组）出片、剪映导出收口等环节尚未上线；用户问到时如实说明即将提供，**不要**套用 narration/drama 的小说拆分流程替代
 - 剧本骨架唯一：`shots[]` 不随 `generation_mode` 更换；reference_video 路径下单镜头时长为 1-15 秒自由整数，storyboard 路径取视频模型 `supported_durations` 成员
+- reference_video 路径的分组索引（剧本 `reference_units` 字段）由工具派生维护，不要手工编辑；shots 才是内容唯一真相

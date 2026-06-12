@@ -298,6 +298,37 @@ class AdShot(BaseModel):
     )
 
 
+class AdUnitReference(BaseModel):
+    """ad 派生分组的参考条目——比 ``ReferenceResource`` 多 ``product`` 类型。
+
+    产品镜头沿用注入二元规则（见 docs/adr/0034）：产品参考全量进入 unit
+    参考集且排序绝对优先，故索引条目须能表达 product 类型。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    type: Literal["product", "character", "scene", "prop"] = Field(description="引用的资源类型")
+    name: str = Field(description="资产名称，必须在 project.json 对应 bucket 中已注册")
+
+
+class AdReferenceUnit(BaseModel):
+    """ad + reference_video 路径的派生分组索引条目。
+
+    轻量索引仅引用 shot_id 与参考集，不复制镜头内容（shots 是内容唯一真相，
+    见 docs/adr/0033）；``generated_assets`` 是 unit 级运行时状态（产物文件按
+    unit_id 命名），由生成 finalize 写回。索引由 ``lib.reference_video.ad_units``
+    的派生分组器从 shots 重算，shot_id 引用完整性不在结构层校验——镜头删除后
+    索引短暂悬空是合法的中间态（重新派生即愈），结构层若拒绝会反过来阻塞镜头编辑。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    unit_id: str = Field(description="格式 E{集}U{序号}")
+    shot_ids: list[str] = Field(min_length=1, max_length=4, description="成员镜头 ID（连续、1-4 个）")
+    references: list[AdUnitReference] = Field(default_factory=list, description="继承的参考集，产品在前")
+    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
+
+
 class AdEpisodeScript(BaseModel):
     """广告/短片模式剧集脚本（恒单集，剧本即第 1 集脚本文件）。
 
@@ -313,6 +344,11 @@ class AdEpisodeScript(BaseModel):
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     shots: list[AdShot] = Field(description="镜头列表")
+    # reference_video 路径的派生分组索引，由分组器派生注入而非 LLM 生成；
+    # None 表示尚未派生。重新生成剧本时随 LLM 输出重建为 None（shots 已变，索引须重派生）。
+    reference_units: SkipJsonSchema[list[AdReferenceUnit] | None] = Field(
+        default=None, description="参考直出派生分组索引"
+    )
 
 
 # ============ 参考生视频模式（Reference Video） ============
