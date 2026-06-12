@@ -6,12 +6,12 @@ from pathlib import Path
 
 
 def safe_resolve(base: Path, rel_path: str | None) -> Path | None:
-    """解析 base 内的相对路径，返回绝对路径；越界/脏数据/文件不存在时返回 None（防路径穿越）。"""
+    """解析 base 内的相对路径，返回绝对路径；越界/脏数据/不是已存在的文件时返回 None（防路径穿越）。"""
     if not rel_path:
         return None
     try:
         full = (base / rel_path).resolve()
-        if full.is_relative_to(base.resolve()) and full.exists():
+        if full.is_relative_to(base.resolve()) and full.is_file():
             return full
     except (OSError, ValueError, TypeError):
         # TypeError：rel_path 来自 project.json 原始字段，脏数据（dict/int）按「不存在」处理

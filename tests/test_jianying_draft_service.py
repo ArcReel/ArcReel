@@ -430,7 +430,6 @@ class TestNarrationAudioTrack:
     def test_audio_open_failure_skipped_without_error(self, tmp_path, monkeypatch):
         """音频文件解析阶段抛出运行时错误（如被占用）时跳过该段配音，导出不报错"""
         import server.services.jianying_draft_service as svc_module
-        from server.services.jianying_draft_service import JianyingDraftService
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
@@ -440,7 +439,7 @@ class TestNarrationAudioTrack:
         make_test_audio(audio_dir / "segment_S1.wav")
 
         def raise_runtime_error(*args, **kwargs):
-            raise RuntimeError("An error occured while opening the file")
+            raise RuntimeError("An error occurred while opening the file")
 
         monkeypatch.setattr(svc_module, "AudioMaterial", raise_runtime_error)
 
@@ -454,10 +453,51 @@ class TestNarrationAudioTrack:
             },
         ]
 
-        svc = JianyingDraftService.__new__(JianyingDraftService)
+        svc = svc_module.JianyingDraftService.__new__(svc_module.JianyingDraftService)
         svc._generate_draft(
             draft_dir=draft_dir,
             draft_name="占用草稿",
+            clips=clips,
+            width=1080,
+            height=1920,
+            content_mode="narration",
+        )
+
+        content = json.loads((draft_dir / "draft_content.json").read_text(encoding="utf-8"))
+        assert content.get("materials", {}).get("audios", []) == []
+
+    def test_zero_duration_audio_skipped_without_error(self, tmp_path, monkeypatch):
+        """音频有效时长为 0（解析异常或被收口到 0）时跳过该段配音，导出不报错"""
+        import server.services.jianying_draft_service as svc_module
+
+        videos_dir = tmp_path / "videos"
+        videos_dir.mkdir()
+        make_test_video(videos_dir / "seg_S1.mp4")
+        audio_dir = tmp_path / "audio"
+        audio_dir.mkdir()
+        make_test_audio(audio_dir / "segment_S1.wav")
+
+        class ZeroDurationAudioMaterial:
+            def __init__(self, path):
+                self.path = path
+                self.duration = 0
+
+        monkeypatch.setattr(svc_module, "AudioMaterial", ZeroDurationAudioMaterial)
+
+        draft_dir = tmp_path / "drafts" / "零时长草稿"
+        clips = [
+            {
+                "id": "S1",
+                "local_path": str(videos_dir / "seg_S1.mp4"),
+                "novel_text": "",
+                "narration_audio_local": str(audio_dir / "segment_S1.wav"),
+            },
+        ]
+
+        svc = svc_module.JianyingDraftService.__new__(svc_module.JianyingDraftService)
+        svc._generate_draft(
+            draft_dir=draft_dir,
+            draft_name="零时长草稿",
             clips=clips,
             width=1080,
             height=1920,

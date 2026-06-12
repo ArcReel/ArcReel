@@ -15,6 +15,12 @@ def test_missing_file_returns_false(tmp_path: Path):
     assert safe_exists(tmp_path, "nope.txt") is False
 
 
+def test_directory_returns_false(tmp_path: Path):
+    # 素材路径只接受文件，目录视同不存在
+    (tmp_path / "subdir").mkdir()
+    assert safe_exists(tmp_path, "subdir") is False
+
+
 def test_traversal_rejected(tmp_path: Path):
     outside = tmp_path.parent / "outside.txt"
     outside.write_text("x", encoding="utf-8")

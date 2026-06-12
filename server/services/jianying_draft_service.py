@@ -242,6 +242,9 @@ class JianyingDraftService:
                 if duration_us > window_us:
                     logger.warning("旁白音频长过下一段起点，已收口: %s", audio_material.path)
                     duration_us = window_us
+            if duration_us <= 0:
+                logger.warning("旁白音频有效时长不足，已跳过: %s", audio_material.path)
+                continue
             audio_seg = AudioSegment(audio_material, trange(start_us, duration_us))
             script_file.add_segment(audio_seg, "旁白")
 
@@ -346,8 +349,12 @@ class JianyingDraftService:
             # 6. 将素材移入草稿目录（暂存区内容即全部已暂存素材）
             assets_dir = draft_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
+            assets_root = assets_dir.resolve()
             for staged in staging_dir.iterdir():
-                shutil.move(str(staged), str(assets_dir / staged.name))
+                dest = (assets_root / staged.name).resolve()
+                if not dest.is_relative_to(assets_root):
+                    raise ValueError(f"路径越界，拒绝写入: {dest}")
+                shutil.move(str(staged), str(dest))
 
             # 7. 路径后处理：staging 路径 → 用户本地路径
             draft_content_path = draft_dir / "draft_content.json"
