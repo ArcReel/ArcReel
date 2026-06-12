@@ -324,10 +324,15 @@ class JianyingDraftService:
 
             # 同一来源文件（safe_resolve 已规范化路径）只暂存一次，多段引用共享同一暂存副本
             staged_by_src: dict[Path, Path] = {}
+            project_root = project_dir.resolve()
 
             def stage_once(src: Path) -> str:
                 if src not in staged_by_src:
-                    staged_by_src[src] = self._stage_file(src, staging_dir)
+                    # 暂存前重校验：收集与暂存之间文件可能被替换（如换成越界 symlink）
+                    resolved = src.resolve()
+                    if not (resolved.is_relative_to(project_root) and resolved.is_file()):
+                        raise ValueError(f"路径越界，拒绝导出: {src}")
+                    staged_by_src[src] = self._stage_file(resolved, staging_dir)
                 return str(staged_by_src[src])
 
             local_clips = []

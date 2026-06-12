@@ -756,6 +756,26 @@ class TestExportEpisodeDraft:
         assert len(audio_track["segments"]) == 1
         assert audio_track["segments"][0]["target_timerange"]["start"] == 0
 
+    def test_stage_rejects_source_replaced_outside_project(self, tmp_path, monkeypatch):
+        """收集后源路径被替换为项目外目标时，暂存前重校验拒绝导出"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, _ = self._setup_project(tmp_path)
+        outside = tmp_path / "outside.mp4"
+        make_test_video(outside)
+        svc = JianyingDraftService(pm)
+        original = svc._collect_video_clips
+
+        def tampered(script_data, project_dir):
+            clips = original(script_data, project_dir)
+            clips[0]["abs_path"] = outside
+            return clips
+
+        monkeypatch.setattr(svc, "_collect_video_clips", tampered)
+
+        with pytest.raises(ValueError, match="路径越界"):
+            svc.export_episode_draft(project_name="demo", episode=1, draft_path="/mock/JianyingDrafts")
+
     def test_segments_sharing_one_audio_file_export_once(self, tmp_path):
         """多段共享同一旁白音频文件时导出成功，素材只打包一份"""
         from server.services.jianying_draft_service import JianyingDraftService
