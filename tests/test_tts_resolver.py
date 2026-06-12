@@ -215,8 +215,8 @@ class TestResolveNarrationSpeed:
         factory, engine = await _make_factory()
         try:
             resolver = ConfigResolver(factory)
-            # 项目级非正/非有限值不进 TTS 请求
-            for bad in (0, -1.5, float("nan"), float("inf")):
+            # 项目级非正/非有限值不进 TTS 请求；超出 float 范围的巨大整数等同非有限值
+            for bad in (0, -1.5, float("nan"), float("inf"), 10**400):
                 assert await resolver.resolve_narration_speed({"narration_speed": bad}) is None
             # 全局 setting 损坏成非有限值同样按未设置处理
             async with factory() as session:

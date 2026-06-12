@@ -291,8 +291,12 @@ class ConfigResolver:
             if project is not None:
                 override = project.get("narration_speed")
                 if isinstance(override, (int, float)) and not isinstance(override, bool):
-                    speed = float(override)
-                    if math.isfinite(speed) and speed > 0:
+                    try:
+                        speed = float(override)
+                    except OverflowError:
+                        # 超出 float 范围的巨大整数等同非有限值，按未设置回退下一级
+                        speed = None
+                    if speed is not None and math.isfinite(speed) and speed > 0:
                         return speed
                 elif isinstance(override, str):
                     speed_from_str = ConfigService.parse_narration_speed(override)
