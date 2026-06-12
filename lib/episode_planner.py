@@ -146,7 +146,7 @@ class _DraftRejected(Exception):
 
 def _strip_md_fences(text: str) -> str:
     text = text.strip()
-    if text.startswith("```json"):
+    if text[:7].lower() == "```json":  # 部分模型输出 ```JSON / ```Json，标记匹配不区分大小写
         text = text[7:]
     if text.startswith("```"):
         text = text[3:]
@@ -699,6 +699,12 @@ class EpisodePlanner:
                 except EpisodePlanningError as exc:
                     raise EpisodePlanningError(f"第 {num} 集派生文件重写失败，提交已中止：{exc}") from exc
                 text_cache[rel] = text
+            # Python 切片对负值/越界静默容忍，脏坐标会写出与账本不符的内容，必须显式拦截
+            if not 0 <= seg_start <= seg_end <= len(text):
+                raise EpisodePlanningError(
+                    f"第 {num} 集原文范围越界（start={seg_start}，end={seg_end}，源文长度 {len(text)}），"
+                    "无法完成派生文件对账，提交已中止"
+                )
             source_dir.mkdir(exist_ok=True)
             (source_dir / f"episode_{num}.txt").write_text(text[seg_start:seg_end], encoding="utf-8")
         for num, path in discover_episode_files(self.project_path).items():

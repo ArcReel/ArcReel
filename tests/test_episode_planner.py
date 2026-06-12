@@ -222,6 +222,19 @@ class TestPlan:
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
+    async def test_plan_accepts_uppercase_json_fence(self, tmp_path: Path):
+        """模型输出大写 ```JSON 围栏也能解析（围栏标记不区分大小写）。"""
+        project_dir = _write_project(tmp_path)
+        fenced = (
+            "```JSON\n" + _plan_response([{"title": "古玉藏诀", "hook": "钩子", "end_anchor": ANCHOR_EP1}]) + "\n```"
+        )
+        fake = _FakeTextGenerator([fenced])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+        assert len(fake.requests) == 1  # 一次通过，未触发重试
+
     async def test_plan_drama_writes_outline_to_ledger(self, tmp_path: Path):
         """drama 条目加厚为分集大纲：story_beats + next_episode_teaser 落账本 outline。"""
         project_dir = _write_project(tmp_path, content_mode="drama")
@@ -652,6 +665,17 @@ class TestReconcileFailFast:
 
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert (project_dir / "source" / "episode_3.txt").exists()  # 旧文件未被清理
+
+    async def test_commit_aborts_when_source_range_out_of_bounds(self, tmp_path: Path):
+        """账本中锚定集的原文范围越界（end 超源文长度）：提交中止，零变更。"""
+        project_dir = _planned_three(tmp_path)
+        before = self._corrupt_entry_1(project_dir, lambda e: e["source_range"].update(end=len(SOURCE) + 999))
+        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+
+        with pytest.raises(EpisodePlanningError, match="越界"):
+            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
 
     async def test_commit_aborts_when_entry_source_file_missing(self, tmp_path: Path):
         """账本引用的源文件缺失：派生文件重写失败中止提交，不留半成品账本。"""
