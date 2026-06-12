@@ -76,6 +76,13 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
       useAppStore
         .getState()
         .pushToast(t("dashboard:ad_init_failed", { message: errMsg(err) }), "error");
+      // 序列中途失败（如产品已创建但后续上传失败）时同步一次服务端状态：
+      // 已持久化的部分让页面自然切换到对应视图，避免重复提交撞「产品已存在」死端
+      try {
+        await onDone();
+      } catch {
+        /* 刷新失败保留当前表单状态 */
+      }
     } finally {
       setSubmitting(false);
     }

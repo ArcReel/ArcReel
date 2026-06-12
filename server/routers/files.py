@@ -233,10 +233,17 @@ async def upload_file(
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
                 ref_ext = Path(original_filename).suffix.lower() or ".png"
+                # 按序号取唯一文件名，用原子独占创建占位：并发上传同一产品时
+                # 两个请求各拿到不同序号，避免静默互相覆盖。
                 seq = 1
-                while (target_dir / f"{name}_{seq}{ref_ext}").exists():
-                    seq += 1
-                filename = f"{name}_{seq}{ref_ext}"
+                while True:
+                    candidate = target_dir / f"{name}_{seq}{ref_ext}"
+                    try:
+                        candidate.touch(exist_ok=False)
+                        break
+                    except FileExistsError:
+                        seq += 1
+                filename = candidate.name
 
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
@@ -320,7 +327,9 @@ async def upload_file(
                             f"products/refs/{filename}",
                         )
                 except KeyError:
-                    # 入口已校验产品存在；并发删除导致的窗口期竞态按 404 处理
+                    # 入口已校验产品存在；并发删除导致的窗口期竞态按 404 处理，
+                    # 已落盘的文件一并清理避免孤儿
+                    target_path.unlink(missing_ok=True)
                     raise HTTPException(status_code=404, detail=_t("product_not_found", name=name))
 
             return {

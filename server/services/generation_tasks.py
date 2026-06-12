@@ -1213,6 +1213,10 @@ def _collect_product_reference_images(project: dict, project_path: Path, resourc
     if not isinstance(refs, list):
         return None
     existing = [path for ref in refs if isinstance(ref, str) and ref if (path := project_path / ref) and path.exists()]
+    if refs and not existing:
+        # 声明了原图却全部缺失：sheet 生成静默退化为纯文生图会丢失保真锚定，
+        # 留观测痕迹便于诊断（不阻塞——文件缺失可能是归档迁移等正常历史原因）
+        logger.warning("产品 '%s' 声明了 %d 张原图但磁盘均缺失，sheet 生成退化为纯文生图", resource_id, len(refs))
     return existing or None
 
 
