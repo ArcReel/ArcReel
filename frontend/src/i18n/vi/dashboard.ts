@@ -1079,6 +1079,7 @@ export default {
   'detail_section_products': 'SẢN PHẨM',
   'shot_move_earlier': 'Di chuyển cảnh lên trước',
   'shot_move_later': 'Di chuyển cảnh ra sau',
+  'shot_move_pending': 'Đang sắp xếp lại…',
   'reorder_shot_failed': 'Sắp xếp lại cảnh quay thất bại: {{message}}',
   'detail_section_prompts': 'PROMPTS',
   'detail_tab_left': 'Kịch bản / Đối thoại',

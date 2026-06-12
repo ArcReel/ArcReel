@@ -1187,6 +1187,7 @@ export default {
   'detail_section_products': 'PRODUCTS',
   'shot_move_earlier': 'Move shot earlier',
   'shot_move_later': 'Move shot later',
+  'shot_move_pending': 'Reordering in progress…',
   'reorder_shot_failed': 'Failed to reorder shots: {{message}}',
   'detail_section_prompts': 'PROMPTS',
   'detail_dialogue_empty': '(no dialogue yet)',

@@ -148,6 +148,9 @@ describe("ShotDetail ad 模式", () => {
     // 切镜导航同样锁定：完成回调按当前索引偏移，在途切镜会让选中态跳到错误镜头
     expect(screen.getByRole("button", { name: "上一镜" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下一镜" })).toBeDisabled();
+    // tooltip 解释禁用原因，而非展示常规操作提示
+    expect(screen.getByRole("button", { name: "上一镜" })).toHaveAttribute("title", "重排进行中…");
+    expect(screen.getByRole("button", { name: "前移镜头" })).toHaveAttribute("title", "重排进行中…");
   });
 
   it("非 ad 模式不渲染移动按钮", () => {

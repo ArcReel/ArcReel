@@ -781,6 +781,27 @@ class TestProjectsRouter:
             )
             assert mixed.status_code == 422
 
+            # shot_id 缺失或非字符串：拦下避免 PATCH 误报 404 / reorder KeyError 变 500
+            fake_pm.scripts[("ad-ready", "episode_1.json")] = {
+                "content_mode": "ad",
+                "shots": [{"shot_id": "a"}, {"section": "hook"}],
+            }
+            missing_id = client.post(
+                "/api/v1/projects/ad-ready/script-shots/reorder",
+                json={"script_file": "episode_1.json", "shot_ids": ["a"]},
+            )
+            assert missing_id.status_code == 422
+
+            fake_pm.scripts[("ad-ready", "episode_1.json")] = {
+                "content_mode": "ad",
+                "shots": [{"shot_id": 7}],
+            }
+            dirty_id = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={"script_file": "episode_1.json", "updates": {"voiceover_text": "x"}},
+            )
+            assert dirty_id.status_code == 422
+
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
         """项目 API 应返回 asset_fingerprints 字段"""
         fake_pm = _FakePM(tmp_path)

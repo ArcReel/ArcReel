@@ -913,6 +913,10 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
         raise ValueError("ad script field 'shots' must be a list")
     if not all(isinstance(s, dict) for s in shots):
         raise ValueError("ad script field 'shots' contains non-object elements")
+    # shot_id 缺失/脏类型同样拦下：否则 PATCH 按 id 定位会误报 404，
+    # reorder 的 s["shot_id"] 索引会 KeyError 变 500。
+    if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
+        raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
     return shots
 
 

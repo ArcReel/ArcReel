@@ -1188,6 +1188,7 @@ export default {
   'detail_section_products': '产品',
   'shot_move_earlier': '前移镜头',
   'shot_move_later': '后移镜头',
+  'shot_move_pending': '重排进行中…',
   'reorder_shot_failed': '调整镜头顺序失败: {{message}}',
   'detail_section_prompts': '提示词',
   'detail_dialogue_empty': '（暂无对话）',
