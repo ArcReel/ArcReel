@@ -802,6 +802,17 @@ class TestProjectsRouter:
             )
             assert dirty_id.status_code == 422
 
+            # 重复 shot_id：身份键不唯一，PATCH 会静默更新首个命中项，必须拦下
+            fake_pm.scripts[("ad-ready", "episode_1.json")] = {
+                "content_mode": "ad",
+                "shots": [{"shot_id": "a"}, {"shot_id": "a"}],
+            }
+            dup_id = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/a",
+                json={"script_file": "episode_1.json", "updates": {"voiceover_text": "x"}},
+            )
+            assert dup_id.status_code == 422
+
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
         """项目 API 应返回 asset_fingerprints 字段"""
         fake_pm = _FakePM(tmp_path)

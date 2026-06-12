@@ -917,6 +917,10 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     # reorder 的 s["shot_id"] 索引会 KeyError 变 500。
     if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
         raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
+    # shot_id 是单镜头身份键：重复值会让 PATCH 静默更新首个命中项、reorder 失去 1:1 映射
+    shot_ids = [s["shot_id"] for s in shots]
+    if len(set(shot_ids)) != len(shot_ids):
+        raise ValueError("ad script field 'shots' contains duplicate 'shot_id' values")
     return shots
 
 
