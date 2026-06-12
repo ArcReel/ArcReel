@@ -3,7 +3,8 @@
 plan() 从 planning_cursor 起取一个源文窗口，由文本模型一次规划出窗口内所有
 剧情弧完整的集（标题/钩子/切分锚点；drama 另含分集大纲），schema 强约束 +
 锚点存在性/唯一性/连续性机械校验，失败自动重试并附上一轮失败原因。
-replan(from_episode, instructions) 在已规划范围内按用户自由文本意见局部重排。
+replan(from_episode, instructions) 在已规划范围内按用户自由文本意见局部重排；
+范围跨多个源文件时按文件拆为多个片段独立重切（单集不跨文件，文件边界即集边界）。
 
 写入阶段在同一把项目锁内完成：写账本 + 按账本重写派生集文件 + 清理账本之外
 的残留派生文件（含余文文件），下游读到的 ``source/episode_N.txt`` 永远与账本
@@ -85,13 +86,30 @@ class ReplanConfirmationRequired:
 
 
 @dataclass
-class _ReplanScope:
-    """重排范围：受影响条目（按集号升序）及其覆盖的闭合原文区间。"""
+class _ReplanSlice:
+    """单个源文件内的重排片段：闭合原文区间，独立重切。"""
 
     source_rel: str
     start: int
     end: int
+
+
+@dataclass
+class _ReplanScope:
+    """重排范围：受影响条目（按集号升序）及其覆盖的文件内片段（按集号序逐文件分段）。"""
+
+    slices: list[_ReplanSlice]
     affected: list[tuple[int, dict[str, Any]]]
+
+
+@dataclass
+class _PlannedEpisode:
+    """重排新布局中的一集：草稿 + 源文件内绝对范围（集号按列表顺序自 from_episode 推导）。"""
+
+    draft: NarrationEpisodeDraft
+    source_rel: str
+    start: int
+    end: int
 
 
 _DRAFT_CONFIG = ConfigDict(extra="forbid")
@@ -371,9 +389,11 @@ class EpisodePlanner:
         """按用户自由文本意见局部重排 ``from_episode`` 起的已规划范围。
 
         重排范围是闭合的（到当前已规划末尾），新布局必须完整覆盖；之前的集作为
-        已定上下文输入。波及已消费集且未 ``confirm_consumed`` 时不执行，返回
-        受影响清单等待显式确认；确认后这些集号在新布局中标 stale。全局性意见
-        （每集体量）回写项目设置，后续批次自动继承。
+        已定上下文输入。范围跨多个源文件时按文件拆为多个片段独立重切（单集不跨
+        文件，文件边界即集边界），集号跨片段连续编号、每个片段各自闭合。波及
+        已消费集且未 ``confirm_consumed`` 时不执行，返回受影响清单等待显式确认；
+        确认后这些集号在新布局中标 stale。全局性意见（每集体量）回写项目设置，
+        后续批次自动继承。
         """
         project = backfill_episode_ledger(self.project_path, self.pm.load_project(self.project_name))
         scope = self._replan_scope(project, from_episode)
@@ -381,34 +401,66 @@ class EpisodePlanner:
         if consumed and not confirm_consumed:
             return ReplanConfirmationRequired(consumed_episodes=consumed)
 
-        text = self._load_normalized_source(scope.source_rel)
-        if scope.end > len(text):
-            raise EpisodePlanningError(f"账本范围越界：{scope.source_rel} 长度 {len(text)}，重排末尾 {scope.end}")
-        window = text[scope.start : scope.end]
+        texts: dict[str, str] = {}
+        for sl in scope.slices:
+            if sl.source_rel not in texts:
+                texts[sl.source_rel] = self._load_normalized_source(sl.source_rel)
+            # Python 切片对负值/越界静默容忍，脏范围必须在烧模型调用之前显式拦截
+            if not 0 <= sl.start < sl.end <= len(texts[sl.source_rel]):
+                raise EpisodePlanningError(
+                    f"账本重排范围无效：{sl.source_rel} 长度 {len(texts[sl.source_rel])}，"
+                    f"片段 [{sl.start}, {sl.end})；请检查账本"
+                )
         content_mode = str(project.get("content_mode") or "narration")
         draft_model: type[BaseModel] = DramaReplanDraft if content_mode == "drama" else NarrationReplanDraft
 
-        def _prompt(failure: list[str] | None) -> str:
-            return _build_planning_prompt(
-                project=project,
-                window=window,
-                window_is_final=False,
-                max_episodes=None,
-                content_mode=content_mode,
-                context_entries=_context_entries(project, before_episode=from_episode),
-                instructions=instructions,
-                fixed_boundary=True,
-                failure=failure,
-            )
+        base_context = _context_entries(project, before_episode=from_episode)
+        planned: list[_PlannedEpisode] = []
+        target_units: int | None = None
+        total_slices = len(scope.slices)
+        for slice_idx, sl in enumerate(scope.slices):
+            window = texts[sl.source_rel][sl.start : sl.end]
+            recent = [
+                {"episode": from_episode + idx, "title": ep.draft.title, "hook": ep.draft.hook}
+                for idx, ep in enumerate(planned)
+            ]
+            context = (base_context + recent)[-_CONTEXT_EPISODES_LIMIT:]
 
-        drafts, ends, draft = await self._request_validated_drafts(
-            draft_model,
-            _prompt,
-            window,
-            cover_to_end=True,
-            max_episodes=None,
-        )
-        target_units = getattr(draft, "episode_target_units", None)
+            # 闭包在本轮迭代内被 _request_validated_drafts 消费完毕，捕获循环变量无晚绑定风险
+            def _prompt(failure: list[str] | None) -> str:
+                return _build_planning_prompt(
+                    project=project,
+                    window=window,
+                    window_is_final=False,
+                    max_episodes=None,
+                    content_mode=content_mode,
+                    context_entries=context,
+                    instructions=instructions,
+                    fixed_boundary=True,
+                    slice_position=(slice_idx + 1, total_slices),
+                    failure=failure,
+                )
+
+            drafts, ends, draft = await self._request_validated_drafts(
+                draft_model,
+                _prompt,
+                window,
+                cover_to_end=True,
+                max_episodes=None,
+            )
+            slice_units = getattr(draft, "episode_target_units", None)
+            if slice_units is not None:
+                # 各段对同一份全局意见的解读偶有出入属模型噪音：告警留痕，以后一段为准，不阻塞
+                if target_units is not None and target_units != slice_units:
+                    logger.warning(
+                        "跨文件重排各段回报的每集体量不一致（%s → %s），以后一段为准", target_units, slice_units
+                    )
+                target_units = slice_units
+            prev = sl.start
+            for draft_ep, rel_end in zip(drafts, ends, strict=True):
+                abs_end = sl.start + rel_end
+                planned.append(_PlannedEpisode(draft=draft_ep, source_rel=sl.source_rel, start=prev, end=abs_end))
+                prev = abs_end
 
         language = _language_of(project)
         summaries: list[EpisodePlanSummary] = []
@@ -418,8 +470,12 @@ class EpisodePlanner:
             fresh = backfill_episode_ledger(self.project_path, p)
             p.clear()
             p.update(fresh)
-            current = self._replan_scope(p, from_episode)
-            if (current.source_rel, current.start, current.end) != (scope.source_rel, scope.start, scope.end):
+            # 锁外已成功解析过一次，锁内解析失败只可能源于并发修改，按冲突上报（可重试）
+            try:
+                current = self._replan_scope(p, from_episode)
+            except EpisodePlanningError as exc:
+                raise PlanningConflictError("重排期间账本被并发修改，本次结果作废；请重新调用重排") from exc
+            if current.slices != scope.slices:
                 raise PlanningConflictError("重排期间账本被并发修改，本次结果作废；请重新调用重排")
             now_consumed = [num for num, entry in current.affected if entry.get("ledger_status") == "consumed"]
             # 用户确认的是读取时刻的已消费清单，期间新消费的集不在确认范围内，必须重新确认
@@ -433,19 +489,17 @@ class EpisodePlanner:
                 for e in (p.get("episodes") or [])
                 if not (isinstance(e, dict) and parse_episode_num(e.get("episode")) in affected_nums)
             ]
-            prev = scope.start
-            for offset_idx, (draft_ep, rel_end) in enumerate(zip(drafts, ends, strict=True)):
+            for offset_idx, ep in enumerate(planned):
                 num = from_episode + offset_idx
-                abs_end = scope.start + rel_end
                 status = "stale" if old_status.get(num) in ("consumed", "stale") else "planned"
                 script_file = old_script_file.get(num)
                 episodes_list.append(
                     _ledger_entry_from_draft(
-                        draft_ep,
+                        ep.draft,
                         num=num,
-                        source_rel=scope.source_rel,
-                        start=prev,
-                        end=abs_end,
+                        source_rel=ep.source_rel,
+                        start=ep.start,
+                        end=ep.end,
                         status=status,
                         script_file=script_file if isinstance(script_file, str) else None,
                     )
@@ -455,19 +509,18 @@ class EpisodePlanner:
                 summaries.append(
                     EpisodePlanSummary(
                         episode=num,
-                        title=draft_ep.title,
-                        hook=draft_ep.hook,
-                        reading_units=count_reading_units(text[prev:abs_end], language),
+                        title=ep.draft.title,
+                        hook=ep.draft.hook,
+                        reading_units=count_reading_units(texts[ep.source_rel][ep.start : ep.end], language),
                         ledger_status=status,
                     )
                 )
-                prev = abs_end
             _sort_episodes_if_possible(episodes_list)
             p["episodes"] = episodes_list
-            if isinstance(target_units, int) and not isinstance(target_units, bool) and target_units >= 1:
+            if target_units is not None:
                 p["episode_target_units"] = target_units
                 committed["settings"] = {"episode_target_units": target_units}
-            self._reconcile_derived_files(p, {scope.source_rel: text})
+            self._reconcile_derived_files(p, texts)
             committed["cursor"] = p.get("planning_cursor")
 
         self.pm.update_project(self.project_name, _commit)
@@ -479,7 +532,11 @@ class EpisodePlanner:
         )
 
     def _replan_scope(self, project: Mapping[str, Any], from_episode: int) -> _ReplanScope:
-        """解析重排范围：from_episode 起的全部账本条目 + 它们覆盖的闭合原文区间。"""
+        """解析重排范围：from_episode 起的全部账本条目 + 按集号序逐源文件分段的闭合原文片段。
+
+        范围跨多个源文件时按文件拆为多个片段（单集不跨文件，文件边界必然是集边界），
+        每个片段后续独立重切。
+        """
         affected: list[tuple[int, dict[str, Any]]] = []
         for entry in project.get("episodes") or []:
             if not isinstance(entry, dict):
@@ -496,9 +553,8 @@ class EpisodePlanner:
             raise EpisodePlanningError(
                 f"重排范围波及失锚（unanchored）集 {unanchored}，这些集已锁定不参与重排；请调大 from_episode"
             )
-        source_rel: str | None = None
-        start: int | None = None
-        end: int | None = None
+        slices: list[_ReplanSlice] = []
+        seen_rels: set[str] = set()
         for num, entry in affected:
             source_range = entry.get("source_range")
             if not isinstance(source_range, Mapping):
@@ -514,16 +570,18 @@ class EpisodePlanner:
                 or isinstance(seg_end, bool)
             ):
                 raise EpisodePlanningError(f"第 {num} 集原文范围记录不完整，无法重排")
-            if source_rel is None:
-                source_rel = rel
-                start = seg_start
-            elif rel != source_rel:
-                raise EpisodePlanningError(
-                    "重排范围跨越多个源文件，暂不支持；请调大 from_episode 使范围落在单一源文件内"
-                )
-            end = seg_end if end is None else max(end, seg_end)
-        assert source_rel is not None and start is not None and end is not None
-        return _ReplanScope(source_rel=source_rel, start=start, end=end, affected=affected)
+            if slices and slices[-1].source_rel == rel:
+                slices[-1].end = max(slices[-1].end, seg_end)
+            else:
+                # 同一源文件在范围内非连续出现说明集号与源文件顺序错乱：片段会重叠/穿插，必须 fail-fast
+                if rel in seen_rels:
+                    raise EpisodePlanningError(
+                        f"第 {num} 集的源文件 {rel} 在重排范围内非连续出现，账本集号与源文件顺序不一致，"
+                        "无法重排；请调大 from_episode 使范围避开顺序错乱的集"
+                    )
+                seen_rels.add(rel)
+                slices.append(_ReplanSlice(source_rel=rel, start=seg_start, end=seg_end))
+        return _ReplanScope(slices=slices, affected=affected)
 
     # ------------------------------------------------------------- helpers
 
@@ -757,8 +815,14 @@ def _build_planning_prompt(
     instructions: str | None,
     fixed_boundary: bool,
     failure: list[str] | None,
+    slice_position: tuple[int, int] | None = None,
 ) -> str:
-    """plan / replan 共用的规划 prompt。仅面向文本模型，不做 i18n。"""
+    """plan / replan 共用的规划 prompt。仅面向文本模型，不做 i18n。
+
+    ``slice_position=(第几段, 总段数)`` 标记当前 prompt 在重排范围中的位置；
+    总段数大于 1（范围跨多个源文件）时注入跨文件说明，提示模型用户意见中与
+    本段无关的部分由其他段落实。
+    """
     overview = project.get("overview") or {}
     language = str(project.get("source_language") or "zh")
     unit_name = "词" if language in ("en", "vi") else "字"
@@ -793,6 +857,15 @@ def _build_planning_prompt(
 
     if instructions:
         lines += ["", "# 用户重排意见（必须全部落实）", instructions]
+    if slice_position is not None and slice_position[1] > 1:
+        current, total = slice_position
+        lines += [
+            "",
+            "# 跨源文件重排说明",
+            f"- 本次重排范围跨 {total} 个源文件，已按文件拆成 {total} 段分别重切（文件边界必然是集边界），"
+            f"当前是第 {current} 段。",
+            "- 用户意见中与本段原文无关的部分由其他段落实，本段不要硬凑。",
+        ]
 
     lines += [
         "",

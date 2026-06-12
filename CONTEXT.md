@@ -209,7 +209,7 @@ project.json 顶层字段，下一批分集规划在源文中的起点（`{sourc
 _Avoid_: 把 `_remaining.txt` 当进度真相源（损坏即不可恢复正是账本要消除的旧模式）；把非空 cursor 当绝对最新——重跑回填只补新集范围、不前移非空值，规划起点以账本锚定范围末尾与 cursor 的较后者为准。
 
 **分集规划（plan / replan）**：
-服务端分集规划能力（`lib/episode_planner.EpisodePlanner` + SDK 工具 `plan_episodes` / `replan_episodes`）：从 planning_cursor 起读一个源文窗口，调项目配置的文本模型一次规划窗口内所有剧情弧完整的集（标题/钩子/范围；drama 含分集大纲），schema 强约束 + 锚点存在/唯一/连续机械校验失败自动重试，同一把项目锁内写账本、派生集文件并清理残留。replan 按用户自由文本意见从 from_episode 起局部重排：波及已消费集需显式确认（标 stale），全局性意见（每集体量）回写项目设置（见 `docs/adr/0032`）。
+服务端分集规划能力（`lib/episode_planner.EpisodePlanner` + SDK 工具 `plan_episodes` / `replan_episodes`）：从 planning_cursor 起读一个源文窗口，调项目配置的文本模型一次规划窗口内所有剧情弧完整的集（标题/钩子/范围；drama 含分集大纲），schema 强约束 + 锚点存在/唯一/连续机械校验失败自动重试，同一把项目锁内写账本、派生集文件并清理残留。replan 按用户自由文本意见从 from_episode 起局部重排：范围跨多个源文件时按文件拆为多段独立重切（单集不跨文件，文件边界即集边界，集号跨段连续编号）；波及已消费集需显式确认（标 stale），全局性意见（每集体量）回写项目设置（见 `docs/adr/0032`）。
 _Avoid_: 让主 agent 自行读原文选切分点（peek/split 脚本是被替代的旧模式）；窗口字数/每批集数硬编码到指令——它们是工具内部默认，`planning_window_chars` / `planning_max_episodes` 项目设置可覆盖。
 
 ### 智能体运行时

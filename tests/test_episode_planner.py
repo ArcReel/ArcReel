@@ -32,8 +32,8 @@ ANCHOR_EP1 = "玉中藏着剑诀。"
 ANCHOR_EP2 = "被追杀的少女。"
 
 
-def _end_of(anchor: str) -> int:
-    return SOURCE.index(anchor) + len(anchor)
+def _end_of(anchor: str, text: str = SOURCE) -> int:
+    return text.index(anchor) + len(anchor)
 
 
 class _FakeTextGenerator:
@@ -433,12 +433,20 @@ class TestPlan:
         assert eps[2]["ledger_status"] == "planned"
 
 
-def _entry(num: int, start: int, end: int, *, status: str = "planned", title: str | None = None) -> dict:
+def _entry(
+    num: int,
+    start: int,
+    end: int,
+    *,
+    status: str = "planned",
+    title: str | None = None,
+    source_file: str = "source/novel.txt",
+) -> dict:
     return {
         "episode": num,
         "title": title or f"第{num}集",
         "script_file": f"scripts/episode_{num}.json",
-        "source_range": {"source_file": "source/novel.txt", "start": start, "end": end},
+        "source_range": {"source_file": source_file, "start": start, "end": end},
         "hook": f"钩子{num}",
         "ledger_status": status,
     }
@@ -458,6 +466,35 @@ def _planned_three(tmp_path: Path, *, statuses: tuple[str, str, str] = ("planned
     )
     for num, (s, e) in enumerate([(0, a), (a, b), (b, len(SOURCE))], start=1):
         (project_dir / "source" / f"episode_{num}.txt").write_text(SOURCE[s:e], encoding="utf-8")
+    return project_dir
+
+
+# 第二个源文件：续作内容，锚点可唯一定位
+SOURCE2 = "第二部 上界风云。李恒踏入上界，灵气扑面而来。他在坊市结识了云岚宗弟子苏沐。两人结伴前往宗门，途中遭遇兽潮。"
+
+ANCHOR2_MID = "云岚宗弟子苏沐。"
+
+
+def _planned_two_files(
+    tmp_path: Path, *, statuses: tuple[str, str, str, str] = ("planned", "planned", "planned", "planned")
+) -> Path:
+    """已规划 4 集横跨两个源文件的项目：1-2 集在 novel.txt、3-4 集在 novel2.txt，cursor 在第二个文件末尾。"""
+    a = _end_of(ANCHOR_EP1)
+    c = _end_of(ANCHOR2_MID, SOURCE2)
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, 0, a, status=statuses[0]),
+            _entry(2, a, len(SOURCE), status=statuses[1]),
+            _entry(3, 0, c, status=statuses[2], source_file="source/novel2.txt"),
+            _entry(4, c, len(SOURCE2), status=statuses[3], source_file="source/novel2.txt"),
+        ],
+        planning_cursor={"source_file": "source/novel2.txt", "offset": len(SOURCE2)},
+    )
+    (project_dir / "source" / "novel2.txt").write_text(SOURCE2, encoding="utf-8")
+    ranges = [(SOURCE, 0, a), (SOURCE, a, len(SOURCE)), (SOURCE2, 0, c), (SOURCE2, c, len(SOURCE2))]
+    for num, (text, s, e) in enumerate(ranges, start=1):
+        (project_dir / "source" / f"episode_{num}.txt").write_text(text[s:e], encoding="utf-8")
     return project_dir
 
 
@@ -627,6 +664,210 @@ class TestReplan:
         with pytest.raises(EpisodePlanningError, match="from_episode"):
             await EpisodePlanner(project_dir, generator=_FakeTextGenerator([])).replan(9, "重排")
 
+    async def test_replan_across_source_files_recuts_each_file_slice(self, tmp_path: Path):
+        """跨源文件重排：按文件拆 slice 独立重切，集号跨文件连续，文件边界即集边界，cursor 不动。"""
+        project_dir = _planned_two_files(tmp_path)
+        a = _end_of(ANCHOR_EP1)
+        new_anchor = "踏上去往青云城的路。"
+        fake = _FakeTextGenerator(
+            [
+                # 第一段（novel.txt 内 [a, 文末)）：重切为 2 集
+                _plan_response(
+                    [
+                        {"title": "辞别下山", "hook": "青云城里有什么", "end_anchor": new_anchor},
+                        {"title": "城门风波", "hook": "少女是谁", "end_anchor": "卷入漩涡之中。"},
+                    ]
+                ),
+                # 第二段（novel2.txt 全文）：重切为 1 集
+                _plan_response([{"title": "上界风云", "hook": "兽潮来袭", "end_anchor": "途中遭遇兽潮。"}]),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾，第二部合成一集")
+
+        # 每段一次独立调用：窗口只含本文件 slice 的原文
+        assert len(fake.requests) == 2
+        assert "第三章" in fake.requests[0].prompt
+        assert "上界风云" not in fake.requests[0].prompt
+        assert "第二部" in fake.requests[1].prompt
+        assert "第三章" not in fake.requests[1].prompt
+        # 后一段的已定上下文衔接前一段刚规划出的集
+        assert "城门风波" in fake.requests[1].prompt
+
+        project = _load_project(project_dir)
+        eps = {e["episode"]: e for e in project["episodes"]}
+        assert sorted(eps) == [1, 2, 3, 4]
+        assert eps[1]["title"] == "第1集"  # 未受影响
+        new_mid = SOURCE.index(new_anchor) + len(new_anchor)
+        assert eps[2]["source_range"] == {"source_file": "source/novel.txt", "start": a, "end": new_mid}
+        # 文件边界贴齐为集边界：前一文件最后一集收在文末，后一文件第一集从 0 起
+        assert eps[3]["source_range"] == {"source_file": "source/novel.txt", "start": new_mid, "end": len(SOURCE)}
+        assert eps[4]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(SOURCE2)}
+        # cursor 不变（重排范围闭合）
+        assert project["planning_cursor"] == {"source_file": "source/novel2.txt", "offset": len(SOURCE2)}
+        # 派生文件按新账本重写
+        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[a:new_mid]
+        assert (project_dir / "source" / "episode_3.txt").read_text(encoding="utf-8") == SOURCE[new_mid:]
+        assert (project_dir / "source" / "episode_4.txt").read_text(encoding="utf-8") == SOURCE2
+        assert [s.episode for s in result.episodes] == [2, 3, 4]
+        assert result.stale_episodes == []
+
+    async def test_replan_across_source_files_each_slice_must_close(self, tmp_path: Path):
+        """跨文件重排每段各自闭合：非末段新布局没盖到本文件片段末尾时同样打回重试。"""
+        project_dir = _planned_two_files(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "踏上去往青云城的路。"}]),  # 第一段留尾巴
+                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "卷入漩涡之中。"}]),
+                _plan_response([{"title": "丙", "hook": "丙", "end_anchor": "途中遭遇兽潮。"}]),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
+
+        assert len(fake.requests) == 3
+        assert "不能留尾巴" in fake.requests[1].prompt  # 第一段重试，失败原因指向闭合
+        assert "不能留尾巴" not in fake.requests[0].prompt
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[2]["source_range"] == {
+            "source_file": "source/novel.txt",
+            "start": _end_of(ANCHOR_EP1),
+            "end": len(SOURCE),
+        }
+        assert eps[3]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(SOURCE2)}
+        assert [s.episode for s in result.episodes] == [2, 3]
+
+    async def test_replan_across_source_files_consumed_confirmation_and_stale(self, tmp_path: Path):
+        """跨文件重排的已消费集不引入特例：后一文件的已消费集同样先确认、确认后标 stale。"""
+        project_dir = _planned_two_files(tmp_path, statuses=("planned", "planned", "planned", "consumed"))
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        responses = [
+            _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"}]),
+            _plan_response(
+                [
+                    {"title": "乙", "hook": "乙", "end_anchor": ANCHOR2_MID},
+                    {"title": "丙", "hook": "丙", "end_anchor": "途中遭遇兽潮。"},
+                ]
+            ),
+        ]
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator(responses))
+
+        unconfirmed = await planner.replan(2, "重排")
+
+        assert isinstance(unconfirmed, ReplanConfirmationRequired)
+        assert unconfirmed.consumed_episodes == [4]
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before  # 未确认零变更
+
+        result = await EpisodePlanner(project_dir, generator=_FakeTextGenerator(responses)).replan(
+            2, "重排", confirm_consumed=True
+        )
+
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[2]["ledger_status"] == "planned"
+        assert eps[3]["ledger_status"] == "planned"
+        assert eps[4]["ledger_status"] == "stale"
+        assert result.stale_episodes == [4]
+
+    async def test_replan_across_source_files_renumbers_continuously_when_count_grows(self, tmp_path: Path):
+        """跨文件重排前段集数增多：后段集号顺延不冲突，新增集号派生文件写出。"""
+        project_dir = _planned_two_files(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": "踏上去往青云城的路。"},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                        {"title": "丙", "hook": "丙", "end_anchor": "卷入漩涡之中。"},
+                    ]
+                ),
+                _plan_response([{"title": "丁", "hook": "丁", "end_anchor": "途中遭遇兽潮。"}]),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "前面切细一点")
+
+        project = _load_project(project_dir)
+        assert [e["episode"] for e in project["episodes"]] == [1, 2, 3, 4, 5]
+        eps = {e["episode"]: e for e in project["episodes"]}
+        assert eps[4]["source_range"]["source_file"] == "source/novel.txt"
+        assert eps[5]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(SOURCE2)}
+        assert (project_dir / "source" / "episode_5.txt").read_text(encoding="utf-8") == SOURCE2
+        assert [s.episode for s in result.episodes] == [2, 3, 4, 5]
+
+    async def test_replan_across_source_files_shrinking_cleans_removed_files(self, tmp_path: Path):
+        """跨文件重排总集数变少：被移除集号的派生文件清理，账本不留旧条目。"""
+        project_dir = _planned_two_files(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"}]),
+                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "途中遭遇兽潮。"}]),
+            ]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).replan(2, "两部各合成一集")
+
+        project = _load_project(project_dir)
+        assert [e["episode"] for e in project["episodes"]] == [1, 2, 3]
+        assert not (project_dir / "source" / "episode_4.txt").exists()
+
+    async def test_replan_across_source_files_writes_back_global_preference_from_any_slice(self, tmp_path: Path):
+        """跨文件重排的全局性意见不挑段：任一段结构化返回每集体量都回写项目设置。"""
+        project_dir = _planned_two_files(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"}]),
+                json.dumps(
+                    {
+                        "episodes": [{"title": "乙", "hook": "乙", "end_anchor": "途中遭遇兽潮。"}],
+                        "episode_target_units": 800,
+                    },
+                    ensure_ascii=False,
+                ),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "整体每集再短一点，800字左右")
+
+        assert _load_project(project_dir)["episode_target_units"] == 800
+        assert result.settings_updated == {"episode_target_units": 800}
+
+    async def test_replan_rejects_interleaved_source_files_without_llm_call(self, tmp_path: Path):
+        """同一源文件在重排范围内非连续出现（集号与源文件顺序错乱）：fail-fast，不调模型不动账本。"""
+        a = _end_of(ANCHOR_EP1)
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[
+                _entry(1, 0, a),
+                _entry(2, 0, _end_of(ANCHOR2_MID, SOURCE2), source_file="source/novel2.txt"),
+                _entry(3, a, len(SOURCE)),  # novel.txt 再次出现
+            ],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        (project_dir / "source" / "novel2.txt").write_text(SOURCE2, encoding="utf-8")
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="非连续"):
+            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
+
+        assert fake.requests == []
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+
+    async def test_replan_rejects_invalid_slice_range_without_llm_call(self, tmp_path: Path):
+        """账本片段范围无效（start >= end）：调模型之前直接报错，不烧重试。"""
+        a = _end_of(ANCHOR_EP1)
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, a), _entry(2, a, a)],  # 第 2 集零宽范围
+            planning_cursor={"source_file": "source/novel.txt", "offset": a},
+        )
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="范围无效"):
+            await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
+
+        assert fake.requests == []
+
     async def test_replan_retries_until_layout_covers_span_end(self, tmp_path: Path):
         """重排范围闭合：新布局没盖到范围末尾时打回重试。"""
         project_dir = _planned_three(tmp_path)
@@ -640,7 +881,8 @@ class TestReplan:
         await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
 
         assert len(fake.requests) == 2
-        assert "末尾" in fake.requests[1].prompt
+        assert "不能留尾巴" in fake.requests[1].prompt  # 失败原因专属文案，静态规则部分不含
+        assert "不能留尾巴" not in fake.requests[0].prompt
 
 
 class TestReconcileFailFast:
