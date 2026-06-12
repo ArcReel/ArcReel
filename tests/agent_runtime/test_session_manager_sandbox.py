@@ -409,6 +409,15 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
         ("ffprobe in.mp4", "PermissionResultAllow"),
         # `..` 在文件名内部（非路径段）不触发穿越拦截，合法命令照常放行
         ("ffmpeg -i my..clip.mp4 out.mp4", "PermissionResultAllow"),
+        # 归一化容错：带引号的脚本路径、Windows 反斜杠分隔符的合法命令不误拒
+        (
+            'python ".claude/skills/compose-video/scripts/compose_video.py" scripts/ep.json',
+            "PermissionResultAllow",
+        ),
+        (
+            "python .claude\\skills\\compose-video\\scripts\\compose_video.py scripts/ep.json",
+            "PermissionResultAllow",
+        ),
         ("cat /etc/passwd", "PermissionResultDeny"),
         ("ls -la", "PermissionResultDeny"),
     ],
@@ -453,6 +462,8 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
         "python .claude/skills/dir/'..'/'..'/evil.py",
         "python .claude/skills/dir/.\\./.\\./evil.py",
         'ffmpeg -i ".."/".."/secret.mp4 out.mp4',
+        # Windows 反斜杠分隔符下的 .. 穿越同样要拒（归一化后 ../ 命中）
+        "python .claude\\skills\\..\\..\\evil.py",
         # python 入口必须是 <skill>/scripts/<script>.py：skills 目录下任意其它
         # 文件（无 scripts/ 段、非 .py、或直接挂在 skill 根）一律不放行
         "python .claude/skills/evil.py",

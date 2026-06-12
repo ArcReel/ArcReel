@@ -2585,6 +2585,11 @@ class SessionManager:
            （ffmpeg/ffprobe）要求命令名完全相等或后跟空格；
         4. python skills 入口额外要求首个参数是 ``<skill>/scripts/<script>.py``
            （``_is_allowed_python_skill_command``），不放行 skills 目录下任意文件。
+
+        白名单匹配在剥引号 + 反斜杠转正斜杠的归一化串上做：容忍 Windows agent 发出
+        的 ``\\`` 分隔符路径与带引号的脚本路径，避免合法命令被误拒（matching 不改写
+        实际执行的命令，放行时仍透传原始 input）。metachar 与 ``..`` 已先对原串及
+        各归一化变体拒过，归一化只用于「是否命中白名单」的判定，不会放宽安全边界。
         """
         cmd = command.strip()
         if not cmd or cls._BASH_METACHARS_RE.search(cmd):
@@ -2593,24 +2598,28 @@ class SessionManager:
         for variant in (cmd, unquoted.replace("\\", "/"), unquoted.replace("\\", "")):
             if cls._BASH_PATH_TRAVERSAL_RE.search(variant):
                 return False
+        normalized = unquoted.replace("\\", "/")
         for prefix in cls._WINDOWS_BASH_PREFIX_WHITELIST:
             if prefix == cls._PYTHON_SKILLS_PREFIX:
-                if cmd.startswith(prefix) and cls._is_allowed_python_skill_command(cmd):
+                if normalized.startswith(prefix) and cls._is_allowed_python_skill_command(normalized):
                     return True
             elif " " in prefix:
-                if cmd.startswith(prefix):
+                if normalized.startswith(prefix):
                     return True
-            elif cmd == prefix or cmd.startswith(prefix + " "):
+            elif normalized == prefix or normalized.startswith(prefix + " "):
                 return True
         return False
 
     @classmethod
-    def _is_allowed_python_skill_command(cls, cmd: str) -> bool:
+    def _is_allowed_python_skill_command(cls, normalized_cmd: str) -> bool:
         """``python .claude/skills/...`` 的脚本入口校验：取首个参数（脚本路径），
         要求匹配 ``.claude/skills/<skill>/scripts/<script>.py``。约束到显式 scripts
         入口，避免 skills 目录下任意文件在 Windows 回退（无 sandbox 兜底）下可执行。
+
+        入参须为 ``_is_bash_command_whitelisted`` 归一化后的串（已剥引号、反斜杠转
+        正斜杠），故按空白切分取首参即可，无需 shell 级 tokenize。
         """
-        parts = cmd.split(maxsplit=2)
+        parts = normalized_cmd.split(maxsplit=2)
         if len(parts) < 2:
             return False
         return cls._SKILL_SCRIPT_RE.match(parts[1]) is not None
