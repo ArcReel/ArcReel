@@ -1,4 +1,5 @@
 from lib.prompt_builders import (
+    append_product_fidelity_tail,
     append_video_negative_tail,
     build_character_prompt,
     build_prop_prompt,
@@ -80,3 +81,24 @@ class TestVideoNegativeTail:
         for blank in ("   ", "\n\n", "\t \n"):
             result = append_video_negative_tail(blank)
             assert result.startswith("禁止出现"), f"input={blank!r} → {result!r}"
+
+
+class TestProductFidelityTail:
+    def test_appends_instruction_with_product_names(self):
+        result = append_product_fidelity_tail("手持保温杯特写", ["保温杯"])
+        assert result.startswith("手持保温杯特写")
+        assert "「保温杯」" in result
+        assert "参考图" in result
+
+    def test_idempotent(self):
+        once = append_product_fidelity_tail("手持保温杯特写", ["保温杯"])
+        twice = append_product_fidelity_tail(once, ["保温杯"])
+        assert once == twice
+
+    def test_no_products_returns_prompt_unchanged(self):
+        assert append_product_fidelity_tail("氛围镜头", []) == "氛围镜头"
+
+    def test_multiple_products_all_named(self):
+        result = append_product_fidelity_tail("双产品同框", ["保温杯", "杯刷"])
+        assert "「保温杯」" in result
+        assert "「杯刷」" in result

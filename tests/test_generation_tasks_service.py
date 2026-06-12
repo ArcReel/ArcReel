@@ -895,3 +895,293 @@ class TestFillSimpleProviderKwargs:
         kwargs: dict = {}
         await generation_tasks._fill_simple_provider_kwargs("grok", resolver, kwargs, "m")
         assert "base_url" not in kwargs
+
+
+def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
+    """ad 项目 fixture：产品镜头 E1S02（引用保温杯）+ 氛围镜头 E1S01/E1S03。"""
+    pm = _FakePM(project_path)
+    pm.project["content_mode"] = "ad"
+    if with_sheet:
+        pm.project["products"]["保温杯"]["product_sheet"] = "products/保温杯.png"
+    pm.script = {
+        "content_mode": "ad",
+        "shots": [
+            {
+                "shot_id": "E1S01",
+                "section": "hook",
+                "duration_seconds": 4,
+                "voiceover_text": "开场",
+                "characters_in_shot": ["Alice"],
+                "scenes": ["祠堂"],
+                "props": [],
+                "products_in_shot": [],
+                "image_prompt": "氛围开场",
+            },
+            {
+                "shot_id": "E1S02",
+                "section": "product_reveal",
+                "duration_seconds": 4,
+                "voiceover_text": "产品亮相",
+                "characters_in_shot": ["Alice"],
+                "scenes": ["祠堂"],
+                "props": [],
+                "products_in_shot": ["保温杯"],
+                "image_prompt": "产品特写",
+            },
+        ],
+    }
+    return pm
+
+
+def _ref_paths(refs: list) -> list:
+    return [r["image"] if isinstance(r, dict) else r for r in refs]
+
+
+class TestAdProductFidelityStoryboard:
+    """产品保真注入二元化——分镜层。"""
+
+    def _patch(self, monkeypatch, pm, generator):
+        from lib.config.resolver import ProviderModel
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(generator))
+        monkeypatch.setattr(
+            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
+        )
+
+    async def test_product_shot_injects_sheet_then_originals_before_other_sheets(self, tmp_path, monkeypatch):
+        """有确认 sheet 的产品镜头：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "products" / "保温杯.png").write_bytes(b"png")
+        pm = _ad_pm(project_path, with_sheet=True)
+        generator = _FakeGenerator()
+        self._patch(monkeypatch, pm, generator)
+
+        await generation_tasks.execute_storyboard_task(
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "产品特写"}
+        )
+
+        refs = generator.image_calls[0]["reference_images"]
+        paths = _ref_paths(refs)
+        # 产品参考全量注入且排首位：sheet 在前、原图压阵，先于角色/场景 sheet
+        assert paths[:2] == [
+            project_path / "products" / "保温杯.png",
+            project_path / "products" / "refs" / "保温杯_1.jpg",
+        ]
+        # 既有装配照常跟在产品参考之后（角色/场景 sheet + 上一分镜衔接参考）
+        assert (project_path / "characters" / "Alice.png") in paths[2:]
+        assert (project_path / "scenes" / "祠堂.png") in paths[2:]
+        # 产品参考带可读标签（供支持 label 的后端内联）
+        assert all(isinstance(r, dict) and "保温杯" in r["label"] for r in refs[:2])
+        # 附高保真还原指令
+        prompt = generator.image_calls[0]["prompt"]
+        assert prompt.startswith("产品特写")
+        assert "「保温杯」" in prompt
+        assert "参考图" in prompt
+
+    async def test_product_shot_without_sheet_injects_originals_directly(self, tmp_path, monkeypatch):
+        """无 sheet 的产品镜头：原图直注、仍排首位；声明但缺失的原图跳过。"""
+        project_path = _prepare_files(tmp_path)
+        pm = _ad_pm(project_path, with_sheet=False)
+        generator = _FakeGenerator()
+        self._patch(monkeypatch, pm, generator)
+
+        await generation_tasks.execute_storyboard_task(
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "产品特写"}
+        )
+
+        paths = _ref_paths(generator.image_calls[0]["reference_images"])
+        assert paths[0] == project_path / "products" / "refs" / "保温杯_1.jpg"
+        # 全量注入 = 存在的原图都进；声明的 missing.jpg 不指向任何文件，不出现
+        assert all("missing" not in str(p) for p in paths)
+        assert "「保温杯」" in generator.image_calls[0]["prompt"]
+
+    async def test_fidelity_instruction_only_names_products_with_injected_references(self, tmp_path, monkeypatch):
+        """指令点名的产品与实际注入参考的产品一致：图全缺的产品不被指令点名（避免指向不存在的参考）。"""
+        project_path = _prepare_files(tmp_path)
+        pm = _ad_pm(project_path, with_sheet=False)
+        pm.project["products"]["杯刷"] = {
+            "description": "配套杯刷",
+            "product_sheet": "",
+            "brand": "",
+            "reference_images": ["products/refs/不存在.jpg"],
+            "selling_points": [],
+        }
+        pm.script["shots"][1]["products_in_shot"] = ["保温杯", "杯刷"]
+        generator = _FakeGenerator()
+        self._patch(monkeypatch, pm, generator)
+
+        await generation_tasks.execute_storyboard_task(
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "双产品同框"}
+        )
+
+        prompt = generator.image_calls[0]["prompt"]
+        assert "「保温杯」" in prompt
+        assert "「杯刷」" not in prompt
+
+    async def test_atmosphere_shot_zero_product_images(self, tmp_path, monkeypatch):
+        """氛围镜头（products_in_shot 为空）：零产品图，场景/角色 sheet 照常注入，prompt 无保真指令。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "products" / "保温杯.png").write_bytes(b"png")
+        pm = _ad_pm(project_path, with_sheet=True)
+        generator = _FakeGenerator()
+        self._patch(monkeypatch, pm, generator)
+
+        await generation_tasks.execute_storyboard_task(
+            "demo", "E1S01", {"script_file": "episode_1.json", "prompt": "氛围开场"}
+        )
+
+        paths = _ref_paths(generator.image_calls[0]["reference_images"])
+        assert all("products" not in str(p) for p in paths)
+        assert paths == [
+            project_path / "characters" / "Alice.png",
+            project_path / "scenes" / "祠堂.png",
+        ]
+        assert generator.image_calls[0]["prompt"] == "氛围开场"
+
+
+class _FakeVideoBackend:
+    def __init__(self, capabilities):
+        self.name = "fake"
+        self.model = "fake-model"
+        self.video_capabilities = capabilities
+
+
+def _patch_video_path(monkeypatch, pm, generator):
+    from lib.config import resolver as resolver_mod
+    from lib.config.resolver import ProviderModel
+
+    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(generator))
+    monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+    monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+    monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
+    )
+    monkeypatch.setattr(
+        resolver_mod.ConfigResolver,
+        "video_capabilities_for_model",
+        _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
+    )
+
+
+class TestAdProductFidelityVideo:
+    """产品保真注入二元化——视频层（按后端 reference 能力门控）。"""
+
+    async def test_product_shot_injects_product_references_when_backend_supports(self, tmp_path, monkeypatch):
+        """支持参考输入的视频后端：产品镜头把产品参考（sheet + 原图压阵）注入视频请求。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        project_path = _prepare_files(tmp_path)
+        (project_path / "products" / "保温杯.png").write_bytes(b"png")
+        (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
+        pm = _ad_pm(project_path, with_sheet=True)
+        generator = _FakeGenerator()
+        generator._video_backend = _FakeVideoBackend(VideoCapabilities(reference_images=True, max_reference_images=9))
+        _patch_video_path(monkeypatch, pm, generator)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S02",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "举起保温杯", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 4,
+            },
+        )
+
+        call = generator.video_calls[0]
+        assert call["reference_images"] == [
+            project_path / "products" / "保温杯.png",
+            project_path / "products" / "refs" / "保温杯_1.jpg",
+        ]
+        # 起始帧仍是分镜图（既有图生视频路径不变）
+        assert call["start_image"] == project_path / "storyboards" / "scene_E1S02.png"
+        assert "「保温杯」" in call["prompt"]
+
+    async def test_unsupported_backend_degrades_without_error(self, tmp_path, monkeypatch):
+        """不支持参考输入的视频后端：产品镜头正常生成，不注入、不报错。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        project_path = _prepare_files(tmp_path)
+        (project_path / "products" / "保温杯.png").write_bytes(b"png")
+        (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
+        pm = _ad_pm(project_path, with_sheet=True)
+        generator = _FakeGenerator()
+        generator._video_backend = _FakeVideoBackend(VideoCapabilities(reference_images=False, max_reference_images=0))
+        _patch_video_path(monkeypatch, pm, generator)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S02",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "举起保温杯", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 4,
+            },
+        )
+
+        assert result["resource_type"] == "videos"
+        call = generator.video_calls[0]
+        assert call["reference_images"] is None
+        # 未注入参考时不附保真指令（指令指向参考图，参考缺席会误导模型）
+        assert "「保温杯」" not in call["prompt"].split("Action")[0]
+        assert "高保真" not in call["prompt"]
+
+    async def test_product_references_clamped_to_backend_limit(self, tmp_path, monkeypatch):
+        """产品参考超过后端 max_reference_images 上限时截断保序：sheet 优先存活。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        project_path = _prepare_files(tmp_path)
+        (project_path / "products" / "保温杯.png").write_bytes(b"png")
+        (project_path / "products" / "refs" / "保温杯_2.jpg").write_bytes(b"jpg")
+        (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
+        pm = _ad_pm(project_path, with_sheet=True)
+        pm.project["products"]["保温杯"]["reference_images"] = [
+            "products/refs/保温杯_1.jpg",
+            "products/refs/保温杯_2.jpg",
+        ]
+        generator = _FakeGenerator()
+        generator._video_backend = _FakeVideoBackend(VideoCapabilities(reference_images=True, max_reference_images=2))
+        _patch_video_path(monkeypatch, pm, generator)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S02",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "举起保温杯", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 4,
+            },
+        )
+
+        assert generator.video_calls[0]["reference_images"] == [
+            project_path / "products" / "保温杯.png",
+            project_path / "products" / "refs" / "保温杯_1.jpg",
+        ]
+
+    async def test_atmosphere_shot_video_request_unchanged(self, tmp_path, monkeypatch):
+        """氛围镜头视频请求零产品参考，即便后端支持参考输入。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        project_path = _prepare_files(tmp_path)
+        (project_path / "products" / "保温杯.png").write_bytes(b"png")
+        pm = _ad_pm(project_path, with_sheet=True)
+        generator = _FakeGenerator()
+        generator._video_backend = _FakeVideoBackend(VideoCapabilities(reference_images=True, max_reference_images=9))
+        _patch_video_path(monkeypatch, pm, generator)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "城市清晨", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 4,
+            },
+        )
+
+        call = generator.video_calls[0]
+        assert call["reference_images"] is None
+        assert "高保真" not in call["prompt"]

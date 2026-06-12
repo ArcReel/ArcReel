@@ -12,6 +12,8 @@ WebUI（server/services/generation_tasks.py）和 Skill（agent_runtime_profile/
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 # ---------------------------------------------------------------------------
 # 内部常量：防崩 / 反向 / 布局 / 风格前缀
 # ---------------------------------------------------------------------------
@@ -117,6 +119,28 @@ def build_product_prompt(name: str, description: str, style: str = "", style_des
 # ---------------------------------------------------------------------------
 # 分镜 / 视频 prompt 末尾增强
 # ---------------------------------------------------------------------------
+
+
+def append_product_fidelity_tail(prompt: str, product_names: Sequence[str]) -> str:
+    """给产品镜头的生成 prompt 追加高保真还原指令。
+
+    仅在产品参考图实际注入请求时调用（分镜图与视频两层共用同一份指令文本）——
+    指令指向"产品参考图"，参考缺席时追加只会误导模型。``product_names`` 为空
+    返回原 prompt；重复调用幂等。
+    """
+    names = "".join(f"「{name}」" for name in product_names if name)
+    if not names:
+        return prompt
+    tail = (
+        f"产品高保真还原（最高优先级）：画面中的产品{names}必须与产品参考图完全一致——"
+        "logo、文字、配色、材质、比例与结构不得改变或臆造，不得重新设计或美化产品本身；"
+        "项目画风只作用于产品以外的画面元素。"
+    )
+    if not prompt or not prompt.strip():
+        return tail
+    if tail in prompt:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{tail}"
 
 
 def append_video_negative_tail(prompt: str) -> str:

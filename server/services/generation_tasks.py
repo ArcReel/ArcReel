@@ -25,7 +25,13 @@ from lib.media_generator import MediaGenerator
 from lib.path_safety import safe_exists
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
-from lib.prompt_builders import build_character_prompt, build_product_prompt, build_prop_prompt, build_scene_prompt
+from lib.prompt_builders import (
+    append_product_fidelity_tail,
+    build_character_prompt,
+    build_product_prompt,
+    build_prop_prompt,
+    build_scene_prompt,
+)
 from lib.prompt_utils import (
     image_prompt_to_yaml,
     is_structured_image_prompt,
@@ -608,6 +614,69 @@ def _collect_reference_images(
     return reference_images or None
 
 
+def _collect_shot_product_references(project: dict, project_path: Path, item: dict) -> list[dict]:
+    """产品镜头（``products_in_shot`` 非空）的产品参考集，分镜图与视频两层共用。
+
+    每个产品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
+    原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str}``
+    列表——label 供支持内联标签的后端绑定图与产品名，name 供高保真指令点名（指令
+    只点名实际注入了参考的产品）；调用方负责把该列表排在其它参考之前（排序绝对优先）。
+    氛围镜头（列表为空）返回空列表，零产品图。
+    """
+    products = project.get("products") or {}
+    references: list[dict] = []
+    for name in item.get("products_in_shot") or []:
+        entry = products.get(name)
+        if not isinstance(entry, dict):
+            logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
+            continue
+        collected = 0
+        sheet = entry.get("product_sheet")
+        if sheet and safe_exists(project_path, sheet):
+            references.append({"image": project_path / sheet, "label": f"产品「{name}」标准多角度参考图", "name": name})
+            collected += 1
+        for original in _collect_product_reference_images(project, project_path, name) or []:
+            references.append({"image": original, "label": f"产品「{name}」实拍原图（保真锚点）", "name": name})
+            collected += 1
+        if not collected:
+            logger.warning("产品镜头引用的产品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
+    return references
+
+
+def _product_names_in_references(product_references: list[dict]) -> list[str]:
+    """从产品参考集提取去重保序的产品名——高保真指令只点名实际注入了参考的产品。"""
+    return list(dict.fromkeys(ref["name"] for ref in product_references))
+
+
+def _gate_product_references_for_video(generator: Any, product_references: list[dict]) -> list[dict]:
+    """视频层产品参考的能力门控：仅支持参考输入的后端注入，超上限截断。
+
+    不支持参考输入（或能力不可知）的后端返回空列表——正常降级、不报错，
+    视频请求与既有图生视频路径完全一致。截断保序：sheet 在前、原图压阵的
+    注入集裁尾不裁头，保证 sheet 优先存活。
+    """
+    if not product_references:
+        return []
+    backend = getattr(generator, "_video_backend", None)
+    caps = getattr(backend, "video_capabilities", None)
+    if caps is None or not getattr(caps, "reference_images", False):
+        logger.info(
+            "视频后端 %s 不支持参考图输入，产品参考二次注入跳过（正常降级）",
+            getattr(backend, "name", "unknown"),
+        )
+        return []
+    max_refs = int(getattr(caps, "max_reference_images", 0) or 0)
+    if max_refs and len(product_references) > max_refs:
+        logger.warning(
+            "产品参考 %d 张超过视频后端 %s 上限 %d，截断（保序：sheet 优先存活）",
+            len(product_references),
+            getattr(backend, "name", "unknown"),
+            max_refs,
+        )
+        return product_references[:max_refs]
+    return product_references
+
+
 def _resolve_script_episode(project_name: str, script_file: str | None) -> int | None:
     if not script_file:
         return None
@@ -831,6 +900,12 @@ async def execute_storyboard_task(
             extra_reference_images=payload.get("extra_reference_images") or [],
             previous_storyboard_path=_prev_path,
         )
+        # 产品镜头：产品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
+        # 并附高保真还原指令；氛围镜头零产品图，既有装配不变。
+        _product_refs = _collect_shot_product_references(_project, _project_path, _target_item)
+        if _product_refs:
+            _ref_images = _product_refs + (_ref_images or [])
+            _prompt_text = append_product_fidelity_tail(_prompt_text, _product_names_in_references(_product_refs))
         return _project, _project_path, _prompt_text, _ref_images
 
     project, project_path, prompt_text, reference_images = await asyncio.to_thread(_prepare)
@@ -1002,6 +1077,16 @@ async def execute_video_task(
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
+    # 产品镜头的视频层二次注入：把产品参考注入视频请求（零额外图像成本），
+    # 按后端 reference 能力门控——不支持参考输入的后端正常降级、不报错。
+    # 首尾帧锚定不在本路径（end_image 槽位保留，capability-gated 后续增强）。
+    _gated_product_refs = _gate_product_references_for_video(
+        generator, _collect_shot_product_references(project, project_path, item)
+    )
+    product_reference_images = [ref["image"] for ref in _gated_product_refs] or None
+    if product_reference_images:
+        prompt_text = append_product_fidelity_tail(prompt_text, _product_names_in_references(_gated_product_refs))
+
     # 解析 provider / model（薄投影），供 duration fallback 和分辨率查找共用。
     # 与执行层 backend 构造同走 resolve_video_backend，确保限流/分辨率与实际调用对齐。
     from lib.config.resolver import ConfigResolver
@@ -1056,6 +1141,7 @@ async def execute_video_task(
         resource_id=resource_id,
         start_image=storyboard_file,
         end_image=end_image,
+        reference_images=product_reference_images,
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
         resolution=resolution,

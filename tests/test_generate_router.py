@@ -419,3 +419,58 @@ class TestGenerateRouter:
                 json={"prompt": "x"},
             )
             assert missing_prop.status_code == 404
+
+
+class TestAdStoryboardRegeneration:
+    """ad 剧本（平铺 shots[]）沿用既有分镜生成/重生成端点——人工审核后重生成同一入口。"""
+
+    def _ad_pm(self, project_path: Path) -> _FakePM:
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = "ad"
+        fake_pm.script = {
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "section": "product_reveal",
+                    "duration_seconds": 4,
+                    "voiceover_text": "产品亮相",
+                    "characters_in_shot": [],
+                    "scenes": [],
+                    "props": [],
+                    "products_in_shot": ["保温杯"],
+                    "generated_assets": {},
+                },
+            ],
+        }
+        return fake_pm
+
+    def test_ad_shot_storyboard_enqueue_success(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = self._ad_pm(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "产品特写"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["success"] is True
+            call = fake_queue.calls[0]
+            assert call["task_type"] == "storyboard"
+            assert call["resource_id"] == "E1S01"
+
+    def test_ad_shot_not_found_is_404(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = self._ad_pm(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E9S99",
+                json={"script_file": "episode_1.json", "prompt": "产品特写"},
+            )
+            assert resp.status_code == 404
