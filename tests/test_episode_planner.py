@@ -1036,6 +1036,22 @@ class TestReconcileFailFast:
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert (project_dir / "source" / "episode_3.txt").exists()
 
+    async def test_commit_validation_failure_leaves_derived_files_untouched(self, tmp_path: Path):
+        """校验类失败中止提交时不得留下部分重写的派生文件：全部校验通过后才统一落盘。"""
+        project_dir = _planned_three(tmp_path)
+        sentinel = "哨兵旧内容"
+        (project_dir / "source" / "episode_1.txt").write_text(sentinel, encoding="utf-8")
+        project = _load_project(project_dir)
+        project["episodes"][1]["source_range"]["end"] = len(SOURCE) + 999  # 第 2 集越界，对账时居第 1 集之后
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        fake = _FakeTextGenerator([_plan_response([{"title": "丙", "hook": "丙", "end_anchor": "卷入漩涡之中。"}])])
+
+        with pytest.raises(EpisodePlanningError, match="越界"):
+            await EpisodePlanner(project_dir, generator=fake).replan(3, "重排")
+
+        # 排序在前的第 1 集合法，但因第 2 集校验失败，其派生文件不得被提前重写
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == sentinel
+
     async def test_commit_aborts_when_derived_episode_file_is_symlink(self, tmp_path: Path):
         """派生集文件是符号链接：写入会跟随链接落到项目外，必须中止提交。"""
         project_dir = _planned_three(tmp_path)

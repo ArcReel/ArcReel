@@ -750,16 +750,18 @@ class EpisodePlanner:
         ``_remaining.txt`` 已由账本游标取代，一并清理。每次提交全量对账使
         中途崩溃后重跑即可自愈。
 
-        锚定集的原文范围非法或源文不可读时抛错中止提交（账本写回随之回滚），
-        保证"提交成功 ⇒ 账本内每一集的派生文件已按账本重写"；残留文件删除
-        失败仅告警——残留不在账本中，账本驱动的下游不会读到它。
+        两阶段执行：先全量校验并构建写入计划，全部通过后再统一落盘——锚定集
+        原文范围非法或源文不可读时在校验阶段抛错中止提交（账本写回随之回滚，
+        派生文件未动），保证"提交成功 ⇒ 账本内每一集的派生文件已按账本重写"；
+        落盘阶段的环境性失败（磁盘等）靠重跑自愈。残留文件删除失败仅告警——
+        残留不在账本中，账本驱动的下游不会读到它。
         """
         source_dir = self.project_path / "source"
         # source/ 是符号链接时拒绝写入：派生文件会落到链接目标（可能在项目外）
         if source_dir.is_symlink():
             raise EpisodePlanningError("source/ 不能是符号链接，拒绝派生集文件")
-        source_dir.mkdir(exist_ok=True)
         keep: set[int] = set()
+        writes: list[tuple[Path, str]] = []
         for entry in project.get("episodes") or []:
             if not isinstance(entry, dict):
                 continue
@@ -800,7 +802,11 @@ class EpisodePlanner:
             # 文件级符号链接同样拒绝：write_text 会跟随链接把内容写到链接目标（可能在项目外）
             if episode_path.is_symlink():
                 raise EpisodePlanningError(f"第 {num} 集派生文件是符号链接，拒绝写入，提交已中止")
-            episode_path.write_text(text[seg_start:seg_end], encoding="utf-8")
+            writes.append((episode_path, text[seg_start:seg_end]))
+        # 校验全部通过后统一落盘：校验类失败不会留下按新布局部分重写的派生文件
+        source_dir.mkdir(exist_ok=True)
+        for episode_path, content in writes:
+            episode_path.write_text(content, encoding="utf-8")
         for num, path in discover_episode_files(self.project_path).items():
             if num not in keep:
                 try:
