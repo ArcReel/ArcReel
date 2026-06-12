@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -140,8 +141,9 @@ class TestGetOrCreateAudioBackend:
         monkeypatch.setattr(generation_tasks, "_create_custom_backend", _fake_create_custom)
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
-        b1 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, None)
-        b2 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, None)
+        resolver = cast(ConfigResolver, None)  # 自定义供应商分支不会触达 resolver
+        b1 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
+        b2 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
 
         assert b1 is sentinel and b2 is sentinel
         assert calls == [("custom-3", "tts-1", "audio")], "第二次调用须命中缓存，不再重建 backend"
@@ -158,11 +160,12 @@ class TestGetOrCreateAudioBackend:
         monkeypatch.setattr(generation_tasks, "_fill_simple_provider_kwargs", _async_return(None))
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
+        resolver = cast(ConfigResolver, None)  # _fill_simple_provider_kwargs 已 mock，不触达 resolver
         b1 = await generation_tasks._get_or_create_audio_backend(
-            "dashscope", {}, None, default_audio_model="qwen3-tts-flash"
+            "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
         b2 = await generation_tasks._get_or_create_audio_backend(
-            "dashscope", {}, None, default_audio_model="qwen3-tts-flash"
+            "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
         assert b1 is sentinel and b2 is sentinel
         assert len(created) == 1, "第二次调用须命中缓存，不再重建 backend"
@@ -185,7 +188,10 @@ class TestGetOrCreateAudioBackend:
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
         await generation_tasks._get_or_create_audio_backend(
-            "dashscope", {"model": "explicit-model"}, None, default_audio_model="fallback-model"
+            "dashscope",
+            {"model": "explicit-model"},
+            cast(ConfigResolver, None),  # _fill_simple_provider_kwargs 已 mock，不触达 resolver
+            default_audio_model="fallback-model",
         )
         assert filled == ["explicit-model"]
 

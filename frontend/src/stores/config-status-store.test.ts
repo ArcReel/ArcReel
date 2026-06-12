@@ -136,8 +136,9 @@ describe("config-status-store", () => {
 
     await useConfigStatusStore.getState().refresh();
 
-    // 刷新失败后回到未初始化：依赖 initialized 的消费方（如旁白入口前置拦截）不再使用过期能力集
+    // 刷新失败后回到未初始化且清空能力集：任何消费方都不再读到过期数据
     expect(useConfigStatusStore.getState().initialized).toBe(false);
+    expect(useConfigStatusStore.getState().availableMediaTypes).toEqual([]);
   });
 
   it("exposes hasMediaType for audio without flagging it as a config issue", async () => {

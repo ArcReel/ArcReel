@@ -114,9 +114,9 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
         const { issues, availableMediaTypes } = await getConfigStatus();
         set({ issues, availableMediaTypes, isComplete: issues.length === 0, initialized: true });
       } catch {
-        // 失败回退未初始化：避免消费方把上一次成功的过期能力集当作可信数据
-        // （如旁白入口的前置拦截），同时让下次 fetch() 仍可重试。
-        set({ initialized: false });
+        // 失败回退未初始化并清空能力集：避免任何消费方（含未来不检查 initialized 的调用方）
+        // 把上一次成功的过期数据当作可信，同时让下次 fetch() 仍可重试。
+        set({ initialized: false, availableMediaTypes: [] });
       }
       // loading 仅在整条链终止时才置 false:补跑间隙保持 true,避免 true→false→true 闪烁。
       if (!get().pendingRefresh) {
