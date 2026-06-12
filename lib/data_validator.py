@@ -18,6 +18,11 @@ from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, 
 from lib.json_io import load_json_or_none
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import effective_mode
+from lib.script_models import (
+    AD_TARGET_DURATION_DRIFT_THRESHOLD,
+    REFERENCE_SHOT_DURATION_RANGE,
+    ad_script_total_duration,
+)
 
 
 @dataclass
@@ -54,7 +59,9 @@ class DataValidator:
     # 表达，通过 project_manager.effective_mode 解析。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
     VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
-    VALID_SHOT_DURATION_RANGE = (1, 15)
+    # 参考生视频路径下单镜头时长区间，真相源在 lib.script_models（与 Shot.duration /
+    # ad reference 路径的剧本模型同口径），避免两处枚举漂移。
+    VALID_SHOT_DURATION_RANGE = REFERENCE_SHOT_DURATION_RANGE
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {
@@ -641,12 +648,19 @@ class DataValidator:
         warnings: list[str],
         *,
         project_dir: Path | None = None,
+        reference_mode: bool = False,
     ) -> None:
-        """验证 shots（ad 模式）：平铺镜头列表，口播文案一等，产品按名字引用。"""
+        """验证 shots（ad 模式）：平铺镜头列表，口播文案一等，产品按名字引用。
+
+        镜头时长约束按生成路径动态切换：storyboard 路径的成员校验在生成 schema 层
+        （supported_durations 枚举，校验器拿不到供应商能力、只把关正整数）；
+        ``reference_mode=True`` 时按 1-15 自由整数区间校验（与参考视频 Shot 同口径）。
+        """
         if not isinstance(shots, list) or not shots:
             errors.append("ad 剧本缺少 shots 数组或为空")
             return
 
+        low, high = self.VALID_SHOT_DURATION_RANGE
         for index, shot in enumerate(shots):
             prefix = f"shots[{index}]"
             if not isinstance(shot, dict):
@@ -664,6 +678,11 @@ class DataValidator:
                 warnings.append(f"{prefix}: 缺少 duration_seconds，将按 0 计入总时长")
             elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
                 errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须为正整数")
+            elif reference_mode and not (low <= duration <= high):
+                errors.append(
+                    f"{prefix}: duration_seconds 值无效 '{duration}'，"
+                    f"reference_video 路径必须是 {low}-{high} 之间的整数"
+                )
 
             if "voiceover_text" not in shot:
                 errors.append(f"{prefix}: 缺少必填字段 voiceover_text（口播文案，可为空字符串）")
@@ -723,6 +742,26 @@ class DataValidator:
                     shot.get("generated_assets"),
                     errors,
                 )
+
+    @staticmethod
+    def _warn_ad_target_duration_drift(
+        project: dict[str, Any],
+        shots: Any,
+        warnings: list[str],
+    ) -> None:
+        """ad 剧本总时长偏离 target_duration 超阈值仅 warn，不阻塞（轻量观察，不推前端）。"""
+        target = project.get("target_duration")
+        if not isinstance(target, int) or isinstance(target, bool) or target <= 0:
+            return
+        total = ad_script_total_duration(shots)
+        if total <= 0:
+            return
+        delta_ratio = abs(total - target) / target
+        if delta_ratio > AD_TARGET_DURATION_DRIFT_THRESHOLD:
+            warnings.append(
+                f"剧本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta_ratio:.0%}，"
+                f"超过 {AD_TARGET_DURATION_DRIFT_THRESHOLD:.0%} 观察阈值（仅提示，不阻塞保存）"
+            )
 
     def _validate_reference_video_script(
         self,
@@ -864,8 +903,9 @@ class DataValidator:
             )
         elif content_mode == "ad":
             raw_products = project.get("products")
+            shots = episode.get("shots", [])
             self._validate_shots(
-                episode.get("shots", []),
+                shots,
                 project_characters,
                 project_scenes,
                 project_props,
@@ -873,7 +913,9 @@ class DataValidator:
                 errors,
                 warnings,
                 project_dir=project_dir,
+                reference_mode=effective_mode(project=project, episode=episode) == "reference_video",
             )
+            self._warn_ad_target_duration_drift(project, shots, warnings)
         else:
             self._validate_scenes(
                 episode.get("scenes", []),

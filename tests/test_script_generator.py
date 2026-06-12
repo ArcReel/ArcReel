@@ -860,3 +860,269 @@ class TestQualityProbeNovelTextDrift:
         with caplog.at_level("WARNING", logger="lib.script_generator"):
             sg._quality_probe({"video_units": []}, episode=1)
         assert not any("novel_text drift" in r.message for r in caplog.records)
+
+
+def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
+    payload = {
+        "title": "速干杯",
+        "content_mode": "ad",
+        "generation_mode": generation_mode,
+        "target_duration": 30,
+        "brief": "突出速干卖点",
+        "overview": {"synopsis": "带货短片"},
+        "characters": {"小美": {"description": "白领"}},
+        "scenes": {},
+        "props": {},
+        "products": products
+        if products is not None
+        else {"速干杯": {"description": "随行杯", "selling_points": ["30 秒速干"]}},
+        "style": "实拍",
+        "style_description": "真实质感",
+        "aspect_ratio": "9:16",
+        "_supported_durations": [4, 6, 8],
+        "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
+    }
+    _write_json(project_path / "project.json", payload)
+
+
+def _ad_shot(shot_id: str, *, duration: int = 4, section: str = "hook", voiceover: str = "口播") -> dict:
+    return {
+        "shot_id": shot_id,
+        "section": section,
+        "duration_seconds": duration,
+        "voiceover_text": voiceover,
+        "characters_in_shot": [],
+        "scenes": [],
+        "props": [],
+        "products_in_shot": ["速干杯"],
+        "image_prompt": {
+            "scene": "速干杯特写" * 10,
+            "composition": {"shot_type": "Close-up", "lighting": "柔和顶光", "ambiance": "清爽"},
+        },
+        "video_prompt": {
+            "action": "水珠从杯壁滑落，杯身迅速恢复干爽" * 2,
+            "camera_motion": "Static",
+            "ambiance_audio": "水声",
+            "dialogue": [],
+        },
+    }
+
+
+class TestAdScriptGeneration:
+    async def test_build_prompt_without_step1_uses_brief_and_products(self, tmp_path):
+        """ad 一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息 + 配比表。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        assert "带货八段框架" in prompt
+        assert "| cta | 3 | 27-30 | 1 |" in prompt
+        assert "突出速干卖点" in prompt
+        assert "### 速干杯" in prompt
+
+    async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
+        """ad + reference_video：仍是 ad prompt（shots 骨架），时长约束为 1-15 自由整数。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        assert "带货八段框架" in prompt
+        assert "1 到 15 秒间整数任选" in prompt
+        # 不得落入参考视频 video_units prompt
+        assert "video_units" not in prompt
+
+    async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
+        """generate 写盘 ad 剧本：shots 骨架、content_mode=ad、total_shots 与总时长统计。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+
+        response = {
+            "title": "速干杯短片",
+            "shots": [
+                _ad_shot("E1S01", duration=4, section="hook", voiceover="还在等杯子干？"),
+                _ad_shot("E1S02", duration=6, section="demo", voiceover="30 秒，倒扣即干。"),
+            ],
+        }
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps():
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        output_path = await generator.generate(1)
+
+        saved = json.loads(output_path.read_text(encoding="utf-8"))
+        assert saved["content_mode"] == "ad"
+        assert saved["episode"] == 1
+        assert [s["shot_id"] for s in saved["shots"]] == ["E1S01", "E1S02"]
+        assert saved["shots"][0]["voiceover_text"] == "还在等杯子干？"
+        assert saved["metadata"]["total_shots"] == 2
+        assert saved["duration_seconds"] == 10
+
+    async def test_generate_ad_storyboard_passes_enum_schema(self, tmp_path):
+        """ad + storyboard：response_schema 是 AdEpisodeScript 的 duration 枚举子类。"""
+        from lib.script_models import AdEpisodeScript
+
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps():
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        with pytest.raises(ScriptStructureValidationError):
+            await generator.generate(1)
+
+        schema = fake.backend.last_request.response_schema
+        assert isinstance(schema, type) and issubclass(schema, AdEpisodeScript)
+        duration_enums = [
+            props["duration_seconds"].get("enum")
+            for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())
+            if "duration_seconds" in props
+        ]
+        assert [4, 6, 8] in duration_enums
+
+    async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path):
+        """ad + reference_video：response_schema 收紧为 1-15 区间而非枚举。"""
+        from lib.script_models import AdEpisodeScript
+
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        with pytest.raises(ScriptStructureValidationError):
+            await generator.generate(1)
+
+        schema = fake.backend.last_request.response_schema
+        assert isinstance(schema, type) and issubclass(schema, AdEpisodeScript)
+        field_schemas = [
+            props["duration_seconds"]
+            for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())
+            if "duration_seconds" in props
+        ]
+        assert any(fs.get("minimum") == 1 and fs.get("maximum") == 15 and "enum" not in fs for fs in field_schemas)
+
+    async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path):
+        """LLM 写错集号前缀时兜底改写为 E1（ad 恒单集）。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        response = {
+            "title": "速干杯短片",
+            "shots": [_ad_shot("E3S01", duration=4)],
+        }
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps():
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        output_path = await generator.generate(1)
+        saved = json.loads(output_path.read_text(encoding="utf-8"))
+        assert saved["shots"][0]["shot_id"] == "E1S01"
+
+
+class TestAdQualityProbe:
+    """ad 总时长偏差探针：仅日志 WARN，不阻断、不推前端。"""
+
+    def _sg(self, tmp_path, *, target_duration: int = 30) -> ScriptGenerator:
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.generator = None
+        sg.project_path = project_path
+        sg.project_json = {
+            "content_mode": "ad",
+            "target_duration": target_duration,
+            "generation_mode": "storyboard",
+        }
+        sg.content_mode = "ad"
+        return sg
+
+    def _script(self, durations: list[int]) -> dict:
+        return {"shots": [_ad_shot(f"E1S{i:02d}", duration=d) for i, d in enumerate(durations, start=1)]}
+
+    def test_drift_above_threshold_warns(self, tmp_path, caplog):
+        sg = self._sg(tmp_path, target_duration=30)
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(self._script([4, 4]), episode=1)  # 8 秒 vs 30 秒
+        assert any("target_duration drift" in r.message for r in caplog.records)
+
+    def test_drift_within_threshold_silent(self, tmp_path, caplog):
+        sg = self._sg(tmp_path, target_duration=30)
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(self._script([4, 6, 6, 6, 4, 6]), episode=1)  # 32 秒 vs 30 秒
+        assert not any("target_duration drift" in r.message for r in caplog.records)
+
+    def test_short_prompt_probe_covers_shots(self, tmp_path, caplog):
+        sg = self._sg(tmp_path)
+        script = self._script([4])
+        script["shots"][0]["image_prompt"]["scene"] = "短"
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(script, episode=1)
+        assert any("quality probe" in r.message and "E1S01" in r.message for r in caplog.records)
+
+    async def test_save_not_blocked_by_drift(self, tmp_path, caplog):
+        """偏差超阈值时保存照常成功（探针仅 WARN，不抛、不拒）。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        response = {"title": "短片", "shots": [_ad_shot("E1S01", duration=4)]}  # 4 秒 vs 30 秒
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps():
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            output_path = await generator.generate(1)
+
+        assert output_path.exists()
+        assert any("target_duration drift" in r.message for r in caplog.records)
+
+
+class TestAdAspectRatioFallback:
+    def test_ad_without_aspect_ratio_falls_back_to_portrait(self, tmp_path):
+        """ad 项目缺 aspect_ratio 时回退 9:16 竖屏（与创建向导默认一致）。"""
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.generator = None
+        sg.project_path = tmp_path
+        sg.project_json = {"content_mode": "ad"}
+        sg.content_mode = "ad"
+        assert sg._resolve_aspect_ratio() == "9:16"
+
+
+class TestAdReferenceSkeletonUnity:
+    """ad + reference_video 生成的剧本不携带 generation_mode 戳（骨架唯一）。"""
+
+    async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+        response = {
+            "title": "速干杯短片",
+            "shots": [_ad_shot("E1S01", duration=7), _ad_shot("E1S02", duration=5, section="cta")],
+        }
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        output_path = await generator.generate(1)
+        saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        # 剧本级 generation_mode 戳会让按其分派的消费方（StatusCalculator 等）
+        # 去找不存在的 video_units；ad 剧本只携带 content_mode
+        assert "generation_mode" not in saved
+        assert saved["content_mode"] == "ad"
+        assert saved["metadata"]["total_shots"] == 2
+        assert saved["duration_seconds"] == 12

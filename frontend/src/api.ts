@@ -44,6 +44,7 @@ import type {
   ReferenceVideoUnit,
   ReferenceResource,
   TransitionType,
+  AdShot,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -763,6 +764,39 @@ class API {
       {
         method: "PATCH",
         body: JSON.stringify(updates),
+      }
+    );
+  }
+
+  // ==================== 镜头管理（广告/短片模式） ====================
+
+  /** 更新 ad 剧本中的单个镜头（口播文案 / section / 时长 / 引用列表等白名单字段）。 */
+  static async updateShot(
+    projectName: string,
+    shotId: string,
+    scriptFile: string,
+    updates: Record<string, unknown>
+  ): Promise<SuccessResponse & { shot?: AdShot }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/script-shots/${encodeURIComponent(shotId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ script_file: scriptFile, updates }),
+      }
+    );
+  }
+
+  /** 按给定全排列重排 ad 剧本的镜头顺序。 */
+  static async reorderShots(
+    projectName: string,
+    scriptFile: string,
+    shotIds: string[]
+  ): Promise<SuccessResponse & { shots?: AdShot[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/script-shots/reorder`,
+      {
+        method: "POST",
+        body: JSON.stringify({ script_file: scriptFile, shot_ids: shotIds }),
       }
     );
   }

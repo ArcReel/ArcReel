@@ -69,9 +69,13 @@ def get_video_capabilities_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str]:
-    """Return (step1_md path, hint text for missing-file error)."""
+def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
+    """Return (step1_md path, hint text for missing-file error)；ad 一键生成不依赖 step1，返回 None。"""
     content_mode = project_data.get("content_mode", "narration")
+    if content_mode == "ad":
+        # ad 创作输入是 project.json 的 brief + 产品信息 + target_duration，
+        # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。
+        return None
     episode_dict = next(
         (ep for ep in (project_data.get("episodes") or []) if ep.get("episode") == episode),
         {},
@@ -111,12 +115,16 @@ def generate_episode_script_tool(ctx: ToolContext):
             except (OSError, json.JSONDecodeError):
                 project_data = {}
 
-            step1_path, hint = _resolve_step1_path(project_path, episode, project_data)
-            if not step1_path.exists():
-                return {
-                    "content": [{"type": "text", "text": f"❌ 未找到 Step 1 文件: {step1_path}\n   请先完成 {hint}"}],
-                    "is_error": True,
-                }
+            step1 = _resolve_step1_path(project_path, episode, project_data)
+            if step1 is not None:
+                step1_path, hint = step1
+                if not step1_path.exists():
+                    return {
+                        "content": [
+                            {"type": "text", "text": f"❌ 未找到 Step 1 文件: {step1_path}\n   请先完成 {hint}"}
+                        ],
+                        "is_error": True,
+                    }
 
             if dry_run:
                 generator = ScriptGenerator(project_path)

@@ -5,6 +5,8 @@ import {
   Film,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Check,
   Loader2,
   Undo2,
@@ -12,10 +14,12 @@ import {
 import type {
   NarrationSegment,
   DramaScene,
+  AdShot,
   ImagePrompt,
   VideoPrompt,
   Dialogue,
 } from "@/types";
+import { AD_SECTION_VALUES } from "@/types";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
@@ -37,14 +41,15 @@ import {
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 
-type Segment = NarrationSegment | DramaScene;
+type Segment = NarrationSegment | DramaScene | AdShot;
+type DetailContentMode = "narration" | "drama" | "ad";
 type ImagePromptValue = ImagePrompt | string;
 type VideoPromptValue = VideoPrompt | string;
 
 interface ShotDetailProps {
   segment: Segment;
   segmentId: string;
-  contentMode: "narration" | "drama";
+  contentMode: DetailContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
@@ -60,6 +65,10 @@ interface ShotDetailProps {
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => void | Promise<void>;
+  /** ad 模式镜头顺序调整（向前/向后移动一位） */
+  onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
+  /** 镜头重排请求在途，移动按钮禁用 */
+  movePending?: boolean;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
   onGenerateNarration?: (segmentId: string) => void;
@@ -71,7 +80,7 @@ interface ShotDetailProps {
   durationOptions?: number[];
 }
 
-function getNovelText(seg: Segment, mode: "narration" | "drama"): string {
+function getNovelText(seg: Segment, mode: DetailContentMode): string {
   if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
   return "";
 }
@@ -79,11 +88,44 @@ function getNovelText(seg: Segment, mode: "narration" | "drama"): string {
 interface DraftState {
   image_prompt: ImagePromptValue;
   video_prompt: VideoPromptValue;
+  /** 仅 ad 模式：一等口播文案草稿 */
+  voiceover_text?: string;
+  /** 仅 ad 模式：带货框架段落标签草稿 */
+  section?: string;
 }
 
 // 字段集合稳定（ImagePrompt/VideoPrompt/string），JSON.stringify 即可作等值签名：
 // 任何字段顺序差异都来自我们自己的 setter 或上游同一构造路径，键序一致。
 const stableSig = (value: unknown): string => JSON.stringify(value ?? null);
+
+/** 由上游值构造干净草稿（useState 初始化 / 上游静默跟随 / 取消编辑三处共用）。 */
+function baselineDraft(
+  ip: ImagePromptValue,
+  vp: VideoPromptValue,
+  isAd: boolean,
+  voiceover: string,
+  section: string,
+): DraftState {
+  return {
+    image_prompt: ip,
+    video_prompt: vp,
+    ...(isAd ? { voiceover_text: voiceover, section } : {}),
+  };
+}
+
+/** 草稿等值签名：与上游基线签名同键形状（漂移会让"干净草稿静默跟随上游"失效）。 */
+function draftSig(d: DraftState, isAd: boolean): string {
+  return stableSig(
+    isAd
+      ? {
+          ip: d.image_prompt,
+          vp: d.video_prompt,
+          voiceover_text: d.voiceover_text ?? "",
+          section: d.section ?? "",
+        }
+      : { ip: d.image_prompt, vp: d.video_prompt },
+  );
+}
 
 interface DurationPillProps {
   seconds: number;
@@ -287,6 +329,8 @@ export function ShotDetail({
   onPrev,
   onNext,
   onUpdatePrompt,
+  onMoveShot,
+  movePending,
   onGenerateStoryboard,
   onGenerateVideo,
   onGenerateNarration,
@@ -306,14 +350,17 @@ export function ShotDetail({
   const ip = segment.image_prompt;
   const vp = segment.video_prompt;
   const note = segment.note ?? "";
+  const isAd = contentMode === "ad";
+  const adShot = isAd ? (segment as AdShot) : null;
+  const upstreamVoiceover = adShot?.voiceover_text ?? "";
+  const upstreamSection = adShot?.section ?? "";
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
   // 在切镜头时硬重置整个组件，所以这里只需处理"上游同字段静默更新"的情况。
   // 备注不进入草稿，由 NotesDrawer 收起时直接落库。
-  const [draft, setDraft] = useState<DraftState>(() => ({
-    image_prompt: ip,
-    video_prompt: vp,
-  }));
+  const [draft, setDraft] = useState<DraftState>(() =>
+    baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection),
+  );
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
 
@@ -343,8 +390,8 @@ export function ShotDetail({
   };
 
   const upstreamSig = useMemo(
-    () => stableSig({ ip, vp }),
-    [ip, vp],
+    () => draftSig(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection), isAd),
+    [isAd, ip, vp, upstreamVoiceover, upstreamSection],
   );
   const baselineSigRef = useRef(upstreamSig);
   const draftRef = useRef(draft);
@@ -357,11 +404,11 @@ export function ShotDetail({
   // 把 draft 放到 ref 里读，避免每次 keystroke 都重跑 effect+stringify。
   useEffect(() => {
     if (baselineSigRef.current === upstreamSig) return;
-    if (stableSig(draftRef.current) === baselineSigRef.current) {
-      setDraft({ image_prompt: ip, video_prompt: vp });
+    if (draftSig(draftRef.current, isAd) === baselineSigRef.current) {
+      setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection));
     }
     baselineSigRef.current = upstreamSig;
-  }, [upstreamSig, ip, vp]);
+  }, [upstreamSig, ip, vp, isAd, upstreamVoiceover, upstreamSection]);
 
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
@@ -376,8 +423,14 @@ export function ShotDetail({
       stableSig(draft.video_prompt) !== stableSig(vp)
     )
       patch.video_prompt = draft.video_prompt;
+    if (isAd) {
+      if ((draft.voiceover_text ?? "") !== upstreamVoiceover)
+        patch.voiceover_text = draft.voiceover_text ?? "";
+      if ((draft.section ?? "") !== upstreamSection)
+        patch.section = draft.section ?? "";
+    }
     return patch;
-  }, [draft, ip, vp]);
+  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
@@ -444,7 +497,7 @@ export function ShotDetail({
 
   const handleCancel = () => {
     if (saving) return;
-    setDraft({ image_prompt: ip, video_prompt: vp });
+    setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection));
   };
 
   const sbEstimate = segCost?.estimate?.image;
@@ -459,9 +512,13 @@ export function ShotDetail({
   const characterNames =
     contentMode === "drama"
       ? (segment as DramaScene).characters_in_scene ?? []
-      : (segment as NarrationSegment).characters_in_segment ?? [];
+      : contentMode === "ad"
+        ? (segment as AdShot).characters_in_shot ?? []
+        : (segment as NarrationSegment).characters_in_segment ?? [];
   const sceneNames = segment.scenes ?? [];
   const propNames = segment.props ?? [];
+  // 展示用去重：products_in_shot 无唯一性约束（同一产品多次入画合法），重复名直接作 key 会撞
+  const productNames = isAd ? Array.from(new Set(adShot?.products_in_shot ?? [])) : [];
   const refsReadOnly = !onUpdatePrompt;
 
   const handleRefsSave = async (patch: Record<string, string[]>) => {
@@ -469,8 +526,89 @@ export function ShotDetail({
     await onUpdatePrompt(segmentId, patch);
   };
 
+  const sectionHeaderStyle: React.CSSProperties = {
+    color: "var(--color-text-4)",
+    letterSpacing: "1px",
+    fontFamily: "var(--font-mono)",
+  };
+
   const leftColumn = (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
+      {isAd && (
+        <>
+          <div>
+            <label
+              htmlFor={`shot-section-${segmentId}`}
+              className="mb-2 block text-[10.5px] font-bold uppercase"
+              style={sectionHeaderStyle}
+            >
+              {t("detail_section_shot_section")}
+            </label>
+            <input
+              id={`shot-section-${segmentId}`}
+              type="text"
+              list={`shot-section-options-${segmentId}`}
+              value={draft.section ?? ""}
+              onChange={(e) => setDraft((d) => ({ ...d, section: e.target.value }))}
+              placeholder={t("detail_shot_section_placeholder")}
+              className="prompt-ta"
+              style={{ minHeight: 0 }}
+            />
+            <datalist id={`shot-section-options-${segmentId}`}>
+              {AD_SECTION_VALUES.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center gap-1.5">
+              <label
+                htmlFor={`shot-voiceover-${segmentId}`}
+                className="text-[10.5px] font-bold uppercase"
+                style={sectionHeaderStyle}
+              >
+                {t("detail_section_voiceover")}
+              </label>
+              <span className="flex-1" />
+              <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+                {t("detail_field_chars_count", { count: (draft.voiceover_text ?? "").length })}
+              </span>
+            </div>
+            <textarea
+              id={`shot-voiceover-${segmentId}`}
+              className="prompt-ta"
+              value={draft.voiceover_text ?? ""}
+              onChange={(e) => setDraft((d) => ({ ...d, voiceover_text: e.target.value }))}
+              placeholder={t("detail_voiceover_placeholder")}
+              style={{ minHeight: 96 }}
+            />
+          </div>
+
+          {productNames.length > 0 && (
+            <div>
+              <div className="mb-2 text-[10.5px] font-bold uppercase" style={sectionHeaderStyle}>
+                {t("detail_section_products")}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {productNames.map((name) => (
+                  <span
+                    key={name}
+                    className="rounded-md px-2 py-1 text-[11.5px]"
+                    style={{
+                      background: "oklch(0.22 0.011 265 / 0.6)",
+                      border: "1px solid var(--color-hairline-soft)",
+                      color: "var(--color-text-2)",
+                    }}
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
       <ReferencesSection
         projectName={projectName}
         contentMode={contentMode}
@@ -643,7 +781,7 @@ export function ShotDetail({
         hideGenerateButton={isGridMode}
         generating={generatingStoryboard}
         estimatedCost={sbEstimate ?? undefined}
-        onGenerate={() => onGenerateStoryboard?.(segmentId)}
+        onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
         onRestore={onRestoreStoryboard}
         onUpload={scriptFile ? (file) => handleUpload("storyboard", file) : undefined}
         uploading={uploadingKind === "storyboard"}
@@ -662,7 +800,7 @@ export function ShotDetail({
         generateDisabled={!hasStoryboard || dirty || saving}
         generateDisabledHint={dirty ? dirtyHint : undefined}
         estimatedCost={vidEstimate ?? undefined}
-        onGenerate={() => onGenerateVideo?.(segmentId)}
+        onGenerate={onGenerateVideo ? () => onGenerateVideo(segmentId) : undefined}
         onRestore={onRestoreVideo}
         onUpload={scriptFile ? (file) => handleUpload("video", file) : undefined}
         uploading={uploadingKind === "video"}
@@ -730,6 +868,30 @@ export function ShotDetail({
               total: totalCount,
             })}
           </span>
+          {isAd && onMoveShot && (
+            <>
+              <button
+                type="button"
+                onClick={() => void onMoveShot(segmentId, "earlier")}
+                disabled={navDisabled || movePending || selectedIndex === 0}
+                title={navDisabled ? dirtyHint : t("shot_move_earlier")}
+                className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t("shot_move_earlier")}
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void onMoveShot(segmentId, "later")}
+                disabled={navDisabled || movePending || selectedIndex === totalCount - 1}
+                title={navDisabled ? dirtyHint : t("shot_move_later")}
+                className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t("shot_move_later")}
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={onPrev}

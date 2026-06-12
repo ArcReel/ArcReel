@@ -893,6 +893,29 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     assert "output_path" not in captured["calls"]
 
 
+async def test_generate_episode_script_ad_skips_step1(fake_ctx: ToolContext, monkeypatch) -> None:
+    """ad 一键生成不依赖 step1 中间文件：缺 drafts/ 也不报 step1 错误。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    (project_path / "project.json").write_text(
+        json.dumps({"content_mode": "ad", "target_duration": 30}), encoding="utf-8"
+    )
+
+    class _FakeGenerator:
+        @classmethod
+        async def create(cls, _path):
+            return cls()
+
+        async def generate(self, **_kwargs) -> Path:
+            return project_path / "scripts" / "episode_1.json"
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    tool_obj = generate_episode_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is not True
+
+
 async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 

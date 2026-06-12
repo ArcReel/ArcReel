@@ -19,17 +19,23 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode_ledger import normalize_source_text
 from lib.project_manager import ProjectManager, effective_mode
+from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
     build_drama_prompt,
     build_narration_prompt,
 )
 from lib.script_models import (
+    AD_TARGET_DURATION_DRIFT_THRESHOLD,
+    AdEpisodeScript,
     DramaEpisodeScript,
     NarrationEpisodeScript,
     ReferenceVideoScript,
+    ad_script_total_duration,
+    build_ad_reference_episode_script_model,
     build_episode_script_model,
     build_reference_video_script_model,
+    script_shape,
 )
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -171,8 +177,15 @@ class ScriptGenerator:
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
         gen_mode = self._effective_generation_mode(episode)
-        caps = await self._fetch_video_capabilities()
 
+        # ad 剧本骨架唯一（平铺 shots[]），先于 generation_mode 分派：即使
+        # reference_video 路径也消费 ad prompt + AdEpisodeScript，不换 video_units 骨架。
+        # ad 一键生成不走 step1 中间文件，创作输入是 brief + 产品信息 + target_duration。
+        if self.content_mode == "ad":
+            prompt, schema = await self._compose_ad(episode, gen_mode)
+            return await self._generate_and_save(prompt, schema, episode, output_filename)
+
+        caps = await self._fetch_video_capabilities()
         step1_md = self._load_step1(episode)
 
         characters = self.project_json.get("characters", {})
@@ -236,7 +249,18 @@ class ScriptGenerator:
             )
             schema = build_episode_script_model("drama", supported_durations)
 
-        # 4. 调用 TextBackend
+        return await self._generate_and_save(prompt, schema, episode, output_filename)
+
+    async def _generate_and_save(
+        self,
+        prompt: str,
+        schema: type,
+        episode: int,
+        output_filename: str | None,
+    ) -> Path:
+        """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各内容模式共用尾段）。"""
+        assert self.generator is not None  # generate() 入口已检查
+        # 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)
         project_name = self.project_path.name
         result = await self.generator.generate(
@@ -249,15 +273,15 @@ class ScriptGenerator:
         )
         response_text = result.text
 
-        # 5. 解析并验证响应
+        # 解析并验证响应
         script_data = self._parse_response(response_text, episode)
 
-        # 6. 补充元数据
+        # 补充元数据
         script_data = self._add_metadata(script_data, episode)
 
-        # 7. 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
-        #    Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
-        #    同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
+        # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
+        # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
+        # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
         filename = output_filename or f"episode_{episode}.json"
         pm = ProjectManager(str(self.project_path.parent))
         output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
@@ -266,6 +290,46 @@ class ScriptGenerator:
 
         logger.info("剧本已保存至 %s", output_path)
         return output_path
+
+    async def _compose_ad(self, episode: int, gen_mode: str) -> tuple[str, type]:
+        """ad 分支的 (prompt, response_schema) 构造，generate/build_prompt 共用。
+
+        reference 路径不消费供应商能力（镜头时长为 1-15 自由整数），跳过能力查询；
+        storyboard 路径解析一次 supported_durations，prompt 时长枚举与 schema enum 同源。
+        """
+        if gen_mode == "reference_video":
+            supported = None
+            schema: type = build_ad_reference_episode_script_model()
+        else:
+            caps = await self._fetch_video_capabilities()
+            supported = self._resolve_supported_durations(caps)
+            schema = build_episode_script_model("ad", supported)
+        return self._build_ad_prompt(episode, gen_mode, supported), schema
+
+    def _build_ad_prompt(self, episode: int, gen_mode: str, supported: list[int] | None) -> str:
+        """构建广告/短片模式 prompt：brief + 产品信息 + 审定配比表，不读 step1 中间文件。
+
+        storyboard 路径把 supported_durations 作为单镜头时长枚举写进 prompt（与
+        response_schema 的 enum 同口径）；reference 路径 ``supported`` 为 None（1-15 自由整数）。
+        """
+        target_duration = self.project_json.get("target_duration")
+        if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+            raise ValueError(f"广告/短片项目缺少合法的 target_duration（正整数秒），当前为 {target_duration!r}")
+        return build_ad_prompt(
+            project_overview=self.project_json.get("overview", {}),
+            style=self.project_json.get("style", ""),
+            style_description=self.project_json.get("style_description", ""),
+            characters=self.project_json.get("characters", {}),
+            scenes=self.project_json.get("scenes", {}),
+            props=self.project_json.get("props", {}),
+            products=self.project_json.get("products") or {},
+            brief=self.project_json.get("brief") or "",
+            target_duration=target_duration,
+            generation_mode=gen_mode,
+            supported_durations=supported,
+            episode=episode,
+            aspect_ratio=self._resolve_aspect_ratio(),
+        )
 
     async def build_prompt(self, episode: int) -> str:
         """
@@ -276,6 +340,12 @@ class ScriptGenerator:
         正确派生 supported_durations。caps 失败仍 fallback 到 project.json 自身的 sync 链。
         """
         gen_mode = self._effective_generation_mode(episode)
+
+        # 见 generate() 同位置说明：ad 先于 generation_mode 分派，且不读 step1。
+        if self.content_mode == "ad":
+            prompt, _schema = await self._compose_ad(episode, gen_mode)
+            return prompt
+
         caps = await self._fetch_video_capabilities()
         step1_md = self._load_step1(episode)
         characters = self.project_json.get("characters", {})
@@ -376,10 +446,10 @@ class ScriptGenerator:
         return max(durations)
 
     def _resolve_aspect_ratio(self) -> str:
-        """解析项目的 aspect_ratio，向后兼容。"""
+        """解析项目的 aspect_ratio，向后兼容。narration / ad 默认竖屏（ad 与创建向导默认一致）。"""
         if "aspect_ratio" in self.project_json and isinstance(self.project_json["aspect_ratio"], str):
             return self.project_json["aspect_ratio"]
-        return "9:16" if self.content_mode == "narration" else "16:9"
+        return "9:16" if self.content_mode in ("narration", "ad") else "16:9"
 
     def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
         """解析当前视频模型的最大参考图数；caps → project.json.video_backend → registry 两级回退。
@@ -464,9 +534,11 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
 
-        # Pydantic 验证
+        # Pydantic 验证。ad 先于 generation_mode 判别：骨架唯一，reference 路径仍是 shots[]。
         try:
-            if self._effective_generation_mode(episode) == "reference_video":
+            if self.content_mode == "ad":
+                validated = AdEpisodeScript.model_validate(data)
+            elif self._effective_generation_mode(episode) == "reference_video":
                 validated = ReferenceVideoScript.model_validate(data)
             elif self.content_mode == "narration":
                 validated = NarrationEpisodeScript.model_validate(data)
@@ -497,24 +569,25 @@ class ScriptGenerator:
         # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
-        if gen_mode == "reference_video":
+        if self.content_mode != "ad" and gen_mode == "reference_video":
             for u in script_data.get("video_units") or []:
                 if isinstance(u, dict) and "unit_id" in u:
                     u["unit_id"] = _rewrite_episode_prefix(u.get("unit_id"), ep)
-        elif self.content_mode == "narration":
-            for s in script_data.get("segments") or []:
-                if isinstance(s, dict) and "segment_id" in s:
-                    s["segment_id"] = _rewrite_episode_prefix(s.get("segment_id"), ep)
         else:
-            for s in script_data.get("scenes") or []:
-                if isinstance(s, dict) and "scene_id" in s:
-                    s["scene_id"] = _rewrite_episode_prefix(s.get("scene_id"), ep)
+            # narration/drama/ad 统一按 SCRIPT_SHAPES 查表（ad 骨架唯一，不随生成路径换判别）
+            shape = script_shape(self.content_mode)
+            for s in script_data.get(shape.items_key) or []:
+                if isinstance(s, dict) and shape.id_field in s:
+                    s[shape.id_field] = _rewrite_episode_prefix(s.get(shape.id_field), ep)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
         # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
         # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
         # narration/drama，setdefault 仅作 fallback。
-        if gen_mode == "reference_video":
+        # ad 剧本骨架唯一、不携带"视频来源"维度：不打 generation_mode 戳——按剧本级
+        # generation_mode 分派的消费方（StatusCalculator / enqueue 判别等）会被该戳
+        # 误导去找不存在的 video_units。
+        if self.content_mode != "ad" and gen_mode == "reference_video":
             script_data["content_mode"] = self.content_mode
             script_data["generation_mode"] = "reference_video"
         else:
@@ -522,9 +595,11 @@ class ScriptGenerator:
 
         # 集级钩子/下集预告：分集账本是钩子设计的单一真相源，强制以账本值覆盖
         # （LLM 不参与填写，model_dump 只会留下 None 默认值）。账本无规划数据时为 None。
-        entry = self._episode_entry(ep)
-        script_data["hook"] = entry.get("hook")
-        script_data["next_episode_teaser"] = self._entry_outline(entry).get("next_episode_teaser")
+        # ad 恒单集、无分集账本概念，剧本模型也不持有这两个字段，跳过注入。
+        if self.content_mode != "ad":
+            entry = self._episode_entry(ep)
+            script_data["hook"] = entry.get("hook")
+            script_data["next_episode_teaser"] = self._entry_outline(entry).get("next_episode_teaser")
 
         # 添加小说信息
         # 注意守卫语义：novel 字段已 SkipJsonSchema 隐藏，但 default_factory=NovelInfo
@@ -549,7 +624,14 @@ class ScriptGenerator:
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
 
         # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）
-        if gen_mode == "reference_video":
+        if self.content_mode == "ad":
+            # shots 无单镜头默认时长偏好，缺失按 0 计（与 StatusCalculator 口径一致）。
+            # 校验失败降级保存的原始 dict 里 shots 可能为 null / 含脏条目，求和走稳健口径。
+            raw_shots = script_data.get("shots")
+            shots = raw_shots if isinstance(raw_shots, list) else []
+            script_data["metadata"]["total_shots"] = len(shots)
+            script_data["duration_seconds"] = ad_script_total_duration(shots)
+        elif gen_mode == "reference_video":
             units = script_data.get("video_units", [])
             script_data["metadata"]["total_units"] = len(units)
             script_data["duration_seconds"] = sum(int(u.get("duration_seconds", 0)) for u in units)
@@ -581,7 +663,7 @@ class ScriptGenerator:
             short_ids: list[str] = []
 
             gen_mode = self._effective_generation_mode(episode)
-            if gen_mode == "reference_video":
+            if self.content_mode != "ad" and gen_mode == "reference_video":
                 for u in script_data.get("video_units") or []:
                     if not isinstance(u, dict):
                         continue
@@ -593,12 +675,11 @@ class ScriptGenerator:
                         if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
                             short_ids.append(uid)
             else:
-                if self.content_mode == "narration":
-                    items = script_data.get("segments") or []
-                    id_key = "segment_id"
-                else:
-                    items = script_data.get("scenes") or []
-                    id_key = "scene_id"
+                # narration/drama/ad 统一按 SCRIPT_SHAPES 查表；ad 骨架唯一，两条生成路径
+                # 都按 shots 探针，与 narration/drama 共用 scene/action 的过短判定。
+                shape = script_shape(self.content_mode)
+                items = script_data.get(shape.items_key) or []
+                id_key = shape.id_field
                 for item in items:
                     if not isinstance(item, dict):
                         continue
@@ -649,5 +730,21 @@ class ScriptGenerator:
                                 actual,
                                 delta_ratio * 100,
                             )
+
+            # ad 总时长偏差观察：剧本总时长应贴近 target_duration，但供应商时长枚举的
+            # 量化误差让精确命中不现实。仅 WARN，不阻断/不重试/不推前端。
+            if self.content_mode == "ad":
+                target = self.project_json.get("target_duration")
+                if isinstance(target, int) and not isinstance(target, bool) and target > 0:
+                    total = ad_script_total_duration(script_data.get("shots"))
+                    delta_ratio = abs(total - target) / target
+                    if delta_ratio > AD_TARGET_DURATION_DRIFT_THRESHOLD:
+                        logger.warning(
+                            "episode %d target_duration drift: target=%d actual=%d delta=%.1f%%",
+                            episode,
+                            target,
+                            total,
+                            delta_ratio * 100,
+                        )
         except Exception as exc:
             logger.warning("episode %d quality probe skipped due to unexpected data shape: %s", episode, exc)

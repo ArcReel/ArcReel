@@ -7,7 +7,7 @@ script_models.py - 剧本数据模型
 """
 
 from dataclasses import dataclass
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -269,16 +269,18 @@ class DramaEpisodeScript(BaseModel):
 class AdShot(BaseModel):
     """广告/短片模式的镜头——平铺 shots[] 的最小单元。
 
-    ``section`` 是带货框架段落标签（hook/痛点/亮相/卖点/演示/信任/促销/CTA 八值引导，
-    不硬枚举，留给 prompt 资产约束）；``voiceover_text`` 是一等口播文案，字幕导出与
-    后续 TTS 的单一来源。产品按名字引用 ``products_in_shot``（对应 project.json 的
-    products bucket），氛围镜头该列表为空。
+    ``section`` 是带货框架段落标签（hook/pain_point/product_reveal/selling_point/
+    demo/trust/price_promo/cta 八值引导，不硬枚举，留给 prompt 资产约束）；
+    ``voiceover_text`` 是一等口播文案，字幕导出与后续 TTS 的单一来源。产品按名字
+    引用 ``products_in_shot``（对应 project.json 的 products bucket），氛围镜头该列表为空。
     """
 
     model_config = _STRICT_CONFIG
 
     shot_id: str = Field(description="镜头 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    section: str = Field(description="带货框架段落标签（如 hook/painpoint/reveal/selling_point/demo/trust/promo/cta）")
+    section: str = Field(
+        description="带货框架段落标签（如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）"
+    )
     duration_seconds: int = Field(ge=1, le=60, description="镜头时长（秒）")
     voiceover_text: str = Field(description="口播文案（必须完整可照稿配音，可为空字符串）")
     characters_in_shot: list[str] = Field(default_factory=list, description="出场角色名称列表")
@@ -315,13 +317,49 @@ class AdEpisodeScript(BaseModel):
 
 # ============ 参考生视频模式（Reference Video） ============
 
+#: 参考生视频路径下单镜头时长的合法区间（秒）。短切节奏赖此成立：
+#: 不按供应商 supported_durations 枚举，而是 1-15 自由整数。
+#: ``Shot.duration``、ad + reference 路径的 ``AdShot.duration_seconds`` 与
+#: ``DataValidator`` 共用此真相源。
+REFERENCE_SHOT_DURATION_RANGE: tuple[int, int] = (1, 15)
+
+#: ad 剧本总时长 vs 项目 target_duration 的偏差观察阈值（比例）。供应商时长枚举
+#: （如 [4,6,8]）的量化误差让总和难精确命中目标，阈值放宽只捕明显跑偏；超阈值
+#: 仅 warn（生成端 logger、校验端 warnings 列表），不阻塞保存、不推前端。
+#: ``ScriptGenerator`` 与 ``DataValidator`` 共用此真相源。
+AD_TARGET_DURATION_DRIFT_THRESHOLD = 0.20
+
+
+def ad_script_total_duration(shots: object) -> int:
+    """ad 剧本 shots 总时长（秒）。
+
+    与 target_duration 偏差观察的求和口径单一真相源（``ScriptGenerator`` 探针与
+    ``DataValidator`` 共用）：跳过非 dict 条目与非正整数时长（bool 按 int 子类排除），
+    脏数据按 0 计、不抛——求和服务于"仅 warn"的轻量观察与 metadata 统计，
+    对降级保存的原始 dict 也要稳健。
+    """
+    if not isinstance(shots, list):
+        return 0
+    total = 0
+    for shot in shots:
+        if not isinstance(shot, dict):
+            continue
+        value = shot.get("duration_seconds")
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            total += value
+    return total
+
 
 class Shot(BaseModel):
     """参考视频单元内的一个镜头。"""
 
     model_config = _STRICT_CONFIG
 
-    duration: int = Field(ge=1, le=15, description="该镜头时长（秒）")
+    duration: int = Field(
+        ge=REFERENCE_SHOT_DURATION_RANGE[0],
+        le=REFERENCE_SHOT_DURATION_RANGE[1],
+        description="该镜头时长（秒）",
+    )
     text: str = Field(description="镜头描述，可包含 @[角色]/@[场景]/@[道具] 引用")
 
 
@@ -478,17 +516,39 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
             segments=(list[segment], Field(description="片段列表")),
         )
     if content_mode == "ad":
-        shot = _constrained_duration_item(AdShot, duration_type, "镜头时长（秒），必须取 supported_durations 中的值")
-        return create_model(
-            "AdEpisodeScript",
-            __base__=AdEpisodeScript,
-            shots=(list[shot], Field(description="镜头列表")),
-        )
+        return _ad_episode_model(duration_type, "镜头时长（秒），必须取 supported_durations 中的值")
     scene = _constrained_duration_item(DramaScene, duration_type, "场景时长（秒），必须取 supported_durations 中的值")
     return create_model(
         "DramaEpisodeScript",
         __base__=DramaEpisodeScript,
         scenes=(list[scene], Field(description="场景列表")),
+    )
+
+
+def _ad_episode_model(duration_type: object, description: str) -> type[BaseModel]:
+    """ad 剧集脚本的动态包装骨架：两条生成路径共用，仅 ``duration_seconds`` 约束类型不同。"""
+    shot = _constrained_duration_item(AdShot, duration_type, description)
+    return create_model(
+        "AdEpisodeScript",
+        __base__=AdEpisodeScript,
+        shots=(list[shot], Field(description="镜头列表")),
+    )
+
+
+def build_ad_reference_episode_script_model() -> type[BaseModel]:
+    """构造 ad + reference_video 路径的剧集脚本模型：镜头时长 1-15 自由整数。
+
+    ad 剧本骨架唯一、不随生成路径更换（仍是平铺 ``shots[]``），只有
+    ``duration_seconds`` 的值约束随路径切换：storyboard 路径走
+    ``build_episode_script_model("ad", supported_durations)`` 的枚举硬约束；
+    reference 路径不受供应商 supported_durations 限制（参考直达按 unit 聚合
+    对接供应商 API），按 ``REFERENCE_SHOT_DURATION_RANGE`` 收紧为自由整数区间，
+    与 ``Shot.duration`` 同口径。
+    """
+    low, high = REFERENCE_SHOT_DURATION_RANGE
+    return _ad_episode_model(
+        Annotated[int, Field(ge=low, le=high)],
+        f"镜头时长（秒），{low}-{high} 间整数任选",
     )
 
 

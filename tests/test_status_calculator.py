@@ -475,6 +475,18 @@ class TestAdStatusCalculation:
         assert mode == "ad"
         assert len(items) == 1
 
+    def test_ad_with_reference_generation_mode_still_dispatches_shots(self):
+        """ad 剧本骨架唯一：残留 generation_mode 戳也按 shots 分派，不找 video_units。"""
+        mode, items = StatusCalculator._select_content_mode_and_items(
+            {
+                "content_mode": "ad",
+                "generation_mode": "reference_video",
+                "shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}],
+            }
+        )
+        assert mode == "ad"
+        assert len(items) == 2
+
     def test_calculate_episode_stats_for_ad(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
 

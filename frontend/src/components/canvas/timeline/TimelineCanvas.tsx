@@ -6,16 +6,19 @@ import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { getScriptItemId } from "@/utils/script-shape";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
   DramaEpisodeScript,
+  AdEpisodeScript,
   NarrationSegment,
   DramaScene,
+  AdShot,
   ProjectData,
 } from "@/types";
 
-type Segment = NarrationSegment | DramaScene;
+type Segment = NarrationSegment | DramaScene | AdShot;
 
 interface TimelineCanvasProps {
   projectName: string;
@@ -31,6 +34,8 @@ interface TimelineCanvasProps {
     value?: unknown,
     scriptFile?: string,
   ) => void | Promise<void>;
+  /** ad 模式镜头顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
+  onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
@@ -52,6 +57,7 @@ export function TimelineCanvas({
   projectData,
   durationOptions,
   onUpdatePrompt,
+  onMoveShot,
   onGenerateStoryboard,
   onGenerateVideo,
   onGenerateNarration,
@@ -63,14 +69,14 @@ export function TimelineCanvas({
 }: TimelineCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
-  // 分镜编辑子视图当前仅支持 narration/drama 两种剧本形状；
-  // ad 的镜头编辑视图随带货脚本生成一并落地，未落地前显式不进编辑器（不落 drama 兜底）。
-  // 未知/脏 content_mode 沿用历史兜底落 drama 视图，仅 ad 显式排除。
-  const editorContentMode: "narration" | "drama" | null =
-    contentMode === "narration" ? "narration" : contentMode === "ad" ? null : "drama";
+  // 分镜编辑子视图按剧本形状显式分派：narration（segments）/ drama（scenes）/ ad（shots）。
+  // 未知/脏 content_mode 沿用历史兜底落 drama 视图。
+  const editorContentMode: "narration" | "drama" | "ad" =
+    contentMode === "narration" ? "narration" : contentMode === "ad" ? "ad" : "drama";
 
   const hasScript = Boolean(episodeScript);
-  const showTabs = Boolean(hasDraft);
+  // ad 一键生成不走预处理中间文件，预处理 tab 对 ad 无意义，仅 timeline 单 tab
+  const showTabs = Boolean(hasDraft) && editorContentMode !== "ad";
   const defaultTab = hasScript ? "timeline" : "preprocessing";
   const [activeTab, setActiveTab] = useState<"preprocessing" | "timeline">(defaultTab);
 
@@ -90,24 +96,30 @@ export function TimelineCanvas({
     debouncedFetch(projectName);
   }, [projectName, episodeScript?.episode, debouncedFetch]);
 
-  // 解析 aspect ratio（仅支持 9:16 / 16:9 两档，3:4/1:1 也回退到 16:9）
+  // 解析 aspect ratio（仅支持 9:16 / 16:9 两档，3:4/1:1 也回退到 16:9）；
+  // 缺省回退：narration / ad 竖屏，drama 与未知/脏值横屏——与后端
+  // ScriptGenerator._resolve_aspect_ratio 同口径，避免预览与产物比例错位。
   const rawAspect =
     typeof projectData?.aspect_ratio === "string"
       ? projectData.aspect_ratio
       : projectData?.aspect_ratio?.storyboard ??
-        (contentMode === "narration" ? "9:16" : "16:9");
+        (contentMode === "narration" || contentMode === "ad" ? "9:16" : "16:9");
   const aspectRatio: "9:16" | "16:9" =
     rawAspect === "9:16" || rawAspect === "16:9" ? rawAspect : "16:9";
 
+  // 仅三种已注册模式显式取数；未知/脏 content_mode 返回空列表（不渲染可编辑视图）——
+  // 否则会以 drama 形状渲染、保存却按真实 content_mode 分派到错误端点。
   const segments = useMemo<Segment[]>(
     () =>
       !episodeScript || !projectData
         ? []
         : contentMode === "narration"
           ? ((episodeScript as NarrationEpisodeScript).segments ?? [])
-          : contentMode === "drama"
-            ? ((episodeScript as DramaEpisodeScript).scenes ?? [])
-            : [],
+          : contentMode === "ad"
+            ? ((episodeScript as AdEpisodeScript).shots ?? [])
+            : contentMode === "drama"
+              ? ((episodeScript as DramaEpisodeScript).scenes ?? [])
+              : [],
     [contentMode, episodeScript, projectData],
   );
 
@@ -139,8 +151,8 @@ export function TimelineCanvas({
   // 批量旁白进行中：当前分集还有未完结的 tts 任务时禁用批量按钮，避免重复入队；
   // 按本集 segment 范围判定，不影响其他分集的批量入口
   const currentSegmentIds = useMemo(
-    () => new Set(segments.map((s) => ("segment_id" in s ? s.segment_id : s.scene_id))),
-    [segments],
+    () => new Set(segments.map((s) => getScriptItemId(s, editorContentMode))),
+    [segments, editorContentMode],
   );
   const narrationBatchBusy = useMemo(
     () =>
@@ -186,9 +198,20 @@ export function TimelineCanvas({
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
-  const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
-  const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
-  const handleGenNarration = (segId: string) => onGenerateNarration?.(segId, scriptFile);
+  const handleMoveShot = onMoveShot
+    ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
+    : undefined;
+  // 生成回调保持可选透传：未提供（如 ad + reference_video 不开放逐镜头图生视频）时
+  // 编辑器隐藏对应生成入口，而非渲染一个点了没反应的按钮。
+  const handleGenSb = onGenerateStoryboard
+    ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
+    : undefined;
+  const handleGenVid = onGenerateVideo
+    ? (segId: string) => onGenerateVideo(segId, scriptFile)
+    : undefined;
+  const handleGenNarration = onGenerateNarration
+    ? (segId: string) => onGenerateNarration(segId, scriptFile)
+    : undefined;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -295,7 +318,7 @@ export function TimelineCanvas({
 
       {/* 主体 */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "preprocessing" && hasDraft && editorContentMode ? (
+        {activeTab === "preprocessing" && hasDraft && editorContentMode !== "ad" ? (
           <div className="h-full overflow-y-auto p-4">
             <PreprocessingView
               projectName={projectName}
@@ -303,7 +326,7 @@ export function TimelineCanvas({
               contentMode={editorContentMode}
             />
           </div>
-        ) : episodeScript && segments.length > 0 && editorContentMode ? (
+        ) : episodeScript && segments.length > 0 ? (
           <ShotSplitView
             segments={segments}
             contentMode={editorContentMode}
@@ -312,6 +335,7 @@ export function TimelineCanvas({
             scriptFile={scriptFile}
             isGridMode={false}
             onUpdatePrompt={handleUpdatePrompt}
+            onMoveShot={handleMoveShot}
             onGenerateStoryboard={handleGenSb}
             onGenerateVideo={handleGenVid}
             onGenerateNarration={handleGenNarration}

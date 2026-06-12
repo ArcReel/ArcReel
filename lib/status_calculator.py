@@ -44,14 +44,15 @@ class StatusCalculator:
         """返回 ``(分派标签, items)``。
 
         分派标签 ``"narration" | "drama" | "ad" | "reference_video"`` 给下游分派使用：
-        ``generation_mode == "reference_video"`` 优先；否则按 content_mode 选对应
-        剧本形状（SCRIPT_SHAPES）；都缺失时按主结构鸭子类型兜底（兼容老脚本未写
+        非 ad 时 ``generation_mode == "reference_video"`` 优先；否则按 content_mode 选
+        对应剧本形状（SCRIPT_SHAPES）；都缺失时按主结构鸭子类型兜底（兼容老脚本未写
         content_mode 的情况）。参考视频集判定不再回退到
         ``content_mode == "reference_video"``——新数据已不可能产生该值。
+        ad 剧本骨架唯一：即使残留 generation_mode 戳也按 shots 分派，不找 video_units。
         """
         content_mode = script.get("content_mode")
         generation_mode = script.get("generation_mode")
-        if generation_mode == "reference_video":
+        if content_mode != "ad" and generation_mode == "reference_video":
             return "reference_video", script.get("video_units") or []
         if content_mode in SCRIPT_SHAPES:
             items = script.get(SCRIPT_SHAPES[content_mode].items_key)

@@ -8,13 +8,12 @@ import {
   type SegmentRefsChanges,
 } from "@/components/ui/SegmentRefsEditModal";
 import { useProjectsStore } from "@/stores/projects-store";
+import { charactersFieldFor, type EditorContentMode } from "@/utils/script-shape";
 import { WARM_TONE } from "@/utils/severity-tone";
-
-type CharField = "characters_in_segment" | "characters_in_scene";
 
 interface ReferencesSectionProps {
   projectName: string;
-  contentMode: "narration" | "drama";
+  contentMode: EditorContentMode;
   characterNames: string[];
   sceneNames: string[];
   propNames: string[];
@@ -49,8 +48,7 @@ export function ReferencesSection({
   const props = useMemo(() => project?.props ?? EMPTY_DICT, [project]);
   const [open, setOpen] = useState(false);
 
-  const charField: CharField =
-    contentMode === "drama" ? "characters_in_scene" : "characters_in_segment";
+  const charField = charactersFieldFor(contentMode);
 
   const totalCount = characterNames.length + sceneNames.length + propNames.length;
   const isEmpty = totalCount === 0;

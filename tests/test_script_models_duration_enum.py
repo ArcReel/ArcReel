@@ -7,7 +7,11 @@
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from lib.script_models import build_episode_script_model, build_reference_video_script_model
+from lib.script_models import (
+    build_ad_reference_episode_script_model,
+    build_episode_script_model,
+    build_reference_video_script_model,
+)
 
 
 def _duration_enum(model: type[BaseModel]) -> list[int] | None:
@@ -197,3 +201,48 @@ class TestReferenceVideoModel:
     def test_empty_supported_durations_raises(self):
         with pytest.raises(ValueError):
             build_reference_video_script_model([])
+
+
+class TestAdReferenceModel:
+    """ad + reference_video 路径：镜头时长 1-15 自由整数（非 supported_durations 枚举）。"""
+
+    def _payload(self, duration: int) -> dict:
+        return {
+            "title": "短片",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "section": "hook",
+                    "duration_seconds": duration,
+                    "voiceover_text": "口播",
+                    "image_prompt": {
+                        "scene": "场景",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+                    },
+                    "video_prompt": {
+                        "action": "转身",
+                        "camera_motion": "Static",
+                        "ambiance_audio": "风声",
+                        "dialogue": [],
+                    },
+                }
+            ],
+        }
+
+    def test_free_integers_within_range_accepted(self):
+        model = build_ad_reference_episode_script_model()
+        for duration in (1, 5, 7, 15):
+            validated = model.model_validate(self._payload(duration))
+            assert validated.shots[0].duration_seconds == duration
+
+    @pytest.mark.parametrize("duration", [0, 16, 60])
+    def test_out_of_range_rejected(self, duration):
+        model = build_ad_reference_episode_script_model()
+        with pytest.raises(ValidationError):
+            model.model_validate(self._payload(duration))
+
+    def test_schema_renders_range_not_enum(self):
+        field_schema = _duration_field_schema(build_ad_reference_episode_script_model())
+        assert "enum" not in field_schema
+        assert field_schema.get("minimum") == 1
+        assert field_schema.get("maximum") == 15

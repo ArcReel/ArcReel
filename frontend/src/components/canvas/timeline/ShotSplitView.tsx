@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { NarrationSegment, DramaScene } from "@/types";
+import type { NarrationSegment, DramaScene, AdShot } from "@/types";
 import { useAppStore } from "@/stores/app-store";
+import { getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
 import { ShotList } from "./ShotList";
 import { ShotDetail } from "./ShotDetail";
 
-type Segment = NarrationSegment | DramaScene;
+type Segment = NarrationSegment | DramaScene | AdShot;
 
 interface ShotSplitViewProps {
   segments: Segment[];
-  contentMode: "narration" | "drama";
+  contentMode: EditorContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
@@ -19,6 +20,8 @@ interface ShotSplitViewProps {
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => void | Promise<void>;
+  /** ad 模式镜头顺序调整，resolve 为是否移动成功 */
+  onMoveShot?: (shotId: string, direction: "earlier" | "later") => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
   onGenerateNarration?: (segmentId: string) => void;
@@ -30,11 +33,6 @@ interface ShotSplitViewProps {
   durationOptions?: number[];
 }
 
-function getSegmentId(seg: Segment, mode: "narration" | "drama"): string {
-  return mode === "narration"
-    ? (seg as NarrationSegment).segment_id
-    : (seg as DramaScene).scene_id;
-}
 
 /**
  * 分镜分屏：左 ShotList + 右 ShotDetail。窄屏时左列折叠到 44px。
@@ -47,6 +45,7 @@ export function ShotSplitView({
   scriptFile,
   isGridMode,
   onUpdatePrompt,
+  onMoveShot,
   onGenerateStoryboard,
   onGenerateVideo,
   onGenerateNarration,
@@ -61,7 +60,27 @@ export function ShotSplitView({
   const [collapsed, setCollapsed] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 1100,
   );
+  const [movePending, setMovePending] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
+
+  // 镜头重排：请求在途时丢弃后续点击（快速连点会基于过期顺序计算出相同排列），
+  // 移动成功后把选中态跟随到镜头的新位置——选中按索引存储，不跟随会静默切到被换位的邻居。
+  const handleMoveShot = onMoveShot
+    ? async (shotId: string, direction: "earlier" | "later") => {
+        if (movePending) return;
+        setMovePending(true);
+        try {
+          const moved = await onMoveShot(shotId, direction);
+          if (moved) {
+            setSelectedIndex((i) =>
+              direction === "earlier" ? Math.max(0, i - 1) : Math.min(segments.length - 1, i + 1),
+            );
+          }
+        } finally {
+          setMovePending(false);
+        }
+      }
+    : undefined;
 
   // 切镜时索引超界保护
   useEffect(() => {
@@ -76,7 +95,7 @@ export function ShotSplitView({
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   useEffect(() => {
     if (scrollTarget?.type !== "segment") return;
-    const idx = segments.findIndex((s) => getSegmentId(s, contentMode) === scrollTarget.id);
+    const idx = segments.findIndex((s) => getScriptItemId(s, contentMode) === scrollTarget.id);
     if (idx !== -1) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅 SSE 项目事件 store，触发后切换选中分镜
       setSelectedIndex(idx);
@@ -93,7 +112,7 @@ export function ShotSplitView({
 
   const safeIndex = Math.min(selectedIndex, segments.length - 1);
   const segment = segments[safeIndex];
-  const segmentId = getSegmentId(segment, contentMode);
+  const segmentId = getScriptItemId(segment, contentMode);
 
   return (
     <div
@@ -127,6 +146,8 @@ export function ShotSplitView({
         onPrev={() => setSelectedIndex((i) => Math.max(0, i - 1))}
         onNext={() => setSelectedIndex((i) => Math.min(segments.length - 1, i + 1))}
         onUpdatePrompt={onUpdatePrompt}
+        onMoveShot={handleMoveShot}
+        movePending={movePending}
         onGenerateStoryboard={onGenerateStoryboard}
         onGenerateVideo={onGenerateVideo}
         onGenerateNarration={onGenerateNarration}

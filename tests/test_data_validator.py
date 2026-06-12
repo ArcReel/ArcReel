@@ -755,6 +755,46 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
         assert any("duration_seconds" in w for w in result.warnings)
 
+    def test_storyboard_path_accepts_duration_above_reference_cap(self, tmp_path):
+        """storyboard 路径的成员校验在生成 schema 层（supported_durations 枚举）；
+        校验器只把关正整数，16 秒不按 reference 区间拒。"""
+        result = self._validate(tmp_path, [self._ad_shot(duration_seconds=16)])
+        assert result.valid, result.errors
+
+    def test_reference_path_rejects_duration_out_of_range(self, tmp_path):
+        """ad + reference_video：镜头时长必须是 1-15 自由整数。"""
+        project = _ad_project_payload(generation_mode="reference_video")
+        result = self._validate(tmp_path, [self._ad_shot(duration_seconds=16)], project=project)
+        assert not result.valid
+        assert any("1-15" in e for e in result.errors)
+
+    def test_reference_path_accepts_free_integers_in_range(self, tmp_path):
+        project = _ad_project_payload(generation_mode="reference_video")
+        result = self._validate(
+            tmp_path,
+            [self._ad_shot(duration_seconds=7), self._ad_shot(shot_id="E1S02", duration_seconds=15)],
+            project=project,
+        )
+        assert result.valid, result.errors
+
+    def test_total_duration_drift_warns_but_passes(self, tmp_path):
+        """剧本总时长与 target_duration 偏差超阈值仅 warn，不阻塞。"""
+        project = _ad_project_payload(target_duration=60)
+        result = self._validate(tmp_path, [self._ad_shot(duration_seconds=3)], project=project)
+        assert result.valid, result.errors
+        assert any("target_duration" in w for w in result.warnings)
+
+    def test_total_duration_close_to_target_no_warning(self, tmp_path):
+        project = _ad_project_payload(target_duration=12)
+        shots = [
+            self._ad_shot(shot_id="E1S01", duration_seconds=3),
+            self._ad_shot(shot_id="E1S02", duration_seconds=4),
+            self._ad_shot(shot_id="E1S03", duration_seconds=4),
+        ]
+        result = self._validate(tmp_path, shots, project=project)
+        assert result.valid, result.errors
+        assert not any("target_duration" in w for w in result.warnings)
+
 
 class TestAdEpisodeValidationEdgeCases:
     """ad 剧本骨架唯一与脏数据容错。"""

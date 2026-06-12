@@ -22,6 +22,7 @@ import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } 
 import { effectiveMode } from "@/utils/generation-mode";
 import type { Scene, Prop, Product, CustomProviderInfo, ProviderInfo } from "@/types";
 import type { EpisodeScript } from "@/types/script";
+import { REFERENCE_SHOT_DURATION_OPTIONS } from "@/types/script";
 
 // ---------------------------------------------------------------------------
 // resolveSegmentPrompt -- shared segment lookup for generate storyboard/video
@@ -213,7 +214,9 @@ export function StudioCanvasRouter() {
         ? { [fieldOrPatch]: value }
         : fieldOrPatch;
     try {
-      if (mode === "drama") {
+      if (mode === "ad") {
+        await API.updateShot(currentProjectName, segmentId, scriptFile ?? "", patch);
+      } else if (mode === "drama") {
         await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", patch);
       } else {
         await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
@@ -223,6 +226,33 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("update_prompt_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, currentProjectData, refreshProject]);
+
+  // ad 镜头重排：把目标镜头向前/向后移动一位，提交整列全排列。
+  // 返回是否移动成功，供编辑器把选中态跟随到镜头的新位置。
+  const handleMoveShot = useCallback(async (
+    shotId: string,
+    direction: "earlier" | "later",
+    scriptFile?: string,
+  ): Promise<boolean> => {
+    if (!currentProjectName || !currentScripts) return false;
+    const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
+    if (!resolvedFile) return false;
+    const script = currentScripts[resolvedFile];
+    if (!script || script.content_mode !== "ad") return false;
+    const ids = script.shots.map((s) => s.shot_id);
+    const index = ids.indexOf(shotId);
+    const target = direction === "earlier" ? index - 1 : index + 1;
+    if (index === -1 || target < 0 || target >= ids.length) return false;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    try {
+      await API.reorderShots(currentProjectName, resolvedFile, ids);
+      await refreshProject();
+      return true;
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("reorder_shot_failed", { message: errMsg(err) }), "error");
+      return false;
+    }
+  }, [currentProjectName, currentScripts, refreshProject]);
 
   const handleUpdateEpisodeTitle = useCallback(async (episode: number, title: string) => {
     if (!currentProjectName) return;
@@ -627,11 +657,21 @@ export function StudioCanvasRouter() {
           const mode = effectiveMode(currentProjectData, episode);
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
+          // ad 剧本骨架唯一（shots[]），两条生成路径都进镜头编辑画布：
+          // reference_video 路径的派生分组画布尚未落地，先共用 Timeline 编辑器；
+          // 该路径下镜头时长为 1-15 秒自由整数，不取供应商 supported_durations，
+          // 且不暴露逐镜头图生视频入口（该路径按 ADR 0033 跳过分镜步骤，
+          // 入队也会被执行层 supported_durations 校验拒绝）。
+          const isAd = currentProjectData?.content_mode === "ad";
+          const adReference = isAd && mode === "reference_video";
+          const effectiveDurationOptions = adReference
+            ? REFERENCE_SHOT_DURATION_OPTIONS
+            : durationOptions;
 
           return (
             <div className="flex h-full flex-col">
               <div className="min-h-0 flex-1">
-                {mode === "reference_video" ? (
+                {mode === "reference_video" && !isAd ? (
                   <ReferenceVideoCanvas
                     // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
                     // 残留上个项目的状态（例如 "E1U1" 长驻 set 里），切到同名 unit 的新项目
@@ -679,10 +719,11 @@ export function StudioCanvasRouter() {
                     episodeScript={script}
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
-                    durationOptions={durationOptions}
+                    durationOptions={effectiveDurationOptions}
                     onUpdatePrompt={handleUpdatePrompt}
-                    onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onMoveShot={isAd ? handleMoveShot : undefined}
+                    onGenerateStoryboard={adReference ? undefined : voidPromise(handleGenerateStoryboard)}
+                    onGenerateVideo={adReference ? undefined : voidPromise(handleGenerateVideo)}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
                     onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onRestoreStoryboard={handleRestoreAsset}

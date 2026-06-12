@@ -2,18 +2,24 @@ import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
-import type { NarrationSegment, DramaScene } from "@/types";
+import type { NarrationSegment, AdShot } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { StatusBadge, statusFromAssets } from "@/components/canvas/timeline/StatusBadge";
+import {
+  getScriptItemId,
+  type EditorContentMode,
+  type ScriptItem,
+} from "@/utils/script-shape";
 
-type Segment = NarrationSegment | DramaScene;
+type Segment = ScriptItem;
+type ListContentMode = EditorContentMode;
 
 interface ShotListProps {
   segments: Segment[];
   selectedIndex: number;
   onSelect: (index: number) => void;
-  contentMode: "narration" | "drama";
+  contentMode: ListContentMode;
   projectName: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -21,24 +27,28 @@ interface ShotListProps {
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-function getSegmentId(seg: Segment, mode: "narration" | "drama"): string {
-  return mode === "narration"
-    ? (seg as NarrationSegment).segment_id
-    : (seg as DramaScene).scene_id;
-}
-
-function getSegmentText(seg: Segment, mode: "narration" | "drama"): string {
-  if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
-  // drama 模式：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
+function getImagePromptScene(seg: Segment): string {
   // 校验 scene 是 string 而非仅 key 存在 —— 类型允许 ImagePrompt | string，且实际数据中
   // scene 可能为 null/undefined（手编 JSON、半生成态），返回 null 后下游 toLowerCase() 会炸。
-  const ip = (seg as DramaScene).image_prompt;
+  const ip = seg.image_prompt;
   if (typeof ip === "string") return ip;
   if (ip && typeof ip === "object") {
     const scene = (ip as { scene?: unknown }).scene;
     if (typeof scene === "string") return scene;
   }
   return "";
+}
+
+function getSegmentText(seg: Segment, mode: ListContentMode): string {
+  if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
+  if (mode === "ad") {
+    // ad 模式：口播文案是一等内容，列表预览优先展示；无口播的纯画面镜头退回画面描述
+    const voiceover = (seg as AdShot).voiceover_text;
+    if (typeof voiceover === "string" && voiceover.trim()) return voiceover;
+    return getImagePromptScene(seg);
+  }
+  // drama 模式：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
+  return getImagePromptScene(seg);
 }
 
 function getStoryboardVersionCount(seg: Segment): number {
@@ -73,7 +83,7 @@ export function ShotList({
     return segments
       .map((seg, i) => ({ seg, originalIndex: i }))
       .filter(({ seg }) => {
-        const id = getSegmentId(seg, contentMode);
+        const id = getScriptItemId(seg, contentMode);
         const text = getSegmentText(seg, contentMode);
         return id.toLowerCase().includes(s) || text.toLowerCase().includes(s);
       });
@@ -125,7 +135,7 @@ export function ShotList({
         </div>
         <div className="mt-1 flex flex-1 flex-col items-center gap-1">
           {segments.map((s, i) => {
-            const id = getSegmentId(s, contentMode);
+            const id = getScriptItemId(s, contentMode);
             return (
               <button
                 key={id}
@@ -224,7 +234,7 @@ export function ShotList({
         >
           {virtualizer.getVirtualItems().map((virt) => {
             const { seg, originalIndex } = filtered[virt.index];
-            const id = getSegmentId(seg, contentMode);
+            const id = getScriptItemId(seg, contentMode);
             const text = getSegmentText(seg, contentMode);
             const status = statusFromAssets(seg.generated_assets?.status);
             const versions = getStoryboardVersionCount(seg);
@@ -320,6 +330,19 @@ export function ShotList({
                     <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
                       {t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}
                     </span>
+                    {contentMode === "ad" && (seg as AdShot).section && (
+                      <span
+                        className="rounded px-1 py-px text-[9px] font-semibold uppercase"
+                        style={{
+                          color: "var(--color-accent-2)",
+                          background: "oklch(0.26 0.018 290 / 0.45)",
+                          border: "1px solid var(--color-accent-soft)",
+                          letterSpacing: "0.4px",
+                        }}
+                      >
+                        {(seg as AdShot).section}
+                      </span>
+                    )}
                     {versions > 0 && (
                       <span
                         className="num text-[10px]"

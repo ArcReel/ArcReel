@@ -150,10 +150,31 @@ export interface DramaEpisodeScript {
   scenes: DramaScene[];
 }
 
+/**
+ * 参考生视频路径下单镜头时长可选值（1-15 秒自由整数）。
+ * 与后端 lib/script_models.py 的 REFERENCE_SHOT_DURATION_RANGE 同源，调整区间时两侧同步。
+ */
+export const REFERENCE_SHOT_DURATION_OPTIONS: number[] = Array.from(
+  { length: 15 },
+  (_, i) => i + 1,
+);
+
+/** 带货框架 section 八值引导（与后端审定配比表用词一致；不硬枚举，允许自定义值）。 */
+export const AD_SECTION_VALUES = [
+  "hook",
+  "pain_point",
+  "product_reveal",
+  "selling_point",
+  "demo",
+  "trust",
+  "price_promo",
+  "cta",
+] as const;
+
 /** 广告/短片模式镜头（平铺 shots[]，口播文案一等）。 */
 export interface AdShot {
   shot_id: string;
-  /** 带货框架段落标签（hook/painpoint/... 八值引导，不硬枚举）。 */
+  /** 带货框架段落标签（hook/pain_point/... 八值引导，不硬枚举）。 */
   section: string;
   duration_seconds: DurationSeconds;
   /** 口播文案，字幕导出与后续配音的唯一来源。 */

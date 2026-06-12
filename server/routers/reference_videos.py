@@ -27,6 +27,7 @@ from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
+from server.routers._reorder import full_permutation_error
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import _finalize_reference_video_unit
 from server.services.upload_finalize import (
@@ -317,12 +318,14 @@ async def reorder_units(
         existing_ids = [u.get("unit_id") for u in units]
 
         # 校验失败 → 在锁内 raise 400，跳过写回
-        if len(req.unit_ids) != len(existing_ids):
-            raise HTTPException(status_code=400, detail=_t("ref_unit_ids_length_mismatch"))
-        if len(set(req.unit_ids)) != len(req.unit_ids):
-            raise HTTPException(status_code=400, detail=_t("ref_duplicate_unit_ids"))
-        if set(req.unit_ids) != set(existing_ids):
-            raise HTTPException(status_code=400, detail=_t("ref_unit_ids_mismatch"))
+        error_kind = full_permutation_error(existing_ids, req.unit_ids)
+        if error_kind is not None:
+            detail_key = {
+                "length": "ref_unit_ids_length_mismatch",
+                "duplicate": "ref_duplicate_unit_ids",
+                "mismatch": "ref_unit_ids_mismatch",
+            }[error_kind]
+            raise HTTPException(status_code=400, detail=_t(detail_key))
 
         by_id = {u["unit_id"]: u for u in units}
         reordered = [by_id[uid] for uid in req.unit_ids]
