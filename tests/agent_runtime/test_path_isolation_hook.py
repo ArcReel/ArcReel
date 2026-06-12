@@ -163,6 +163,39 @@ def test_write_protected_with_symlinked_project_cwd_denied(sm: SessionManager, t
     assert reason and ("patch_episode_script" in reason or "patch_project" in reason)
 
 
+def test_protected_json_predicate_normalizes_nfd_and_case() -> None:
+    """NFC/NFD 与大小写混合形式都须命中：macOS HFS+ 按 NFD 存储文件名，resolve
+    返回的 target 与 NFC 形式的 base 即使 casefold 后仍是不同字符串——受保护
+    比对须先做 NFC 归一化，再做大小写不敏感比较。"""
+    base_nfc = Path("/data/projects/caf\u00e9")  # café（NFC 单码位）
+    target_nfd = Path("/data/projects/cafe\u0301/project.json")  # café（NFD 组合字符）
+    assert SessionManager._is_protected_project_json(target_nfd, [base_nfc])
+
+    # 大小写变体 + NFD 叠加
+    target_mixed = Path("/data/projects/CAFE\u0301/SCRIPTS/EPISODE_1.JSON")
+    assert SessionManager._is_protected_project_json(target_mixed, [base_nfc])
+
+    # 反向：base 是 NFD（HFS+ 磁盘形式）、target 是 NFC（用户输入形式）
+    base_nfd = Path("/data/projects/cafe\u0301")
+    target_nfc = Path("/data/projects/caf\u00e9/scripts/episode_1.json")
+    assert SessionManager._is_protected_project_json(target_nfc, [base_nfd])
+
+    # 归一化不引入 over-match：其他项目路径不受影响
+    other = Path("/data/projects/cafe_other/project.json")
+    assert not SessionManager._is_protected_project_json(other, [base_nfc])
+
+
+def test_normalize_path_for_protected_compare_strips_windows_extended_prefix() -> None:
+    """Windows ``\\\\?\\`` 扩展长度前缀（resolve 在长路径/UNC 下返回）与常规形态
+    须归一化为同一比较键，否则 bases 混入两种形式时 startswith 失配。
+    helper 级单测；实机 Windows 端到端验证另行跟踪。"""
+    norm = SessionManager._normalize_path_for_protected_compare
+    assert norm("\\\\?\\C:\\data\\projects\\demo") == norm("C:\\data\\projects\\demo")
+    assert norm("\\\\?\\UNC\\server\\share\\proj") == norm("\\\\server\\share\\proj")
+    # 常规路径不受影响
+    assert norm("/data/projects/demo") == norm("/data/projects/demo")
+
+
 def test_write_drafts_and_source_still_allowed(sm: SessionManager) -> None:
     """合法的草稿/源文件写入不受影响（drafts/*.md、source/*.txt、scripts 外的 .json）。"""
     cwd = sm.project_root / "projects" / "selfproj"
@@ -179,6 +212,30 @@ def test_build_sandbox_settings_denies_write_to_project_json(sm: SessionManager)
     deny_write = settings["filesystem"]["denyWrite"]
     assert str(cwd / "scripts") in deny_write
     assert str(cwd / "project.json") in deny_write
+
+
+def test_build_sandbox_settings_deny_write_includes_resolved_paths(sm: SessionManager, tmp_path: Path) -> None:
+    """project_cwd 是 symlink 入口时（macOS /var↔/private/var、Linux symlinked
+    项目根），denyWrite 须同时枚举 raw 与 resolved 两种形式——sandbox 实现若按
+    字符串路径比对，仅注册 raw 形式会在 Bash 子进程经 symlink 解析后写 resolved
+    路径时失配。与 _check_write_access 的 bases 同口径。"""
+    real_root = tmp_path / "real_data"
+    (real_root / "projects" / "selfproj").mkdir(parents=True)
+    link_cwd = sm.project_root / "projects" / "selfproj_link"
+    link_cwd.symlink_to(real_root / "projects" / "selfproj")
+
+    sm._sandbox_enabled = True
+    settings = sm._build_sandbox_settings(link_cwd)
+    deny_write = settings["filesystem"]["denyWrite"]
+    resolved_cwd = link_cwd.resolve()
+    assert resolved_cwd != link_cwd
+    # raw 与 resolved 两种形式都注册
+    assert str(link_cwd / "scripts") in deny_write
+    assert str(link_cwd / "project.json") in deny_write
+    assert str(resolved_cwd / "scripts") in deny_write
+    assert str(resolved_cwd / "project.json") in deny_write
+    # raw == resolved 的常规路径不重复注册
+    assert len(deny_write) == len(set(deny_write))
 
 
 @pytest.mark.parametrize(

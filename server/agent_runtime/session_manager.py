@@ -10,9 +10,11 @@ import json
 import logging
 import math
 import os
+import re
 import shlex
 import tempfile
 import time
+import unicodedata
 from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -341,6 +343,18 @@ class SessionManager:
         "ffmpeg",
         "ffprobe",
     )
+
+    # Windows 回退白名单的 shell metachar 黑名单：``;`` ``&`` ``|`` ``<`` ``>``
+    # `` ` `` ``$`` 与换行都可能在白名单前缀后挂任意命令（链式/管道/重定向/
+    # 命令替换）。不解析引号语境，引号内出现也整串拒——宁可误拒（fail-closed），
+    # deny 文案会引导 agent 改写命令。
+    _BASH_METACHARS_RE: "re.Pattern[str]" = re.compile(r"[;&|<>`$\r\n]")
+
+    # ``..`` 路径段：``python .claude/skills/../../evil.py`` 不含 metachar 且满足
+    # ``python .claude/skills/`` 前缀，但 ``..`` 逃出 skills 目录执行任意脚本——
+    # Windows 回退无 sandbox denyWrite/denyExec 兜底，整串拒。仅匹配被分隔符/
+    # 空白/串首尾界定的 ``..`` 段，``my..name`` 这类文件名不误伤。
+    _BASH_PATH_TRAVERSAL_RE: "re.Pattern[str]" = re.compile(r"(?:^|[\s/\\])\.\.(?:[\s/\\]|$)")
 
     # Sandbox 启用后 Bash 进入 allowed_tools；具体命令由 SDK Sandbox 自动放行
     # (autoAllowBashIfSandboxed=True)。文件访问控制走 settings.json deny rules
@@ -811,9 +825,8 @@ class SessionManager:
         unset_flags = " ".join(f"-u {key}" for key in cls._collect_env_keys_to_scrub())
         return f"env {unset_flags} sh -c "
 
-    @classmethod
     async def _bash_env_scrub_hook(
-        cls,
+        self,
         input_data: dict[str, Any],
         _tool_use_id: str | None,
         _context: Any,
@@ -825,19 +838,30 @@ class SessionManager:
         继承全部 env，agent 跑 ``env | grep`` 能看到变量名。通过
         ``env -u VAR ... sh -c '<cmd>'`` 把所有命中的变量名从 Bash subshell 中
         unset，原 command 经 ``shlex.quote`` 整体作为 sh 子壳的 -c 参数。
+
+        只返回 ``updatedInput``、不返回 ``permissionDecision``：PreToolUse hook
+        是权限链第 1 步，``allow`` 会短路后续所有步骤（包括 ``_can_use_tool``）。
+        sandbox 启用时 Bash 在 allowed_tools 内，包装后的命令由 allow 规则放行；
+        权限决策始终留给链上后续步骤。
+
+        sandbox 不可用（Windows 回退）时跳过包装：``env -u``/``sh -c`` 是 POSIX
+        机制，原生 Windows 不可执行；Bash 已从 allowed_tools 剥离，原始命令落到
+        ``_can_use_tool`` 做白名单匹配——若仍包装，命令以 ``env -u`` 开头会让
+        白名单永远匹配不上。
         """
         tool_input = input_data.get("tool_input") or {}
         command = tool_input.get("command")
         if not isinstance(command, str) or not command.strip():
             return {"continue_": True}
+        if not self._sandbox_enabled:
+            return {"continue_": True}
 
-        wrapped = f"{cls._env_scrub_wrap_prefix()}{shlex.quote(command)}"
+        wrapped = f"{self._env_scrub_wrap_prefix()}{shlex.quote(command)}"
         updated_input = {**tool_input, "command": wrapped}
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "updatedInput": updated_input,
-                "permissionDecision": "allow",
             },
         }
 
@@ -2132,18 +2156,26 @@ class SessionManager:
             },
         }
 
-    @staticmethod
-    def _build_protected_json_abs_paths(project_cwd: Path) -> list[str]:
+    @classmethod
+    def _build_protected_json_abs_paths(cls, project_cwd: Path) -> list[str]:
         """项目 JSON 写禁清单（绝对路径）：``scripts/`` 目录子树 + ``project.json``。
 
         与 ``_check_write_access`` 的内置 Write/Edit 拒绝同源（同两类路径），二者构成双层：
         sandbox denyWrite 管 Bash 子进程（内核级），``_check_write_access`` hook 管内置
         Write/Edit（权限系统，全平台）。
+
+        base 经 ``_enumerate_cwd_bases`` 同时枚举 raw + resolved 两种形式（与
+        ``_check_write_access`` 同口径）：sandbox 实现若按字符串路径比对而非 inode，
+        仅注册 raw 形式会在 Bash 子进程经 symlink 解析（macOS ``/var↔/private/var``、
+        Linux symlinked 项目根）后写 resolved 路径时失配。
         """
-        return [
-            str(project_cwd / "scripts"),
-            str(project_cwd / "project.json"),
-        ]
+        paths: list[str] = []
+        for base in cls._enumerate_cwd_bases(project_cwd):
+            for target in (base / "scripts", base / "project.json"):
+                target_s = str(target)
+                if target_s not in paths:
+                    paths.append(target_s)
+        return paths
 
     def _build_sensitive_abs_paths(self) -> list[str]:
         """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
@@ -2310,20 +2342,10 @@ class SessionManager:
         是 symlink 入口（macOS ``/var↔/private/var``、Linux symlinked 项目根）。仅用 raw base 拼
         protected 路径与 resolved target 字符串比对会失配 → bypass；同时枚举两种 base 保证同口径。
         """
-        # 一次性 resolve project_cwd 同时枚举 raw 与 resolved 形式的 base，避免 symlinked
+        # raw + resolved 两种形式的 base 由 _enumerate_cwd_bases 一次性枚举，避免 symlinked
         # project_cwd 下 is_relative_to / 受保护谓词因 base↔target 形式不一致漏判。bases 复用
         # 给下游 `_is_protected_project_json`,后者直接消费列表不再做第二次 resolve（消除冗余 lstat）。
-        bases: list[Path] = [project_cwd]
-        try:
-            resolved_cwd = project_cwd.resolve(strict=False)
-            if resolved_cwd != project_cwd:
-                bases.append(resolved_cwd)
-        except (OSError, RuntimeError) as exc:
-            # 静默 pass 会让"权限不足 / symlink 环路解析失败" 类 fs 异常吃掉,后续
-            # is_relative_to 用 raw base 与 caller 传入的 resolved target 比对可能漏判;
-            # 失败时 fail-closed（bases 仅含 raw,target 不在 raw 下时拒绝写入）仍是安全的,
-            # 但加 warning 让运维知道 base 解析失败,而非把诊断信号全部吞掉。
-            logger.warning("project_cwd 解析失败,write_access 检查降级为仅 raw base: %s (%s)", project_cwd, exc)
+        bases = self._enumerate_cwd_bases(project_cwd)
 
         if not any(resolved.is_relative_to(base) for base in bases):
             return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
@@ -2347,7 +2369,53 @@ class SessionManager:
         return True, None
 
     @staticmethod
-    def _is_protected_project_json(target: Path, bases: list[Path]) -> bool:
+    def _enumerate_cwd_bases(project_cwd: Path) -> list[Path]:
+        """raw + resolved 两种形式的 project_cwd base 列表。
+
+        ``project_cwd`` 可能是 symlink 入口（macOS ``/var↔/private/var``、Linux
+        symlinked 项目根），仅用 raw 形式拼路径与已 resolve 的 target 比对会失配。
+        ``_check_write_access``（hook 层）与 ``_build_protected_json_abs_paths``
+        （sandbox denyWrite）共用此枚举，保证两层路径基同口径。
+
+        resolve 失败时 fail-closed：bases 仅含 raw（hook 层 target 不在 raw 下时
+        拒绝写入仍安全），加 warning 保留诊断信号而非静默吞掉。
+        """
+        bases: list[Path] = [project_cwd]
+        try:
+            resolved_cwd = project_cwd.resolve(strict=False)
+            if resolved_cwd != project_cwd:
+                bases.append(resolved_cwd)
+        except (OSError, RuntimeError) as exc:
+            logger.warning("project_cwd 解析失败,路径围栏降级为仅 raw base: %s (%s)", project_cwd, exc)
+        return bases
+
+    @classmethod
+    def _normalize_path_for_protected_compare(cls, path: Path | str) -> str:
+        """把路径字符串归一化为受保护区比对用的统一键。
+
+        三步处理，覆盖三类形态漂移：
+
+        - Windows ``\\\\?\\`` 扩展长度前缀：``Path.resolve`` 在路径接近 MAX_PATH 或
+          UNC 共享时返回 ``\\\\?\\C:\\...`` / ``\\\\?\\UNC\\server\\...`` 形式，与常规
+          形式混入 bases 时 startswith 失配——剥成常规形式再比；
+        - ``unicodedata.normalize("NFC", ...)``：macOS HFS+ 按 NFD 存储文件名，
+          resolve 返回的 NFD 形式与 NFC 输入即使 casefold 后仍是不同字符串；
+        - ``os.path.normcase`` + ``casefold``：normcase 统一 Windows 分隔符
+          （``/``→``\\``，POSIX 上恒等）；casefold 承担大小写不敏感比较——
+          Windows NTFS / macOS APFS 默认卷大小写不敏感，``PROJECT.JSON`` 与
+          ``project.json`` 指向同一物理文件。Linux case-sensitive 卷上 agent
+          实际不会用大小写变体，偶尔 over-match 不破坏 fail-loud 语义。
+        """
+        s = str(path)
+        if s.startswith("\\\\?\\"):
+            rest = s[4:]
+            # \\?\UNC\server\share → \\server\share；\\?\C:\... → C:\...
+            s = "\\\\" + rest[4:] if rest[:4].casefold() == "unc\\" else rest
+        s = unicodedata.normalize("NFC", s)
+        return os.path.normcase(s).casefold()
+
+    @classmethod
+    def _is_protected_project_json(cls, target: Path, bases: list[Path]) -> bool:
         """命中受保护的项目 JSON（``scripts/`` 下任意 .json，或根 ``project.json``）。
 
         caller 应分别对「逻辑目标」（normpath 收敛 `.`/`..` 但不展开 symlink）和「resolve
@@ -2359,20 +2427,19 @@ class SessionManager:
         project_cwd 列表（同口径 raw/resolved 与 target 比对，避免 macOS ``/var↔/private/var``、
         Linux symlinked 项目根下漏判），本谓词消费现成 list 不再自行 resolve（消除冗余 lstat）。
 
-        路径用 ``casefold`` 后比较：Windows NTFS / macOS APFS 默认卷是大小写不敏感文件系统，
-        ``PROJECT.JSON`` 与 ``project.json`` 指向同一物理文件，但 ``Path`` 字符串比较 case-sensitive
-        会漏判这一类大小写变体绕过。Linux case-sensitive 卷上 agent 实际不会用大小写变体，
-        casefold 的偶尔 over-match 不会破坏 fail-loud 语义。
+        比对两侧都经 ``_normalize_path_for_protected_compare`` 归一化（NFC + normcase +
+        casefold + 剥 ``\\\\?\\`` 前缀），处理大小写、Unicode 归一化形式与 Windows
+        扩展长度前缀三类形态漂移。
 
         与 sandbox ``denyWrite`` 同源；此谓词覆盖内置 Write/Edit（权限系统，全平台），
         与 denyWrite（Bash 子进程，内核级）构成双层。
         """
-        target_s = str(target).casefold()
+        target_s = cls._normalize_path_for_protected_compare(target)
 
         for base in bases:
-            if target_s == str(base / "project.json").casefold():
+            if target_s == cls._normalize_path_for_protected_compare(base / "project.json"):
                 return True
-            scripts_dir = str(base / "scripts").casefold()
+            scripts_dir = cls._normalize_path_for_protected_compare(base / "scripts")
             # 拒绝 scripts/ 子树（含目录本身）：sandbox denyWrite 把整个 scripts/ 列入内核级 deny，
             # hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp / .md 会污染剧本
             # 目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
@@ -2465,7 +2532,7 @@ class SessionManager:
             # 落到这里走 _WINDOWS_BASH_PREFIX_WHITELIST 代码白名单。
             if not self._sandbox_enabled and tool_name == "Bash":
                 cmd = str((input_data or {}).get("command") or "").strip()
-                if cmd.startswith(self._WINDOWS_BASH_PREFIX_WHITELIST):
+                if self._is_bash_command_whitelisted(cmd):
                     return PermissionResultAllow(updated_input=input_data)
                 if PermissionResultDeny is not None:
                     return PermissionResultDeny(
@@ -2493,6 +2560,33 @@ class SessionManager:
         return _can_use_tool
 
     @classmethod
+    def _is_bash_command_whitelisted(cls, command: str) -> bool:
+        """Windows 回退（sandbox 不可用）的 Bash 命令白名单判定。
+
+        纯 startswith 前缀匹配有两类绕过：metachar 链（``ffmpeg ...; evil`` 整串
+        满足前缀，尾部命令照常执行，且 Windows 上无 sandbox denyWrite 兜底）与
+        命令名前缀碰撞（``ffmpegX`` 也以 ``ffmpeg`` 开头）。判定分两步：
+
+        1. 整串拒 shell metachar（``_BASH_METACHARS_RE``），挡链式/管道/重定向/
+           命令替换；
+        2. 整串拒 ``..`` 路径段（``_BASH_PATH_TRAVERSAL_RE``），挡
+           ``python .claude/skills/../../evil.py`` 逃出 skills 目录跑任意脚本；
+        3. 按 token 边界匹配 ``_WINDOWS_BASH_PREFIX_WHITELIST``：不含空格的前缀
+           （ffmpeg/ffprobe）要求命令名完全相等或后跟空格；含空格的前缀
+           （``python .claude/skills/``）空格已锚定命令名，路径段按前缀匹配。
+        """
+        cmd = command.strip()
+        if not cmd or cls._BASH_METACHARS_RE.search(cmd) or cls._BASH_PATH_TRAVERSAL_RE.search(cmd):
+            return False
+        for prefix in cls._WINDOWS_BASH_PREFIX_WHITELIST:
+            if " " in prefix:
+                if cmd.startswith(prefix):
+                    return True
+            elif cmd == prefix or cmd.startswith(prefix + " "):
+                return True
+        return False
+
+    @classmethod
     def _format_bash_whitelist_deny_message(cls, command: str) -> str:
         """Windows 回退 Bash 白名单拒绝文案。从 _WINDOWS_BASH_PREFIX_WHITELIST
         派生 allowed 列表，避免常量与文案双份漂移。"""
@@ -2501,6 +2595,8 @@ class SessionManager:
             f"未授权的 Bash 命令: {command[:200]}\n"
             "当前 Bash 白名单仅允许以下前缀:\n"
             f"{allowed_lines}\n"
+            "且命令不得包含 shell 元字符（; & | < > ` $ 或换行）或 .. 路径穿越——"
+            "复合命令请拆成多次独立调用，脚本路径不要用 .. 逃出目录。\n"
             "其他 Bash 命令在 Windows 回退模式下不可用。"
         )
 

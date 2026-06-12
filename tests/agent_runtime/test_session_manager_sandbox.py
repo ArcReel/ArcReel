@@ -269,11 +269,13 @@ def test_build_sensitive_abs_paths_honors_env_overrides(tmp_path: Path, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_bash_env_scrub_hook_wraps_command_with_env_unset() -> None:
-    """Bash PreToolUse hook 把 command 包装成 ``env -u ANTHROPIC_* sh -c '<orig>'``。"""
+async def test_bash_env_scrub_hook_wraps_command_with_env_unset(session_manager: SessionManager) -> None:
+    """POSIX（sandbox 启用）：command 包装成 ``env -u ANTHROPIC_* sh -c '<orig>'``，
+    且不返回 permissionDecision——PreToolUse hook 是权限链第 1 步，allow 会短路
+    后续所有步骤；包装后的命令应由 allowed_tools 的 Bash allow 规则放行。"""
     from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 
-    result = await SessionManager._bash_env_scrub_hook(
+    result = await session_manager._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "env | grep ANTHROPIC"}},
         None,
         None,
@@ -282,8 +284,8 @@ async def test_bash_env_scrub_hook_wraps_command_with_env_unset() -> None:
     out = result.get("hookSpecificOutput")
     assert out is not None
     assert out["hookEventName"] == "PreToolUse"
-    # updatedInput 必须配 permissionDecision=allow，否则修改后命令仍会触发权限询问（SDK hooks.md）
-    assert out["permissionDecision"] == "allow"
+    # 不携带权限决策，让权限链继续走到 allow 规则 / can_use_tool
+    assert "permissionDecision" not in out
     new_cmd = out["updatedInput"]["command"]
     # 每个 ANTHROPIC_* key 都被 unset
     for key in ANTHROPIC_ENV_KEYS:
@@ -294,9 +296,23 @@ async def test_bash_env_scrub_hook_wraps_command_with_env_unset() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bash_env_scrub_hook_handles_single_quotes() -> None:
+async def test_bash_env_scrub_hook_skips_wrap_when_sandbox_disabled(tmp_path: Path) -> None:
+    """Windows 回退：``env -u``/``sh -c`` 是 POSIX 机制，原生 Windows 不可执行；
+    hook 不包装也不给权限决策，原始命令落到 _can_use_tool 做白名单匹配
+    （包装后命令以 ``env -u`` 开头，会让白名单永远匹配不上）。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=False)
+    result = await sm._bash_env_scrub_hook(
+        {"tool_name": "Bash", "tool_input": {"command": "ffmpeg -i in.mp4 out.mp4"}},
+        None,
+        None,
+    )
+    assert result == {"continue_": True}
+
+
+@pytest.mark.asyncio
+async def test_bash_env_scrub_hook_handles_single_quotes(session_manager: SessionManager) -> None:
     """命令含单引号时不能破坏 shell 引号闭合。"""
-    result = await SessionManager._bash_env_scrub_hook(
+    result = await session_manager._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "echo 'hello world'"}},
         None,
         None,
@@ -307,9 +323,9 @@ async def test_bash_env_scrub_hook_handles_single_quotes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bash_env_scrub_hook_passthrough_when_no_command() -> None:
+async def test_bash_env_scrub_hook_passthrough_when_no_command(session_manager: SessionManager) -> None:
     """空 command 时直接放行，不做包装。"""
-    result = await SessionManager._bash_env_scrub_hook(
+    result = await session_manager._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {}},
         None,
         None,
@@ -391,6 +407,8 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
         ),
         ("ffmpeg -i in.mp4 out.mp4", "PermissionResultAllow"),
         ("ffprobe in.mp4", "PermissionResultAllow"),
+        # `..` 在文件名内部（非路径段）不触发穿越拦截，合法命令照常放行
+        ("ffmpeg -i my..clip.mp4 out.mp4", "PermissionResultAllow"),
         ("cat /etc/passwd", "PermissionResultDeny"),
         ("ls -la", "PermissionResultDeny"),
     ],
@@ -406,6 +424,40 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
         # deny 文案必须包含所有白名单 prefix（单一真相源）
         for prefix in SessionManager._WINDOWS_BASH_PREFIX_WHITELIST:
             assert prefix in result.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    [
+        # 白名单前缀 + metachar 链：尾部命令在 Windows 上无 sandbox denyWrite
+        # 兜底，可直写 protected JSON，必须整串拒
+        'python .claude/skills/manage-project/scripts/peek_split_point.py; python -c "evil"',
+        "ffmpeg -i in.mp4 out.mp4 && python -c \"open('project.json','w')\"",
+        "ffprobe in.mp4 | tee scripts/episode_1.json",
+        "ffmpeg -i in.mp4 $(evil) out.mp4",
+        "ffmpeg -i in.mp4 `evil` out.mp4",
+        "ffmpeg -i in.mp4 -f json > scripts/episode_1.json",
+        "ffprobe < secret.txt",
+        "ffmpeg -i in.mp4 out.mp4\npython -c evil",
+        # 命令名前缀碰撞：ffmpegX 以 ffmpeg 开头但不是 ffmpeg
+        "ffmpegX --evil",
+        "ffprobe2 in.mp4",
+        # 路径穿越：满足 python .claude/skills/ 前缀且不含 metachar，但 .. 逃出
+        # skills 目录跑任意脚本——Windows 回退无 sandbox 兜底，必须拒
+        "python .claude/skills/../../../tmp/evil.py",
+        "python .claude/skills/../../arcreel_secrets_dumper.py",
+        "ffmpeg -i ../../other_project/secret.mp4 out.mp4",
+    ],
+)
+async def test_windows_bash_whitelist_blocks_metachar_chains(tmp_path: Path, command: str) -> None:
+    """白名单前缀 + shell metachar（; && | $() ` 重定向 换行）的复合命令必须拒；
+    命令名按 token 边界匹配，挡 ffmpegX 这类前缀碰撞；.. 路径穿越整串拒。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=False)
+    callback = await sm._build_can_use_tool_callback("test_sid", [None])
+    result = await callback("Bash", {"command": command}, None)
+    assert type(result).__name__ == "PermissionResultDeny"
+    assert "Bash 白名单" in result.message
 
 
 @pytest.mark.asyncio
