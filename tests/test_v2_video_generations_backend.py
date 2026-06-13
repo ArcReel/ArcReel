@@ -38,6 +38,8 @@ def _make_response(status_code: int, json_body: dict) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.json.return_value = json_body
+    # 真字符串而非 MagicMock：submit_post 在 >=400 时记 resp.text[:500]，让该日志切片走真实 str 路径。
+    resp.text = str(json_body)
     resp.raise_for_status = MagicMock()
     return resp
 
