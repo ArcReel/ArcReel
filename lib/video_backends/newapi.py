@@ -32,6 +32,7 @@ from lib.video_backends.base import (
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
+    submit_post,
 )
 
 logger = logging.getLogger(__name__)
@@ -211,12 +212,14 @@ class NewAPIVideoBackend:
         retry_if=should_retry_submit,
     )
     async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
-        resp = await client.post(
-            f"{self._base_url}/video/generations",
-            json=payload,
-            headers=self._headers(),
+        resp = await submit_post(
+            lambda: client.post(
+                f"{self._base_url}/video/generations",
+                json=payload,
+                headers=self._headers(),
+            ),
+            provider=PROVIDER_NEWAPI,
         )
-        resp.raise_for_status()
         body = resp.json()
         task_id = body.get("task_id")
         if not task_id:

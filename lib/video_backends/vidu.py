@@ -22,6 +22,8 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     poll_with_retry,
+    should_retry_submit,
+    submit_post,
 )
 from lib.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
@@ -336,7 +338,7 @@ class ViduVideoBackend:
 
     # ── HTTP wrappers ───────────────────────────────────────────────────
 
-    @with_retry_async(retryable_errors=VIDU_RETRYABLE_ERRORS)
+    @with_retry_async(retry_if=should_retry_submit)
     async def _create_task(self, client, endpoint: str, body: dict) -> dict:
         assert_vidu_body_size(body)
         logger.info(
@@ -344,12 +346,12 @@ class ViduVideoBackend:
             endpoint,
             format_kwargs_for_log(safe_body_for_log(body)),
         )
-        resp = await client.post(endpoint, json=body)
-        if resp.status_code >= 400:
-            # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code，
-            # 让咽喉层能识别 413 走降档重试；body 先落日志保留可诊断性。
-            logger.warning("Vidu 视频接口 %s 返回 %s: %s", endpoint, resp.status_code, resp.text[:500])
-            resp.raise_for_status()
+        # create 是非幂等的「创建 + 计费」调用：submit_post 把歧义态（ReadTimeout 等
+        # 「请求可能已送达服务端」）转 AmbiguousSubmitError 终态失败、不重试，仅「请求确定
+        # 未送达」的连接建立失败交 should_retry_submit 重试，避免重复建任务 + 重复计费。
+        # 413 等 4xx 经 raise_for_status 透出 httpx.HTTPStatusError（保留 status_code），
+        # 让咽喉层识别 413 走降档重试；body 由 submit_post 落日志保留可诊断性。
+        resp = await submit_post(lambda: client.post(endpoint, json=body), provider=PROVIDER_VIDU)
         data = resp.json()
         if not data.get("task_id"):
             raise RuntimeError(f"Vidu 视频任务创建响应缺少 task_id: {data}")

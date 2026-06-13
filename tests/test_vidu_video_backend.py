@@ -298,3 +298,46 @@ class TestCreateTask413:
         assert ei.value.response.status_code == 413
         # 413 非 retryable → fail-fast 单次
         assert client.post.call_count == 1
+
+
+class TestCreateTaskAmbiguity:
+    """create 阶段按「请求是否确定送达」收窄重试，避免重复建任务 + 重复计费。"""
+
+    async def test_read_timeout_fails_fast_with_manual_retry_hint(self):
+        from unittest.mock import AsyncMock
+
+        import httpx
+
+        from lib.video_backends.base import AmbiguousSubmitError
+
+        client = AsyncMock()
+        client.post = AsyncMock(side_effect=httpx.ReadTimeout("read timed out"))
+
+        backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
+        with (
+            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            pytest.raises(AmbiguousSubmitError, match="手动重试"),
+        ):
+            await backend._create_task(client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8})
+        # 歧义态：请求可能已送达，不重试
+        assert client.post.call_count == 1
+
+    async def test_connect_error_retries(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        import httpx
+
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"task_id": "vidu-conn"}
+        client = AsyncMock()
+        client.post = AsyncMock(side_effect=[httpx.ConnectError("refused"), httpx.ConnectError("refused"), ok])
+
+        backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
+        with patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0):
+            data = await backend._create_task(
+                client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8}
+            )
+        assert data["task_id"] == "vidu-conn"
+        # ConnectError 请求确定未送达，应重试
+        assert client.post.call_count == 3

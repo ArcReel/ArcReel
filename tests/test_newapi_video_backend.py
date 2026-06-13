@@ -439,6 +439,96 @@ class TestNewAPIVideoBackend:
 
         assert mock_client.post.call_count == 1, "确定性 4xx 不该被 retry"
 
+    async def test_create_read_timeout_fails_fast_with_manual_retry_hint(self, tmp_path: Path):
+        """create 阶段 ReadTimeout（请求可能已送达）→ 不重试、单次失败、错误信息含手动重试提示。"""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx.ReadTimeout("read timed out"))
+        mock_client.get = AsyncMock(side_effect=AssertionError("歧义态应在创建阶段失败，不该轮询"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+        ):
+            from lib.video_backends.base import AmbiguousSubmitError
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            with pytest.raises(AmbiguousSubmitError, match="手动重试"):
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                    )
+                )
+
+        assert mock_client.post.call_count == 1, "歧义态不该被 retry"
+
+    async def test_create_connect_error_retries(self, tmp_path: Path):
+        """create 阶段 ConnectError（请求确定未送达）→ 重试，第三次成功。"""
+        create_resp = _make_response(200, {"task_id": "t-conn", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {"task_id": "t-conn", "status": "completed", "url": "https://cdn/v.mp4", "metadata": {"duration": 5}},
+        )
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            side_effect=[httpx.ConnectError("refused"), httpx.ConnectError("refused"), create_resp]
+        )
+        mock_client.get = AsyncMock(return_value=poll_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        assert result.task_id == "t-conn"
+        assert mock_client.post.call_count == 3, "ConnectError 请求确定未送达，应重试"
+
+    async def test_poll_read_timeout_retries(self, tmp_path: Path):
+        """poll 阶段 ReadTimeout（幂等 GET）→ 重试，不回归。"""
+        create_resp = _make_response(200, {"task_id": "t-pr", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {"task_id": "t-pr", "status": "completed", "url": "https://cdn/v.mp4", "metadata": {"duration": 5}},
+        )
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_resp)
+        mock_client.get = AsyncMock(side_effect=[httpx.ReadTimeout("read timed out"), poll_resp])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        assert result.task_id == "t-pr"
+        assert mock_client.get.call_count == 2, "poll 网络超时应重试"
+
     async def test_poll_non_retryable_4xx_fails_fast(self, tmp_path: Path):
         """轮询遇确定性 4xx（401，如 token 失效）应一次失败，不重试到 max_wait 超时。"""
         create_resp = _make_response(200, {"task_id": "t-401", "status": "queued"})

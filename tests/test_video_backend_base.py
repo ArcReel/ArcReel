@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib.video_backends.base import (
+    AmbiguousSubmitError,
     ResumeExpiredError,
     VideoCapability,
     VideoGenerationRequest,
@@ -17,6 +18,7 @@ from lib.video_backends.base import (
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
+    submit_post,
 )
 
 
@@ -269,7 +271,11 @@ class TestIsRetryableHttpStatus:
 
 
 class TestRetryPredicates:
-    """should_retry_submit / should_retry_poll 中转视频后端统一重试谓词。"""
+    """should_retry_submit / should_retry_poll 中转视频后端重试谓词。
+
+    submit 是非幂等的「创建 + 计费」：传输错误只重试「请求确定未送达」的子集；
+    poll 是幂等 GET：传输错误一律重试。
+    """
 
     def test_deterministic_4xx_fail_fast(self):
         for code in (400, 401, 403, 422):
@@ -283,15 +289,49 @@ class TestRetryPredicates:
         assert should_retry_poll(err) is True
 
     def test_transient_http_retries(self):
-        for code in (408, 429, 500, 503):
+        for code in (408, 425, 429, 500, 503):
             err = _http_status_error(code)
             assert should_retry_submit(err) is True
             assert should_retry_poll(err) is True
 
-    def test_network_and_base_errors_retry(self):
-        for exc in (httpx.ConnectError("refused"), ConnectionError(), TimeoutError()):
+    def test_submit_retries_only_not_sent_transport_errors(self):
+        # 连接建立失败 / 从未取得连接 → 请求确定未送达 → submit 重试安全。
+        for exc in (
+            httpx.ConnectError("refused"),
+            httpx.ConnectTimeout("connect timed out"),
+            httpx.PoolTimeout("pool exhausted"),
+        ):
             assert should_retry_submit(exc) is True
+
+    def test_submit_does_not_retry_ambiguous_transport_errors(self):
+        # 请求可能已送达服务端（已建任务 / 已计费）→ submit 不重试，避免重复计费。
+        # 这些错误在 create 路径由 submit_post 转成 AmbiguousSubmitError 终态失败。
+        for exc in (
+            httpx.ReadTimeout("read timed out"),
+            httpx.WriteTimeout("write timed out"),
+            httpx.ReadError("conn reset mid-read"),
+            httpx.WriteError("conn reset mid-write"),
+            httpx.RemoteProtocolError("server disconnected"),
+            ConnectionError(),  # 内建：歧义，不重试
+            TimeoutError(),  # 内建：歧义，不重试
+        ):
+            assert should_retry_submit(exc) is False
+
+    def test_poll_retries_all_transport_errors(self):
+        # 幂等 GET：连接建立失败与读/写阶段错误一律重试。
+        for exc in (
+            httpx.ConnectError("refused"),
+            httpx.ReadTimeout("read timed out"),
+            httpx.RemoteProtocolError("server disconnected"),
+            ConnectionError(),
+            TimeoutError(),
+        ):
             assert should_retry_poll(exc) is True
+
+    def test_ambiguous_submit_error_never_retries(self):
+        # AmbiguousSubmitError 是终态：被装饰器捕获后谓词须返回 False，不再重试。
+        assert should_retry_submit(AmbiguousSubmitError(provider="v2")) is False
+        assert should_retry_poll(AmbiguousSubmitError(provider="v2")) is False
 
     def test_business_exceptions_fail_fast(self):
         # ResumeExpiredError 的 job_id 含 "503" 子串：旧字符串兜底会误判重试，新谓词不会。
@@ -301,6 +341,49 @@ class TestRetryPredicates:
         # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
         assert should_retry_poll(ValueError("503 in message")) is False
         assert should_retry_submit(RuntimeError("got 500 somewhere")) is False
+
+
+class TestSubmitPost:
+    """submit_post：create/提交阶段按「请求是否确定送达」给失败分流。"""
+
+    async def test_returns_response_on_success(self):
+        resp = httpx.Response(200, request=httpx.Request("POST", "https://x/v2"), json={"id": "ok"})
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        assert await submit_post(_post, provider="v2") is resp
+
+    async def test_not_sent_error_propagates_for_retry(self):
+        # 连接建立失败原样抛出，交 should_retry_submit 重试（不包成终态）。
+        async def _post() -> httpx.Response:
+            raise httpx.ConnectError("refused")
+
+        with pytest.raises(httpx.ConnectError):
+            await submit_post(_post, provider="v2")
+
+    async def test_ambiguous_error_wrapped_with_manual_retry_hint(self):
+        # ReadTimeout（请求可能已送达）包成 AmbiguousSubmitError，消息含手动重试提示。
+        async def _post() -> httpx.Response:
+            raise httpx.ReadTimeout("read timed out")
+
+        with pytest.raises(AmbiguousSubmitError) as excinfo:
+            await submit_post(_post, provider="newapi")
+        msg = str(excinfo.value)
+        assert "[create_ambiguous]" in msg
+        assert "手动重试" in msg
+        assert isinstance(excinfo.value.__cause__, httpx.ReadTimeout)
+
+    async def test_http_status_error_propagates_for_status_gate(self):
+        # >=400 响应经 raise_for_status 抛 HTTPStatusError，交 should_retry_submit 按 status_code 分流。
+        request = httpx.Request("POST", "https://x/v2")
+        resp = httpx.Response(503, request=request, text="upstream busy")
+
+        async def _post() -> httpx.Response:
+            return resp
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await submit_post(_post, provider="v2")
 
 
 def _make_operational_error(msg: str) -> OperationalError:
