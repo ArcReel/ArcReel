@@ -141,13 +141,14 @@ def is_retryable_http_status(status_code: int, *, retry_not_found: bool = False)
     return False
 
 
-# httpx 传输错误中「请求确定未送达」的子集：连接建立阶段失败或从未取得连接。
+# httpx 传输错误中「请求确定未送达」的子集：连接建立阶段失败 / 从未取得连接 / 代理握手失败。
 # 重试安全——服务端不可能已建任务 / 已计费。读/写阶段及之后的传输错误（ReadTimeout、
 # WriteError、连接中途断开、RemoteProtocolError 等）请求可能已抵达服务端，归歧义态，不在此列。
 _NOT_SENT_TRANSPORT_ERRORS: tuple[type[Exception], ...] = (
     httpx.ConnectError,
     httpx.ConnectTimeout,
     httpx.PoolTimeout,
+    httpx.ProxyError,  # 代理连接/握手失败：请求从未离开客户端→代理段，未抵达目标供应商
 )
 
 # 请求字节发出前就确定失败的本地/协议错误：URL scheme 不受支持（UnsupportedProtocol）
@@ -184,7 +185,7 @@ def should_retry_submit(exc: Exception) -> bool:
     """创建/提交阶段（非幂等「创建 + 计费」POST）重试谓词。
 
     与 ``should_retry_poll`` 的关键区别：传输错误只重试「请求确定未送达」的子集
-    （``_NOT_SENT_TRANSPORT_ERRORS``：连接建立失败 / 从未取得连接），重试不会重复建
+    （``_NOT_SENT_TRANSPORT_ERRORS``：连接建立失败 / 从未取得连接 / 代理握手失败），重试不会重复建
     任务、不会重复计费。歧义态（ReadTimeout 等「请求可能已被服务端处理」）由
     ``submit_post`` 包成 ``AmbiguousSubmitError`` 终态失败，本谓词对其（及一切业务异常）
     返回 False。HTTPStatusError 按 status_code 显式闸门：5xx/408/425/429 重试（服务端
@@ -219,8 +220,8 @@ async def submit_post(
 ) -> httpx.Response:
     """create/提交阶段（非幂等 POST）统一包装：按「请求是否确定送达」给失败分流。
 
-    - 连接建立失败（ConnectError/ConnectTimeout/PoolTimeout）：请求确定未送达 → 原样抛出，
-      交 ``should_retry_submit`` 重试。
+    - 连接/代理建立失败（ConnectError/ConnectTimeout/PoolTimeout/ProxyError）：请求确定未送达
+      → 原样抛出，交 ``should_retry_submit`` 重试。
     - 本地/协议错误（UnsupportedProtocol/LocalProtocolError）：请求发出前就确定失败、无计费
       风险 → 原样抛出，由 ``should_retry_submit`` 快速失败（非歧义态，不套「请求可能已送达」）。
     - 其余传输错误（ReadTimeout/WriteError/RemoteProtocolError 等）：请求可能已被服务端

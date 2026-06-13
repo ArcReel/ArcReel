@@ -295,11 +295,12 @@ class TestRetryPredicates:
             assert should_retry_poll(err) is True
 
     def test_submit_retries_only_not_sent_transport_errors(self):
-        # 连接建立失败 / 从未取得连接 → 请求确定未送达 → submit 重试安全。
+        # 连接建立失败 / 从未取得连接 / 代理握手失败 → 请求确定未送达 → submit 重试安全。
         for exc in (
             httpx.ConnectError("refused"),
             httpx.ConnectTimeout("connect timed out"),
             httpx.PoolTimeout("pool exhausted"),
+            httpx.ProxyError("proxy handshake failed"),
         ):
             assert should_retry_submit(exc) is True
 
@@ -372,12 +373,14 @@ class TestSubmitPost:
         assert await submit_post(_post, provider="v2") is resp
 
     async def test_not_sent_error_propagates_for_retry(self):
-        # 连接建立失败原样抛出，交 should_retry_submit 重试（不包成终态）。
-        async def _post() -> httpx.Response:
-            raise httpx.ConnectError("refused")
+        # 连接建立失败 / 代理握手失败原样抛出，交 should_retry_submit 重试（不包成终态）。
+        for exc in (httpx.ConnectError("refused"), httpx.ProxyError("proxy handshake failed")):
 
-        with pytest.raises(httpx.ConnectError):
-            await submit_post(_post, provider="v2")
+            async def _post(_exc: httpx.RequestError = exc) -> httpx.Response:
+                raise _exc
+
+            with pytest.raises(type(exc)):
+                await submit_post(_post, provider="v2")
 
     async def test_local_protocol_error_propagates_raw_not_ambiguous(self):
         # 本地/协议错误请求发出前就失败、无计费风险 → 原样抛出，不包成 AmbiguousSubmitError
