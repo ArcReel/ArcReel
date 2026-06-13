@@ -391,6 +391,7 @@ export default {
   'video_task_submitted_toast': '已提交视频 "{{id}}" 生成任务',
   'generate_video_failed': '生成视频失败: {{message}}',
   'narration_task_submitted_toast': '已提交旁白 "{{id}}" 生成任务',
+  'script_generation_notice_toast': '正在生成剧本，这一步耗时较长，请耐心等待…',
   'narration_batch_submitted_toast': '已提交 {{count}} 个旁白生成任务',
   'narration_batch_none_missing_toast': '所有分镜均已生成旁白',
   'generate_narration_failed': '生成旁白失败: {{message}}',

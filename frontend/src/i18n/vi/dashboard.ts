@@ -380,6 +380,7 @@ export default {
   'video_task_submitted_toast': 'Đã gửi tác vụ tạo video cho "{{id}}"',
   'generate_video_failed': 'Tạo video thất bại: {{message}}',
   'narration_task_submitted_toast': 'Đã gửi tác vụ tạo thuyết minh cho "{{id}}"',
+  'script_generation_notice_toast': 'Đang tạo kịch bản — bước này mất khá lâu, vui lòng đợi…',
   'narration_batch_submitted_toast': 'Đã gửi {{count}} tác vụ tạo thuyết minh',
   'narration_batch_none_missing_toast': 'Tất cả phân cảnh đã có thuyết minh',
   'generate_narration_failed': 'Tạo thuyết minh thất bại: {{message}}',

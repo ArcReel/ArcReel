@@ -9,6 +9,7 @@ import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { TaskFailureListener } from "./TaskFailureListener";
+import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   ASSISTANT_PANEL_DEFAULT_WIDTH,
@@ -147,6 +148,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       style={{ color: "var(--color-text)" }}
     >
       <TaskFailureListener projectName={currentProjectName} />
+      <ScriptGenerationNoticeListener />
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
       <div className="flex flex-1 overflow-hidden">
         <AssetSidebar />
