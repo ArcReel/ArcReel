@@ -318,7 +318,7 @@ class TestOrphanAudioRestartLost:
             capacity=CapacityTable(_limits={}, _defaults={"image": 5, "video": 3, "audio": 10}),
         )
         await w._handle_orphan_tasks_on_start()
-        assert q.failed == [("A1", "[restart_lost] audio 任务无法接续，需手动重试以避免重复计费")]
+        assert q.failed == [("A1", "[restart_lost_audio]")]
         assert q.cancelled == []
 
 

@@ -31,6 +31,7 @@ from lib.generation_queue import (
     GenerationQueue,
     get_generation_queue,
 )
+from lib.task_failure import encode_failure
 
 # Default provider used when a task payload does not specify one.
 DEFAULT_PROVIDER = "gemini-aistudio"
@@ -506,7 +507,11 @@ class GenerationWorker:
                     )
                     await self.queue.mark_task_failed(
                         task["task_id"],
-                        f"供应商 {provider_id} 不支持 {media_type} 生成",
+                        encode_failure(
+                            "provider_unsupported_media",
+                            provider_id=provider_id,
+                            media_type=media_type,
+                        ),
                     )
                     claimed_any = True
                     continue
@@ -672,7 +677,7 @@ class GenerationWorker:
         if not job_id:
             # 防御：本不该被派发到这里（_handle_orphan_tasks_on_start 已 mark_failed [restart_lost]）
             rows = await asyncio.shield(
-                self.queue.mark_task_failed(task_id, "[restart_lost] 无 provider_job_id 但被派发到 resume")
+                self.queue.mark_task_failed(task_id, encode_failure("restart_lost_resume_no_job_id"))
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
@@ -710,13 +715,17 @@ class GenerationWorker:
             raise
         except NotImplementedError as exc:
             logger.warning("resume 不支持 task %s: %s", task_id, exc)
-            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, f"[resume_unsupported] {exc}"))
+            rows = await asyncio.shield(
+                self.queue.mark_task_failed(task_id, encode_failure("resume_unsupported_detail", detail=str(exc)))
+            )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             return
         except ResumeExpiredError as exc:
             logger.warning("resume 已过期 task %s: %s", task_id, exc)
-            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, f"[resume_expired] {exc}"))
+            rows = await asyncio.shield(
+                self.queue.mark_task_failed(task_id, encode_failure("resume_expired_detail", detail=str(exc)))
+            )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             return
@@ -825,7 +834,7 @@ class GenerationWorker:
                 logger.warning("孤儿 image running → [restart_lost]: %s", task_id)
                 rows = await self.queue.mark_task_failed(
                     task_id,
-                    "[restart_lost] image 任务无法接续，需手动重试以避免重复计费",
+                    encode_failure("restart_lost_image"),
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
@@ -837,7 +846,7 @@ class GenerationWorker:
                 logger.warning("孤儿 audio running → [restart_lost]: %s", task_id)
                 rows = await self.queue.mark_task_failed(
                     task_id,
-                    "[restart_lost] audio 任务无法接续，需手动重试以避免重复计费",
+                    encode_failure("restart_lost_audio"),
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
@@ -858,7 +867,7 @@ class GenerationWorker:
                 )
                 rows = await self.queue.mark_task_failed(
                     task_id,
-                    f"[resume_unsupported] provider={provider_id} 不支持接续，需手动重试以避免重复计费",
+                    encode_failure("resume_unsupported_provider", provider_id=provider_id),
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
@@ -867,9 +876,7 @@ class GenerationWorker:
             job_id = task.get("provider_job_id")
             if not job_id:
                 logger.warning("孤儿 running 无 job_id → [restart_lost]: %s", task_id)
-                rows = await self.queue.mark_task_failed(
-                    task_id, "[restart_lost] worker 重启时未持久化 provider_job_id"
-                )
+                rows = await self.queue.mark_task_failed(task_id, encode_failure("restart_lost_no_job_id"))
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
                 continue
@@ -959,7 +966,7 @@ class GenerationWorker:
             for t in tasks:
                 rows = await self.queue.mark_task_failed(
                     t["task_id"],
-                    f"[resume_unsupported] provider {provider_id} video 容量为 0",
+                    encode_failure("resume_unsupported_capacity_zero", provider_id=provider_id),
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(t["task_id"], cancelled_by="user")

@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -16,6 +17,7 @@ from lib.generation_queue import (
     read_queue_poll_interval,
 )
 from lib.i18n import Translator
+from lib.task_failure import render_failure
 from server.auth import CurrentUser, CurrentUserFlexible
 
 router = APIRouter()
@@ -23,6 +25,17 @@ router = APIRouter()
 
 def get_task_queue():
     return get_generation_queue()
+
+
+def _localize_task_error(task: dict[str, Any], translate: Callable[..., str]) -> None:
+    """Render a task's stored failure reason for the request locale, in place.
+
+    Known structured codes become localized text; raw exception text and legacy
+    rows pass through unchanged (see ``lib.task_failure.render_failure``).
+    """
+    message = task.get("error_message")
+    if message:
+        task["error_message"] = render_failure(message, translate)
 
 
 def _utc_now_iso() -> str:
@@ -63,6 +76,7 @@ async def get_task_stats(_user: CurrentUser, project_name: str | None = None):
 @router.get("/tasks")
 async def list_tasks(
     _user: CurrentUser,
+    _t: Translator,
     project_name: str | None = None,
     status: str | None = None,
     task_type: str | None = None,
@@ -71,7 +85,7 @@ async def list_tasks(
     page_size: int = Query(default=50, ge=1, le=500),
 ):
     queue = get_task_queue()
-    return await queue.list_tasks(
+    result = await queue.list_tasks(
         project_name=project_name,
         status=status,
         task_type=task_type,
@@ -79,12 +93,16 @@ async def list_tasks(
         page=page,
         page_size=page_size,
     )
+    for task in result.get("items", []):
+        _localize_task_error(task, _t)
+    return result
 
 
 @router.get("/projects/{project_name}/tasks")
 async def list_project_tasks(
     project_name: str,
     _user: CurrentUser,
+    _t: Translator,
     status: str | None = None,
     task_type: str | None = None,
     source: str | None = None,
@@ -92,7 +110,7 @@ async def list_project_tasks(
     page_size: int = Query(default=50, ge=1, le=500),
 ):
     queue = get_task_queue()
-    return await queue.list_tasks(
+    result = await queue.list_tasks(
         project_name=project_name,
         status=status,
         task_type=task_type,
@@ -100,6 +118,9 @@ async def list_project_tasks(
         page=page,
         page_size=page_size,
     )
+    for task in result.get("items", []):
+        _localize_task_error(task, _t)
+    return result
 
 
 @router.get("/tasks/stream", response_class=EventSourceResponse, deprecated=True)
@@ -200,4 +221,5 @@ async def get_task(
     task = await queue.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=_t("task_not_found", id=task_id))
+    _localize_task_error(task, _t)
     return {"task": task}

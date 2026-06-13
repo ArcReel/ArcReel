@@ -669,7 +669,7 @@ class TestGenerationWorker:
         worker = GenerationWorker(queue=queue)
         await worker._handle_orphan_tasks_on_start()
         assert queue.failed and queue.failed[0][0] == "orphan-lost"
-        assert "[restart_lost]" in queue.failed[0][1]
+        assert "[restart_lost_no_job_id]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
     async def test_start_stop_run_loop_releases_lease(self):
@@ -808,7 +808,7 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
         assert requeued == []
         assert queue.failed and queue.failed[0][0] == "img-orphan"
-        assert "[restart_lost]" in queue.failed[0][1]
+        assert "[restart_lost_image]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
     async def test_handle_orphan_non_resumable_video_marks_resume_unsupported(self, monkeypatch):
@@ -838,7 +838,7 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
         assert requeued == []
         assert queue.failed and queue.failed[0][0] == "grok-orphan"
-        assert "[resume_unsupported]" in queue.failed[0][1]
+        assert "[resume_unsupported_provider]" in queue.failed[0][1]
         assert PROVIDER_GROK in queue.failed[0][1]
 
     @pytest.mark.asyncio
@@ -919,7 +919,7 @@ class TestGenerationWorker:
         assert requeued == []
         assert resume_dispatched == []
         assert queue.failed and queue.failed[0][0] == "ghost-orphan"
-        assert "[resume_unsupported]" in queue.failed[0][1]
+        assert "[resume_unsupported_provider]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
     async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch):
@@ -1187,7 +1187,7 @@ class TestGenerationWorker:
         }
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "exp"
-        assert "[resume_expired]" in queue.failed[0][1]
+        assert "[resume_expired_detail]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
     async def test_process_resume_task_resume_unsupported(self, monkeypatch):
@@ -1210,7 +1210,7 @@ class TestGenerationWorker:
         }
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "uns"
-        assert "[resume_unsupported]" in queue.failed[0][1]
+        assert "[resume_unsupported_detail]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
     async def test_process_resume_task_generic_exception(self, monkeypatch):
@@ -1274,7 +1274,7 @@ class TestGenerationWorker:
         }
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "no-job"
-        assert "[restart_lost]" in queue.failed[0][1]
+        assert "[restart_lost_resume_no_job_id]" in queue.failed[0][1]
 
 
 class TestDispatcherFailFastAndPendingTracking:
@@ -1295,7 +1295,7 @@ class TestDispatcherFailFastAndPendingTracking:
         await worker._dispatch_provider_bucket("ark", tasks)
 
         assert {tid for tid, _ in queue.failed} == {"orphan-0", "orphan-1", "orphan-2"}
-        assert all("[resume_unsupported]" in msg for _, msg in queue.failed)
+        assert all("[resume_unsupported_capacity_zero]" in msg for _, msg in queue.failed)
 
     @pytest.mark.asyncio
     async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch):
