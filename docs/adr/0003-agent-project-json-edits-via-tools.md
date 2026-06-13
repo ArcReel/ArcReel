@@ -48,7 +48,7 @@ PR #608 在 ADR-0002「不更坏」基础上落地了本 ADR 的工具收归,但
 
 | caller | 判别依据 | partial migration 下的表现 |
 |---|---|---|
-| `enqueue_videos.py::_is_reference_script` | `generation_mode == "reference_video"` | 走 reference 分支读空的 `video_units`,抛 `ValueError("video_units 为空")` |
+| `enqueue_videos.py::_is_reference_script` | `generation_mode == "reference_video"` | 走 reference 分支读空的 `video_units`,抛 `ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")` |
 | `storyboard_sequence.py::get_storyboard_items` | `generation_mode == "reference_video"` 时早返回 `[]` | storyboard / grid / cost_estimation 看到空集,UI 报「无任务可生成」 |
 | `status_calculator.py::_select_content_mode_and_items` | `generation_mode == "reference_video"` 时取 `video_units` | progress / scene 数算成 0,前端显示「项目空了」 |
 
