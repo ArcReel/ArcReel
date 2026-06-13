@@ -27,15 +27,18 @@ def get_task_queue():
     return get_generation_queue()
 
 
-def _localize_task_error(task: dict[str, Any], translate: Callable[..., str]) -> None:
-    """Render a task's stored failure reason for the request locale, in place.
+def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[str, Any]:
+    """Return ``task`` with its stored failure reason rendered for the request locale.
 
     Known structured codes become localized text; raw exception text and legacy
-    rows pass through unchanged (see ``lib.task_failure.render_failure``).
+    rows pass through unchanged (see ``lib.task_failure.render_failure``). The input
+    dict is never mutated — a rendered copy is returned — so dicts owned by the queue
+    layer stay locale-neutral and cannot be polluted across requests.
     """
     message = task.get("error_message")
-    if message:
-        task["error_message"] = render_failure(message, translate)
+    if not message:
+        return task
+    return {**task, "error_message": render_failure(message, translate)}
 
 
 def _utc_now_iso() -> str:
@@ -93,8 +96,7 @@ async def list_tasks(
         page=page,
         page_size=page_size,
     )
-    for task in result.get("items", []):
-        _localize_task_error(task, _t)
+    result["items"] = [_localize_task(task, _t) for task in result.get("items", [])]
     return result
 
 
@@ -118,8 +120,7 @@ async def list_project_tasks(
         page=page,
         page_size=page_size,
     )
-    for task in result.get("items", []):
-        _localize_task_error(task, _t)
+    result["items"] = [_localize_task(task, _t) for task in result.get("items", [])]
     return result
 
 
@@ -221,5 +222,4 @@ async def get_task(
     task = await queue.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=_t("task_not_found", id=task_id))
-    _localize_task_error(task, _t)
-    return {"task": task}
+    return {"task": _localize_task(task, _t)}
