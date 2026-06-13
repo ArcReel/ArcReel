@@ -150,6 +150,15 @@ _NOT_SENT_TRANSPORT_ERRORS: tuple[type[Exception], ...] = (
     httpx.PoolTimeout,
 )
 
+# 请求字节发出前就确定失败的本地/协议错误：URL scheme 不受支持（UnsupportedProtocol）
+# 或本地请求构造违反协议（LocalProtocolError）。二者既无重复计费风险，重试到 max_wait
+# 也不会变好——poll 路径快速失败、submit 路径原样抛出（非歧义态，不套「请求可能已送达」）。
+# 注意 RemoteProtocolError 是其同级 ProtocolError 子类，但属「服务端中途断开」，不在此列。
+_NON_RETRYABLE_LOCAL_ERRORS: tuple[type[Exception], ...] = (
+    httpx.LocalProtocolError,
+    httpx.UnsupportedProtocol,
+)
+
 
 class AmbiguousSubmitError(RuntimeError):
     """create/submit（非幂等的「创建 + 计费」）阶段的歧义态失败。
@@ -189,13 +198,17 @@ def should_retry_submit(exc: Exception) -> bool:
 def should_retry_poll(exc: Exception) -> bool:
     """轮询/下载阶段（幂等 GET）重试谓词。
 
-    幂等查询重试无副作用，故传输/网络错误（RequestError）与基础瞬态错误一律重试；
-    HTTPStatusError 按 status_code 闸门，404 视为"任务提交后短暂未就绪 / 资源未传播"重试。
-    HTTPStatusError 消息含 URL/task_id，其中 "500"/"503" 子串会被字符串兜底误判，故走
-    显式 status_code 判定绕开；ResumeExpiredError 等业务异常一律快速失败。
+    幂等查询重试无副作用，故传输/网络错误（RequestError）与基础瞬态错误一律重试；唯本地/
+    协议错误（``_NON_RETRYABLE_LOCAL_ERRORS``：UnsupportedProtocol / LocalProtocolError）在
+    请求发出前就确定失败，重试到 max_wait 也不会变好，快速失败。HTTPStatusError 按
+    status_code 闸门，404 视为"任务提交后短暂未就绪 / 资源未传播"重试。HTTPStatusError 消息
+    含 URL/task_id，其中 "500"/"503" 子串会被字符串兜底误判，故走显式 status_code 判定绕开；
+    ResumeExpiredError 等业务异常一律快速失败。
     """
     if isinstance(exc, httpx.HTTPStatusError):
         return is_retryable_http_status(exc.response.status_code, retry_not_found=True)
+    if isinstance(exc, _NON_RETRYABLE_LOCAL_ERRORS):
+        return False
     return isinstance(exc, (httpx.RequestError, *BASE_RETRYABLE_ERRORS))
 
 
@@ -208,6 +221,8 @@ async def submit_post(
 
     - 连接建立失败（ConnectError/ConnectTimeout/PoolTimeout）：请求确定未送达 → 原样抛出，
       交 ``should_retry_submit`` 重试。
+    - 本地/协议错误（UnsupportedProtocol/LocalProtocolError）：请求发出前就确定失败、无计费
+      风险 → 原样抛出，由 ``should_retry_submit`` 快速失败（非歧义态，不套「请求可能已送达」）。
     - 其余传输错误（ReadTimeout/WriteError/RemoteProtocolError 等）：请求可能已被服务端
       处理 → 抛 ``AmbiguousSubmitError`` 终态失败，不重试，避免重复建任务 + 重复计费。
     - 收到 >=400 响应：先落 body 日志（诊断 413 等），再 ``raise_for_status`` 抛
@@ -219,7 +234,9 @@ async def submit_post(
     try:
         resp = await post_fn()
     except httpx.RequestError as exc:
-        if isinstance(exc, _NOT_SENT_TRANSPORT_ERRORS):
+        # 请求确定未送达——连接建立失败（瞬态、可重试）或本地/协议错误（确定性、快速失败）——
+        # 均无重复建任务 / 重复计费风险，原样抛出交 should_retry_submit 分流；不套歧义态。
+        if isinstance(exc, (*_NOT_SENT_TRANSPORT_ERRORS, *_NON_RETRYABLE_LOCAL_ERRORS)):
             raise
         raise AmbiguousSubmitError(provider=provider) from exc
     if resp.status_code >= 400:

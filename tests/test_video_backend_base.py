@@ -305,7 +305,9 @@ class TestRetryPredicates:
 
     def test_submit_does_not_retry_ambiguous_transport_errors(self):
         # 请求可能已送达服务端（已建任务 / 已计费）→ submit 不重试，避免重复计费。
-        # 这些错误在 create 路径由 submit_post 转成 AmbiguousSubmitError 终态失败。
+        # 注意：实际 create 路径中这些原始异常会先被 submit_post 包成 AmbiguousSubmitError 再
+        # 进重试谓词，should_retry_submit 运行时并不会直接收到它们；此处单独断言谓词对原始异常
+        # 的防御性行为（文档化兜底），与 submit_post 的包装互为双保险。
         for exc in (
             httpx.ReadTimeout("read timed out"),
             httpx.WriteTimeout("write timed out"),
@@ -332,6 +334,21 @@ class TestRetryPredicates:
         # AmbiguousSubmitError 是终态：被装饰器捕获后谓词须返回 False，不再重试。
         assert should_retry_submit(AmbiguousSubmitError(provider="v2")) is False
         assert should_retry_poll(AmbiguousSubmitError(provider="v2")) is False
+
+    def test_local_protocol_errors_fail_fast_both_paths(self):
+        # UnsupportedProtocol / LocalProtocolError 在请求发出前就确定失败（均为 RequestError
+        # 子类），两条路径都快速失败——poll 不该重试到 max_wait，submit 也无重复计费风险。
+        for exc in (
+            httpx.UnsupportedProtocol("scheme not http(s)"),
+            httpx.LocalProtocolError("bad local request"),
+        ):
+            assert should_retry_poll(exc) is False
+            assert should_retry_submit(exc) is False
+
+    def test_poll_still_retries_remote_protocol_error(self):
+        # RemoteProtocolError 与 LocalProtocolError 同为 ProtocolError 子类，但属「服务端中途
+        # 断开」，幂等 GET 重试安全——确认本地错误的排除没有误伤它。
+        assert should_retry_poll(httpx.RemoteProtocolError("server disconnected")) is True
 
     def test_business_exceptions_fail_fast(self):
         # ResumeExpiredError 的 job_id 含 "503" 子串：旧字符串兜底会误判重试，新谓词不会。
@@ -361,6 +378,20 @@ class TestSubmitPost:
 
         with pytest.raises(httpx.ConnectError):
             await submit_post(_post, provider="v2")
+
+    async def test_local_protocol_error_propagates_raw_not_ambiguous(self):
+        # 本地/协议错误请求发出前就失败、无计费风险 → 原样抛出，不包成 AmbiguousSubmitError
+        # （否则会误导运维去供应商侧确认一个从未创建的任务）。
+        for exc in (
+            httpx.UnsupportedProtocol("scheme not http(s)"),
+            httpx.LocalProtocolError("bad local request"),
+        ):
+
+            async def _post(_exc: httpx.RequestError = exc) -> httpx.Response:
+                raise _exc
+
+            with pytest.raises(type(exc)):
+                await submit_post(_post, provider="v2")
 
     async def test_ambiguous_error_wrapped_with_manual_retry_hint(self):
         # ReadTimeout（请求可能已送达）包成 AmbiguousSubmitError，消息含手动重试提示。
