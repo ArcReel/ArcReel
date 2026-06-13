@@ -213,6 +213,22 @@ def should_retry_poll(exc: Exception) -> bool:
     return isinstance(exc, (httpx.RequestError, *BASE_RETRYABLE_ERRORS))
 
 
+def should_retry_download(exc: Exception) -> bool:
+    """下载阶段（幂等 GET 取 provider 任务成功后签发的结果 URL）重试谓词。
+
+    与 ``should_retry_poll`` 的唯一区别在 404：下载 URL 由 provider 直接签发，4xx（404 不存在 /
+    403 过期 / 413 等）是确定性错误，重试到 max 也不会变好，故 ``retry_not_found=False`` 让 404
+    随其余 4xx 一并 fail-fast（轮询的 404 才是"任务短暂未就绪"该重试）。5xx/408/425/429 与传输/
+    网络错误（幂等 GET 重试无副作用）重试。HTTPStatusError 按 status_code 显式闸门，绕开字符串
+    兜底对结果 URL 中 "503"/"timeout" 等子串的误判。
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return is_retryable_http_status(exc.response.status_code, retry_not_found=False)
+    if isinstance(exc, _NON_RETRYABLE_LOCAL_ERRORS):
+        return False
+    return isinstance(exc, (httpx.RequestError, *BASE_RETRYABLE_ERRORS))
+
+
 async def submit_post(
     post_fn: Callable[[], Awaitable[httpx.Response]],
     *,

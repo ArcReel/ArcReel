@@ -16,6 +16,7 @@ from lib.video_backends.base import (
     persist_api_call_id,
     persist_provider_job_id,
     poll_with_retry,
+    should_retry_download,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -359,6 +360,36 @@ class TestRetryPredicates:
         # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
         assert should_retry_poll(ValueError("503 in message")) is False
         assert should_retry_submit(RuntimeError("got 500 somewhere")) is False
+
+
+class TestShouldRetryDownload:
+    """should_retry_download 下载阶段谓词：4xx（含 404）fail-fast、5xx/传输错误重试。"""
+
+    def test_all_4xx_including_404_fail_fast(self):
+        # 预签发的结果 URL 4xx 是确定性错误：与 poll 不同，404 也 fail-fast。
+        for code in (400, 401, 403, 404, 413, 422):
+            assert should_retry_download(_http_status_error(code)) is False
+
+    def test_transient_http_retries(self):
+        for code in (408, 425, 429, 500, 502, 503, 504):
+            assert should_retry_download(_http_status_error(code)) is True
+
+    def test_retries_all_transport_errors(self):
+        # 幂等 GET 下载：连接建立失败与读阶段错误一律重试（与 poll 一致，无重复计费风险）。
+        for exc in (
+            httpx.ConnectError("refused"),
+            httpx.ReadTimeout("read timed out"),
+            httpx.RemoteProtocolError("server disconnected"),
+            ConnectionError(),
+            TimeoutError(),
+        ):
+            assert should_retry_download(exc) is True
+
+    def test_local_protocol_errors_and_business_exceptions_fail_fast(self):
+        assert should_retry_download(httpx.UnsupportedProtocol("scheme")) is False
+        assert should_retry_download(httpx.LocalProtocolError("bad")) is False
+        # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
+        assert should_retry_download(ValueError("503 in message")) is False
 
 
 class TestSubmitPost:

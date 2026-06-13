@@ -443,8 +443,9 @@ class TestErrorResponse:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # raise_for_status 透出保留状态码（#701：4xx fail-fast，不再吞成无状态码的 RuntimeError）
+        # raise_for_status 透出保留状态码：4xx fail-fast，不再吞成无状态码的 RuntimeError
         assert ei.value.response.status_code == 400
+        assert client.post.call_count == 1
         download.assert_not_called()
 
     async def test_413_surfaces_httpstatuserror_no_retry(self, tmp_path: Path):

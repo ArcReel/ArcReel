@@ -142,7 +142,7 @@ class TestDashScopeAudioBackend:
         assert "speech_rate" not in body["input"]
 
     async def test_http_error_raises(self, tmp_path: Path):
-        # 4xx 透出 httpx.HTTPStatusError（与其余 backend 一致），不嵌响应体进异常消息
+        # 4xx 透出 httpx.HTTPStatusError（与其余 backend 一致），不嵌响应体进异常消息；提交按状态码不可重试
         err_resp = httpx.Response(400, text="bad request", request=httpx.Request("POST", "https://x"))
         client = _mock_client(err_resp, _download_response())
         with patch("httpx.AsyncClient", return_value=client):
@@ -151,6 +151,9 @@ class TestDashScopeAudioBackend:
             b = DashScopeAudioBackend(api_key="sk")
             with pytest.raises(httpx.HTTPStatusError):
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
+        # 4xx 按 status_code fail-fast：计费的合成 POST 只发一次、不连带触发下载
+        assert client.post.call_count == 1
+        client.get.assert_not_called()
 
     async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
         # 下载瞬时失败只重试 GET，绝不回头重跑会再次计费的合成 POST。

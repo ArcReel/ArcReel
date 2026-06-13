@@ -20,7 +20,6 @@ from lib.audio_backends.base import (
     AudioSynthesisResult,
 )
 from lib.dashscope_shared import (
-    DASHSCOPE_RETRYABLE_ERRORS,
     dashscope_headers,
     dashscope_native_base_url,
     extract_audio_url,
@@ -30,6 +29,7 @@ from lib.dashscope_shared import (
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_DASHSCOPE
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.video_backends.base import should_retry_download, should_retry_submit, submit_post
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class DashScopeAudioBackend:
             output_path=request.output_path,
         )
 
-    @with_retry_async(retryable_errors=DASHSCOPE_RETRYABLE_ERRORS)
+    @with_retry_async(retry_if=should_retry_submit)
     async def _request_synthesis(self, request: AudioSynthesisRequest) -> str:
         """提交合成请求（计费段），返回 output.audio.url。"""
         payload = {
@@ -112,22 +112,26 @@ class DashScopeAudioBackend:
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}{_TTS_ENDPOINT}",
-                json=payload,
-                headers=dashscope_headers(self._api_key),
+            # 合成是非幂等的「计费」POST：submit_post 把歧义传输错误（请求可能已送达但响应在途丢失）
+            # 转 AmbiguousSubmitError 终态失败避免重复计费；>=400 落 body 日志 + 抛 HTTPStatusError
+            # （保留 status_code），交 should_retry_submit 按状态码分流——4xx fail-fast、5xx/429 重试。
+            resp = await submit_post(
+                lambda: client.post(
+                    f"{self._base_url}{_TTS_ENDPOINT}",
+                    json=payload,
+                    headers=dashscope_headers(self._api_key),
+                ),
+                provider=PROVIDER_DASHSCOPE,
             )
-            if resp.status_code >= 400:
-                # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code；
-                # body 先落日志保留可诊断性，不嵌进异常消息以免重试的子串匹配误判 4xx 可重试。
-                logger.warning("DashScope 语音合成接口返回 %s: %s", resp.status_code, resp.text[:500])
-                resp.raise_for_status()
             return extract_audio_url(resp.json())
 
     @with_retry_async(
         max_attempts=DOWNLOAD_MAX_ATTEMPTS,
         backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=(*DASHSCOPE_RETRYABLE_ERRORS, _EmptyDownloadError),
+        # 下载是幂等 GET：HTTPStatusError 按 status_code 闸门（should_retry_download，4xx 含 404 一律
+        # fail-fast——预签发 URL 的 4xx 是确定性错误），5xx/传输/网络错误重试，业务错误 fail-fast；
+        # 200-空体（_EmptyDownloadError）属瞬态另行重试。
+        retry_if=lambda e: isinstance(e, _EmptyDownloadError) or should_retry_download(e),
     )
     async def _download_audio(self, url: str, output_path: Path) -> None:
         """下载合成音频（非计费段，可独立多次重试）。"""

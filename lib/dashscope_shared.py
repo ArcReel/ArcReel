@@ -3,7 +3,6 @@
 供 image_backends / video_backends / text_backends factory / custom_provider / config
 复用。包含：
 - DASHSCOPE_BASE_URL — 百炼 host 段（不含路径后缀），北京地域起点
-- DASHSCOPE_RETRYABLE_ERRORS — 瞬态错误集合（网络层 + 字符串兜底覆盖 5xx/429）
 - resolve_dashscope_api_key — API Key 解析（缺失即 raise，不走 env fallback）
 - dashscope_text_base_url / dashscope_native_base_url — 由 host 派生双 base
   （文本走 /compatible-mode/v1，原生图像/视频走 /api/v1），容忍带/不带后缀
@@ -20,28 +19,20 @@ import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
-import httpx
-
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-from lib.retry import BASE_RETRYABLE_ERRORS
 
 logger = logging.getLogger(__name__)
 
 # host 段（scheme://host），不含 /api/v1 或 /compatible-mode/v1 后缀；两 base 由此派生。
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com"
 
-# 故意不含 httpx.HTTPStatusError —— 这是经核实的设计决策，勿据"它不是 RequestError 子类"加入。
-#
-# HTTPStatusError 与 RequestError 同为 HTTPXError 的兄弟类（互不继承），但重试无需把它列进
-# 类型元组：with_retry_async 与 poll_with_retry 都经 lib.retry._should_retry，该函数在类型
-# 不匹配时回退到字符串匹配——HTTPStatusError 的 str() 含状态码短语（如 "Server error '503 …'"），
-# 故 429/500/502/503/504 仍被重试；而 400/401/403/404 的 str 不命中 RETRYABLE_STATUS_PATTERNS，
-# 保持快速失败。若把 HTTPStatusError 直接加进本元组，isinstance 会对全部 4xx 也判 True →
-# 鉴权/参数等业务错误被重试到超时，反而破坏 fail-fast。此为全仓后端一致约定。
-DASHSCOPE_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
-    *BASE_RETRYABLE_ERRORS,
-    httpx.RequestError,
-)
+# 重试判定不再用「瞬态错误类型元组 + 字符串兜底」：HTTPStatusError 的 str() 携带 URL/task_id，
+# 其中的 "503"/"timeout" 子串会让 4xx 业务错误被误判为可重试。各 DashScope 后端改用
+# lib.video_backends.base 的状态码谓词——创建/提交（非幂等 POST）走 should_retry_submit（4xx
+# fail-fast、5xx/429 重试、歧义传输错误经 submit_post 转 AmbiguousSubmitError 不重试），轮询
+# （幂等 GET）走 should_retry_poll（404 视为未就绪重试），下载已签发结果 URL 走 should_retry_download
+# （4xx 含 404 一律 fail-fast）。HTTPStatusError 一律按 response.status_code 显式闸门判定，状态码
+# 语义也因此被保留，供咽喉层识别 413 做降档兜底。
 
 # 任务状态机（图像/视频异步两步式）
 DASHSCOPE_STATUS_PENDING = "PENDING"

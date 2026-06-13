@@ -31,6 +31,21 @@ def _http_error(status_code: int, message: str) -> httpx.HTTPStatusError:
     return httpx.HTTPStatusError(f"error {status_code}", request=request, response=response)
 
 
+def _http_error_503_in_message(status_code: int) -> httpx.HTTPStatusError:
+    """生成 str() 含 "503" 子串、但状态码为 status_code 的真实 HTTPStatusError。
+
+    raise_for_status 的消息包含请求 URL（这里 task_id 带 "503"），旧字符串兜底会据此误判重试；
+    状态码谓词只读 response.status_code，不受 URL/消息中瞬态子串影响。
+    """
+    request = httpx.Request("POST", "https://x/api/v1/tasks/job-503-xyz")
+    response = httpx.Response(status_code, request=request)
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return exc
+    raise AssertionError("expected HTTPStatusError")  # pragma: no cover
+
+
 def _submit(task_id: str = "t-1") -> dict:
     return {"output": {"task_id": task_id, "task_status": "PENDING"}}
 
@@ -506,3 +521,75 @@ class TestSubmit413:
         assert ei.value.response.status_code == 413
         assert post.call_count == 1
         download.assert_not_called()
+
+
+class TestRetryStatusGating:
+    """提交/轮询按 HTTP status_code 决定重试，消除字符串子串误判。"""
+
+    async def test_submit_4xx_with_503_substring_no_retry(self, tmp_path: Path):
+        # 4xx 错误消息里带 "503" 子串（URL/task_id）：旧字符串兜底会误判重试，新谓词按 400 fail-fast。
+        err = _http_error_503_in_message(400)
+        assert "503" in str(err)
+        bad = _resp({"code": "InvalidParameter"}, status_code=400)
+        bad.raise_for_status = MagicMock(side_effect=err)
+        post = AsyncMock(return_value=bad)
+        client = _client(post=post)
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
+            with pytest.raises(httpx.HTTPStatusError) as ei:
+                await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
+        assert ei.value.response.status_code == 400
+        assert post.call_count == 1
+
+    async def test_submit_real_503_retries_then_succeeds(self, tmp_path: Path):
+        # 真 5xx：按 status_code 重试，第三次成功。
+        err503 = _resp({"code": "ServiceUnavailable"}, status_code=503)
+        err503.raise_for_status = MagicMock(side_effect=_http_error_503_in_message(503))
+        post = AsyncMock(side_effect=[err503, err503, _resp(_submit("t-ok"))])
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
+            result = await b.generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
+            )
+        assert post.call_count == 3
+        assert result.task_id == "t-ok"
+
+    async def test_submit_connect_error_retries(self, tmp_path: Path):
+        # 网络层错误（连接确定未送达）维持重试。
+        post = AsyncMock(side_effect=[httpx.ConnectError("refused"), _resp(_submit("t-ok"))])
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
+            result = await b.generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
+            )
+        assert post.call_count == 2
+        assert result.task_id == "t-ok"
+
+    async def test_poll_timeout_retries(self, tmp_path: Path):
+        # 轮询（幂等 GET）网络层 Timeout 维持重试。
+        post = AsyncMock(return_value=_resp(_submit("t-poll")))
+        get = AsyncMock(side_effect=[httpx.TimeoutException("read timed out"), _resp(_succeeded())])
+        client = _client(post=post, get=get)
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3:
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
+            result = await b.generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
+            )
+        assert get.call_count == 2
+        assert result.task_id == "t-poll"

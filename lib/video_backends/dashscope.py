@@ -17,7 +17,6 @@ import httpx
 
 from lib.dashscope_shared import (
     DASHSCOPE_POLL_INTERVAL_SECONDS,
-    DASHSCOPE_RETRYABLE_ERRORS,
     dashscope_failure_reason,
     dashscope_headers,
     dashscope_native_base_url,
@@ -49,6 +48,10 @@ from lib.video_backends.base import (
     download_video,
     persist_provider_job_id,
     poll_with_retry,
+    should_retry_download,
+    should_retry_poll,
+    should_retry_submit,
+    submit_post,
 )
 
 logger = logging.getLogger(__name__)
@@ -266,19 +269,21 @@ class DashScopeVideoBackend:
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
-        retryable_errors=DASHSCOPE_RETRYABLE_ERRORS,
+        retry_if=should_retry_submit,
     )
     async def _create_task(self, client: httpx.AsyncClient, payload: dict) -> str:
-        resp = await client.post(
-            f"{self._base_url}{_VIDEO_ENDPOINT}",
-            json=payload,
-            headers=dashscope_headers(self._api_key, async_mode=True),
+        # 创建任务是非幂等的「建任务 + 计费」POST：submit_post 把歧义传输错误（请求可能已送达
+        # 服务端但响应在途丢失）转 AmbiguousSubmitError 终态失败，避免自动重试重复建任务 + 重复计费；
+        # >=400 由其落 body 日志 + raise_for_status 抛 HTTPStatusError（保留 status_code 供咽喉层识别
+        # 413 降档），交 should_retry_submit 按状态码分流——4xx fail-fast、5xx/429 重试。
+        resp = await submit_post(
+            lambda: client.post(
+                f"{self._base_url}{_VIDEO_ENDPOINT}",
+                json=payload,
+                headers=dashscope_headers(self._api_key, async_mode=True),
+            ),
+            provider=PROVIDER_DASHSCOPE,
         )
-        if resp.status_code >= 400:
-            # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code，
-            # 让咽喉层能识别 413 走降档重试；body 先落日志保留可诊断性。
-            logger.warning("DashScope 视频提交返回 %s: %s", resp.status_code, resp.text[:500])
-            resp.raise_for_status()
         return extract_task_id(resp.json())
 
     async def _poll_once(self, client: httpx.AsyncClient, task_id: str) -> dict:
@@ -314,7 +319,7 @@ class DashScopeVideoBackend:
             is_failed=dashscope_failure_reason,
             poll_interval=DASHSCOPE_POLL_INTERVAL_SECONDS,
             max_wait=self._max_wait(request.duration_seconds),
-            retryable_errors=DASHSCOPE_RETRYABLE_ERRORS,
+            retry_if=should_retry_poll,
             label="DashScope",
             on_progress=lambda v, elapsed: logger.info(
                 "DashScope 视频生成中... status=%s elapsed=%ds",
@@ -352,7 +357,7 @@ class DashScopeVideoBackend:
     @with_retry_async(
         max_attempts=DOWNLOAD_MAX_ATTEMPTS,
         backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=DASHSCOPE_RETRYABLE_ERRORS,
+        retry_if=should_retry_download,
     )
     async def _download_with_retry(video_url: str, output_path: Path) -> None:
         await download_video(video_url, output_path)

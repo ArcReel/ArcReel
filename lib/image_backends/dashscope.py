@@ -14,7 +14,6 @@ import httpx
 
 from lib.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.dashscope_shared import (
-    DASHSCOPE_RETRYABLE_ERRORS,
     dashscope_headers,
     dashscope_native_base_url,
     extract_image_url,
@@ -32,6 +31,7 @@ from lib.image_backends.base import (
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_DASHSCOPE
 from lib.retry import with_retry_async
+from lib.video_backends.base import should_retry_submit, submit_post
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ class DashScopeImageBackend:
     def _ref_limit(self) -> int:
         return _WAN_REF_LIMIT if self._is_wan else _QWEN_REF_LIMIT
 
-    @with_retry_async(retryable_errors=DASHSCOPE_RETRYABLE_ERRORS)
+    @with_retry_async(retry_if=should_retry_submit)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         has_refs = bool(request.reference_images)
         if has_refs and ImageCapability.IMAGE_TO_IMAGE not in self._capabilities:
@@ -165,16 +165,18 @@ class DashScopeImageBackend:
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}{_IMAGE_ENDPOINT}",
-                json=payload,
-                headers=dashscope_headers(self._api_key),
+            # 同步图像生成是非幂等的「建图 + 计费」POST：submit_post 把歧义传输错误（请求可能已送达
+            # 但响应在途丢失）转 AmbiguousSubmitError 终态失败，避免自动重试重复计费；>=400 落 body
+            # 日志 + 抛 HTTPStatusError（保留 status_code 供咽喉层识别 413 降档），交 should_retry_submit
+            # 按状态码分流——4xx fail-fast、5xx/429 重试。
+            resp = await submit_post(
+                lambda: client.post(
+                    f"{self._base_url}{_IMAGE_ENDPOINT}",
+                    json=payload,
+                    headers=dashscope_headers(self._api_key),
+                ),
+                provider=PROVIDER_DASHSCOPE,
             )
-            if resp.status_code >= 400:
-                # raise_for_status 透出 httpx.HTTPStatusError，保留 .response.status_code，
-                # 让咽喉层能识别 413 走降档重试；body 先落日志保留可诊断性。
-                logger.warning("DashScope 图像接口返回 %s: %s", resp.status_code, resp.text[:500])
-                resp.raise_for_status()
             data = resp.json()
 
         url = extract_image_url(data)
