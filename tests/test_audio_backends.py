@@ -155,6 +155,26 @@ class TestDashScopeAudioBackend:
         assert client.post.call_count == 1
         client.get.assert_not_called()
 
+    async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, monkeypatch):
+        # 4xx 错误消息带 "503" 子串（请求 URL/task_id）：旧字符串兜底会据此误判重试到超时，
+        # 新状态码谓词只读 response.status_code，按 400 fail-fast——计费的合成 POST 只发一次、不连带下载。
+        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
+        err_resp = httpx.Response(
+            400, text="bad request", request=httpx.Request("POST", "https://x/api/v1/tasks/job-503")
+        )
+        client = _mock_client(err_resp, _download_response())
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.dashscope import DashScopeAudioBackend
+
+            b = DashScopeAudioBackend(api_key="sk")
+            with pytest.raises(httpx.HTTPStatusError) as ei:
+                await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
+        # 异常字符串确实带瞬态子串（旧兜底据此误判重试的前提）；新谓词按状态码单次 fail-fast
+        assert "503" in str(ei.value)
+        assert ei.value.response.status_code == 400
+        assert client.post.call_count == 1
+        client.get.assert_not_called()
+
     async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
         # 下载瞬时失败只重试 GET，绝不回头重跑会再次计费的合成 POST。
         monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())

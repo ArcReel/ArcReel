@@ -52,6 +52,21 @@ def _error_response(status_code: int) -> MagicMock:
     return resp
 
 
+def _http_error_transient_substring(status_code: int) -> httpx.HTTPStatusError:
+    """状态码为 status_code 但 str() 含 "503" 子串（请求 URL/task_id）的真实 HTTPStatusError。
+
+    raise_for_status 的消息携带请求 URL，旧字符串兜底会据此误判重试；状态码谓词只读
+    response.status_code，不受 URL/消息里的瞬态子串影响。
+    """
+    request = httpx.Request("POST", "https://x/api/v1/tasks/job-503")
+    response = httpx.Response(status_code, request=request)
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return exc
+    raise AssertionError("unreachable")
+
+
 def _patches(client: AsyncMock, download: AsyncMock):
     return (
         patch("httpx.AsyncClient", return_value=client),
@@ -444,6 +459,28 @@ class TestErrorResponse:
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
         # raise_for_status 透出保留状态码：4xx fail-fast，不再吞成无状态码的 RuntimeError
+        assert ei.value.response.status_code == 400
+        assert client.post.call_count == 1
+        download.assert_not_called()
+
+    async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, monkeypatch):
+        # 4xx 错误消息带 "503" 子串（请求 URL/task_id）：旧字符串兜底会据此误判重试到超时，
+        # 新状态码谓词只读 response.status_code，按 400 fail-fast——计费的建图 POST 只发一次、不连带下载。
+        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
+        resp = MagicMock()
+        resp.status_code = 400
+        resp.raise_for_status = MagicMock(side_effect=_http_error_transient_substring(400))
+        client = _mock_client(resp)
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.dashscope import DashScopeImageBackend
+
+            b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
+            with pytest.raises(httpx.HTTPStatusError) as ei:
+                await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
+        # 异常字符串确实带瞬态子串（旧兜底据此误判重试的前提）；新谓词按状态码单次 fail-fast
+        assert "503" in str(ei.value)
         assert ei.value.response.status_code == 400
         assert client.post.call_count == 1
         download.assert_not_called()
