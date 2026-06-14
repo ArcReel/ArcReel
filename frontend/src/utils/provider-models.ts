@@ -4,65 +4,22 @@ import type { CustomProviderInfo, MediaType, ProviderInfo } from "@/types";
 const CUSTOM_PREFIX = "custom-";
 
 // ---------------------------------------------------------------------------
-// Built-in providers cache
+// Provider fetchers
+//
+// 供应商配置可变（用户在设置页改模型 supported_durations / 启用状态等），前端不持久缓存它：
+// 每次消费都直拉后端，避免长生命周期副本与后端单一真相源漂移（ADR 0035，ADR 0018/0013 的前端推论）。
 // ---------------------------------------------------------------------------
 
-let _cache: ProviderInfo[] | null = null;
-let _promise: Promise<ProviderInfo[]> | null = null;
-
-/** Fetch (or return cached) built-in provider list including models. */
+/** Fetch the built-in provider list (including models) fresh on every call. */
 export async function getProviderModels(): Promise<ProviderInfo[]> {
-  if (_cache) return _cache;
-  if (!_promise) {
-    _promise = API.getProviders()
-      .then((res) => {
-        _cache = res.providers;
-        _promise = null;
-        return _cache;
-      })
-      .catch((err) => {
-        _promise = null;
-        throw err;
-      });
-  }
-  return _promise;
+  const res = await API.getProviders();
+  return res.providers;
 }
 
-// ---------------------------------------------------------------------------
-// Custom providers cache
-// ---------------------------------------------------------------------------
-
-let _customCache: CustomProviderInfo[] | null = null;
-let _customPromise: Promise<CustomProviderInfo[]> | null = null;
-
-/** Fetch (or return cached) custom provider list. */
+/** Fetch the custom provider list fresh on every call. */
 export async function getCustomProviderModels(): Promise<CustomProviderInfo[]> {
-  if (_customCache) return _customCache;
-  if (!_customPromise) {
-    _customPromise = API.listCustomProviders()
-      .then((res) => {
-        _customCache = res.providers;
-        _customPromise = null;
-        return _customCache;
-      })
-      .catch((err) => {
-        _customPromise = null;
-        throw err;
-      });
-  }
-  return _customPromise;
-}
-
-// ---------------------------------------------------------------------------
-// Cache invalidation
-// ---------------------------------------------------------------------------
-
-/** Invalidate all provider caches (call after provider config changes). */
-export function invalidateProviderModelsCache(): void {
-  _cache = null;
-  _promise = null;
-  _customCache = null;
-  _customPromise = null;
+  const res = await API.listCustomProviders();
+  return res.providers;
 }
 
 // ---------------------------------------------------------------------------
