@@ -152,11 +152,15 @@ class MiniMaxImageBackend:
         """按「比例优先、清晰度其次」算出 (宽, 高)。
 
         比例永远来自 aspect_ratio；image_size（档位词 / 自定义 宽*高 / None）只决定清晰度短边，
-        自定义值剥离其自带比例（取 min）。结果被 8 整除、长边受 2048 收口，再把每边夹进
-        [512, 2048] 满足 image-01 的单边范围约束。
+        自定义值剥离其自带比例（取 min）。短边先夹到 ≥ _MIN_EDGE 再算尺寸——否则过小的短边会让
+        aspect_size 产出 <512 的边，随后 _clamp_edge 对宽高独立夹取会破坏比例（如 16:9 退化成
+        512x512 的 1:1）。结果被 8 整除、长边受 2048 收口，每边仍经 _clamp_edge 夹进 [512, 2048] 兜底。
         """
-        short = resolution_to_short_edge(
-            request.image_size or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT
+        short = max(
+            _MIN_EDGE,
+            resolution_to_short_edge(
+                request.image_size or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT
+            ),
         )
         w, h = aspect_size(
             request.aspect_ratio, short, round_to=_ROUND_TO, max_long_edge=_MAX_EDGE, max_ratio=_MAX_RATIO

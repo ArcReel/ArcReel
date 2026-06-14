@@ -207,6 +207,14 @@ class TestDimensions:
         w, h = await self._dims(tmp_path, aspect_ratio="5:1")
         assert h == 512 and w == 2040
 
+    async def test_small_custom_size_preserves_ratio(self, tmp_path: Path):
+        # 自定义小尺寸（短边 <512）：短边先夹到 _MIN_EDGE，避免 aspect_size 出 <512 边后
+        # 被 _clamp_edge 独立夹取破坏比例（16:9 横屏退化成 512x512 的 1:1）
+        w, h = await self._dims(tmp_path, aspect_ratio="16:9", image_size="320*180")
+        assert w >= 512 and h >= 512
+        assert w > h  # 横屏未退化成 1:1
+        assert abs(w / h - 16 / 9) < 0.1
+
 
 class TestSubjectReference:
     async def test_i2i_single_subject_reference(self, tmp_path: Path):
