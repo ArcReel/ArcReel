@@ -801,6 +801,8 @@ export default {
   'endpoint_vidu_video_display': 'Vidu Video',
   'endpoint_dashscope_image_display': 'Alibaba Model Studio (Image)',
   'endpoint_dashscope_async_video_display': 'Alibaba Model Studio (Async Video)',
+  'endpoint_minimax_image_display': 'MiniMax (Image)',
+  'endpoint_minimax_video_display': 'MiniMax Hailuo (Video)',
   'endpoint_openai_tts_display': 'OpenAI Speech (TTS)',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',
   // Image Capability

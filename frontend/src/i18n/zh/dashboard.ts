@@ -802,6 +802,8 @@ export default {
   'endpoint_vidu_video_display': 'Vidu 视频',
   'endpoint_dashscope_image_display': '阿里百炼（图片）',
   'endpoint_dashscope_async_video_display': '阿里百炼（异步视频）',
+  'endpoint_minimax_image_display': 'MiniMax（图片）',
+  'endpoint_minimax_video_display': 'MiniMax 海螺（视频）',
   'endpoint_openai_tts_display': 'OpenAI 语音合成 (TTS)',
   'endpoint_catalog_loading': '加载端点目录…',
   // Image Capability

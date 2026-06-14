@@ -217,6 +217,8 @@ class TestEndpointCatalog:
             "vidu-video",
             "dashscope-image",
             "dashscope-async-video",
+            "minimax-image",
+            "minimax-video",
             "openai-tts",
         }
 

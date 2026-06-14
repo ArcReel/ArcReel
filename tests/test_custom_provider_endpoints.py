@@ -30,6 +30,8 @@ class TestRegistry:
             "vidu-video",
             "dashscope-image",
             "dashscope-async-video",
+            "minimax-image",
+            "minimax-video",
             "openai-tts",
         }
 
@@ -37,7 +39,7 @@ class TestRegistry:
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope"}
+            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax"}
             assert spec.display_name_key.startswith("endpoint_")
             assert callable(spec.build_backend)
             assert spec.request_method == "POST"
@@ -60,8 +62,8 @@ class TestRegistry:
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
-        """v2/ark/vidu/dashscope 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
-        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video"):
+        """v2/ark/vidu/dashscope/minimax 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
+        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video", "minimax-video"):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
         assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
@@ -74,7 +76,7 @@ class TestRegistry:
         在 import 期保证（违反则本文件根本 import 不进来），故此处只断言「具体哪个 endpoint 选了哪条
         路径」——这是 XOR 校验抓不到的（换机制仍满足 XOR），是真正的回归护栏。"""
         # None-cap 的 video endpoint 必须绑定纯 caps 函数
-        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video"):
+        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video", "minimax-video"):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
         for key in ("openai-video", "newapi-video"):
@@ -87,6 +89,18 @@ class TestRegistry:
         assert caps_fn is not None
         assert caps_fn("happyhorse-1.0-r2v").max_reference_images == 9
         assert caps_fn("wan2.7-r2v").max_reference_images == 5
+
+    def test_minimax_caps_fn_reads_per_model_limit_without_client(self):
+        """minimax-video 的 caps_fn 是纯函数：S2V-01 单脸参考 max_ref=1，海螺系列走首帧无参考
+        （max_ref=0），resolver 据此解析而无需构造 backend / api_key。"""
+        caps_fn = ENDPOINT_REGISTRY["minimax-video"].video_caps_for_model
+        assert caps_fn is not None
+        s2v = caps_fn("S2V-01")
+        assert s2v.reference_images is True
+        assert s2v.max_reference_images == 1
+        hailuo = caps_fn("MiniMax-Hailuo-2.3")
+        assert hailuo.first_frame is True
+        assert hailuo.max_reference_images == 0
 
     def test_negative_int_cap_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
         """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""
@@ -141,6 +155,7 @@ class TestRegistry:
             "openai-images-edits",
             "gemini-image",
             "dashscope-image",
+            "minimax-image",
         }
         assert video_keys == {
             "openai-video",
@@ -149,6 +164,7 @@ class TestRegistry:
             "ark-seedance",
             "vidu-video",
             "dashscope-async-video",
+            "minimax-video",
         }
 
 
@@ -208,8 +224,21 @@ class TestInferEndpoint:
             ("SORA-2", "openai", "openai-video"),
             ("kling-v2", "openai", "openai-video"),
             ("veo-3", "openai", "openai-video"),
-            ("veo-3", "google", "openai-video"),  # 非 seedance/viduq3 视频 → openai-video
-            ("hailuo-02", "openai", "openai-video"),
+            ("veo-3", "google", "openai-video"),  # 非 seedance/viduq3/minimax 视频 → openai-video
+            # ── MiniMax 原生 token 二级路由 ──
+            ("MiniMax-Hailuo-2.3", "openai", "minimax-video"),
+            ("MiniMax-Hailuo-2.3-Fast", "openai", "minimax-video"),
+            ("minimax-hailuo-2.3", "openai", "minimax-video"),
+            (
+                "hailuo-02",
+                "openai",
+                "minimax-video",
+            ),  # 海螺 token → minimax-video（前 minimax endpoint 时代默认 openai-video）
+            ("S2V-01", "openai", "minimax-video"),  # s2v 不在通用视频 pattern，须显式路由
+            ("minimax-s2v-01", "openai", "minimax-video"),
+            ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
+            ("minimax/image-01", "openai", "minimax-image"),
+            ("S2V-01", "google", "minimax-video"),  # minimax 路由不分 discovery_format
             ("seedream-3.0", "openai", "openai-images"),
             ("jimeng-3.0", "openai", "openai-images"),
             ("jimeng-video-3.0", "openai", "openai-video"),
@@ -269,6 +298,7 @@ def test_image_endpoint_registry_entries():
         "openai-images-edits",
         "gemini-image",
         "dashscope-image",
+        "minimax-image",
     }
 
 

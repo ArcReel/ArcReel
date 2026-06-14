@@ -162,6 +162,9 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
         ("ark-seedance", "doubao-seedance-2-0", 9),
         ("ark-seedance", "doubao-seedance-1-0", 0),  # 非 seedance-2 → 0，证明纯函数仍按 model 分支
         ("vidu-video", "viduq3-turbo", 7),
+        # minimax-video：S2V-01 单脸参考 → 1；海螺系列走首帧无参考 → 0
+        ("minimax-video", "S2V-01", 1),
+        ("minimax-video", "MiniMax-Hailuo-2.3", 0),
     ],
 )
 async def test_custom_video_max_reference_images_from_endpoint(

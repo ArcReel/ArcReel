@@ -25,12 +25,14 @@ from lib.custom_provider.backends import (
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
+from lib.image_backends.minimax import MiniMaxImageBackend
 from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend
+from lib.video_backends.minimax import MiniMaxVideoBackend
 from lib.video_backends.newapi import NewAPIVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
 from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
@@ -192,6 +194,18 @@ def _build_dashscope_async_video(provider, model_id: str) -> CustomVideoBackend:
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_minimax_image(provider, model_id: str) -> CustomImageBackend:
+    # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
+    delegate = MiniMaxImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_minimax_video(provider, model_id: str) -> CustomVideoBackend:
+    # 两步取 URL（submit→轮询 file_id→retrieve download_url）由 MiniMaxVideoBackend 内部处理
+    delegate = MiniMaxVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 # ── ENDPOINT_REGISTRY 注册表 ───────────────────────────────────────
 
 
@@ -338,6 +352,28 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # 按 model 读 backend caps（不构造 client）。
         video_caps_for_model=DashScopeVideoBackend.video_capabilities_for_model,
     ),
+    "minimax-image": EndpointSpec(
+        key="minimax-image",
+        media_type="image",
+        family="minimax",
+        display_name_key="endpoint_minimax_image_display",
+        request_method="POST",
+        request_path_template="/image_generation",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_minimax_image,
+    ),
+    "minimax-video": EndpointSpec(
+        key="minimax-video",
+        media_type="video",
+        family="minimax",
+        display_name_key="endpoint_minimax_video_display",
+        request_method="POST",
+        request_path_template="/video_generation",
+        build_backend=_build_minimax_video,
+        # 多 model 容量异质（S2V-01 单脸参考 max_ref=1 / 海螺系列走首帧 no-ref）→ endpoint 维度不
+        # 声明 int cap，按 model 读 backend caps（不构造 client）。
+        video_caps_for_model=MiniMaxVideoBackend.video_capabilities_for_model,
+    ),
 }
 
 
@@ -449,13 +485,15 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     1) 阿里百炼视频 → happyhorse / wan2.x（非 image）走 "dashscope-async-video"（原生异步端点）。
        happyhorse 不在 _VIDEO_PATTERN 须显式；wan2.x 视频抢在通用 is_video 前拦截。图像不自动推
        dashscope（中转可能是 OpenAI 兼容），qwen-image / wan2.x-image 落到既有图像家族推断。
-    2) imagen → "gemini-image"（图像，不论 discovery_format）
-    3) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
-    4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
-    5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
-    6) TTS 家族（tts/speech/cosyvoice）→ "openai-tts"（audio 仅 OpenAI 兼容一条端点，
+    2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
+       is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
+    3) imagen → "gemini-image"（图像，不论 discovery_format）
+    4) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
+    5) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
+    6) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
+    7) TTS 家族（tts/speech/cosyvoice）→ "openai-tts"（audio 仅 OpenAI 兼容一条端点，
        不分 discovery_format；precedence 在 text 默认之前）
-    7) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+    8) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
@@ -465,6 +503,14 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
         return "dashscope-async-video"
     if "wan2." in lowered and not is_image:
         return "dashscope-async-video"
+
+    # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V → 两步 file_id 视频端点；
+    # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 不被 _VIDEO_PATTERN 覆盖，
+    # image-01 含 "image" 否则会被通用图像家族抢走。
+    if "hailuo" in lowered or "s2v" in lowered:
+        return "minimax-video"
+    if "image-01" in lowered:
+        return "minimax-image"
 
     # wan2.x-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到图像家族推断
     is_video = bool(_VIDEO_PATTERN.search(model_id)) and not ("wan2." in lowered and is_image)

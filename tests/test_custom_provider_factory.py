@@ -130,6 +130,25 @@ class TestEndpointDispatch:
             provider_name="custom-42",
         )
 
+    @patch("lib.custom_provider.endpoints.MiniMaxImageBackend")
+    def test_minimax_image(self, mock_cls):
+        provider = _make_provider(base_url="https://api.minimaxi.com/v1")
+        result = create_custom_backend(provider=provider, model_id="image-01", endpoint="minimax-image")
+        assert isinstance(result, CustomImageBackend)
+        assert result.model == "image-01"
+        # base_url 原样下传，归一化（host→{host}/v1）由 MiniMaxImageBackend 内部处理
+        mock_cls.assert_called_once_with(api_key="sk-test", base_url="https://api.minimaxi.com/v1", model="image-01")
+
+    @patch("lib.custom_provider.endpoints.MiniMaxVideoBackend")
+    def test_minimax_video(self, mock_cls):
+        provider = _make_provider(base_url="https://api.minimaxi.com/v1")
+        result = create_custom_backend(provider=provider, model_id="MiniMax-Hailuo-2.3", endpoint="minimax-video")
+        assert isinstance(result, CustomVideoBackend)
+        assert result.model == "MiniMax-Hailuo-2.3"
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://api.minimaxi.com/v1", model="MiniMax-Hailuo-2.3"
+        )
+
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     def test_openai_images_generations(self, mock_cls):
         provider = _make_provider()
