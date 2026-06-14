@@ -109,7 +109,9 @@ class MiniMaxImageBackend:
         if request.seed is not None:
             payload["seed"] = request.seed
         if request.reference_images:
-            payload["subject_reference"] = self._build_subject_reference(request)
+            # 参考图读盘 + base64 编码（可能数 MB）offload 到线程，避免阻塞事件循环；
+            # 单次 to_thread 整体执行同步 helper，最小化线程调度开销。
+            payload["subject_reference"] = await asyncio.to_thread(self._build_subject_reference, request)
 
         data = await self._submit(payload)
         image_uri = await self._persist_image(data, request.output_path)
