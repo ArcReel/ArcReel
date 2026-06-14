@@ -27,11 +27,11 @@ def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> M
 
 
 class TestRegistry:
-    def test_minimax_registered_as_text_provider(self):
+    def test_minimax_registered_as_text_and_video_provider(self):
         from lib.config.registry import PROVIDER_REGISTRY
 
         meta = PROVIDER_REGISTRY[PROVIDER_MINIMAX]
-        assert meta.media_types == ["text"]
+        assert meta.media_types == ["text", "video"]
         assert "api_key" in meta.required_keys
         assert "api_key" in meta.secret_keys
         assert "base_url" in meta.optional_keys
@@ -121,6 +121,55 @@ class TestLookupPricing:
             p, PricingParams(call_type="text", model="minimax-unknown-xyz", input_tokens=1000, output_tokens=0)
         )
         assert cur == "CNY"
+
+    @pytest.mark.parametrize(
+        ("model", "resolution", "duration", "expected"),
+        [
+            ("MiniMax-Hailuo-2.3", "768p", 6, 2.0),
+            ("MiniMax-Hailuo-2.3", "768p", 10, 4.0),
+            ("MiniMax-Hailuo-2.3", "1080p", 6, 3.5),
+            ("MiniMax-Hailuo-2.3-Fast", "768p", 6, 1.35),
+            ("MiniMax-Hailuo-2.3-Fast", "768p", 10, 2.25),
+            ("MiniMax-Hailuo-2.3-Fast", "1080p", 6, 2.31),
+        ],
+    )
+    def test_video_per_video_bucket(self, model, resolution, duration, expected):
+        p = lookup_pricing(PROVIDER_MINIMAX, model, "video")
+        amount, cur = calculate_pricing(
+            p, PricingParams(call_type="video", model=model, resolution=resolution, duration_seconds=duration)
+        )
+        assert cur == "CNY"
+        assert amount == pytest.approx(expected)
+
+    def test_video_unmet_bucket_falls_back_nearest_cny(self):
+        # 1080p 仅 6s 档；请求 1080p 10s 未命中 → 同分辨率最近档 (1080p,6)=3.5
+        p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-Hailuo-2.3", "video")
+        amount, cur = calculate_pricing(
+            p, PricingParams(call_type="video", model="MiniMax-Hailuo-2.3", resolution="1080p", duration_seconds=10)
+        )
+        assert cur == "CNY"
+        assert amount == pytest.approx(3.5)
+
+
+class TestVideoRegistry:
+    def test_video_models_registered(self):
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        models = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models
+        hailuo = models["MiniMax-Hailuo-2.3"]
+        assert hailuo.media_type == "video"
+        assert "text_to_video" in hailuo.capabilities
+        assert "image_to_video" in hailuo.capabilities
+        assert hailuo.supported_durations == [6, 10]
+        assert hailuo.duration_resolution_constraints == {"1080p": [6]}
+
+        fast = models["MiniMax-Hailuo-2.3-Fast"]
+        assert fast.capabilities == ["image_to_video"]
+
+    def test_video_backend_registered(self):
+        from lib.video_backends import get_registered_backends
+
+        assert PROVIDER_MINIMAX in get_registered_backends()
 
 
 class TestProviderConstantsDistinct:

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from lib.pricing.types import (
@@ -16,10 +17,17 @@ from lib.pricing.types import (
     PerSecondMatrix,
     PerToken,
     PerTokenVideo,
+    PerVideoBucket,
     Pricing,
     ViduDelegate,
 )
 from lib.vidu_shared import calculate_vidu_cost
+
+logger = logging.getLogger(__name__)
+
+# (resolution, duration) 离散档计费里 duration 缺省时的兜底秒数。海螺最短档为 6s，
+# 缺省按最短档计避免高估；真实请求恒带 duration，仅防御性兜底。
+_DEFAULT_BUCKET_DURATION = 6
 
 
 @dataclass(frozen=True)
@@ -124,6 +132,32 @@ def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple
     return duration * per_second, pricing.currency
 
 
+def _per_video_bucket(pricing: PerVideoBucket, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    model_buckets = pricing.rates.get(model, pricing.rates[pricing.default_model])
+    resolution = (params.resolution or "768p").lower()
+    duration = params.duration_seconds if params.duration_seconds is not None else _DEFAULT_BUCKET_DURATION
+
+    key = (resolution, duration)
+    exact = model_buckets.get(key)
+    if exact is not None:
+        return exact, pricing.currency
+
+    # 未命中档：先在同分辨率档内取 |时长差| 最小者；无同分辨率档再在全部档内取最近。
+    # 同距离按更小时长 tie-break，保证确定性（不依赖 dict 插入序）。
+    same_resolution = [(res, dur) for (res, dur) in model_buckets if res == resolution]
+    candidates = same_resolution or list(model_buckets.keys())
+    nearest = min(candidates, key=lambda k: (abs(k[1] - duration), k[1]))
+    logger.warning(
+        "per_video_bucket 未命中档 model=%s resolution=%s duration=%ss，回落最近档 %s",
+        model,
+        resolution,
+        duration,
+        nearest,
+    )
+    return model_buckets[nearest], pricing.currency
+
+
 def _per_token_video(pricing: PerTokenVideo, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
     model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
@@ -163,6 +197,8 @@ def calculate_pricing(pricing: Pricing, params: PricingParams) -> tuple[float, s
         return _per_image_openai_token(pricing, params)
     if isinstance(pricing, PerSecondMatrix):
         return _per_second_matrix(pricing, params)
+    if isinstance(pricing, PerVideoBucket):
+        return _per_video_bucket(pricing, params)
     if isinstance(pricing, PerTokenVideo):
         return _per_token_video(pricing, params)
     if isinstance(pricing, PerCharacter):

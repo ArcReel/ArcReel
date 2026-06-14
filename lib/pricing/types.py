@@ -84,6 +84,24 @@ class PerSecondMatrix:
 
 
 @dataclass(frozen=True)
+class PerVideoBucket:
+    """视频按 (分辨率, 时长秒) 离散档计费：金额=查表 flat_price，与秒数不成比例。
+
+    适用 MiniMax 海螺等「按 (分辨率, 时长) 定价点」而非线性每秒的视频模型。
+
+    - ``rates`` 形如 ``{model: {(分辨率小写, 时长秒): flat_price}}``，分辨率键以小写存储，
+      查表前对入参 ``.lower()``。
+    - 未命中 (resolution, duration) 档时回落该 model「最接近的档」：先在同分辨率档内取
+      |时长差| 最小者，无同分辨率档再在全部档内取最近，并 WARN（档表与请求漂移的可观测信号）。
+    """
+
+    rates: dict[str, dict[tuple[str, int], float]]
+    default_model: str
+    currency: str
+    kind: Literal["per_video_bucket"] = "per_video_bucket"
+
+
+@dataclass(frozen=True)
 class PerTokenVideo:
     """视频按 token 计费（按 ``(service_tier, 是否生成音频)`` 查每百万 token 价）。
 
@@ -131,6 +149,7 @@ Pricing = (
     | PerImageByResolution
     | PerImageOpenAIToken
     | PerSecondMatrix
+    | PerVideoBucket
     | PerTokenVideo
     | PerCharacter
     | ViduDelegate
