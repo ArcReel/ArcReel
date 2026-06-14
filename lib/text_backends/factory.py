@@ -6,7 +6,7 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory
-from lib.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
+from lib.providers import PROVIDER_DASHSCOPE, PROVIDER_MINIMAX, PROVIDER_OPENAI
 from lib.text_backends.base import TextBackend, TextTaskType
 from lib.text_backends.registry import create_backend
 
@@ -19,6 +19,8 @@ PROVIDER_ID_TO_BACKEND: dict[str, str] = {
     "openai": "openai",
     # 阿里百炼文本走 OpenAI 兼容协议，复用 OpenAI 后端（base_url 与 provider_name 在下方特例处理）
     "dashscope": "openai",
+    # MiniMax 文本同样走 OpenAI 兼容协议，复用 OpenAI 后端（单 /v1 base，处理见下方特例）
+    "minimax": "openai",
 }
 
 
@@ -94,6 +96,13 @@ async def create_text_backend_for_task(
 
             kwargs["base_url"] = dashscope_text_base_url(user_base_url)
             kwargs["provider_name"] = PROVIDER_DASHSCOPE
+        elif provider_id == PROVIDER_MINIMAX:
+            # MiniMax 文本走 OpenAI 兼容模式：单 /v1 base（缺省国内站，可改 base_url 指向国际站）；
+            # 透传真实 provider 名给 OpenAI 后端，确保 usage 记账与计费查表命中 MiniMax 自身的 CNY 费率。
+            from lib.minimax_shared import minimax_text_base_url
+
+            kwargs["base_url"] = minimax_text_base_url(user_base_url)
+            kwargs["provider_name"] = PROVIDER_MINIMAX
         else:
             # ark / ark-agent-plan 等：用户优先，缺省回落 ProviderMeta.default_base_url
             # （与 server.services.generation_tasks._fill_simple_provider_kwargs 对称）。

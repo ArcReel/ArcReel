@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from lib.ark_shared import ARK_BASE_URL
 from lib.dashscope_shared import DASHSCOPE_BASE_URL
+from lib.minimax_shared import MINIMAX_BASE_URL
 from lib.pricing.types import (
     PerCharacter,
     PerImageByResolution,
@@ -194,6 +195,15 @@ def _dashscope_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecon
 # DashScope 语音合成费率（元/万字符）。
 def _dashscope_audio_pricing(model_id: str, per_10k_chars: float) -> PerCharacter:
     return PerCharacter(rates={model_id: per_10k_chars}, default_model=model_id, currency="CNY")
+
+
+# MiniMax（海螺）文本费率（元/百万 token），标准在线推理价；缓存折扣首批不建模。
+def _minimax_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="CNY",
+    )
 
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
@@ -917,6 +927,24 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url=DASHSCOPE_BASE_URL,
+    ),
+    "minimax": ProviderMeta(
+        display_name="MiniMax",
+        description="MiniMax（海螺）OpenAI 兼容平台，MiniMax-M2.7 文本擅长中文文学与人设创作；缺省国内站，可改 base_url 指向国际站。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- text ---
+            "MiniMax-M2.7": ModelInfo(
+                display_name="MiniMax M2.7",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                default=True,
+                pricing=_minimax_text_pricing("MiniMax-M2.7", 2.1, 8.4),
+            ),
+        },
+        default_base_url=MINIMAX_BASE_URL,
     ),
 }
 

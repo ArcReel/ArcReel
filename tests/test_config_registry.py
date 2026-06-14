@@ -11,6 +11,7 @@ def test_all_providers_registered():
         "openai",
         "vidu",
         "dashscope",
+        "minimax",
     }
 
 
