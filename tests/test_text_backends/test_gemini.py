@@ -144,24 +144,26 @@ class TestGenerate:
         assert "const" not in ds
         assert ds["enum"] == [8]
 
-    def test_const_to_enum_is_conservative_scalar_only(self, backend):
-        """只把「schema 关键字位置的标量 const」归一为 enum；不碰数据值与非标量 const。
+    def test_const_to_enum_distinguishes_keyword_field_name_and_data(self, backend):
+        """区分 const 出现的三种位置：schema 关键字（归一）、字段名（值仍是子 schema）、实例数据（不动）。
 
-        本仓库的 const 只来自单值时长 Literal（标量整数）。保守策略让该适配器免疫各类「数据里恰好
-        含 const 键」的边界——字段名为 const、default/examples 数据含 const、非标量 const 等。
+        本仓库 const 只来自单值时长 Literal（标量）。位置感知确保：properties 等映射的 key 是字段名，
+        其值仍是子 schema（里面真正的 const 照常归一）；const/default 等关键字的值是数据，不递归。
         """
         schema = {
             "type": "object",
             "properties": {
-                "duration_seconds": {"const": 8, "type": "integer"},  # 标量 const 关键字 → 归一
-                "const": {"type": "string"},  # 字段名恰为 const → 不动
-                "with_default": {"type": "object", "default": {"const": 42}},  # default 是数据 → 不动
-                "obj_const": {"const": {"const": 5}},  # 非标量 const（值是对象）→ 不动
+                "duration_seconds": {"const": 8, "type": "integer"},  # const 作关键字 → 归一
+                "const": {"type": "string"},  # 字段名为 const → 不动（值无 const）
+                "default": {"const": 6, "type": "integer"},  # 字段名为 default → 其值是子 schema，const 照常归一
+                "with_default": {"type": "object", "default": {"const": 42}},  # default 作关键字（数据）→ 不动
+                "obj_const": {"const": {"const": 5}},  # 非标量 const → 不动
             },
         }
         props = backend._build_config(schema, None)["response_json_schema"]["properties"]
         assert props["duration_seconds"] == {"type": "integer", "enum": [8]}
         assert props["const"] == {"type": "string"}
+        assert props["default"] == {"type": "integer", "enum": [6]}
         assert props["with_default"]["default"] == {"const": 42}
         assert props["obj_const"] == {"const": {"const": 5}}
 

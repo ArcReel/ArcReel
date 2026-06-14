@@ -24,31 +24,42 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
 
-# ``const`` / ``enum`` / ``default`` / ``examples`` 的值是「实例数据」而非子 schema：递归进去会把
-# 数据里恰好叫 ``const`` 的内容误当关键字。跳过它们即可绕开整类「数据里含 const」的边界。
-_VALUE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
+# 这些关键字的值是「名字 → 子 schema 的映射」：其 key 是属性名/定义名，不是 schema 关键字。
+# 递归进入时，每个值才是子 schema（key 可能恰好叫 ``const``，不可当关键字识别）。
+_SUBSCHEMA_MAP_KEYS = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
+# 这些关键字的值是「实例数据」而非子 schema：不可递归进去（里面恰好叫 ``const`` 的内容是数据）。
+_INSTANCE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
 
 
-def _const_to_enum(node: object) -> object:
+def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
     """把 schema 里「值为标量」的 ``const: X`` 归一为 ``enum: [X]``（语义等价）。
 
     单值 ``Literal`` 在 ``model_json_schema()`` 里渲染为 ``const``，而 ``const`` 不在 Gemini
     ``response_json_schema`` 的受支持特性内（``enum`` 在）。归一后单值约束落到受支持的 ``enum``，
     保留生成层硬约束。
 
-    本仓库的 ``const`` 只来自单值时长 ``Literal``（标量整数），故采取保守策略：只改写「值为标量」的
-    ``const``，且不递归进 ``_VALUE_KEYWORDS``（其值是实例数据）。这覆盖唯一会出现的 const 形态，并
-    免疫字段名为 ``const``、``default``/``examples`` 数据含 ``const``、非标量 ``const`` 等边界——
-    无需穷举 JSON Schema 关键字、也不把这个供应商适配器写成通用 normalizer。
+    ``const`` 出现的位置有三种，须区分对待（这是正确性的不可约最小状态机）：
+    - **schema 关键字**：归一（仅标量，对齐本仓库唯一的 const 形态——单值时长 Literal）；
+    - **字段名**（``_SUBSCHEMA_MAP_KEYS`` 映射的 key）：当前 dict 的 key 是名字，其值仍是子 schema，
+      继续按 schema 递归（里面真正的 const 照常归一）；
+    - **实例数据**（``_INSTANCE_KEYWORDS`` 的值）：原样保留、不递归。
     """
-    if isinstance(node, dict):
-        out = {k: (v if k in _VALUE_KEYWORDS else _const_to_enum(v)) for k, v in node.items()}
-        if "const" in out and (out["const"] is None or isinstance(out["const"], (str, int, float, bool))):
-            out["enum"] = [out.pop("const")]
-        return out
     if isinstance(node, list):
         return [_const_to_enum(item) for item in node]
-    return node
+    if not isinstance(node, dict):
+        return node
+    if in_subschema_map:
+        # 当前 dict 的 key 是属性名/定义名；每个值才是子 schema
+        return {k: _const_to_enum(v) for k, v in node.items()}
+    out: dict = {}
+    for k, v in node.items():
+        if k in _INSTANCE_KEYWORDS:
+            out[k] = v  # 值是实例数据，原样保留
+        else:
+            out[k] = _const_to_enum(v, in_subschema_map=k in _SUBSCHEMA_MAP_KEYS)
+    if "const" in out and (out["const"] is None or isinstance(out["const"], (str, int, float, bool))):
+        out["enum"] = [out.pop("const")]
+    return out
 
 
 def _to_response_json_schema(schema: dict | type) -> dict:
