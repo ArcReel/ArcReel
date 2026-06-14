@@ -216,7 +216,10 @@ class MiniMaxImageBackend:
             await _write_base64_image(b64, output_path)
             return None
 
-        raise RuntimeError(f"MiniMax 图像响应缺少 image_urls/image_base64: {data}")
+        # 完整响应体记日志便于诊断，但不嵌进异常消息——避免 body 里的 "503"/"timeout" 等子串
+        # 被默认 _should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
+        logger.error("MiniMax 图像响应缺少 image_urls/image_base64: %s", data)
+        raise RuntimeError("MiniMax 图像响应缺少 image_urls/image_base64")
 
     @with_retry_async(
         max_attempts=DOWNLOAD_MAX_ATTEMPTS,
