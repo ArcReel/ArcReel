@@ -51,3 +51,8 @@ from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.providers import PROVIDER_DASHSCOPE
 
 register_backend(PROVIDER_DASHSCOPE, DashScopeImageBackend)
+
+from lib.image_backends.minimax import MiniMaxImageBackend
+from lib.providers import PROVIDER_MINIMAX
+
+register_backend(PROVIDER_MINIMAX, MiniMaxImageBackend)

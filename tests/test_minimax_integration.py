@@ -27,17 +27,23 @@ def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> M
 
 
 class TestRegistry:
-    def test_minimax_registered_as_text_provider(self):
+    def test_minimax_registered_with_text_and_image(self):
         from lib.config.registry import PROVIDER_REGISTRY
 
         meta = PROVIDER_REGISTRY[PROVIDER_MINIMAX]
-        assert meta.media_types == ["text"]
+        assert meta.media_types == ["image", "text"]
         assert "api_key" in meta.required_keys
         assert "api_key" in meta.secret_keys
         assert "base_url" in meta.optional_keys
         assert meta.default_base_url == "https://api.minimaxi.com/v1"
         assert "MiniMax-M2.7" in meta.models
         assert meta.models["MiniMax-M2.7"].default is True
+        # image-01：默认图像模型，T2I + I2I，单脸参考
+        image = meta.models["image-01"]
+        assert image.media_type == "image"
+        assert image.default is True
+        assert image.capabilities == ["text_to_image", "image_to_image"]
+        assert image.max_reference_images == 1
 
     def test_env_keys_registered(self):
         from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS, PROVIDER_SECRET_KEYS
