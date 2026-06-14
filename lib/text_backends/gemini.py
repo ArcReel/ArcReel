@@ -24,31 +24,26 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
 
-# JSON Schema（Draft 2020-12）里这些关键字的值是「按名字索引的映射」：其 key 是字段名/定义名而非
-# schema 关键字。递归进入这类映射时，key 不可当关键字识别（可能恰好叫 ``const``），而其每个值才是
-# 子 schema。这是 2020-12 中此类关键字的完整集合。
-_NAME_KEYED_MAP_KEYS = frozenset(
-    {"properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependentRequired"}
-)
+# ``const`` / ``enum`` / ``default`` / ``examples`` 的值是「实例数据」而非子 schema：递归进去会把
+# 数据里恰好叫 ``const`` 的内容误当关键字。跳过它们即可绕开整类「数据里含 const」的边界。
+_VALUE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
 
 
-def _const_to_enum(node: object, *, is_name_keyed_map: bool = False) -> object:
-    """递归把 JSON Schema 的 ``const: X`` 归一为 ``enum: [X]``（语义等价）。
+def _const_to_enum(node: object) -> object:
+    """把 schema 里「值为标量」的 ``const: X`` 归一为 ``enum: [X]``（语义等价）。
 
-    单值 ``Literal`` 在 ``model_json_schema()`` 里渲染为 ``const``，而 ``const`` 不在
-    Gemini ``response_json_schema`` 的受支持特性内（``enum`` 在）。归一后单值约束落到受支持
-    的 ``enum``，保留生成层硬约束。
+    单值 ``Literal`` 在 ``model_json_schema()`` 里渲染为 ``const``，而 ``const`` 不在 Gemini
+    ``response_json_schema`` 的受支持特性内（``enum`` 在）。归一后单值约束落到受支持的 ``enum``，
+    保留生成层硬约束。
 
-    ``const`` 只有在 schema 对象里作为关键字时才改写。``is_name_keyed_map`` 标记当前 dict 是否为
-    ``_NAME_KEYED_MAP_KEYS`` 关键字的值（其 key 是名字、不是关键字）：是则跳过 key 的关键字识别，
-    其每个值按子 schema 继续递归。注意「是否为映射」取决于父关键字，而非 key 字面——字段名恰好叫
-    ``properties`` 时其值仍是普通 schema，里面的 ``const`` 要照常归一。
+    本仓库的 ``const`` 只来自单值时长 ``Literal``（标量整数），故采取保守策略：只改写「值为标量」的
+    ``const``，且不递归进 ``_VALUE_KEYWORDS``（其值是实例数据）。这覆盖唯一会出现的 const 形态，并
+    免疫字段名为 ``const``、``default``/``examples`` 数据含 ``const``、非标量 ``const`` 等边界——
+    无需穷举 JSON Schema 关键字、也不把这个供应商适配器写成通用 normalizer。
     """
     if isinstance(node, dict):
-        if is_name_keyed_map:
-            return {k: _const_to_enum(v) for k, v in node.items()}
-        out = {k: _const_to_enum(v, is_name_keyed_map=k in _NAME_KEYED_MAP_KEYS) for k, v in node.items()}
-        if "const" in out:
+        out = {k: (v if k in _VALUE_KEYWORDS else _const_to_enum(v)) for k, v in node.items()}
+        if "const" in out and (out["const"] is None or isinstance(out["const"], (str, int, float, bool))):
             out["enum"] = [out.pop("const")]
         return out
     if isinstance(node, list):

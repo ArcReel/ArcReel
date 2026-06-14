@@ -144,29 +144,26 @@ class TestGenerate:
         assert "const" not in ds
         assert ds["enum"] == [8]
 
-    def test_const_normalization_distinguishes_field_names_from_keywords(self, backend):
-        """正确区分「字段名」与「schema 关键字」：const 只在 schema 对象里作关键字才归一。
+    def test_const_to_enum_is_conservative_scalar_only(self, backend):
+        """只把「schema 关键字位置的标量 const」归一为 enum；不碰数据值与非标量 const。
 
-        出现在 properties/$defs/dependentRequired 等映射的 key 是字段名，不归一；反过来，字段名
-        恰为容器关键字（如 properties）时其值仍是普通 schema，里面的 const 要照常归一。
+        本仓库的 const 只来自单值时长 Literal（标量整数）。保守策略让该适配器免疫各类「数据里恰好
+        含 const 键」的边界——字段名为 const、default/examples 数据含 const、非标量 const 等。
         """
         schema = {
             "type": "object",
             "properties": {
-                "const": {"type": "string"},  # 字段名恰为 const → 当字段名，不动
-                "duration_seconds": {"const": 8, "type": "integer"},  # 真正的 const 关键字 → 归一
-                "properties": {"const": 42},  # 字段名恰为容器关键字 → 其值仍是 schema，const 照常归一
+                "duration_seconds": {"const": 8, "type": "integer"},  # 标量 const 关键字 → 归一
+                "const": {"type": "string"},  # 字段名恰为 const → 不动
+                "with_default": {"type": "object", "default": {"const": 42}},  # default 是数据 → 不动
+                "obj_const": {"const": {"const": 5}},  # 非标量 const（值是对象）→ 不动
             },
         }
         props = backend._build_config(schema, None)["response_json_schema"]["properties"]
-        assert props["const"] == {"type": "string"}
         assert props["duration_seconds"] == {"type": "integer", "enum": [8]}
-        assert props["properties"] == {"enum": [42]}
-
-        # dependentRequired 的 key 同样是字段名：名为 const 的依赖约束不被误判
-        dep_schema = {"type": "object", "dependentRequired": {"const": ["other"]}}
-        dep_config = backend._build_config(dep_schema, None)
-        assert dep_config["response_json_schema"]["dependentRequired"] == {"const": ["other"]}
+        assert props["const"] == {"type": "string"}
+        assert props["with_default"]["default"] == {"const": 42}
+        assert props["obj_const"] == {"const": {"const": 5}}
 
     def test_episode_script_schema_accepted_by_google_genai_jsonschema(self, backend):
         """集成回归：剧本 schema 经 _build_config 产出后必须被 google-genai 真实 JSONSchema 接受。
