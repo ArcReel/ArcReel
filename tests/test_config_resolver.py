@@ -572,6 +572,20 @@ class TestVideoCapabilities:
             await engine.dispose()
         assert caps["max_reference_images"] == 1
 
+    async def test_max_reference_images_reads_model_info_for_minimax_s2v(self):
+        """minimax S2V-01 的 max_reference_images 来自 registry ModelInfo（=1）；
+
+        编排层据此只取 1 张参考图，不会向只吃单脸的 S2V-01 拼多张。
+        """
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager"):
+                caps = await resolver.video_capabilities_for_project({"video_backend": "minimax/S2V-01"})
+        finally:
+            await engine.dispose()
+        assert caps["max_reference_images"] == 1
+
     async def test_max_reference_images_reads_model_info_for_ark_seedance(self):
         """ark seedance 的 max_reference_images 来自 registry ModelInfo（=9）。"""
         factory, engine = await _make_session()

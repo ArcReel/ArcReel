@@ -131,6 +131,8 @@ class TestLookupPricing:
             ("MiniMax-Hailuo-2.3-Fast", "768p", 6, 1.35),
             ("MiniMax-Hailuo-2.3-Fast", "768p", 10, 2.25),
             ("MiniMax-Hailuo-2.3-Fast", "1080p", 6, 2.31),
+            # S2V-01 单档定价（约 ¥3，半核实）：固定 768P/6s 档命中。
+            ("S2V-01", "768p", 6, 3.0),
         ],
     )
     def test_video_per_video_bucket(self, model, resolution, duration, expected):
@@ -150,6 +152,15 @@ class TestLookupPricing:
         assert cur == "CNY"
         assert amount == pytest.approx(3.5)
 
+    def test_s2v01_single_bucket_resolves_for_any_resolution(self):
+        # S2V-01 仅单档，固定输出；任意分辨率经最近档回落到唯一档，价格恒为 ¥3。
+        p = lookup_pricing(PROVIDER_MINIMAX, "S2V-01", "video")
+        amount, cur = calculate_pricing(
+            p, PricingParams(call_type="video", model="S2V-01", resolution="1080p", duration_seconds=6)
+        )
+        assert cur == "CNY"
+        assert amount == pytest.approx(3.0)
+
 
 class TestVideoRegistry:
     def test_video_models_registered(self):
@@ -165,6 +176,16 @@ class TestVideoRegistry:
 
         fast = models["MiniMax-Hailuo-2.3-Fast"]
         assert fast.capabilities == ["image_to_video"]
+
+    def test_s2v01_registered_with_single_reference_cap(self):
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        s2v = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models["S2V-01"]
+        assert s2v.media_type == "video"
+        # 单脸参考生视频：编排层据 registry max_reference_images 只取 1 张。
+        assert s2v.max_reference_images == 1
+        # 固定 6s 输出。
+        assert s2v.supported_durations == [6]
 
     def test_video_backend_registered(self):
         from lib.video_backends import get_registered_backends

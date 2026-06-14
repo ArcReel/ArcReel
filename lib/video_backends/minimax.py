@@ -3,10 +3,12 @@
 走原生视频端点，轮询而非 callback：submit POST /video_generation 取 task_id →
 轮询 GET /query/video_generation?task_id= 至 status=Success 取 file_id →
 GET /files/retrieve?file_id= 取 download_url → 下载本地。覆盖 MiniMax-Hailuo-2.3
-（t2v+i2v）与 MiniMax-Hailuo-2.3-Fast（仅 i2v，约半价）。
+（t2v+i2v）、MiniMax-Hailuo-2.3-Fast（仅 i2v，约半价）与 S2V-01（单脸参考生视频 R2V）。
 
-能力约束：resolution ∈ {768P, 1080P}，1080P 仅 6s（10s 仅 768P）；越界抛
-VideoCapabilityError。Fast 仅图生视频，无首帧的文生视频请求被能力拒绝。
+能力约束：Hailuo resolution ∈ {768P, 1080P}，1080P 仅 6s（10s 仅 768P）；越界抛
+VideoCapabilityError，Fast 仅图生视频、无首帧的文生视频请求被能力拒绝。S2V-01 走单脸
+subject_reference（reference_images[0]→{"type":"character","image":[...]}），固定输出、
+不传 resolution/duration，无参考图即 fail-loud。
 """
 
 from __future__ import annotations
@@ -58,6 +60,9 @@ DEFAULT_MODEL = "MiniMax-Hailuo-2.3"
 
 _HAILUO = "MiniMax-Hailuo-2.3"
 _HAILUO_FAST = "MiniMax-Hailuo-2.3-Fast"
+# S2V-01：单张人脸驱动的角色一致性参考生视频（R2V），走 subject_reference 单脸字段，
+# 不接受 first_frame_image / resolution / duration（固定输出）。
+_S2V = "S2V-01"
 
 _SUBMIT_ENDPOINT = "/video_generation"
 _QUERY_ENDPOINT = "/query/video_generation"
@@ -69,10 +74,12 @@ _POLL_TIMEOUT_PER_SECOND = 60.0
 _TV = VideoCapability.TEXT_TO_VIDEO
 _IV = VideoCapability.IMAGE_TO_VIDEO
 
-# 按 model id 派发能力：Hailuo 2.3 文+图生视频；2.3-Fast 仅图生视频。
+# 按 model id 派发能力：Hailuo 2.3 文+图生视频；2.3-Fast 仅图生视频；S2V-01 既非 t2v 也非
+# i2v（subject_reference 驱动，能力经 VideoCapabilities.reference_images 表达），故为空集。
 _MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
     _HAILUO: {_TV, _IV},
     _HAILUO_FAST: {_IV},
+    _S2V: set(),
 }
 # 未知 model（代理中转自定义命名）按通用文+图生视频处理。
 _DEFAULT_CAPABILITIES: set[VideoCapability] = {_TV, _IV}
@@ -80,7 +87,7 @@ _DEFAULT_CAPABILITIES: set[VideoCapability] = {_TV, _IV}
 # (分辨率小写 → 允许的时长集合)：1080P 仅 6s，768P 支持 6s/10s（两代 Hailuo 同此矩阵）。
 _RESOLUTION_DURATIONS: dict[str, set[int]] = {"768p": {6, 10}, "1080p": {6}}
 
-# 进日志的安全标量白名单；first_frame_image（base64）一律不入日志。
+# 进日志的安全标量白名单；first_frame_image / subject_reference（base64）一律不入日志。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset({"model", "resolution", "duration"})
 
 
@@ -97,6 +104,8 @@ def _safe_body_for_log(body: dict) -> dict:
         safe["prompt"] = prompt[:120] + ("…" if len(prompt) > 120 else "")
     if body.get("first_frame_image"):
         safe["first_frame_image"] = "<data_uri>"
+    if body.get("subject_reference"):
+        safe["subject_reference"] = "<character_ref>"
     return safe
 
 
@@ -131,7 +140,14 @@ class MiniMaxVideoBackend:
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """海螺图生视频走 first_frame_image 首帧；首批不建模尾帧/参考图。"""
+        """海螺图生视频走 first_frame_image 首帧；S2V-01 走 subject_reference 单脸参考生视频。
+
+        S2V-01 仅接受单张人脸参考、不接受首帧图，故 first_frame=False + reference_images=True
+        + max_reference_images=1；reference_images_with_start_frame 维持 False（参考与首帧不叠加）。
+        Hailuo 系列首批不建模尾帧/参考图。
+        """
+        if model == _S2V:
+            return VideoCapabilities(first_frame=False, reference_images=True, max_reference_images=1)
         return VideoCapabilities(first_frame=True)
 
     @property
@@ -161,6 +177,10 @@ class MiniMaxVideoBackend:
     # ── request building ────────────────────────────────────────────────
 
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
+        # S2V-01 走单脸 subject_reference 路径：不取首帧、不传 resolution/duration（固定输出）。
+        if self._model == _S2V:
+            return self._build_s2v_payload(request)
+
         resolution = (request.resolution or "768p").lower()
         duration = request.duration_seconds
         has_start_image = isinstance(request.start_image, (str, Path)) and str(request.start_image)
@@ -196,6 +216,29 @@ class MiniMaxVideoBackend:
             except OSError as exc:
                 raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=p.name) from exc
         return payload
+
+    def _build_s2v_payload(self, request: VideoGenerationRequest) -> dict:
+        """S2V-01：把 reference_images[0] 映射成单脸 subject_reference。
+
+        编排层已按 registry max_reference_images=1 裁剪，此处防御性仅取首张人脸图。
+        fail-loud：未提供参考图 → required；声明的参考图缺失/不可读 → unreadable，
+        不静默退化为无参考生成（会产出错误结果且照常计费）。
+        """
+        provided = [r for r in (request.reference_images or []) if r]
+        if not provided:
+            raise VideoCapabilityError("video_reference_images_required", model=self._model)
+        face = Path(provided[0])
+        if not face.is_file():
+            raise VideoCapabilityError("video_reference_images_unreadable", model=self._model, names=face.name)
+        try:
+            data_uri = image_to_data_uri(face)
+        except OSError as exc:
+            raise VideoCapabilityError("video_reference_images_unreadable", model=self._model, names=face.name) from exc
+        return {
+            "model": self._model,
+            "prompt": request.prompt,
+            "subject_reference": [{"type": "character", "image": [data_uri]}],
+        }
 
     # ── HTTP submit / poll / retrieve / download ────────────────────────
 
