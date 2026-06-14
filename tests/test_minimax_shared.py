@@ -80,6 +80,12 @@ class TestExtractImageUrl:
         assert extract_image_url({"data": None}) is None
         assert extract_image_url({"data": ["x"]}) is None
 
+    def test_non_dict_payload_tolerated(self):
+        # 中转代理 / 错误响应可能返回非 dict 顶层（list / str）：不得抛 AttributeError
+        assert extract_image_url(["not", "a", "dict"]) is None
+        assert extract_image_url("error") is None
+        assert extract_image_url(None) is None
+
 
 class TestExtractImageBase64:
     def test_first_base64(self):
@@ -90,6 +96,11 @@ class TestExtractImageBase64:
         assert extract_image_base64({"data": {}}) is None
         assert extract_image_base64({}) is None
 
+    def test_non_dict_payload_tolerated(self):
+        # 顶层非 dict（代理 / 错误响应）一律回 None，不抛 AttributeError
+        assert extract_image_base64(["x"]) is None
+        assert extract_image_base64(None) is None
+
 
 class TestFailureReason:
     def test_success_status_zero_returns_none(self):
@@ -97,6 +108,11 @@ class TestFailureReason:
 
     def test_missing_base_resp_returns_none(self):
         assert minimax_failure_reason({}) is None
+
+    def test_non_dict_payload_returns_none(self):
+        # 顶层非 dict（代理 / 错误响应）不抛 AttributeError，按"无业务错误"回 None
+        assert minimax_failure_reason(["x"]) is None
+        assert minimax_failure_reason("boom") is None
 
     def test_nonzero_status_returns_reason(self):
         reason = minimax_failure_reason({"base_resp": {"status_code": 1004, "status_msg": "invalid api key"}})

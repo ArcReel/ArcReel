@@ -66,12 +66,12 @@ def _as_dict(value: object) -> dict:
 # ── 单步 image_generation 响应工具 ────────────────────────────────────────────
 
 
-def extract_image_url(payload: dict) -> str | None:
+def extract_image_url(payload: object) -> str | None:
     """从 image_generation 响应 data.image_urls 取首个 URL（response_format=url，24h 有效）。
 
-    无可用 URL（字段缺失 / 非 list / 全为空）返回 None，由 caller 回落 base64 或报错。
+    无可用 URL（顶层 / data 非 dict、字段缺失、非 list、全为空）返回 None，由 caller 回落 base64 或报错。
     """
-    urls = _as_dict(payload.get("data")).get("image_urls")
+    urls = _as_dict(_as_dict(payload).get("data")).get("image_urls")
     if isinstance(urls, list):
         for url in urls:
             if isinstance(url, str) and url:
@@ -79,12 +79,12 @@ def extract_image_url(payload: dict) -> str | None:
     return None
 
 
-def extract_image_base64(payload: dict) -> str | None:
+def extract_image_base64(payload: object) -> str | None:
     """从 image_generation 响应 data.image_base64 取首个 base64（response_format=base64）。
 
-    无可用 base64 返回 None，由 caller 报错。
+    无可用 base64（顶层 / data 非 dict、字段缺失等）返回 None，由 caller 报错。
     """
-    items = _as_dict(payload.get("data")).get("image_base64")
+    items = _as_dict(_as_dict(payload).get("data")).get("image_base64")
     if isinstance(items, list):
         for item in items:
             if isinstance(item, str) and item:
@@ -92,13 +92,13 @@ def extract_image_base64(payload: dict) -> str | None:
     return None
 
 
-def minimax_failure_reason(payload: dict) -> str | None:
+def minimax_failure_reason(payload: object) -> str | None:
     """base_resp.status_code 非零时返回错误描述；成功（0）或缺失 base_resp 返回 None。
 
     MiniMax 业务错误以 HTTP 200 + base_resp.status_code 非零承载（鉴权失败等可能另走 4xx，
     由 submit_post/raise_for_status 兜住），故同步图像响应须先查 base_resp 再取图。
     """
-    base = _as_dict(payload.get("base_resp"))
+    base = _as_dict(_as_dict(payload).get("base_resp"))
     status = base.get("status_code")
     if status is not None and status != 0:
         msg = base.get("status_msg") or ""
