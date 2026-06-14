@@ -12,6 +12,7 @@ from lib.pricing.types import (
     PerSecondMatrix,
     PerToken,
     PerTokenVideo,
+    PerVideoBucket,
     ViduDelegate,
 )
 
@@ -291,6 +292,97 @@ class TestPerSecondMatrix:
             ),
         )
         assert amount == pytest.approx(0.0)
+
+
+class TestPerVideoBucket:
+    pricing = PerVideoBucket(
+        rates={
+            "hailuo": {("768p", 6): 2.0, ("768p", 10): 4.0, ("1080p", 6): 3.5},
+            "hailuo-fast": {("768p", 6): 1.35, ("768p", 10): 2.25, ("1080p", 6): 2.31},
+        },
+        default_model="hailuo",
+        currency="CNY",
+    )
+
+    def test_exact_bucket_768p_6s(self):
+        amount, currency = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768p", duration_seconds=6)
+        )
+        assert amount == pytest.approx(2.0)
+        assert currency == "CNY"
+
+    def test_exact_bucket_768p_10s(self):
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768p", duration_seconds=10)
+        )
+        assert amount == pytest.approx(4.0)
+
+    def test_exact_bucket_1080p_6s(self):
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="1080p", duration_seconds=6)
+        )
+        assert amount == pytest.approx(3.5)
+
+    def test_fast_model_buckets(self):
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo-fast", resolution="1080p", duration_seconds=6)
+        )
+        assert amount == pytest.approx(2.31)
+
+    def test_resolution_uppercased_normalized(self):
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768P", duration_seconds=10)
+        )
+        assert amount == pytest.approx(4.0)
+
+    def test_unknown_model_falls_back_to_default(self):
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="unknown", resolution="768p", duration_seconds=6)
+        )
+        assert amount == pytest.approx(2.0)
+
+    def test_missing_duration_falls_back_to_nearest_same_resolution(self):
+        # 1080p 仅声明 6s 档；请求 1080p 10s 未命中 → 同分辨率档内取最近（6s 档 3.5）。
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="1080p", duration_seconds=10)
+        )
+        assert amount == pytest.approx(3.5)
+
+    def test_missing_resolution_falls_back_to_nearest_bucket(self):
+        # 未知分辨率无同分辨率档 → 全档取时长最近（duration=10 命中 ("768p",10)=4.0）。
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="540p", duration_seconds=10)
+        )
+        assert amount == pytest.approx(4.0)
+
+    def test_cross_resolution_tie_break_prefers_cheaper_deterministically(self):
+        # 未知分辨率 540p + duration=6 → 无同分辨率档，("768p",6)=2.0 与 ("1080p",6)=3.5
+        # 时长差同为 0 而完全打平。tie-break 须取更低价档（2.0），且与 dict 插入序无关——
+        # 反向插入同一档表仍得 2.0，证明结果确定。
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="540p", duration_seconds=6)
+        )
+        assert amount == pytest.approx(2.0)
+
+        reversed_pricing = PerVideoBucket(
+            rates={"hailuo": {("1080p", 6): 3.5, ("768p", 10): 4.0, ("768p", 6): 2.0}},
+            default_model="hailuo",
+            currency="CNY",
+        )
+        reversed_amount, _ = calculate_pricing(
+            reversed_pricing, PricingParams(call_type="video", model="hailuo", resolution="540p", duration_seconds=6)
+        )
+        assert reversed_amount == pytest.approx(2.0)
+
+    def test_none_resolution_defaults_to_768p(self):
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", duration_seconds=6)
+        )
+        assert amount == pytest.approx(2.0)
+
+    def test_none_duration_defaults_to_min_bucket(self):
+        amount, _ = calculate_pricing(self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768p"))
+        assert amount == pytest.approx(2.0)
 
 
 class TestPerTokenVideo:

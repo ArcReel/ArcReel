@@ -69,3 +69,9 @@ from lib.providers import PROVIDER_DASHSCOPE  # noqa: E402
 from lib.video_backends.dashscope import DashScopeVideoBackend  # noqa: E402
 
 register_backend(PROVIDER_DASHSCOPE, DashScopeVideoBackend)
+
+# MiniMax 海螺 — Hailuo 2.3 / 2.3-Fast 视频
+from lib.providers import PROVIDER_MINIMAX  # noqa: E402
+from lib.video_backends.minimax import MiniMaxVideoBackend  # noqa: E402
+
+register_backend(PROVIDER_MINIMAX, MiniMaxVideoBackend)

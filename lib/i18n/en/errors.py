@@ -192,6 +192,8 @@ MESSAGES = {
     # Video Capability
     "video_duration_invalid": "Video duration {duration} is not a valid integer number of seconds",
     "video_duration_not_supported": "Video duration {duration}s is not within the durations supported by this model ({supported})",
+    "video_capability_missing_t2v": "{provider}/{model} does not support text-to-video; provide a first-frame image or switch to a model that supports text-to-video",
+    "video_resolution_duration_unsupported": "Model {model} does not support {duration}s at {resolution} resolution (only {supported}); adjust the resolution or duration",
     "video_reference_images_required": "Model {model} requires at least one reference image; please provide reference images",
     "video_reference_images_unreadable": "Model {model} has reference images that are missing or unreadable; generation aborted: {names}; check the reference image paths",
     "video_start_image_unreadable": "The first-frame image for model {model} is unreadable; generation aborted: {name}; check the first-frame image path",

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-# 当 resolve_resolution 返回 None 时下游的保底分辨率。#387 Grok 即便 registry
-# 声明 1080p 也可能被 xai_sdk 拒收，故按 provider 区分。
+# 当 resolve_resolution 返回 None 时下游的保底分辨率。Grok 即便 registry 声明 1080p
+# 也可能被 xai_sdk 拒收，故按 provider 区分。
 PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
     "gemini": "1080p",
     "ark": "720p",
     "grok": "720p",
     "openai": "720p",
+    # MiniMax 海螺缺省 768P：1080P 仅 6s，默认落 768P 避免与 10s 档冲突。
+    "minimax": "768p",
 }
 
 

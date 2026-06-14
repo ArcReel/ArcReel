@@ -13,6 +13,7 @@ from lib.pricing.types import (
     PerSecondMatrix,
     PerToken,
     PerTokenVideo,
+    PerVideoBucket,
     Pricing,
     ViduDelegate,
 )
@@ -209,6 +210,11 @@ def _minimax_text_pricing(model_id: str, input_rate: float, output_rate: float) 
 # MiniMax 图片费率（元/张），T2I 与 I2I 同价。
 def _minimax_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
+
+
+# MiniMax 海螺视频按 (分辨率, 时长) 离散档计费（元/次，CNY）。
+def _minimax_video_pricing(model_id: str, buckets: dict[tuple[str, int], float]) -> PerVideoBucket:
+    return PerVideoBucket(rates={model_id: buckets}, default_model=model_id, currency="CNY")
 
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
@@ -935,7 +941,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "minimax": ProviderMeta(
         display_name="MiniMax",
-        description="MiniMax（海螺）OpenAI 兼容平台，MiniMax-M2.7 文本擅长中文文学与人设创作；缺省国内站，可改 base_url 指向国际站。",
+        description="MiniMax（海螺）OpenAI 兼容平台，M2.7 文本擅长中文文学与人设创作，Hailuo 2.3 视频擅长动漫/插画风；缺省国内站，可改 base_url 指向国际站。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
@@ -959,6 +965,34 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["1K", "2K"],
                 max_reference_images=1,
                 pricing=_minimax_image_pricing("image-01", 0.025),
+            ),
+            # --- video ---
+            # 1080P 仅 6s（10s 仅 768P）；细粒度越界由 MiniMaxVideoBackend 抛 VideoCapabilityError，
+            # duration_resolution_constraints 同步给前端做下拉门控。
+            "MiniMax-Hailuo-2.3": ModelInfo(
+                display_name="MiniMax Hailuo 2.3",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                default=True,
+                supported_durations=[6, 10],
+                resolutions=["768p", "1080p"],
+                duration_resolution_constraints={"1080p": [6]},
+                pricing=_minimax_video_pricing(
+                    "MiniMax-Hailuo-2.3",
+                    {("768p", 6): 2.0, ("768p", 10): 4.0, ("1080p", 6): 3.5},
+                ),
+            ),
+            "MiniMax-Hailuo-2.3-Fast": ModelInfo(
+                display_name="MiniMax Hailuo 2.3 Fast",
+                media_type="video",
+                capabilities=["image_to_video"],
+                supported_durations=[6, 10],
+                resolutions=["768p", "1080p"],
+                duration_resolution_constraints={"1080p": [6]},
+                pricing=_minimax_video_pricing(
+                    "MiniMax-Hailuo-2.3-Fast",
+                    {("768p", 6): 1.35, ("768p", 10): 2.25, ("1080p", 6): 2.31},
+                ),
             ),
         },
         default_base_url=MINIMAX_BASE_URL,

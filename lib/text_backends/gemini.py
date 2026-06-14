@@ -15,12 +15,65 @@ from .base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    resolve_schema,
     warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
+
+
+# 这些关键字的值是「名字 → 子 schema 的映射」：其 key 是属性名/定义名，不是 schema 关键字。
+# 递归进入时，每个值才是子 schema（key 可能恰好叫 ``const``，不可当关键字识别）。
+_SUBSCHEMA_MAP_KEYS = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
+# 这些关键字的值是「实例数据」而非子 schema：不可递归进去（里面恰好叫 ``const`` 的内容是数据）。
+_INSTANCE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
+
+
+def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
+    """把 schema 里「值为标量」的 ``const: X`` 归一为 ``enum: [X]``（语义等价）。
+
+    单值 ``Literal`` 在 ``model_json_schema()`` 里渲染为 ``const``，而 ``const`` 不在 Gemini
+    ``response_json_schema`` 的受支持特性内（``enum`` 在）。归一后单值约束落到受支持的 ``enum``，
+    保留生成层硬约束。
+
+    ``const`` 出现的位置有三种，须区分对待（这是正确性的不可约最小状态机）：
+    - **schema 关键字**：归一（仅标量，对齐本仓库唯一的 const 形态——单值时长 Literal）；
+    - **字段名**（``_SUBSCHEMA_MAP_KEYS`` 映射的 key）：当前 dict 的 key 是名字，其值仍是子 schema，
+      继续按 schema 递归（里面真正的 const 照常归一）；
+    - **实例数据**（``_INSTANCE_KEYWORDS`` 的值）：原样保留、不递归。
+    """
+    if isinstance(node, list):
+        return [_const_to_enum(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    if in_subschema_map:
+        # 当前 dict 的 key 是属性名/定义名；每个值才是子 schema
+        return {k: _const_to_enum(v) for k, v in node.items()}
+    out: dict = {}
+    for k, v in node.items():
+        if k in _INSTANCE_KEYWORDS:
+            out[k] = v  # 值是实例数据，原样保留
+        else:
+            out[k] = _const_to_enum(v, in_subschema_map=k in _SUBSCHEMA_MAP_KEYS)
+    if "const" in out and (out["const"] is None or isinstance(out["const"], (str, int, float, bool))):
+        out["enum"] = [out.pop("const")]
+    return out
+
+
+def _to_response_json_schema(schema: dict | type) -> dict:
+    """把 response_schema 统一转成 Gemini ``response_json_schema`` 可消费的 JSON Schema dict。
+
+    Gemini 有两条结构化输出通道：``response_schema``（``types.Schema``，OpenAPI 子集，``enum``
+    仅支持字符串）与 ``response_json_schema``（标准 JSON Schema，``enum`` 支持字符串与数字）。
+    ``build_episode_script_model`` 把 ``duration_seconds`` 收紧为 ``Literal[*supported_durations]``
+    的整数 enum，走前者会在 SDK schema 转换时抛 "Input should be a valid string"，故统一走后者：
+    先 ``resolve_schema`` 内联 ``$ref``，再把单值 ``const`` 归一为 ``enum``。
+    """
+    normalized = _const_to_enum(resolve_schema(schema))
+    assert isinstance(normalized, dict)  # resolve_schema 必返回 dict
+    return normalized
 
 
 class GeminiTextBackend:
@@ -105,10 +158,7 @@ class GeminiTextBackend:
         config: dict = {}
         if response_schema:
             config["response_mime_type"] = "application/json"
-            if isinstance(response_schema, type):
-                config["response_schema"] = response_schema
-            else:
-                config["response_json_schema"] = response_schema
+            config["response_json_schema"] = _to_response_json_schema(response_schema)
         if system_prompt:
             config["system_instruction"] = system_prompt
         if max_output_tokens is not None:
