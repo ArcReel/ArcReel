@@ -355,6 +355,25 @@ class TestPerVideoBucket:
         )
         assert amount == pytest.approx(4.0)
 
+    def test_cross_resolution_tie_break_prefers_cheaper_deterministically(self):
+        # 未知分辨率 540p + duration=6 → 无同分辨率档，("768p",6)=2.0 与 ("1080p",6)=3.5
+        # 时长差同为 0 而完全打平。tie-break 须取更低价档（2.0），且与 dict 插入序无关——
+        # 反向插入同一档表仍得 2.0，证明结果确定。
+        amount, _ = calculate_pricing(
+            self.pricing, PricingParams(call_type="video", model="hailuo", resolution="540p", duration_seconds=6)
+        )
+        assert amount == pytest.approx(2.0)
+
+        reversed_pricing = PerVideoBucket(
+            rates={"hailuo": {("1080p", 6): 3.5, ("768p", 10): 4.0, ("768p", 6): 2.0}},
+            default_model="hailuo",
+            currency="CNY",
+        )
+        reversed_amount, _ = calculate_pricing(
+            reversed_pricing, PricingParams(call_type="video", model="hailuo", resolution="540p", duration_seconds=6)
+        )
+        assert reversed_amount == pytest.approx(2.0)
+
     def test_none_resolution_defaults_to_768p(self):
         amount, _ = calculate_pricing(
             self.pricing, PricingParams(call_type="video", model="hailuo", duration_seconds=6)

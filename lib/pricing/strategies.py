@@ -144,10 +144,11 @@ def _per_video_bucket(pricing: PerVideoBucket, params: PricingParams) -> tuple[f
         return exact, pricing.currency
 
     # 未命中档：先在同分辨率档内取 |时长差| 最小者；无同分辨率档再在全部档内取最近。
-    # 同距离按更小时长 tie-break，保证确定性（不依赖 dict 插入序）。
+    # tie-break 链保证完全确定性（不依赖 dict 插入序）：|时长差| → 更小时长 → 更低价
+    # （跨分辨率回落时同距离取便宜档，避免高估）→ 档 key（同价时兜底，保证全序）。
     same_resolution = [(res, dur) for (res, dur) in model_buckets if res == resolution]
     candidates = same_resolution or list(model_buckets.keys())
-    nearest = min(candidates, key=lambda k: (abs(k[1] - duration), k[1]))
+    nearest = min(candidates, key=lambda k: (abs(k[1] - duration), k[1], model_buckets[k], k))
     logger.warning(
         "per_video_bucket 未命中档 model=%s resolution=%s duration=%ss，回落最近档 %s",
         model,
