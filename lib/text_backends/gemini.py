@@ -15,12 +15,44 @@ from .base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    resolve_schema,
     warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
+
+
+def _const_to_enum(node: object) -> object:
+    """递归把 JSON Schema 的 ``const: X`` 归一为 ``enum: [X]``（语义等价）。
+
+    单值 ``Literal`` 在 ``model_json_schema()`` 里渲染为 ``const``，而 ``const`` 不在
+    Gemini ``response_json_schema`` 的受支持特性内（``enum`` 在）。归一后单值约束落到受支持
+    的 ``enum``，保留生成层硬约束。
+    """
+    if isinstance(node, dict):
+        out = {k: _const_to_enum(v) for k, v in node.items()}
+        if "const" in out:
+            out["enum"] = [out.pop("const")]
+        return out
+    if isinstance(node, list):
+        return [_const_to_enum(item) for item in node]
+    return node
+
+
+def _to_response_json_schema(schema: dict | type) -> dict:
+    """把 response_schema 统一转成 Gemini ``response_json_schema`` 可消费的 JSON Schema dict。
+
+    Gemini 有两条结构化输出通道：``response_schema``（``types.Schema``，OpenAPI 子集，``enum``
+    仅支持字符串）与 ``response_json_schema``（标准 JSON Schema，``enum`` 支持字符串与数字）。
+    ``build_episode_script_model`` 把 ``duration_seconds`` 收紧为 ``Literal[*supported_durations]``
+    的整数 enum，走前者会在 SDK schema 转换时抛 "Input should be a valid string"，故统一走后者：
+    先 ``resolve_schema`` 内联 ``$ref``，再把单值 ``const`` 归一为 ``enum``。
+    """
+    normalized = _const_to_enum(resolve_schema(schema))
+    assert isinstance(normalized, dict)  # resolve_schema 必返回 dict
+    return normalized
 
 
 class GeminiTextBackend:
@@ -105,10 +137,7 @@ class GeminiTextBackend:
         config: dict = {}
         if response_schema:
             config["response_mime_type"] = "application/json"
-            if isinstance(response_schema, type):
-                config["response_schema"] = response_schema
-            else:
-                config["response_json_schema"] = response_schema
+            config["response_json_schema"] = _to_response_json_schema(response_schema)
         if system_prompt:
             config["system_instruction"] = system_prompt
         if max_output_tokens is not None:
