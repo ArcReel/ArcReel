@@ -654,6 +654,40 @@ class TestTestProviderConnection:
         assert resp.available_models == ["qwen-plus", "wan2.7-image"]
         assert resp.success is True
 
+    def test_minimax_registered_in_dispatch(self):
+        # minimax 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
+        # 否则点"测试连接"会落到 unsupported_test 分支（即便 API Key 有效）
+        assert "minimax" in providers._TEST_DISPATCH
+
+    def test_minimax_test_fn_uses_v1_base_and_filters_models(self):
+        from types import SimpleNamespace
+
+        captured: dict = {}
+
+        class _FakeModels:
+            def list(self):
+                return SimpleNamespace(
+                    data=[
+                        SimpleNamespace(id="MiniMax-M2.7"),
+                        SimpleNamespace(id="abab6.5s-chat"),
+                        SimpleNamespace(id="text-embedding-v1"),
+                    ]
+                )
+
+        class _FakeOpenAI:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                self.models = _FakeModels()
+
+        with patch("openai.OpenAI", _FakeOpenAI):
+            resp = providers._test_minimax({"api_key": "sk", "base_url": "https://api.minimax.io"}, lambda k, **kw: k)
+        # host → {host}/v1（OpenAI 协议），api_key 透传
+        assert captured["base_url"] == "https://api.minimax.io/v1"
+        assert captured["api_key"] == "sk"
+        # 仅暴露 minimax/abab 模型，过滤掉 embedding 等
+        assert resp.available_models == ["MiniMax-M2.7", "abab6.5s-chat"]
+        assert resp.success is True
+
     def test_specific_credential_id(self):
         """使用 credential_id 参数测试特定凭证。"""
         repo = MagicMock(spec=CredentialRepository)

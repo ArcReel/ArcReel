@@ -658,6 +658,29 @@ def _test_dashscope(config: dict[str, str], _t: Callable[..., str]) -> Connectio
     )
 
 
+def _test_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 MiniMax API Key（OpenAI 兼容协议）。
+
+    与 DashScope 同构：复用 OpenAI 客户端打 models.list()；base_url 经 minimax_text_base_url
+    归一化为 {host}/v1，容忍用户填 host 或带 /v1 后缀（缺省国内站，可改指向国际站）。
+    """
+    from openai import OpenAI
+
+    from lib.minimax_shared import minimax_text_base_url
+
+    client = OpenAI(
+        api_key=config["api_key"],
+        base_url=minimax_text_base_url(config.get("base_url")),
+    )
+    models = client.models.list()
+    available = sorted(m.id for m in models.data if "minimax" in m.id.lower() or "abab" in m.id.lower())
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message=_t("connection_success"),
+    )
+
+
 _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse]] = {
     "gemini-aistudio": _test_gemini_aistudio,
     "gemini-vertex": _test_gemini_vertex,
@@ -667,6 +690,7 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse
     "openai": _test_openai,
     "vidu": _test_vidu,
     "dashscope": _test_dashscope,
+    "minimax": _test_minimax,
 }
 
 

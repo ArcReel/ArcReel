@@ -67,6 +67,9 @@ class TestTextProviderBilling:
             result = await b.generate(TextGenerationRequest(prompt="x"))
         assert result.provider == "minimax"
         assert result.model == "MiniMax-M2.7"
+        # token 数须透传，否则「实际」费用汇总按 0 token 算不出 MiniMax CNY 费率
+        assert result.input_tokens == 10
+        assert result.output_tokens == 5
 
 
 class TestFactoryWiring:
