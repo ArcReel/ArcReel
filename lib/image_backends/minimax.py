@@ -35,8 +35,8 @@ from lib.minimax_shared import (
     safe_body_for_log,
 )
 from lib.providers import PROVIDER_MINIMAX
-from lib.retry import with_retry_async
-from lib.video_backends.base import should_retry_submit, submit_post
+from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.video_backends.base import should_retry_download, should_retry_submit, submit_post
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +91,9 @@ class MiniMaxImageBackend:
         # image-01 文生图 + 图生图（subject_reference）同模型。
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
-    @with_retry_async(retry_if=should_retry_submit)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
+        # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
         width, height = self._resolve_dimensions(request)
 
         payload: dict = {
@@ -110,26 +111,7 @@ class MiniMaxImageBackend:
         if request.reference_images:
             payload["subject_reference"] = self._build_subject_reference(request)
 
-        logger.info(
-            "调用 %s 图片 API model=%s body=%s",
-            self.name,
-            self._model,
-            format_kwargs_for_log(safe_body_for_log(payload)),
-        )
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            # 单步图像生成是非幂等的「建图 + 计费」POST：submit_post 把歧义传输错误转
-            # AmbiguousSubmitError 终态失败避免重复计费；>=400 落 body 日志 + 抛 HTTPStatusError
-            # （保留 status_code 供咽喉层识别 413 降档），交 should_retry_submit 按状态码分流。
-            resp = await submit_post(
-                lambda: client.post(
-                    f"{self._base_url}{_IMAGE_ENDPOINT}",
-                    json=payload,
-                    headers=minimax_headers(self._api_key),
-                ),
-                provider=PROVIDER_MINIMAX,
-            )
-            data = resp.json()
-
+        data = await self._submit(payload)
         image_uri = await self._persist_image(data, request.output_path)
         logger.info("MiniMax 图片生成完成: %s", request.output_path)
 
@@ -139,6 +121,32 @@ class MiniMaxImageBackend:
             model=self._model,
             image_uri=image_uri,
         )
+
+    @with_retry_async(retry_if=should_retry_submit)
+    async def _submit(self, payload: dict) -> dict:
+        """单步图像生成 POST（非幂等「建图 + 计费」），返回解析后的响应体。
+
+        重试范围严格限定在本方法内、不含下载——下载失败不会触发整流程重试导致重复建图与
+        重复计费。submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败避免重复计费；
+        >=400 落 body 日志 + 抛 HTTPStatusError（保留 status_code 供咽喉层识别 413 降档），
+        交 should_retry_submit 按状态码分流。
+        """
+        logger.info(
+            "调用 %s 图片 API model=%s body=%s",
+            self.name,
+            self._model,
+            format_kwargs_for_log(safe_body_for_log(payload)),
+        )
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+            resp = await submit_post(
+                lambda: client.post(
+                    f"{self._base_url}{_IMAGE_ENDPOINT}",
+                    json=payload,
+                    headers=minimax_headers(self._api_key),
+                ),
+                provider=PROVIDER_MINIMAX,
+            )
+            return resp.json()
 
     def _resolve_dimensions(self, request: ImageGenerationRequest) -> tuple[int, int]:
         """按「比例优先、清晰度其次」算出 (宽, 高)。
@@ -194,7 +202,7 @@ class MiniMaxImageBackend:
 
         url = extract_image_url(data)
         if url:
-            await download_image_to_path(url, output_path)
+            await self._download_result(url, output_path)
             return url
 
         b64 = extract_image_base64(data)
@@ -203,6 +211,19 @@ class MiniMaxImageBackend:
             return None
 
         raise RuntimeError(f"MiniMax 图像响应缺少 image_urls/image_base64: {data}")
+
+    @with_retry_async(
+        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
+        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
+        retry_if=should_retry_download,
+    )
+    async def _download_result(self, url: str, output_path: Path) -> None:
+        """下载已签发的结果图 URL（幂等 GET），独立的下载重试范围。
+
+        瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；4xx（URL 失效等确定性错误）
+        快速失败。下载比生成更宽容（失败不浪费生成额度），故用 DOWNLOAD_* 重试配置。
+        """
+        await download_image_to_path(url, output_path)
 
 
 async def _write_base64_image(b64: str, output_path: Path) -> None:

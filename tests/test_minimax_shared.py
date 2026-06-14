@@ -136,3 +136,9 @@ class TestSafeBodyForLog:
     def test_omits_absent_scalars(self):
         view = safe_body_for_log({"model": "image-01", "prompt": "x"})
         assert view == {"model": "image-01", "prompt_len": 1}
+
+    def test_empty_subject_reference_omitted(self):
+        # 空列表显式跳过：不漏 subject_reference 字段（日志脱敏是安全关键路径，边界须显式覆盖）
+        view = safe_body_for_log({"model": "image-01", "subject_reference": []})
+        assert "subject_reference" not in view
+        assert view == {"model": "image-01"}
