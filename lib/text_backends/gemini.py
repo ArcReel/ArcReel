@@ -24,16 +24,25 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
 
-def _const_to_enum(node: object) -> object:
+# JSON Schema 里这些键的直接子节点是「按字段名索引的子 schema 映射」，其 key 是字段名而非
+# schema 关键字，递归进入时不可把这些子节点自身的 key 当作 ``const`` 关键字识别。
+_SUBSCHEMA_MAP_KEYS = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
+
+
+def _const_to_enum(node: object, *, in_schema_map: bool = False) -> object:
     """递归把 JSON Schema 的 ``const: X`` 归一为 ``enum: [X]``（语义等价）。
 
     单值 ``Literal`` 在 ``model_json_schema()`` 里渲染为 ``const``，而 ``const`` 不在
     Gemini ``response_json_schema`` 的受支持特性内（``enum`` 在）。归一后单值约束落到受支持
     的 ``enum``，保留生成层硬约束。
+
+    ``const`` 仅在作为 schema 对象的关键字时才改写；``properties`` / ``$defs`` 等容器映射的
+    key 是字段名（可能恰好叫 ``const``），不可误判——``in_schema_map`` 标记当前 dict 是否为
+    这类映射，是则跳过其 key 的关键字识别，但仍递归其值（值本身是子 schema）。
     """
     if isinstance(node, dict):
-        out = {k: _const_to_enum(v) for k, v in node.items()}
-        if "const" in out:
+        out = {k: _const_to_enum(v, in_schema_map=k in _SUBSCHEMA_MAP_KEYS) for k, v in node.items()}
+        if not in_schema_map and "const" in out:
             out["enum"] = [out.pop("const")]
         return out
     if isinstance(node, list):

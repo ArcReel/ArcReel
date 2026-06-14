@@ -144,6 +144,25 @@ class TestGenerate:
         assert "const" not in ds
         assert ds["enum"] == [8]
 
+    def test_property_named_const_is_preserved(self, backend):
+        """字段名恰为 const（properties 容器的 key）不应被误判为 const 关键字而改写成 enum。
+
+        const 仅在作为 schema 关键字时才归一；出现在 properties/$defs 等容器映射的 key 是字段名。
+        """
+        schema = {
+            "type": "object",
+            "properties": {
+                "const": {"type": "string"},  # 字段名恰为 const
+                "duration_seconds": {"const": 8, "type": "integer"},  # 真正的 const 关键字
+            },
+        }
+        config = backend._build_config(schema, None)
+        props = config["response_json_schema"]["properties"]
+        # 字段名 const 原样保留，未被改写成 enum
+        assert props["const"] == {"type": "string"}
+        # 真正的 const 关键字仍归一为单元素 enum
+        assert props["duration_seconds"] == {"type": "integer", "enum": [8]}
+
     def test_episode_script_schema_accepted_by_google_genai_jsonschema(self, backend):
         """集成回归：剧本 schema 经 _build_config 产出后必须被 google-genai 真实 JSONSchema 接受。
 
