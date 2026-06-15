@@ -276,16 +276,16 @@ _PLAN_INTRO_SCREENPLAY: tuple[str, ...] = (
     "- 若剧本没有任何分集线索，再按完整剧情弧语义切分，每一集都是一个完整的故事段落，绝不按字数机械切碎。",
 )
 # screenplay 在「切分规则」段补一条把上述意图落到 end_anchor 层的具体指令。
-_PLAN_RULE_SCREENPLAY = (
+_PLAN_RULE_SCREENPLAY: str = (
     "- 优先照用作者的分集：剧本已划定每集边界时，end_anchor 取作者每集结尾处的原文片段，"
     "title / hook 也取自剧本（作者写明的集标题、集尾钩子）；剧本未分集时才按剧情弧自行切，绝不按字数硬凑集数。"
 )
 # drama 大纲条目说明：screenplay 优先照搬作者写下的故事节点 / 下集预告。
-_PLAN_DRAMA_OUTLINE_NOVEL = (
+_PLAN_DRAMA_OUTLINE_NOVEL: str = (
     "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
     "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。"
 )
-_PLAN_DRAMA_OUTLINE_SCREENPLAY = (
+_PLAN_DRAMA_OUTLINE_SCREENPLAY: str = (
     "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
     "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）；"
     "剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。"

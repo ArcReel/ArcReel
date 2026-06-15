@@ -77,10 +77,12 @@ def effective_mode(*, project: dict, episode: dict) -> str:
     return _DEFAULT_GENERATION_MODE
 
 
-def resolve_source_kind(project: Mapping[str, Any]) -> str:
+def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
     """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
     value = project.get("source_kind")
-    return value if value in VALID_SOURCE_KINDS else DEFAULT_SOURCE_KIND
+    if value in VALID_SOURCE_KINDS:
+        return cast(SourceKind, value)
+    return DEFAULT_SOURCE_KIND
 
 
 def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[dict]:
