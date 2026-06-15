@@ -329,6 +329,35 @@ class TestDataValidator:
         assert not result.valid
         assert any("voiceover" in error for error in result.errors)
 
+    def test_validate_episode_drama_rejects_non_string_voiceover_item(self, tmp_path):
+        # voiceover 是数组但含非字符串元素 → 结构错误（锁住 list[str] 契约）
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("drama"))
+        _write_json(
+            project_dir / "scripts" / "episode_2.json",
+            {
+                "episode": 2,
+                "title": "第二集",
+                "content_mode": "drama",
+                "scenes": [
+                    {
+                        "scene_id": "E2S01",
+                        "duration_seconds": 8,
+                        "characters_in_scene": ["姜月茴"],
+                        "scenes": ["古宅"],
+                        "props": ["玉佩"],
+                        "voiceover": ["正常旁白", 1],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
+        assert not result.valid
+        assert any("voiceover" in error for error in result.errors)
+
     def test_validate_helpers_on_missing_files(self, tmp_path):
         result = validate_project("missing", projects_root=str(tmp_path / "projects"))
         assert not result.valid

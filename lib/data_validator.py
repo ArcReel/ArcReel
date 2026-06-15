@@ -634,10 +634,15 @@ class DataValidator:
                     errors.append(f"{prefix}: props 引用了不存在于 project.json 的道具: {invalid}")
 
             # voiceover 为可选画外音列表（screenplay 模式逐字保留，novel 模式留空）；
-            # 缺失放行，出现则必须是数组，与上方 characters_in_scene / scenes / props 同口径。
+            # 缺失放行，出现则必须是数组、元素必须是字符串，锁住 list[str] 契约，
+            # 与上方 characters_in_scene / scenes / props 同口径（逐项 append、不 raise）。
             voiceover = scene.get("voiceover")
             if voiceover is not None and not isinstance(voiceover, list):
                 errors.append(f"{prefix}: voiceover 必须是数组")
+            elif isinstance(voiceover, list):
+                for vi, item in enumerate(voiceover):
+                    if not isinstance(item, str):
+                        errors.append(f"{prefix}: voiceover[{vi}] 必须是字符串")
 
             if not scene.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
