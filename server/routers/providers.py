@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
@@ -153,20 +153,36 @@ class CredentialListResponse(BaseModel):
     credentials: list[CredentialResponse]
 
 
+def _stripped(v: str | None) -> str | None:
+    """Trim surrounding whitespace from credential string inputs.
+
+    Pasted keys often carry stray leading/trailing whitespace or newlines that
+    silently break auth; normalizing at the API boundary covers the frontend and
+    any direct/third-party caller. Unset fields keep their None default (the
+    validator runs only on provided values), so PATCH preserve-semantics — an
+    omitted secret leaves the stored value untouched — are unaffected.
+    """
+    return v.strip() if isinstance(v, str) else v
+
+
+_StrippedStr = Annotated[str, AfterValidator(_stripped)]
+_StrippedOptStr = Annotated[str | None, AfterValidator(_stripped)]
+
+
 class CreateCredentialRequest(BaseModel):
-    name: str
-    api_key: str | None = None
-    base_url: str | None = None
-    access_key: str | None = None
-    secret_key: str | None = None
+    name: _StrippedStr
+    api_key: _StrippedOptStr = None
+    base_url: _StrippedOptStr = None
+    access_key: _StrippedOptStr = None
+    secret_key: _StrippedOptStr = None
 
 
 class UpdateCredentialRequest(BaseModel):
-    name: str | None = None
-    api_key: str | None = None
-    base_url: str | None = None
-    access_key: str | None = None
-    secret_key: str | None = None
+    name: _StrippedOptStr = None
+    api_key: _StrippedOptStr = None
+    base_url: _StrippedOptStr = None
+    access_key: _StrippedOptStr = None
+    secret_key: _StrippedOptStr = None
 
 
 # ---------------------------------------------------------------------------

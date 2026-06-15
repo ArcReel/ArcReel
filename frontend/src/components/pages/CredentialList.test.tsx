@@ -101,6 +101,61 @@ describe("pages/CredentialList two-secret (Kling)", () => {
     });
   });
 
+  it("trims surrounding whitespace from secrets on create", async () => {
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
+    const createSpy = vi
+      .spyOn(API, "createCredential")
+      .mockResolvedValue({} as never);
+    render(
+      <CredentialList providerId="kling" supportsBaseUrl={false} secretFields={KLING_SECRET_FIELDS} />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
+    fireEvent.change(await screen.findByLabelText(/名称/), { target: { value: "可灵账号" } });
+    fireEvent.change(await screen.findByLabelText(/Access Key/), { target: { value: "  AK-1\n" } });
+    fireEvent.change(await screen.findByLabelText(/Secret Key/), { target: { value: "\tSK-1 " } });
+    fireEvent.click(screen.getByRole("button", { name: /添加$/ }));
+
+    await vi.waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith("kling", expect.objectContaining({
+        access_key: "AK-1",
+        secret_key: "SK-1",
+      }));
+    });
+  });
+
+  it("does not overwrite a stored secret with a whitespace-only edit", async () => {
+    vi.spyOn(API, "listCredentials").mockResolvedValue({
+      credentials: [
+        {
+          id: 7,
+          provider: "kling",
+          name: "可灵账号",
+          api_key_masked: null,
+          credentials_filename: null,
+          base_url: null,
+          access_key_masked: "AKfa…5678",
+          secret_key_masked: "SKse…4321",
+          is_active: true,
+          created_at: "2026-06-01T00:00:00Z",
+        },
+      ],
+    });
+    const updateSpy = vi.spyOn(API, "updateCredential").mockResolvedValue({} as never);
+    render(
+      <CredentialList providerId="kling" supportsBaseUrl={false} secretFields={KLING_SECRET_FIELDS} />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /编辑 可灵账号/ }));
+    fireEvent.change(await screen.findByLabelText(/Secret Key/), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: /保存/ }));
+
+    // 空白-only 输入经 trim 后为空，不应作为新值提交覆盖既有密钥
+    await vi.waitFor(() => {
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+  });
+
   it("shows each masked secret independently in the row", async () => {
     vi.spyOn(API, "listCredentials").mockResolvedValue({
       credentials: [

@@ -122,7 +122,7 @@ const CredentialRow = memo(function CredentialRow({
     const data: Record<string, string> = {};
     if (draft.name && draft.name !== cred.name) data.name = draft.name;
     for (const field of secretFields) {
-      const val = draft.secrets[field.key];
+      const val = draft.secrets[field.key]?.trim();
       if (val) data[field.key] = val;
     }
     if (draft.base_url !== (cred.base_url ?? "")) data.base_url = draft.base_url;
@@ -431,7 +431,7 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, secretFields
           name: name.trim(),
           base_url: baseUrl || undefined,
         };
-        for (const field of secretFields) payload[field.key] = secrets[field.key];
+        for (const field of secretFields) payload[field.key] = secrets[field.key]?.trim();
         await API.createCredential(providerId, payload);
       }
       onCreated();

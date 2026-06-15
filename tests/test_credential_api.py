@@ -133,6 +133,23 @@ class TestKlingTwoSecretCredential:
         assert kwargs["access_key"] == "AK-new"
         assert kwargs["secret_key"] == "SK-new"
 
+    def test_create_strips_whitespace_from_secrets(self):
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/api/v1/providers/kling/credentials",
+                    json={"name": "  可灵账号  ", "access_key": "  AK-new\n", "secret_key": "\tSK-new "},
+                )
+        assert resp.status_code == 201
+        kwargs = mock_repo.create.await_args.kwargs
+        # 粘贴密钥常带首尾空白/换行，边界处统一 strip，避免静默鉴权失败
+        assert kwargs["name"] == "可灵账号"
+        assert kwargs["access_key"] == "AK-new"
+        assert kwargs["secret_key"] == "SK-new"
+
     def test_response_masks_each_secret_independently(self):
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
@@ -163,6 +180,23 @@ class TestKlingTwoSecretCredential:
                 )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
+        assert kwargs["secret_key"] == "SK-rotated"
+        assert "access_key" not in kwargs
+
+    def test_update_strips_whitespace_and_omits_unset_secret(self):
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/kling/credentials/1",
+                    json={"secret_key": "  SK-rotated\n"},
+                )
+        assert resp.status_code == 204
+        kwargs = mock_repo.update.await_args.kwargs
+        # 提供的密钥 strip 首尾空白；未提供的字段不进 kwargs（保留既有值）
         assert kwargs["secret_key"] == "SK-rotated"
         assert "access_key" not in kwargs
 
