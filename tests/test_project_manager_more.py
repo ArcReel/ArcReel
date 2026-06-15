@@ -667,6 +667,33 @@ class TestProjectManagerMore:
         assert backend.last_request is not None
         assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind=expected_kind)
 
+    @pytest.mark.asyncio
+    async def test_generate_overview_legacy_project_without_source_kind_falls_back_to_novel(
+        self, tmp_path, monkeypatch
+    ):
+        """遗留 project.json 缺 source_kind 字段时退回 novel 分支（覆盖 `.get(...) or DEFAULT_SOURCE_KIND` 兜底）。"""
+        from lib.prompt_builders_script import build_overview_prompt
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", source_kind="screenplay")
+        # 模拟遗留项目：移除 source_kind 字段
+        pm.update_project("demo", lambda project: project.pop("source_kind", None))
+        assert "source_kind" not in pm.load_project("demo")
+        _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
+
+        backend = _FakeTextBackend()
+
+        async def _fake_create_backend(*args, **kwargs):
+            return backend
+
+        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
+        await pm.generate_overview("demo")
+
+        source_content = pm._read_source_files("demo")
+        assert backend.last_request is not None
+        assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind="novel")
+
 
 class TestFromCwd:
     """Tests for ProjectManager.from_cwd() classmethod."""
