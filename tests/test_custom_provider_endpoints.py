@@ -243,6 +243,10 @@ class TestInferEndpoint:
             ("jimeng-3.0", "openai", "openai-images"),
             ("jimeng-video-3.0", "openai", "openai-video"),
             ("jimengvideo-3.0", "openai", "openai-video"),
+            # ── 纯文本 MiniMax model 落到文本端点（不被裸 minimax 误推到视频）──
+            ("MiniMax-M2.7", "openai", "openai-chat"),
+            ("minimax-abab-6.5-chat", "openai", "openai-chat"),
+            ("MiniMax-M2.7", "google", "gemini-generate"),  # discovery_format=google → gemini-generate
             # viduq1/viduq2 是 vidu 早期图像版本 → 维持 image 推断不变
             ("viduq1", "openai", "openai-images"),
             ("viduq1-classic", "openai", "openai-images"),
