@@ -92,6 +92,27 @@ describe("AdInitCanvas", () => {
     expect(submit).toBeEnabled();
   });
 
+  it("keeps the sheet checkbox enabled and guides users to complete product info", () => {
+    render(<AdInitCanvas projectName="ad-demo" onDone={onDone} />);
+    const checkbox = screen.getByLabelText("生成标准产品参考图");
+    const submit = screen.getByRole("button", { name: "开始创作" });
+
+    // 产品信息为空时复选框仍可勾选，不再置灰形成无反馈死路
+    expect(checkbox).toBeEnabled();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    // 勾选即视为要建产品：信息不完整时提示出现且不可提交，避免静默丢弃生图意图
+    expect(screen.getByRole("alert")).toHaveTextContent("产品信息不完整");
+    expect(submit).toBeDisabled();
+
+    // 补全产品名称与描述后恢复可提交、提示消失
+    fireEvent.change(screen.getByLabelText("产品名称"), { target: { value: "保温杯" } });
+    fireEvent.change(screen.getByLabelText("产品描述"), { target: { value: "不锈钢" } });
+    expect(submit).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("blocks brief-only submit while the product section is partially filled", () => {
     render(<AdInitCanvas projectName="ad-demo" onDone={onDone} />);
     const submit = screen.getByRole("button", { name: "开始创作" });

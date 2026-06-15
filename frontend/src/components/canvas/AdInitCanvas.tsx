@@ -43,9 +43,10 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasProduct = productName.trim() !== "" && description.trim() !== "";
-  // 产品区有任意输入（名称/描述/图片）即视为用户想建产品：此时必须信息完整才能提交，
-  // 避免 brief-only 提交静默丢弃已填的产品信息与已选图片
-  const productDirty = productName.trim() !== "" || description.trim() !== "" || files.length > 0;
+  // 产品区有任意输入（名称/描述/图片）或勾选了「生成标准产品参考图」即视为用户想建产品：
+  // 此时必须信息完整才能提交，避免 brief-only 提交静默丢弃已填的产品信息、已选图片或生图意图
+  const productDirty =
+    productName.trim() !== "" || description.trim() !== "" || files.length > 0 || generateSheet;
   const productIncomplete = productDirty && !hasProduct;
   const canSubmit = !submitting && (hasProduct || (brief.trim() !== "" && !productDirty));
 
@@ -233,12 +234,14 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         )}
 
         <div className="mt-2 flex items-start gap-2">
+          {/* 始终可勾选以表达「要生标准图」的意图；产品信息是否完整由 productIncomplete
+              提示与 canSubmit 把关引导补全，而非置灰复选框形成无反馈死路 */}
           <input
             id={sheetId}
             type="checkbox"
             checked={generateSheet}
             onChange={(e) => setGenerateSheet(e.target.checked)}
-            disabled={submitting || !hasProduct}
+            disabled={submitting}
             className="focus-ring mt-0.5 h-3.5 w-3.5 accent-[var(--color-accent)]"
           />
           <div>
