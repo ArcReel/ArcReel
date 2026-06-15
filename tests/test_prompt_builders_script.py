@@ -154,12 +154,15 @@ class TestScreenplaySourceKind:
         assert "改编" not in prompt
 
     def test_drama_screenplay_language_rule_exempts_audible_fields(self):
-        # screenplay 下输出语言约束须把台词 / 画外音逐字字段排除在目标语言要求之外，
+        # screenplay 下输出语言约束须把台词 / 说话人 / 画外音逐字字段排除在目标语言要求之外，
         # 否则与逐字提取冲突、诱导模型翻译原文；novel 维持无条件目标语言、无此豁免。
         screenplay = self._drama_prompt("screenplay")
         novel = self._drama_prompt("novel")
         assert "不翻译" in screenplay
         assert "不翻译" not in novel
+        # speaker 是角色资产引用键，翻译会与登记角色名失配，须一并豁免
+        assert "video_prompt.dialogue[].speaker" in screenplay
+        assert "video_prompt.dialogue[].speaker" not in novel
 
     def test_normalize_novel_default_keeps_adaptation_semantics(self):
         prompt = self._normalize_prompt("novel")

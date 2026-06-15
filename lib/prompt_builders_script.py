@@ -332,10 +332,12 @@ def build_drama_prompt(
     dialogue_guide = _DRAMA_DIALOGUE_GUIDE_SCREENPLAY if is_screenplay else _DRAMA_DIALOGUE_GUIDE_NOVEL
     voiceover_guide = _DRAMA_VOICEOVER_GUIDE_SCREENPLAY if is_screenplay else _DRAMA_VOICEOVER_GUIDE_NOVEL
     creative_goal = _DRAMA_GOAL_SCREENPLAY if is_screenplay else _DRAMA_GOAL_NOVEL
-    # screenplay 下台词 / 画外音逐字保真，必须排除在目标语言要求之外，否则与逐字提取冲突、诱导翻译
+    # screenplay 下台词 / 说话人 / 画外音逐字保真，必须排除在目标语言要求之外：line、voiceover
+    # 逐字保留原文，speaker 是角色资产引用键（须等于登记角色名），任一被翻译都会与 project.json 资产失配
     language_rule = (
-        f"除 `video_prompt.dialogue[].line` 与 `voiceover[]` 外，所有字符串值必须使用 {target_language}；"
-        "这两类字段逐字保留剧本原文，语言随原文、不翻译、不改写。JSON 键名 / 枚举值保持英文。"
+        f"除 `video_prompt.dialogue[].line`、`video_prompt.dialogue[].speaker` 与 `voiceover[]` 外，"
+        f"所有字符串值必须使用 {target_language}；这些字段逐字保留剧本原文、不翻译、不改写"
+        "（speaker 沿用 characters_in_scene 中登记的角色名原文，群演沿用原文称呼）。JSON 键名 / 枚举值保持英文。"
         if is_screenplay
         else f"所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。"
     )
