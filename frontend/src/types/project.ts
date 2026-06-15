@@ -116,6 +116,8 @@ export interface ModelSettingEntry {
 export interface ProjectData {
   title: string;
   content_mode: "narration" | "drama" | "ad";
+  /** 源文件性质：novel（默认，AI 改编）/ screenplay（成品剧本，逐字提取）。创建即定、不可变。 */
+  source_kind?: "novel" | "screenplay";
   style: string;
   style_template_id?: string | null;
   style_image?: string;

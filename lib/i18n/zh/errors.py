@@ -127,6 +127,7 @@ MESSAGES = {
     "ad_grid_not_supported": "广告/短片项目不支持宫格生视频模式",
     "ad_target_duration_required": "广告/短片项目必须设置目标总时长（正整数秒）",
     "project_id_not_editable": "项目创建后不支持修改 content_mode",
+    "source_kind_not_editable": "项目创建后不支持修改源文件性质（source_kind）",
     "project_deleted": "项目 '{name}' 已删除",
     "scene_updated": "场景 '{scene_id}' 已更新",
     "segment_updated": "片段 '{segment_id}' 已更新",

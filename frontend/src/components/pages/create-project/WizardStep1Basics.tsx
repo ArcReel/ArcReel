@@ -9,6 +9,8 @@ import type { GenerationMode } from "@/utils/generation-mode";
 export interface WizardStep1Value {
   title: string;
   contentMode: "narration" | "drama" | "ad";
+  /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
+  sourceKind: "novel" | "screenplay";
   aspectRatio: "9:16" | "16:9";
   generationMode: GenerationMode;
   /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
@@ -137,6 +139,42 @@ export function WizardStep1Basics({
               : t("dashboard:content_mode_ad_desc")}
         </p>
       </div>
+
+      {/* Source Kind（仅 drama）：上传小说由 AI 改编，或上传成品剧本逐字提取 */}
+      {value.contentMode === "drama" && (
+        <div>
+          <FieldLabel>{t("dashboard:source_kind")}</FieldLabel>
+          <div className="flex gap-2.5" role="radiogroup" aria-label={t("dashboard:source_kind")}>
+            <label className={radioCardClass(value.sourceKind === "novel")}>
+              <input
+                type="radio"
+                name="sourceKind"
+                value="novel"
+                checked={value.sourceKind === "novel"}
+                onChange={() => onChange({ ...value, sourceKind: "novel" })}
+                className="sr-only"
+              />
+              {t("dashboard:source_kind_novel")}
+            </label>
+            <label className={radioCardClass(value.sourceKind === "screenplay")}>
+              <input
+                type="radio"
+                name="sourceKind"
+                value="screenplay"
+                checked={value.sourceKind === "screenplay"}
+                onChange={() => onChange({ ...value, sourceKind: "screenplay" })}
+                className="sr-only"
+              />
+              {t("dashboard:source_kind_screenplay")}
+            </label>
+          </div>
+          <p className="mt-2 text-[11.5px] leading-[1.55] text-text-3">
+            {value.sourceKind === "screenplay"
+              ? t("dashboard:source_kind_screenplay_desc")
+              : t("dashboard:source_kind_novel_desc")}
+          </p>
+        </div>
+      )}
 
       {/* Target Duration（仅 ad）。原生 radio：方向键切换开箱即用 */}
       {value.contentMode === "ad" && (

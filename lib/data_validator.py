@@ -17,6 +17,7 @@ from lib.asset_types import ASSET_SPECS, ASSET_TYPES
 from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
 from lib.json_io import load_json_or_none
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
+from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
 from lib.project_manager import effective_mode
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
@@ -59,6 +60,9 @@ class DataValidator:
     # 表达，通过 project_manager.effective_mode 解析。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
     VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
+    # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
+    # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
+    VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
     # 参考生视频路径下单镜头时长区间，真相源在 lib.script_models（与 Shot.duration /
     # ad reference 路径的剧本模型同口径），避免两处枚举漂移。
     VALID_SHOT_DURATION_RANGE = REFERENCE_SHOT_DURATION_RANGE
@@ -260,6 +264,11 @@ class DataValidator:
             errors.append("缺少必填字段: content_mode")
         elif content_mode not in self.VALID_CONTENT_MODES:
             errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
+
+        # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
+        source_kind = project.get("source_kind")
+        if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
+            errors.append(f"source_kind 值无效: '{source_kind}'，必须是 {self.VALID_SOURCE_KINDS}")
 
         self._validate_ad_project_fields(project, content_mode, errors)
 

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import "@/i18n"; // ensure i18n resources loaded
 import { WizardStep1Basics } from "./WizardStep1Basics";
@@ -6,6 +6,7 @@ import { WizardStep1Basics } from "./WizardStep1Basics";
 const baseValue = {
   title: "",
   contentMode: "narration" as const,
+  sourceKind: "novel" as const,
   aspectRatio: "9:16" as const,
   generationMode: "storyboard" as const,
   targetDuration: 60,
@@ -64,6 +65,35 @@ describe("WizardStep1Basics", () => {
     fireEvent.click(screen.getByText(/剧集模式|Drama Mode/));
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ contentMode: "drama" }),
+    );
+  });
+
+  it("hides the source-kind selector outside drama mode", () => {
+    render(
+      <WizardStep1Basics
+        value={baseValue}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("radiogroup", { name: /源文件性质|Source type|Loại tệp nguồn/ })).toBeNull();
+  });
+
+  it("emits onChange with screenplay when source kind selected in drama mode", () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, contentMode: "drama" }}
+        onChange={onChange}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const group = screen.getByRole("radiogroup", { name: /源文件性质|Source type|Loại tệp nguồn/ });
+    fireEvent.click(within(group).getByText(/剧本|Screenplay|Kịch bản/));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceKind: "screenplay" }),
     );
   });
 

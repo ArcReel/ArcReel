@@ -945,3 +945,71 @@ class TestAdReferenceUnitsValidation:
         result = self._validate(tmp_path, [self._ad_shot()], units)
         assert result.valid, result.errors
         assert any("不存在" in w for w in result.warnings)
+
+
+class TestSourceKindValidation:
+    """source_kind 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""
+
+    def _validate(self, tmp_path, project):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", project)
+        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+    def test_missing_source_kind_is_valid(self, tmp_path):
+        # 存量项目无 source_kind 字段：缺省 novel，不报错
+        result = self._validate(tmp_path, _project_payload("drama"))
+        assert result.valid, result.errors
+        assert not any("source_kind" in e for e in result.errors)
+
+    @pytest.mark.parametrize("kind", ["novel", "screenplay"])
+    def test_valid_source_kind_passes(self, tmp_path, kind):
+        payload = _project_payload("drama")
+        payload["source_kind"] = kind
+        result = self._validate(tmp_path, payload)
+        assert result.valid, result.errors
+
+    def test_invalid_source_kind_rejected(self, tmp_path):
+        payload = _project_payload("drama")
+        payload["source_kind"] = "screen_play"
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("source_kind" in e for e in result.errors)
+
+    def test_generic_speaker_in_drama_dialogue_passes_validation(self, tmp_path):
+        """泛指 speaker（未注册角色）只进 dialogue、不进 characters_in_scene → 校验通过。
+
+        校验器只约束 characters_in_scene 成员须为已注册角色，不约束 dialogue.speaker；
+        screenplay 提取出的群演台词（speaker=老人甲）须能过校验、不被强行注册。
+        """
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload("drama")
+        payload["source_kind"] = "screenplay"
+        _write_json(project_dir / "project.json", payload)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "drama",
+                "scenes": [
+                    {
+                        "scene_id": "E1S01",
+                        "duration_seconds": 8,
+                        "characters_in_scene": ["姜月茴"],
+                        "scenes": ["古宅"],
+                        "props": ["玉佩"],
+                        "image_prompt": "img",
+                        "video_prompt": {
+                            "action": "转身",
+                            "camera_motion": "Static",
+                            "ambiance_audio": "风声",
+                            # 泛指群演 speaker 不在 characters 中，仍合法
+                            "dialogue": [{"speaker": "老人甲", "line": "天黑了，快回家。"}],
+                        },
+                        "voiceover": ["多年以后，她仍记得那个夜晚。"],
+                    }
+                ],
+            },
+        )
+        result = validate_episode("demo", "episode_1.json", projects_root=str(tmp_path / "projects"))
+        assert result.valid, result.errors

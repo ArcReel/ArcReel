@@ -34,7 +34,7 @@ from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, ProjectManager
+from lib.project_manager import EpisodeScriptReboundError, ProjectManager, SourceKind
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -76,6 +76,8 @@ class CreateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = ""  # 保留但不再是用户入口
     content_mode: ContentMode | None = "narration"
+    # 源文件性质（novel / screenplay），缺省 novel；创建即定、之后不可变。
+    source_kind: SourceKind | None = None
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
     # 仅 content_mode=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
@@ -113,6 +115,8 @@ class UpdateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = None
     content_mode: ContentMode | None = None
+    # 源文件性质创建即定、不可变；出现即拒（与 content_mode 同性质）。
+    source_kind: SourceKind | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
     # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
@@ -532,6 +536,7 @@ async def create_project(
                     extras=extras or None,
                     target_duration=req.target_duration,
                     brief=req.brief,
+                    source_kind=req.source_kind,
                 )
             return {"success": True, "name": project_name, "project": project}
 
@@ -637,6 +642,11 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 raise HTTPException(
                     status_code=400,
                     detail=_t("project_id_not_editable"),
+                )
+            if req.source_kind is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=_t("source_kind_not_editable"),
                 )
 
             # legacy image_backend 已退役（拆为 image_provider_t2i/i2i）；写路径直接拒绝，

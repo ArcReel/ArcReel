@@ -246,6 +246,7 @@ class ScriptGenerator:
                 episode=episode,
                 episode_outline=episode_outline,
                 next_episode_outline=next_episode_outline,
+                source_kind=self._source_kind(),
             )
             schema = build_episode_script_model("drama", supported_durations)
 
@@ -399,6 +400,7 @@ class ScriptGenerator:
                 episode=episode,
                 episode_outline=episode_outline,
                 next_episode_outline=next_episode_outline,
+                source_kind=self._source_kind(),
             )
 
     async def _fetch_video_capabilities(self) -> dict | None:
@@ -452,6 +454,11 @@ class ScriptGenerator:
         if "aspect_ratio" in self.project_json and isinstance(self.project_json["aspect_ratio"], str):
             return self.project_json["aspect_ratio"]
         return "9:16" if self.content_mode in ("narration", "ad") else "16:9"
+
+    def _source_kind(self) -> str:
+        """解析项目源文件性质（novel / screenplay），缺失或非法值回退 novel（drama 提取优先分支用）。"""
+        value = self.project_json.get("source_kind")
+        return value if value in ("novel", "screenplay") else "novel"
 
     def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
         """解析当前视频模型的最大参考图数；caps → project.json.video_backend → registry 两级回退。

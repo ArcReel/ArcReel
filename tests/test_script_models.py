@@ -73,6 +73,54 @@ class TestScriptModels:
         assert scene.props == ["玉佩"]
         assert not hasattr(scene, "clues_in_scene")
 
+    def test_drama_scene_voiceover_defaults_empty(self):
+        """未提供 voiceover 时默认空数组（novel-drama 下恒空）。"""
+        scene = DramaScene(
+            scene_id="E1S01",
+            characters_in_scene=["王"],
+            image_prompt=ImagePrompt(
+                scene="场景",
+                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
+            ),
+            video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
+        )
+        assert scene.voiceover == []
+
+    def test_drama_scene_voiceover_round_trips(self):
+        """voiceover 接受多段字符串列表并 round-trip 不丢（screenplay 画外音落点）。"""
+        voiceover = ["多年以后，她仍记得那个夜晚。", "那是命运的开端。"]
+        scene = DramaScene(
+            scene_id="E1S01",
+            characters_in_scene=["王"],
+            image_prompt=ImagePrompt(
+                scene="场景",
+                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
+            ),
+            video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
+            voiceover=voiceover,
+        )
+        assert scene.voiceover == voiceover
+        dumped = scene.model_dump()
+        assert dumped["voiceover"] == voiceover
+        assert DramaScene.model_validate(dumped).voiceover == voiceover
+
+    def test_drama_scene_rejects_unknown_field_alongside_voiceover(self):
+        """extra='forbid' 守卫仍生效：voiceover 不放松未知字段拒绝。"""
+        with pytest.raises(ValidationError):
+            DramaScene.model_validate(
+                {
+                    "scene_id": "E1S01",
+                    "characters_in_scene": ["王"],
+                    "image_prompt": {
+                        "scene": "s",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                    },
+                    "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                    "voiceover": ["旁白"],
+                    "hallucinated_field": "x",
+                }
+            )
+
     def test_duration_accepts_any_positive_int_within_range(self):
         """duration_seconds 接受 1-60 范围内任意整数。"""
         segment = NarrationSegment(
@@ -263,6 +311,8 @@ class TestLLMSchemaExclusion:
         for forbidden in ("note", "generated_assets"):
             assert forbidden not in keys
         assert "duration_seconds" not in DramaEpisodeScript.model_json_schema()["properties"]
+        # voiceover 是 LLM 可见的一等字段（screenplay 提取画外音的落点），不应被排除
+        assert "voiceover" in keys
 
     def test_reference_video_schema_excludes_runtime_fields(self):
         from lib.script_models import ReferenceVideoScript
