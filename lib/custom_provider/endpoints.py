@@ -464,7 +464,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
 
 _IMAGE_PATTERN = re.compile(r"image|dall|img|imagen|flux|seedream|jimeng|viduq[12](?:[-_].*)?", re.IGNORECASE)
 _VIDEO_PATTERN = re.compile(
-    r"video|sora|kling|wan|seedance|cog|mochi|veo|pika|hailuo|jimeng-?video|runway|"
+    r"video|sora|kling|wan|seedance|cog|mochi|veo|pika|runway|"
     r"vidu2(?:\.0)?(?:[-_].*)?|viduq3(?:[-_].*)?",
     re.IGNORECASE,
 )

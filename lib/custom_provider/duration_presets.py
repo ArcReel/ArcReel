@@ -40,7 +40,7 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     # PixVerse V5/V5.5/V5.6/V6（1-15 任意）
     (re.compile(r"pixverse|^v[56](\.\d+)?$", re.I), list(range(1, 16))),
     # MiniMax Hailuo（固定 6）
-    (re.compile(r"hailuo|minimax", re.I), [6]),
+    (re.compile(r"hailuo", re.I), [6]),
     # Wan
     (re.compile(r"wan-?\d", re.I), [4, 5]),
     # Pika

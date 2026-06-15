@@ -47,9 +47,12 @@ from lib.custom_provider.duration_presets import (
         # PixVerse
         ("pixverse-v6", list(range(1, 16))),
         ("v5.6", list(range(1, 16))),
-        # Hailuo / MiniMax
+        # Hailuo / MiniMax（真实视频 model id 都带 hailuo 品牌名）
         ("hailuo-02", [6]),
-        ("minimax-video", [6]),
+        ("MiniMax-Hailuo-2.3", [6]),
+        ("MiniMax-Hailuo-2.3-Fast", [6]),
+        # 不带 hailuo 的 minimax id 不再命中固定 6，落回默认（裸 minimax token 已移除）
+        ("minimax-abab-6.5", DEFAULT_FALLBACK),
         # Wan
         ("wan-2.1", [4, 5]),
         # Pika
