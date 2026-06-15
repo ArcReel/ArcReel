@@ -334,6 +334,85 @@ class TestPlan:
         assert len(fake.requests) == 2
         assert "schema" in fake.requests[1].prompt
 
+    async def test_plan_screenplay_respects_author_divisions(self, tmp_path: Path):
+        """screenplay：mock 返回尊重作者分集的规划 → 账本落作者的边界 / 标题 / 钩子 / 大纲。"""
+        project_dir = _write_project(tmp_path, content_mode="drama", extra={"source_kind": "screenplay"})
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {
+                            "title": "山村少年",  # 作者写明的集标题，照搬
+                            "hook": "古玉剑诀来历成谜",
+                            "end_anchor": ANCHOR_EP1,
+                            "story_beats": ["山村习武", "后山得玉"],
+                            "next_episode_teaser": "下集李恒下山",
+                        },
+                        {
+                            "title": "下山",
+                            "hook": "少女为何被追杀",
+                            "end_anchor": ANCHOR_EP2,
+                            "story_beats": ["辞别师父", "城门遇袭"],
+                            "next_episode_teaser": "下集风波将起",
+                        },
+                    ]
+                )
+            ]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        eps = _load_project(project_dir)["episodes"]
+        assert [e["title"] for e in eps] == ["山村少年", "下山"]
+        assert eps[0]["hook"] == "古玉剑诀来历成谜"
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
+        assert eps[1]["source_range"] == {
+            "source_file": "source/novel.txt",
+            "start": _end_of(ANCHOR_EP1),
+            "end": _end_of(ANCHOR_EP2),
+        }
+        assert eps[0]["outline"] == {"story_beats": ["山村习武", "后山得玉"], "next_episode_teaser": "下集李恒下山"}
+
+    async def test_plan_prompt_branches_on_source_kind(self, tmp_path: Path):
+        """screenplay 规划 prompt 携带「尊重作者分集 / 无则按剧情弧语义切 / 不依赖固定标记」；novel 不翻面。"""
+
+        def _one_episode_generator() -> _FakeTextGenerator:
+            return _FakeTextGenerator(
+                [
+                    _plan_response(
+                        [
+                            {
+                                "title": "甲",
+                                "hook": "甲",
+                                "end_anchor": ANCHOR_EP1,
+                                "story_beats": ["节点"],
+                                "next_episode_teaser": None,
+                            }
+                        ]
+                    )
+                ]
+            )
+
+        screenplay_dir = _write_project(tmp_path / "scr", content_mode="drama", extra={"source_kind": "screenplay"})
+        scr_fake = _one_episode_generator()
+        await EpisodePlanner(screenplay_dir, generator=scr_fake).plan()
+        scr_prompt = scr_fake.requests[0].prompt
+
+        novel_dir = _write_project(tmp_path / "nov", content_mode="drama")
+        nov_fake = _one_episode_generator()
+        await EpisodePlanner(novel_dir, generator=nov_fake).plan()
+        nov_prompt = nov_fake.requests[0].prompt
+
+        # screenplay：尊重作者分集、无则按剧情弧语义切、不依赖固定标记
+        assert "尊重作者" in scr_prompt
+        assert "固定标记" in scr_prompt
+        assert "剧情弧" in scr_prompt
+        assert "剧本原文片段" in scr_prompt
+        # novel：仍是「切分为若干集」的创作口径，不含 screenplay 专属指令（回归）
+        assert "尊重作者" not in nov_prompt
+        assert "固定标记" not in nov_prompt
+        assert "小说原文片段" in nov_prompt
+
     async def test_plan_window_setting_limits_prompt_window(self, tmp_path: Path):
         """planning_window_chars 项目设置覆盖内部默认：窗口外内容不进 prompt。"""
         window_chars = _end_of(ANCHOR_EP1) + 4

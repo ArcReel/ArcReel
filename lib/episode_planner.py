@@ -30,7 +30,7 @@ from lib.episode_ledger import (
     normalize_source_text,
     parse_episode_num,
 )
-from lib.project_manager import ProjectManager
+from lib.project_manager import DEFAULT_SOURCE_KIND, VALID_SOURCE_KINDS, ProjectManager
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_metrics import count_reading_units
@@ -260,6 +260,42 @@ def _ledger_entry_from_draft(
 def _language_of(project: Mapping[str, Any]) -> str | None:
     language = project.get("source_language")
     return language if isinstance(language, str) else None
+
+
+def _source_kind_of(project: Mapping[str, Any]) -> str:
+    """项目源文件性质（novel / screenplay），缺失或非法值回退 novel。"""
+    value = project.get("source_kind")
+    return value if value in VALID_SOURCE_KINDS else DEFAULT_SOURCE_KIND
+
+
+# plan_episodes 开篇定位：novel 走「切分 / 创作」，screenplay 翻为「尊重作者分集 / 提取」。
+# screenplay 二分支——剧本自带分集（任意形态）照用作者边界，无分集才按剧情弧语义切，
+# 绝不按字数机械切；不依赖任何固定分集标记，靠模型语义识别作者写下的分集形态。
+_PLAN_INTRO_NOVEL: tuple[str, ...] = (
+    "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
+    "并在集尾留下让观众想看下一集的钩子。",
+)
+_PLAN_INTRO_SCREENPLAY: tuple[str, ...] = (
+    "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集、提取而非重切：",
+    "- 若剧本自带分集（任意形态——分集标记、结构表、标题体系、分隔等，不要依赖任何固定标记或正则识别），",
+    "  照用作者划定的每一集边界，title、hook 与分集大纲都取自剧本原文。",
+    "- 若剧本没有任何分集线索，再按完整剧情弧语义切分，每一集都是一个完整的故事段落，绝不按字数机械切碎。",
+)
+# screenplay 在「切分规则」段补一条把上述意图落到 end_anchor 层的具体指令。
+_PLAN_RULE_SCREENPLAY = (
+    "- 优先照用作者的分集：剧本已划定每集边界时，end_anchor 取作者每集结尾处的原文片段，"
+    "title / hook 也取自剧本（作者写明的集标题、集尾钩子）；剧本未分集时才按剧情弧自行切，绝不按字数硬凑集数。"
+)
+# drama 大纲条目说明：screenplay 优先照搬作者写下的故事节点 / 下集预告。
+_PLAN_DRAMA_OUTLINE_NOVEL = (
+    "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
+    "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。"
+)
+_PLAN_DRAMA_OUTLINE_SCREENPLAY = (
+    "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
+    "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）；"
+    "剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。"
+)
 
 
 class EpisodePlanner:
@@ -869,10 +905,10 @@ def _build_planning_prompt(
     language = str(project.get("source_language") or "zh")
     unit_name = "词" if language in ("en", "vi") else "字"
     target_units = project.get("episode_target_units")
+    is_screenplay = _source_kind_of(project) == "screenplay"
 
     lines: list[str] = [
-        "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
-        "并在集尾留下让观众想看下一集的钩子。",
+        *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
         "",
         "# 项目信息",
         f"- 内容模式：{'剧集动画（drama）' if content_mode == 'drama' else '说书旁白（narration）'}",
@@ -916,10 +952,10 @@ def _build_planning_prompt(
         "  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；",
         "  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。",
     ]
+    if is_screenplay:
+        lines.append(_PLAN_RULE_SCREENPLAY)
     if content_mode == "drama":
-        lines += [
-            "- 每一集另给出 story_beats（本集故事节点列表，按顺序）与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。",
-        ]
+        lines.append(_PLAN_DRAMA_OUTLINE_SCREENPLAY if is_screenplay else _PLAN_DRAMA_OUTLINE_NOVEL)
     lines += [
         "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",
     ]
@@ -935,5 +971,5 @@ def _build_planning_prompt(
         lines += ["", "# 上一轮输出未通过校验，请针对性修正后重新输出"]
         lines += [f"- {reason}" for reason in failure]
 
-    lines += ["", "# 小说原文片段", "---", window, "---"]
+    lines += ["", "# 剧本原文片段" if is_screenplay else "# 小说原文片段", "---", window, "---"]
     return "\n".join(lines)
