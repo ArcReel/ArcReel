@@ -2209,6 +2209,7 @@ class ProjectManager:
         Returns:
             生成的 overview 字典，包含 synopsis, genre, theme, world_setting, generated_at
         """
+        from .prompt_builders_script import build_overview_prompt
         from .text_backends.base import TextGenerationRequest, TextTaskType
         from .text_generator import TextGenerator
 
@@ -2220,8 +2221,10 @@ class ProjectManager:
         # 创建 TextGenerator（自动追踪用量）
         generator = await TextGenerator.create(TextTaskType.OVERVIEW, project_name)
 
-        # 调用 TextGenerator（Structured Outputs）
-        prompt = f"请分析以下小说内容，提取关键信息：\n\n{source_content}"
+        # 调用 TextGenerator（Structured Outputs）。source_kind=screenplay 时翻为「提取优先」：
+        # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。
+        source_kind = self.load_project(project_name).get("source_kind") or DEFAULT_SOURCE_KIND
+        prompt = build_overview_prompt(source_content, source_kind=source_kind)
 
         result = await generator.generate(
             TextGenerationRequest(

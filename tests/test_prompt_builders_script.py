@@ -3,6 +3,7 @@ from lib.prompt_builders_script import (
     build_drama_prompt,
     build_narration_prompt,
     build_normalize_prompt,
+    build_overview_prompt,
 )
 
 
@@ -177,3 +178,39 @@ class TestScreenplaySourceKind:
         assert "画外音" in prompt
         assert "剧本原文" in prompt
         assert "改编" not in prompt
+
+
+class TestOverviewPrompt:
+    """source_kind=screenplay 下 overview prompt 翻为「提取优先」：作者写下的创作方案前言优先照用、
+    缺失才退回从正文归纳。只断言语义关键词在场/缺席与分支路由，不锁逐字措辞、不测 LLM 提取质量。"""
+
+    def test_novel_default_keeps_source_text_and_novel_framing(self):
+        prompt = build_overview_prompt("正文内容", source_kind="novel")
+        assert "正文内容" in prompt
+        assert "小说" in prompt
+        # novel 维持从正文归纳，不引入「创作方案」前言概念
+        assert "创作方案" not in prompt
+
+    def test_screenplay_flips_to_preamble_extract_first(self):
+        prompt = build_overview_prompt("剧本正文", source_kind="screenplay")
+        assert "剧本正文" in prompt
+        # 优先识别作者写下的创作方案前言并照用
+        assert "创作方案" in prompt
+        # 前言缺失则退回从正文归纳
+        assert "归纳" in prompt
+
+    def test_screenplay_differs_from_novel(self):
+        content = "同一段源文本"
+        assert build_overview_prompt(content, source_kind="screenplay") != build_overview_prompt(
+            content, source_kind="novel"
+        )
+
+    def test_unknown_source_kind_falls_back_to_novel(self):
+        content = "源文本"
+        assert build_overview_prompt(content, source_kind="bogus") == build_overview_prompt(
+            content, source_kind="novel"
+        )
+
+    def test_default_source_kind_is_novel(self):
+        content = "源文本"
+        assert build_overview_prompt(content) == build_overview_prompt(content, source_kind="novel")

@@ -19,6 +19,7 @@ def _read_json(path: Path) -> dict:
 class _FakeTextBackend:
     def __init__(self, language: str = "zh"):
         self._language = language
+        self.last_request = None
 
     @property
     def name(self):
@@ -35,6 +36,7 @@ class _FakeTextBackend:
     async def generate(self, request):
         from lib.text_backends.base import TextGenerationResult
 
+        self.last_request = request
         return TextGenerationResult(
             text=json.dumps(
                 {
@@ -639,6 +641,31 @@ class TestProjectManagerMore:
         with pytest.raises(ValidationError):
             await pm.generate_overview("demo")
         assert "source_language" not in pm.load_project("demo")
+
+    @pytest.mark.parametrize("source_kind", [None, "novel", "screenplay"])
+    @pytest.mark.asyncio
+    async def test_generate_overview_routes_prompt_by_source_kind(self, tmp_path, monkeypatch, source_kind):
+        """overview prompt 按项目 source_kind 路由：screenplay 走「提取优先」分支，
+        novel / 缺省维持原 prompt（回归）。只断言 source_kind 被透传，不测 LLM 提取质量。"""
+        from lib.prompt_builders_script import build_overview_prompt
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", source_kind=source_kind)
+        _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
+
+        backend = _FakeTextBackend()
+
+        async def _fake_create_backend(*args, **kwargs):
+            return backend
+
+        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
+        await pm.generate_overview("demo")
+
+        source_content = pm._read_source_files("demo")
+        expected_kind = source_kind or "novel"
+        assert backend.last_request is not None
+        assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind=expected_kind)
 
 
 class TestFromCwd:
