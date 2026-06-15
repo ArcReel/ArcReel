@@ -80,7 +80,7 @@ def effective_mode(*, project: dict, episode: dict) -> str:
 def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
     """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
     value = project.get("source_kind")
-    if value in VALID_SOURCE_KINDS:
+    if isinstance(value, str) and value in VALID_SOURCE_KINDS:
         return cast(SourceKind, value)
     return DEFAULT_SOURCE_KIND
 
@@ -2231,7 +2231,7 @@ class ProjectManager:
 
         # 调用 TextGenerator（Structured Outputs）。source_kind=screenplay 时翻为「提取优先」：
         # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。
-        source_kind = self.load_project(project_name).get("source_kind") or DEFAULT_SOURCE_KIND
+        source_kind = resolve_source_kind(self.load_project(project_name))
         prompt = build_overview_prompt(source_content, source_kind=source_kind)
 
         result = await generator.generate(

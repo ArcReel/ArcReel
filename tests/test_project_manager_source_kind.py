@@ -9,11 +9,32 @@ from pathlib import Path
 
 import pytest
 
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, resolve_source_kind
 
 
 def _pm(tmp_path: Path) -> ProjectManager:
     return ProjectManager(tmp_path / "projects")
+
+
+class TestResolveSourceKind:
+    """统一回退入口：合法值原样返回，缺失 / 非法 / 脏数据一律回退 novel 不抛异常。"""
+
+    def test_valid_values_pass_through(self):
+        assert resolve_source_kind({"source_kind": "novel"}) == "novel"
+        assert resolve_source_kind({"source_kind": "screenplay"}) == "screenplay"
+
+    def test_missing_key_falls_back_to_novel(self):
+        assert resolve_source_kind({}) == "novel"
+
+    def test_invalid_string_falls_back_to_novel(self):
+        assert resolve_source_kind({"source_kind": "screen_play"}) == "novel"
+        assert resolve_source_kind({"source_kind": ""}) == "novel"
+
+    def test_unhashable_dirty_value_falls_back_without_raising(self):
+        # list / dict 等不可哈希脏值不得在成员判断时抛 TypeError，须回退 novel
+        assert resolve_source_kind({"source_kind": ["novel"]}) == "novel"
+        assert resolve_source_kind({"source_kind": {"k": "v"}}) == "novel"
+        assert resolve_source_kind({"source_kind": 123}) == "novel"
 
 
 class TestCreateSourceKind:
