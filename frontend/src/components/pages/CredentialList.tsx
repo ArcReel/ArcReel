@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { API } from "@/api";
 import {
   ACCENT_BTN_SM_CLS,
@@ -33,6 +34,12 @@ const SECRET_FIELD_LABEL_KEY: Record<string, string> = {
   access_key: "access_key_label",
   secret_key: "secret_key_label",
 };
+
+// 解析 secret 字段标签：已知 key 走前端 i18n，未知 key 回退后端提供的 label。
+function secretFieldLabel(t: TFunction, field: CredentialSecretField): string {
+  const lk = SECRET_FIELD_LABEL_KEY[field.key];
+  return lk ? t(lk) : field.label;
+}
 
 // 逐字段读取脱敏值（与后端 *_masked 列一一对应）。
 function maskedForKey(cred: ProviderCredential, key: string): string | null | undefined {
@@ -73,13 +80,7 @@ const CredentialRow = memo(function CredentialRow({
     secrets: {},
   });
 
-  const labelFor = useCallback(
-    (field: CredentialSecretField): string => {
-      const lk = SECRET_FIELD_LABEL_KEY[field.key];
-      return lk ? t(lk) : field.label;
-    },
-    [t],
-  );
+  const labelFor = useCallback((field: CredentialSecretField): string => secretFieldLabel(t, field), [t]);
 
   const handleActivate = useCallback(async () => {
     try {
@@ -404,10 +405,7 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, secretFields
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const nameRef = useAutoFocus<HTMLInputElement>();
 
-  const labelFor = (field: CredentialSecretField): string => {
-    const lk = SECRET_FIELD_LABEL_KEY[field.key];
-    return lk ? t(lk) : field.label;
-  };
+  const labelFor = (field: CredentialSecretField): string => secretFieldLabel(t, field);
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
