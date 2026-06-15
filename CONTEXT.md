@@ -15,7 +15,7 @@ _Avoid_: vendor、channel。
 _Avoid_: client（太泛）、adapter（另有架构含义）。
 
 **内置 provider（built-in provider）**：
-ArcReel 启动时在 `PROVIDER_REGISTRY` 静态注册的供应商（如 `gemini-aistudio` / `gemini-vertex` / `ark` / `openai` / `grok` / `vidu`）。用户填凭证 + 选 model 即可使用；凭证字段可按供应商定制（如 Vertex AI 用 service account JSON、Ark 用 AKSK、Kling 用 JWT access+secret）。
+ArcReel 启动时在 `PROVIDER_REGISTRY` 静态注册的供应商（如 `gemini-aistudio` / `gemini-vertex` / `ark` / `openai` / `grok` / `vidu`）。用户填凭证 + 选 model 即可使用；凭证字段可按供应商定制（如 Vertex AI 用 service account JSON 文件路径、Kling 用 JWT access_key + secret_key）。
 _Avoid_: preset（易与 model preset 混淆）、official（误读为"获 vendor 官方授权"）。
 
 **自定义 provider（custom provider）**：
