@@ -1536,7 +1536,7 @@ class ProjectManager:
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
         resolved_mode = content_mode or "narration"
-        resolved_source_kind = source_kind or DEFAULT_SOURCE_KIND
+        resolved_source_kind = DEFAULT_SOURCE_KIND if source_kind is None else source_kind
         if resolved_source_kind not in VALID_SOURCE_KINDS:
             raise ValueError(f"source_kind 值无效: {source_kind!r}，必须是 {sorted(VALID_SOURCE_KINDS)}")
 

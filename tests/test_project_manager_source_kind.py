@@ -38,3 +38,10 @@ class TestCreateSourceKind:
         pm.create_project("demo", content_mode="drama")
         with pytest.raises(ValueError, match="source_kind"):
             pm.create_project_metadata("demo", "X", "Anime", "drama", source_kind="screen_play")
+
+    def test_empty_string_source_kind_rejected(self, tmp_path):
+        # 空字符串是非法值，不得被当作"未传入"而静默回退到 novel
+        pm = _pm(tmp_path)
+        pm.create_project("demo", content_mode="drama")
+        with pytest.raises(ValueError, match="source_kind"):
+            pm.create_project_metadata("demo", "X", "Anime", "drama", source_kind="")

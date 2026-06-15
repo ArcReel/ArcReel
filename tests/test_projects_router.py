@@ -302,6 +302,9 @@ class TestProjectsRouter:
         with client:
             rejected = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
             assert rejected.status_code == 400
+            # 不可变字段「出现即拒」：显式传 null 也不得静默通过
+            rejected_null = client.patch("/api/v1/projects/ready", json={"source_kind": None})
+            assert rejected_null.status_code == 400
 
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)

@@ -643,7 +643,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     status_code=400,
                     detail=_t("project_id_not_editable"),
                 )
-            if req.source_kind is not None:
+            if "source_kind" in req.model_fields_set:
                 raise HTTPException(
                     status_code=400,
                     detail=_t("source_kind_not_editable"),

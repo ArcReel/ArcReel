@@ -332,13 +332,20 @@ def build_drama_prompt(
     dialogue_guide = _DRAMA_DIALOGUE_GUIDE_SCREENPLAY if is_screenplay else _DRAMA_DIALOGUE_GUIDE_NOVEL
     voiceover_guide = _DRAMA_VOICEOVER_GUIDE_SCREENPLAY if is_screenplay else _DRAMA_VOICEOVER_GUIDE_NOVEL
     creative_goal = _DRAMA_GOAL_SCREENPLAY if is_screenplay else _DRAMA_GOAL_NOVEL
+    # screenplay 下台词 / 画外音逐字保真，必须排除在目标语言要求之外，否则与逐字提取冲突、诱导翻译
+    language_rule = (
+        f"除 `video_prompt.dialogue[].line` 与 `voiceover[]` 外，所有字符串值必须使用 {target_language}；"
+        "这两类字段逐字保留剧本原文，语言随原文、不翻译、不改写。JSON 键名 / 枚举值保持英文。"
+        if is_screenplay
+        else f"所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。"
+    )
 
     return f"""# 角色与任务
 
 {role_task}
 你的任务：基于下方"分镜拆分表"，逐条产出符合 schema 的 JSON 剧本。
 
-**输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
+**输出语言**：{language_rule}
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 {pacing_block}# 上下文
