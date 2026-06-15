@@ -18,7 +18,7 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode_ledger import normalize_source_text
-from lib.project_manager import DEFAULT_SOURCE_KIND, VALID_SOURCE_KINDS, ProjectManager, effective_mode
+from lib.project_manager import ProjectManager, effective_mode, resolve_source_kind
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -457,8 +457,7 @@ class ScriptGenerator:
 
     def _source_kind(self) -> str:
         """解析项目源文件性质（novel / screenplay），缺失或非法值回退 novel（drama 提取优先分支用）。"""
-        value = self.project_json.get("source_kind")
-        return value if value in VALID_SOURCE_KINDS else DEFAULT_SOURCE_KIND
+        return resolve_source_kind(self.project_json)
 
     def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
         """解析当前视频模型的最大参考图数；caps → project.json.video_backend → registry 两级回退。

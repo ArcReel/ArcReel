@@ -30,7 +30,7 @@ from lib.episode_ledger import (
     normalize_source_text,
     parse_episode_num,
 )
-from lib.project_manager import DEFAULT_SOURCE_KIND, VALID_SOURCE_KINDS, ProjectManager
+from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_metrics import count_reading_units
@@ -260,12 +260,6 @@ def _ledger_entry_from_draft(
 def _language_of(project: Mapping[str, Any]) -> str | None:
     language = project.get("source_language")
     return language if isinstance(language, str) else None
-
-
-def _source_kind_of(project: Mapping[str, Any]) -> str:
-    """项目源文件性质（novel / screenplay），缺失或非法值回退 novel。"""
-    value = project.get("source_kind")
-    return value if value in VALID_SOURCE_KINDS else DEFAULT_SOURCE_KIND
 
 
 # plan_episodes 开篇定位：novel 走「切分 / 创作」，screenplay 翻为「尊重作者分集 / 提取」。
@@ -905,7 +899,7 @@ def _build_planning_prompt(
     language = str(project.get("source_language") or "zh")
     unit_name = "词" if language in ("en", "vi") else "字"
     target_units = project.get("episode_target_units")
-    is_screenplay = _source_kind_of(project) == "screenplay"
+    is_screenplay = resolve_source_kind(project) == "screenplay"
 
     lines: list[str] = [
         *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
