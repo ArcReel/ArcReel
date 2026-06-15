@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.18.0](https://github.com/ArcReel/ArcReel/compare/v0.17.0...v0.18.0) (2026-06-15)
+
+
+### ✨ 新功能
+
+* **agent:** 广告/短片项目对话引导全流程收口，修复 Seedance 2.0 产品镜头视频生成失败 ([#791](https://github.com/ArcReel/ArcReel/issues/791)) ([b164131](https://github.com/ArcReel/ArcReel/commit/b16413126b161634efcaaf305772a71e819e3240))
+* **assets:** 广告项目支持产品资产：多图原图上传、标准参考图生成与审核、建项即进初始化页 ([#780](https://github.com/ArcReel/ArcReel/issues/780)) ([3bd9d36](https://github.com/ArcReel/ArcReel/commit/3bd9d36e2f68ab1231747cd458c983975651197e))
+* **assistant:** 智能体生成剧本时前端弹出耗时提示，避免误以为卡死 ([#794](https://github.com/ArcReel/ArcReel/issues/794)) ([166191e](https://github.com/ArcReel/ArcReel/commit/166191e139cfa00a4671b3a2557b37f3f140e95d))
+* **audio:** Web 端旁白配音上线——设置页配置音色、分镜逐段试听、一键补齐全集 ([#775](https://github.com/ArcReel/ArcReel/issues/775)) ([76ec2ea](https://github.com/ArcReel/ArcReel/commit/76ec2ea57ceb17876d29aed8dd14509b20b1f136))
+* **audio:** 导出剪映草稿自动附带逐段旁白音轨 ([#778](https://github.com/ArcReel/ArcReel/issues/778)) ([3508845](https://github.com/ArcReel/ArcReel/commit/3508845c31e20307aaa8aca01029ec82df5aefac))
+* **audio:** 智能体一句话即可为单个项目定制旁白音色与语速 ([#782](https://github.com/ArcReel/ArcReel/issues/782)) ([7e10193](https://github.com/ArcReel/ArcReel/commit/7e1019378abb262be96fe210004a2135a3b3f801))
+* **audio:** 智能体旁白配音——一句话生成全集、可指定范围、断点续传 ([#773](https://github.com/ArcReel/ArcReel/issues/773)) ([6ef2a32](https://github.com/ArcReel/ArcReel/commit/6ef2a328f4d8b2e435e06c7485e597fe2cfbc201))
+* **audio:** 自定义供应商支持接入任意 OpenAI 兼容 TTS 做旁白配音 ([#776](https://github.com/ArcReel/ArcReel/issues/776)) ([d5cd00f](https://github.com/ArcReel/ArcReel/commit/d5cd00fd1b8df169d462c0c8bc75cc6866ec3cb9))
+* **audio:** 说书旁白配音打通 DashScope 单段合成(基础设施) ([#713](https://github.com/ArcReel/ArcReel/issues/713)) ([52f1fb4](https://github.com/ArcReel/ArcReel/commit/52f1fb498cf19915359ce2d94a95a4941403d38b))
+* **custom-provider:** 自定义供应商可选 MiniMax 图像/视频 endpoint，model id 自动推断 ([#810](https://github.com/ArcReel/ArcReel/issues/810)) ([529d5a9](https://github.com/ArcReel/ArcReel/commit/529d5a9c0e7d2068a21f5642e2671419e3eb4058))
+* **export:** 广告/短片项目导出剪映草稿自带口播文案字幕轨，费用预估覆盖单镜头与整片 ([#788](https://github.com/ArcReel/ArcReel/issues/788)) ([ce9e8e3](https://github.com/ArcReel/ArcReel/commit/ce9e8e3e253678d623fa9c54a4660018937a2c5e))
+* **generation:** 广告/短片项目支持参考生视频直出：镜头自动分组成片，产品参考全程锚定 ([#790](https://github.com/ArcReel/ArcReel/issues/790)) ([219db49](https://github.com/ArcReel/ArcReel/commit/219db49cd51eb5acb57924e24f4e8454117474cd))
+* **generation:** 广告项目产品镜头自动注入产品参考，成片产品忠实于真品 ([#789](https://github.com/ArcReel/ArcReel/issues/789)) ([3448eaa](https://github.com/ArcReel/ArcReel/commit/3448eaac54b9b269139a160d9b127777fd084489))
+* **projects:** 分集规划升级：一次规划一批剧情完整的集，一句话意见即可整批重排 ([#774](https://github.com/ArcReel/ArcReel/issues/774)) ([cf10b8d](https://github.com/ArcReel/ArcReel/commit/cf10b8db1003a0561af7a3b61fdc01106d59f013))
+* **projects:** 分集账本：老项目升级后已拆的集自动获得原文范围与进度记录 ([#760](https://github.com/ArcReel/ArcReel/issues/760)) ([2e68666](https://github.com/ArcReel/ArcReel/commit/2e6866691194cbbb6731d278475c716c9f928b3c))
+* **projects:** 新增「广告/短片」项目类型：向导选择目标总时长，恒单集直达单视频制作 ([#777](https://github.com/ArcReel/ArcReel/issues/777)) ([9e87972](https://github.com/ArcReel/ArcReel/commit/9e87972ff7d9077946a15f57c0cfb53faa3936a1))
+* **provider:** MiniMax image-01 图像生成，支持单脸参考立绘 ([#807](https://github.com/ArcReel/ArcReel/issues/807)) ([49c844f](https://github.com/ArcReel/ArcReel/commit/49c844fc9cbd89c5fb9a3c6d6f162fc9e9a8da19))
+* **provider:** MiniMax S2V-01 单脸参考生视频 ([#809](https://github.com/ArcReel/ArcReel/issues/809)) ([09bab81](https://github.com/ArcReel/ArcReel/commit/09bab81f5dfd0f1fe532aad4ae8e3ded9ab79664))
+* **provider:** 接入 MiniMax 海螺 Hailuo 2.3 / 2.3-Fast 视频生成 ([#808](https://github.com/ArcReel/ArcReel/issues/808)) ([28862f8](https://github.com/ArcReel/ArcReel/commit/28862f81fce86aacb3856dbf8de3cffed41861fa))
+* **provider:** 新增 MiniMax 内置供应商，MiniMax-M2.7 文本开箱即用 ([#805](https://github.com/ArcReel/ArcReel/issues/805)) ([e75bb64](https://github.com/ArcReel/ArcReel/commit/e75bb64ebb5481f1a01a0bda10fd269105091254))
+* **scripts:** 剧本按分集大纲改编：集尾落地钩子与下集预告，重排失效的集自动回退待预处理 ([#772](https://github.com/ArcReel/ArcReel/issues/772)) ([dc69d10](https://github.com/ArcReel/ArcReel/commit/dc69d10d9d70f47fa461576ec050d38caed5c3e6))
+* **script:** 广告/短片项目一键生成带货镜头脚本：八段框架按时长配比，剧本页可编辑镜头口播/时长/顺序 ([#783](https://github.com/ArcReel/ArcReel/issues/783)) ([eb199c7](https://github.com/ArcReel/ArcReel/commit/eb199c766df4217a1b5a51e99800b13abe72f0bb))
+* **tasks:** 任务失败原因按界面语言显示 ([#795](https://github.com/ArcReel/ArcReel/issues/795)) ([4ca73ba](https://github.com/ArcReel/ArcReel/commit/4ca73ba6a5cd6ac2cc096b8cc1d687bc91f0b5d3))
+* **usage:** 视频费用按供应商回报的实际计费时长结算 ([#785](https://github.com/ArcReel/ArcReel/issues/785)) ([6421864](https://github.com/ArcReel/ArcReel/commit/6421864b3b39abd960b7eaa116a08037fecf0f54))
+
+
+### 🐛 Bug 修复
+
+* **agent:** 拆分链路指令消歧：按集模式选对中间文件、改后强制重生剧本 ([#757](https://github.com/ArcReel/ArcReel/issues/757)) ([ba71050](https://github.com/ArcReel/ArcReel/commit/ba710505827a4174390be75dbd242e1593880d05))
+* **agent:** 收紧智能体沙箱在 Windows 回退下的 Bash 防护与跨平台路径围栏 ([#786](https://github.com/ArcReel/ArcReel/issues/786)) ([b3bf2b6](https://github.com/ArcReel/ArcReel/commit/b3bf2b630b58d5337214cf6145d7eb409a6c268a))
+* **custom-provider:** 纯文本 MiniMax 模型经自定义供应商不再被误推到视频端点 ([#820](https://github.com/ArcReel/ArcReel/issues/820)) ([3799176](https://github.com/ArcReel/ArcReel/commit/3799176c5f67ea98695d0a83ef091afb680de98a))
+* **dashscope:** 重试按 HTTP 状态码判定，避免 4xx 业务错误被误判重试到超时 ([#796](https://github.com/ArcReel/ArcReel/issues/796)) ([3855d15](https://github.com/ArcReel/ArcReel/commit/3855d15684557876da1312bd8c06fc2170ccc85e))
+* **providers:** 并发上限配置填错保存时即时报错，单个坏值不再静默冻结全部供应商容量更新 ([#787](https://github.com/ArcReel/ArcReel/issues/787)) ([e03ff9a](https://github.com/ArcReel/ArcReel/commit/e03ff9aa8205c57f82efd276fae66638b171f413))
+* **script:** Gemini 生成剧本时按视频模型时长枚举约束不再报错 ([#803](https://github.com/ArcReel/ArcReel/issues/803)) ([882ead9](https://github.com/ArcReel/ArcReel/commit/882ead9daa728c0923afe5769b8569dc696c1055))
+* **settings:** 项目设置时长选项与供应商配置实时一致，不再读到旧值 ([#806](https://github.com/ArcReel/ArcReel/issues/806)) ([37491e6](https://github.com/ArcReel/ArcReel/commit/37491e61447f689c6c19af5fc1a49811078c1b72))
+* **video:** 视频生成提交超时不再重复建任务与重复计费 ([#793](https://github.com/ArcReel/ArcReel/issues/793)) ([e4d6160](https://github.com/ArcReel/ArcReel/commit/e4d61607bccd1bddf7bda4d2a33e11f0d3e7d449))
+* 资产名称不再允许包含 / 等路径字符，修复此类资产生成失败与 Web 端无法加载的问题 ([#761](https://github.com/ArcReel/ArcReel/issues/761)) ([a6b8a0e](https://github.com/ArcReel/ArcReel/commit/a6b8a0e95c59a599c2abca7cdfaa40ad9c0e08c5))
+
+
+### 📚 文档
+
+* **adr:** 记录 partial migration 中间态为异常状态的已知限制 ([#792](https://github.com/ArcReel/ArcReel/issues/792)) ([0bce192](https://github.com/ArcReel/ArcReel/commit/0bce192af3822b7f0d70d9c27d32b2ac20530891))
+* **agents:** PRD 与细分 issue 列表可辨识约定；新增 teach skill ([#762](https://github.com/ArcReel/ArcReel/issues/762)) ([f0cac6c](https://github.com/ArcReel/ArcReel/commit/f0cac6cf659f3c373f79b56b09d23e07908f612c))
+
 ## [0.17.0](https://github.com/ArcReel/ArcReel/compare/v0.16.1...v0.17.0) (2026-06-11)
 
 
