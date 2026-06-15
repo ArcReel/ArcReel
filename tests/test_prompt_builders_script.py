@@ -2,6 +2,7 @@ from lib.prompt_builders_script import (
     _format_names,
     build_drama_prompt,
     build_narration_prompt,
+    build_normalize_prompt,
 )
 
 
@@ -97,3 +98,82 @@ class TestPromptBuildersScript:
         assert "Tracking Shot" not in prompt
         assert "Pan Left, Pan Right" not in prompt
         assert "Over-the-shoulder" not in prompt
+
+
+class TestScreenplaySourceKind:
+    """source_kind=screenplay 下 step1 normalize / step2 drama 两段 prompt 翻为「提取/逐字保留」。
+
+    只断言语义关键词在场（提取 / 逐字 / 画外音）与「改编」缺席，不锁逐字措辞、不测 LLM 提取质量。
+    """
+
+    def _drama_prompt(self, source_kind: str) -> str:
+        return build_drama_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            style_description="",
+            characters={"林清": {}},
+            scenes={"庭院": {}},
+            props={},
+            scenes_md="E1S01 | 对峙",
+            supported_durations=[4, 6, 8],
+            default_duration=8,
+            aspect_ratio="16:9",
+            episode=1,
+            source_kind=source_kind,
+        )
+
+    def _normalize_prompt(self, source_kind: str) -> str:
+        return build_normalize_prompt(
+            novel_text="【第1集】角色甲：「你好」",
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            characters={"角色甲": {}},
+            scenes={},
+            props={},
+            default_duration=8,
+            supported_durations=[4, 6, 8],
+            episode=1,
+            source_kind=source_kind,
+        )
+
+    def test_drama_novel_default_keeps_adaptation_semantics(self):
+        prompt = self._drama_prompt("novel")
+        # 默认 novel 维持原「改编/创作」语义，dialogue 仍要求 speaker ∈ characters_in_scene
+        assert "改编" in prompt
+        assert "characters_in_scene" in prompt
+        # novel-drama 无画外音轨：voiceover 字段引导要求留空
+        assert "voiceover" in prompt
+
+    def test_drama_screenplay_flips_to_verbatim_extraction(self):
+        prompt = self._drama_prompt("screenplay")
+        # 台词逐字照搬、画外音逐字提取的指令在场
+        assert "逐字" in prompt
+        assert "画外音" in prompt
+        assert "voiceover" in prompt
+        # 翻面为「转写而非再创作」，不含「改编」语义
+        assert "改编" not in prompt
+
+    def test_drama_screenplay_language_rule_exempts_audible_fields(self):
+        # screenplay 下输出语言约束须把台词 / 说话人 / 画外音逐字字段排除在目标语言要求之外，
+        # 否则与逐字提取冲突、诱导模型翻译原文；novel 维持无条件目标语言、无此豁免。
+        screenplay = self._drama_prompt("screenplay")
+        novel = self._drama_prompt("novel")
+        assert "不翻译" in screenplay
+        assert "不翻译" not in novel
+        # speaker 是角色资产引用键，翻译会与登记角色名失配，须一并豁免
+        assert "video_prompt.dialogue[].speaker" in screenplay
+        assert "video_prompt.dialogue[].speaker" not in novel
+
+    def test_normalize_novel_default_keeps_adaptation_semantics(self):
+        prompt = self._normalize_prompt("novel")
+        assert "改编" in prompt
+        assert "小说原文" in prompt
+
+    def test_normalize_screenplay_flips_to_extract_first(self):
+        prompt = self._normalize_prompt("screenplay")
+        # 提取/逐字保留语义在场，剧本原文为输入，不含「改编」
+        assert "提取" in prompt
+        assert "逐字" in prompt
+        assert "画外音" in prompt
+        assert "剧本原文" in prompt
+        assert "改编" not in prompt

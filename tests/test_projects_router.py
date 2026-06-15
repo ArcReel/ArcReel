@@ -96,11 +96,13 @@ class _FakePM:
         extras=None,
         target_duration=None,
         brief=None,
+        source_kind=None,
     ):
         payload = {
             "title": (title or name),
             "style": style or "",
             "content_mode": content_mode,
+            "source_kind": source_kind or "novel",
             "aspect_ratio": aspect_ratio,
             "episodes": [],
         }
@@ -268,6 +270,41 @@ class TestProjectsRouter:
 
             delete_ok = client.delete("/api/v1/projects/remove-me")
             assert delete_ok.status_code == 200
+
+    def test_create_persists_source_kind_and_defaults_novel(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            # 显式 screenplay 持久化于 project.json 顶层
+            screenplay = client.post(
+                "/api/v1/projects",
+                json={"name": "scr", "title": "剧本项目", "content_mode": "drama", "source_kind": "screenplay"},
+            )
+            assert screenplay.status_code == 200
+            assert screenplay.json()["project"]["source_kind"] == "screenplay"
+
+            # 缺省 source_kind 落 novel
+            default_novel = client.post(
+                "/api/v1/projects",
+                json={"name": "nov", "title": "默认项目", "content_mode": "drama"},
+            )
+            assert default_novel.status_code == 200
+            assert default_novel.json()["project"]["source_kind"] == "novel"
+
+            # 非法值被 Pydantic 拒（422，不是 500）
+            invalid = client.post(
+                "/api/v1/projects",
+                json={"name": "bad", "title": "X", "content_mode": "drama", "source_kind": "screen_play"},
+            )
+            assert invalid.status_code == 422
+
+    def test_source_kind_not_editable_after_create(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            rejected = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
+            assert rejected.status_code == 400
+            # 不可变字段「出现即拒」：显式传 null 也不得静默通过
+            rejected_null = client.patch("/api/v1/projects/ready", json={"source_kind": None})
+            assert rejected_null.status_code == 400
 
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)

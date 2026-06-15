@@ -48,6 +48,13 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 _VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}
 _DEFAULT_GENERATION_MODE = "storyboard"
 
+# 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
+# 顶层字段，创建时确定、之后不可变。novel（默认，现状改编链路）/ screenplay（成品剧本，
+# drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「剧本源」词条。
+SourceKind = Literal["novel", "screenplay"]
+VALID_SOURCE_KINDS: frozenset[str] = frozenset({"novel", "screenplay"})
+DEFAULT_SOURCE_KIND: SourceKind = "novel"
+
 
 class _Unset:
     """哨兵：区分「未传 before」（写盘统一入口自行读盘取改前）与「显式传 None」（无改前）。"""
@@ -1510,6 +1517,7 @@ class ProjectManager:
         extras: dict | None = None,
         target_duration: int | None = None,
         brief: str | None = None,
+        source_kind: str | None = None,
     ) -> dict:
         """
         创建新的项目元数据文件
@@ -1521,10 +1529,16 @@ class ProjectManager:
 
         `target_duration` / `brief` 仅 content_mode=ad 可用；ad 项目不持有
         `default_duration`，且 episodes 恒为第 1 集单条。
+
+        `source_kind` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
+        （可变性守卫在路由 PATCH 层，与 content_mode 同性质）。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
         resolved_mode = content_mode or "narration"
+        resolved_source_kind = DEFAULT_SOURCE_KIND if source_kind is None else source_kind
+        if resolved_source_kind not in VALID_SOURCE_KINDS:
+            raise ValueError(f"source_kind 值无效: {source_kind!r}，必须是 {sorted(VALID_SOURCE_KINDS)}")
 
         # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
         if resolved_mode == "ad":
@@ -1552,6 +1566,7 @@ class ProjectManager:
             # 风格的 project_name 固化为用户可见的标题。
             "title": project_title,
             "content_mode": resolved_mode,
+            "source_kind": resolved_source_kind,
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],

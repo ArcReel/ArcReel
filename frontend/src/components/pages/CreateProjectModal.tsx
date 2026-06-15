@@ -147,6 +147,7 @@ export function CreateProjectModal() {
   const [basics, setBasics] = useState<WizardStep1Value>({
     title: "",
     contentMode: "narration",
+    sourceKind: "novel",
     aspectRatio: "9:16",
     generationMode: "storyboard",
     targetDuration: 60,
@@ -271,6 +272,8 @@ export function CreateProjectModal() {
       const resp = await API.createProject({
         title: basics.title.trim(),
         content_mode: basics.contentMode,
+        // source_kind 仅 drama 暴露与生效；其余模式由服务端缺省 novel
+        ...(basics.contentMode === "drama" ? { source_kind: basics.sourceKind } : {}),
         aspect_ratio: basics.aspectRatio,
         generation_mode: basics.generationMode,
         // ad 不暴露 default_duration（按目标总时长逐镜头规划），改传 target_duration

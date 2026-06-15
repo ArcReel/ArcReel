@@ -234,6 +234,10 @@ class DramaScene(BaseModel):
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
+    # 画外音/旁白原文（逐字保真锚，日后接 TTS）。取 list[str] 而非 str：一个场景可含多段
+    # 有序画外音插入（基数为多）。仅 source_kind=screenplay 提取时填入；novel-drama 恒空数组。
+    # 与 video_prompt.dialogue（角色台词）分工：dialogue 有 speaker，voiceover 无。
+    voiceover: list[str] = Field(default_factory=list, description="画外音/旁白原文列表，逐字保留，按出现顺序")
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
