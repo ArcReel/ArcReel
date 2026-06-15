@@ -16,7 +16,7 @@ from claude_agent_sdk import tool
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.project_manager import effective_mode
+from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
 from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
@@ -237,7 +237,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 default_duration=default_duration,
                 supported_durations=supported_durations,
                 episode=episode,
-                source_kind=project.get("source_kind") or "novel",
+                source_kind=project.get("source_kind") or DEFAULT_SOURCE_KIND,
             )
 
             if dry_run:
