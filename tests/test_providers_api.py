@@ -322,6 +322,48 @@ class TestGetProviderConfig:
         assert resp.status_code == 200
         assert resp.json()["supports_base_url"] is expected
 
+    def test_secret_fields_single_secret_provider(self):
+        """单 secret provider（如 gemini-aistudio）→ secret_fields = [api_key]。"""
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/providers/gemini-aistudio/config")
+        assert resp.status_code == 200
+        assert [f["key"] for f in resp.json()["secret_fields"]] == ["api_key"]
+
+    def test_secret_fields_kling_two_ordered_secrets(self):
+        """可灵 → secret_fields = [access_key, secret_key]（保留 required_keys 顺序）。"""
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/providers/kling/config")
+        assert resp.status_code == 200
+        secret_fields = resp.json()["secret_fields"]
+        assert [f["key"] for f in secret_fields] == ["access_key", "secret_key"]
+        assert [f["label"] for f in secret_fields] == ["Access Key", "Secret Key"]
+        # 两 secret 走凭证表单，不进 advanced fields
+        field_keys = {f["key"] for f in resp.json()["fields"]}
+        assert "access_key" not in field_keys
+        assert "secret_key" not in field_keys
+
+    def test_secret_fields_vertex_empty(self):
+        """gemini-vertex 凭证是文件路径（非 secret）→ secret_fields 为空，前端走文件上传。"""
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/providers/gemini-vertex/config")
+        assert resp.status_code == 200
+        assert resp.json()["secret_fields"] == []
+
 
 # ---------------------------------------------------------------------------
 # PATCH /providers/{id}/config — 更新配置

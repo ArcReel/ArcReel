@@ -11,6 +11,7 @@ MESSAGES: dict[str, str] = {
     "provider_name_vidu": "Vidu",
     "provider_name_dashscope": "阿里百炼",
     "provider_name_minimax": "MiniMax",
+    "provider_name_kling": "可灵 Kling",
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
@@ -21,6 +22,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_vidu": "生数科技 Vidu 视频生成平台，支持文生视频、图生视频、首尾帧、参考生视频与参考生图，仅图片与视频能力。",
     "provider_desc_dashscope": "阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
     "provider_desc_minimax": "MiniMax（海螺）OpenAI 兼容平台，MiniMax-M2.7 文本擅长中文文学与人设创作；缺省国内站，可改 base_url 指向国际站。",
+    "provider_desc_kling": "快手可灵 Kling 视频与图像生成平台，使用 Access Key 与 Secret Key 鉴权。",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",

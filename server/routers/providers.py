@@ -40,7 +40,7 @@ MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024  # 1 MiB
 
 router = APIRouter(prefix="/providers", tags=["Providers"])
 
-_CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url"})
+_CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url", "access_key", "secret_key"})
 
 # ---------------------------------------------------------------------------
 # 字段元数据映射（key → label/type/placeholder）
@@ -48,6 +48,8 @@ _CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url"})
 
 _FIELD_META: dict[str, dict[str, str]] = {
     "api_key": {"label": "API Key", "type": "secret"},
+    "access_key": {"label": "Access Key", "type": "secret"},
+    "secret_key": {"label": "Secret Key", "type": "secret"},
     "base_url": {"label": "Base URL", "type": "url", "placeholder": "Default"},
     "credentials_path": {"label": "Vertex Credentials Path", "type": "text"},
     "gcs_bucket": {"label": "GCS Bucket", "type": "text"},
@@ -102,6 +104,17 @@ class FieldInfo(BaseModel):
     placeholder: str | None = None
 
 
+class CredentialSecretField(BaseModel):
+    """凭证表单需渲染的 secret 输入字段（按 provider 的 required ∩ secret ∩ 凭证键派生）。
+
+    驱动设置页凭证表单渲染：单 secret provider 给 ``[api_key]``，可灵给
+    ``[access_key, secret_key]``（见 ADR 0037）。key 名全程同名，前端据此读写各字段。
+    """
+
+    key: str
+    label: str
+
+
 class ProviderConfigResponse(BaseModel):
     id: str
     display_name: str
@@ -112,6 +125,8 @@ class ProviderConfigResponse(BaseModel):
     # 该供应商凭证是否接受自定义 base_url（真相源：optional_keys 含 base_url）。
     # base_url 随凭证走、不进 fields，前端据此决定是否在密钥表单渲染 URL 输入。
     supports_base_url: bool
+    # 凭证表单应渲染的 secret 字段（有序，真相源：registry required_keys ∩ secret_keys ∩ 凭证键）。
+    secret_fields: list[CredentialSecretField]
 
 
 class ConnectionTestResponse(BaseModel):
@@ -127,6 +142,9 @@ class CredentialResponse(BaseModel):
     api_key_masked: str | None = None
     credentials_filename: str | None = None
     base_url: str | None = None
+    # 逐字段独立脱敏（不把两段当一个 secret）；除可灵外恒为 None（见 ADR 0037）。
+    access_key_masked: str | None = None
+    secret_key_masked: str | None = None
     is_active: bool
     created_at: str
 
@@ -139,12 +157,16 @@ class CreateCredentialRequest(BaseModel):
     name: str
     api_key: str | None = None
     base_url: str | None = None
+    access_key: str | None = None
+    secret_key: str | None = None
 
 
 class UpdateCredentialRequest(BaseModel):
     name: str | None = None
     api_key: str | None = None
     base_url: str | None = None
+    access_key: str | None = None
+    secret_key: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +201,8 @@ def _cred_to_response(cred: ProviderCredential) -> CredentialResponse:
         api_key_masked=mask_secret(cred.api_key) if cred.api_key else None,
         credentials_filename=Path(cred.credentials_path).name if cred.credentials_path else None,
         base_url=cred.base_url,
+        access_key_masked=mask_secret(cred.access_key) if cred.access_key else None,
+        secret_key_masked=mask_secret(cred.secret_key) if cred.secret_key else None,
         is_active=cred.is_active,
         created_at=dt_to_iso(cred.created_at) or "",
     )
@@ -283,6 +307,15 @@ async def get_provider_config(
         if key not in _CREDENTIAL_KEYS:
             fields.append(_build_field(key, required=False, db_entry=db_values.get(key)))
 
+    # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
+    # 单 secret provider → [api_key]；可灵 → [access_key, secret_key]（见 ADR 0037）。
+    secret_keys = set(meta.secret_keys)
+    secret_fields = [
+        CredentialSecretField(key=key, label=_FIELD_META.get(key, {"label": key})["label"])
+        for key in meta.required_keys
+        if key in _CREDENTIAL_KEYS and key in secret_keys
+    ]
+
     return ProviderConfigResponse(
         id=provider_id,
         display_name=_t(f"provider_name_{provider_id}"),
@@ -291,6 +324,7 @@ async def get_provider_config(
         media_types=list(meta.media_types),
         fields=fields,
         supports_base_url="base_url" in meta.optional_keys,
+        secret_fields=secret_fields,
     )
 
 
@@ -360,6 +394,8 @@ async def create_credential(
         name=body.name,
         api_key=body.api_key,
         base_url=body.base_url,
+        access_key=body.access_key,
+        secret_key=body.secret_key,
     )
     await session.commit()
     await _invalidate_caches(request)
@@ -385,6 +421,10 @@ async def update_credential(
         kwargs["api_key"] = body.api_key
     if "base_url" in body.model_fields_set:
         kwargs["base_url"] = body.base_url
+    if body.access_key is not None:
+        kwargs["access_key"] = body.access_key
+    if body.secret_key is not None:
+        kwargs["secret_key"] = body.secret_key
     if kwargs:
         await repo.update(cred_id, **kwargs)
         await session.commit()

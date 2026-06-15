@@ -11,6 +11,7 @@ MESSAGES: dict[str, str] = {
     "provider_name_vidu": "Vidu",
     "provider_name_dashscope": "Alibaba Model Studio",
     "provider_name_minimax": "MiniMax",
+    "provider_name_kling": "Kling",
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio cung cấp các mô hình Gemini hỗ trợ tạo ảnh và video, phù hợp cho việc dựng prototype nhanh và dự án cá nhân.",
     "provider_desc_gemini-vertex": "Nền tảng doanh nghiệp Vertex AI của Google Cloud hỗ trợ các mô hình Gemini và Imagen với hạn mức cao hơn cùng khả năng tạo âm thanh.",
@@ -21,6 +22,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_vidu": "Nền tảng Vidu của Shengshu hỗ trợ tạo video từ văn bản, từ ảnh, khung đầu–cuối, video tham chiếu và ảnh tham chiếu. Chỉ hỗ trợ ảnh và video.",
     "provider_desc_dashscope": "Nền tảng đa phương thức Alibaba Cloud Model Studio (DashScope) hỗ trợ văn bản Qwen, ảnh Qwen-Image / Wan và video HappyHorse / Wan (bao gồm video tham chiếu).",
     "provider_desc_minimax": "Nền tảng tương thích OpenAI của MiniMax (Hailuo); văn bản MiniMax-M2.7 mạnh về sáng tác văn học và nhân vật tiếng Trung. Mặc định dùng site nội địa; đặt base_url để trỏ sang site quốc tế.",
+    "provider_desc_kling": "Nền tảng tạo video và ảnh Kling của Kuaishou, xác thực bằng Access Key và Secret Key.",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",

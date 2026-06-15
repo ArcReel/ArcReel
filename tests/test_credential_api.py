@@ -97,6 +97,76 @@ class TestCreateCredential:
         assert resp.status_code == 422
 
 
+def _fake_kling_cred(
+    id: int = 1,
+    access_key: str = "AKfake12345678",
+    secret_key: str = "SKsecret87654321",
+) -> ProviderCredential:
+    cred = ProviderCredential(
+        provider="kling",
+        name="可灵账号",
+        api_key=None,
+        access_key=access_key,
+        secret_key=secret_key,
+        is_active=True,
+    )
+    cred.id = id
+    cred.created_at = datetime.now(UTC)
+    cred.updated_at = datetime.now(UTC)
+    return cred
+
+
+class TestKlingTwoSecretCredential:
+    def test_create_persists_two_secrets(self):
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/api/v1/providers/kling/credentials",
+                    json={"name": "可灵账号", "access_key": "AK-new", "secret_key": "SK-new"},
+                )
+        assert resp.status_code == 201
+        mock_repo.create.assert_awaited_once()
+        kwargs = mock_repo.create.await_args.kwargs
+        assert kwargs["access_key"] == "AK-new"
+        assert kwargs["secret_key"] == "SK-new"
+
+    def test_response_masks_each_secret_independently(self):
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.list_by_provider = AsyncMock(return_value=[_fake_kling_cred()])
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/providers/kling/credentials")
+        assert resp.status_code == 200
+        cred = resp.json()["credentials"][0]
+        # 两段各自独立脱敏，互不混用，且不泄漏明文
+        assert cred["access_key_masked"] is not None
+        assert cred["secret_key_masked"] is not None
+        assert cred["access_key_masked"] != cred["secret_key_masked"]
+        assert "fake" not in cred["access_key_masked"]
+        assert "secret" not in cred["secret_key_masked"]
+        assert cred["api_key_masked"] is None
+
+    def test_update_persists_only_provided_secret(self):
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/kling/credentials/1",
+                    json={"secret_key": "SK-rotated"},
+                )
+        assert resp.status_code == 204
+        kwargs = mock_repo.update.await_args.kwargs
+        assert kwargs["secret_key"] == "SK-rotated"
+        assert "access_key" not in kwargs
+
+
 class TestActivateCredential:
     def test_returns_204(self):
         app, _ = _make_app()

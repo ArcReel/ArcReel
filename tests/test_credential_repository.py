@@ -125,6 +125,43 @@ class TestCredentialRepository:
         assert "gemini-aistudio" in bulk
         assert "ark" in bulk
 
+    async def test_create_and_update_two_secrets(self, session: AsyncSession):
+        repo = CredentialRepository(session)
+        c = await repo.create(
+            provider="kling",
+            name="可灵账号",
+            access_key="AK-original",
+            secret_key="SK-original",
+        )
+        await session.flush()
+        assert c.access_key == "AK-original"
+        assert c.secret_key == "SK-original"
+        assert c.api_key is None
+
+        await repo.update(c.id, access_key="AK-new")
+        await session.flush()
+        updated = await repo.get_by_id(c.id)
+        assert updated is not None
+        # 只更新传入的 secret，另一个保持原值
+        assert updated.access_key == "AK-new"
+        assert updated.secret_key == "SK-original"
+
+    async def test_overlay_config_emits_both_secrets_by_key_name(self, session: AsyncSession):
+        repo = CredentialRepository(session)
+        c = await repo.create(
+            provider="kling",
+            name="可灵账号",
+            access_key="AK-1",
+            secret_key="SK-1",
+        )
+        await session.flush()
+        config: dict[str, str] = {}
+        c.overlay_config(config)
+        # 列名即 config key，逐字段原样产出
+        assert config["access_key"] == "AK-1"
+        assert config["secret_key"] == "SK-1"
+        assert "api_key" not in config
+
     async def test_base_url_normalized_on_create(self, session: AsyncSession):
         repo = CredentialRepository(session)
         c = await repo.create(

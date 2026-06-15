@@ -999,6 +999,9 @@ export default {
   'select_json_file': 'Select JSON file...',
   'select_credential_file': 'Please select a credential file',
   'enter_api_key_required': 'Please enter API Key',
+  'access_key_label': 'Access Key',
+  'secret_key_label': 'Secret Key',
+  'enter_credentials_required': 'Please fill in all secret fields',
 
   // ProviderModelSelect
   'select_model_placeholder': 'Select model...',

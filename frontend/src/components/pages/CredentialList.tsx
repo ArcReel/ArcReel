@@ -22,17 +22,43 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
-import type { ProviderCredential, ProviderTestResult } from "@/types";
+import type { CredentialSecretField, ProviderCredential, ProviderTestResult } from "@/types";
+
+// 单 secret provider 的默认凭证字段，供未显式传 secretFields 的调用方兜底（行为同旧版 api_key 表单）。
+const DEFAULT_SECRET_FIELDS: CredentialSecretField[] = [{ key: "api_key", label: "API Key" }];
+
+// 已知 secret 凭证字段 → 前端 i18n label key；未知 key 回退后端提供的 label。
+const SECRET_FIELD_LABEL_KEY: Record<string, string> = {
+  api_key: "api_key_label",
+  access_key: "access_key_label",
+  secret_key: "secret_key_label",
+};
+
+// 逐字段读取脱敏值（与后端 *_masked 列一一对应）。
+function maskedForKey(cred: ProviderCredential, key: string): string | null | undefined {
+  if (key === "api_key") return cred.api_key_masked;
+  if (key === "access_key") return cred.access_key_masked;
+  if (key === "secret_key") return cred.secret_key_masked;
+  return undefined;
+}
 
 interface RowProps {
   cred: ProviderCredential;
   providerId: string;
   isVertex: boolean;
   supportsBaseUrl: boolean;
+  secretFields: CredentialSecretField[];
   onChanged: () => void;
 }
 
-const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, supportsBaseUrl, onChanged }: RowProps) {
+const CredentialRow = memo(function CredentialRow({
+  cred,
+  providerId,
+  isVertex,
+  supportsBaseUrl,
+  secretFields,
+  onChanged,
+}: RowProps) {
   const { t } = useTranslation("dashboard");
   const [editing, setEditing] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -40,7 +66,20 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState({ name: cred.name, api_key: "", base_url: cred.base_url ?? "" });
+  // secrets 留空表示保留现有值；逐字段独立编辑。
+  const [draft, setDraft] = useState<{ name: string; base_url: string; secrets: Record<string, string> }>({
+    name: cred.name,
+    base_url: cred.base_url ?? "",
+    secrets: {},
+  });
+
+  const labelFor = useCallback(
+    (field: CredentialSecretField): string => {
+      const lk = SECRET_FIELD_LABEL_KEY[field.key];
+      return lk ? t(lk) : field.label;
+    },
+    [t],
+  );
 
   const handleActivate = useCallback(async () => {
     try {
@@ -81,7 +120,10 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
   const handleSaveEdit = useCallback(async () => {
     const data: Record<string, string> = {};
     if (draft.name && draft.name !== cred.name) data.name = draft.name;
-    if (draft.api_key) data.api_key = draft.api_key;
+    for (const field of secretFields) {
+      const val = draft.secrets[field.key];
+      if (val) data[field.key] = val;
+    }
     if (draft.base_url !== (cred.base_url ?? "")) data.base_url = draft.base_url;
     if (Object.keys(data).length === 0) {
       setEditing(false);
@@ -95,7 +137,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
     } finally {
       setSaving(false);
     }
-  }, [draft, cred, providerId, onChanged]);
+  }, [draft, cred, providerId, secretFields, onChanged]);
 
   const editPrefix = `cred-edit-${cred.id}`;
 
@@ -149,10 +191,16 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               </span>
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-2">
-            {cred.api_key_masked && (
-              <span className="font-mono text-[11px] text-text-4">{cred.api_key_masked}</span>
-            )}
+          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            {secretFields.map((field) => {
+              const masked = maskedForKey(cred, field.key);
+              if (!masked) return null;
+              return (
+                <span key={field.key} className="font-mono text-[11px] text-text-4">
+                  {secretFields.length > 1 ? `${labelFor(field)}: ${masked}` : masked}
+                </span>
+              );
+            })}
             {cred.credentials_filename && (
               <span className="text-[11px] text-text-4">{cred.credentials_filename}</span>
             )}
@@ -181,7 +229,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               type="button"
               onClick={() => {
                 setEditing(!editing);
-                setDraft({ name: cred.name, api_key: "", base_url: cred.base_url ?? "" });
+                setDraft({ name: cred.name, base_url: cred.base_url ?? "", secrets: {} });
                 setTestResult(null);
               }}
               aria-label={t("edit_credential", { name: cred.name })}
@@ -276,19 +324,23 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               className={INPUT_CLS}
             />
           </div>
-          <div>
-            <FieldLabel htmlFor={`${editPrefix}-apikey`}>{t("api_key_keep_hint")}</FieldLabel>
-            <input
-              id={`${editPrefix}-apikey`}
-              name="api_key"
-              type="password"
-              autoComplete="off"
-              value={draft.api_key}
-              onChange={(e) => setDraft((d) => ({ ...d, api_key: e.target.value }))}
-              placeholder={t("keep_existing_placeholder")}
-              className={INPUT_CLS}
-            />
-          </div>
+          {secretFields.map((field) => (
+            <div key={field.key}>
+              <FieldLabel htmlFor={`${editPrefix}-${field.key}`}>{labelFor(field)}</FieldLabel>
+              <input
+                id={`${editPrefix}-${field.key}`}
+                name={field.key}
+                type="password"
+                autoComplete="off"
+                value={draft.secrets[field.key] ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, secrets: { ...d.secrets, [field.key]: e.target.value } }))
+                }
+                placeholder={t("keep_existing_placeholder")}
+                className={INPUT_CLS}
+              />
+            </div>
+          ))}
           {supportsBaseUrl && (
             <div>
               <FieldLabel htmlFor={`${editPrefix}-baseurl`}>{t("base_url_optional")}</FieldLabel>
@@ -336,20 +388,26 @@ interface AddFormProps {
   providerId: string;
   isVertex: boolean;
   supportsBaseUrl: boolean;
+  secretFields: CredentialSecretField[];
   onCreated: () => void;
   onCancel: () => void;
 }
 
-function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, onCreated, onCancel }: AddFormProps) {
+function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, secretFields, onCreated, onCancel }: AddFormProps) {
   const { t } = useTranslation("dashboard");
   const [name, setName] = useState("");
-  const [apiKey, setApiKey] = useState("");
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [baseUrl, setBaseUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const nameRef = useAutoFocus<HTMLInputElement>();
+
+  const labelFor = (field: CredentialSecretField): string => {
+    const lk = SECRET_FIELD_LABEL_KEY[field.key];
+    return lk ? t(lk) : field.label;
+  };
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
@@ -365,16 +423,18 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, onCreated, o
         }
         await API.uploadVertexCredential(name, file);
       } else {
-        if (!apiKey.trim()) {
-          setError(t("enter_api_key_required"));
+        // 所有 secret 字段均必填（按 provider 的 required_keys 渲染）
+        if (secretFields.some((f) => !(secrets[f.key] ?? "").trim())) {
+          setError(t("enter_credentials_required"));
           setSaving(false);
           return;
         }
-        await API.createCredential(providerId, {
+        const payload: { name: string; [key: string]: string | undefined } = {
           name: name.trim(),
-          api_key: apiKey || undefined,
           base_url: baseUrl || undefined,
-        });
+        };
+        for (const field of secretFields) payload[field.key] = secrets[field.key];
+        await API.createCredential(providerId, payload);
       }
       onCreated();
     } catch (e) {
@@ -432,20 +492,22 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, onCreated, o
         </div>
       ) : (
         <>
-          <div>
-            <FieldLabel htmlFor="cred-add-apikey" required>
-              {t("api_key_label")}
-            </FieldLabel>
-            <input
-              id="cred-add-apikey"
-              name="api_key"
-              type="password"
-              autoComplete="off"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              className={INPUT_CLS}
-            />
-          </div>
+          {secretFields.map((field) => (
+            <div key={field.key}>
+              <FieldLabel htmlFor={`cred-add-${field.key}`} required>
+                {labelFor(field)}
+              </FieldLabel>
+              <input
+                id={`cred-add-${field.key}`}
+                name={field.key}
+                type="password"
+                autoComplete="off"
+                value={secrets[field.key] ?? ""}
+                onChange={(e) => setSecrets((s) => ({ ...s, [field.key]: e.target.value }))}
+                className={INPUT_CLS}
+              />
+            </div>
+          ))}
           {supportsBaseUrl && (
             <div>
               <FieldLabel htmlFor="cred-add-baseurl">{t("base_url_optional")}</FieldLabel>
@@ -505,10 +567,12 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, onCreated, o
 interface Props {
   providerId: string;
   supportsBaseUrl: boolean;
+  secretFields?: CredentialSecretField[];
   onChanged?: () => void;
 }
 
-export function CredentialList({ providerId, supportsBaseUrl, onChanged }: Props) {
+export function CredentialList({ providerId, supportsBaseUrl, secretFields, onChanged }: Props) {
+  const fields = secretFields ?? DEFAULT_SECRET_FIELDS;
   const { t } = useTranslation("dashboard");
   const [credentials, setCredentials] = useState<ProviderCredential[]>([]);
   const [loading, setLoading] = useState(true);
@@ -594,6 +658,7 @@ export function CredentialList({ providerId, supportsBaseUrl, onChanged }: Props
             providerId={providerId}
             isVertex={isVertex}
             supportsBaseUrl={supportsBaseUrl}
+            secretFields={fields}
             onChanged={voidPromise(handleChanged)}
           />
         ))}
@@ -605,6 +670,7 @@ export function CredentialList({ providerId, supportsBaseUrl, onChanged }: Props
             providerId={providerId}
             isVertex={isVertex}
             supportsBaseUrl={supportsBaseUrl}
+            secretFields={fields}
             onCreated={() => {
               setShowAdd(false);
               void handleChanged();

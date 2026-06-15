@@ -965,6 +965,9 @@ export default {
   'select_json_file': 'Chọn tệp JSON...',
   'select_credential_file': 'Vui lòng chọn tệp xác thực',
   'enter_api_key_required': 'Vui lòng nhập khóa API',
+  'access_key_label': 'Access Key',
+  'secret_key_label': 'Secret Key',
+  'enter_credentials_required': 'Vui lòng điền tất cả các trường khóa bí mật',
 
   // ProviderModelSelect
   'select_model_placeholder': 'Chọn mô hình...',

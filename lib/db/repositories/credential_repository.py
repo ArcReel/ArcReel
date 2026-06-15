@@ -19,6 +19,8 @@ class CredentialRepository(BaseRepository):
         api_key: str | None = None,
         credentials_path: str | None = None,
         base_url: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
     ) -> ProviderCredential:
         """创建凭证。若为该供应商的第一条，自动设为活跃。"""
         is_first = not await self.has_active_credential(provider)
@@ -28,6 +30,8 @@ class CredentialRepository(BaseRepository):
             api_key=api_key,
             credentials_path=credentials_path,
             base_url=normalize_base_url(base_url),
+            access_key=access_key,
+            secret_key=secret_key,
             is_active=is_first,
         )
         self.session.add(cred)
@@ -84,6 +88,8 @@ class CredentialRepository(BaseRepository):
         api_key: str | None = None,
         credentials_path: str | None = None,
         base_url: str | None | object = _UNSET,
+        access_key: str | None = None,
+        secret_key: str | None = None,
     ) -> None:
         """更新凭证字段。仅更新非 None 参数（base_url 用 _UNSET 表示未传入）。"""
         cred = await self.get_by_id(cred_id)
@@ -97,6 +103,10 @@ class CredentialRepository(BaseRepository):
             cred.credentials_path = credentials_path
         if base_url is not _UNSET:
             cred.base_url = normalize_base_url(base_url)  # type: ignore[arg-type]
+        if access_key is not None:
+            cred.access_key = access_key
+        if secret_key is not None:
+            cred.secret_key = secret_key
 
     async def delete(self, cred_id: int) -> None:
         """删除凭证。若删除的是活跃凭证，自动将最早的另一条设为活跃。"""

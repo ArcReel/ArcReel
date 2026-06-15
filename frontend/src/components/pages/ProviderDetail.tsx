@@ -379,6 +379,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       <CredentialList
         providerId={providerId}
         supportsBaseUrl={detail.supports_base_url}
+        secretFields={detail.secret_fields}
         onChanged={voidPromise(handleCredentialChanged)}
       />
 

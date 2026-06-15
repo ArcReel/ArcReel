@@ -12,6 +12,7 @@ def test_all_providers_registered():
         "vidu",
         "dashscope",
         "minimax",
+        "kling",
     }
 
 

@@ -1000,6 +1000,9 @@ export default {
   'select_json_file': '选择 JSON 文件…',
   'select_credential_file': '请选择凭证文件',
   'enter_api_key_required': '请输入 API Key',
+  'access_key_label': 'Access Key',
+  'secret_key_label': 'Secret Key',
+  'enter_credentials_required': '请填写所有密钥字段',
 
   // ProviderModelSelect
   'select_model_placeholder': '选择模型…',

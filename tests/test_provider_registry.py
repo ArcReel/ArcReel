@@ -50,6 +50,18 @@ def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:
     assert not (ark_ids & agent_plan_ids), "ark vs ark-agent-plan 模型 ID 命名不同，不应重叠"
 
 
+def test_kling_registered_identity_only() -> None:
+    """可灵仅身份注册：两个 secret required/secret key、默认 base_url、无 models。"""
+    p = PROVIDER_REGISTRY["kling"]
+    assert p.required_keys == ["access_key", "secret_key"]
+    assert p.secret_keys == ["access_key", "secret_key"]
+    assert p.default_base_url == "https://api.klingai.com/v1"
+    assert p.models == {}
+    # 无 models → 不暴露任何 media_type / capability，不会被 auto-resolve 选中
+    assert p.media_types == []
+    assert p.capabilities == []
+
+
 def test_ark_agent_plan_backend_registered() -> None:
     """复用现有 ark backend 类支持 ark-agent-plan provider。"""
     import lib.image_backends  # noqa: F401  触发自注册

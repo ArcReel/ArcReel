@@ -52,8 +52,8 @@ class TestProviderMeta:
 
 
 class TestProviderRegistry:
-    # vidu 仅提供图片与视频能力，跳过文本相关断言
-    _TEXT_PROVIDERS = [pid for pid in PROVIDER_REGISTRY if pid != "vidu"]
+    # vidu 仅图片+视频、kling 为仅身份注册（无 models），均跳过文本相关断言
+    _TEXT_PROVIDERS = [pid for pid in PROVIDER_REGISTRY if pid not in ("vidu", "kling")]
 
     def test_all_providers_have_text_models(self):
         for provider_id in self._TEXT_PROVIDERS:

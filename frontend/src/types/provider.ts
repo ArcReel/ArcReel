@@ -31,6 +31,13 @@ export interface ProviderField {
   placeholder?: string;
 }
 
+// 凭证表单需渲染的 secret 输入字段（后端按 required ∩ secret ∩ 凭证键派生，单一真相源）。
+// 单 secret provider → [api_key]；可灵 → [access_key, secret_key]。
+export interface CredentialSecretField {
+  key: string;
+  label: string;
+}
+
 export interface ProviderConfigDetail {
   id: string;
   display_name: string;
@@ -40,6 +47,8 @@ export interface ProviderConfigDetail {
   fields: ProviderField[];
   // 凭证是否支持自定义 base_url（后端按 optional_keys 派生，单一真相源）
   supports_base_url: boolean;
+  // 凭证表单应渲染的 secret 字段（有序）
+  secret_fields: CredentialSecretField[];
 }
 
 export interface ProviderTestResult {
@@ -55,6 +64,9 @@ export interface ProviderCredential {
   api_key_masked: string | null;
   credentials_filename: string | null;
   base_url: string | null;
+  // 逐字段独立脱敏的双 secret（可灵）；其余 provider 为 null/缺省
+  access_key_masked?: string | null;
+  secret_key_masked?: string | null;
   is_active: boolean;
   created_at: string;
 }

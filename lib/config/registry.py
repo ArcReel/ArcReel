@@ -1012,6 +1012,17 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         },
         default_base_url=MINIMAX_BASE_URL,
     ),
+    "kling": ProviderMeta(
+        display_name="可灵 Kling",
+        description="快手可灵 Kling 视频与图像生成平台，JWT（access_key + secret_key）鉴权。",
+        # 首个需要两个 secret 字符串的内置 provider（JWT HS256 鉴权），凭证按 registry key 名
+        # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。
+        required_keys=["access_key", "secret_key"],
+        secret_keys=["access_key", "secret_key"],
+        # 仅身份注册：models / backends / pricing 留给后续片接入。
+        models={},
+        default_base_url="https://api.klingai.com/v1",
+    ),
 }
 
 
