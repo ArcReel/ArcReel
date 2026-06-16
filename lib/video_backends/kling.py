@@ -226,17 +226,23 @@ class KlingVideoBackend:
             caps.add(VideoCapability.GENERATE_AUDIO)
         return caps
 
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
-        # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model。
-        # max_reference_images 同时声明于 registry ModelInfo（编排层裁剪读它）与此处（生成时防御），
-        # 取保守值、待 app.klingai.com 控制台核对。
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
+        # _KLING_VIDEO_CAPS 读，未登记 model（bearer 透传）回落保守默认。max_reference_images 同时声明于
+        # registry ModelInfo（编排层裁剪读它）与此处（生成时防御），取保守值、待 app.klingai.com 控制台核对。
+        # 纯函数（不构造 client / 不需 api_key），供 custom endpoint resolver 按 model_id 读上限复用。
+        caps = _KLING_VIDEO_CAPS.get(model, _DEFAULT_VIDEO_CAPS)
         return VideoCapabilities(
             first_frame=True,
-            last_frame=self._caps.last_frame,
-            reference_images=self._caps.reference_images,
-            max_reference_images=self._caps.max_reference_images,
+            last_frame=caps.last_frame,
+            reference_images=caps.reference_images,
+            max_reference_images=caps.max_reference_images,
         )
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._model)
 
     # ── auth ────────────────────────────────────────────────────────────
 

@@ -407,11 +407,12 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         family="kling",
         display_name_key="endpoint_kling_video_display",
         request_method="POST",
-        # 无首帧走 text2video、有首帧走 image2video（含可选尾帧），brace 表达两条路径
-        request_path_template="/v1/videos/{text2video,image2video}",
+        # 无首帧走 text2video、有首帧走 image2video（含可选尾帧）、有多图主体走 multi-image2video（R2V）
+        request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
         build_backend=_build_kling_video,
-        # 可灵视频走首尾帧、不接受参考图数组 → 显式 0（与 newapi-video 同构）。
-        video_max_reference_images=0,
+        # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
+        # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数（与 minimax-video 同构）。
+        video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
     ),
 }
 

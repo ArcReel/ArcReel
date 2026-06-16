@@ -64,14 +64,19 @@ class TestRegistry:
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
-        """v2/ark/vidu/dashscope/minimax 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
-        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video", "minimax-video"):
+        """v2/ark/vidu/dashscope/minimax/kling 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
+        for key in (
+            "v2-video-generations",
+            "ark-seedance",
+            "vidu-video",
+            "dashscope-async-video",
+            "minimax-video",
+            "kling-video",
+        ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
         assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
         assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images == 0
-        # kling-video 走首尾帧、不接受参考图数组 → 显式 0（与 newapi-video 同构）
-        assert ENDPOINT_REGISTRY["kling-video"].video_max_reference_images == 0
 
     def test_video_caps_declaration_bindings(self):
         """每个 video endpoint 选对了上限来源：None-cap 的绑 caps_fn、显式 int 的不绑。
@@ -80,10 +85,17 @@ class TestRegistry:
         在 import 期保证（违反则本文件根本 import 不进来），故此处只断言「具体哪个 endpoint 选了哪条
         路径」——这是 XOR 校验抓不到的（换机制仍满足 XOR），是真正的回归护栏。"""
         # None-cap 的 video endpoint 必须绑定纯 caps 函数
-        for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video", "minimax-video"):
+        for key in (
+            "v2-video-generations",
+            "ark-seedance",
+            "vidu-video",
+            "dashscope-async-video",
+            "minimax-video",
+            "kling-video",
+        ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
-        for key in ("openai-video", "newapi-video", "kling-video"):
+        for key in ("openai-video", "newapi-video"):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
 
     def test_dashscope_caps_fn_reads_per_model_limit_without_client(self):
@@ -105,6 +117,27 @@ class TestRegistry:
         hailuo = caps_fn("MiniMax-Hailuo-2.3")
         assert hailuo.first_frame is True
         assert hailuo.max_reference_images == 0
+
+    def test_kling_caps_fn_reads_per_model_limit_without_client(self):
+        """kling-video 的 caps_fn 是纯函数：v3-omni / video-o1 多图主体 R2V max_ref=4，turbo 等其余档
+        走首尾帧无参考（max_ref=0），未登记 model（bearer 透传）回落保守默认，resolver 据此解析而无需
+        构造 backend / api_key。"""
+        caps_fn = ENDPOINT_REGISTRY["kling-video"].video_caps_for_model
+        assert caps_fn is not None
+        omni = caps_fn("kling-v3-omni")
+        assert omni.reference_images is True
+        assert omni.max_reference_images == 4
+        o1 = caps_fn("kling-video-o1")
+        assert o1.reference_images is True
+        assert o1.max_reference_images == 4
+        turbo = caps_fn("kling-v2-5-turbo")
+        assert turbo.first_frame is True
+        assert turbo.reference_images is False
+        assert turbo.max_reference_images == 0
+        # 未登记 model（bearer 原样透传）→ 保守默认：首尾帧、无参考
+        unknown = caps_fn("kling-some-future-proxy-model")
+        assert unknown.reference_images is False
+        assert unknown.max_reference_images == 0
 
     def test_negative_int_cap_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
         """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""
