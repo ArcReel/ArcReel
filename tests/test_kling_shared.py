@@ -122,6 +122,14 @@ class TestResponseParsing:
         assert kling_response_error({"code": 5, "message": "boom"}) == "Kling API code=5: boom"
         assert kling_response_error({"code": 0, "message": "ok"}) is None
 
+    def test_code_normalized_before_compare(self):
+        # bearer / 中转 endpoint 可能把 code 序列化成字符串或浮点，归一化为 int 再比较。
+        assert kling_response_error({"code": "0", "message": "ok"}) is None
+        assert kling_response_error({"code": 0.0, "message": "ok"}) is None
+        assert kling_response_error({"code": "5", "message": "boom"}) == "Kling API code=5: boom"
+        # 无法解析的 code 视为错误，暴露原值。
+        assert kling_response_error({"code": "oops", "message": "bad"}) == "Kling API code=oops: bad"
+
     def test_terminal_states(self):
         assert is_kling_task_terminal({"data": {"task_status": "succeed"}}) is True
         assert is_kling_task_terminal({"data": {"task_status": "failed"}}) is True

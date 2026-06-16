@@ -149,6 +149,14 @@ class TestPayloadBuilding:
         _, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert "image" in payload and "image_tail" in payload
 
+    def test_image2video_empty_end_frame_is_omitted(self, tmp_path):
+        # 空串 end_image 等价于"无尾帧"，按 truthy 判定跳过，不应误当路径去编码而崩溃。
+        first = tmp_path / "first.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        subpath, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=""))
+        assert subpath == "image2video"
+        assert "image" in payload and "image_tail" not in payload
+
     def test_unreadable_start_image_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend()._build_payload(_request(tmp_path, start_image=tmp_path / "nope.png"))

@@ -130,9 +130,18 @@ def kling_response_error(payload: dict) -> str | None:
 
     可灵所有响应带顶层 ``code`` / ``message``，0 表成功。提交/查询接口本身失败（鉴权、参数
     非法等）即在此暴露（鉴权失败等也可能另走 4xx，由 submit_post / raise_for_status 兜住）。
+
+    ``code`` 归一化为 int 再比较：bearer / 中转 endpoint 可能把 code 序列化成字符串（``"0"``）
+    或浮点，直接 ``code != 0`` 会把字符串 ``"0"`` 误判为错误；无法解析的 code 一律视为错误暴露原值。
     """
     code = payload.get("code")
-    if code is not None and code != 0:
+    if code is None:
+        return None
+    try:
+        is_error = int(float(code)) != 0
+    except (TypeError, ValueError, OverflowError):
+        is_error = True
+    if is_error:
         return f"Kling API code={code}: {payload.get('message', '')}".strip()
     return None
 
