@@ -168,7 +168,7 @@ class KlingVideoBackend:
             return _TEXT2VIDEO, payload
 
         payload["image"] = self._encode_frame(Path(request.start_image))  # type: ignore[arg-type]
-        if request.end_image:
+        if isinstance(request.end_image, (str, Path)) and str(request.end_image):
             payload["image_tail"] = self._encode_frame(Path(request.end_image))
         return _IMAGE2VIDEO, payload
 
