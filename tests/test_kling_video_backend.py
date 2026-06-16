@@ -594,6 +594,9 @@ class TestAudioGatingResult:
             )
         post.assert_not_called()
         assert result.generate_audio is True
+        # 锁定解析契约：3 段 job_id 的有声末段不得漏进 task_id，子路径/任务号须正确复原
+        assert result.task_id == "task-c"
+        assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
     async def test_resume_legacy_job_id_recomputes_audio(self, tmp_path):
         # 旧 job_id（2 段，未持久化有声标志）回落按请求重算
@@ -608,4 +611,8 @@ class TestAudioGatingResult:
             result = await _jwt_backend("kling-v2-6").resume_video(
                 "text2video:task-c", _request(tmp_path, service_tier="pro", generate_audio=True)
             )
+        post.assert_not_called()
         assert result.generate_audio is True
+        # 2 段旧 job_id 同样须正确复原子路径/任务号（不误把整串当 task_id）
+        assert result.task_id == "task-c"
+        assert get.await_args.args[0].endswith("/videos/text2video/task-c")
