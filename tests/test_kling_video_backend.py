@@ -259,7 +259,25 @@ class TestGenerateHappyPath:
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-1"))
         persist.assert_awaited_once()
         assert persist.await_args is not None
-        assert persist.await_args.args[1] == "task-x"
+        # 持久化的是「子路径:task_id」，resume 据此复原查询端点（text2video 因无首帧）
+        assert persist.await_args.args[1] == "text2video:task-x"
+
+    async def test_persists_image2video_subpath_in_job_id(self, tmp_path):
+        img = tmp_path / "first.png"
+        img.write_bytes(b"\x89PNG\r\n")
+        post = AsyncMock(return_value=_resp(_submit("task-i")))
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+            patch("lib.video_backends.kling.persist_provider_job_id", new=AsyncMock()) as persist,
+        ):
+            await _jwt_backend().generate(_request(tmp_path, task_id="local-task-2", start_image=img))
+        # 有首帧 → image2video 前缀编入 job_id，resume 才能查对端点
+        assert persist.await_args is not None
+        assert persist.await_args.args[1] == "image2video:task-i"
 
 
 class TestResume:
@@ -272,18 +290,18 @@ class TestResume:
             patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.kling.download_video", new=AsyncMock()) as dl,
         ):
-            result = await _jwt_backend().resume_video("task-resume", _request(tmp_path))
+            # 持久化 job_id 带 text2video 前缀 → 复原查询端点 + 还原裸 task_id
+            result = await _jwt_backend().resume_video("text2video:task-resume", _request(tmp_path))
 
         post.assert_not_called()
         assert result.task_id == "task-resume"
         assert result.video_uri == "https://x/r.mp4"
-        # 无首帧 → text2video 查询端点
         assert get.await_args.args[0].endswith("/videos/text2video/task-resume")
         dl.assert_awaited_once()
 
-    async def test_resume_image2video_subpath_from_request(self, tmp_path):
-        img = tmp_path / "f.png"
-        img.write_bytes(b"\x89PNG\r\n")
+    async def test_resume_image2video_subpath_from_encoded_job_id(self, tmp_path):
+        # resume 请求不带 start_image（真实重启路径如此）：子路径必须来自持久化 job_id 前缀，
+        # 否则 image2video 任务会误查 text2video 端点取不到。
         post = AsyncMock()
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
         client = _client(post=post, get=get)
@@ -292,5 +310,21 @@ class TestResume:
             patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
         ):
-            await _jwt_backend().resume_video("task-r2", _request(tmp_path, start_image=img))
+            result = await _jwt_backend().resume_video("image2video:task-r2", _request(tmp_path))
+        post.assert_not_called()
+        assert result.task_id == "task-r2"
         assert get.await_args.args[0].endswith("/videos/image2video/task-r2")
+
+    async def test_resume_bare_job_id_falls_back_to_text2video(self, tmp_path):
+        # 无已知前缀（异常/旧数据）回落 text2video，整串作 task_id。
+        post = AsyncMock()
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend().resume_video("legacy-bare-id", _request(tmp_path))
+        assert result.task_id == "legacy-bare-id"
+        assert get.await_args.args[0].endswith("/videos/text2video/legacy-bare-id")

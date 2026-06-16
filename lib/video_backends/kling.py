@@ -63,10 +63,29 @@ DEFAULT_MODEL = "kling-v2-5-turbo"
 
 _TEXT2VIDEO = "text2video"
 _IMAGE2VIDEO = "image2video"
+_RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO})
 
 _MIN_POLL_TIMEOUT_SECONDS = 900.0
 _POLL_TIMEOUT_PER_SECOND = 60.0
 _KLING_VIDEO_POLL_INTERVAL_SECONDS = 10.0
+
+
+def _encode_job_id(subpath: str, task_id: str) -> str:
+    """把生成类型子路径编进持久化 job_id（``subpath:task_id``）。
+
+    可灵查询端点按生成类型分路径（``GET /v1/videos/{text2video|image2video}/{id}``），
+    且重启 resume 时请求已无 ``start_image`` 可推断子路径——必须把子路径随 task_id 一起
+    持久化，否则 image2video 任务 resume 会误查 text2video 端点取不到任务。
+    """
+    return f"{subpath}:{task_id}"
+
+
+def _decode_job_id(job_id: str) -> tuple[str, str]:
+    """从持久化 job_id 复原 ``(子路径, task_id)``；无已知前缀（异常/旧数据）回落 text2video。"""
+    prefix, sep, rest = job_id.partition(":")
+    if sep and prefix in _RESUMABLE_SUBPATHS:
+        return prefix, rest
+    return _TEXT2VIDEO, job_id
 
 
 class KlingVideoBackend:
@@ -188,19 +207,21 @@ class KlingVideoBackend:
             task_id = await self._create_task(client, subpath, payload)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             if request.task_id is not None:
-                await persist_provider_job_id(request.task_id, task_id, provider=PROVIDER_KLING)
+                # 持久化「子路径:task_id」而非裸 task_id：resume 据此复原查询端点（见 _encode_job_id）。
+                await persist_provider_job_id(
+                    request.task_id, _encode_job_id(subpath, task_id), provider=PROVIDER_KLING
+                )
             return await self._poll_and_build(client, subpath, task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 Kling task：仅轮询 + 取 url + 下载，不重新提交（ADR 0007）。
 
-        子路径由 request 复现（与 submit 同逻辑）——可灵查询端点按生成类型分路径。
+        查询子路径从持久化 job_id 复原（submit 时编入）——可灵查询端点按生成类型分路径，
+        而 resume 请求已无 ``start_image`` 可推断，故不能再从 request 取（见 _encode_job_id）。
         """
-        subpath = (
-            _IMAGE2VIDEO if (isinstance(request.start_image, (str, Path)) and str(request.start_image)) else _TEXT2VIDEO
-        )
+        subpath, task_id = _decode_job_id(job_id)
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            return await self._poll_and_build(client, subpath, job_id, request)
+            return await self._poll_and_build(client, subpath, task_id, request)
 
     # ── HTTP submit / poll / download ───────────────────────────────────
 
