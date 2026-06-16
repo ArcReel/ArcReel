@@ -1032,6 +1032,70 @@ class TestProjectsRouter:
             assert "style_image" not in data
             assert "style_description" not in data
 
+    def test_update_project_persists_narration_overrides(self, tmp_path, monkeypatch):
+        """PATCH 旁白配音项目级覆盖：audio_backend / narration_voice / narration_speed 写入 project.json。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={
+                    "audio_backend": "dashscope/qwen3-tts-flash",
+                    "narration_voice": "Cherry",
+                    "narration_speed": 1.2,
+                },
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert data["audio_backend"] == "dashscope/qwen3-tts-flash"
+            assert data["narration_voice"] == "Cherry"
+            assert data["narration_speed"] == 1.2
+
+    def test_update_project_clears_narration_overrides(self, tmp_path, monkeypatch):
+        """PATCH 空值/null：旁白配音覆盖回落全局默认（从 project.json 移除）。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["audio_backend"] = "dashscope/qwen3-tts-flash"
+        fake_pm.project_data["ready"]["narration_voice"] = "Cherry"
+        fake_pm.project_data["ready"]["narration_speed"] = 1.2
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"audio_backend": None, "narration_voice": "", "narration_speed": None},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "audio_backend" not in data
+            assert "narration_voice" not in data
+            assert "narration_speed" not in data
+
+            # 纯空白音色值同样按清除处理（后端 .strip() 判空），防重构回退“空白即清除”语义
+            fake_pm.project_data["ready"]["narration_voice"] = "Cherry"
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"narration_voice": "   "},
+            )
+            assert resp.status_code == 200
+            assert "narration_voice" not in fake_pm.project_data["ready"]
+
+    def test_update_project_rejects_non_positive_narration_speed(self, tmp_path, monkeypatch):
+        """语速 0/负数应 422，且不写回 project.json。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"narration_speed": 0})
+            assert resp.status_code == 422
+            assert "narration_speed" not in fake_pm.project_data["ready"]
+
+    def test_update_project_rejects_invalid_audio_backend(self, tmp_path, monkeypatch):
+        """audio_backend 非法 provider 应 400（复用 backend 格式校验）。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"audio_backend": "garbage"})
+            assert resp.status_code == 400
+
     def test_list_projects_shares_script_preload_with_status(self, tmp_path, monkeypatch):
         """list_projects 一次性加载 episode scripts，传给 StatusCalculator，去除 cover + status 双重 I/O。"""
         fake_pm = _FakePM(tmp_path)

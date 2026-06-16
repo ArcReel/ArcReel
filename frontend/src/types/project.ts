@@ -145,6 +145,10 @@ export interface ProjectData {
   /** Canonical values: storyboard | grid | reference_video. "single" is legacy-only. */
   generation_mode?: "storyboard" | "grid" | "reference_video" | "single";
   video_generate_audio?: boolean | null;
+  /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
+  audio_backend?: string | null;
+  narration_voice?: string | null;
+  narration_speed?: number | null;
   text_backend_script?: string | null;
   text_backend_overview?: string | null;
   text_backend_style?: string | null;

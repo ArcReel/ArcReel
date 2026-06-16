@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import shutil
 import tempfile
@@ -129,6 +130,10 @@ class UpdateProjectRequest(BaseModel):
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
     video_generate_audio: bool | None = None
+    # 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速；留空 = 跟随全局默认
+    audio_backend: str | None = None
+    narration_voice: str | None = None
+    narration_speed: float | None = None
     text_backend_script: str | None = None
     text_backend_overview: str | None = None
     text_backend_style: str | None = None
@@ -665,6 +670,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     "video_backend",
                     "image_provider_t2i",
                     "image_provider_i2i",
+                    "audio_backend",
                     "text_backend_script",
                     "text_backend_overview",
                     "text_backend_style",
@@ -682,6 +688,22 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                         project.pop("video_generate_audio", None)
                     else:
                         project["video_generate_audio"] = req.video_generate_audio
+                # 旁白音色：照供应商文档填的字符串 id；空串 = 清除回落全局默认
+                if "narration_voice" in req.model_fields_set:
+                    voice = (req.narration_voice or "").strip()
+                    if voice:
+                        project["narration_voice"] = voice
+                    else:
+                        project.pop("narration_voice", None)
+                # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），取值范围由各供应商约束；null = 清除
+                if "narration_speed" in req.model_fields_set:
+                    if req.narration_speed is None:
+                        project.pop("narration_speed", None)
+                    else:
+                        speed = float(req.narration_speed)
+                        if not math.isfinite(speed) or speed <= 0:
+                            raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
+                        project["narration_speed"] = speed
                 if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
                     project["aspect_ratio"] = req.aspect_ratio
                 if "generation_mode" in req.model_fields_set:

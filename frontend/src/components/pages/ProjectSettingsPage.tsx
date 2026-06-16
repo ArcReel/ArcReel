@@ -8,6 +8,7 @@ import { useAppStore } from "@/stores/app-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
+import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
@@ -95,6 +96,7 @@ export function ProjectSettingsPage() {
     video_backends: string[];
     image_backends: string[];
     text_backends: string[];
+    audio_backends: string[];
     provider_names?: Record<string, string>;
   } | null>(null);
   const [globalDefaults, setGlobalDefaults] = useState<{
@@ -104,7 +106,8 @@ export function ProjectSettingsPage() {
     textScript: string;
     textOverview: string;
     textStyle: string;
-  }>({ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" });
+    audio: string;
+  }>({ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "", audio: "" });
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -117,6 +120,10 @@ export function ProjectSettingsPage() {
   const [imageBackendT2I, setImageBackendT2I] = useState<string>("");
   const [imageBackendI2I, setImageBackendI2I] = useState<string>("");
   const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
+  // 旁白配音（TTS）项目级覆盖：空字符串/ null 表示跟随全局默认
+  const [audioBackend, setAudioBackend] = useState<string>("");
+  const [narrationVoice, setNarrationVoice] = useState<string>("");
+  const [narrationSpeed, setNarrationSpeed] = useState<number | null>(null);
   const [textScript, setTextScript] = useState<string>("");
   const [textOverview, setTextOverview] = useState<string>("");
   const [textStyle, setTextStyle] = useState<string>("");
@@ -137,6 +144,7 @@ export function ProjectSettingsPage() {
   const [savingStyle, setSavingStyle] = useState(false);
   const initialRef = useRef({
     videoBackend: "", imageBackendT2I: "", imageBackendI2I: "", audioOverride: null as boolean | null,
+    audioBackend: "", narrationVoice: "", narrationSpeed: null as number | null,
     textScript: "", textOverview: "", textStyle: "",
     aspectRatio: "", generationMode: "storyboard",
     defaultDuration: null as number | null,
@@ -161,6 +169,7 @@ export function ProjectSettingsPage() {
         video_backends: configRes.options?.video_backends ?? [],
         image_backends: configRes.options?.image_backends ?? [],
         text_backends: configRes.options?.text_backends ?? [],
+        audio_backends: configRes.options?.audio_backends ?? [],
         provider_names: configRes.options?.provider_names,
       });
       setGlobalDefaults({
@@ -176,6 +185,7 @@ export function ProjectSettingsPage() {
         textScript: configRes.settings?.text_backend_script ?? "",
         textOverview: configRes.settings?.text_backend_overview ?? "",
         textStyle: configRes.settings?.text_backend_style ?? "",
+        audio: configRes.settings?.default_audio_backend ?? "",
       });
       setProviders(providerList);
       setCustomProviders(customProviderList);
@@ -187,6 +197,10 @@ export function ProjectSettingsPage() {
       const ibi2i = (project.image_provider_i2i as string | undefined) ?? "";
       const rawAudio = project.video_generate_audio;
       const ao = typeof rawAudio === "boolean" ? rawAudio : null;
+      const ab = (project.audio_backend as string | undefined) ?? "";
+      const nv = (project.narration_voice as string | undefined) ?? "";
+      const rawSpeed = project.narration_speed;
+      const ns = typeof rawSpeed === "number" && Number.isFinite(rawSpeed) ? rawSpeed : null;
       const ts = (project.text_backend_script as string | undefined) ?? "";
       const to = (project.text_backend_overview as string | undefined) ?? "";
       const tst = (project.text_backend_style as string | undefined) ?? "";
@@ -202,6 +216,9 @@ export function ProjectSettingsPage() {
       setImageBackendT2I(ibt2i);
       setImageBackendI2I(ibi2i);
       setAudioOverride(ao);
+      setAudioBackend(ab);
+      setNarrationVoice(nv);
+      setNarrationSpeed(ns);
       setTextScript(ts);
       setTextOverview(to);
       setTextStyle(tst);
@@ -237,6 +254,7 @@ export function ProjectSettingsPage() {
       initialStyleRef.current = derivedStyle;
       initialRef.current = {
         videoBackend: vb, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i, audioOverride: ao,
+        audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
         textScript: ts, textOverview: to, textStyle: tst,
         aspectRatio: ar, generationMode: gm, defaultDuration: dd,
         videoResolution: vRes, imageResolution: iRes,
@@ -282,6 +300,9 @@ export function ProjectSettingsPage() {
     imageBackendT2I !== initialRef.current.imageBackendT2I ||
     imageBackendI2I !== initialRef.current.imageBackendI2I ||
     audioOverride !== initialRef.current.audioOverride ||
+    audioBackend !== initialRef.current.audioBackend ||
+    narrationVoice !== initialRef.current.narrationVoice ||
+    narrationSpeed !== initialRef.current.narrationSpeed ||
     textScript !== initialRef.current.textScript ||
     textOverview !== initialRef.current.textOverview ||
     textStyle !== initialRef.current.textStyle ||
@@ -366,6 +387,8 @@ export function ProjectSettingsPage() {
     try {
       // resolution 的 key 用 effective backend（override ‖ global default），
       // 否则"跟随全局默认"路径下用户选的分辨率不会被写入。
+      // 音色与后端 .strip() 对齐：保存时去首尾空白，避免本地基线带空格而磁盘值不带导致 isDirty 误报
+      const trimmedVoice = narrationVoice.trim();
       const effectiveVideo = videoBackend || globalDefaults.video || "";
       const effectiveImageT2I = imageBackendT2I || globalDefaults.imageT2I || "";
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
@@ -381,6 +404,9 @@ export function ProjectSettingsPage() {
         image_provider_t2i: imageBackendT2I || null,
         image_provider_i2i: imageBackendI2I || null,
         video_generate_audio: audioOverride,
+        audio_backend: audioBackend || null,
+        narration_voice: trimmedVoice || null,
+        narration_speed: narrationSpeed,
         text_backend_script: textScript || null,
         text_backend_overview: textOverview || null,
         text_backend_style: textStyle || null,
@@ -391,8 +417,10 @@ export function ProjectSettingsPage() {
         model_settings: newModelSettings,
       });
       setModelSettings(newModelSettings);
+      setNarrationVoice(trimmedVoice);
       initialRef.current = {
         videoBackend, imageBackendT2I, imageBackendI2I, audioOverride,
+        audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
         textScript, textOverview, textStyle,
         aspectRatio, generationMode, defaultDuration,
         videoResolution, imageResolution,
@@ -403,7 +431,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
+  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
 
   return (
     <div
@@ -557,6 +585,8 @@ export function ProjectSettingsPage() {
                     textOverview: globalDefaults.textOverview ?? "",
                     textStyle: globalDefaults.textStyle ?? "",
                   }}
+                  videoGenerateAudio={audioOverride}
+                  onVideoGenerateAudioChange={setAudioOverride}
                   enable={contentMode === "ad" ? { duration: false } : undefined}
                 />
               </SectionCard>
@@ -619,48 +649,73 @@ export function ProjectSettingsPage() {
                 </fieldset>
               </SectionCard>
 
-              {/* Audio override */}
-              <SectionCard kicker="Audio Channel">
-                <div className="mb-2.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
-                  {t("generate_audio_label")}
+              {/* 旁白配音（TTS）：仅 narration 模式消费——TTS 绑定 segment.novel_text，drama/ad 无该字段，
+                  故与两个画布的批量旁白按钮（contentMode === "narration"）同口径门控，避免对无效模式展示配音卡 */}
+              {contentMode === "narration" && (
+              <SectionCard kicker="Audio Channel" title={t("media_narration_title")}>
+                <div className="space-y-4">
+                  <div>
+                    <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+                      {t("default_audio_model")}
+                    </div>
+                    <ProviderModelSelect
+                      value={audioBackend}
+                      options={options.audio_backends}
+                      providerNames={allProviderNames}
+                      onChange={setAudioBackend}
+                      allowDefault
+                      defaultLabel={t("follow_global_default")}
+                      fallbackValue={globalDefaults.audio || undefined}
+                      aria-label={t("default_audio_model")}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="project-narration-voice"
+                      className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+                    >
+                      {t("narration_voice_label")}
+                    </label>
+                    <input
+                      id="project-narration-voice"
+                      type="text"
+                      value={narrationVoice}
+                      onChange={(e) => setNarrationVoice(e.target.value)}
+                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    />
+                    <p className="mt-1 text-[11px] text-text-4">{t("narration_voice_hint")}</p>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="project-narration-speed"
+                      className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+                    >
+                      {t("narration_speed_label")}
+                    </label>
+                    <input
+                      id="project-narration-speed"
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={narrationSpeed ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setNarrationSpeed(null);
+                          return;
+                        }
+                        const next = Number(raw);
+                        // 仅过滤非有限数：NaN/Infinity 会被序列化为 null 误触"清除"语义；
+                        // 正数约束交由保存时后端校验兜底
+                        if (Number.isFinite(next)) setNarrationSpeed(next);
+                      }}
+                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    />
+                    <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
+                  </div>
                 </div>
-                <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
-                  <legend className="sr-only">{t("audio_settings_sr_label")}</legend>
-                  <label className="inline-flex items-center gap-2 text-[12.5px] text-text-2">
-                    <input
-                      type="radio"
-                      name="audio"
-                      value=""
-                      checked={audioOverride === null}
-                      onChange={() => setAudioOverride(null)}
-                      className="accent-[oklch(0.76_0.09_295)]"
-                    />
-                    {t("follow_global_default")}
-                  </label>
-                  <label className="inline-flex items-center gap-2 text-[12.5px] text-text-2">
-                    <input
-                      type="radio"
-                      name="audio"
-                      value="true"
-                      checked={audioOverride === true}
-                      onChange={() => setAudioOverride(true)}
-                      className="accent-[oklch(0.76_0.09_295)]"
-                    />
-                    {t("enabled_label")}
-                  </label>
-                  <label className="inline-flex items-center gap-2 text-[12.5px] text-text-2">
-                    <input
-                      type="radio"
-                      name="audio"
-                      value="false"
-                      checked={audioOverride === false}
-                      onChange={() => setAudioOverride(false)}
-                      className="accent-[oklch(0.76_0.09_295)]"
-                    />
-                    {t("disabled_label")}
-                  </label>
-                </fieldset>
               </SectionCard>
+              )}
             </>
           )}
 
