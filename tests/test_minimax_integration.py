@@ -36,8 +36,10 @@ class TestRegistry:
         assert "api_key" in meta.secret_keys
         assert "base_url" in meta.optional_keys
         assert meta.default_base_url == "https://api.minimaxi.com/v1"
+        assert "MiniMax-M3" in meta.models
+        assert meta.models["MiniMax-M3"].default is True
         assert "MiniMax-M2.7" in meta.models
-        assert meta.models["MiniMax-M2.7"].default is True
+        assert meta.models["MiniMax-M2.7"].default is False
         # image-01：默认图像模型，T2I + I2I，单脸参考
         image = meta.models["image-01"]
         assert image.media_type == "image"
