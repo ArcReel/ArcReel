@@ -959,17 +959,23 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "minimax": ProviderMeta(
         display_name="MiniMax",
-        description="MiniMax（海螺）OpenAI 兼容平台，M2.7 文本擅长中文文学与人设创作，Hailuo 2.3 视频擅长动漫/插画风；缺省国内站，可改 base_url 指向国际站。",
+        description="MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
+            "MiniMax-M3": ModelInfo(
+                display_name="MiniMax M3",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                default=True,
+                pricing=_minimax_text_pricing("MiniMax-M3", 2.1, 8.4),
+            ),
             "MiniMax-M2.7": ModelInfo(
                 display_name="MiniMax M2.7",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
-                default=True,
                 pricing=_minimax_text_pricing("MiniMax-M2.7", 2.1, 8.4),
             ),
             # --- image ---
