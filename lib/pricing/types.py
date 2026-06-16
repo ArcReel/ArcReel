@@ -102,6 +102,27 @@ class PerVideoBucket:
 
 
 @dataclass(frozen=True)
+class PerSecondTiered:
+    """视频按「质量档 × 是否有声」定 ¥/s（再 × 时长），比 ``PerSecondMatrix`` 多一层质量档。
+
+    可灵 Kling 视频按维度组合计费：档位 ∈ ``{std, pro, 4k}``，再叠加是否有声。与 Veo 的
+    ``per_second_matrix``（仅 resolution × audio）不同，质量档（service_tier）是独立维度。
+
+    - ``rates`` 形如 ``{model: {(档位, 是否有声): 每秒价}}``。
+    - 档位派生：``resolution.lower()=="4k"`` → ``"4k"``，否则取 ``service_tier``
+      （``service_tier ∈ {std, pro}``，``"default"`` → ``"std"``）。4k 档忽略音频维度
+      （两个 audio 键同价）。
+    - 金额 = ``rate × duration_seconds``；未命中档回落该 model 的 ``std`` 档并 WARN
+      （档表与请求漂移的可观测信号）。
+    """
+
+    rates: dict[str, dict[tuple[str, bool], float]]
+    default_model: str
+    currency: str = "CNY"
+    kind: Literal["per_second_tiered"] = "per_second_tiered"
+
+
+@dataclass(frozen=True)
 class PerTokenVideo:
     """视频按 token 计费（按 ``(service_tier, 是否生成音频)`` 查每百万 token 价）。
 
@@ -149,6 +170,7 @@ Pricing = (
     | PerImageByResolution
     | PerImageOpenAIToken
     | PerSecondMatrix
+    | PerSecondTiered
     | PerVideoBucket
     | PerTokenVideo
     | PerCharacter

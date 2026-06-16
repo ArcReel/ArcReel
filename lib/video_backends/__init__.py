@@ -75,3 +75,9 @@ from lib.providers import PROVIDER_MINIMAX  # noqa: E402
 from lib.video_backends.minimax import MiniMaxVideoBackend  # noqa: E402
 
 register_backend(PROVIDER_MINIMAX, MiniMaxVideoBackend)
+
+# 可灵 Kling — JWT 直连视频（默认模型 kling-v2-5-turbo）
+from lib.providers import PROVIDER_KLING  # noqa: E402
+from lib.video_backends.kling import KlingVideoBackend  # noqa: E402
+
+register_backend(PROVIDER_KLING, KlingVideoBackend)

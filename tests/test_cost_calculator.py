@@ -106,6 +106,39 @@ class TestAnthropicTextCost:
         assert amount == pytest.approx(0.35)
 
 
+class TestKlingVideoCost:
+    """可灵 per_second_tiered 经统一入口 calculate_cost 的金额对拍（CNY）。"""
+
+    def test_turbo_std_silent(self):
+        amount, currency = cost_calculator.calculate_cost(
+            "kling", "video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False, duration_seconds=5
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(0.6 * 5)
+
+    def test_turbo_pro_with_audio(self):
+        amount, currency = cost_calculator.calculate_cost(
+            "kling", "video", model="kling-v2-5-turbo", service_tier="pro", generate_audio=True, duration_seconds=5
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(1.0 * 5)
+
+    def test_turbo_default_tier_maps_to_std(self):
+        # service_tier 缺省 "default" → std 无声
+        amount, _ = cost_calculator.calculate_cost(
+            "kling", "video", model="kling-v2-5-turbo", generate_audio=False, duration_seconds=10
+        )
+        assert amount == pytest.approx(0.6 * 10)
+
+    def test_unknown_kling_model_falls_back_to_turbo(self):
+        # 未知 model 回落到 kling 默认视频模型（turbo）费率，不串到 Gemini 表
+        amount, currency = cost_calculator.calculate_cost(
+            "kling", "video", model="kling-mystery", service_tier="pro", generate_audio=False, duration_seconds=5
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(0.8 * 5)
+
+
 class TestArkVideoCost:
     def test_online_with_audio(self):
         amount, currency = cost_calculator.calculate_cost(
