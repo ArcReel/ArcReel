@@ -138,11 +138,11 @@ class TestPerModelCapabilities:
         assert vc.reference_images is False and vc.max_reference_images == 0
 
     def test_prefixed_and_cased_model_normalizes_to_registered_caps(self):
-        # 中转 model_id 带厂商前缀 + 非规范大小写：归一化（剥前缀 + lower）后实例 caps 仍精确命中已登记档，
-        # 生成时防御与 resolver 裁剪同源——否则编排层放 4 张参考图、backend 却按默认 0 拒收。
-        b = _bearer_backend("vendor/Kling-V3-Omni")
-        vc = b.video_capabilities
-        assert vc.reference_images is True and vc.max_reference_images == 4
+        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写/空白：归一化后实例 caps 仍精确命中
+        # 已登记档，生成时防御与 resolver 裁剪同源——否则编排层放 4 张参考图、backend 却按默认 0 拒收。
+        for model in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni", "  provider:kling-v3-omni  "):
+            vc = _bearer_backend(model).video_capabilities
+            assert vc.reference_images is True and vc.max_reference_images == 4
 
     def test_future_version_does_not_inherit_caps_by_substring(self):
         # kling-v4 含子串 "kling-v3"？不含——但即便形如 kling-v3-omni-pro 也不得被子串误判继承能力；

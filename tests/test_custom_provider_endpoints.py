@@ -134,10 +134,11 @@ class TestRegistry:
         assert turbo.first_frame is True
         assert turbo.reference_images is False
         assert turbo.max_reference_images == 0
-        # 中转 model_id 带厂商前缀 + 非规范大小写：归一化（剥前缀 + lower）后仍能精确命中已登记档
-        prefixed = caps_fn("vendor/Kling-V3-Omni")
-        assert prefixed.reference_images is True
-        assert prefixed.max_reference_images == 4
+        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写：归一化后仍能精确命中已登记档
+        for prefixed_id in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni"):
+            prefixed = caps_fn(prefixed_id)
+            assert prefixed.reference_images is True
+            assert prefixed.max_reference_images == 4
         # 未登记 model（未来版本 kling-v4 / 归一化后仍不匹配的中转自定义 id）→ 保守默认，不按子串猜能力
         for unknown_id in ("kling-v4", "vendor/some-unknown-model"):
             unknown = caps_fn(unknown_id)

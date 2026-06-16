@@ -143,11 +143,14 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
 
 
 def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
-    """按 model 取能力位：剥厂商前缀（中转常见 ``vendor/kling-v3-omni``）取最后一段 + lower 归一化后做
-    【精确】命中 _KLING_VIDEO_CAPS。未登记 model（含未来版本 kling-v4、归一化后仍不精确匹配的中转自定义
-    id）回落保守默认（首尾帧、无参考/音频）——绝不按子串猜未知 model 的能力上限：未知 model 的限额可能
-    与已知档不同，误报参考图能力会在请求期触发 provider 400 或计费漂移，宁可保守。"""
-    key = model.rsplit("/", 1)[-1].lower()
+    """按 model 取能力位：剥厂商前缀后 + 去首尾空白 + lower 归一化，再做【精确】命中 _KLING_VIDEO_CAPS。
+    中转前缀分隔符仅认仓库既有约定 ``/``（``vendor/kling-v3-omni``）与 ``:``（``provider:kling-v3-omni``）
+    ——把 ``:`` 统一成 ``/`` 后取最后一段。刻意不把 ``_``/``.`` 当分隔符：它们是 model 名合法字符
+    （wan2. / image-01 / kling-v3-omni 都含），当分隔符会切坏真实 model 名。未登记 model（含未来版本
+    kling-v4、归一化后仍不精确匹配的中转自定义 id）回落保守默认（首尾帧、无参考/音频）——绝不按子串猜
+    未知 model 的能力上限：未知 model 的限额可能与已知档不同，误报参考图能力会在请求期触发 provider 400
+    或计费漂移，宁可保守。"""
+    key = model.replace(":", "/").rsplit("/", 1)[-1].strip().lower()
     return _KLING_VIDEO_CAPS.get(key, _DEFAULT_VIDEO_CAPS)
 
 
