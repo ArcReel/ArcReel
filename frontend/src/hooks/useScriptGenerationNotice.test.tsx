@@ -14,6 +14,12 @@ function toolUse(name: string, id: string): ContentBlock {
   return { type: "tool_use", name, id, input: {} };
 }
 
+// 后端 turn_grouper 把 tool_result 合并进发起调用的 tool_use 块的 result/is_error
+// 字段（同一 turn 内配对），完成的调用没有独立 tool_result 块。这是 UI 真实收到的形状。
+function completedToolUse(name: string, id: string): ContentBlock {
+  return { type: "tool_use", name, id, input: {}, result: "✅ done", is_error: false };
+}
+
 function toolResult(toolUseId: string): ContentBlock {
   return { type: "tool_result", tool_use_id: toolUseId, content: "✅ done" };
 }
@@ -108,6 +114,28 @@ describe("useScriptGenerationNotice", () => {
         turns: [
           assistantTurn(toolUse(SCRIPT_TOOL, "tu-done")),
           { type: "user", content: [toolResult("tu-done")] },
+        ],
+      });
+    });
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("does not fire when a running session reloads a completed script call (result merged onto tool_use)", () => {
+    // 会话停在 AskUserQuestion 时后端 status 仍为 "running"。重新进入项目会重载快照，
+    // 其中已完成的剧本工具调用以「tool_use 带 result」形式回放（无独立 tool_result 块）。
+    // 该回放不应再弹「耗时」提示。
+    useAssistantStore.setState({ sessionStatus: "running" });
+    const spy = vi.spyOn(useAppStore.getState(), "pushToast");
+    render(<Harness />);
+
+    act(() => {
+      useAssistantStore.setState({
+        turns: [
+          assistantTurn(
+            completedToolUse(SCRIPT_TOOL, "tu-done"),
+            toolUse("AskUserQuestion", "tu-q"),
+          ),
         ],
       });
     });
