@@ -31,6 +31,7 @@ from lib.kling_shared import (
     is_kling_task_terminal,
     kling_bearer_headers,
     kling_task_failure_reason,
+    kling_task_status,
     resolve_kling_api_key,
     resolve_kling_jwt_credentials,
 )
@@ -268,7 +269,7 @@ class KlingVideoBackend:
             label="Kling",
             on_progress=lambda v, elapsed: logger.info(
                 "Kling 视频生成中... status=%s elapsed=%ds",
-                v.get("data", {}).get("task_status") if isinstance(v.get("data"), dict) else None,
+                kling_task_status(v),
                 int(elapsed),
             ),
         )

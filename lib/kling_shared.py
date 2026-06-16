@@ -33,15 +33,6 @@ KLING_STATUS_SUCCEED = "succeed"
 KLING_STATUS_FAILED = "failed"
 _TERMINAL_STATES = frozenset({KLING_STATUS_SUCCEED, KLING_STATUS_FAILED})
 
-# 图片后缀 → MIME（image2video 首尾帧接受 base64）。
-_IMAGE_MIME_TYPES: dict[str, str] = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
-
 
 class KlingJWTManager:
     """可灵 JWT HS256 token 管理器（按需重签，时钟可注入）。
