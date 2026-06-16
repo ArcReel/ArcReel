@@ -8,6 +8,7 @@ import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { getScriptItemId } from "@/utils/script-shape";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -37,6 +38,8 @@ interface GridImageToVideoCanvasProps {
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   onGenerateGrid?: (
     episode: number,
     scriptFile: string,
@@ -60,6 +63,8 @@ export function GridImageToVideoCanvas({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onGenerateNarration,
+  onGenerateEpisodeNarration,
   onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
@@ -116,7 +121,7 @@ export function GridImageToVideoCanvas({
 
   const tasks = useTasksStore((s) => s.tasks);
   const isGenerating = useCallback(
-    (taskType: "storyboard" | "video", segmentId: string): boolean =>
+    (taskType: "storyboard" | "video" | "tts", segmentId: string): boolean =>
       tasks.some(
         (tk) =>
           tk.task_type === taskType &&
@@ -133,6 +138,26 @@ export function GridImageToVideoCanvas({
   const generatingVideo = useCallback(
     (segId: string) => isGenerating("video", segId),
     [isGenerating],
+  );
+  const generatingNarration = useCallback(
+    (segId: string) => isGenerating("tts", segId),
+    [isGenerating],
+  );
+  // 批量旁白进行中：当前分集还有未完结的 tts 任务时禁用批量按钮，避免重复入队
+  const currentSegmentIds = useMemo(
+    () => new Set(segments.map((s) => getScriptItemId(s, editorContentMode ?? "drama"))),
+    [segments, editorContentMode],
+  );
+  const narrationBatchBusy = useMemo(
+    () =>
+      tasks.some(
+        (tk) =>
+          tk.task_type === "tts" &&
+          tk.project_name === projectName &&
+          currentSegmentIds.has(tk.resource_id) &&
+          (tk.status === "queued" || tk.status === "running"),
+      ),
+    [tasks, projectName, currentSegmentIds],
   );
 
   const invalidateGrids = useAppStore((s) => s.invalidateGrids);
@@ -187,6 +212,9 @@ export function GridImageToVideoCanvas({
   ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
   const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
   const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
+  const handleGenNarration = onGenerateNarration
+    ? (segId: string) => onGenerateNarration(segId, scriptFile)
+    : undefined;
 
   const renderTabButton = (key: GridTab, label: string, disabled = false) => (
     <button
@@ -271,6 +299,18 @@ export function GridImageToVideoCanvas({
               <Sparkles className="h-3 w-3" />
               <span>{t("batch_generate_videos")}</span>
             </button>
+            {contentMode === "narration" && onGenerateEpisodeNarration && (
+              <button
+                type="button"
+                className="sv-navbtn inline-flex items-center gap-1.5"
+                disabled={narrationBatchBusy}
+                onClick={() => onGenerateEpisodeNarration(scriptFile)}
+                title={t("batch_generate_narration")}
+              >
+                <Sparkles className="h-3 w-3" />
+                <span>{t("batch_generate_narration")}</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -305,10 +345,12 @@ export function GridImageToVideoCanvas({
             onUpdatePrompt={handleUpdatePrompt}
             onGenerateStoryboard={handleGenSb}
             onGenerateVideo={handleGenVid}
+            onGenerateNarration={handleGenNarration}
             onRestoreStoryboard={onRestoreStoryboard}
             onRestoreVideo={onRestoreVideo}
             generatingStoryboard={generatingStoryboard}
             generatingVideo={generatingVideo}
+            generatingNarration={generatingNarration}
             durationOptions={durationOptions}
           />
         ) : null}

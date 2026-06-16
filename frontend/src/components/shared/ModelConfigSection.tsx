@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type CSSProperties } from "react";
+import { useEffect, useId, useMemo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { lookupSupportedDurations, lookupResolutions } from "@/utils/provider-models";
@@ -43,6 +43,13 @@ export interface ModelConfigSectionProps {
     textOverview: string;
     textStyle: string;
   };
+  /**
+   * 项目级「视频生成音频」覆盖（null=跟随全局，true/false=显式覆盖）。
+   * 仅在传入 onVideoGenerateAudioChange 时于视频通道内渲染该开关——此项是视频模型的能力开关，
+   * 与旁白配音（TTS）无关，故归在视频通道而非单列。创建项目向导不传则不渲染。
+   */
+  videoGenerateAudio?: boolean | null;
+  onVideoGenerateAudioChange?: (next: boolean | null) => void;
   enable?: {
     video?: boolean;
     image?: boolean;
@@ -78,9 +85,13 @@ export function ModelConfigSection({
   providers,
   customProviders = EMPTY_CUSTOM_PROVIDERS,
   globalDefaults,
+  videoGenerateAudio,
+  onVideoGenerateAudioChange,
   enable,
 }: ModelConfigSectionProps) {
-  const { t } = useTranslation("templates");
+  const { t } = useTranslation(["templates", "dashboard"]);
+  // 派生唯一 radio name，避免同页多个 ModelConfigSection 实例的音频开关被浏览器并入同一互斥组
+  const generateAudioName = useId();
 
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
@@ -195,6 +206,38 @@ export function ModelConfigSection({
                 />
               )}
             </>
+          )}
+
+          {onVideoGenerateAudioChange && (
+            <div className="mt-3">
+              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+                {t("dashboard:generate_audio_label")}
+              </div>
+              <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
+                <legend className="sr-only">{t("dashboard:audio_settings_sr_label")}</legend>
+                {(
+                  [
+                    [null, t("dashboard:follow_global_default")],
+                    [true, t("dashboard:enabled_label")],
+                    [false, t("dashboard:disabled_label")],
+                  ] as const
+                ).map(([val, label]) => (
+                  <label
+                    key={String(val)}
+                    className="inline-flex items-center gap-2 text-[12.5px] text-text-2"
+                  >
+                    <input
+                      type="radio"
+                      name={generateAudioName}
+                      checked={(videoGenerateAudio ?? null) === val}
+                      onChange={() => onVideoGenerateAudioChange(val)}
+                      className="accent-[oklch(0.76_0.09_295)]"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
+            </div>
           )}
         </ChannelCard>
       )}

@@ -703,6 +703,8 @@ export function StudioCanvasRouter() {
                     onUpdatePrompt={handleUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateNarration={voidPromise(handleGenerateNarration)}
+                    onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onGenerateGrid={handleGenerateGrid}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}

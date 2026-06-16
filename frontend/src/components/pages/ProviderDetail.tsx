@@ -213,6 +213,15 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
 // Capability pill
 // ---------------------------------------------------------------------------
 
+// 能力徽标展示顺序：图片→视频→文本→音频，未列出的类型排到末尾。
+// media_types 由后端按注册顺序返回，前端统一排序避免 audio 等新类型插到队首。
+const CAPABILITY_PILL_ORDER = ["image", "video", "text", "audio"];
+
+function capabilityPillRank(kind: string): number {
+  const idx = CAPABILITY_PILL_ORDER.indexOf(kind);
+  return idx === -1 ? CAPABILITY_PILL_ORDER.length : idx;
+}
+
 function CapabilityPill({ kind }: { kind: string }) {
   const { t } = useTranslation("dashboard");
   const label =
@@ -222,7 +231,9 @@ function CapabilityPill({ kind }: { kind: string }) {
         ? t("media_type_image")
         : kind === "text"
           ? t("media_type_text")
-          : kind;
+          : kind === "audio"
+            ? t("media_type_audio")
+            : kind;
   return (
     <span className="rounded-full border border-hairline-soft bg-bg-grad-a/55 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
       {label}
@@ -369,9 +380,11 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       {/* Capabilities */}
       {detail.media_types && detail.media_types.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {detail.media_types.map((mt) => (
-            <CapabilityPill key={mt} kind={mt} />
-          ))}
+          {[...detail.media_types]
+            .sort((a, b) => capabilityPillRank(a) - capabilityPillRank(b))
+            .map((mt) => (
+              <CapabilityPill key={mt} kind={mt} />
+            ))}
         </div>
       )}
 
