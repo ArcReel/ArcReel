@@ -67,6 +67,7 @@ export function useScriptGenerationNotice(): void {
         block.name &&
         SCRIPT_GENERATION_TOOL_NAMES.has(block.name) &&
         block.result === undefined &&
+        block.is_error === undefined &&
         !completedToolUseIds.has(block.id) &&
         !notifiedRef.current.has(block.id)
       ) {

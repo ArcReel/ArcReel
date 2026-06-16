@@ -143,6 +143,28 @@ describe("useScriptGenerationNotice", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("treats a failed-but-completed call (only is_error, no result) as completed", () => {
+    // 注释与 ContentBlock 契约把 result/is_error 都列为完成信号。即便回放一个仅带
+    // is_error 而无 result 的失败完成块，也不应被误判为进行中而弹「耗时」提示。
+    useAssistantStore.setState({ sessionStatus: "running" });
+    const spy = vi.spyOn(useAppStore.getState(), "pushToast");
+    render(<Harness />);
+
+    act(() => {
+      useAssistantStore.setState({
+        draftTurn: assistantTurn({
+          type: "tool_use",
+          name: SCRIPT_TOOL,
+          id: "tu-err",
+          input: {},
+          is_error: true,
+        }),
+      });
+    });
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it("does not fire when the session is not running (idle/interrupted reload)", () => {
     useAssistantStore.setState({ sessionStatus: "interrupted" });
     const spy = vi.spyOn(useAppStore.getState(), "pushToast");
