@@ -764,3 +764,83 @@ class TestSourceMultiFormatUpload:
             body = resp.json()
             entry = next(e for e in body["files"]["source"] if e["name"] == "novel.txt")
             assert entry["raw_filename"] is None
+
+
+def _client_with_pm_raising(monkeypatch, sentinel: str):
+    """构造一个最小 app，其 get_project_manager 调用即抛 RuntimeError。
+
+    RuntimeError 不属于 FileNotFoundError / ValueError / UnicodeDecodeError /
+    HTTPException，会落到各路由的 except Exception 兜底分支，被映射成通用 500。
+    """
+
+    def _raise():
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(files, "get_project_manager", _raise)
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+    app.include_router(files.router, prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestFilesUnexpectedErrorsMapTo500:
+    """未预期异常应映射为通用 500，且不在响应体泄露内部异常细节。"""
+
+    def test_upload_file_unexpected_error_maps_to_500(self, monkeypatch):
+        sentinel = "upload-boom-a1b2"
+        client = _client_with_pm_raising(monkeypatch, sentinel)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character?name=Alice",
+                files={"file": ("alice.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+        assert resp.status_code == 500
+        assert sentinel not in resp.text
+
+    def test_list_project_files_unexpected_error_maps_to_500(self, monkeypatch):
+        sentinel = "list-boom-c3d4"
+        client = _client_with_pm_raising(monkeypatch, sentinel)
+        with client:
+            resp = client.get("/api/v1/projects/demo/files")
+        assert resp.status_code == 500
+        assert sentinel not in resp.text
+
+    def test_get_source_file_unexpected_error_maps_to_500(self, monkeypatch):
+        sentinel = "get-source-boom-e5f6"
+        client = _client_with_pm_raising(monkeypatch, sentinel)
+        with client:
+            resp = client.get("/api/v1/projects/demo/source/chapter.txt")
+        assert resp.status_code == 500
+        assert sentinel not in resp.text
+
+    def test_update_source_file_unexpected_error_maps_to_500(self, monkeypatch):
+        sentinel = "update-source-boom-7890"
+        client = _client_with_pm_raising(monkeypatch, sentinel)
+        with client:
+            resp = client.put(
+                "/api/v1/projects/demo/source/chapter.txt",
+                content="updated",
+                headers={"content-type": "text/plain"},
+            )
+        assert resp.status_code == 500
+        assert sentinel not in resp.text
+
+    def test_delete_source_file_unexpected_error_maps_to_500(self, monkeypatch):
+        sentinel = "delete-source-boom-1a2b"
+        client = _client_with_pm_raising(monkeypatch, sentinel)
+        with client:
+            resp = client.delete("/api/v1/projects/demo/source/chapter.txt")
+        assert resp.status_code == 500
+        assert sentinel not in resp.text
+
+    def test_upload_style_image_unexpected_error_maps_to_500(self, monkeypatch):
+        sentinel = "style-image-boom-3c4d"
+        client = _client_with_pm_raising(monkeypatch, sentinel)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/style-image",
+                files={"file": ("style.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+        assert resp.status_code == 500
+        assert sentinel not in resp.text

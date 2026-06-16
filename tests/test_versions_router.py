@@ -411,4 +411,23 @@ class TestVersionsRouter:
             resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
             assert resp.status_code == 500
             # 内部异常细节不得泄露给客户端，仅落服务端日志
+            assert "boom" not in resp.text
+
+    def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch):
+        fake_pm = _FakePM()
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            versions,
+            "get_version_manager",
+            lambda project_name: (_ for _ in ()).throw(RuntimeError("RESTORE_LEAK_SECRET")),
+        )
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
+            assert resp.status_code == 500
+            # 内部异常细节不得泄露给客户端，仅落服务端日志
+            assert "RESTORE_LEAK_SECRET" not in resp.text
             assert "boom" not in resp.json()["detail"]

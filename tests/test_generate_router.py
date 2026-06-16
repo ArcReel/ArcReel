@@ -421,6 +421,106 @@ class TestGenerateRouter:
             assert missing_prop.status_code == 404
 
 
+class TestUnexpectedErrorMapsTo500:
+    """未预期异常 → 通用 500 且不泄露内部异常细节。
+
+    每个端点 try 块内最早调用 get_project_manager()（storyboard/video/tts 在 _sync 内，
+    character/scene/prop/product 经 _enqueue_asset_generation 的 _sync 内），将其 monkeypatch
+    成抛 RuntimeError。RuntimeError 绕过前置的 FileNotFoundError/HTTPException/ScriptEditError
+    处理器，落到 except Exception，断言 500 且哨兵串不出现在响应体。
+    """
+
+    def _client_with_leak(self, monkeypatch, sentinel: str) -> TestClient:
+        def _boom():
+            raise RuntimeError(sentinel)
+
+        monkeypatch.setattr(generate, "get_project_manager", _boom)
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(generate.router, prefix="/api/v1")
+        return TestClient(app)
+
+    def test_storyboard_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_storyboard")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_storyboard" not in resp.text
+
+    def test_video_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_video")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_video" not in resp.text
+
+    def test_tts_segment_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_tts_segment")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/tts/E1S01",
+                json={"script_file": "episode_1.json"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_tts_segment" not in resp.text
+
+    def test_tts_batch_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_tts_batch")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_tts_batch" not in resp.text
+
+    def test_character_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_character")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={"prompt": "x"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_character" not in resp.text
+
+    def test_scene_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_scene")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/scene/祠堂",
+                json={"prompt": "x"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_scene" not in resp.text
+
+    def test_prop_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_prop")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/prop/玉佩",
+                json={"prompt": "x"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_prop" not in resp.text
+
+    def test_product_unexpected_error_maps_to_500(self, monkeypatch):
+        client = self._client_with_leak(monkeypatch, "LEAK_product")
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/product/保温杯",
+                json={"prompt": "x"},
+            )
+            assert resp.status_code == 500
+            assert "LEAK_product" not in resp.text
+
+
 class TestAdStoryboardRegeneration:
     """ad 剧本（平铺 shots[]）沿用既有分镜生成/重生成端点——人工审核后重生成同一入口。"""
 

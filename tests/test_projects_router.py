@@ -1399,3 +1399,201 @@ class TestModelSettingsApi:
             # 也验证 fake_pm 内部存储
             stored = fake_pm.project_data["ready"]
             assert stored["model_settings"]["gemini-aistudio/veo-3.1"]["resolution"] == "1080p"
+
+
+def _raise(sentinel):
+    """返回一个「一调用即抛 RuntimeError(sentinel)」的可调用，用于替换 try 块内最早被命中的内部函数。
+
+    RuntimeError 不会被路由前面的 except FileNotFoundError / ValueError / HTTPException 捕获，
+    必然落到 except Exception 兜底分支，从而走到「通用 500 + 不回显内部异常」路径。
+    """
+
+    def _factory(*_a, **_k):
+        raise RuntimeError(sentinel)
+
+    return _factory
+
+
+class TestUnexpectedErrorsDoNotLeak:
+    """未预期异常统一映射为通用 500，且响应体不得回显内部异常文本（不泄露）。
+
+    每个端点用独一无二的哨兵串替换 try 块内最早被调用的内部函数，再断言：
+    响应 500 且哨兵串不出现在响应体里。
+    """
+
+    def _body(self, resp):
+        # detail 在普通端点是 json["detail"]，import 端点用 JSONResponse 同样有 detail；
+        # 这里直接断言整段原始文本，覆盖 detail / errors / warnings 任意字段都不泄露。
+        return resp.text
+
+    def test_create_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_create_project"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        # _sync 里最早命中 get_project_manager()，RuntimeError 绕过 ValueError/HTTPException 分支
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={"name": "demo", "title": "T", "content_mode": "narration"},
+            )
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_get_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_get_project"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.get("/api/v1/projects/ready")
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_update_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_update_project"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"title": "X"})
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_delete_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_delete_project"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.delete("/api/v1/projects/remove-me")
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_get_script_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_get_script"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.get("/api/v1/projects/ready/scripts/episode_1.json")
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_update_scene_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_update_scene"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={"script_file": "scripts/episode_1.json", "updates": {"note": "x"}},
+            )
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_update_shot_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_update_shot"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready/script-shots/shot-1",
+                json={"script_file": "scripts/episode_1.json", "updates": {"note": "x"}},
+            )
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_reorder_shots_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_reorder_shots"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.post(
+                "/api/v1/projects/ready/script-shots/reorder",
+                json={"script_file": "scripts/episode_1.json", "shot_ids": ["a", "b"]},
+            )
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_update_segment_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_update_segment"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "scripts/narration.json", "duration_seconds": 5},
+            )
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_update_episode_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_update_episode"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        # title 非空校验在 try 前；_sync 里最早命中 get_project_manager()
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "新标题"})
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_set_project_source_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_set_source"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            # content 走 multipart form；get_project_manager() 在 try 内最早被调用
+            resp = client.post(
+                "/api/v1/projects/ready/source",
+                data={"content": "正文", "generate_overview": "false"},
+            )
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_generate_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_generate_overview"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.post("/api/v1/projects/ready/generate-overview")
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_update_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_update_overview"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.patch("/api/v1/projects/ready/overview", json={"synopsis": "新简介"})
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_create_export_token_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_export_token"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        # scope 合法（默认 full）；_sync 里最早命中 get_project_manager()
+        monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
+        with client:
+            resp = client.post("/api/v1/projects/ready/export/token")
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_export_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_export_archive"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        # download_token 校验先放行，再让归档服务抛 RuntimeError 落到兜底
+        monkeypatch.setattr(projects, "verify_download_token", lambda token, name: {"sub": "u"})
+        monkeypatch.setattr(projects, "get_archive_service", _raise(sentinel))
+        with client:
+            resp = client.get("/api/v1/projects/ready/export?download_token=tok&scope=full")
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
+
+    def test_import_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_import_archive"
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        # 上传副本写盘成功后，_sync 调归档服务抛 RuntimeError，落到 JSONResponse(500) 兜底
+        monkeypatch.setattr(projects, "get_archive_service", _raise(sentinel))
+        with client:
+            resp = client.post(
+                "/api/v1/projects/import",
+                files={"file": ("demo.zip", b"PK\x03\x04not-a-real-zip", "application/zip")},
+            )
+            assert resp.status_code == 500
+            assert sentinel not in self._body(resp)
