@@ -163,13 +163,14 @@ class KlingVideoBackend:
             "aspect_ratio": request.aspect_ratio,
         }
 
-        has_start = isinstance(request.start_image, (str, Path)) and str(request.start_image)
-        if not has_start:
+        start_image = request.start_image
+        if not (isinstance(start_image, (str, Path)) and str(start_image)):
             return _TEXT2VIDEO, payload
 
-        payload["image"] = self._encode_frame(Path(request.start_image))  # type: ignore[arg-type]
-        if isinstance(request.end_image, (str, Path)) and str(request.end_image):
-            payload["image_tail"] = self._encode_frame(Path(request.end_image))
+        payload["image"] = self._encode_frame(Path(start_image))
+        end_image = request.end_image
+        if isinstance(end_image, (str, Path)) and str(end_image):
+            payload["image_tail"] = self._encode_frame(Path(end_image))
         return _IMAGE2VIDEO, payload
 
     def _encode_frame(self, path: Path) -> str:

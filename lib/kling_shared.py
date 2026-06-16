@@ -125,6 +125,11 @@ def _as_dict(value: object) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _as_str(value: object) -> str:
+    """把任意值归一化为 str：非 str（含显式 None）一律回空串，避免 null 被格式化成字面量 'None'。"""
+    return value if isinstance(value, str) else ""
+
+
 def kling_response_error(payload: dict) -> str | None:
     """``code != 0`` → 错误描述；0 或缺失 → None。
 
@@ -142,7 +147,7 @@ def kling_response_error(payload: dict) -> str | None:
     except (TypeError, ValueError, OverflowError):
         is_error = True
     if is_error:
-        return f"Kling API code={code}: {payload.get('message', '')}".strip()
+        return f"Kling API code={code}: {_as_str(payload.get('message'))}".strip()
     return None
 
 
@@ -176,7 +181,7 @@ def kling_task_failure_reason(payload: dict) -> str | None:
         return err
     if kling_task_status(payload) == KLING_STATUS_FAILED:
         data = _as_dict(payload.get("data"))
-        return (f"Kling 视频任务失败 task_id={data.get('task_id')}: {data.get('task_status_msg', '')}").strip()
+        return (f"Kling 视频任务失败 task_id={data.get('task_id')}: {_as_str(data.get('task_status_msg'))}").strip()
     return None
 
 

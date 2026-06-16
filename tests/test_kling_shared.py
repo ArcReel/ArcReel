@@ -148,6 +148,12 @@ class TestResponseParsing:
     def test_failure_reason_top_level_code_error(self):
         assert kling_task_failure_reason({"code": 1200, "message": "bad task"}) == "Kling API code=1200: bad task"
 
+    def test_null_message_not_stringified(self):
+        # message / task_status_msg 显式为 null 时归一化为空串，不把字面量 'None' 拼进错误描述。
+        assert kling_response_error({"code": 5, "message": None}) == "Kling API code=5:"
+        reason = kling_task_failure_reason({"code": 0, "data": {"task_id": "t-2", "task_status": "failed"}})
+        assert reason is not None and "None" not in reason
+
     def test_extract_video_url(self):
         payload = {
             "code": 0,
