@@ -536,3 +536,42 @@ class TestPerSecondTiered:
             PricingParams(call_type="video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False),
         )
         assert amount == pytest.approx(0.6 * 8)
+
+
+class TestKlingRegistryPricingReachability:
+    """各可灵视频模型经 registry 真实 pricing 触达 per_second_tiered 档位。
+
+    验证 4K 档（¥3/s，仅 v3/v3-omni 可达）与 (pro,有声) 档（¥1/s，仅 v2-6）实际命中——
+    全部 video 模型共享同一档位矩阵（_kling_video_pricing 复用 _KLING_VIDEO_TIERED_RATES）。
+    """
+
+    @staticmethod
+    def _amount(model: str, **params):
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        pricing = PROVIDER_REGISTRY["kling"].models[model].pricing
+        assert pricing is not None
+        return calculate_pricing(pricing, PricingParams(call_type="video", model=model, **params))
+
+    def test_v3_omni_4k_tier_reached(self):
+        amount, currency = self._amount(
+            "kling-v3-omni", resolution="4k", duration_seconds=5, generate_audio=False, service_tier="std"
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(3.0 * 5)
+
+    def test_v3_4k_tier_reached(self):
+        amount, _ = self._amount("kling-v3", resolution="4k", duration_seconds=5, generate_audio=True)
+        assert amount == pytest.approx(3.0 * 5)  # 4k 档忽略 audio
+
+    def test_v2_6_pro_audio_tier_reached(self):
+        amount, _ = self._amount("kling-v2-6", service_tier="pro", generate_audio=True, duration_seconds=5)
+        assert amount == pytest.approx(1.0 * 5)
+
+    def test_v2_6_pro_silent_tier(self):
+        amount, _ = self._amount("kling-v2-6", service_tier="pro", generate_audio=False, duration_seconds=5)
+        assert amount == pytest.approx(0.8 * 5)
+
+    def test_video_o1_std_silent_baseline(self):
+        amount, _ = self._amount("kling-video-o1", service_tier="std", generate_audio=False, duration_seconds=5)
+        assert amount == pytest.approx(0.6 * 5)

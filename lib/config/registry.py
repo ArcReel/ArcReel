@@ -1057,8 +1057,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。
         required_keys=["access_key", "secret_key"],
         secret_keys=["access_key", "secret_key"],
-        # JWT 直连视频首发：默认视频模型 kling-v2-5-turbo（性价比走量）。其余视频模型
-        # （v3/v3-omni/v2-6/o1）与图像模型留后续片接入。
+        # JWT 直连视频：默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
+        # v2-6（pro 人声）、video-o1（多图主体 R2V）。图像模型留后续片接入。
         models={
             "kling-v2-5-turbo": ModelInfo(
                 display_name="可灵 2.5 Turbo",
@@ -1087,6 +1087,45 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["1K", "2K", "4K"],
                 api_model_name="kling-v3-omni",
                 pricing=_kling_image_by_resolution_pricing("kling-v3-omni-image", {"1K": 0.2, "2K": 0.2, "4K": 0.4}),
+            ),
+            # --- video ---
+            "kling-v3": ModelInfo(
+                display_name="可灵 v3",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                supported_durations=list(range(3, 16)),
+                resolutions=["720p", "1080p", "4k"],
+                pricing=_kling_video_pricing("kling-v3"),
+            ),
+            "kling-v3-omni": ModelInfo(
+                display_name="可灵 v3 Omni",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                supported_durations=list(range(3, 16)),
+                resolutions=["720p", "1080p", "4k"],
+                # 多图主体（R2V）参考上限保守值；编排层裁剪读此处，与 backend caps 同值，
+                # 待 app.klingai.com 控制台核对，不硬编当既成事实。
+                max_reference_images=4,
+                pricing=_kling_video_pricing("kling-v3-omni"),
+            ),
+            "kling-v2-6": ModelInfo(
+                display_name="可灵 v2.6",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio"],
+                supported_durations=[5, 10],
+                resolutions=["720p", "1080p"],
+                pricing=_kling_video_pricing("kling-v2-6"),
+            ),
+            "kling-video-o1": ModelInfo(
+                display_name="可灵 Video O1",
+                media_type="video",
+                capabilities=["image_to_video"],
+                supported_durations=[5, 10],
+                resolutions=["720p", "1080p"],
+                # 多图主体（R2V）参考上限保守值；编排层裁剪读此处，与 backend caps 同值，
+                # 待 app.klingai.com 控制台核对，不硬编当既成事实。
+                max_reference_images=4,
+                pricing=_kling_video_pricing("kling-video-o1"),
             ),
         },
         default_base_url="https://api.klingai.com/v1",

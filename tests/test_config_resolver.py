@@ -599,6 +599,42 @@ class TestVideoCapabilities:
             await engine.dispose()
         assert caps["max_reference_images"] == 9
 
+    async def test_max_reference_images_reads_model_info_for_kling_v3_omni(self):
+        """kling-v3-omni（多图主体 R2V）的 max_reference_images 来自 registry ModelInfo（=4，保守值）；
+
+        编排层据此裁剪参考图数量——内置 provider 经此值而非 backend caps 拿到上限。
+        """
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager"):
+                caps = await resolver.video_capabilities_for_project({"video_backend": "kling/kling-v3-omni"})
+        finally:
+            await engine.dispose()
+        assert caps["max_reference_images"] == 4
+
+    async def test_max_reference_images_reads_model_info_for_kling_video_o1(self):
+        """kling-video-o1（多图主体 R2V）的 max_reference_images 来自 registry ModelInfo（=4，保守值）。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager"):
+                caps = await resolver.video_capabilities_for_project({"video_backend": "kling/kling-video-o1"})
+        finally:
+            await engine.dispose()
+        assert caps["max_reference_images"] == 4
+
+    async def test_kling_v3_non_reference_model_has_zero_max_refs(self):
+        """kling-v3（声明 4K + 首尾帧但非多图主体）max_reference_images=0，不误报参考能力。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager"):
+                caps = await resolver.video_capabilities_for_project({"video_backend": "kling/kling-v3"})
+        finally:
+            await engine.dispose()
+        assert caps["max_reference_images"] == 0
+
     async def test_custom_provider_reads_db_supported_durations(self):
         """custom-<id>/<model> 走 DB 分支，返回 source='custom'。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
