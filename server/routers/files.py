@@ -345,9 +345,9 @@ async def upload_file(
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 async def _handle_source_upload(
@@ -497,9 +497,9 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/projects/{project_name}/source/{filename}")
@@ -531,9 +531,9 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser, 
         raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.put("/projects/{project_name}/source/{filename}")
@@ -568,9 +568,9 @@ async def update_source_file(
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.delete("/projects/{project_name}/source/{filename}")
@@ -607,9 +607,9 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 草稿文件管理 ====================
@@ -915,6 +915,6 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))

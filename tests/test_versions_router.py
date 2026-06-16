@@ -410,4 +410,5 @@ class TestVersionsRouter:
         with TestClient(app) as client:
             resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
             assert resp.status_code == 500
-            assert "boom" in resp.json()["detail"]
+            # 内部异常细节不得泄露给客户端，仅落服务端日志
+            assert "boom" not in resp.json()["detail"]

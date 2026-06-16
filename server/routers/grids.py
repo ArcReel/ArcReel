@@ -220,16 +220,16 @@ async def generate_grid(
     except ScriptEditError as e:
         # 脏脚本(分镜数组键损坏)→ 4xx 客户端错误而非 5xx,走 i18n 不直接暴露 str(e)
         raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
-    except Exception as e:
+    except Exception:
         logger.exception("宫格生成请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 宫格图列表 ====================
 
 
 @router.get("/grids")
-async def list_grids(project_name: str, _user: CurrentUser):
+async def list_grids(project_name: str, _user: CurrentUser, _t: Translator):
     """列出项目下所有宫格图记录。"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
@@ -237,16 +237,16 @@ async def list_grids(project_name: str, _user: CurrentUser):
         return [g.to_dict() for g in gm.list_all()]
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("列出宫格图失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 宫格图详情 ====================
 
 
 @router.get("/grids/{grid_id}")
-async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
+async def get_grid(project_name: str, grid_id: str, _user: CurrentUser, _t: Translator):
     """获取单个宫格图记录。"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
@@ -259,9 +259,9 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
         raise
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("获取宫格图失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 重新生成宫格图 ====================
@@ -320,6 +320,6 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser, _
         raise
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("重新生成宫格图失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))

@@ -138,9 +138,9 @@ async def generate_storyboard(
     except ScriptEditError as e:
         # 脏脚本(分镜数组键损坏)→ 4xx 客户端错误而非 5xx,detail 走 i18n 不直接暴露 str(e)
         raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 视频生成 ====================
@@ -237,9 +237,9 @@ async def generate_video(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 旁白配音（TTS）生成 ====================
@@ -498,9 +498,9 @@ async def generate_character(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.post("/projects/{project_name}/generate/scene/{scene_name}")
@@ -525,9 +525,9 @@ async def generate_scene(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.post("/projects/{project_name}/generate/prop/{prop_name}")
@@ -552,9 +552,9 @@ async def generate_prop(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.post("/projects/{project_name}/generate/product/{product_name}")
@@ -579,6 +579,6 @@ async def generate_product(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))

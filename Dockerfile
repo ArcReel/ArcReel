@@ -33,6 +33,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     && rm -rf /var/lib/apt/lists/*
 
+# 升级基础镜像预装的 pip：依赖全部由 uv 安装、运行时不调用 pip，
+# 但 python:3.12-slim 自带的旧 pip 会被镜像扫描器报 CVE，升级以清除这些告警
+RUN python -m pip install --no-cache-dir --upgrade pip
+
 # 安装 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 

@@ -212,11 +212,11 @@ async def import_project_archive(
                 **exc.extra,
             },
         )
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
         return JSONResponse(
             status_code=500,
-            content={"detail": str(e), "errors": [], "warnings": []},
+            content={"detail": _t("internal_server_error"), "errors": [], "warnings": []},
         )
     finally:
         await file.close()
@@ -251,9 +251,9 @@ async def create_export_token(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/projects/{name}/export")
@@ -293,9 +293,9 @@ async def export_project_archive(
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # --- 剪映草稿导出 ---
@@ -550,9 +550,9 @@ async def create_project(
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/projects/{name}/video-capabilities")
@@ -631,9 +631,9 @@ async def get_project(
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.patch("/projects/{name}")
@@ -806,9 +806,9 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.delete("/projects/{name}")
@@ -826,9 +826,9 @@ async def delete_project(name: str, _user: CurrentUser, _t: Translator):
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/projects/{name}/scripts/{script_file}")
@@ -841,9 +841,9 @@ async def get_script(name: str, script_file: str, _user: CurrentUser, _t: Transl
         raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 class UpdateSceneRequest(BaseModel):
@@ -904,9 +904,9 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 class UpdateShotRequest(BaseModel):
@@ -999,9 +999,9 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _user: Cu
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 class ReorderShotsRequest(BaseModel):
@@ -1047,9 +1047,9 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _user: CurrentUser,
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 class UpdateSegmentRequest(BaseModel):
@@ -1129,9 +1129,9 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.patch("/projects/{name}/episodes/{episode}")
@@ -1185,9 +1185,9 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _us
         raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 源文件管理 ====================
@@ -1275,9 +1275,9 @@ async def set_project_source(
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
     finally:
         if file:
             await file.close()
@@ -1299,9 +1299,9 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.patch("/projects/{name}/overview")
@@ -1336,6 +1336,6 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentU
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))

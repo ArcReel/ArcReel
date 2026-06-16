@@ -196,6 +196,7 @@ async def get_versions(
     resource_type: str,
     resource_id: str,
     _user: CurrentUser,
+    _t: Translator,
 ):
     """
     获取资源的所有版本列表
@@ -218,9 +219,9 @@ async def get_versions(
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 # ==================== 版本还原 ====================
@@ -294,6 +295,6 @@ async def restore_version(
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
