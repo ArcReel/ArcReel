@@ -1070,6 +1070,15 @@ class TestProjectsRouter:
             assert "narration_voice" not in data
             assert "narration_speed" not in data
 
+            # 纯空白音色值同样按清除处理（后端 .strip() 判空），防重构回退“空白即清除”语义
+            fake_pm.project_data["ready"]["narration_voice"] = "Cherry"
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"narration_voice": "   "},
+            )
+            assert resp.status_code == 200
+            assert "narration_voice" not in fake_pm.project_data["ready"]
+
     def test_update_project_rejects_non_positive_narration_speed(self, tmp_path, monkeypatch):
         """语速 0/负数应 422，且不写回 project.json。"""
         fake_pm = _FakePM(tmp_path)
