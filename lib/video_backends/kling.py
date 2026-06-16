@@ -141,6 +141,16 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     ),
 }
 
+
+def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
+    """按 model 取能力位：剥厂商前缀（中转常见 ``vendor/kling-v3-omni``）取最后一段 + lower 归一化后做
+    【精确】命中 _KLING_VIDEO_CAPS。未登记 model（含未来版本 kling-v4、归一化后仍不精确匹配的中转自定义
+    id）回落保守默认（首尾帧、无参考/音频）——绝不按子串猜未知 model 的能力上限：未知 model 的限额可能
+    与已知档不同，误报参考图能力会在请求期触发 provider 400 或计费漂移，宁可保守。"""
+    key = model.rsplit("/", 1)[-1].lower()
+    return _KLING_VIDEO_CAPS.get(key, _DEFAULT_VIDEO_CAPS)
+
+
 _MIN_POLL_TIMEOUT_SECONDS = 900.0
 _POLL_TIMEOUT_PER_SECOND = 60.0
 _KLING_VIDEO_POLL_INTERVAL_SECONDS = 10.0
@@ -204,8 +214,8 @@ class KlingVideoBackend:
         else:
             raise ValueError(f"未知 Kling auth_mode: {auth_mode}")
 
-        # 按 model 取能力位；未登记 model（bearer 透传）回落保守默认。
-        self._caps = _KLING_VIDEO_CAPS.get(self._model, _DEFAULT_VIDEO_CAPS)
+        # 按 model 取能力位（归一化前缀/大小写后精确命中）；未登记 model（bearer 透传）回落保守默认。
+        self._caps = _lookup_video_caps(self._model)
 
     @property
     def name(self) -> str:
@@ -229,10 +239,11 @@ class KlingVideoBackend:
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
-        # _KLING_VIDEO_CAPS 读，未登记 model（bearer 透传）回落保守默认。max_reference_images 同时声明于
-        # registry ModelInfo（编排层裁剪读它）与此处（生成时防御），取保守值、待 app.klingai.com 控制台核对。
-        # 纯函数（不构造 client / 不需 api_key），供 custom endpoint resolver 按 model_id 读上限复用。
-        caps = _KLING_VIDEO_CAPS.get(model, _DEFAULT_VIDEO_CAPS)
+        # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，未登记回落保守默认）。
+        # max_reference_images 同时声明于 registry ModelInfo（编排层裁剪读它）与此处（生成时防御），取保守
+        # 值、待 app.klingai.com 控制台核对。纯函数（不构造 client / 不需 api_key），供 custom endpoint
+        # resolver 按 model_id 读上限复用。
+        caps = _lookup_video_caps(model)
         return VideoCapabilities(
             first_frame=True,
             last_frame=caps.last_frame,
