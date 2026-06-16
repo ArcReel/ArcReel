@@ -146,22 +146,33 @@ _POLL_TIMEOUT_PER_SECOND = 60.0
 _KLING_VIDEO_POLL_INTERVAL_SECONDS = 10.0
 
 
-def _encode_job_id(subpath: str, task_id: str) -> str:
-    """把生成类型子路径编进持久化 job_id（``subpath:task_id``）。
+def _encode_job_id(subpath: str, task_id: str, *, generate_audio: bool) -> str:
+    """把生成类型子路径 + 有声标志编进持久化 job_id（``subpath:task_id:audio``）。
 
     可灵查询端点按生成类型分路径（``GET /v1/videos/{text2video|image2video}/{id}``），
     且重启 resume 时请求已无 ``start_image`` 可推断子路径——必须把子路径随 task_id 一起
     持久化，否则 image2video 任务 resume 会误查 text2video 端点取不到任务。
+
+    有声标志（0/1）同理随 task_id 持久化：resume 直接复用 submit 时算定的有声决策，
+    不按 resume 时（config 默认/请求可能已漂移）重算，避免有声/无声计费漂移。
     """
-    return f"{subpath}:{task_id}"
+    return f"{subpath}:{task_id}:{1 if generate_audio else 0}"
 
 
-def _decode_job_id(job_id: str) -> tuple[str, str]:
-    """从持久化 job_id 复原 ``(子路径, task_id)``；无已知前缀（异常/旧数据）回落 text2video。"""
+def _decode_job_id(job_id: str) -> tuple[str, str, bool | None]:
+    """从持久化 job_id 复原 ``(子路径, task_id, 有声标志)``。
+
+    新格式 ``subpath:task_id:audio``（3 段，audio 为 0/1）；旧格式 ``subpath:task_id``
+    （2 段，有声标志未持久化，返回 None 由 caller 重算）；无已知前缀（异常/更旧数据）
+    回落 text2video、整串作 task_id。
+    """
+    parts = job_id.split(":")
+    if len(parts) == 3 and parts[0] in _RESUMABLE_SUBPATHS and parts[2] in ("0", "1"):
+        return parts[0], parts[1], parts[2] == "1"
     prefix, sep, rest = job_id.partition(":")
     if sep and prefix in _RESUMABLE_SUBPATHS:
-        return prefix, rest
-    return _TEXT2VIDEO, job_id
+        return prefix, rest, None
+    return _TEXT2VIDEO, job_id, None
 
 
 class KlingVideoBackend:
@@ -277,12 +288,26 @@ class KlingVideoBackend:
 
         reference_images = self._valid_frames(request.reference_images)
         if reference_images:
+            # 生成时防御（fail-loud）：未声明多图主体能力的 model 不得升级到 R2V 子路径，
+            # 超上限的参考图数同样拦截——否则会把必然报错的请求发出去且照常计费。
+            if not self._caps.reference_images:
+                raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
+            if len(reference_images) > self._caps.max_reference_images:
+                raise VideoCapabilityError(
+                    "video_reference_images_exceeded",
+                    model=self._model,
+                    count=len(reference_images),
+                    limit=self._caps.max_reference_images,
+                )
             # 多图主体：image_list 为 [{"image": <base64>}]（可灵原生 schema），无单首帧概念。
             payload["image_list"] = [{"image": self._encode_frame(p)} for p in reference_images]
             return _MULTI_IMAGE2VIDEO, payload
 
         start_image = request.start_image
         if not (isinstance(start_image, (str, Path)) and str(start_image)):
+            # 无首帧/无参考 = 文生视频意图；不支持 t2v 的 model（如 kling-video-o1）即拒绝。
+            if not self._caps.text_to_video:
+                raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
             subpath = _TEXT2VIDEO
         else:
             payload["image"] = self._encode_frame(Path(start_image))
@@ -337,9 +362,12 @@ class KlingVideoBackend:
             task_id = await self._create_task(client, subpath, payload)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             if request.task_id is not None:
-                # 持久化「子路径:task_id」而非裸 task_id：resume 据此复原查询端点（见 _encode_job_id）。
+                # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
+                # 与 submit 时的有声决策（见 _encode_job_id）。
                 await persist_provider_job_id(
-                    request.task_id, _encode_job_id(subpath, task_id), provider=PROVIDER_KLING
+                    request.task_id,
+                    _encode_job_id(subpath, task_id, generate_audio=generate_audio),
+                    provider=PROVIDER_KLING,
                 )
             return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
 
@@ -348,9 +376,12 @@ class KlingVideoBackend:
 
         查询子路径从持久化 job_id 复原（submit 时编入）——可灵查询端点按生成类型分路径，
         而 resume 请求已无 ``start_image`` 可推断，故不能再从 request 取（见 _encode_job_id）。
+
+        有声标志同样优先取持久化值（submit 时算定）：直连有声/无声计费，避免按 resume 时
+        可能已漂移的 config 默认/请求重算。旧 job_id 未持久化时（None）回落重算。
         """
-        subpath, task_id = _decode_job_id(job_id)
-        generate_audio = self._effective_audio(request)
+        subpath, task_id, persisted_audio = _decode_job_id(job_id)
+        generate_audio = persisted_audio if persisted_audio is not None else self._effective_audio(request)
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
 

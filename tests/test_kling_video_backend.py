@@ -234,6 +234,47 @@ class TestMultiImageSubpath:
         assert exc.value.code == "video_start_image_unreadable"
 
 
+class TestCapabilityValidation:
+    """生成时防御：能力不匹配的请求 fail-loud，不发出必然报错且照常计费的调用。"""
+
+    @staticmethod
+    def _refs(tmp_path: Path, n: int) -> list[Path]:
+        paths: list[Path] = []
+        for i in range(n):
+            p = tmp_path / f"ref{i}.png"
+            p.write_bytes(b"\x89PNG\r\n" + bytes([i]))
+            paths.append(p)
+        return paths
+
+    def test_reference_images_on_unsupported_model_raises(self, tmp_path):
+        # kling-v3 未声明多图主体能力：带参考图即拒绝，不误升级到 multi-image2video 子路径
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3")._build_payload(_request(tmp_path, reference_images=self._refs(tmp_path, 1)))
+        assert exc.value.code == "video_reference_images_unsupported"
+
+    def test_reference_images_over_limit_raises(self, tmp_path):
+        # v3-omni 上限 4：传 5 张即拒绝
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=self._refs(tmp_path, 5)))
+        assert exc.value.code == "video_reference_images_exceeded"
+        assert exc.value.params["limit"] == 4
+        assert exc.value.params["count"] == 5
+
+    def test_text2video_on_model_without_t2v_raises(self, tmp_path):
+        # kling-video-o1 不支持文生视频：无首帧/无参考即拒绝，不回落 text2video 子路径
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-video-o1")._build_payload(_request(tmp_path))
+        assert exc.value.code == "video_capability_missing_t2v"
+
+    def test_reference_at_limit_allowed(self, tmp_path):
+        # 恰好达上限（4 张）放行
+        subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(
+            _request(tmp_path, reference_images=self._refs(tmp_path, 4))
+        )
+        assert subpath == "multi-image2video"
+        assert len(payload["image_list"]) == 4
+
+
 class TestAuthHeaders:
     def test_jwt_mode_signs_bearer_token(self):
         headers = _jwt_backend()._headers()
@@ -402,8 +443,8 @@ class TestGenerateHappyPath:
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-1"))
         persist.assert_awaited_once()
         assert persist.await_args is not None
-        # 持久化的是「子路径:task_id」，resume 据此复原查询端点（text2video 因无首帧）
-        assert persist.await_args.args[1] == "text2video:task-x"
+        # 持久化的是「子路径:task_id:有声标志」，resume 据此复原查询端点（text2video 因无首帧）+ 有声决策（turbo 恒 0）
+        assert persist.await_args.args[1] == "text2video:task-x:0"
 
     async def test_persists_image2video_subpath_in_job_id(self, tmp_path):
         img = tmp_path / "first.png"
@@ -420,7 +461,7 @@ class TestGenerateHappyPath:
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-2", start_image=img))
         # 有首帧 → image2video 前缀编入 job_id，resume 才能查对端点
         assert persist.await_args is not None
-        assert persist.await_args.args[1] == "image2video:task-i"
+        assert persist.await_args.args[1] == "image2video:task-i:0"
 
 
 class TestResume:
@@ -519,3 +560,52 @@ class TestAudioGatingResult:
                 _request(tmp_path, service_tier="pro", generate_audio=True)
             )
         assert result.generate_audio is False
+
+    async def test_v2_6_pro_persists_audio_bit_in_job_id(self, tmp_path):
+        # submit 时算定的有声决策编入 job_id（v2-6 pro 有声 → 末段 :1），resume 据此直连计费
+        post = AsyncMock(return_value=_resp(_submit("task-c")))
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+            patch("lib.video_backends.kling.persist_provider_job_id", new=AsyncMock()) as persist,
+        ):
+            await _jwt_backend("kling-v2-6").generate(
+                _request(tmp_path, task_id="local-a", service_tier="pro", generate_audio=True)
+            )
+        assert persist.await_args is not None
+        assert persist.await_args.args[1] == "text2video:task-c:1"
+
+    async def test_resume_reuses_persisted_audio_over_recompute(self, tmp_path):
+        # 持久化有声标志（:1）优先于 resume 时按请求重算：即使请求 generate_audio=False，
+        # 结果仍取 submit 时算定的有声（避免计费漂移）
+        post = AsyncMock()
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v2-6").resume_video(
+                "text2video:task-c:1", _request(tmp_path, service_tier="pro", generate_audio=False)
+            )
+        post.assert_not_called()
+        assert result.generate_audio is True
+
+    async def test_resume_legacy_job_id_recomputes_audio(self, tmp_path):
+        # 旧 job_id（2 段，未持久化有声标志）回落按请求重算
+        post = AsyncMock()
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v2-6").resume_video(
+                "text2video:task-c", _request(tmp_path, service_tier="pro", generate_audio=True)
+            )
+        assert result.generate_audio is True
