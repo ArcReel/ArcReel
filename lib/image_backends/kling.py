@@ -35,6 +35,7 @@ from lib.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ReferenceImage,
     download_image_to_path,
 )
 from lib.kling_shared import (
@@ -157,7 +158,7 @@ class KlingImageBackend:
             payload["image"] = images
         return payload
 
-    def _encode_references(self, reference_images) -> list[str]:
+    def _encode_references(self, reference_images: list[ReferenceImage]) -> list[str]:
         """参考图 → 纯 base64 列表（无 data URI 前缀）；超上限截断，缺失/不可读 fail-loud。"""
         if not reference_images:
             return []

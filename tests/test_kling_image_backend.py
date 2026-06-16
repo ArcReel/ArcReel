@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import jwt
 import pytest
 
@@ -267,6 +268,21 @@ class TestGenerateHappyPath:
         ):
             with pytest.raises(RuntimeError, match="content rejected"):
                 await _jwt_backend().generate(_request(tmp_path))
+
+    async def test_http_error_raises_and_no_retry_on_4xx(self, tmp_path):
+        # 真实 httpx.Response：submit 阶段 4xx 经 raise_for_status 抛 HTTPStatusError；
+        # 确定性 4xx 不重试（非幂等建任务 POST），post 仅调用一次，不重复建任务 + 重复计费。
+        req = httpx.Request("POST", "https://api.klingai.com/v1/images/generations")
+        resp = httpx.Response(400, request=req, text="Bad Request")
+        post = AsyncMock(return_value=resp)
+        client = _client(post=post)
+        with (
+            patch("lib.image_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.image_backends.kling._POLL_INTERVAL_SECONDS", 0),
+        ):
+            with pytest.raises(httpx.HTTPStatusError):
+                await _jwt_backend().generate(_request(tmp_path))
+        assert post.call_count == 1
 
 
 class TestRegistration:
