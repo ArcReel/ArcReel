@@ -156,7 +156,7 @@ def extract_kling_task_id(submit_payload: dict) -> str:
     task_id = _as_dict(submit_payload.get("data")).get("task_id")
     if not task_id:
         reason = kling_response_error(submit_payload)
-        raise RuntimeError(reason or f"Kling 视频提交响应缺少 task_id: {submit_payload}")
+        raise RuntimeError(reason or f"Kling 提交响应缺少 task_id: {submit_payload}")
     return str(task_id)
 
 
