@@ -169,6 +169,13 @@ class TestPayloadBuilding:
             _jwt_backend()._build_payload(_request(tmp_path, reference_images=[bad]))
         assert exc.value.code == "image_reference_images_unreadable"
 
+    def test_empty_filename_path_uses_index_placeholder(self, tmp_path):
+        # "." 解析出空文件名（非文件）：报错按序号 #N 标识，不漏空 token。
+        bad = ReferenceImage(path=".")
+        with pytest.raises(ImageCapabilityError) as exc:
+            _jwt_backend()._build_payload(_request(tmp_path, reference_images=[bad]))
+        assert exc.value.params["names"] == "#1"
+
 
 class TestSafeLogView:
     def test_no_base64_or_prompt_leaks(self, tmp_path):

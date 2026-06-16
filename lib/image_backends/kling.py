@@ -168,7 +168,8 @@ class KlingImageBackend:
         for idx, ref in enumerate(reference_images, start=1):
             path = Path(ref.path) if ref.path else None
             if path is None or not path.is_file():
-                unreadable.append(path.name if path else f"#{idx}")
+                # path.name 可能为空（如 "." / "/" 解析出空文件名）：回退序号 #N，避免空 token 漏进报错。
+                unreadable.append(path.name if (path and path.name) else f"#{idx}")
                 continue
             try:
                 encoded.append(image_to_base64(path))
