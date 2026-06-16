@@ -257,6 +257,10 @@ class TestInferEndpoint:
             ("kling-v3-omni-image", "openai", "kling-image"),
             ("proxy/kling-image-o1", "openai", "kling-image"),
             ("kling-image-o1", "google", "kling-image"),  # kling 路由不分 discovery_format
+            # image-to-video 含 image 语义但本质是视频 → video 优先于 image，归 kling-video
+            ("kling-image2video", "openai", "kling-video"),
+            ("kling-img2video", "openai", "kling-video"),
+            ("proxy/kling-image2video", "openai", "kling-video"),
             ("seedream-3.0", "openai", "openai-images"),
             ("jimeng-3.0", "openai", "openai-images"),
             ("jimeng-video-3.0", "openai", "openai-video"),

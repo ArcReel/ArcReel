@@ -526,7 +526,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        dashscope（中转可能是 OpenAI 兼容），qwen-image / wan2.x-image 落到既有图像家族推断。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
-    2.5) 可灵 kling token → 含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
+    2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
+       语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
        _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
        默认归视频、图像手动选。
     3) imagen → "gemini-image"（图像，不论 discovery_format）
@@ -555,10 +556,14 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
         return "minimax-image"
 
     # 可灵原生中转二级路由：kling 同时命中 _VIDEO_PATTERN（含 kling）与（含 image 语义时）
-    # _IMAGE_PATTERN，须在通用 is_video/is_image 之前显式分流——含 image 语义 → kling-image，
-    # 否则 → kling-video。kling-v3-omni 图像/视频同名歧义无法纯靠 token 区分，默认归视频、图像手动选；
-    # 不分 discovery_format（可灵端点各自唯一）。
+    # _IMAGE_PATTERN，须在通用 is_video/is_image 之前显式分流。video 语义优先于 image——
+    # kling-image2video / kling-img2video 这类 image-to-video 含 image 语义但本质是视频模型，
+    # 若直接看 is_image 会被误推到 kling-image，故先拦 video 关键字归 kling-video；其余含 image
+    # 语义 → kling-image，否则 → kling-video。kling-v3-omni 图像/视频同名歧义无法纯靠 token 区分，
+    # 默认归视频、图像手动选；不分 discovery_format（可灵端点各自唯一）。
     if "kling" in lowered:
+        if "video" in lowered:
+            return "kling-video"
         return "kling-image" if is_image else "kling-video"
 
     # wan2.x-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到图像家族推断
