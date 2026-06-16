@@ -219,6 +219,8 @@ class TestEndpointCatalog:
             "dashscope-async-video",
             "minimax-image",
             "minimax-video",
+            "kling-image",
+            "kling-video",
             "openai-tts",
         }
 

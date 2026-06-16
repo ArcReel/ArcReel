@@ -32,6 +32,8 @@ class TestRegistry:
             "dashscope-async-video",
             "minimax-image",
             "minimax-video",
+            "kling-image",
+            "kling-video",
             "openai-tts",
         }
 
@@ -39,7 +41,7 @@ class TestRegistry:
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax"}
+            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
             assert spec.display_name_key.startswith("endpoint_")
             assert callable(spec.build_backend)
             assert spec.request_method == "POST"
@@ -68,6 +70,8 @@ class TestRegistry:
         # 既有显式 int 保留，行为零变化
         assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
         assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images == 0
+        # kling-video 走首尾帧、不接受参考图数组 → 显式 0（与 newapi-video 同构）
+        assert ENDPOINT_REGISTRY["kling-video"].video_max_reference_images == 0
 
     def test_video_caps_declaration_bindings(self):
         """每个 video endpoint 选对了上限来源：None-cap 的绑 caps_fn、显式 int 的不绑。
@@ -79,7 +83,7 @@ class TestRegistry:
         for key in ("v2-video-generations", "ark-seedance", "vidu-video", "dashscope-async-video", "minimax-video"):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
-        for key in ("openai-video", "newapi-video"):
+        for key in ("openai-video", "newapi-video", "kling-video"):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
 
     def test_dashscope_caps_fn_reads_per_model_limit_without_client(self):
@@ -156,6 +160,7 @@ class TestRegistry:
             "gemini-image",
             "dashscope-image",
             "minimax-image",
+            "kling-image",
         }
         assert video_keys == {
             "openai-video",
@@ -165,6 +170,7 @@ class TestRegistry:
             "vidu-video",
             "dashscope-async-video",
             "minimax-video",
+            "kling-video",
         }
 
 
@@ -222,7 +228,6 @@ class TestInferEndpoint:
             ("flux-pro", "openai", "openai-images"),
             ("sora-2", "openai", "openai-video"),
             ("SORA-2", "openai", "openai-video"),
-            ("kling-v2", "openai", "openai-video"),
             ("veo-3", "openai", "openai-video"),
             ("veo-3", "google", "openai-video"),  # 非 seedance/viduq3/minimax 视频 → openai-video
             # ── MiniMax 原生 token 二级路由 ──
@@ -239,6 +244,19 @@ class TestInferEndpoint:
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
             ("minimax/image-01", "openai", "minimax-image"),
             ("S2V-01", "google", "minimax-video"),  # minimax 路由不分 discovery_format
+            # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video 而非 openai-video）──
+            ("kling-v2-5-turbo", "openai", "kling-video"),
+            ("kling-v2", "openai", "kling-video"),  # 前 kling endpoint 时代默认 openai-video
+            ("kling-v3", "openai", "kling-video"),
+            ("kling-v2-6", "openai", "kling-video"),
+            ("proxy/kling-v2-5-turbo", "openai", "kling-video"),
+            ("KLING-V3", "openai", "kling-video"),  # 大小写不敏感
+            ("kling-v3-omni", "openai", "kling-video"),  # 图像/视频同名歧义 → 默认归视频
+            # 含 image 语义的可灵图像 → kling-image（先于通用图像家族，不被推到 openai-images）
+            ("kling-image-o1", "openai", "kling-image"),
+            ("kling-v3-omni-image", "openai", "kling-image"),
+            ("proxy/kling-image-o1", "openai", "kling-image"),
+            ("kling-image-o1", "google", "kling-image"),  # kling 路由不分 discovery_format
             ("seedream-3.0", "openai", "openai-images"),
             ("jimeng-3.0", "openai", "openai-images"),
             ("jimeng-video-3.0", "openai", "openai-video"),
@@ -303,6 +321,7 @@ def test_image_endpoint_registry_entries():
         "gemini-image",
         "dashscope-image",
         "minimax-image",
+        "kling-image",
     }
 
 

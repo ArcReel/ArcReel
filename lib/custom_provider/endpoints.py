@@ -25,6 +25,7 @@ from lib.custom_provider.backends import (
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
+from lib.image_backends.kling import KlingImageBackend
 from lib.image_backends.minimax import MiniMaxImageBackend
 from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
@@ -32,6 +33,7 @@ from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend
+from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.minimax import MiniMaxVideoBackend
 from lib.video_backends.newapi import NewAPIVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
@@ -148,8 +150,8 @@ def _build_newapi_video(provider, model_id: str) -> CustomVideoBackend:
 
 
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
-    """用户只填到 host 时补全协议已知挂载路径（ark /api/v3、vidu /ent/v2）；
-    已带显式路径则原样信任，避免错误叠加。供 ark/vidu 闭包复用。
+    """用户只填到 host 时补全协议已知挂载路径（ark /api/v3、vidu /ent/v2、kling /v1）；
+    已带显式路径则原样信任，避免错误叠加。供 ark/vidu/kling 闭包复用。
 
     纯域名（无 scheme，如 ``relay.example.com``）会被 urlsplit 整体当作 path，
     先补 ``https://`` 再判定，否则 host-only 配置既补不上协议也挂不上路径。
@@ -203,6 +205,21 @@ def _build_minimax_image(provider, model_id: str) -> CustomImageBackend:
 def _build_minimax_video(provider, model_id: str) -> CustomVideoBackend:
     # 两步取 URL（submit→轮询 file_id→retrieve download_url）由 MiniMaxVideoBackend 内部处理
     delegate = MiniMaxVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_kling_image(provider, model_id: str) -> CustomImageBackend:
+    # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步图像端点。
+    # 仅 host 时补全可灵协议挂载路径 /v1（含显式路径则原样信任）；原生 model_name 透传不解耦别名。
+    base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
+    delegate = KlingImageBackend(auth_mode="bearer", api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_kling_video(provider, model_id: str) -> CustomVideoBackend:
+    # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步视频端点。
+    base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
+    delegate = KlingVideoBackend(auth_mode="bearer", api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -374,6 +391,28 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # 声明 int cap，按 model 读 backend caps（不构造 client）。
         video_caps_for_model=MiniMaxVideoBackend.video_capabilities_for_model,
     ),
+    "kling-image": EndpointSpec(
+        key="kling-image",
+        media_type="image",
+        family="kling",
+        display_name_key="endpoint_kling_image_display",
+        request_method="POST",
+        request_path_template="/v1/images/generations",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_kling_image,
+    ),
+    "kling-video": EndpointSpec(
+        key="kling-video",
+        media_type="video",
+        family="kling",
+        display_name_key="endpoint_kling_video_display",
+        request_method="POST",
+        # 无首帧走 text2video、有首帧走 image2video（含可选尾帧），brace 表达两条路径
+        request_path_template="/v1/videos/{text2video,image2video}",
+        build_backend=_build_kling_video,
+        # 可灵视频走首尾帧、不接受参考图数组 → 显式 0（与 newapi-video 同构）。
+        video_max_reference_images=0,
+    ),
 }
 
 
@@ -487,6 +526,9 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        dashscope（中转可能是 OpenAI 兼容），qwen-image / wan2.x-image 落到既有图像家族推断。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
+    2.5) 可灵 kling token → 含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
+       _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
+       默认归视频、图像手动选。
     3) imagen → "gemini-image"（图像，不论 discovery_format）
     4) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
     5) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
@@ -511,6 +553,13 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
         return "minimax-video"
     if "image-01" in lowered:
         return "minimax-image"
+
+    # 可灵原生中转二级路由：kling 同时命中 _VIDEO_PATTERN（含 kling）与（含 image 语义时）
+    # _IMAGE_PATTERN，须在通用 is_video/is_image 之前显式分流——含 image 语义 → kling-image，
+    # 否则 → kling-video。kling-v3-omni 图像/视频同名歧义无法纯靠 token 区分，默认归视频、图像手动选；
+    # 不分 discovery_format（可灵端点各自唯一）。
+    if "kling" in lowered:
+        return "kling-image" if is_image else "kling-video"
 
     # wan2.x-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到图像家族推断
     is_video = bool(_VIDEO_PATTERN.search(model_id)) and not ("wan2." in lowered and is_image)

@@ -149,6 +149,57 @@ class TestEndpointDispatch:
             api_key="sk-test", base_url="https://api.minimaxi.com/v1", model="MiniMax-Hailuo-2.3"
         )
 
+    @patch("lib.custom_provider.endpoints.KlingImageBackend")
+    def test_kling_image(self, mock_cls):
+        provider = _make_provider(base_url="https://relay.example.com/v1")
+        result = create_custom_backend(provider=provider, model_id="kling-image-o1", endpoint="kling-image")
+        assert isinstance(result, CustomImageBackend)
+        assert result.model == "kling-image-o1"
+        # bearer 模式：静态 api_key 旁路 JWT；显式 /v1 路径原样信任；原生 model_name 透传
+        mock_cls.assert_called_once_with(
+            auth_mode="bearer",
+            api_key="sk-test",
+            base_url="https://relay.example.com/v1",
+            model="kling-image-o1",
+        )
+
+    @patch("lib.custom_provider.endpoints.KlingImageBackend")
+    def test_kling_image_host_only_mounts_v1(self, mock_cls):
+        provider = _make_provider(base_url="https://relay.example.com")
+        create_custom_backend(provider=provider, model_id="kling-image-o1", endpoint="kling-image")
+        # 仅 host → 补全可灵协议挂载路径 /v1
+        mock_cls.assert_called_once_with(
+            auth_mode="bearer",
+            api_key="sk-test",
+            base_url="https://relay.example.com/v1",
+            model="kling-image-o1",
+        )
+
+    @patch("lib.custom_provider.endpoints.KlingVideoBackend")
+    def test_kling_video(self, mock_cls):
+        provider = _make_provider(base_url="https://relay.example.com/v1")
+        result = create_custom_backend(provider=provider, model_id="kling-v2-5-turbo", endpoint="kling-video")
+        assert isinstance(result, CustomVideoBackend)
+        assert result.model == "kling-v2-5-turbo"
+        mock_cls.assert_called_once_with(
+            auth_mode="bearer",
+            api_key="sk-test",
+            base_url="https://relay.example.com/v1",
+            model="kling-v2-5-turbo",
+        )
+
+    @patch("lib.custom_provider.endpoints.KlingVideoBackend")
+    def test_kling_video_host_only_mounts_v1(self, mock_cls):
+        provider = _make_provider(base_url="relay.example.com")
+        create_custom_backend(provider=provider, model_id="kling-v3", endpoint="kling-video")
+        # 纯域名（无 scheme）→ 补 https:// 再挂载 /v1
+        mock_cls.assert_called_once_with(
+            auth_mode="bearer",
+            api_key="sk-test",
+            base_url="https://relay.example.com/v1",
+            model="kling-v3",
+        )
+
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     def test_openai_images_generations(self, mock_cls):
         provider = _make_provider()

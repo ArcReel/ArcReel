@@ -785,6 +785,8 @@ export default {
   'endpoint_dashscope_async_video_display': 'Alibaba Model Studio (Video bất đồng bộ)',
   'endpoint_minimax_image_display': 'MiniMax (Ảnh)',
   'endpoint_minimax_video_display': 'MiniMax Hailuo (Video)',
+  'endpoint_kling_image_display': 'Kling (Ảnh)',
+  'endpoint_kling_video_display': 'Kling (Video)',
   'endpoint_openai_tts_display': 'OpenAI Giọng nói (TTS)',
   'endpoint_catalog_loading': 'Đang tải danh mục endpoint…',
   // Image Capability

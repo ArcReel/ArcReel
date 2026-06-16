@@ -28,7 +28,9 @@ class TestInferEndpointSmoke:
     def test_video_model(self):
         from lib.custom_provider.endpoints import infer_endpoint
 
-        assert infer_endpoint("kling-v2", "openai") == "openai-video"
+        # 可灵视频收敛到原生 kling-video（视频 family 含 kling，不再默认落 openai-video）
+        assert infer_endpoint("kling-v2", "openai") == "kling-video"
+        assert infer_endpoint("sora-2", "openai") == "openai-video"
 
     def test_google_text(self):
         from lib.custom_provider.endpoints import infer_endpoint
@@ -481,8 +483,8 @@ def test_discover_openai_returns_endpoints(monkeypatch):
     )
     by_id = {m["model_id"]: m for m in result}
     assert by_id["gpt-4o"]["endpoint"] == "openai-chat"
-    assert by_id["kling-v2"]["endpoint"] == "openai-video"
+    assert by_id["kling-v2"]["endpoint"] == "kling-video"
     assert by_id["dall-e-3"]["endpoint"] == "openai-images"
     # 每种 media_type 仅一个 default
     defaults = [m for m in result if m["is_default"]]
-    assert {m["endpoint"] for m in defaults} == {"openai-chat", "openai-video", "openai-images"}
+    assert {m["endpoint"] for m in defaults} == {"openai-chat", "kling-video", "openai-images"}
