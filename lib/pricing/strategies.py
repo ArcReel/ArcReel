@@ -15,6 +15,7 @@ from lib.pricing.types import (
     PerImageFlat,
     PerImageOpenAIToken,
     PerSecondMatrix,
+    PerSecondTiered,
     PerToken,
     PerTokenVideo,
     PerVideoBucket,
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 # (resolution, duration) 离散档计费里 duration 缺省时的兜底秒数。海螺最短档为 6s，
 # 缺省按最短档计避免高估；真实请求恒带 duration，仅防御性兜底。
 _DEFAULT_BUCKET_DURATION = 6
+
+# per_second_tiered 档位派生常量：service_tier "default" 归一到 "std"，4K 分辨率独立成 "4k" 档。
+_TIERED_DEFAULT_TIER = "std"
+_TIERED_4K_RESOLUTION = "4k"
 
 
 @dataclass(frozen=True)
@@ -132,6 +137,37 @@ def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple
     return duration * per_second, pricing.currency
 
 
+def _per_second_tiered(pricing: PerSecondTiered, params: PricingParams) -> tuple[float, str]:
+    model = params.model or pricing.default_model
+    model_rates = pricing.rates.get(model, pricing.rates[pricing.default_model])
+    # 真实 0 秒保持 0；缺省（None）按 8 秒兜底（与 _per_second_matrix 对齐）。
+    duration = params.duration_seconds if params.duration_seconds is not None else 8
+
+    # 档位派生：4K 分辨率独立成档（忽略 std/pro），否则取 service_tier（"default"→"std"）。
+    resolution = (params.resolution or "").lower()
+    if resolution == _TIERED_4K_RESOLUTION:
+        tier = _TIERED_4K_RESOLUTION
+    else:
+        service_tier = (params.service_tier or "").lower()
+        tier = service_tier if service_tier and service_tier != "default" else _TIERED_DEFAULT_TIER
+
+    per_second = model_rates.get((tier, params.generate_audio))
+    if per_second is None:
+        # 未命中档：回落该 model 的 std 档（取相同 audio，其次无声），并 WARN——档表与请求漂移
+        # （如未知 service_tier）的可观测信号。
+        per_second = model_rates.get(
+            (_TIERED_DEFAULT_TIER, params.generate_audio),
+            model_rates.get((_TIERED_DEFAULT_TIER, False), 0.0),
+        )
+        logger.warning(
+            "per_second_tiered 未命中档 model=%s tier=%s audio=%s，回落 std 档",
+            model,
+            tier,
+            params.generate_audio,
+        )
+    return duration * per_second, pricing.currency
+
+
 def _per_video_bucket(pricing: PerVideoBucket, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
     model_buckets = pricing.rates.get(model, pricing.rates[pricing.default_model])
@@ -198,6 +234,8 @@ def calculate_pricing(pricing: Pricing, params: PricingParams) -> tuple[float, s
         return _per_image_openai_token(pricing, params)
     if isinstance(pricing, PerSecondMatrix):
         return _per_second_matrix(pricing, params)
+    if isinstance(pricing, PerSecondTiered):
+        return _per_second_tiered(pricing, params)
     if isinstance(pricing, PerVideoBucket):
         return _per_video_bucket(pricing, params)
     if isinstance(pricing, PerTokenVideo):

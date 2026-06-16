@@ -10,6 +10,7 @@ from lib.pricing.types import (
     PerImageFlat,
     PerImageOpenAIToken,
     PerSecondMatrix,
+    PerSecondTiered,
     PerToken,
     PerTokenVideo,
     PerVideoBucket,
@@ -447,3 +448,91 @@ class TestViduDelegate:
         )
         assert currency == "CNY"
         assert amount == pytest.approx(5 * 12 * 0.03125)
+
+
+class TestPerSecondTiered:
+    # 可灵 Kling 视频「质量档 × 是否有声」¥/s 矩阵（官方一手，CNY）。
+    pricing = PerSecondTiered(
+        rates={
+            "kling-v2-5-turbo": {
+                ("std", False): 0.6,
+                ("std", True): 0.8,
+                ("pro", False): 0.8,
+                ("pro", True): 1.0,
+                ("4k", False): 3.0,
+                ("4k", True): 3.0,
+            }
+        },
+        default_model="kling-v2-5-turbo",
+        currency="CNY",
+    )
+
+    def _amount(self, *, service_tier="default", generate_audio=True, resolution=None, duration_seconds=5):
+        return calculate_pricing(
+            self.pricing,
+            PricingParams(
+                call_type="video",
+                model="kling-v2-5-turbo",
+                resolution=resolution,
+                duration_seconds=duration_seconds,
+                generate_audio=generate_audio,
+                service_tier=service_tier,
+            ),
+        )
+
+    def test_std_silent(self):
+        amount, currency = self._amount(service_tier="std", generate_audio=False, duration_seconds=5)
+        assert currency == "CNY"
+        assert amount == pytest.approx(0.6 * 5)
+
+    def test_std_with_audio(self):
+        amount, _ = self._amount(service_tier="std", generate_audio=True, duration_seconds=5)
+        assert amount == pytest.approx(0.8 * 5)
+
+    def test_pro_silent(self):
+        amount, _ = self._amount(service_tier="pro", generate_audio=False, duration_seconds=5)
+        assert amount == pytest.approx(0.8 * 5)
+
+    def test_pro_with_audio(self):
+        amount, _ = self._amount(service_tier="pro", generate_audio=True, duration_seconds=5)
+        assert amount == pytest.approx(1.0 * 5)
+
+    def test_default_tier_maps_to_std(self):
+        # service_tier="default" → std 档
+        amount, _ = self._amount(service_tier="default", generate_audio=False, duration_seconds=10)
+        assert amount == pytest.approx(0.6 * 10)
+
+    def test_4k_resolution_overrides_tier_and_ignores_audio(self):
+        # resolution=4k → "4k" 档，忽略 std/pro 与 audio，均为 ¥3/s
+        silent, _ = self._amount(service_tier="std", generate_audio=False, resolution="4K", duration_seconds=5)
+        voiced, _ = self._amount(service_tier="pro", generate_audio=True, resolution="4k", duration_seconds=5)
+        assert silent == pytest.approx(3.0 * 5)
+        assert voiced == pytest.approx(3.0 * 5)
+
+    def test_unknown_tier_falls_back_to_std_with_warning(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            amount, _ = self._amount(service_tier="ultra", generate_audio=False, duration_seconds=5)
+        assert amount == pytest.approx(0.6 * 5)
+        assert any("per_second_tiered" in r.message for r in caplog.records)
+
+    def test_unknown_model_falls_back_to_default(self):
+        amount, _ = calculate_pricing(
+            self.pricing,
+            PricingParams(
+                call_type="video",
+                model="unknown-model",
+                service_tier="pro",
+                generate_audio=True,
+                duration_seconds=5,
+            ),
+        )
+        assert amount == pytest.approx(1.0 * 5)
+
+    def test_none_duration_defaults_to_eight_seconds(self):
+        amount, _ = calculate_pricing(
+            self.pricing,
+            PricingParams(call_type="video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False),
+        )
+        assert amount == pytest.approx(0.6 * 8)

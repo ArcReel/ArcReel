@@ -50,16 +50,35 @@ def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:
     assert not (ark_ids & agent_plan_ids), "ark vs ark-agent-plan 模型 ID 命名不同，不应重叠"
 
 
-def test_kling_registered_identity_only() -> None:
-    """可灵仅身份注册：两个 secret required/secret key、默认 base_url、无 models。"""
+def test_kling_credentials_and_base_url() -> None:
+    """可灵双 secret required/secret key + 默认 base_url（JWT 直连，见 ADR 0037）。"""
     p = PROVIDER_REGISTRY["kling"]
     assert p.required_keys == ["access_key", "secret_key"]
     assert p.secret_keys == ["access_key", "secret_key"]
     assert p.default_base_url == "https://api.klingai.com/v1"
-    assert p.models == {}
-    # 无 models → 不暴露任何 media_type / capability，不会被 auto-resolve 选中
-    assert p.media_types == []
-    assert p.capabilities == []
+
+
+def test_kling_default_video_model_v2_5_turbo() -> None:
+    """JWT 直连视频首发：默认视频模型 kling-v2-5-turbo，能力声明齐备，无 text/image 模型。"""
+    p = PROVIDER_REGISTRY["kling"]
+    assert "kling-v2-5-turbo" in p.models
+    turbo = p.models["kling-v2-5-turbo"]
+    assert turbo.media_type == "video"
+    assert turbo.default is True
+    assert turbo.supported_durations == [5, 10]
+    assert turbo.resolutions, "默认视频模型须声明 resolutions"
+    assert turbo.pricing is not None
+    # 本片只接视频默认模型，尚无图像/文本模型
+    assert p.media_types == ["video"]
+
+
+def test_kling_video_backend_registered() -> None:
+    """可灵视频后端在 video registry 自注册（JWT 直连）。"""
+    import lib.video_backends  # noqa: F401  触发自注册
+    from lib.video_backends.kling import KlingVideoBackend
+    from lib.video_backends.registry import _BACKEND_FACTORIES as video_reg
+
+    assert video_reg["kling"] is KlingVideoBackend
 
 
 def test_ark_agent_plan_backend_registered() -> None:

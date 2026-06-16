@@ -10,7 +10,7 @@ from __future__ import annotations
 from lib.custom_provider import is_custom_provider
 from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
-from lib.pricing.types import CHARACTERS_PER_PRICING_UNIT, PerSecondMatrix, PerTokenVideo
+from lib.pricing.types import CHARACTERS_PER_PRICING_UNIT, PerSecondMatrix, PerSecondTiered, PerTokenVideo
 from lib.providers import CallType
 
 
@@ -71,7 +71,7 @@ class CostCalculator:
         pricing = lookup_pricing(provider, model, call_type)
         # 按秒计费的视频：单次实时调用无/0 时长时按默认 8 秒计（历史行为）。参考模式聚合走
         # estimate_reference_video_cost，传真实累计时长（可为 0），不经此默认。
-        if isinstance(pricing, PerSecondMatrix):
+        if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)):
             duration_seconds = duration_seconds or 8
         params = PricingParams(
             call_type=call_type,

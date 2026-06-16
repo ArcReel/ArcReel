@@ -39,7 +39,7 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_VIDU
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_KLING, PROVIDER_OPENAI, PROVIDER_VIDU
 from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import (
@@ -199,6 +199,16 @@ async def _get_or_create_video_backend(
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["video_model"] = effective_model
+    elif backend_name == PROVIDER_KLING:
+        # 可灵 JWT 直连：双 secret（access_key + secret_key）而非单 api_key（见 ADR 0037）。
+        db_config = await resolver.provider_config(PROVIDER_KLING)
+        kwargs["auth_mode"] = "jwt"
+        kwargs["access_key"] = db_config.get("access_key")
+        kwargs["secret_key"] = db_config.get("secret_key")
+        kwargs["model"] = effective_model
+        base_url = db_config.get("base_url") or (PROVIDER_REGISTRY[PROVIDER_KLING].default_base_url)
+        if base_url:
+            kwargs["base_url"] = base_url
     else:
         await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
 

@@ -11,6 +11,7 @@ from lib.pricing.types import (
     PerImageFlat,
     PerImageOpenAIToken,
     PerSecondMatrix,
+    PerSecondTiered,
     PerToken,
     PerTokenVideo,
     PerVideoBucket,
@@ -215,6 +216,23 @@ def _minimax_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
 # MiniMax 海螺视频按 (分辨率, 时长) 离散档计费（元/次，CNY）。
 def _minimax_video_pricing(model_id: str, buckets: dict[tuple[str, int], float]) -> PerVideoBucket:
     return PerVideoBucket(rates={model_id: buckets}, default_model=model_id, currency="CNY")
+
+
+# 可灵 Kling 视频「质量档 × 是否有声」¥/s 矩阵（官方一手核实，CNY，1 积分 = ¥1）。
+# 全部 video 模型共享同一档位矩阵（官方按维度组合定价、不分模型）：4K 档仅 v3/v3-omni 可达、
+# 有声仅 v2-6（pro）；turbo 仅触达 std/pro 无声/有声档。
+_KLING_VIDEO_TIERED_RATES: dict[tuple[str, bool], float] = {
+    ("std", False): 0.6,
+    ("std", True): 0.8,
+    ("pro", False): 0.8,
+    ("pro", True): 1.0,
+    ("4k", False): 3.0,
+    ("4k", True): 3.0,
+}
+
+
+def _kling_video_pricing(model_id: str) -> PerSecondTiered:
+    return PerSecondTiered(rates={model_id: _KLING_VIDEO_TIERED_RATES}, default_model=model_id, currency="CNY")
 
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
@@ -1019,8 +1037,19 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。
         required_keys=["access_key", "secret_key"],
         secret_keys=["access_key", "secret_key"],
-        # 仅身份注册：models / backends / pricing 留给后续片接入。
-        models={},
+        # JWT 直连视频首发：默认视频模型 kling-v2-5-turbo（性价比走量）。其余视频模型
+        # （v3/v3-omni/v2-6/o1）与图像模型留后续片接入。
+        models={
+            "kling-v2-5-turbo": ModelInfo(
+                display_name="可灵 2.5 Turbo",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                default=True,
+                supported_durations=[5, 10],
+                resolutions=["720p", "1080p"],
+                pricing=_kling_video_pricing("kling-v2-5-turbo"),
+            ),
+        },
         default_base_url="https://api.klingai.com/v1",
     ),
 }
