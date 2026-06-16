@@ -56,3 +56,8 @@ from lib.image_backends.minimax import MiniMaxImageBackend
 from lib.providers import PROVIDER_MINIMAX
 
 register_backend(PROVIDER_MINIMAX, MiniMaxImageBackend)
+
+from lib.image_backends.kling import KlingImageBackend
+from lib.providers import PROVIDER_KLING
+
+register_backend(PROVIDER_KLING, KlingImageBackend)

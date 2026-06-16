@@ -35,6 +35,10 @@ class ModelInfo:
     pricing: Pricing | None = None
     # 从 UI 下拉剔除但保留条目（供"入队后、finish 前被下线"的边角仍能算价）。
     hidden: bool = False
+    # 发给供应商 API 的模型名；None 时回退到 registry 键名。两栖模型（同一 API 模型名同时有
+    # 图像 / 视频两个 registry 条目）用此字段让两条目共用一个 API 模型名，而 registry 键名各自
+    # 唯一——键名兼作 UI 标识与计费查表键，不能重复，故 API 模型名需与键名解耦。
+    api_model_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +237,16 @@ _KLING_VIDEO_TIERED_RATES: dict[tuple[str, bool], float] = {
 
 def _kling_video_pricing(model_id: str) -> PerSecondTiered:
     return PerSecondTiered(rates={model_id: _KLING_VIDEO_TIERED_RATES}, default_model=model_id, currency="CNY")
+
+
+# 可灵 Kling 图像费率（元/张，CNY，图像 1 积分 = ¥0.025，官方一手核实）。
+# image-o1 各长宽比同价（flat）；v3-omni 按分辨率分档（1K/2K 同价、4K 翻倍）。
+def _kling_image_flat_pricing(model_id: str, per_image: float) -> PerImageFlat:
+    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
+
+
+def _kling_image_by_resolution_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
+    return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="CNY")
 
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
@@ -1048,6 +1062,25 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[5, 10],
                 resolutions=["720p", "1080p"],
                 pricing=_kling_video_pricing("kling-v2-5-turbo"),
+            ),
+            # --- image ---
+            "kling-image-o1": ModelInfo(
+                display_name="可灵图像 O1",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["1K", "2K"],
+                pricing=_kling_image_flat_pricing("kling-image-o1", 0.2),
+            ),
+            # 两栖模型：API 模型名 kling-v3-omni 同时承载图像/视频；图像条目用别名键避开与视频
+            # 条目（归视频片）撞 model_id 主键，api_model_name 回指真实 API 名。
+            "kling-v3-omni-image": ModelInfo(
+                display_name="可灵 V3-Omni（图像）",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["1K", "2K", "4K"],
+                api_model_name="kling-v3-omni",
+                pricing=_kling_image_by_resolution_pricing("kling-v3-omni-image", {"1K": 0.2, "2K": 0.2, "4K": 0.4}),
             ),
         },
         default_base_url="https://api.klingai.com/v1",

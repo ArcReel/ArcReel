@@ -8,7 +8,7 @@
   （异步渲染可能超单 token 寿命，不能实例级签一次）；时钟可注入（测试不依赖真实墙钟）。
 - ``kling_bearer_headers`` — bearer 模式旁路 JWT、用静态 api_key 的鉴权头。
 - 异步任务响应解析：``code`` 信封错误、``data.task_id``、``data.task_status``
-  （submitted/processing/succeed/failed）、``data.task_result.videos[].url``。
+  （submitted/processing/succeed/failed）、``data.task_result.{videos,images}[].url``。
 """
 
 from __future__ import annotations
@@ -181,18 +181,39 @@ def kling_task_failure_reason(payload: dict) -> str | None:
         return err
     if kling_task_status(payload) == KLING_STATUS_FAILED:
         data = _as_dict(payload.get("data"))
-        return (f"Kling 视频任务失败 task_id={data.get('task_id')}: {_as_str(data.get('task_status_msg'))}").strip()
+        return (f"Kling 任务失败 task_id={data.get('task_id')}: {_as_str(data.get('task_status_msg'))}").strip()
     return None
+
+
+def _extract_task_result_urls(payload: dict, collection_key: str) -> list[str]:
+    """从 succeed 查询响应提取 ``data.task_result.{collection_key}[].url`` 列表（非法结构回空）。"""
+    result = _as_dict(_as_dict(payload.get("data")).get("task_result"))
+    items = result.get(collection_key)
+    urls: list[str] = []
+    if isinstance(items, list):
+        for item in items:
+            url = _as_dict(item).get("url")
+            if isinstance(url, str) and url:
+                urls.append(url)
+    return urls
 
 
 def extract_kling_video_url(payload: dict) -> str:
     """从 succeed 的查询响应提取 ``data.task_result.videos[0].url``。"""
-    result = _as_dict(_as_dict(payload.get("data")).get("task_result"))
-    videos = result.get("videos")
-    if isinstance(videos, list):
-        for video in videos:
-            url = _as_dict(video).get("url")
-            if isinstance(url, str) and url:
-                return url
+    for url in _extract_task_result_urls(payload, "videos"):
+        return url
     reason = kling_response_error(payload)
     raise RuntimeError(reason or f"Kling 视频任务完成但缺少视频 URL: {payload}")
+
+
+def extract_kling_image_urls(payload: dict) -> list[str]:
+    """从 succeed 的查询响应提取 ``data.task_result.images[].url`` 列表（按张顺序）。
+
+    可灵图像异步任务可一次产出多张（``n`` / 组图）；返回全部有效 URL，由后端按需取首张转存。
+    缺少任何有效 URL 即按 code 错误或原样抛出（与视频取 url 对称的 fail-loud）。
+    """
+    urls = _extract_task_result_urls(payload, "images")
+    if urls:
+        return urls
+    reason = kling_response_error(payload)
+    raise RuntimeError(reason or f"Kling 图像任务完成但缺少图片 URL: {payload}")

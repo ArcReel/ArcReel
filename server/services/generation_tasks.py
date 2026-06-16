@@ -273,6 +273,21 @@ async def _get_or_create_image_backend(
         kwargs["base_url"] = db_config.get("base_url")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["image_model"] = effective_model
+    elif backend_name == PROVIDER_KLING:
+        # 可灵 JWT 直连：双 secret（access_key + secret_key）而非单 api_key（见 ADR 0037）。
+        meta = PROVIDER_REGISTRY[PROVIDER_KLING]
+        db_config = await resolver.provider_config(PROVIDER_KLING)
+        kwargs["auth_mode"] = "jwt"
+        kwargs["access_key"] = db_config.get("access_key")
+        kwargs["secret_key"] = db_config.get("secret_key")
+        kwargs["model"] = effective_model
+        # 两栖模型 registry 键名与 API 模型名解耦：别名键（如 kling-v3-omni-image）发真实 API 名。
+        model_info = meta.models.get(effective_model) if effective_model else None
+        if model_info is not None and model_info.api_model_name:
+            kwargs["api_model_name"] = model_info.api_model_name
+        base_url = db_config.get("base_url") or meta.default_base_url
+        if base_url:
+            kwargs["base_url"] = base_url
     else:
         await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
 

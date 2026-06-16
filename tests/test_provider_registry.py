@@ -59,7 +59,7 @@ def test_kling_credentials_and_base_url() -> None:
 
 
 def test_kling_default_video_model_v2_5_turbo() -> None:
-    """JWT 直连视频首发：默认视频模型 kling-v2-5-turbo，能力声明齐备，无 text/image 模型。"""
+    """JWT 直连视频默认模型 kling-v2-5-turbo，能力声明齐备。"""
     p = PROVIDER_REGISTRY["kling"]
     assert "kling-v2-5-turbo" in p.models
     turbo = p.models["kling-v2-5-turbo"]
@@ -68,8 +68,37 @@ def test_kling_default_video_model_v2_5_turbo() -> None:
     assert turbo.supported_durations == [5, 10]
     assert turbo.resolutions, "默认视频模型须声明 resolutions"
     assert turbo.pricing is not None
-    # 本片只接视频默认模型，尚无图像/文本模型
-    assert p.media_types == ["video"]
+
+
+def test_kling_image_models() -> None:
+    """图像模型：默认 kling-image-o1（按张 flat ¥0.2），v3-omni 别名键按分辨率（4K ¥0.4）。"""
+    from lib.pricing.types import PerImageByResolution, PerImageFlat
+
+    p = PROVIDER_REGISTRY["kling"]
+    assert "image" in p.media_types
+
+    o1 = p.models["kling-image-o1"]
+    assert o1.media_type == "image"
+    assert o1.default is True
+    assert o1.capabilities == ["text_to_image", "image_to_image"]
+    assert o1.resolutions == ["1K", "2K"]
+    # 普通模型：无别名，键名即 API 名。
+    assert o1.api_model_name is None
+    assert isinstance(o1.pricing, PerImageFlat)
+    assert o1.pricing.currency == "CNY"
+    assert o1.pricing.rates["kling-image-o1"] == 0.2
+
+    # 两栖模型：图像条目用别名键避开与视频条目撞主键，api_model_name 回指真实 API 名。
+    omni = p.models["kling-v3-omni-image"]
+    assert omni.media_type == "image"
+    assert omni.api_model_name == "kling-v3-omni"
+    assert omni.resolutions == ["1K", "2K", "4K"]
+    assert isinstance(omni.pricing, PerImageByResolution)
+    # 计费查表键 = registry 键名（result.model），非 API 名。
+    assert omni.pricing.rates["kling-v3-omni-image"] == {"1K": 0.2, "2K": 0.2, "4K": 0.4}
+    # 视频主键 kling-v3-omni 不归本片（图像片不注册视频条目）。
+    video_omni = p.models.get("kling-v3-omni")
+    assert video_omni is None or video_omni.media_type == "video"
 
 
 def test_kling_video_backend_registered() -> None:

@@ -11,6 +11,7 @@ import pytest
 from lib.kling_shared import (
     KLING_BASE_URL,
     KlingJWTManager,
+    extract_kling_image_urls,
     extract_kling_task_id,
     extract_kling_video_url,
     is_kling_task_terminal,
@@ -164,3 +165,35 @@ class TestResponseParsing:
     def test_extract_video_url_missing_raises(self):
         with pytest.raises(RuntimeError):
             extract_kling_video_url({"code": 0, "data": {"task_status": "succeed", "task_result": {"videos": []}}})
+
+    def test_extract_image_urls_in_order(self):
+        payload = {
+            "code": 0,
+            "data": {
+                "task_status": "succeed",
+                "task_result": {
+                    "images": [{"index": 0, "url": "https://x/0.png"}, {"index": 1, "url": "https://x/1.png"}]
+                },
+            },
+        }
+        assert extract_kling_image_urls(payload) == ["https://x/0.png", "https://x/1.png"]
+
+    def test_extract_image_urls_skips_blank(self):
+        payload = {
+            "code": 0,
+            "data": {"task_status": "succeed", "task_result": {"images": [{"url": ""}, {"url": "https://x/ok.png"}]}},
+        }
+        assert extract_kling_image_urls(payload) == ["https://x/ok.png"]
+
+    def test_extract_image_urls_missing_raises(self):
+        with pytest.raises(RuntimeError):
+            extract_kling_image_urls({"code": 0, "data": {"task_status": "succeed", "task_result": {"images": []}}})
+
+    def test_failure_reason_message_modality_neutral(self):
+        # image / video 共用 failure_reason：消息不应写死「视频」，便于图像任务复用。
+        reason = kling_task_failure_reason(
+            {"code": 0, "data": {"task_id": "t-9", "task_status": "failed", "task_status_msg": "boom"}}
+        )
+        assert reason is not None
+        assert "视频" not in reason
+        assert "t-9" in reason and "boom" in reason

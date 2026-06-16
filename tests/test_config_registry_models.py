@@ -15,6 +15,20 @@ class TestModelInfo:
         assert m.media_type == "text"
         assert m.default is True
 
+    def test_api_model_name_defaults_none(self):
+        m = ModelInfo(display_name="X", media_type="image", capabilities=["text_to_image"])
+        assert m.api_model_name is None
+
+    def test_api_model_name_only_declared_for_amphibious_aliases(self):
+        # 解耦字段对存量模型零影响：仅两栖别名键显式声明 api_model_name，其余一律回退键名。
+        declared = {
+            f"{pid}/{mid}": minfo.api_model_name
+            for pid, meta in PROVIDER_REGISTRY.items()
+            for mid, minfo in meta.models.items()
+            if minfo.api_model_name is not None
+        }
+        assert declared == {"kling/kling-v3-omni-image": "kling-v3-omni"}
+
 
 class TestProviderMeta:
     def test_media_types_derived_from_models(self):
