@@ -13,6 +13,7 @@ status: accepted
 ## Consequences
 
 - **向后兼容**：存量模型 `api_model_name=None`、回退键名，行为零变化；新增非两栖模型无需关心此字段。
+- **后端适配不对称**：目前仅图像路径消费 `api_model_name`（`KlingImageBackend` 收该参数并据以发 API 名）；视频后端尚无 `api_model_name` 参数、直接发键名。今天无碍——唯一两栖条目 v3-omni 的视频侧占主键、键名即 API 名；但若未来某两栖模型需让**视频**条目用别名键，须先为视频后端补 `api_model_name` 支持，否则会按键名误发。这是上述「重构触发点」的前置工作。
 - **合成键味道显式接受**：`kling-v3-omni-image` 是供应商世界里不存在的 registry 内部标识，靠本 ADR + `display_name` 屏蔽来解释，不视作待清理的死键。
 - **重构触发点**：当两栖多模态模型增多、「别名键 + `api_model_name`」样板多到让人不舒服时，重新评估复合键 `(model_id, media_type)` 或其它根治——届时是有依据的重构，本 ADR 转 superseded。
 - **同族收敛**：上承 `docs/adr/0009`（定价并进 `ModelInfo`、按键查表）、`docs/adr/0013`（能力声明收敛到模型级）——三者都在回答「registry 键 / `ModelInfo` 承载什么」。本 ADR 是给 registry 键做的第三次职责剥离：把「对外 API 名」从「内部唯一键」拆出。
