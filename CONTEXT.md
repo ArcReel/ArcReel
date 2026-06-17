@@ -32,6 +32,14 @@ _Avoid_: legacy provider 名。
 **legacy provider 名**：
 旧版本写入 `project.json` 的非规范别名（如 `gemini`、`aistudio`、`vertex`、`seedance`）。属于待清除的历史数据，**不是**有效身份；经一次性迁移转为规范 id 后即不再被接受（见 `docs/adr/0001`）。
 
+**registry 键 ↔ `api_model_name`（API 模型名）**：
+`PROVIDER_REGISTRY[provider].models` 的键（model_id 字符串）是模型的**内部唯一标识**，兼 UI / 持久化标识与计费、能力查表键，是全系统唯一接受的模型写入形式。`ModelInfo.api_model_name`（默认 `None`）是**实际发给供应商 API 的模型名**——仅当它需要与键名不同（两栖模型）时才填，`None` 时回退键名（见 `docs/adr/0038`）。
+_Avoid_: 把 registry 键直接等同于发给供应商的模型名（两栖模型下会发错）。
+
+**两栖模型（amphibious model）**：
+同一个供应商 API 模型名同时承载图像与视频两种 media_type 的模型（如可灵 `kling-v3-omni`，出图与出视频在可灵 API 同名）。因 registry 键与 `ModelInfo.media_type` 均单值，两栖模型拆成两条 registry 条目：图像用**别名键**（如 `kling-v3-omni-image`）+ `api_model_name` 回指真实 API 名，视频占主键（见 `docs/adr/0038`）。
+_Avoid_: 把别名键当成真实模型名；为两栖单独给 registry 键上复合 `(model_id, media_type)`（ADR 0038 已否决）。
+
 **discovery_format**：
 自定义 provider 的 provider 级字段（取值 `openai` / `google`），只决定「模型发现」与「连通测试」去查哪套列表 API；**不决定任何模型的调用协议**——调用协议由每个模型各自挂的 endpoint 决定。
 _Avoid_: api_format（旧名，连同 `newapi` 取值已删除；它暗示「一个 provider = 一种协议」的错误读法）；把它当模型调用协议开关。（发现 API 另兼容 `anthropic` 探测，但不落库、不参与协议派发。）
