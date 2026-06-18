@@ -37,7 +37,7 @@ _Avoid_: legacy provider 名。
 _Avoid_: 把 registry 键直接等同于发给供应商的模型名（两栖模型下会发错）。
 
 **两栖模型（amphibious model）**：
-同一个供应商 API 模型名同时承载图像与视频两种 media_type 的模型（如可灵 `kling-v3-omni`，出图与出视频在可灵 API 同名）。因 registry 键与 `ModelInfo.media_type` 均单值，两栖模型拆成两条 registry 条目：图像用**别名键**（如 `kling-v3-omni-image`）+ `api_model_name` 回指真实 API 名，视频占主键（见 `docs/adr/0038`）。
+同一个供应商 API 模型名同时承载图像与视频两种 media_type 的模型（如可灵 `kling-v3-omni`，出图与出视频在可灵 API 同名）。因 registry 键与 `ModelInfo.media_type` 均单值，两栖模型拆成两条 registry 条目：其中一种 media_type 用**别名键** + `api_model_name` 回指真实 API 名、另一种占主键；哪种占主键是各模型的工程选择、非硬性规则（可灵 v3-omni 的选择是图像用别名键 `kling-v3-omni-image`、视频占主键 `kling-v3-omni`，见 `docs/adr/0038`）。
 _Avoid_: 把别名键当成真实模型名；为两栖单独给 registry 键上复合 `(model_id, media_type)`（ADR 0038 已否决）。
 
 **discovery_format**：
