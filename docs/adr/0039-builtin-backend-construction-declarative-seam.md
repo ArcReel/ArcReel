@@ -14,7 +14,7 @@ status: proposed
 
 - **新增内置 provider 从「改 4 文件 5 处」降到「加一行」**：简单族加一条 `ProviderSpec`，特例族加一条 + 一个 build 闭包，与自定义侧加一条 `EndpointSpec` 对称；不再触动 `generation_tasks.py` 的三个 `_get_or_create_*` 与 text factory。
 - **两份 `PROVIDER_ID_TO_BACKEND` 合并**进 `ProviderSpec` 的 registry 字段（每个 `(provider, media)` 行各自声明映射到哪个 registry backend），漂移在数据结构层面不再可能。
-- **构造核心可脱离 DB 单测**：手搓一个 `LoadedConfig` 信封 + model_id 直接断言造出的 backend 构造参数（kling 双 secret 透传、gemini `backend_type` 分叉、dashscope 文本 base_url 派生、kling `api_model_name` 解耦），无需起 DB 或 mock resolver；async 装载段用内存 DB（local-substitutable）测。import 期校验内置表（仿 `endpoints.py::_validate_video_caps_declarations`：每条 `registry` 名已注册、`build` 可调用、`(provider, media)` 唯一），misconfig 在 import 期 fail-fast 而非 request 期。
+- **构造核心可脱离 DB 单测**：手搓一个 `LoadedConfig` 信封 + model_id 直接断言造出的 backend 构造参数（kling 双 secret 透传、gemini `backend_type` 分叉、dashscope 文本 base_url 派生、kling `api_model_name` 解耦），无需起 DB 或 mock resolver；async 装载段用内存 DB（local-substitutable）测。import 期校验内置表（`build` 可调用、`(provider, media)` 唯一），misconfig 在 import 期 fail-fast 而非 request 期（同 `endpoints.py::_validate_video_caps_declarations` 的内表自洽校验手法）；附加的「`registry` 名已在媒体后端 registry 注册」是**跨表**校验，依赖先 import `lib.{image,video,text}_backends` 触发各包 `__init__` 的 eager 集中注册——后端包只 import backend 类、不反向依赖本缝，无循环导入。
 - **缓存留在调用方**：`_backend_cache` 是 server 执行层的性能关切，不下沉进缝；缝无状态、纯构造，便于并发与测试。
 - **范围边界**：缝只管「造 backend 实例」，不干涉任务执行、队列调度、计费等生命周期——`provider_job_id` 持久化见 `docs/adr/0007`、队列调度见 `docs/adr/0010`、pricing 见 `docs/adr/0009`，均不在本缝。
 - **与未来插件市场正交**：用户分享/安装第三方供应商适配若落地，是自定义侧 `ENDPOINT_REGISTRY` 的后续独立 epic（`docs/adr/0008` 已为 plugin 指路：plugin 只能接 `api_key`+`base_url`，且需自带「内置 provider 风格」声明才能多字段）。本 ADR 收口的是**内置**侧；「两族不合并」的隔离正为该 epic 保留干净的插槽侧，不在本次范围。
