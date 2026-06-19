@@ -56,7 +56,7 @@ async def load_custom_backend(
         stmt = select(CustomProviderModel).where(
             CustomProviderModel.provider_id == db_id,
             CustomProviderModel.model_id == model_id,
-            CustomProviderModel.is_enabled == True,  # noqa: E712
+            CustomProviderModel.is_enabled,
         )
         result = await session.execute(stmt)
         candidate = result.scalar_one_or_none()
