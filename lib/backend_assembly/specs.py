@@ -43,20 +43,28 @@ def _media_create_backend(media_type: str) -> Callable[..., Any]:
     return create_backend
 
 
+def _resolve_base_url(config: LoadedConfig) -> str | None:
+    """base_url 优先级：用户在 db_config 显式填写 > ProviderMeta.default_base_url > None。
+
+    简单族与 kling 共用此兜底语义；调用方各自决定 None 时是否省略 base_url 参数。
+    """
+    default = config.provider_meta.default_base_url if config.provider_meta else None
+    return config.credentials.get("base_url") or default
+
+
 def _build_simple(config: LoadedConfig, model_id: str | None, *, media_type: str, registry_backend: str) -> Any:
     """简单族通用构造：api_key + model + base_url。
 
     api_key 与 base_url 同遵「仅非空才写入 kwargs」：显式传 None 可能覆盖底层 SDK 的环境变量兜底
     （如 OpenAI SDK 读 OPENAI_API_KEY），缺省由 backend 各自处理（要么读环境变量、要么 fail-loud）。
-    base_url 优先级：用户在 db_config 显式填写 > ProviderMeta.default_base_url > 不传 —— grok 等无
-    default 且用户未配的 provider 不接受 base_url 参数，传 None 会触发 TypeError。
+    base_url 优先级见 _resolve_base_url —— grok 等无 default 且用户未配的 provider 不接受 base_url
+    参数，传 None 会触发 TypeError，故仅非空才写入。
     """
     kwargs: dict[str, Any] = {"model": model_id}
     api_key = config.credentials.get("api_key")
     if api_key:
         kwargs["api_key"] = api_key
-    default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
-    base_url = config.credentials.get("base_url") or default_base_url
+    base_url = _resolve_base_url(config)
     if base_url:
         kwargs["base_url"] = base_url
     return _media_create_backend(media_type)(registry_backend, **kwargs)
@@ -123,11 +131,6 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
 _KLING_REGISTRY_BACKEND = "kling"
 
 
-def _kling_base_url(config: LoadedConfig) -> str | None:
-    default = config.provider_meta.default_base_url if config.provider_meta else None
-    return config.credentials.get("base_url") or default
-
-
 def _build_kling_image(config: LoadedConfig, model_id: str | None) -> Any:
     kwargs: dict[str, Any] = {
         "auth_mode": "jwt",
@@ -138,7 +141,7 @@ def _build_kling_image(config: LoadedConfig, model_id: str | None) -> Any:
     model_info = config.provider_meta.models.get(model_id) if (config.provider_meta and model_id) else None
     if model_info is not None and model_info.api_model_name:
         kwargs["api_model_name"] = model_info.api_model_name
-    base_url = _kling_base_url(config)
+    base_url = _resolve_base_url(config)
     if base_url:
         kwargs["base_url"] = base_url
     return _media_create_backend("image")(_KLING_REGISTRY_BACKEND, **kwargs)
@@ -151,7 +154,7 @@ def _build_kling_video(config: LoadedConfig, model_id: str | None) -> Any:
         "secret_key": config.credentials.get("secret_key"),
         "model": model_id,
     }
-    base_url = _kling_base_url(config)
+    base_url = _resolve_base_url(config)
     if base_url:
         kwargs["base_url"] = base_url
     return _media_create_backend("video")(_KLING_REGISTRY_BACKEND, **kwargs)
