@@ -17,7 +17,6 @@ from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
 from lib.backend_assembly import assemble_backend
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
 from lib.i18n import DEFAULT_LOCALE
@@ -40,7 +39,7 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_KLING, PROVIDER_OPENAI, PROVIDER_VIDU
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_VIDU
 from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import (
@@ -115,53 +114,18 @@ async def _get_or_create_video_backend(
     通过 resolver 按需加载供应商配置。
     default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
     """
-    from lib.video_backends import create_backend
-
     effective_model = provider_settings.get("model") or default_video_model or None
     cache_key = ("video", provider_name, effective_model)
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
 
-    # 自定义供应商 + 简单族经统一构造缝；gemini/kling 媒体特例暂留下方命令式分支
-    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
-    if is_custom_provider(provider_name) or backend_name not in (PROVIDER_GEMINI, PROVIDER_KLING):
-        backend = await assemble_backend(
-            provider_id=provider_name,
-            media_type="video",
-            model_id=effective_model,
-            resolver=resolver,
-            rate_limiter=rate_limiter,
-        )
-        _backend_cache[cache_key] = backend
-        return backend
-
-    kwargs: dict = {}
-    if backend_name == PROVIDER_GEMINI:
-        # 确定 backend_type（aistudio 或 vertex）
-        if provider_name == "gemini-vertex":
-            kwargs["backend_type"] = "vertex"
-        elif provider_name == "gemini-aistudio":
-            kwargs["backend_type"] = "aistudio"
-        else:
-            kwargs["backend_type"] = "aistudio"
-
-        config_provider_id = "gemini-vertex" if kwargs["backend_type"] == "vertex" else "gemini-aistudio"
-        db_config = await resolver.provider_config(config_provider_id)
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["rate_limiter"] = rate_limiter
-        kwargs["video_model"] = effective_model
-    else:  # PROVIDER_KLING
-        # 可灵 JWT 直连：双 secret（access_key + secret_key）而非单 api_key（见 ADR 0037）。
-        db_config = await resolver.provider_config(PROVIDER_KLING)
-        kwargs["auth_mode"] = "jwt"
-        kwargs["access_key"] = db_config.get("access_key")
-        kwargs["secret_key"] = db_config.get("secret_key")
-        kwargs["model"] = effective_model
-        base_url = db_config.get("base_url") or (PROVIDER_REGISTRY[PROVIDER_KLING].default_base_url)
-        if base_url:
-            kwargs["base_url"] = base_url
-
-    backend = create_backend(backend_name, **kwargs)
+    backend = await assemble_backend(
+        provider_id=provider_name,
+        media_type="video",
+        model_id=effective_model,
+        resolver=resolver,
+        rate_limiter=rate_limiter,
+    )
     _backend_cache[cache_key] = backend
     return backend
 
@@ -174,55 +138,18 @@ async def _get_or_create_image_backend(
     default_image_model: str | None = None,
 ):
     """获取或创建 ImageBackend 实例（带缓存）。"""
-    from lib.image_backends import create_backend
-
     effective_model = provider_settings.get("model") or default_image_model or None
     cache_key = ("image", provider_name, effective_model)
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
 
-    # 自定义供应商 + 简单族经统一构造缝；gemini/kling 媒体特例暂留下方命令式分支
-    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
-    if is_custom_provider(provider_name) or backend_name not in (PROVIDER_GEMINI, PROVIDER_KLING):
-        backend = await assemble_backend(
-            provider_id=provider_name,
-            media_type="image",
-            model_id=effective_model,
-            resolver=resolver,
-            rate_limiter=rate_limiter,
-        )
-        _backend_cache[cache_key] = backend
-        return backend
-
-    kwargs: dict = {}
-    if backend_name == PROVIDER_GEMINI:
-        if provider_name == "gemini-vertex":
-            kwargs["backend_type"] = "vertex"
-        else:
-            kwargs["backend_type"] = "aistudio"
-        config_id = "gemini-vertex" if kwargs["backend_type"] == "vertex" else "gemini-aistudio"
-        db_config = await resolver.provider_config(config_id)
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["base_url"] = db_config.get("base_url")
-        kwargs["rate_limiter"] = rate_limiter
-        kwargs["image_model"] = effective_model
-    else:  # PROVIDER_KLING
-        # 可灵 JWT 直连：双 secret（access_key + secret_key）而非单 api_key（见 ADR 0037）。
-        meta = PROVIDER_REGISTRY[PROVIDER_KLING]
-        db_config = await resolver.provider_config(PROVIDER_KLING)
-        kwargs["auth_mode"] = "jwt"
-        kwargs["access_key"] = db_config.get("access_key")
-        kwargs["secret_key"] = db_config.get("secret_key")
-        kwargs["model"] = effective_model
-        # 两栖模型 registry 键名与 API 模型名解耦：别名键（如 kling-v3-omni-image）发真实 API 名。
-        model_info = meta.models.get(effective_model) if effective_model else None
-        if model_info is not None and model_info.api_model_name:
-            kwargs["api_model_name"] = model_info.api_model_name
-        base_url = db_config.get("base_url") or meta.default_base_url
-        if base_url:
-            kwargs["base_url"] = base_url
-
-    backend = create_backend(backend_name, **kwargs)
+    backend = await assemble_backend(
+        provider_id=provider_name,
+        media_type="image",
+        model_id=effective_model,
+        resolver=resolver,
+        rate_limiter=rate_limiter,
+    )
     _backend_cache[cache_key] = backend
     return backend
 

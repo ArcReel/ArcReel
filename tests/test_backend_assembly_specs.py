@@ -109,6 +109,178 @@ class TestMediaRegistryRouting:
         )
 
 
+class TestGeminiSpec:
+    """gemini 特例族：backend_type 按 provider_id 分叉（aistudio/vertex 各一行），image 设 base_url /
+    video 不设（非对称提升为两条表行），注入共享 rate_limiter，image_model/video_model 命名差异。
+    api_key 与 base_url 无条件透传（含 None）：与迁移前命令式分支一致，由 backend 内 resolve_gemini_api_key
+    / normalize_base_url 处理 None（读环境变量 / 省略）。"""
+
+    @patch("lib.image_backends.registry.create_backend")
+    def test_aistudio_image_sets_base_url_and_image_model(self, mock_create):
+        spec = get_provider_spec("gemini-aistudio", "image")
+        assert spec.registry_backend == "gemini"
+        limiter = object()
+        config = LoadedConfig(
+            credentials={"api_key": "sk-aistudio", "base_url": "https://custom.example.com"},
+            provider_meta=PROVIDER_REGISTRY.get("gemini-aistudio"),
+            rate_limiter=limiter,
+        )
+        spec.build_backend(config, "gemini-3.1-flash-image-preview")
+        mock_create.assert_called_once_with(
+            "gemini",
+            backend_type="aistudio",
+            api_key="sk-aistudio",
+            base_url="https://custom.example.com",
+            rate_limiter=limiter,
+            image_model="gemini-3.1-flash-image-preview",
+        )
+
+    @patch("lib.image_backends.registry.create_backend")
+    def test_vertex_image_backend_type_vertex(self, mock_create):
+        spec = get_provider_spec("gemini-vertex", "image")
+        config = LoadedConfig(
+            credentials={"api_key": None, "base_url": None},
+            provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, None)
+        # vertex 无 api_key/base_url：仍无条件透传 None（backend 内回落凭证文件 / 省略 base_url）
+        mock_create.assert_called_once_with(
+            "gemini",
+            backend_type="vertex",
+            api_key=None,
+            base_url=None,
+            rate_limiter=None,
+            image_model=None,
+        )
+
+    @patch("lib.video_backends.registry.create_backend")
+    def test_aistudio_video_omits_base_url_uses_video_model(self, mock_create):
+        spec = get_provider_spec("gemini-aistudio", "video")
+        assert spec.registry_backend == "gemini"
+        limiter = object()
+        config = LoadedConfig(
+            credentials={"api_key": "sk-aistudio", "base_url": "https://ignored.example.com"},
+            provider_meta=PROVIDER_REGISTRY.get("gemini-aistudio"),
+            rate_limiter=limiter,
+        )
+        spec.build_backend(config, "veo-3.1-lite-generate-preview")
+        # video 非对称：不传 base_url（即使 credentials 含），命名参数是 video_model 不是 image_model
+        mock_create.assert_called_once_with(
+            "gemini",
+            backend_type="aistudio",
+            api_key="sk-aistudio",
+            rate_limiter=limiter,
+            video_model="veo-3.1-lite-generate-preview",
+        )
+
+    @patch("lib.video_backends.registry.create_backend")
+    def test_vertex_video_backend_type_vertex(self, mock_create):
+        spec = get_provider_spec("gemini-vertex", "video")
+        config = LoadedConfig(
+            credentials={"api_key": None},
+            provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "veo-3.1-generate-preview")
+        mock_create.assert_called_once_with(
+            "gemini",
+            backend_type="vertex",
+            api_key=None,
+            rate_limiter=None,
+            video_model="veo-3.1-generate-preview",
+        )
+
+    def test_bare_gemini_not_registered(self):
+        # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
+        # 按 ADR 0039 fail-loud，不为死路径登记兜底行。
+        assert ("gemini", "image") not in PROVIDER_SPEC_REGISTRY
+        assert ("gemini", "video") not in PROVIDER_SPEC_REGISTRY
+
+
+class TestKlingSpec:
+    """kling 特例族：JWT 双 secret（access_key + secret_key 按 ADR 0037 列名直取）、auth_mode=jwt、
+    image 侧 api_model_name 解耦（两栖别名键读 registry api_model_name）、base_url 兜底（db > registry default）。
+    video backend 不接受 api_model_name —— 非对称，video 闭包不传。"""
+
+    @patch("lib.image_backends.registry.create_backend")
+    def test_image_dual_secret_and_jwt(self, mock_create):
+        spec = get_provider_spec("kling", "image")
+        assert spec.registry_backend == "kling"
+        config = LoadedConfig(
+            credentials={"access_key": "ak-1", "secret_key": "sk-1"},
+            provider_meta=PROVIDER_REGISTRY.get("kling"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "kling-image-o1")
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="jwt",
+            access_key="ak-1",
+            secret_key="sk-1",
+            model="kling-image-o1",
+            base_url="https://api.klingai.com/v1",
+        )
+
+    @patch("lib.image_backends.registry.create_backend")
+    def test_image_api_model_name_decoupled_for_amphibious_alias(self, mock_create):
+        # 两栖别名键 kling-v3-omni-image 的 registry api_model_name 是 kling-v3-omni（发真实 API 名）。
+        spec = get_provider_spec("kling", "image")
+        config = LoadedConfig(
+            credentials={"access_key": "ak-1", "secret_key": "sk-1"},
+            provider_meta=PROVIDER_REGISTRY.get("kling"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "kling-v3-omni-image")
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="jwt",
+            access_key="ak-1",
+            secret_key="sk-1",
+            model="kling-v3-omni-image",
+            api_model_name="kling-v3-omni",
+            base_url="https://api.klingai.com/v1",
+        )
+
+    @patch("lib.image_backends.registry.create_backend")
+    def test_image_user_base_url_wins_over_registry_default(self, mock_create):
+        spec = get_provider_spec("kling", "image")
+        config = LoadedConfig(
+            credentials={"access_key": "ak-1", "secret_key": "sk-1", "base_url": "https://relay.example.com"},
+            provider_meta=PROVIDER_REGISTRY.get("kling"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "kling-image-o1")
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="jwt",
+            access_key="ak-1",
+            secret_key="sk-1",
+            model="kling-image-o1",
+            base_url="https://relay.example.com",
+        )
+
+    @patch("lib.video_backends.registry.create_backend")
+    def test_video_dual_secret_no_api_model_name(self, mock_create):
+        spec = get_provider_spec("kling", "video")
+        assert spec.registry_backend == "kling"
+        config = LoadedConfig(
+            credentials={"access_key": "ak-1", "secret_key": "sk-1"},
+            provider_meta=PROVIDER_REGISTRY.get("kling"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "kling-v3")
+        # video backend 不接受 api_model_name：即使 model 是别名也不传该参数（迁移前 video 分支即不设）
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="jwt",
+            access_key="ak-1",
+            secret_key="sk-1",
+            model="kling-v3",
+            base_url="https://api.klingai.com/v1",
+        )
+
+
 class TestRegistryShape:
     def test_unknown_provider_media_fails_loud(self):
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):

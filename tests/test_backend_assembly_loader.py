@@ -70,6 +70,48 @@ class TestAssembleBuiltinEndToEnd:
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
             await assemble_backend(provider_id="ark", media_type="audio", model_id="x", resolver=resolver)
 
+    @patch("lib.image_backends.registry.create_backend")
+    async def test_gemini_aistudio_image_end_to_end(self, mock_create, session_factory):
+        # gemini 特例族：provider_id 直接决定 backend_type，凭证 overlay + 共享 rate_limiter 经装载进闭包
+        await _seed_provider_config(
+            session_factory, "gemini-aistudio", api_key="g-secret", base_url="https://g.relay.test"
+        )
+        sentinel = object()
+        resolver = ConfigResolver(session_factory)
+        await assemble_backend(
+            provider_id="gemini-aistudio",
+            media_type="image",
+            model_id="gemini-3.1-flash-image-preview",
+            resolver=resolver,
+            rate_limiter=sentinel,
+        )
+        mock_create.assert_called_once_with(
+            "gemini",
+            backend_type="aistudio",
+            api_key="g-secret",
+            base_url="https://g.relay.test",
+            rate_limiter=sentinel,
+            image_model="gemini-3.1-flash-image-preview",
+        )
+
+    @patch("lib.image_backends.registry.create_backend")
+    async def test_kling_image_api_model_name_decoupled_end_to_end(self, mock_create, session_factory):
+        # kling 特例族：双 secret overlay 真进闭包；api_model_name 解耦从 registry models 读到（别名键）
+        await _seed_provider_config(session_factory, "kling", access_key="ak-1", secret_key="sk-1")
+        resolver = ConfigResolver(session_factory)
+        await assemble_backend(
+            provider_id="kling", media_type="image", model_id="kling-v3-omni-image", resolver=resolver
+        )
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="jwt",
+            access_key="ak-1",
+            secret_key="sk-1",
+            model="kling-v3-omni-image",
+            api_model_name="kling-v3-omni",
+            base_url="https://api.klingai.com/v1",
+        )
+
 
 class TestAssembleCustomEndToEnd:
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
