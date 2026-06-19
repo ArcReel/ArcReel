@@ -1,6 +1,6 @@
 """Text backend factory tests.
 
-工厂构造已收口到 assemble_backend（media_type=text，见 docs/adr/0039）：文本工厂只解析
+工厂构造已收口到 assemble_backend（media_type=text）：文本工厂只解析
 provider/model，构造经统一缝下沉到 ProviderSpec 表。这些测试 mock 文本 registry 的 create_backend
 （spec 闭包最终调它），断言各内置文本 provider 的构造参数与 provider_name 计费归因透传零变化。
 """

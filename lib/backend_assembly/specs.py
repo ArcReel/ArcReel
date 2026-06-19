@@ -37,7 +37,7 @@ class ProviderSpec:
 def _media_create_backend(media_type: str) -> Callable[..., Any]:
     """按 media_type 取对应 registry 的 create_backend（运行时取，便于测试 patch 模块属性）。
 
-    text 与 image/video/audio 四条 media_type 共用同一缝（见 ADR 0039），文本 backend 注册在
+    text 与 image/video/audio 四条 media_type 共用同一构造缝，文本 backend 注册在
     独立的 lib.text_backends.registry，故在此分流。
     """
     if media_type == "image":
@@ -132,7 +132,7 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
 
 
 # ── kling 特例族 ──────────────────────────────────────────────────
-# JWT 直连：双 secret（access_key + secret_key，按 ADR 0037 列名直取，无条件透传含 None，由 backend 内
+# JWT 直连：双 secret（access_key + secret_key 按列名直取，无条件透传含 None，由 backend 内
 # resolve_kling_jwt_credentials 处理）+ auth_mode=jwt。base_url 兜底：db_config 显式填写 > registry
 # default_base_url > 不传（KlingBackend 自带 KLING_BASE_URL 兜底）。image 侧额外做 api_model_name 解耦
 # （两栖别名键如 kling-v3-omni-image 读 registry api_model_name 发真实 API 名）；video backend 不接受
@@ -368,9 +368,9 @@ _VALID_MEDIA_TYPES = frozenset({"image", "video", "audio", "text"})
 def _validate_provider_specs() -> None:
     """import 期校验内置表自身不变式，misconfig fail-fast（镜像 endpoints._validate_video_caps_declarations）。
 
-    只做不需 import 媒体后端的内表自洽检查：build 可调用、字典键与 spec 字段一致、media_type 合法。
-    「registry 名都在媒体后端 registry 里」需 import 全部 lib.{image,video,audio}_backends 才能断言，
-    为免轻量场景（CLI / 迁移）因 import 本缝而被动拉起全部后端，归入单测，不进 import 期（见 ADR 0039）。
+    只做不需 import 后端的内表自洽检查：build 可调用、字典键与 spec 字段一致、media_type 合法。
+    「registry 名都在对应后端 registry 里」需 import 全部 lib.{image,video,audio,text}_backends 才能断言，
+    为免轻量场景（CLI / 迁移）因 import 本缝而被动拉起全部后端，归入单测，不进 import 期。
     """
     for key, spec in PROVIDER_SPEC_REGISTRY.items():
         if not callable(spec.build_backend):

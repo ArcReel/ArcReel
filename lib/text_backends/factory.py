@@ -1,7 +1,7 @@
 """文本 backend 工厂。
 
 provider/model 解析仍在此（resolver.text_backend_for_task），backend 构造收口到统一缝
-assemble_backend（media_type=text，见 docs/adr/0039）：内置文本 provider 全部经 ProviderSpec 表，
+assemble_backend（media_type=text）：内置文本 provider 全部经 ProviderSpec 表，
 自定义 provider 经下移到 lib 的 load_custom_backend，文本侧不再各写一份命令式构造与自定义解析。
 """
 

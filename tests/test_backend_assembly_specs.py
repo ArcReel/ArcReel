@@ -193,13 +193,13 @@ class TestGeminiSpec:
 
     def test_bare_gemini_not_registered(self):
         # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
-        # 按 ADR 0039 fail-loud，不为死路径登记兜底行。
+        # fail-loud，不为死路径登记兜底行。
         assert ("gemini", "image") not in PROVIDER_SPEC_REGISTRY
         assert ("gemini", "video") not in PROVIDER_SPEC_REGISTRY
 
 
 class TestKlingSpec:
-    """kling 特例族：JWT 双 secret（access_key + secret_key 按 ADR 0037 列名直取）、auth_mode=jwt、
+    """kling 特例族：JWT 双 secret（access_key + secret_key 按列名直取）、auth_mode=jwt、
     image 侧 api_model_name 解耦（两栖别名键读 registry api_model_name）、base_url 兜底（db > registry default）。
     video backend 不接受 api_model_name —— 非对称，video 闭包不传。"""
 
@@ -479,7 +479,7 @@ class TestValidateProviderSpecs:
             _validate_provider_specs()
 
     def test_registry_backend_names_are_registered(self):
-        """ADR 0039：registry 名都在对应后端 registry 里 —— 归单测（import 全部后端无碍），不进 import 期。"""
+        """registry 名都在对应后端 registry 里 —— 归单测（import 全部后端无碍），不进 import 期。"""
         from lib.audio_backends import get_registered_backends as audio_names
         from lib.image_backends import get_registered_backends as image_names
         from lib.text_backends import get_registered_backends as text_names
