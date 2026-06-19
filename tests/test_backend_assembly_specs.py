@@ -281,6 +281,151 @@ class TestKlingSpec:
         )
 
 
+class TestTextSimpleSpec:
+    """简单文本族（ark / ark-agent-plan / grok）：model + api_key（无条件透传）+ base_url
+    （user > registry default，仅非空才传）。映射到文本 registry 的 create_backend，registry_backend
+    即 provider_id 自身。"""
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_ark_falls_back_to_registry_default(self, mock_create):
+        spec = get_provider_spec("ark", "text")
+        assert spec.registry_backend == "ark"
+        config = _loaded(credentials={"api_key": "ark-key"}, provider_id="ark")
+        spec.build_backend(config, "doubao-seed-2-0-lite-260215")
+        mock_create.assert_called_once_with(
+            "ark",
+            model="doubao-seed-2-0-lite-260215",
+            api_key="ark-key",
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
+        )
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_ark_agent_plan_uses_plan_base_url(self, mock_create):
+        spec = get_provider_spec("ark-agent-plan", "text")
+        assert spec.registry_backend == "ark-agent-plan"
+        config = _loaded(credentials={"api_key": "k"}, provider_id="ark-agent-plan")
+        spec.build_backend(config, "doubao-seed-2.0-lite")
+        mock_create.assert_called_once_with(
+            "ark-agent-plan",
+            model="doubao-seed-2.0-lite",
+            api_key="k",
+            base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+        )
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_user_base_url_wins(self, mock_create):
+        spec = get_provider_spec("ark", "text")
+        config = _loaded(credentials={"api_key": "k", "base_url": "https://relay.test/v3"}, provider_id="ark")
+        spec.build_backend(config, "m")
+        assert mock_create.call_args.kwargs["base_url"] == "https://relay.test/v3"
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_grok_no_default_no_user_omits_base_url(self, mock_create):
+        spec = get_provider_spec("grok", "text")
+        config = _loaded(credentials={"api_key": "grok-key"}, provider_id="grok")
+        spec.build_backend(config, "grok-4")
+        mock_create.assert_called_once_with("grok", model="grok-4", api_key="grok-key")
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_api_key_passed_unconditionally_even_when_missing(self, mock_create):
+        # 文本简单族 api_key 无条件透传（含 None）：保留迁移前命令式分支语义，
+        # 与媒体简单族「缺省省略」非对称。
+        spec = get_provider_spec("grok", "text")
+        config = _loaded(credentials={}, provider_id="grok")
+        spec.build_backend(config, "grok-4")
+        mock_create.assert_called_once_with("grok", model="grok-4", api_key=None)
+
+
+class TestTextGeminiSpec:
+    """gemini 文本：aistudio（base_url 无条件透传用户值）/ vertex（backend=vertex + gcs_bucket）
+    按 provider_id 分两行，registry_backend 同为 "gemini"。文本 gemini 不接受 rate_limiter。"""
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_aistudio_passes_user_base_url_unconditionally(self, mock_create):
+        spec = get_provider_spec("gemini-aistudio", "text")
+        assert spec.registry_backend == "gemini"
+        config = _loaded(credentials={"api_key": "g-key", "base_url": ""}, provider_id="gemini-aistudio")
+        spec.build_backend(config, "gemini-3-flash-preview")
+        # base_url 无条件透传（含空串），不回落 registry default
+        mock_create.assert_called_once_with(
+            "gemini",
+            model="gemini-3-flash-preview",
+            api_key="g-key",
+            base_url="",
+        )
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_vertex_uses_gcs_bucket_no_api_key(self, mock_create):
+        spec = get_provider_spec("gemini-vertex", "text")
+        assert spec.registry_backend == "gemini"
+        config = _loaded(credentials={"gcs_bucket": "my-bucket"}, provider_id="gemini-vertex")
+        spec.build_backend(config, "gemini-3-flash-preview")
+        mock_create.assert_called_once_with(
+            "gemini",
+            model="gemini-3-flash-preview",
+            backend="vertex",
+            gcs_bucket="my-bucket",
+        )
+
+
+class TestTextOpenAICompatSpec:
+    """OpenAI-compat 文本（openai / dashscope / minimax）都映射到 "openai" registry backend。
+    openai 直传用户 base_url；dashscope/minimax 经 helper 从 host 派生 base_url 并透传 provider_name
+    计费归因（保证 usage 记账命中自身 CNY 费率，非 OpenAI USD）。"""
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_openai_passes_user_base_url_no_provider_name(self, mock_create):
+        spec = get_provider_spec("openai", "text")
+        assert spec.registry_backend == "openai"
+        config = _loaded(credentials={"api_key": "oa", "base_url": "https://relay.test/v1"}, provider_id="openai")
+        spec.build_backend(config, "gpt-5")
+        mock_create.assert_called_once_with(
+            "openai",
+            model="gpt-5",
+            api_key="oa",
+            base_url="https://relay.test/v1",
+        )
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_dashscope_derives_base_url_and_passes_provider_name(self, mock_create):
+        spec = get_provider_spec("dashscope", "text")
+        assert spec.registry_backend == "openai"
+        config = _loaded(credentials={"api_key": "ds"}, provider_id="dashscope")
+        spec.build_backend(config, "qwen-max")
+        mock_create.assert_called_once_with(
+            "openai",
+            model="qwen-max",
+            api_key="ds",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            provider_name="dashscope",
+        )
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_dashscope_user_host_derives_compatible_mode_path(self, mock_create):
+        # 用户填自定义 host → helper 仍派生 /compatible-mode/v1 后缀
+        spec = get_provider_spec("dashscope", "text")
+        config = _loaded(
+            credentials={"api_key": "ds", "base_url": "https://dashscope-intl.aliyuncs.com"},
+            provider_id="dashscope",
+        )
+        spec.build_backend(config, "qwen-max")
+        assert mock_create.call_args.kwargs["base_url"] == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_minimax_derives_base_url_and_passes_provider_name(self, mock_create):
+        spec = get_provider_spec("minimax", "text")
+        assert spec.registry_backend == "openai"
+        config = _loaded(credentials={"api_key": "mm"}, provider_id="minimax")
+        spec.build_backend(config, "minimax-text-01")
+        mock_create.assert_called_once_with(
+            "openai",
+            model="minimax-text-01",
+            api_key="mm",
+            base_url="https://api.minimaxi.com/v1",
+            provider_name="minimax",
+        )
+
+
 class TestRegistryShape:
     def test_unknown_provider_media_fails_loud(self):
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
@@ -294,6 +439,24 @@ class TestRegistryShape:
         for provider in ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax"):
             assert (provider, "image") in PROVIDER_SPEC_REGISTRY
             assert (provider, "video") in PROVIDER_SPEC_REGISTRY
+
+    def test_text_family_complete(self):
+        # 文本八对：六 provider + gemini 两 id（aistudio/vertex）
+        text_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "text"}
+        assert text_keys == {
+            ("ark", "text"),
+            ("ark-agent-plan", "text"),
+            ("grok", "text"),
+            ("gemini-aistudio", "text"),
+            ("gemini-vertex", "text"),
+            ("openai", "text"),
+            ("dashscope", "text"),
+            ("minimax", "text"),
+        }
+
+    def test_bare_gemini_text_not_registered(self):
+        # 与媒体侧一致：裸 "gemini" 是死路径，resolver 只产出带后缀 id，fail-loud 不登记兜底行
+        assert ("gemini", "text") not in PROVIDER_SPEC_REGISTRY
 
 
 class TestValidateProviderSpecs:
@@ -316,12 +479,18 @@ class TestValidateProviderSpecs:
             _validate_provider_specs()
 
     def test_registry_backend_names_are_registered(self):
-        """ADR 0039：registry 名都在媒体后端 registry 里 —— 归单测（import 全部后端无碍），不进 import 期。"""
+        """ADR 0039：registry 名都在对应后端 registry 里 —— 归单测（import 全部后端无碍），不进 import 期。"""
         from lib.audio_backends import get_registered_backends as audio_names
         from lib.image_backends import get_registered_backends as image_names
+        from lib.text_backends import get_registered_backends as text_names
         from lib.video_backends import get_registered_backends as video_names
 
-        registered = {"image": set(image_names()), "video": set(video_names()), "audio": set(audio_names())}
+        registered = {
+            "image": set(image_names()),
+            "video": set(video_names()),
+            "audio": set(audio_names()),
+            "text": set(text_names()),
+        }
         for (_provider, media), spec in PROVIDER_SPEC_REGISTRY.items():
             assert spec.registry_backend in registered[media], (
                 f"{spec.registry_backend!r} 未注册到 {media} backend registry"

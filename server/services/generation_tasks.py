@@ -39,7 +39,6 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_VIDU
 from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import (
@@ -59,17 +58,6 @@ logger = logging.getLogger(__name__)
 
 # 按 (channel, provider_name, model) 缓存 Backend 实例，避免每次任务重建 API 客户端
 _backend_cache: dict[tuple[str, str, str | None], Any] = {}
-
-# 新 provider_id → 旧 backend registry name 的映射
-_PROVIDER_ID_TO_BACKEND: dict[str, str] = {
-    "gemini-aistudio": PROVIDER_GEMINI,
-    "gemini-vertex": PROVIDER_GEMINI,
-    PROVIDER_GEMINI: PROVIDER_GEMINI,
-    PROVIDER_ARK: PROVIDER_ARK,
-    PROVIDER_GROK: PROVIDER_GROK,
-    PROVIDER_OPENAI: PROVIDER_OPENAI,
-    PROVIDER_VIDU: PROVIDER_VIDU,
-}
 
 
 def get_project_manager() -> ProjectManager:
@@ -183,23 +171,17 @@ async def _resolve_video_backend(
     project_name: str,
     resolver: ConfigResolver,
     payload: dict | None,
-) -> tuple[Any | None, str, str, str]:
-    """解析并构造视频后端，返回 (video_backend, video_backend_type, video_model, provider_id)。
+) -> tuple[Any | None, str]:
+    """解析并构造视频后端，返回 (video_backend, provider_id)。
 
     provider/model 的**解析**是 ``resolver.resolve_video_backend`` 的薄投影；backend **构造**
     （``_get_or_create_video_backend``）留在原地。仅在 payload 存在时创建 VideoBackend，避免
-    图片任务因视频配置缺失而报错。注意：video_backend_type 仅在 video_backend 为 None
-    （回退到 GeminiClient）时生效。provider_id 是 registry id（参考图压缩按它查 per-provider 上限）。
+    图片任务因视频配置缺失而报错。provider_id 是 registry id（参考图压缩按它查 per-provider 上限）。
     """
     project = await asyncio.to_thread(get_project_manager().load_project, project_name) if payload else None
     resolved = await resolver.resolve_video_backend(project, payload)
 
     video_backend = None
-    video_backend_type = "aistudio"
-    mapped = _PROVIDER_ID_TO_BACKEND.get(resolved.provider_id, resolved.provider_id)
-    if mapped == PROVIDER_GEMINI:
-        video_backend_type = "vertex" if resolved.provider_id == "gemini-vertex" else "aistudio"
-
     if payload:
         provider_settings: dict = {"model": resolved.model_id} if resolved.model_id else {}
         video_backend = await _get_or_create_video_backend(
@@ -209,7 +191,7 @@ async def _resolve_video_backend(
             default_video_model=resolved.model_id or None,
         )
 
-    return video_backend, video_backend_type, resolved.model_id, resolved.provider_id
+    return video_backend, resolved.provider_id
 
 
 async def get_media_generator(
@@ -265,7 +247,7 @@ async def get_media_generator(
                 )
 
             # 解析 video backend（保持现有逻辑）
-            video_backend, _, _, video_provider_id = await _resolve_video_backend(
+            video_backend, video_provider_id = await _resolve_video_backend(
                 project_name,
                 r,
                 payload,

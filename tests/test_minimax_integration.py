@@ -82,7 +82,8 @@ class TestTextProviderBilling:
 
 class TestFactoryWiring:
     async def test_text_factory_uses_openai_backend_with_minimax_provider(self):
-        """provider=minimax 经 text 工厂 → OpenAI 后端，base_url 派生 /v1，provider_name 透传。"""
+        """provider=minimax 经 text 工厂 → assemble_backend → OpenAI 后端，base_url 派生 /v1，provider_name 透传。"""
+        import lib.text_backends.registry as text_registry
         from lib.text_backends import factory
 
         resolver = MagicMock()
@@ -101,7 +102,7 @@ class TestFactoryWiring:
 
         with (
             patch.object(factory, "ConfigResolver", return_value=resolver),
-            patch.object(factory, "create_backend", side_effect=_fake_create_backend),
+            patch.object(text_registry, "create_backend", side_effect=_fake_create_backend),
         ):
             await factory.create_text_backend_for_task("script")
 

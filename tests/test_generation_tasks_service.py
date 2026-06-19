@@ -655,8 +655,8 @@ class TestGenerationTasks:
 
         async def _fake_resolve_video_backend(project_name, resolver, payload):
             assert project_name == "demo"
-            # 4 元组：(video_backend, video_backend_type, video_model, provider_id)
-            return fake_video_backend, "unused", "video-model", "gemini-aistudio"
+            # 2 元组：(video_backend, provider_id)
+            return fake_video_backend, "gemini-aistudio"
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)

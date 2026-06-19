@@ -94,6 +94,30 @@ class TestAssembleBuiltinEndToEnd:
             image_model="gemini-3.1-flash-image-preview",
         )
 
+    @patch("lib.text_backends.registry.create_backend")
+    async def test_text_simple_end_to_end(self, mock_create, session_factory):
+        # 文本简单族：凭证 overlay 经装载真进构造参数，base_url 回落 registry default
+        await _seed_provider_config(session_factory, "ark", api_key="ark-secret")
+        resolver = ConfigResolver(session_factory)
+        await assemble_backend(provider_id="ark", media_type="text", model_id="doubao-x", resolver=resolver)
+        mock_create.assert_called_once_with(
+            "ark", model="doubao-x", api_key="ark-secret", base_url="https://ark.cn-beijing.volces.com/api/v3"
+        )
+
+    @patch("lib.text_backends.registry.create_backend")
+    async def test_text_dashscope_compat_end_to_end(self, mock_create, session_factory):
+        # dashscope 文本 OpenAI-compat：base_url 经 helper 派生、透传 provider_name 计费归因，端到端经缝
+        await _seed_provider_config(session_factory, "dashscope", api_key="ds-secret")
+        resolver = ConfigResolver(session_factory)
+        await assemble_backend(provider_id="dashscope", media_type="text", model_id="qwen-max", resolver=resolver)
+        mock_create.assert_called_once_with(
+            "openai",
+            model="qwen-max",
+            api_key="ds-secret",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            provider_name="dashscope",
+        )
+
     @patch("lib.image_backends.registry.create_backend")
     async def test_kling_image_api_model_name_decoupled_end_to_end(self, mock_create, session_factory):
         # kling 特例族：双 secret overlay 真进闭包；api_model_name 解耦从 registry models 读到（别名键）
@@ -143,3 +167,33 @@ class TestAssembleCustomEndToEnd:
         result = await assemble_backend(provider_id=pid, media_type="image", model_id="dall-e-3", resolver=resolver)
         assert isinstance(result, CustomImageBackend)
         mock_cls.assert_called_once_with(api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3")
+
+    @patch("lib.custom_provider.endpoints.OpenAITextBackend")
+    async def test_custom_text_provider_delegates_to_loader(self, mock_cls, session_factory):
+        # 文本自定义路径与媒体共用 load_custom_backend：text media_type 同经统一缝
+        from lib.custom_provider import make_provider_id
+        from lib.custom_provider.backends import CustomTextBackend
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with session_factory() as s:
+            repo = CustomProviderRepository(s)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": "gpt-5",
+                        "display_name": "gpt-5",
+                        "endpoint": "openai-chat",
+                        "is_enabled": True,
+                    }
+                ],
+            )
+            await s.commit()
+            pid = make_provider_id(provider.id)
+
+        resolver = ConfigResolver(session_factory)
+        result = await assemble_backend(provider_id=pid, media_type="text", model_id="gpt-5", resolver=resolver)
+        assert isinstance(result, CustomTextBackend)
