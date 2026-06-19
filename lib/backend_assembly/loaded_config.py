@@ -23,4 +23,6 @@ class LoadedConfig:
 
     credentials: dict[str, str | None]
     provider_meta: ProviderMeta | None
+    # 简单族 _build_simple 不消费 rate_limiter（与迁移前 _fill_simple_provider_kwargs 一致：限流由
+    # 简单后端各自的 httpx 客户端内建）；信封预留此槽供后续迁入的特例族 build 闭包（如 gemini 媒体）读取。
     rate_limiter: Any | None

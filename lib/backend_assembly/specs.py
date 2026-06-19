@@ -72,14 +72,16 @@ def _simple_spec(provider_id: str, media_type: str) -> ProviderSpec:
 
 # ── PROVIDER_SPEC_REGISTRY 注册表 ──────────────────────────────────
 # 键 = (provider_id, media_type)。简单族 = 媒体侧只需 api_key + model + base_url 的内置 provider，
-# 共享 _build_simple 闭包。「简单族」按构造形态界定（不是 provider 名白名单），含 ark/grok/openai/vidu
-# 与 dashscope/minimax（后两者媒体侧走原生简单构造；其文本侧 OpenAI-compat 特例由文本工厂另行处理）。
-# 每对显式登记一行，fail-loud（未登记的 provider × media 抛 ValueError，不「缺席即默认」造静默
-# 错误 backend）。只登记今天确有注册 backend 的对：image/video 简单族六家齐全，audio 仅 dashscope。
+# 共享 _build_simple 闭包。「简单族」按构造形态界定（不是 provider 名白名单），含 ark/ark-agent-plan/
+# grok/openai/vidu 与 dashscope/minimax（后两者媒体侧走原生简单构造；其文本侧 OpenAI-compat 特例由
+# 文本工厂另行处理）。ark-agent-plan 媒体侧复用 Ark image/video backend（registry 同名注册），与 ark
+# 同为简单形态。每对显式登记一行，fail-loud（未登记的 provider × media 抛 ValueError，不「缺席即默认」
+# 造静默错误 backend）。只登记今天确有注册 backend 的对：image/video 简单族七家齐全，audio 仅 dashscope。
 
+_SIMPLE_IMAGE_VIDEO_PROVIDERS = ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax")
 _SIMPLE_MEDIA_PAIRS: list[tuple[str, str]] = [
-    *((p, "image") for p in ("ark", "grok", "openai", "vidu", "dashscope", "minimax")),
-    *((p, "video") for p in ("ark", "grok", "openai", "vidu", "dashscope", "minimax")),
+    *((p, "image") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS),
+    *((p, "video") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS),
     ("dashscope", "audio"),
 ]
 

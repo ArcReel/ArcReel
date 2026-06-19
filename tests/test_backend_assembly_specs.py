@@ -55,6 +55,20 @@ class TestBuildSimpleBaseUrlPriority:
             "ark", api_key="sk-test", model="model-x", base_url="https://custom.example.com/v3"
         )
 
+    @patch("lib.video_backends.registry.create_backend")
+    def test_ark_agent_plan_uses_own_plan_base_url(self, mock_create):
+        # ark-agent-plan 媒体侧复用 Ark backend，但 registry default 是独立的 /api/plan/v3
+        # （非 ark 的 /api/v3）——回归保护：迁移前经简单族构造即取此值，新缝须一致。
+        spec = get_provider_spec("ark-agent-plan", "video")
+        config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
+        spec.build_backend(config, "doubao-seedance-2.0")
+        mock_create.assert_called_once_with(
+            "ark-agent-plan",
+            api_key="sk-test",
+            model="doubao-seedance-2.0",
+            base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+        )
+
     @patch("lib.image_backends.registry.create_backend")
     def test_grok_image_no_default_no_user_omits_base_url(self, mock_create):
         # grok 无 registry default 且用户未配 → 不传 base_url（grok backend 不接受该参数）
@@ -96,7 +110,7 @@ class TestRegistryShape:
         assert audio_keys == {("dashscope", "audio")}
 
     def test_simple_family_image_video_complete(self):
-        for provider in ("ark", "grok", "openai", "vidu", "dashscope", "minimax"):
+        for provider in ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax"):
             assert (provider, "image") in PROVIDER_SPEC_REGISTRY
             assert (provider, "video") in PROVIDER_SPEC_REGISTRY
 
