@@ -77,6 +77,15 @@ class TestBuildSimpleBaseUrlPriority:
         spec.build_backend(config, "grok-2-image")
         mock_create.assert_called_once_with("grok", api_key="sk-test", model="grok-2-image")
 
+    @patch("lib.image_backends.registry.create_backend")
+    def test_missing_api_key_omitted_so_sdk_env_fallback_survives(self, mock_create):
+        # 用户未配 api_key → 不传 api_key（而非传 None）：让 backend 各自决定环境变量兜底
+        # （OpenAI SDK 读 OPENAI_API_KEY）或 fail-loud；显式 None 会覆盖兜底。
+        spec = get_provider_spec("openai", "image")
+        config = _loaded(credentials={}, provider_id="openai")
+        spec.build_backend(config, "gpt-image-1")
+        mock_create.assert_called_once_with("openai", model="gpt-image-1")
+
 
 class TestMediaRegistryRouting:
     """_build_simple 按 media_type 选对应 registry 的 create_backend（唯一分支逻辑）。"""

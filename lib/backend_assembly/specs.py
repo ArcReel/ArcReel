@@ -45,14 +45,15 @@ def _media_create_backend(media_type: str) -> Callable[..., Any]:
 def _build_simple(config: LoadedConfig, model_id: str | None, *, media_type: str, registry_backend: str) -> Any:
     """简单族通用构造：api_key + model + base_url。
 
-    base_url 优先级：用户在 db_config 显式填写 > ProviderMeta.default_base_url > 不传。只在结果
-    非空时传入 kwargs —— grok 等无 default 且用户未配的 provider 不接受 base_url 参数，传 None
-    会触发 TypeError。
+    api_key 与 base_url 同遵「仅非空才写入 kwargs」：显式传 None 可能覆盖底层 SDK 的环境变量兜底
+    （如 OpenAI SDK 读 OPENAI_API_KEY），缺省由 backend 各自处理（要么读环境变量、要么 fail-loud）。
+    base_url 优先级：用户在 db_config 显式填写 > ProviderMeta.default_base_url > 不传 —— grok 等无
+    default 且用户未配的 provider 不接受 base_url 参数，传 None 会触发 TypeError。
     """
-    kwargs: dict[str, Any] = {
-        "api_key": config.credentials.get("api_key"),
-        "model": model_id,
-    }
+    kwargs: dict[str, Any] = {"model": model_id}
+    api_key = config.credentials.get("api_key")
+    if api_key:
+        kwargs["api_key"] = api_key
     default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
     base_url = config.credentials.get("base_url") or default_base_url
     if base_url:
