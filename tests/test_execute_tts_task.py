@@ -130,37 +130,38 @@ class TestExecuteTtsTask:
 
 
 class TestGetOrCreateAudioBackend:
-    async def test_custom_provider_routes_to_custom_factory(self, monkeypatch):
+    """audio backend 构造统一委托 assemble_backend；缓存留在调用方编排层。"""
+
+    async def test_custom_provider_routes_through_assemble(self, monkeypatch):
         sentinel = object()
         calls = []
 
-        async def _fake_create_custom(provider_name, model_id, media_type):
-            calls.append((provider_name, model_id, media_type))
+        async def _fake_assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+            calls.append((provider_id, media_type, model_id))
             return sentinel
 
-        monkeypatch.setattr(generation_tasks, "_create_custom_backend", _fake_create_custom)
+        monkeypatch.setattr(generation_tasks, "assemble_backend", _fake_assemble)
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
-        resolver = cast(ConfigResolver, None)  # 自定义供应商分支不会触达 resolver
+        resolver = cast(ConfigResolver, None)
         b1 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
         b2 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
 
         assert b1 is sentinel and b2 is sentinel
-        assert calls == [("custom-3", "tts-1", "audio")], "第二次调用须命中缓存，不再重建 backend"
+        assert calls == [("custom-3", "audio", "tts-1")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_builtin_created_and_cached(self, monkeypatch):
         created = []
         sentinel = object()
 
-        def _fake_create(name, **kwargs):
-            created.append((name, kwargs))
+        async def _fake_assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+            created.append((provider_id, media_type, model_id))
             return sentinel
 
-        monkeypatch.setattr("lib.audio_backends.create_backend", _fake_create)
-        monkeypatch.setattr(generation_tasks, "_fill_simple_provider_kwargs", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "assemble_backend", _fake_assemble)
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
-        resolver = cast(ConfigResolver, None)  # _fill_simple_provider_kwargs 已 mock，不触达 resolver
+        resolver = cast(ConfigResolver, None)
         b1 = await generation_tasks._get_or_create_audio_backend(
             "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
@@ -168,32 +169,25 @@ class TestGetOrCreateAudioBackend:
             "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
         assert b1 is sentinel and b2 is sentinel
-        assert len(created) == 1, "第二次调用须命中缓存，不再重建 backend"
+        assert created == [("dashscope", "audio", "qwen3-tts-flash")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_payload_model_overrides_default(self, monkeypatch):
-        created = []
+        calls = []
 
-        def _fake_create(name, **kwargs):
-            created.append(name)
+        async def _fake_assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+            calls.append(model_id)
             return object()
 
-        monkeypatch.setattr("lib.audio_backends.create_backend", _fake_create)
-
-        filled = []
-
-        async def _fake_fill(backend_name, resolver, kwargs, effective_model):
-            filled.append(effective_model)
-
-        monkeypatch.setattr(generation_tasks, "_fill_simple_provider_kwargs", _fake_fill)
+        monkeypatch.setattr(generation_tasks, "assemble_backend", _fake_assemble)
         monkeypatch.setattr(generation_tasks, "_backend_cache", {})
 
         await generation_tasks._get_or_create_audio_backend(
             "dashscope",
             {"model": "explicit-model"},
-            cast(ConfigResolver, None),  # _fill_simple_provider_kwargs 已 mock，不触达 resolver
+            cast(ConfigResolver, None),
             default_audio_model="fallback-model",
         )
-        assert filled == ["explicit-model"]
+        assert calls == ["explicit-model"]
 
 
 class TestGetMediaGeneratorNeedsAudio:

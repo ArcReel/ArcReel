@@ -105,7 +105,7 @@ async def create_text_backend_for_task(
             kwargs["provider_name"] = PROVIDER_MINIMAX
         else:
             # ark / ark-agent-plan 等：用户优先，缺省回落 ProviderMeta.default_base_url
-            # （与 server.services.generation_tasks._fill_simple_provider_kwargs 对称）。
+            # （与简单族媒体 backend 构造的 base_url 优先级对称）。
             meta = PROVIDER_REGISTRY.get(provider_id)
             base_url = user_base_url or (meta.default_base_url if meta else None)
             if base_url:

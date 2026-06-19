@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
+from lib.backend_assembly import assemble_backend
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID
@@ -101,60 +102,6 @@ async def _resolve_effective_image_backend(
     return await resolver.resolve_image_backend(project, payload, capability=capability)
 
 
-async def _create_custom_backend(provider_name: str, model_id: str | None, media_type: str):
-    """自定义供应商的 backend 创建路径。
-
-    media_type 仅用于回退到默认模型时分组（仍接收以兼容调用方调用语义）。
-    实际派发以 model.endpoint 为准；若 endpoint 推算 media_type 与 caller 传入不符 → 视为模型不存在并 fallback。
-    """
-    from lib.custom_provider import parse_provider_id
-    from lib.custom_provider.endpoints import endpoint_to_media_type
-    from lib.custom_provider.factory import create_custom_backend
-    from lib.db import async_session_factory
-    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-    async with async_session_factory() as session:
-        repo = CustomProviderRepository(session)
-        db_id = parse_provider_id(provider_name)
-        provider = await repo.get_provider(db_id)
-        if provider is None:
-            raise ValueError(f"自定义供应商 {provider_name} 不存在")
-
-        model = None
-        if model_id:
-            from sqlalchemy import select
-
-            from lib.db.models.custom_provider import CustomProviderModel
-
-            stmt = select(CustomProviderModel).where(
-                CustomProviderModel.provider_id == db_id,
-                CustomProviderModel.model_id == model_id,
-                CustomProviderModel.is_enabled == True,  # noqa: E712
-            )
-            result = await session.execute(stmt)
-            candidate = result.scalar_one_or_none()
-            if candidate and endpoint_to_media_type(candidate.endpoint) == media_type:
-                model = candidate
-            else:
-                logger.warning(
-                    "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 %s），回退到默认模型",
-                    provider_name,
-                    model_id,
-                    media_type,
-                )
-                model_id = None
-
-        if model is None:
-            default_model = await repo.get_default_model(db_id, media_type)
-            if default_model is None:
-                raise ValueError(f"自定义供应商 {provider_name} 没有默认 {media_type} 模型")
-            model = default_model
-            model_id = default_model.model_id
-
-        assert model_id is not None
-        return create_custom_backend(provider=provider, model_id=model_id, endpoint=model.endpoint)
-
-
 async def _get_or_create_video_backend(
     provider_name: str,
     provider_settings: dict,
@@ -175,14 +122,18 @@ async def _get_or_create_video_backend(
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
 
-    # 自定义供应商走独立工厂路径
-    if is_custom_provider(provider_name):
-        backend = await _create_custom_backend(provider_name, effective_model, "video")
+    # 自定义供应商 + 简单族经统一构造缝；gemini/kling 媒体特例暂留下方命令式分支
+    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
+    if is_custom_provider(provider_name) or backend_name not in (PROVIDER_GEMINI, PROVIDER_KLING):
+        backend = await assemble_backend(
+            provider_id=provider_name,
+            media_type="video",
+            model_id=effective_model,
+            resolver=resolver,
+            rate_limiter=rate_limiter,
+        )
         _backend_cache[cache_key] = backend
         return backend
-
-    # 解析 provider_id → backend registry name
-    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
 
     kwargs: dict = {}
     if backend_name == PROVIDER_GEMINI:
@@ -199,7 +150,7 @@ async def _get_or_create_video_backend(
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["video_model"] = effective_model
-    elif backend_name == PROVIDER_KLING:
+    else:  # PROVIDER_KLING
         # 可灵 JWT 直连：双 secret（access_key + secret_key）而非单 api_key（见 ADR 0037）。
         db_config = await resolver.provider_config(PROVIDER_KLING)
         kwargs["auth_mode"] = "jwt"
@@ -209,33 +160,10 @@ async def _get_or_create_video_backend(
         base_url = db_config.get("base_url") or (PROVIDER_REGISTRY[PROVIDER_KLING].default_base_url)
         if base_url:
             kwargs["base_url"] = base_url
-    else:
-        await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
 
     backend = create_backend(backend_name, **kwargs)
     _backend_cache[cache_key] = backend
     return backend
-
-
-async def _fill_simple_provider_kwargs(
-    backend_name: str,
-    resolver: ConfigResolver,
-    kwargs: dict,
-    effective_model: str | None,
-) -> None:
-    """Ark/Grok/OpenAI 等简单供应商的通用配置填充。
-
-    base_url 优先级：用户在 DB 配置中显式填写 > ProviderMeta.default_base_url > 不传。
-    """
-    from lib.config.registry import PROVIDER_REGISTRY
-
-    db_config = await resolver.provider_config(backend_name)
-    kwargs["api_key"] = db_config.get("api_key")
-    kwargs["model"] = effective_model
-    meta = PROVIDER_REGISTRY.get(backend_name)
-    base_url = db_config.get("base_url") or (meta.default_base_url if meta else None)
-    if base_url:
-        kwargs["base_url"] = base_url
 
 
 async def _get_or_create_image_backend(
@@ -253,13 +181,18 @@ async def _get_or_create_image_backend(
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
 
-    # 自定义供应商走独立工厂路径
-    if is_custom_provider(provider_name):
-        backend = await _create_custom_backend(provider_name, effective_model, "image")
+    # 自定义供应商 + 简单族经统一构造缝；gemini/kling 媒体特例暂留下方命令式分支
+    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
+    if is_custom_provider(provider_name) or backend_name not in (PROVIDER_GEMINI, PROVIDER_KLING):
+        backend = await assemble_backend(
+            provider_id=provider_name,
+            media_type="image",
+            model_id=effective_model,
+            resolver=resolver,
+            rate_limiter=rate_limiter,
+        )
         _backend_cache[cache_key] = backend
         return backend
-
-    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
 
     kwargs: dict = {}
     if backend_name == PROVIDER_GEMINI:
@@ -273,7 +206,7 @@ async def _get_or_create_image_backend(
         kwargs["base_url"] = db_config.get("base_url")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["image_model"] = effective_model
-    elif backend_name == PROVIDER_KLING:
+    else:  # PROVIDER_KLING
         # 可灵 JWT 直连：双 secret（access_key + secret_key）而非单 api_key（见 ADR 0037）。
         meta = PROVIDER_REGISTRY[PROVIDER_KLING]
         db_config = await resolver.provider_config(PROVIDER_KLING)
@@ -288,8 +221,6 @@ async def _get_or_create_image_backend(
         base_url = db_config.get("base_url") or meta.default_base_url
         if base_url:
             kwargs["base_url"] = base_url
-    else:
-        await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
 
     backend = create_backend(backend_name, **kwargs)
     _backend_cache[cache_key] = backend
@@ -304,23 +235,19 @@ async def _get_or_create_audio_backend(
     default_audio_model: str | None = None,
 ):
     """获取或创建 AudioBackend 实例（带缓存）。"""
-    from lib.audio_backends import create_backend
-
     effective_model = provider_settings.get("model") or default_audio_model or None
     cache_key = ("audio", provider_name, effective_model)
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
 
-    # 自定义供应商走独立工厂路径
-    if is_custom_provider(provider_name):
-        backend = await _create_custom_backend(provider_name, effective_model, "audio")
-        _backend_cache[cache_key] = backend
-        return backend
-
-    backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
-    kwargs: dict = {}
-    await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
-    backend = create_backend(backend_name, **kwargs)
+    # audio 无 gemini/kling 媒体特例：自定义 + 简单族统一经构造缝
+    backend = await assemble_backend(
+        provider_id=provider_name,
+        media_type="audio",
+        model_id=effective_model,
+        resolver=resolver,
+        rate_limiter=rate_limiter,
+    )
     _backend_cache[cache_key] = backend
     return backend
 
@@ -420,9 +347,9 @@ async def get_media_generator(
     return MediaGenerator(
         project_path,
         rate_limiter=rate_limiter,
-        image_backend=image_backend,  # type: ignore[arg-type]
-        video_backend=video_backend,  # type: ignore[arg-type]
-        audio_backend=audio_backend,  # type: ignore[arg-type]
+        image_backend=image_backend,
+        video_backend=video_backend,
+        audio_backend=audio_backend,
         config_resolver=resolver,
         user_id=user_id,
         image_provider_id=image_provider_id,

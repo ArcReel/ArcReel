@@ -777,7 +777,7 @@ async def test_provider_connection(
     config = await svc.get_provider_config(provider_id)
     cred.overlay_config(config)
 
-    # 与 generation_tasks._fill_simple_provider_kwargs 对称：用户未显式配 base_url
+    # 与简单族 backend 构造的 base_url 优先级对称：用户未显式配 base_url
     # 时，注入 ProviderMeta.default_base_url，使连接测试命中正确 endpoint。
     if not config.get("base_url"):
         meta = PROVIDER_REGISTRY.get(provider_id)

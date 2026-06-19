@@ -318,8 +318,8 @@ async def execute_reference_video_task(
     #    ScriptGenerator._fetch_video_capabilities 的口径保持一致。
     #
     #    注意：caps 基于 `project.json.video_backend` 解析；但自定义 provider 的 model
-    #    被禁用时，`_create_custom_backend` 会静默回退到默认启用 model（见
-    #    server/services/generation_tasks.py:99-122）。为避免"按旧模型 clamp、按新模型生成"
+    #    被禁用时，`lib.custom_provider.loader.load_custom_backend` 会静默回退到默认启用
+    #    model。为避免"按旧模型 clamp、按新模型生成"
     #    的错位，下面校验 caps.model 与 backend.model 是否一致；不一致就 skip clamp，
     #    把决策推给 backend 自报错。根治需要 `VideoCapabilities` 协议暴露 `max_duration`，
     #    本 PR 范围内先缓解。
