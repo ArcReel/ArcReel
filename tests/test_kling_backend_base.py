@@ -42,6 +42,8 @@ class TestSingleSourceScaffolding:
         assert "model" in vars(KlingBackendBase)
         assert "name" not in vars(KlingImageBackend)
         assert "name" not in vars(KlingVideoBackend)
+        assert "model" not in vars(KlingImageBackend)
+        assert "model" not in vars(KlingVideoBackend)
 
     def test_submit_and_poll_skeleton_on_base(self):
         # submit/poll 的 retry 骨架由基类提供。
