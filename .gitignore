@@ -78,6 +78,9 @@ frontend/.vite/
 # Claude Code 本地配置（.worktreeinclude 据此复制到新 worktree）
 .claude/settings.local.json
 
+# AFK 团队执行的批次账本（afk-team-workflow，本地运维状态，不提交）
+.afk/
+
 # Superpowers (Claude Code plugin cache)
 .superpowers/
 

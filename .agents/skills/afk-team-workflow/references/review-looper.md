@@ -13,4 +13,4 @@
 
 ## 交付与退役
 
-目标状态终核通过后 SendMessage 向 lead 汇报：达标结论、轮数概要、pushback 在案清单、ADR 候选（如有）。等待 lead 执行合并，确认合并完成后退役。
+目标状态终核通过后 SendMessage 向 lead 汇报：达标结论、轮数概要、pushback 在案清单，以及 pr-ai-review-loop 退出时按其 references/retrospective.md 产出的复盘候选（过程总结 + ADR / CONTEXT.md / follow-up 三类候选，多数情况为空）。复盘候选随达标报告交给 lead，不直接呈用户——与本流程其它请示一致，由 lead 在收尾时聚合全部 per-PR 复盘统一呈用户。等待 lead 执行合并，确认合并完成后退役。

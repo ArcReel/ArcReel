@@ -65,7 +65,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 | 至少一家有本轮新 actionable 评论(判定见 reviewers.md) | 进入步骤 3 |
 | `security_alerts.open_introduced` 非空但无对应新评论 | 上一轮没修干净(bot 不重复提醒)——把 alert 数据(rule / path / url)直接带入步骤 3,按数据修而非按评论修。前提:CodeQL 分析完成且成功(门槛 1 口径)——分析未完成时差集基于过期数据,归入下行等待 |
 | CodeQL 分析未完成 | 等待(不阻塞其它缺口的处理,但阻塞终核——分析完成前不得宣布"缺口均消失") |
-| 以上缺口均消失 | 做目标状态**终核**(含 CodeQL 门槛逐条);全过则退出循环并简短汇报,发现遗留则按对应缺口处理 |
+| 以上缺口均消失 | 做目标状态**终核**(含 CodeQL 门槛逐条);全过则正常退出:退出前按 [references/retrospective.md](references/retrospective.md) 产出复盘、随简短汇报交出;发现遗留则按对应缺口处理 |
 | 未全部达成且无可执行动作(reviewer 响应中) | 按「轮询节奏」表等待下一轮 |
 
 **fix-up 跳过**:发触发命令前先跑 `classify_commits.sh`;若本轮 push 全为 fix-up(nit、format、typo、单字段调整、小 bug 修复)**且该家对上一已审 HEAD 已通过**,跳过手动触发 Gemini 与 Codex,沿用其通过结论(顺延口径见 reviewers.md);该家还有未解决评论时不得跳过。本跳过仅作用于需手动触发的 Gemini / Codex——CodeRabbit 自动跟审每次 push,不在跳过范围,最终 HEAD 始终有它过目。例外:Gemini cold-start fallback 不受此限(该场景下整个 PR 还没经过任何 Gemini review)。
@@ -101,7 +101,7 @@ JSON 解析后仅保留在对话上下文中,不落盘。
 1. `round_estimate` ≥ 8 → 暂停询问"已 8 轮,merge / 继续 / 放弃?"
 2. 连续 2 轮 push 全为 nit / format 形状(跑 `classify_commits.sh` 看最近两批)→ 暂停询问"边际收益已降低,是否结束?"
 3. 同一主题在 ≥ 3 个 HEAD 上被反复提出(与「运行模式」调度类暂停联动)→ 暂停询问是否升级 ADR
-4. 目标状态全部达成 → 正常退出
+4. 目标状态全部达成 → 正常退出(退出前按 [references/retrospective.md](references/retrospective.md) 产出复盘,随汇报交出;这是唯一会产复盘的出口,#1–#3 的暂停升级不走复盘)
 
 ## 故障处理
 
