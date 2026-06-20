@@ -39,8 +39,9 @@
 #
 # LIFECYCLE (the skill drives this; the script only appends)
 #   - First append happens when the user confirms the plan (the pre-authorization /
-#     plan decision), which also creates .afk/ and the file. Carry the batch scope on
-#     this first line (--scope-prd / --scope-issues) so recovery can rebuild the members.
+#     plan decision), which also creates .afk/ and the file. This first line MUST carry
+#     the batch scope (--scope-prd / --scope-issues, enforced below) so recovery can
+#     rebuild the members.
 #   - Events append throughout the run.
 #   - The batch ends with a `closed` line. The file is NOT deleted — it is the
 #     retrospective/audit source, and recovery treats a `closed` line as the terminal
@@ -125,6 +126,11 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 mkdir -p .afk
 LEDGER_FILE=".afk/${BATCH_ID}.jsonl"
+
+# the first line of a batch must carry scope, else recovery cannot rebuild the member set
+if [[ ! -s "$LEDGER_FILE" && "$SCOPE_JSON" == "null" ]]; then
+  die "first ledger line needs --scope-prd or --scope-issues (recovery rebuilds members from it)"
+fi
 
 jq -nc \
   --arg ts "$TS" \
