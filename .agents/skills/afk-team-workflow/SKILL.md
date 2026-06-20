@@ -89,7 +89,7 @@ bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> <kind> [--iss
 ```
 
 - **batch-id**：PRD 批次用 `prd-<N>`；显式 issue 批次用一个 slug（lead 是普通会话，可用 `date` 生成 `batch-<日期>`）
-- **scope（首条必带）**：第二步写首条时一并记录批次成员——PRD 批次 `--scope-prd <N>`，slug 批次 `--scope-issues "1,2,3"`。slug 的 batch-id 不编码成员，崩溃恢复靠首条的结构化 `scope` 重建 `batch-poll --issues` 输入，而非解析自由文本 detail
+- **scope（首条必填）**：首条记录批次成员，PRD 批次用 `--scope-prd <N>`，slug 批次用 `--scope-issues "1,2,3"`。slug 的 batch-id 不含成员信息，恢复时据首条 `scope` 重建 `--issues` 参数，不必解析自由文本 detail
 - **全程 append，按 kind 落账**：`decision`（计划裁决）、`authorization`（用户口头授权）、`fault`（吸收的故障 / 停用的 reviewer）、`gap`（已浮现的 PRD 缺口）、`shelve`（搁置为 needs-human 的 issue 及争点）、`merge`（已执行的合并）、`retrospective`（review-looper 交来的 per-PR 复盘）、`closed`（收尾终态行）
 - **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
 

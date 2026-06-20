@@ -6,7 +6,7 @@ lead 崩溃是小概率事件，本契约是兜底而非常设机制。仅当 SK
 
 ## 1. 确认是否需要恢复
 
-入口扫描已选出缺 `closed` 行的账本。对其 batch-id 跑一次 poll：`prd-<N>` 的成员由 batch-id 直接编码，用 `--prd <N>`；slug 批次的 batch-id 不编码成员，从账本首条的结构化 `scope.issues` 取成员跑 `--issues`（首条未带 `scope` 的旧账本无法机械重建成员，需回退人工确认范围）：
+入口扫描已选出缺 `closed` 行的账本。对其 batch-id 跑一次 poll：`prd-<N>` 批次的 N 已在 batch-id 中，直接 `--prd <N>`；slug 批次的 batch-id 不含成员，成员取自账本首条的 `scope.issues`，据此 `--issues`（旧账本首条若无 `scope`，恢复无法自动确定成员，须人工指定范围）：
 
 - 每个 issue 的 `stage_hint` 均为 `done` / `shelved` → 批次实际已收敛，仅前任 lead 未及写 `closed`。用 `ledger.sh <batch-id> closed` 补收尾行、按 SKILL.md 收尾节补发汇报即可，无需接管。
 - 存在非终态 issue（`no-branch` / `local-review` / `review-loop`）→ 进入下方接管流程。
