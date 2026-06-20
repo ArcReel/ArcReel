@@ -135,49 +135,38 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
 # ── kling 特例族 ──────────────────────────────────────────────────
 # JWT 直连：双 secret（access_key + secret_key 按列名直取，无条件透传含 None，由 backend 内
 # resolve_kling_jwt_credentials 处理）+ auth_mode=jwt。base_url 兜底：db_config 显式填写 > registry
-# default_base_url > 不传（KlingBackend 自带 KLING_BASE_URL 兜底）。image 侧额外做 api_model_name 解耦
-# （两栖别名键如 kling-v3-omni-image 读 registry api_model_name 发真实 API 名）；video backend 不接受
-# api_model_name 参数，video 闭包不传（保留迁移前非对称）。
+# default_base_url > 不传（KlingBackend 自带 KLING_BASE_URL 兜底）。image/video 共用单一构造 helper，
+# 仅 image 侧额外注入 api_model_name 解耦（两栖别名键如 kling-v3-omni-image 读 registry api_model_name
+# 发真实 API 名）；video backend 不接受 api_model_name 参数，故该注入仅对 image media_type 生效。
 
 _KLING_REGISTRY_BACKEND = "kling"
 
 
-def _build_kling_image(config: LoadedConfig, model_id: str | None) -> Any:
+def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str) -> Any:
+    """kling 通用构造：JWT 双 secret + auth_mode=jwt + base_url 兜底；image 侧叠加 api_model_name 注入。"""
     kwargs: dict[str, Any] = {
         "auth_mode": "jwt",
         "access_key": config.credentials.get("access_key"),
         "secret_key": config.credentials.get("secret_key"),
         "model": model_id,
     }
-    model_info = config.provider_meta.models.get(model_id) if (config.provider_meta and model_id) else None
-    if model_info is not None and model_info.api_model_name:
-        kwargs["api_model_name"] = model_info.api_model_name
+    if media_type == "image":
+        # 两栖别名键读 registry api_model_name 发真实 API 名；video backend 不接受该参数，仅 image 注入。
+        model_info = config.provider_meta.models.get(model_id) if (config.provider_meta and model_id) else None
+        if model_info is not None and model_info.api_model_name:
+            kwargs["api_model_name"] = model_info.api_model_name
     base_url = _resolve_base_url(config)
     if base_url:
         kwargs["base_url"] = base_url
-    return _media_create_backend("image")(_KLING_REGISTRY_BACKEND, **kwargs)
-
-
-def _build_kling_video(config: LoadedConfig, model_id: str | None) -> Any:
-    kwargs: dict[str, Any] = {
-        "auth_mode": "jwt",
-        "access_key": config.credentials.get("access_key"),
-        "secret_key": config.credentials.get("secret_key"),
-        "model": model_id,
-    }
-    base_url = _resolve_base_url(config)
-    if base_url:
-        kwargs["base_url"] = base_url
-    return _media_create_backend("video")(_KLING_REGISTRY_BACKEND, **kwargs)
+    return _media_create_backend(media_type)(_KLING_REGISTRY_BACKEND, **kwargs)
 
 
 def _kling_spec(media_type: str) -> ProviderSpec:
-    build = _build_kling_image if media_type == "image" else _build_kling_video
     return ProviderSpec(
         provider_id=_KLING_REGISTRY_BACKEND,
         media_type=media_type,
         registry_backend=_KLING_REGISTRY_BACKEND,
-        build_backend=build,
+        build_backend=partial(_build_kling, media_type=media_type),
     )
 
 
