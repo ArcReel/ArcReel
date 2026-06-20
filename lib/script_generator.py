@@ -40,6 +40,7 @@ from lib.script_models import (
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_metrics import count_reading_units
+from lib.text_utils import strip_json_code_fences
 
 logger = logging.getLogger(__name__)
 
@@ -527,14 +528,7 @@ class ScriptGenerator:
             验证后的剧本数据字典
         """
         # 清理可能的 markdown 包装
-        text = response_text.strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
+        text = strip_json_code_fences(response_text)
 
         # 解析 JSON
         try:

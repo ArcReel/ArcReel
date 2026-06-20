@@ -34,6 +34,7 @@ from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_metrics import count_reading_units
+from lib.text_utils import strip_json_code_fences
 
 logger = logging.getLogger(__name__)
 
@@ -160,17 +161,6 @@ class _DraftRejected(Exception):
     def __init__(self, reasons: list[str]):
         super().__init__("; ".join(reasons))
         self.reasons = reasons
-
-
-def _strip_md_fences(text: str) -> str:
-    text = text.strip()
-    if text[:7].lower() == "```json":  # 部分模型输出 ```JSON / ```Json，标记匹配不区分大小写
-        text = text[7:]
-    if text.startswith("```"):
-        text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return text.strip()
 
 
 def _resolve_boundaries(
@@ -684,7 +674,7 @@ class EpisodePlanner:
 
     @staticmethod
     def _parse_draft(response_text: str, draft_model: type[BaseModel]) -> BaseModel:
-        text = _strip_md_fences(response_text)
+        text = strip_json_code_fences(response_text)
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
