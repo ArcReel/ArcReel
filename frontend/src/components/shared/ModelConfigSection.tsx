@@ -458,13 +458,14 @@ function DurationSlider({
   const { t } = useTranslation("dashboard");
   const min = options[0];
   const max = options[options.length - 1];
-  // 越界存值（非 null 且不在 options 内）无法在 slider 上忠实呈现——thumb 会被浏览器钳到 max，
-  // 与读数/aria-valuetext 显示的原值矛盾。统一按「未选中」呈现（thumb 归位、读数 auto），
-  // 真正失效的秒数由外层越界提示承载。
+  // 越界存值（非 null 且不在 options 内）的 thumb 无法落在区间内，归位到 min;但读数与
+  // aria-valuetext 仍忠实显示原值——显示 auto 会与未激活的 auto 钮、以及点名秒数的越界提示
+  // 自相矛盾，更让 slider 的 aria-valuetext 误报为 auto 态（实则无任何控件处于 auto）。读数
+  // 只在 value 为 null（真正的 auto）时才显示 auto;越界值的不可呈现由外层越界提示兜底解释。
   const isValueInRange = value !== null && options.includes(value);
   const sliderValue = isValueInRange ? value : min;
   const isAutoActive = value === null;
-  const valueText = isValueInRange ? t("duration_seconds_value_text", { value }) : autoLabel;
+  const valueText = value === null ? autoLabel : t("duration_seconds_value_text", { value });
   return (
     <div className="flex flex-wrap items-center gap-3">
       <button

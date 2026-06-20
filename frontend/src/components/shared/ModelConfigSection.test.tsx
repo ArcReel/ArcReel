@@ -423,8 +423,13 @@ describe("ModelConfigSection", () => {
       />,
     );
     // slider 分支：20 不在 [3..15] 内
-    expect(screen.getByRole("slider")).toBeInTheDocument();
+    const slider = screen.getByRole("slider");
+    expect(slider).toBeInTheDocument();
     expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
+    // 越界值的读数/aria-valuetext 忠实显示原值，而非误报为 auto——与未激活的 auto 钮及
+    // 点名秒数的越界提示一致
+    expect(slider.getAttribute("aria-valuetext")).toMatch(/20/);
+    expect(slider.getAttribute("aria-valuetext")).not.toBe("auto");
     await user.click(screen.getByRole("button", { name: "回退到 auto" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
   });
