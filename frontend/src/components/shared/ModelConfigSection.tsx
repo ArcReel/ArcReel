@@ -402,6 +402,10 @@ function DurationButtonGroup({
 }) {
   const { t } = useTranslation("dashboard");
   const isAutoActive = value === null;
+  // 存值越界（既非 null 又不在 options 内）时无任何 radio 选中——roving tabindex 下需让 auto
+  // 兜底为可聚焦入口，否则整个 radiogroup 无 tabIndex=0 元素，键盘 Tab 无法触达、用户无从重选。
+  const hasActiveOption = value !== null && options.includes(value);
+  const isAutoTabbable = isAutoActive || !hasActiveOption;
   return (
     <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={ariaLabel}>
       <button
@@ -409,7 +413,7 @@ function DurationButtonGroup({
         role="radio"
         aria-checked={isAutoActive}
         aria-label={autoLabel}
-        tabIndex={isAutoActive ? 0 : -1}
+        tabIndex={isAutoTabbable ? 0 : -1}
         onClick={() => onChange(null)}
         className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
         style={isAutoActive ? durationActiveStyle : undefined}
@@ -454,8 +458,13 @@ function DurationSlider({
   const { t } = useTranslation("dashboard");
   const min = options[0];
   const max = options[options.length - 1];
-  const sliderValue = value === null ? min : value;
+  // 越界存值（非 null 且不在 options 内）无法在 slider 上忠实呈现——thumb 会被浏览器钳到 max，
+  // 与读数/aria-valuetext 显示的原值矛盾。统一按「未选中」呈现（thumb 归位、读数 auto），
+  // 真正失效的秒数由外层越界提示承载。
+  const isValueInRange = value !== null && options.includes(value);
+  const sliderValue = isValueInRange ? value : min;
   const isAutoActive = value === null;
+  const valueText = isValueInRange ? t("duration_seconds_value_text", { value }) : autoLabel;
   return (
     <div className="flex flex-wrap items-center gap-3">
       <button
@@ -472,9 +481,7 @@ function DurationSlider({
       <input
         type="range"
         aria-label={ariaLabel}
-        aria-valuetext={
-          value === null ? autoLabel : t("duration_seconds_value_text", { value })
-        }
+        aria-valuetext={valueText}
         min={min}
         max={max}
         step={1}
@@ -483,7 +490,7 @@ function DurationSlider({
         className="min-w-[120px] flex-1 accent-[var(--color-accent)]"
       />
       <span className="min-w-[2.5rem] text-right font-mono text-[11px] tabular-nums text-text-2">
-        {value === null ? autoLabel : t("duration_seconds_value_text", { value })}
+        {valueText}
       </span>
     </div>
   );

@@ -353,6 +353,8 @@ describe("ModelConfigSection", () => {
     for (const sec of ["4 秒", "6 秒", "8 秒"]) {
       expect(screen.getByRole("radio", { name: sec })).toHaveAttribute("aria-checked", "false");
     }
+    // 越界态下 auto 兜底为可聚焦入口，键盘仍能 Tab 进 radiogroup 重选（无元素 tabIndex=0 会成键盘陷阱）
+    expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("tabindex", "0");
   });
 
   it("resets defaultDuration to null when the out-of-range reset action is clicked", async () => {
