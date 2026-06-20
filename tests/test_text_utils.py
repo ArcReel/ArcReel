@@ -14,6 +14,8 @@ from lib.text_utils import strip_json_code_fences
         '```JSON\n{"a": 1}\n```',
         '```Json\n{"a": 1}\n```',
         '```jSoN\n{"a": 1}\n```',
+        '``` json\n{"a": 1}\n```',
+        '```  JSON\n{"a": 1}\n```',
         '```\n{"a": 1}\n```',
         '{"a": 1}',
         '  ```json\n{"a": 1}\n```  ',
