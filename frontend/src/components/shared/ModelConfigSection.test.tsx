@@ -334,4 +334,96 @@ describe("ModelConfigSection", () => {
     await user.click(screen.getByRole("radio", { name: "6 秒" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: 6 }));
   });
+
+  it("shows an out-of-range notice with no duration radio checked when saved duration is unsupported", () => {
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", defaultDuration: 10 }}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+      />,
+    );
+    // 越界提示含失效秒数（10 不在 gemini/veo-3 的 [4,6,8] 内）
+    expect(screen.getByText(/10/)).toBeInTheDocument();
+    expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
+    // 无任何时长钮处于激活态：auto 与所有数字钮 aria-checked 均为 false
+    expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("aria-checked", "false");
+    for (const sec of ["4 秒", "6 秒", "8 秒"]) {
+      expect(screen.getByRole("radio", { name: sec })).toHaveAttribute("aria-checked", "false");
+    }
+  });
+
+  it("resets defaultDuration to null when the out-of-range reset action is clicked", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", defaultDuration: 10 }}
+        onChange={onChange}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "回退到 auto" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
+  });
+
+  it("does not show the out-of-range notice when saved duration is supported", () => {
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", defaultDuration: 6 }}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+      />,
+    );
+    expect(screen.queryByText(/不再受当前模型支持/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "回退到 auto" })).not.toBeInTheDocument();
+  });
+
+  it("shows the out-of-range notice and reset action under the slider branch too", async () => {
+    const continuousProviders: ProviderInfo[] = [
+      {
+        id: "ark",
+        display_name: "Ark",
+        description: "",
+        status: "ready",
+        media_types: ["video"],
+        capabilities: [],
+        configured_keys: [],
+        missing_keys: [],
+        models: {
+          seedance: {
+            display_name: "seedance",
+            media_type: "video",
+            capabilities: [],
+            default: false,
+            supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            duration_resolution_constraints: {},
+            resolutions: [],
+          },
+        },
+      },
+    ];
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "ark/seedance", defaultDuration: 20 }}
+        onChange={onChange}
+        providers={continuousProviders}
+        options={{ ...OPTIONS, videoBackends: ["ark/seedance"] }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+      />,
+    );
+    // slider 分支：20 不在 [3..15] 内
+    expect(screen.getByRole("slider")).toBeInTheDocument();
+    expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "回退到 auto" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
+  });
 });

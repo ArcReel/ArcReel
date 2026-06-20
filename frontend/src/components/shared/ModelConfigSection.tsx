@@ -133,6 +133,13 @@ export function ModelConfigSection({
     onChange({ ...value, defaultDuration: d });
   };
 
+  // 已保存时长落在当前模型支持集之外（后端不变、支持集被外部缩小的挂载/重渲染场景）：
+  // 不自动篡改存值，仅渲染提示并提供一键回退 auto，保留用户感知与重选机会。
+  const isDurationOutOfRange =
+    value.defaultDuration !== null &&
+    !!supportedDurations &&
+    !supportedDurations.includes(value.defaultDuration);
+
   const renderResolutionField = (
     backend: string,
     resolution: string | null,
@@ -204,6 +211,21 @@ export function ModelConfigSection({
                   ariaLabel={t("duration_label")}
                   autoLabel={t("duration_auto")}
                 />
+              )}
+              {isDurationOutOfRange && (
+                <div
+                  role="alert"
+                  className="mt-2 flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-amber-300"
+                >
+                  <span>{t("duration_unsupported_notice", { value: value.defaultDuration })}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDurationClick(null)}
+                    className="rounded-[6px] border border-hairline-soft px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    {t("duration_reset_auto")}
+                  </button>
+                </div>
               )}
             </>
           )}

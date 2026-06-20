@@ -93,6 +93,8 @@ export default {
   model_text_style: "Style analysis model",
   duration_label: "Default duration",
   duration_auto: "auto",
+  duration_unsupported_notice: "Saved duration {{value}}s is no longer supported by the current model. Please reselect.",
+  duration_reset_auto: "Reset to auto",
   resolution_label: "Resolution",
   resolution_default_placeholder: "Default (unset)",
   tab_custom_desc: "Upload a style reference image; AI will analyze it. Choosing this tab clears the template selection.",
