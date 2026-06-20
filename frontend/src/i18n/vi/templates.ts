@@ -103,6 +103,8 @@ export default {
   model_text_style: "Mô hình phân tích phong cách",
   duration_label: "Thời lượng mặc định",
   duration_auto: "tự động",
+  duration_unsupported_notice: "Thời lượng đã lưu {{value}}s không còn được mô hình hiện tại hỗ trợ. Vui lòng chọn lại.",
+  duration_reset_auto: "Đặt lại về tự động",
   resolution_label: "Độ phân giải",
   resolution_default_placeholder: "Mặc định (chưa đặt)",
   tab_custom_desc: "Tải lên ảnh tham chiếu phong cách; AI sẽ phân tích. Chọn tab này sẽ xóa mẫu đang chọn.",

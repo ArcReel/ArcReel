@@ -133,6 +133,13 @@ export function ModelConfigSection({
     onChange({ ...value, defaultDuration: d });
   };
 
+  // 已保存时长落在当前模型支持集之外（后端不变、支持集被外部缩小的挂载/重渲染场景）：
+  // 不自动篡改存值，仅渲染提示并提供一键回退 auto，保留用户感知与重选机会。
+  const isDurationOutOfRange =
+    value.defaultDuration !== null &&
+    !!supportedDurations &&
+    !supportedDurations.includes(value.defaultDuration);
+
   const renderResolutionField = (
     backend: string,
     resolution: string | null,
@@ -204,6 +211,21 @@ export function ModelConfigSection({
                   ariaLabel={t("duration_label")}
                   autoLabel={t("duration_auto")}
                 />
+              )}
+              {isDurationOutOfRange && (
+                <div
+                  role="alert"
+                  className="mt-2 flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-amber-300"
+                >
+                  <span>{t("duration_unsupported_notice", { value: value.defaultDuration })}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDurationClick(null)}
+                    className="rounded-[6px] border border-hairline-soft px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    {t("duration_reset_auto")}
+                  </button>
+                </div>
               )}
             </>
           )}
@@ -380,6 +402,10 @@ function DurationButtonGroup({
 }) {
   const { t } = useTranslation("dashboard");
   const isAutoActive = value === null;
+  // 存值越界（既非 null 又不在 options 内）时无任何 radio 选中——roving tabindex 下需让 auto
+  // 兜底为可聚焦入口，否则整个 radiogroup 无 tabIndex=0 元素，键盘 Tab 无法触达、用户无从重选。
+  const hasActiveOption = value !== null && options.includes(value);
+  const isAutoTabbable = isAutoActive || !hasActiveOption;
   return (
     <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={ariaLabel}>
       <button
@@ -387,7 +413,7 @@ function DurationButtonGroup({
         role="radio"
         aria-checked={isAutoActive}
         aria-label={autoLabel}
-        tabIndex={isAutoActive ? 0 : -1}
+        tabIndex={isAutoTabbable ? 0 : -1}
         onClick={() => onChange(null)}
         className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
         style={isAutoActive ? durationActiveStyle : undefined}
@@ -432,8 +458,14 @@ function DurationSlider({
   const { t } = useTranslation("dashboard");
   const min = options[0];
   const max = options[options.length - 1];
-  const sliderValue = value === null ? min : value;
+  // 越界存值（非 null 且不在 options 内）的 thumb 无法落在区间内，归位到 min;但读数与
+  // aria-valuetext 仍忠实显示原值——显示 auto 会与未激活的 auto 钮、以及点名秒数的越界提示
+  // 自相矛盾，更让 slider 的 aria-valuetext 误报为 auto 态（实则无任何控件处于 auto）。读数
+  // 只在 value 为 null（真正的 auto）时才显示 auto;越界值的不可呈现由外层越界提示兜底解释。
+  const isValueInRange = value !== null && options.includes(value);
+  const sliderValue = isValueInRange ? value : min;
   const isAutoActive = value === null;
+  const valueText = value === null ? autoLabel : t("duration_seconds_value_text", { value });
   return (
     <div className="flex flex-wrap items-center gap-3">
       <button
@@ -450,9 +482,7 @@ function DurationSlider({
       <input
         type="range"
         aria-label={ariaLabel}
-        aria-valuetext={
-          value === null ? autoLabel : t("duration_seconds_value_text", { value })
-        }
+        aria-valuetext={valueText}
         min={min}
         max={max}
         step={1}
@@ -461,7 +491,7 @@ function DurationSlider({
         className="min-w-[120px] flex-1 accent-[var(--color-accent)]"
       />
       <span className="min-w-[2.5rem] text-right font-mono text-[11px] tabular-nums text-text-2">
-        {value === null ? autoLabel : t("duration_seconds_value_text", { value })}
+        {valueText}
       </span>
     </div>
   );
