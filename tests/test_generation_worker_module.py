@@ -2,7 +2,9 @@ import asyncio
 from typing import Any
 
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.db import Base
 from lib.generation_worker import (
     _ORPHAN_RESCAN_LEASE_LOST_MULT,
     DEFAULT_PROVIDER,
@@ -93,6 +95,21 @@ def _patch_pm(monkeypatch, project: dict | None):
     )
 
 
+@pytest.fixture()
+async def _patch_empty_db(monkeypatch):
+    """把全局 async_session_factory 换成空内存库，隔离掉真实数据库。
+
+    无 project_name 的 _extract_provider 会用 lib.db.async_session_factory 经 ConfigResolver
+    解析全局默认供应商；不隔离时它读真实 dev 库，本机一旦配了其它 ready 供应商，回退断言就被污染。
+    """
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    monkeypatch.setattr("lib.db.async_session_factory", async_sessionmaker(engine, expire_on_commit=False))
+    yield
+    await engine.dispose()
+
+
 class TestExtractProvider:
     """_extract_provider 是解析链的薄投影：按 task_type 派发，取 .provider_id。"""
 
@@ -106,8 +123,12 @@ class TestExtractProvider:
         task = {"payload": {"image_provider": "gemini-vertex"}, "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
-    async def test_default_when_unresolvable(self):
-        """无 project、无 payload、全局未配供应商 → 回退 DEFAULT_PROVIDER（仅供限流）。"""
+    async def test_default_when_unresolvable(self, _patch_empty_db):
+        """无 project、无 payload、全局未配供应商 → 回退 DEFAULT_PROVIDER（仅供限流）。
+
+        必须隔离全局 DB（_patch_empty_db）——否则会读真实 dev 库，本机配了其它 ready 供应商时
+        auto-resolve 会返回该供应商而非 DEFAULT_PROVIDER，断言被本机环境污染。
+        """
         task = {"payload": {}}
         assert await _extract_provider(task) == DEFAULT_PROVIDER
 
