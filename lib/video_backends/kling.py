@@ -26,24 +26,13 @@ from pathlib import Path
 
 import httpx
 
-from lib.config.url_utils import normalize_base_url
+from lib.kling_backend_base import KlingBackendBase
 from lib.kling_shared import (
-    KLING_BASE_URL,
-    KlingJWTManager,
-    extract_kling_task_id,
     extract_kling_video_url,
     image_to_base64,
-    is_kling_task_terminal,
-    kling_bearer_headers,
-    kling_task_failure_reason,
-    kling_task_status,
-    resolve_kling_api_key,
-    resolve_kling_jwt_credentials,
 )
 from lib.providers import PROVIDER_KLING
 from lib.retry import (
-    DEFAULT_BACKOFF_SECONDS,
-    DEFAULT_MAX_ATTEMPTS,
     DOWNLOAD_BACKOFF_SECONDS,
     DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
@@ -56,11 +45,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    poll_with_retry,
     should_retry_download,
-    should_retry_poll,
-    should_retry_submit,
-    submit_post,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,8 +173,14 @@ def _decode_job_id(job_id: str) -> tuple[str, str, bool | None]:
     return _TEXT2VIDEO, job_id, None
 
 
-class KlingVideoBackend(ProviderJobIdPersistenceMixin):
-    """可灵 Kling 视频后端（异步轮询，JWT / Bearer 双模式）。"""
+class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
+    """可灵 Kling 视频后端（异步轮询，JWT / Bearer 双模式）。
+
+    鉴权 / base_url 装配 / submit-poll 骨架由 ``KlingBackendBase`` 共享；``provider_job_id`` 持久化由
+    ``ProviderJobIdPersistenceMixin`` 收口。本类只填视频侧差异：子路径派生、能力位查表、resume 与下载。
+    """
+
+    _media_label = "视频"
 
     def __init__(
         self,
@@ -202,31 +193,17 @@ class KlingVideoBackend(ProviderJobIdPersistenceMixin):
         base_url: str | None = None,
         http_timeout: float = 60.0,
     ) -> None:
-        self._auth_mode = auth_mode
-        self._model = model or DEFAULT_MODEL
-        self._base_url = (normalize_base_url(base_url) or KLING_BASE_URL).rstrip("/")
-        self._http_timeout = http_timeout
-
-        if auth_mode == "jwt":
-            ak, sk = resolve_kling_jwt_credentials(access_key, secret_key)
-            self._jwt: KlingJWTManager | None = KlingJWTManager(ak, sk)
-            self._static_api_key: str | None = None
-        elif auth_mode == "bearer":
-            self._jwt = None
-            self._static_api_key = resolve_kling_api_key(api_key)
-        else:
-            raise ValueError(f"未知 Kling auth_mode: {auth_mode}")
-
+        super().__init__(
+            auth_mode=auth_mode,
+            access_key=access_key,
+            secret_key=secret_key,
+            api_key=api_key,
+            model=model or DEFAULT_MODEL,
+            base_url=base_url,
+            http_timeout=http_timeout,
+        )
         # 按 model 取能力位（归一化前缀/大小写后精确命中）；未登记 model（bearer 透传）回落保守默认。
         self._caps = _lookup_video_caps(self._model)
-
-    @property
-    def name(self) -> str:
-        return PROVIDER_KLING
-
-    @property
-    def model(self) -> str:
-        return self._model
 
     @property
     def capabilities(self) -> set[VideoCapability]:
@@ -257,15 +234,6 @@ class KlingVideoBackend(ProviderJobIdPersistenceMixin):
     @property
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model)
-
-    # ── auth ────────────────────────────────────────────────────────────
-
-    def _headers(self) -> dict[str, str]:
-        """鉴权头：jwt 模式每次调用触发过期检查 + 按需重签；bearer 模式用静态 key。"""
-        if self._jwt is not None:
-            return self._jwt.auth_headers()
-        assert self._static_api_key is not None
-        return kling_bearer_headers(self._static_api_key)
 
     # ── request building ────────────────────────────────────────────────
 
@@ -379,7 +347,7 @@ class KlingVideoBackend(ProviderJobIdPersistenceMixin):
         generate_audio = self._effective_audio(request)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            task_id = await self._create_task(client, subpath, payload)
+            task_id = await self._submit_task(client, f"videos/{subpath}", payload)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
             # 与 submit 时的有声决策（见 _encode_job_id）。
@@ -404,33 +372,7 @@ class KlingVideoBackend(ProviderJobIdPersistenceMixin):
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
 
-    # ── HTTP submit / poll / download ───────────────────────────────────
-
-    @with_retry_async(
-        max_attempts=DEFAULT_MAX_ATTEMPTS,
-        backoff_seconds=DEFAULT_BACKOFF_SECONDS,
-        retry_if=should_retry_submit,
-    )
-    async def _create_task(self, client: httpx.AsyncClient, subpath: str, payload: dict) -> str:
-        # 非幂等「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败，
-        # 避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流。
-        resp = await submit_post(
-            lambda: client.post(
-                f"{self._base_url}/videos/{subpath}",
-                json=payload,
-                headers=self._headers(),
-            ),
-            provider=PROVIDER_KLING,
-        )
-        return extract_kling_task_id(resp.json())
-
-    async def _poll_query(self, client: httpx.AsyncClient, subpath: str, task_id: str) -> dict:
-        resp = await client.get(
-            f"{self._base_url}/videos/{subpath}/{task_id}",
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+    # ── HTTP poll / download ────────────────────────────────────────────
 
     async def _poll_and_build(
         self,
@@ -441,19 +383,10 @@ class KlingVideoBackend(ProviderJobIdPersistenceMixin):
         *,
         generate_audio: bool,
     ) -> VideoGenerationResult:
-        final = await poll_with_retry(
-            poll_fn=lambda: self._poll_query(client, subpath, task_id),
-            is_done=is_kling_task_terminal,
-            is_failed=kling_task_failure_reason,
+        final = await self._poll_until_terminal(
+            lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"),
             poll_interval=_KLING_VIDEO_POLL_INTERVAL_SECONDS,
             max_wait=self._max_wait(request.duration_seconds),
-            retry_if=should_retry_poll,
-            label="Kling",
-            on_progress=lambda v, elapsed: logger.info(
-                "Kling 视频生成中... status=%s elapsed=%ds",
-                kling_task_status(v),
-                int(elapsed),
-            ),
         )
 
         download_url = extract_kling_video_url(final)
