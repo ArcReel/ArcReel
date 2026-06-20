@@ -145,12 +145,22 @@ if [[ -n "$PRD" ]]; then
   jq "[ .[] | ${PROJECT_ISSUE} ]" "$TMPDIR/sub_raw.json" > "$TMPDIR/batch_raw.json"
 else
   BATCH_ID_HINT=""
-  # normalise the CSV: trim spaces, drop empties, validate each is numeric
-  ISSUE_NUMS=$(echo "$ISSUES_CSV" | tr ',' '\n' | tr -d ' \t' | grep -E '^[0-9]+$' || true)
+  # split the CSV; fail loud on any non-numeric token (silently dropping it would shrink
+  # the batch with no signal) and de-dup so the same issue is not processed twice
+  ISSUE_NUMS=""
+  seen=" "
+  while IFS= read -r tok; do
+    [[ -n "$tok" ]] || continue
+    [[ "$tok" =~ ^[0-9]+$ ]] || { echo "BATCH_POLL_ERROR: --issues has a non-numeric token: $tok" >&2; exit 2; }
+    case "$seen" in *" $tok "*) continue ;; esac
+    seen="$seen$tok "
+    ISSUE_NUMS="$ISSUE_NUMS$tok "
+  done < <(echo "$ISSUES_CSV" | tr ',' '\n' | tr -d ' \t')
+  ISSUE_NUMS="${ISSUE_NUMS% }"
   if [[ -z "$ISSUE_NUMS" ]]; then
-    echo "BATCH_POLL_ERROR: --issues had no valid numbers: $ISSUES_CSV" >&2; exit 2
+    echo "BATCH_POLL_ERROR: --issues had no numbers: $ISSUES_CSV" >&2; exit 2
   fi
-  GEN_JSON=$(echo "$ISSUE_NUMS" | jq -R 'tonumber' | jq -s '{issues: .}')
+  GEN_JSON=$(echo "$ISSUE_NUMS" | tr ' ' '\n' | jq -R 'tonumber' | jq -s '{issues: .}')
   : > "$TMPDIR/batch_lines.jsonl"
   for N in $ISSUE_NUMS; do
     gh api "repos/${OWNER_REPO}/issues/${N}" 2>"$TMPDIR/issue_${N}.err" \
@@ -233,8 +243,13 @@ jq -n \
   '
   def pick_pr($arr):
     if ($arr | length) == 0 then null
-    else ([$arr[] | select(.state == "MERGED")]) as $m
-      | (if ($m | length) > 0 then $m else $arr end | sort_by(.number) | last)
+    # an OPEN PR is the active one; fall back to MERGED/CLOSED history only when none is
+    # open, so a stale MERGED PR on a reused issue/<N> ref cannot shadow a reopened PR
+    else ([$arr[] | select(.state == "OPEN")]) as $open
+      | if ($open | length) > 0 then ($open | sort_by(.number) | last)
+        else ([$arr[] | select(.state == "MERGED")]) as $m
+          | (if ($m | length) > 0 then $m else $arr end | sort_by(.number) | last)
+        end
     end;
 
   def failing($pr):
