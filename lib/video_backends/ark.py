@@ -14,20 +14,20 @@ from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    persist_provider_job_id,
     poll_with_retry,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class ArkVideoBackend:
+class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     """Ark (火山方舟) 视频生成后端。"""
 
     DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
@@ -101,8 +101,7 @@ class ArkVideoBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
         provider_task_id = await self._create_task(request)
-        if request.task_id is not None:
-            await persist_provider_job_id(request.task_id, provider_task_id, provider=PROVIDER_ARK)
+        await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_ARK)
         return await self._poll_until_done(provider_task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

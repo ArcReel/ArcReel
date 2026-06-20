@@ -22,13 +22,13 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    persist_provider_job_id,
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
@@ -58,7 +58,7 @@ def _resolve_size(resolution: str | None, aspect_ratio: str) -> tuple[int, int]:
     return aspect_size(aspect_ratio, short, round_to=_VIDEO_ROUND_TO)
 
 
-class NewAPIVideoBackend:
+class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
     """NewAPI 统一视频生成端点后端。"""
 
     def __init__(
@@ -137,8 +137,7 @@ class NewAPIVideoBackend:
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             provider_task_id = await self._create_task(client, payload)
             logger.info("NewAPI 任务创建: task_id=%s", provider_task_id)
-            if request.task_id is not None:
-                await persist_provider_job_id(request.task_id, provider_task_id, provider=PROVIDER_NEWAPI)
+            await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_NEWAPI)
             return await self._poll_and_build(client, provider_task_id, request, is_resume=False)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

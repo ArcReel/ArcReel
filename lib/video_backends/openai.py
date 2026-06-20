@@ -13,12 +13,12 @@ from lib.providers import PROVIDER_OPENAI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
+    ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
-    persist_provider_job_id,
     poll_with_retry,
 )
 
@@ -88,7 +88,7 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
     return chosen
 
 
-class OpenAIVideoBackend:
+class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
     """OpenAI Sora 视频生成后端。"""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
@@ -146,9 +146,8 @@ class OpenAIVideoBackend:
 
         video = await self._create_video(**kwargs)
         # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed。
-        # 非 worker 路径（grid / 直生 / 测试）request.task_id 为 None，跳过持久化。
-        if request.task_id is not None:
-            await persist_provider_job_id(request.task_id, video.id, provider=PROVIDER_OPENAI)
+        # 非 worker 路径（grid / 直生 / 测试）request.task_id 为 None，统一点内跳过持久化。
+        await self._persist_provider_job_id(request, video.id, provider=PROVIDER_OPENAI)
         final = await self._poll_until_complete(video.id, request.duration_seconds)
 
         # generate 路径下 expired 是「provider 异常 / 输入参数过期」类失败，

@@ -384,7 +384,7 @@ class TestV2BackendHttp:
                 "lib.video_backends.v2_video_generations.download_video",
                 AsyncMock(side_effect=_fake_download_factory()),
             ),
-            patch("lib.video_backends.v2_video_generations.persist_provider_job_id", persist),
+            patch("lib.video_backends.base.persist_provider_job_id", persist),
         ):
             req = VideoGenerationRequest(
                 prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5, task_id="task-77"

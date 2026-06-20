@@ -8,6 +8,7 @@ from sqlalchemy.exc import OperationalError
 
 from lib.video_backends.base import (
     AmbiguousSubmitError,
+    ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapability,
     VideoGenerationRequest,
@@ -564,6 +565,40 @@ class TestPersistJobIdRetry:
                 await persist_provider_job_id("task-T", "job-T", provider="gemini")
 
         assert attempts == 1, "expects no string-fallback retry for ValueError"
+
+
+class TestProviderJobIdPersistenceMixin:
+    """提交-轮询型 video backend 的持久化收口点：单一统一调用点承接 None 判断 + 写回 + fail-fast。"""
+
+    def _backend(self) -> ProviderJobIdPersistenceMixin:
+        # 裸 mixin 实例即可——_persist_provider_job_id 不依赖任何子类状态。
+        return ProviderJobIdPersistenceMixin()
+
+    def _request(self, *, task_id: str | None) -> VideoGenerationRequest:
+        return VideoGenerationRequest(prompt="p", output_path=Path("/tmp/out.mp4"), task_id=task_id)
+
+    async def test_worker_path_persists_via_module_helper(self):
+        """worker 路径（task_id 非空）经统一点转调模块级 persist_provider_job_id。"""
+        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+            await self._backend()._persist_provider_job_id(
+                self._request(task_id="local-task-1"), "job-1", provider="ark"
+            )
+        persist.assert_awaited_once_with("local-task-1", "job-1", provider="ark")
+
+    async def test_non_worker_path_skips_persist(self):
+        """非 worker 路径（grid / 直生 / 测试，task_id=None）跳过持久化，不触碰 DB。"""
+        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+            await self._backend()._persist_provider_job_id(self._request(task_id=None), "job-1", provider="ark")
+        persist.assert_not_awaited()
+
+    async def test_persist_failure_propagates_fail_fast(self):
+        """持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。"""
+        boom = _make_operational_error("database is locked")
+        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock(side_effect=boom)):
+            with pytest.raises(OperationalError):
+                await self._backend()._persist_provider_job_id(
+                    self._request(task_id="local-task-1"), "job-1", provider="gemini"
+                )
 
 
 class TestPersistApiCallIdRetry:

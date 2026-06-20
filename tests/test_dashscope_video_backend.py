@@ -478,7 +478,7 @@ class TestPersist:
         client = _client(post=post, get=get)
         persist = AsyncMock()
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.video_backends.dashscope.persist_provider_job_id", persist):
+        with p1, p2, p3, patch("lib.video_backends.base.persist_provider_job_id", persist):
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")

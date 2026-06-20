@@ -39,6 +39,7 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
@@ -46,7 +47,6 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    persist_provider_job_id,
     poll_with_retry,
     should_retry_download,
     should_retry_poll,
@@ -130,7 +130,7 @@ def _profile_for_model(model: str | None) -> tuple[set[VideoCapability], VideoCa
     return _DEFAULT_PROFILE
 
 
-class DashScopeVideoBackend:
+class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
     """阿里百炼视频后端（异步 video-synthesis 端点）。"""
 
     def __init__(
@@ -183,8 +183,7 @@ class DashScopeVideoBackend:
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload)
             logger.info("DashScope 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            if request.task_id is not None:
-                await persist_provider_job_id(request.task_id, task_id, provider=PROVIDER_DASHSCOPE)
+            await self._persist_provider_job_id(request, task_id, provider=PROVIDER_DASHSCOPE)
             return await self._poll_and_build(client, task_id, request, is_resume=False)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

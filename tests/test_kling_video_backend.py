@@ -452,7 +452,7 @@ class TestGenerateHappyPath:
             patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-            patch("lib.video_backends.kling.persist_provider_job_id", new=AsyncMock()) as persist,
+            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
         ):
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-1"))
         persist.assert_awaited_once()
@@ -470,7 +470,7 @@ class TestGenerateHappyPath:
             patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-            patch("lib.video_backends.kling.persist_provider_job_id", new=AsyncMock()) as persist,
+            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
         ):
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-2", start_image=img))
         # 有首帧 → image2video 前缀编入 job_id，resume 才能查对端点
@@ -584,7 +584,7 @@ class TestAudioGatingResult:
             patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-            patch("lib.video_backends.kling.persist_provider_job_id", new=AsyncMock()) as persist,
+            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
         ):
             await _jwt_backend("kling-v2-6").generate(
                 _request(tmp_path, task_id="local-a", service_tier="pro", generate_audio=True)

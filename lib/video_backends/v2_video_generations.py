@@ -31,13 +31,13 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    persist_provider_job_id,
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
@@ -257,7 +257,7 @@ def _extract_failure(state: dict) -> str | None:
     return f"V2 视频生成失败: {msg}"
 
 
-class V2VideoGenerationsBackend:
+class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
     """流派 C ``/v2/video/generations`` 通用视频后端。"""
 
     def __init__(self, *, api_key: str, base_url: str, model: str, http_timeout: float = 60.0) -> None:
@@ -314,8 +314,7 @@ class V2VideoGenerationsBackend:
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             generation_id = await self._create_task(client, body)
             logger.info("V2 任务创建: generation_id=%s", generation_id)
-            if request.task_id is not None:
-                await persist_provider_job_id(request.task_id, generation_id, provider=PROVIDER_V2_VIDEO)
+            await self._persist_provider_job_id(request, generation_id, provider=PROVIDER_V2_VIDEO)
             return await self._poll_and_build(client, generation_id, request, is_resume=False)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

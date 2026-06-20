@@ -49,13 +49,13 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
     VideoCapabilities,
     VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    persist_provider_job_id,
     poll_with_retry,
     should_retry_download,
     should_retry_poll,
@@ -188,7 +188,7 @@ def _decode_job_id(job_id: str) -> tuple[str, str, bool | None]:
     return _TEXT2VIDEO, job_id, None
 
 
-class KlingVideoBackend:
+class KlingVideoBackend(ProviderJobIdPersistenceMixin):
     """可灵 Kling 视频后端（异步轮询，JWT / Bearer 双模式）。"""
 
     def __init__(
@@ -381,14 +381,13 @@ class KlingVideoBackend:
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, subpath, payload)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            if request.task_id is not None:
-                # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
-                # 与 submit 时的有声决策（见 _encode_job_id）。
-                await persist_provider_job_id(
-                    request.task_id,
-                    _encode_job_id(subpath, task_id, generate_audio=generate_audio),
-                    provider=PROVIDER_KLING,
-                )
+            # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
+            # 与 submit 时的有声决策（见 _encode_job_id）。
+            await self._persist_provider_job_id(
+                request,
+                _encode_job_id(subpath, task_id, generate_audio=generate_audio),
+                provider=PROVIDER_KLING,
+            )
             return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

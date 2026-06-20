@@ -40,13 +40,13 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
     VideoCapabilities,
     VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
-    persist_provider_job_id,
     poll_with_retry,
     should_retry_download,
     should_retry_poll,
@@ -109,7 +109,7 @@ def _safe_body_for_log(body: dict) -> dict:
     return safe
 
 
-class MiniMaxVideoBackend:
+class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
     """MiniMax 海螺视频后端（异步两步取 URL，轮询）。"""
 
     def __init__(
@@ -165,8 +165,7 @@ class MiniMaxVideoBackend:
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload)
             logger.info("MiniMax 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            if request.task_id is not None:
-                await persist_provider_job_id(request.task_id, task_id, provider=PROVIDER_MINIMAX)
+            await self._persist_provider_job_id(request, task_id, provider=PROVIDER_MINIMAX)
             return await self._poll_and_build(client, task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

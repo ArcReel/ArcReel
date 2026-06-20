@@ -257,7 +257,7 @@ class TestGenerateHappyPath:
             patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
-            patch("lib.video_backends.minimax.persist_provider_job_id", new=AsyncMock()) as persist,
+            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
         ):
             await _backend().generate(_request(tmp_path, task_id="local-task-1"))
         persist.assert_awaited_once()

@@ -17,19 +17,19 @@ from lib.providers import PROVIDER_GEMINI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
-    persist_provider_job_id,
     poll_with_retry,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class GeminiVideoBackend:
+class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
     """Gemini (Veo) 视频生成后端。"""
 
     def __init__(
@@ -121,8 +121,7 @@ class GeminiVideoBackend:
             # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是要避免的
             # 重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
             raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
-        if request.task_id is not None:
-            await persist_provider_job_id(request.task_id, op_name, provider=PROVIDER_GEMINI)
+        await self._persist_provider_job_id(request, op_name, provider=PROVIDER_GEMINI)
         return await self._poll_until_done(operation, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

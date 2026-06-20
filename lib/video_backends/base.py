@@ -66,6 +66,30 @@ async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str) -
         raise
 
 
+class ProviderJobIdPersistenceMixin:
+    """提交-轮询型 video backend 的 provider_job_id 持久化收口点。
+
+    各 backend 在 ``generate()`` 内 submit 拿到 job_id 后调 ``self._persist_provider_job_id``
+    统一写回，不再各自手写「``if request.task_id is not None`` → 调模块级 ``persist_provider_job_id``」
+    那套形态；持久化时机（submit 后、poll 前）、None 跳过（非 worker 路径）、fail-fast 语义集中
+    于此单一调用点。新增提交-轮询型 backend 继承本 mixin 即得能力，无需自己记得调持久化。
+
+    ``provider`` 仍由 backend 显式传 PROVIDER_* 常量而非从 ``self.name`` 推：gemini 的
+    ``name`` 是 ``gemini-aistudio`` / ``gemini-vertex``，与计费/日志归因用的 ``PROVIDER_GEMINI``
+    （``gemini``）不同，自动取 name 会改写持久化日志的 provider 字段。
+    """
+
+    async def _persist_provider_job_id(self, request: VideoGenerationRequest, job_id: str, *, provider: str) -> None:
+        """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
+
+        持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试 3 次），由 worker
+        finally 兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
+        """
+        if request.task_id is None:
+            return
+        await persist_provider_job_id(request.task_id, job_id, provider=provider)
+
+
 @with_retry_async(
     max_attempts=3,
     backoff_seconds=_PERSIST_BACKOFF_SECONDS,
@@ -398,9 +422,9 @@ class VideoGenerationRequest:
     # 项目上下文（用于构建文件服务 URL 等）
     project_name: str | None = None
 
-    # Worker 路径下从 task["task_id"] 传入，让 backend submit 后能直接调
-    # `persist_provider_job_id(task_id, job_id)` 持久化。
-    # 非 worker 路径（grid / 直生 / 测试）保持 None，backend 跳过持久化。
+    # Worker 路径下从 task["task_id"] 传入，让 backend submit 后经
+    # `ProviderJobIdPersistenceMixin._persist_provider_job_id` 持久化 job_id。
+    # 非 worker 路径（grid / 直生 / 测试）保持 None，统一点据此跳过持久化。
     task_id: str | None = None
 
     # Seedance 特有
