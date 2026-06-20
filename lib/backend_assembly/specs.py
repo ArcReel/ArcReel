@@ -3,7 +3,7 @@
 镜像自定义侧 ENDPOINT_REGISTRY（lib/custom_provider/endpoints.py）：每条 spec 是 frozen
 dataclass，挂一个 build 闭包；闭包读 LoadedConfig 信封 + model_id 拼 backend，不查 DB、不 await。
 登记简单族（媒体侧只需 api_key + model + base_url 的内置 provider）的 image/video/audio，
-共享一个 _build_simple 闭包；外加 gemini（backend_type 双模式 + image/video base_url 非对称）与
+共享一个 _build_simple 闭包；外加 gemini（backend_type 双模式，image/video 对等透传 base_url）与
 kling（JWT 双 secret + api_model_name 解耦）两个特例族，各自挂专属 build 闭包。文本（media_type=text）
 四条 media_type 同经本表：简单文本（ark/ark-agent-plan/grok）、gemini 文本（aistudio/vertex）、
 OpenAI-compat 文本（openai/dashscope/minimax，dashscope/minimax 经 helper 派生 base_url + 透传
@@ -93,9 +93,9 @@ def _simple_spec(provider_id: str, media_type: str) -> ProviderSpec:
 # ── gemini 特例族 ──────────────────────────────────────────────────
 # gemini-aistudio / gemini-vertex 两个 provider_id 都映射到同一个 "gemini" media backend，
 # 差异只在 backend_type（aistudio | vertex）—— 由 spec 行声明（每个 provider_id 各一行），不在闭包内 if。
-# image 设 base_url，video 不设（保留迁移前的非对称：GeminiVideoBackend 虽接受 base_url 但 video 路径
-# 历来不传）。api_key 与 image 的 base_url 无条件透传（含 None）：迁移前命令式分支即无条件 db_config.get，
-# 由 backend 内 resolve_gemini_api_key / normalize_base_url 处理 None（vertex 读凭证文件、None base_url 省略）。
+# image/video 对等透传 base_url：aistudio 用用户配置的自定义 endpoint。api_key 与 base_url 无条件
+# 透传（含 None），由 backend 内 resolve_gemini_api_key / normalize_base_url 处理 None（None base_url 省略）；
+# vertex 分支走 vertexai=True + 服务账号凭证，结构性忽略 base_url（无注入点），透传的 None 被丢弃。
 
 _GEMINI_REGISTRY_BACKEND = "gemini"
 
@@ -116,6 +116,7 @@ def _build_gemini_video(config: LoadedConfig, model_id: str | None, *, backend_t
         _GEMINI_REGISTRY_BACKEND,
         backend_type=backend_type,
         api_key=config.credentials.get("api_key"),
+        base_url=config.credentials.get("base_url"),
         rate_limiter=config.rate_limiter,
         video_model=model_id,
     )
@@ -309,7 +310,7 @@ def _text_openai_compat_spec(
 # 共享 _build_simple 闭包。「简单族」按构造形态界定（不是 provider 名白名单），含 ark/ark-agent-plan/
 # grok/openai/vidu 与 dashscope/minimax（后两者媒体侧走原生简单构造；其文本侧 OpenAI-compat 形态见下方
 # 文本族）。ark-agent-plan 媒体侧复用 Ark image/video backend（registry 同名注册），与 ark 同为简单形态。
-# 特例族 = gemini（backend_type 双模式 + image/video base_url 非对称）与 kling（JWT 双 secret +
+# 特例族 = gemini（backend_type 双模式，image/video 对等透传 base_url）与 kling（JWT 双 secret +
 # api_model_name 解耦），各挂专属 build 闭包；gemini 的两个 provider_id 各按 backend_type 登记一行（裸
 # "gemini" 是死路径——resolver 只产出带后缀 id，按 fail-loud 不登记兜底行）。文本族（media_type=text）按
 # 构造形态分三类登记（简单文本 / gemini 文本 / OpenAI-compat 文本，见各闭包），其中 dashscope/minimax 文本

@@ -110,10 +110,10 @@ class TestMediaRegistryRouting:
 
 
 class TestGeminiSpec:
-    """gemini 特例族：backend_type 按 provider_id 分叉（aistudio/vertex 各一行），image 设 base_url /
-    video 不设（非对称提升为两条表行），注入共享 rate_limiter，image_model/video_model 命名差异。
-    api_key 与 base_url 无条件透传（含 None）：与迁移前命令式分支一致，由 backend 内 resolve_gemini_api_key
-    / normalize_base_url 处理 None（读环境变量 / 省略）。"""
+    """gemini 特例族：backend_type 按 provider_id 分叉（aistudio/vertex 各一行），image/video 对等透传
+    base_url，注入共享 rate_limiter，image_model/video_model 命名差异。api_key 与 base_url 无条件透传
+    （含 None）：由 backend 内 resolve_gemini_api_key / normalize_base_url 处理 None（读环境变量 / 省略），
+    vertex 分支结构性忽略 base_url（vertexai=True + 服务账号凭证，无注入点）。"""
 
     @patch("lib.image_backends.registry.create_backend")
     def test_aistudio_image_sets_base_url_and_image_model(self, mock_create):
@@ -155,21 +155,22 @@ class TestGeminiSpec:
         )
 
     @patch("lib.video_backends.registry.create_backend")
-    def test_aistudio_video_omits_base_url_uses_video_model(self, mock_create):
+    def test_aistudio_video_sets_base_url_uses_video_model(self, mock_create):
         spec = get_provider_spec("gemini-aistudio", "video")
         assert spec.registry_backend == "gemini"
         limiter = object()
         config = LoadedConfig(
-            credentials={"api_key": "sk-aistudio", "base_url": "https://ignored.example.com"},
+            credentials={"api_key": "sk-aistudio", "base_url": "https://custom.example.com"},
             provider_meta=PROVIDER_REGISTRY.get("gemini-aistudio"),
             rate_limiter=limiter,
         )
         spec.build_backend(config, "veo-3.1-lite-generate-preview")
-        # video 非对称：不传 base_url（即使 credentials 含），命名参数是 video_model 不是 image_model
+        # video 与 image 对等：aistudio 透传用户 base_url，命名参数是 video_model 不是 image_model
         mock_create.assert_called_once_with(
             "gemini",
             backend_type="aistudio",
             api_key="sk-aistudio",
+            base_url="https://custom.example.com",
             rate_limiter=limiter,
             video_model="veo-3.1-lite-generate-preview",
         )
@@ -178,15 +179,17 @@ class TestGeminiSpec:
     def test_vertex_video_backend_type_vertex(self, mock_create):
         spec = get_provider_spec("gemini-vertex", "video")
         config = LoadedConfig(
-            credentials={"api_key": None},
+            credentials={"api_key": None, "base_url": None},
             provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
             rate_limiter=None,
         )
         spec.build_backend(config, "veo-3.1-generate-preview")
+        # vertex 无 api_key/base_url：仍无条件透传 None（与 vertex image 对称，backend 内结构性忽略）
         mock_create.assert_called_once_with(
             "gemini",
             backend_type="vertex",
             api_key=None,
+            base_url=None,
             rate_limiter=None,
             video_model="veo-3.1-generate-preview",
         )
