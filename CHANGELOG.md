@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.19.0](https://github.com/ArcReel/ArcReel/compare/v0.18.0...v0.19.0) (2026-06-21)
+
+
+### ✨ 新功能
+
+* **drama:** 剧本源分集规划尊重作者自带分集，无分集按剧情弧语义切分 ([60aa928](https://github.com/ArcReel/ArcReel/commit/60aa9284db20dfb25f48ae5ff60c118750bdd71f))
+* **drama:** 剧集模式支持成品剧本源，单集台词与画外音逐字保留 ([6262acd](https://github.com/ArcReel/ArcReel/commit/6262acdd100baba3ac3c8fee3ca49d3e49b8d34f))
+* **kling:** 可灵视频补齐 v3/v3-omni（4K+多图主体）、v2.6 人声、video-o1 参考生视频 ([5a1373a](https://github.com/ArcReel/ArcReel/commit/5a1373aa75ae048cd105c33987b7e447ec64868e)), closes [#835](https://github.com/ArcReel/ArcReel/issues/835)
+* **kling:** 接入可灵 Kling JWT 直连视频与默认视频模型 2.5 Turbo ([ea88140](https://github.com/ArcReel/ArcReel/commit/ea88140b7f993f01d71dc8a1c8ca5f607962c6ef))
+* **kling:** 新增可灵图像生成，支持 image-o1（默认）与 v3-omni 多分辨率 ([7a70771](https://github.com/ArcReel/ArcReel/commit/7a7077127291b432f393d0661df7386e45690d81)), closes [#834](https://github.com/ArcReel/ArcReel/issues/834)
+* **kling:** 自定义供应商可直连可灵 Kling 原生图像与视频生成 ([03d497b](https://github.com/ArcReel/ArcReel/commit/03d497bf826a47af61f26579da449040035a3621)), closes [#836](https://github.com/ArcReel/ArcReel/issues/836)
+* **providers:** 设置页支持配置可灵 Kling 账号（Access Key + Secret Key 双密钥） ([32fa35c](https://github.com/ArcReel/ArcReel/commit/32fa35c754ade538b4140699ce22b053ef703a32))
+* **screenplay:** 剧本源按作者人物表提取角色，群演空镜不建资产 ([46fda06](https://github.com/ArcReel/ArcReel/commit/46fda06f9657db13b4f6d8997feba3ca844fb5bb))
+* **screenplay:** 成品剧本带创作方案前言时直接填充项目概述 ([7b710c6](https://github.com/ArcReel/ArcReel/commit/7b710c672dc50fa7bf35968a5c274c5158cb267e))
+
+
+### 🐛 Bug 修复
+
+* **ad-mode:** 广告引导页未填产品描述时也能勾选生成标准产品图 ([#823](https://github.com/ArcReel/ArcReel/issues/823)) ([29b240e](https://github.com/ArcReel/ArcReel/commit/29b240e55e82e73d169ee99e833526557b48c542))
+* **assistant:** 剧本生成耗时提示不再随重进项目重复弹出 ([#844](https://github.com/ArcReel/ArcReel/issues/844)) ([25d360c](https://github.com/ArcReel/ArcReel/commit/25d360cef00e642377c2490cc9dd0f53aecc0515))
+* **frontend:** 默认时长选择器对失效存值显式提示并支持一键回退 ([6cb85c2](https://github.com/ArcReel/ArcReel/commit/6cb85c2d82c680fd17717559bf91cf3d8a7c4ee2))
+* **narration:** 补齐宫格模式旁白配音入口与项目级配音设置 ([#846](https://github.com/ArcReel/ArcReel/issues/846)) ([3bf5982](https://github.com/ArcReel/ArcReel/commit/3bf5982f465d0bf555e7cc52f89eca017331591f))
+* **providers:** 修正 MiniMax 供应商描述并新增 M3 文本模型为默认 ([a82c5fa](https://github.com/ArcReel/ArcReel/commit/a82c5fa5ccfc979ca8c95a744fc26cea24ac2f72))
+* **security:** 修复内部错误信息泄露并升级有漏洞的依赖 ([#849](https://github.com/ArcReel/ArcReel/issues/849)) ([75378fe](https://github.com/ArcReel/ArcReel/commit/75378fefef6bb93ea72bb8a9008f77331f73c68f))
+
+
+### ♻️ 重构
+
+* **backend:** gemini/kling 媒体后端构造迁入声明式 ProviderSpec 表 ([d9f15ca](https://github.com/ArcReel/ArcReel/commit/d9f15ca9aa3e399ff4dee906353e38859b1357b4))
+* **backend:** video 后端 provider_job_id 持久化收口共享 mixin，gemini-aistudio 视频支持自定义 endpoint ([c13f0f7](https://github.com/ArcReel/ArcReel/commit/c13f0f70827c0c6efe1e082f8144f49d2aa2764e))
+* **backend:** 抽取共享 JSON 代码栅栏剥离工具，统一大小写不敏感口径 ([755938b](https://github.com/ArcReel/ArcReel/commit/755938b0791741a7c33f8a059a45bde5b23a14be))
+* **backend:** 文本后端工厂收口统一构造缝，根除映射漂移 ([#867](https://github.com/ArcReel/ArcReel/issues/867)) ([405087a](https://github.com/ArcReel/ArcReel/commit/405087a75102692a1b10dc41bb69ca1dc5df1835))
+* **backend:** 统一内置/自定义供应商的 backend 构造入口 ([a5f9863](https://github.com/ArcReel/ArcReel/commit/a5f98636ba672d566cb917e66396f18574859737))
+* **backend:** 统一可灵图像/视频后端的鉴权与提交轮询装配，消除重复 ([63b17a5](https://github.com/ArcReel/ArcReel/commit/63b17a5be4246de5e750fe97324ba7bc6c0f9691))
+
+
+### 📚 文档
+
+* **adr:** 内置 backend 构造改用声明式缝 (ADR 0039) ([#861](https://github.com/ArcReel/ArcReel/issues/861)) ([a945fe8](https://github.com/ArcReel/ArcReel/commit/a945fe8d84bb67d9923b6b8fd20b6390eaeb06f7))
+* **adr:** 记录两栖模型 registry 键与 API 模型名解耦（ADR 0038） ([#855](https://github.com/ArcReel/ArcReel/issues/855)) ([ef6111b](https://github.com/ArcReel/ArcReel/commit/ef6111bd86f898616e42480a1ba4d8fff99d91eb))
+* 新增剧本源（source_kind=screenplay）领域术语与 ADR 0036 ([#830](https://github.com/ArcReel/ArcReel/issues/830)) ([f7b88b6](https://github.com/ArcReel/ArcReel/commit/f7b88b68a35b299ed65e41bc9b5e0dcf37bb57d4))
+* 新增多 secret 内置 provider 凭证存储 ADR 并修正供应商术语 ([#837](https://github.com/ArcReel/ArcReel/issues/837)) ([4d4dcf1](https://github.com/ArcReel/ArcReel/commit/4d4dcf161db2d0ca8911cd433f24d8a859dc1bc3))
+
 ## [0.18.0](https://github.com/ArcReel/ArcReel/compare/v0.17.0...v0.18.0) (2026-06-15)
 
 
