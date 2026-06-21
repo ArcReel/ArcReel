@@ -6,7 +6,7 @@
 
 ## 步骤
 
-1. 进入 worktree；`gh issue view <N>` 读验收标准，对照改动逐条核对覆盖情况
+1. 用 EnterWorktree 的 `path` 接管实现阶段交付的 worktree；`gh issue view <N>` 读验收标准，对照改动逐条核对覆盖情况
 2. 运行 /code-review --fix 修复发现的问题；无法就地修复的架构级疑虑 SendMessage 请示 lead
 3. 修复后重新运行项目质量门（口径同实现契约）
 4. main 已前进时，rebase 到最新 main 并重新验证

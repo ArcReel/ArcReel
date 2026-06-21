@@ -54,7 +54,7 @@ lead 崩溃是小概率事件，本契约是兜底而非常设机制。仅当 SK
 
 前置授权（如批量合并）写在**前任 lead 的 transcript** 中，新会话无法读取；账本的 `authorization` 行是"曾授权"的记录，**不是**跨会话的重新授权。执行任何合并前，按 SKILL.md 前置授权步骤**重新征求一次**。
 
-例外：用户**已持久化到 settings** 的授权（如行内回复 allow）跨会话有效——那是配置而非 transcript 记忆，无需重问。仅口头/transcript 授权需重新征得。
+例外：已持久化到本地配置的授权（如 teammate 高频动作的 allow）跨会话有效，属配置而非 transcript 记忆，无需重问；仅口头 / transcript 授权需重新征得。
 
 ## 6. 幂等
 

@@ -22,7 +22,7 @@
 
 ```text
 你是 afk-team-workflow 批次中 issue #<N> 的审查循环负责人。先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/review-looper.md，按契约工作。
-变量：issue=#<N>；PR=#<M>；lead=<lead 名>。
+变量：issue=#<N>；PR=#<M>；worktree=<路径>；lead=<lead 名>。
 达标或遇到契约规定的请示场景时，SendMessage 给 lead。
 ```
 
