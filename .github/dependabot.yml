@@ -221,6 +221,9 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    # github-actions 生态只支持 default-days，不支持 semver 粒度的冷却字段
+    cooldown:
+      default-days: 5
     labels:
       - "dependencies"
       - "ci"
