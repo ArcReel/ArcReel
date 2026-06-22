@@ -34,7 +34,7 @@ jobs:
       # 同步 commit 推回该分支，保持 lock 与 source version 一致。
       - name: Checkout release PR branch
         if: ${{ steps.release.outputs.pr }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ fromJson(steps.release.outputs.pr).headBranchName }}
           fetch-depth: 0
