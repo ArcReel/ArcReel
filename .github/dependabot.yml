@@ -13,11 +13,19 @@ updates:
       day: "monday"
     open-pull-requests-limit: 10
     versioning-strategy: lockfile-only
+    # 刚发布的版本先沉淀几天再开 PR，降低撞上「发布即回归」的概率
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 5
+      semver-patch-days: 3
     labels:
       - "dependencies"
       - "python:uv"
     commit-message:
       prefix: "chore(deps)"
+    # 各域分组只收 minor/patch，聚合成可安全自动合并的 PR；
+    # major 不匹配任何分组 → 单独成 PR，留给人工审查。
     groups:
       fastapi-stack:
         patterns:
@@ -26,12 +34,18 @@ updates:
           - "pydantic*"
           - "python-multipart"
           - "python-dotenv"
+        update-types:
+          - "minor"
+          - "patch"
       database:
         patterns:
           - "sqlalchemy*"
           - "aiosqlite"
           - "asyncpg"
           - "alembic"
+        update-types:
+          - "minor"
+          - "patch"
       ai-sdks:
         patterns:
           - "claude-agent-sdk"
@@ -40,15 +54,24 @@ updates:
           - "volcengine-python-sdk*"
           - "xai-sdk"
           - "instructor"
+        update-types:
+          - "minor"
+          - "patch"
       auth:
         patterns:
           - "pyjwt"
           - "pwdlib*"
+        update-types:
+          - "minor"
+          - "patch"
       media:
         patterns:
           - "Pillow"
           - "ffmpeg-python"
           - "pyjianyingdraft"
+        update-types:
+          - "minor"
+          - "patch"
       document-parsing:
         patterns:
           - "pdf-oxide"
@@ -58,6 +81,18 @@ updates:
           - "beautifulsoup4"
           - "lxml"
           - "charset-normalizer"
+        update-types:
+          - "minor"
+          - "patch"
+      backend-core:
+        patterns:
+          - "PyYAML"
+          - "packaging"
+          - "portalocker"
+          - "socksio"
+        update-types:
+          - "minor"
+          - "patch"
       dev-dependencies:
         patterns:
           - "pytest*"
@@ -71,6 +106,9 @@ updates:
       all-other:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Frontend npm dependencies (pnpm)
   - package-ecosystem: "npm"
@@ -79,6 +117,13 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    # ^ range 内的升级只动 lockfile；超出 range（major）才改 package.json 并开 PR
+    versioning-strategy: increase-if-necessary
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 5
+      semver-patch-days: 3
     labels:
       - "dependencies"
       - "javascript"
@@ -91,14 +136,23 @@ updates:
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+        update-types:
+          - "minor"
+          - "patch"
       i18n:
         patterns:
           - "i18next"
           - "i18next-*"
           - "react-i18next"
+        update-types:
+          - "minor"
+          - "patch"
       dnd-kit:
         patterns:
           - "@dnd-kit/*"
+        update-types:
+          - "minor"
+          - "patch"
       ui-libs:
         patterns:
           - "framer-motion"
@@ -107,20 +161,27 @@ updates:
           - "@lobehub/*"
           - "@tanstack/react-virtual"
           - "streamdown"
+        update-types:
+          - "minor"
+          - "patch"
       vite-tailwind:
         patterns:
           - "vite"
           - "@vitejs/*"
           - "tailwindcss"
           - "@tailwindcss/*"
-          - "autoprefixer"
-          - "postcss"
+        update-types:
+          - "minor"
+          - "patch"
       testing:
         patterns:
           - "vitest"
           - "@vitest/*"
           - "@testing-library/*"
           - "jsdom"
+        update-types:
+          - "minor"
+          - "patch"
       eslint-stack:
         patterns:
           - "eslint"
@@ -128,11 +189,17 @@ updates:
           - "@eslint/*"
           - "typescript-eslint"
           - "globals"
+        update-types:
+          - "minor"
+          - "patch"
       app-core:
         patterns:
           - "wouter"
           - "zustand"
           - "@headlessui/react"
+        update-types:
+          - "minor"
+          - "patch"
       dev-dependencies:
         dependency-type: "development"
         patterns:
@@ -143,6 +210,9 @@ updates:
       all-other:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
