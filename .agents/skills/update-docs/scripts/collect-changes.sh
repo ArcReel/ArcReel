@@ -27,6 +27,7 @@ cd "$(git rev-parse --show-toplevel)"
 # 用 git 提交时间而非文件系统 mtime，后者在 fresh clone 后会失真。
 baseline_ts=""
 baseline_sha=""
+baseline_cs=""
 baseline_doc=""
 
 echo "## 引擎 A 覆盖文档（参与 baseline）"
@@ -35,15 +36,17 @@ for doc in "${ENGINE_A_DOCS[@]}"; do
     echo "- (缺失) ${doc}"
     continue
   fi
-  ts=$(git log -1 --format=%ct -- "${doc}" 2>/dev/null || true)
+  # 一次取全该文档最近一次提交的时间戳、短日期、完整 sha，避免对同一文档多次 git log。
+  read -r ts cs sha < <(git log -1 --format='%ct %cs %H' -- "${doc}" 2>/dev/null) || true
   if [ -z "${ts}" ]; then
     echo "- (无 git 历史) ${doc}"
     continue
   fi
-  echo "- ${doc} 最近改动 $(git log -1 --format=%cs -- "${doc}")"
+  echo "- ${doc} 最近改动 ${cs}"
   if [ -z "${baseline_ts}" ] || [ "${ts}" -lt "${baseline_ts}" ]; then
     baseline_ts="${ts}"
-    baseline_sha=$(git log -1 --format=%H -- "${doc}")
+    baseline_sha="${sha}"
+    baseline_cs="${cs}"
     baseline_doc="${doc}"
   fi
 done
@@ -56,7 +59,7 @@ fi
 
 echo
 echo "## baseline（仅基于引擎 A 文档）"
-echo "最早被改动的引擎 A 文档：${baseline_doc}（$(git log -1 --format=%cs "${baseline_sha}")）"
+echo "最早被改动的引擎 A 文档：${baseline_doc}（${baseline_cs}）"
 echo "扫描区间：${baseline_sha:0:9}..HEAD"
 
 # 全量候选 commit：区间内所有非 merge commit，每条仅 sha + 标题。
