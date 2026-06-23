@@ -46,6 +46,17 @@
 
 ---
 
+<p align="center">
+  <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=ArcReel">
+    <img src="docs/assets/atlas-cloud-logo.png" alt="Atlas Cloud" width="180">
+  </a>
+</p>
+
+> 🎁 **[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=ArcReel)** is a full-modal AI inference platform that gives ArcReel a single OpenAI-compatible API for all three backends it needs — text (DeepSeek, Qwen, GLM, Kimi, MiniMax…), image (Seedream, Qwen-Image, GPT Image…) and video (Seedance, Wan, Kling, Veo…). Plug it in once as a Custom Provider instead of wiring up multiple vendors.
+> Text · [coding plan](https://www.atlascloud.ai/console/coding-plan) ｜ Image/video models · [atlascloud.ai/models](https://www.atlascloud.ai/models)
+
+---
+
 ## Core Features
 
 <table>
@@ -179,6 +190,24 @@ In addition to built-in providers, you can connect any **OpenAI-compatible** or 
 - Add a custom provider in the Settings page with Base URL and API Key
 - Auto-discovers available models via `/v1/models`, infers media types (image/video/text) by model name
 - Full feature parity with built-in providers: global/project-level switching, cost tracking, version management
+
+#### Example: Atlas Cloud (OpenAI-compatible, text + image + video in one)
+
+[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=ArcReel) is a full-modal AI inference platform that exposes LLM, image and video models through a single OpenAI-compatible API — covering ArcReel's text/image/video backends at once. Add it under **Custom Providers** in Settings:
+
+| Field | Value |
+|-------|-------|
+| Type | OpenAI-compatible |
+| Base URL | `https://api.atlascloud.ai/v1` |
+| API Key | Your Atlas Cloud API key (from the [console](https://www.atlascloud.ai/console)) |
+
+ArcReel then calls `/v1/models` to auto-discover models and assign media types. Handy picks:
+
+- **Text**: `deepseek-ai/deepseek-v4-pro`, `Qwen/Qwen3-Next-80B-A3B-Instruct`, `zai-org/glm-5`, `moonshotai/kimi-k2.6`, `MiniMaxAI/MiniMax-M2` (`deepseek-v4-pro` is a reasoning model — give it enough `max_tokens`, ≥ 512)
+- **Image**: `openai/gpt-image-2/text-to-image`, `bytedance/seedream-v5.0-lite`, `qwen/qwen-image-2.0/text-to-image`, `google/nano-banana-pro/text-to-image`
+- **Video**: `bytedance/seedance-2.0/text-to-video`, `alibaba/wan-2.7/text-to-video`, `kwaivgi/kling-v3.0-pro/text-to-video`, `google/veo3.1/text-to-video`
+
+See the full model list at [atlascloud.ai/models](https://www.atlascloud.ai/models).
 
 Provider selection priority: Project-level settings > Global defaults. When switching providers, common settings (resolution, aspect ratio, audio, etc.) carry over; provider-specific parameters are preserved.
 
