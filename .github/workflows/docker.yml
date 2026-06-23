@@ -25,7 +25,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Compute lowercase image name
         run: echo "IMAGE_NAME_LC=${REPO,,}" >> "$GITHUB_ENV"
