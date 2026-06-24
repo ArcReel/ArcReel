@@ -96,15 +96,16 @@ async def send_message(
             status_code=502,
             detail=_t("agent_startup_failed", details=str(exc)),
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/sessions")
 async def list_sessions(
     project_name: str,
     _user: CurrentUser,
+    _t: Translator,
     status: Literal["idle", "running", "completed", "error", "interrupted"] | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -116,9 +117,9 @@ async def list_sessions(
         return {"sessions": [s.model_dump() for s in sessions]}
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/sessions/{session_id}")
@@ -129,9 +130,9 @@ async def get_session(project_name: str, session_id: str, _user: CurrentUser, _t
         return session.model_dump()
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.delete("/sessions/{session_id}")
@@ -145,9 +146,9 @@ async def delete_session(project_name: str, session_id: str, _user: CurrentUser,
         return {"success": True}
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/sessions/{session_id}/messages")
@@ -169,9 +170,9 @@ async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _
         raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.post("/sessions/{session_id}/interrupt")
@@ -187,9 +188,9 @@ async def interrupt_session(project_name: str, session_id: str, _user: CurrentUs
         raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")
@@ -219,9 +220,9 @@ async def answer_question(
         raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/sessions/{session_id}/stream", response_class=EventSourceResponse)
@@ -230,6 +231,7 @@ async def stream_events(
     session_id: str,
     request: Request,
     _user: CurrentUserFlexible,
+    _t: Translator,
     deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
 ) -> AsyncIterator[ServerSentEvent]:
     service, meta = deps
@@ -238,9 +240,9 @@ async def stream_events(
             yield event
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
 @router.get("/skills")
@@ -252,6 +254,6 @@ async def list_skills(project_name: str, _user: CurrentUser, _t: Translator):
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))

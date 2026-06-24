@@ -94,6 +94,147 @@ class TestAssistantRoutes:
         assert response.status_code == 200
         assert response.json() == interrupt_payload
 
+    def test_send_unexpected_error_no_leak(self):
+        """send 末端 catch-all：未预期异常返回通用 500，不泄露内部细节。"""
+        with patch.object(
+            assistant.assistant_service,
+            "send_or_create",
+            new=AsyncMock(side_effect=RuntimeError("LEAK_send")),
+        ):
+            with _build_client() as client:
+                response = client.post(f"{PREFIX}/sessions/send", json={"content": "hi"})
+
+        assert response.status_code == 500
+        assert "LEAK_send" not in response.text
+
+    def test_list_sessions_unexpected_error_no_leak(self):
+        with patch.object(
+            assistant.assistant_service,
+            "list_sessions",
+            new=AsyncMock(side_effect=RuntimeError("LEAK_list")),
+        ):
+            with _build_client() as client:
+                response = client.get(f"{PREFIX}/sessions")
+
+        assert response.status_code == 500
+        assert "LEAK_list" not in response.text
+
+    def test_get_session_unexpected_error_no_leak(self):
+        with patch.object(
+            assistant.assistant_service,
+            "get_session",
+            new=AsyncMock(side_effect=RuntimeError("LEAK_get")),
+        ):
+            with _build_client() as client:
+                response = client.get(f"{PREFIX}/sessions/session-1")
+
+        assert response.status_code == 500
+        assert "LEAK_get" not in response.text
+
+    def test_delete_session_unexpected_error_no_leak(self):
+        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
+        with (
+            patch.object(assistant.assistant_service, "get_session", return_value=session_meta),
+            patch.object(
+                assistant.assistant_service,
+                "delete_session",
+                new=AsyncMock(side_effect=RuntimeError("LEAK_delete")),
+            ),
+        ):
+            with _build_client() as client:
+                response = client.delete(f"{PREFIX}/sessions/session-1")
+
+        assert response.status_code == 500
+        assert "LEAK_delete" not in response.text
+
+    def test_snapshot_unexpected_error_no_leak(self):
+        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
+        with (
+            patch.object(assistant.assistant_service, "get_session", return_value=session_meta),
+            patch.object(
+                assistant.assistant_service,
+                "get_snapshot",
+                new=AsyncMock(side_effect=RuntimeError("LEAK_snapshot")),
+            ),
+        ):
+            with _build_client() as client:
+                response = client.get(f"{PREFIX}/sessions/session-1/snapshot")
+
+        assert response.status_code == 500
+        assert "LEAK_snapshot" not in response.text
+
+    def test_interrupt_unexpected_error_no_leak(self):
+        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
+        with (
+            patch.object(assistant.assistant_service, "get_session", return_value=session_meta),
+            patch.object(
+                assistant.assistant_service,
+                "interrupt_session",
+                new=AsyncMock(side_effect=RuntimeError("LEAK_interrupt")),
+            ),
+        ):
+            with _build_client() as client:
+                response = client.post(f"{PREFIX}/sessions/session-1/interrupt")
+
+        assert response.status_code == 500
+        assert "LEAK_interrupt" not in response.text
+
+    def test_answer_question_unexpected_error_no_leak(self):
+        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
+        with (
+            patch.object(assistant.assistant_service, "get_session", return_value=session_meta),
+            patch.object(
+                assistant.assistant_service,
+                "answer_user_question",
+                new=AsyncMock(side_effect=RuntimeError("LEAK_answer")),
+            ),
+        ):
+            with _build_client() as client:
+                response = client.post(
+                    f"{PREFIX}/sessions/session-1/questions/q-1/answer",
+                    json={"answers": {"q-1": "yes"}},
+                )
+
+        assert response.status_code == 500
+        assert "LEAK_answer" not in response.text
+
+    def test_stream_unexpected_error_no_leak(self):
+        # SSE 端点在开始流式后已提交 200，未预期异常无法把 detail 写回响应体，但末端
+        # catch-all 仍统一走 i18n（不构造 str(exc)）。用 raise_server_exceptions=False
+        # 观察传播异常下的响应体，断言哨兵串不泄露，并确认 _t 依赖已正确注入（缺注入会 500）。
+        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("LEAK_stream")
+            yield  # pragma: no cover - 标记为异步生成器
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
+        app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
+        app.dependency_overrides[get_translator] = lambda: make_translator()
+        app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
+
+        with (
+            patch.object(assistant.assistant_service, "get_session", return_value=session_meta),
+            patch.object(assistant.assistant_service, "stream_events", new=_boom),
+        ):
+            with TestClient(app, raise_server_exceptions=False) as client:
+                response = client.get(f"{PREFIX}/sessions/session-1/stream")
+
+        assert "LEAK_stream" not in response.text
+
+    def test_list_skills_unexpected_error_no_leak(self):
+        with patch.object(
+            assistant.assistant_service,
+            "list_available_skills",
+            side_effect=RuntimeError("LEAK_skills"),
+        ):
+            with _build_client() as client:
+                response = client.get(f"{PREFIX}/skills")
+
+        assert response.status_code == 500
+        assert "LEAK_skills" not in response.text
+
     def test_send_endpoint_translates_agent_startup_error_to_502(self):
         """``AgentStartupError`` 必须翻译成 502 + i18n 包装的 detail，
         透传 SDK 自带的安装指引；500 + 占位符是回归（PR #573）。"""

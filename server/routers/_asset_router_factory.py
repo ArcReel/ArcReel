@@ -127,9 +127,9 @@ def build_asset_router(
             raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
         except HTTPException:
             raise
-        except Exception as exc:
+        except Exception:
             logger.exception("请求处理失败")
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
     @router.patch(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
     async def update_entry(
@@ -178,9 +178,9 @@ def build_asset_router(
             raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
         except HTTPException:
             raise
-        except Exception as exc:
+        except Exception:
             logger.exception("请求处理失败")
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
     @router.delete(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
     async def delete_entry(project_name: str, entry_name: str, _user: CurrentUser, _t: Translator):
@@ -206,8 +206,8 @@ def build_asset_router(
             raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
         except HTTPException:
             raise
-        except Exception as exc:
+        except Exception:
             logger.exception("请求处理失败")
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
     return router
