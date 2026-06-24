@@ -45,6 +45,6 @@
 - `gpt-5.4` 系列：默认上限足够
 - `doubao-seed-2.x` 系列：输出上限较高（依模型）
 
-**建议：** 在 `/app/settings` 为 SCRIPT 任务配置**输出上限 ≥16K 的模型**。若必须使用 doubao-seed-1-8，则需将场景数控制在 15 个以内以规避截断。
+**建议：** 在 `/app/settings` 为 SCRIPT 任务配置**输出上限 ≥16K 的模型**。若必须使用 doubao-seed-1-8-251228，则需将场景数控制在 15 个以内以规避截断。
 
 **后续增强（未做）：** 可在 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 为每个模型声明 `max_output_tokens` 能力字段，运行时按 `min(request, model_limit)` clamp 并 `logger.warning`，在 UI 选择模型时给予提示。
