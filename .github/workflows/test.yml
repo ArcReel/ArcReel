@@ -13,7 +13,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      code: ${{ steps.gate.outputs.code }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -27,6 +27,19 @@ jobs:
               - '!LICENSE'
               - '!.github/ISSUE_TEMPLATE/**'
               - '!.github/pull_request_template.md'
+      - id: gate
+        # Release PR(release-please-- 前缀)只 bump 版本与 CHANGELOG，重 job 必然与 base 一致，
+        # 强制 code=false 让 backend/postgres/frontend 直接 skip；其余分支沿用 paths-filter 结果。
+        # head_ref 经 env 传入，避免分支名作为表达式注入到 run 脚本。
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          FILTER_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [[ "$HEAD_REF" == release-please--* ]]; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=$FILTER_CODE" >> "$GITHUB_OUTPUT"
+          fi
 
   backend-tests:
     needs: changes
