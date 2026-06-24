@@ -1,11 +1,12 @@
 """Unit tests for assistant router contract changes."""
 
+import inspect
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.i18n import get_translator
+from lib.i18n import Translator, get_translator
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
 from tests.conftest import make_translator
@@ -24,6 +25,20 @@ def _build_client() -> TestClient:
     app.dependency_overrides[get_translator] = lambda: make_translator()
     app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
+
+
+_INTERNAL_ERROR_DETAIL = make_translator()("internal_server_error")
+
+
+def _assert_generic_500(response, sentinel: str) -> None:
+    """兜底 500 契约：响应体 detail 必须是通用 i18n 文案、且不泄露内部哨兵串。
+
+    仅断言 ``sentinel not in text`` 不够——detail 被清空或 i18n key 打错时也不含哨兵串，
+    回归会静默通过；故同时正向锁定 detail 等于翻译后的 internal_server_error 文案。
+    """
+    assert response.status_code == 500
+    assert response.json()["detail"] == _INTERNAL_ERROR_DETAIL
+    assert sentinel not in response.text
 
 
 class TestAssistantRoutes:
@@ -104,8 +119,7 @@ class TestAssistantRoutes:
             with _build_client() as client:
                 response = client.post(f"{PREFIX}/sessions/send", json={"content": "hi"})
 
-        assert response.status_code == 500
-        assert "LEAK_send" not in response.text
+        _assert_generic_500(response, "LEAK_send")
 
     def test_list_sessions_unexpected_error_no_leak(self):
         with patch.object(
@@ -116,8 +130,7 @@ class TestAssistantRoutes:
             with _build_client() as client:
                 response = client.get(f"{PREFIX}/sessions")
 
-        assert response.status_code == 500
-        assert "LEAK_list" not in response.text
+        _assert_generic_500(response, "LEAK_list")
 
     def test_get_session_unexpected_error_no_leak(self):
         with patch.object(
@@ -128,8 +141,7 @@ class TestAssistantRoutes:
             with _build_client() as client:
                 response = client.get(f"{PREFIX}/sessions/session-1")
 
-        assert response.status_code == 500
-        assert "LEAK_get" not in response.text
+        _assert_generic_500(response, "LEAK_get")
 
     def test_delete_session_unexpected_error_no_leak(self):
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
@@ -144,8 +156,7 @@ class TestAssistantRoutes:
             with _build_client() as client:
                 response = client.delete(f"{PREFIX}/sessions/session-1")
 
-        assert response.status_code == 500
-        assert "LEAK_delete" not in response.text
+        _assert_generic_500(response, "LEAK_delete")
 
     def test_snapshot_unexpected_error_no_leak(self):
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
@@ -160,8 +171,7 @@ class TestAssistantRoutes:
             with _build_client() as client:
                 response = client.get(f"{PREFIX}/sessions/session-1/snapshot")
 
-        assert response.status_code == 500
-        assert "LEAK_snapshot" not in response.text
+        _assert_generic_500(response, "LEAK_snapshot")
 
     def test_interrupt_unexpected_error_no_leak(self):
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
@@ -176,8 +186,7 @@ class TestAssistantRoutes:
             with _build_client() as client:
                 response = client.post(f"{PREFIX}/sessions/session-1/interrupt")
 
-        assert response.status_code == 500
-        assert "LEAK_interrupt" not in response.text
+        _assert_generic_500(response, "LEAK_interrupt")
 
     def test_answer_question_unexpected_error_no_leak(self):
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
@@ -195,13 +204,16 @@ class TestAssistantRoutes:
                     json={"answers": {"q-1": "yes"}},
                 )
 
-        assert response.status_code == 500
-        assert "LEAK_answer" not in response.text
+        _assert_generic_500(response, "LEAK_answer")
 
-    def test_stream_unexpected_error_no_leak(self):
-        # SSE 端点在开始流式后已提交 200，未预期异常无法把 detail 写回响应体，但末端
-        # catch-all 仍统一走 i18n（不构造 str(exc)）。用 raise_server_exceptions=False
-        # 观察传播异常下的响应体，断言哨兵串不泄露，并确认 _t 依赖已正确注入（缺注入会 500）。
+    def test_stream_injects_translator_and_no_leak(self):
+        # SSE 端点在开始流式后已提交 200，末端 catch-all 的 HTTPException 无法把 detail 写回
+        # 已提交的响应体（body 恒为空）——故响应体断言对该端点天然 vacuous，无法区分修复与回归。
+        # 真正可锁定的契约是 catch-all 走 i18n 而非 str(exc)，这依赖 `_t: Translator` 被注入签名；
+        # 用 inspect 正向核验注入，再以 raise_server_exceptions=False 跑一遍确认哨兵串不泄露。
+        params = inspect.signature(assistant.stream_events).parameters
+        assert params["_t"].annotation is Translator
+
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
 
         async def _boom(*args, **kwargs):
@@ -232,8 +244,7 @@ class TestAssistantRoutes:
             with _build_client() as client:
                 response = client.get(f"{PREFIX}/skills")
 
-        assert response.status_code == 500
-        assert "LEAK_skills" not in response.text
+        _assert_generic_500(response, "LEAK_skills")
 
     def test_send_endpoint_translates_agent_startup_error_to_502(self):
         """``AgentStartupError`` 必须翻译成 502 + i18n 包装的 detail，
