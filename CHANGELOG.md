@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.19.1](https://github.com/ArcReel/ArcReel/compare/v0.19.0...v0.19.1) (2026-06-24)
+
+
+### 🐛 Bug 修复
+
+* **agent:** 助手会话内更改风格等项目设置后即时生效 ([#892](https://github.com/ArcReel/ArcReel/issues/892)) ([5e01e41](https://github.com/ArcReel/ArcReel/commit/5e01e414e92b1c33c637af9842ef9c35a5e36334))
+* **assistant:** 助手会话冷恢复时跟随用户实际语言，不再回落中文 ([#903](https://github.com/ArcReel/ArcReel/issues/903)) ([e7834fa](https://github.com/ArcReel/ArcReel/commit/e7834fab1904afdd80b3f5ac168bdf71a37b81bc))
+* **script:** 代理未强制 schema 时回退带校验路径，修复广告/短片剧本生成失败 ([#902](https://github.com/ArcReel/ArcReel/issues/902)) ([8506403](https://github.com/ArcReel/ArcReel/commit/85064035b7fe297a5dd81bca6d2ab691676af8e8))
+* **security:** 关闭 OPENAI_API_KEY 经沙箱子进程泄漏的窗口 ([#905](https://github.com/ArcReel/ArcReel/issues/905)) ([e2b1fe7](https://github.com/ArcReel/ArcReel/commit/e2b1fe7dfbc92dcf0c7d5dede77d6e50b40996a4))
+* **security:** 资产与助手路由兜底 500 不再回传内部异常文本 ([#901](https://github.com/ArcReel/ArcReel/issues/901)) ([05dde6a](https://github.com/ArcReel/ArcReel/commit/05dde6a08982341bc19eaedf6d781ebeed288b1e))
+
+
+### 📚 文档
+
+* 补齐新供应商与旁白配音/广告短片/剧本源，修正过时文档项 ([#890](https://github.com/ArcReel/ArcReel/issues/890)) ([7bceded](https://github.com/ArcReel/ArcReel/commit/7bcededf51eb340b4e22670eb8c094c9ac501433))
+
 ## [0.19.0](https://github.com/ArcReel/ArcReel/compare/v0.18.0...v0.19.0) (2026-06-21)
 
 
