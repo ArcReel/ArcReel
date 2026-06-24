@@ -60,7 +60,7 @@
 </td>
 <td width="20%" align="center">
 <h3>🎬 多供应商视频生成</h3>
-<strong>Veo 3.1</strong>、<strong>Seedance</strong>、<strong>Grok</strong>、<strong>Sora 2</strong>、<strong>Vidu Q3</strong>、<strong>MiniMax</strong>、<strong>可灵</strong> 及自定义供应商，全局/项目级可切换
+<strong>Veo 3.1</strong>、<strong>Seedance</strong>、<strong>Grok</strong>、<strong>Sora 2</strong>、<strong>Vidu Q3</strong>、<strong>阿里百炼</strong>、<strong>MiniMax</strong>、<strong>可灵</strong> 及自定义供应商，全局/项目级可切换
 </td>
 <td width="20%" align="center">
 <h3>⚡ 异步任务队列</h3>
@@ -114,7 +114,7 @@ docker compose up -d
 首次启动后，使用默认账号登录（用户名 `admin`，密码在 `.env` 中通过 `AUTH_PASSWORD` 设置；未设置则首次启动时自动生成并回写到 `.env`），前往 **设置页**（`/app/settings`）完成配置：
 
 1. **ArcReel 智能体** — 配置驱动 AI 助手的供应商凭据，支持 Anthropic 官方及多种兼容供应商，自定义 Base URL 与模型
-2. **AI 生图/生视频/生文本** — 配置至少一个供应商的 API Key（Gemini / 火山方舟 / Grok / OpenAI / Vidu），或添加自定义供应商
+2. **AI 生图/生视频/生文本** — 配置至少一个供应商的 API Key（Gemini / 火山方舟 / Grok / OpenAI / Vidu / 阿里百炼 / MiniMax / 可灵），或添加自定义供应商
 
 > 📖 详细步骤请参考 [完整入门教程](docs/getting-started.md)
 

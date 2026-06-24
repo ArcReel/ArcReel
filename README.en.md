@@ -60,7 +60,7 @@ Built on the <strong>Claude Agent SDK</strong>, orchestrating Skills + focused S
 </td>
 <td width="20%" align="center">
 <h3>🎬 Multi-Provider Video Generation</h3>
-<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, <strong>Vidu Q3</strong>, <strong>MiniMax</strong>, <strong>Kling</strong>, and custom providers, switchable at global or project level
+<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, <strong>Vidu Q3</strong>, <strong>DashScope</strong>, <strong>MiniMax</strong>, <strong>Kling</strong>, and custom providers, switchable at global or project level
 </td>
 <td width="20%" align="center">
 <h3>⚡ Async Task Queue</h3>
@@ -114,7 +114,7 @@ docker compose up -d
 After first launch, log in with the default account (username `admin`, password set via `AUTH_PASSWORD` in `.env`; if not set, it will be auto-generated and written back to `.env` on first startup). Then go to **Settings** (`/app/settings`) to complete configuration:
 
 1. **ArcReel Agent** — Configure provider credentials that power the AI assistant. Supports Anthropic and compatible providers, with custom Base URL and model
-2. **AI Image/Video/Text Generation** — Configure at least one provider's API Key (Gemini / Volcengine Ark / Grok / OpenAI / Vidu), or add a custom provider
+2. **AI Image/Video/Text Generation** — Configure at least one provider's API Key (Gemini / Volcengine Ark / Grok / OpenAI / Vidu / DashScope / MiniMax / Kling), or add a custom provider
 
 > 📖 For detailed steps, see the [Getting Started Guide](docs/getting-started.md)
 
