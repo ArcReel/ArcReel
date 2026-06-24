@@ -154,6 +154,41 @@ class TestSessionManagerMore:
         assert await session_manager._keep_stream_open_hook({}, None, None) == {"continue_": True}
 
     @pytest.mark.asyncio
+    async def test_get_or_connect_threads_locale_into_system_prompt(
+        self, session_manager, meta_store, tmp_path, monkeypatch
+    ):
+        """Cold-recovery revival rebuilds the language regulation from the
+        caller's locale instead of falling back to the default zh."""
+
+        async def _fake_env(_self):
+            return {}
+
+        monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
+
+        (tmp_path / "projects" / "demo").mkdir(parents=True)
+        meta = await meta_store.create("demo", "sdk-locale-vi")
+
+        created_clients: list[_FakeClaudeClient] = []
+
+        def _track_client(*, options):
+            c = _FakeClaudeClient(options=options)
+            created_clients.append(c)
+            return c
+
+        with monkeypatch.context() as m:
+            m.setattr(sm_mod, "SDK_AVAILABLE", True)
+            m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
+            m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
+            m.setattr(sm_mod, "HookMatcher", None)
+            await session_manager.get_or_connect(meta.id, locale="vi")
+            await asyncio.sleep(0)
+            assert created_clients
+            append = created_clients[0].options.kwargs["system_prompt"]["append"]
+            assert "Tiếng Việt" in append
+            assert "中文" not in append
+            await session_manager.close_session(meta.id)
+
+    @pytest.mark.asyncio
     async def test_resolve_project_scope_and_status_helpers(self, session_manager, tmp_path, meta_store):
         (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
         with pytest.raises(ValueError):

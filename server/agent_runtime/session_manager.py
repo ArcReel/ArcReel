@@ -1440,8 +1440,17 @@ class SessionManager:
                 logger.debug("_mark_session_terminal cleanup failed", exc_info=True)
             raise
 
-    async def get_or_connect(self, session_id: str, *, meta: Optional["SessionMeta"] = None) -> ManagedSession:
-        """Get existing managed session or spin up an actor for resumed session."""
+    async def get_or_connect(
+        self, session_id: str, *, meta: Optional["SessionMeta"] = None, locale: str = "zh"
+    ) -> ManagedSession:
+        """Get existing managed session or spin up an actor for resumed session.
+
+        ``locale`` only matters when this call revives a cold session: the SDK's
+        ``resume`` rebuilds the whole system prompt from current options, so the
+        language regulation segment must reflect the caller's request locale. An
+        already-resident session returns from cache and ``locale`` is ignored —
+        the session-fixed system prompt stays unchanged.
+        """
         if session_id in self.sessions and session_id not in self._disconnecting:
             return self.sessions[session_id]
 
@@ -1477,6 +1486,7 @@ class SessionManager:
                 meta.project_name,
                 meta.id,  # SessionMeta.id 就是 sdk_session_id
                 can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
+                locale=locale,
                 stderr=_collect_stderr,
             )
             assistant_model = self._resolve_configured_assistant_model(getattr(options, "env", None))
@@ -1528,9 +1538,15 @@ class SessionManager:
         echo_text: str | None = None,
         echo_content: list[dict[str, Any]] | None = None,
         meta: Optional["SessionMeta"] = None,
+        locale: str = "zh",
     ) -> None:
-        """Send a message via the session actor."""
-        managed = await self.get_or_connect(session_id, meta=meta)
+        """Send a message via the session actor.
+
+        ``locale`` is forwarded to ``get_or_connect`` so a cold-recovered
+        session rebuilds its language regulation from the current request's
+        locale rather than the default.
+        """
+        managed = await self.get_or_connect(session_id, meta=meta, locale=locale)
         managed.last_activity = time.monotonic()
         # 取消待执行的 cleanup（会话恢复活跃）
         if managed._cleanup_task and not managed._cleanup_task.done():

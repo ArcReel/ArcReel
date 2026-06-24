@@ -41,6 +41,7 @@ class _FakeSessionManager:
         self.sessions = {}
         self.new_sessions = []
         self.sent = []
+        self.sent_kwargs = []
         self.answered = []
         self.interrupted = []
         self.closed = []
@@ -65,6 +66,7 @@ class _FakeSessionManager:
 
     async def send_message(self, session_id, content, **kwargs):
         self.sent.append((session_id, content))
+        self.sent_kwargs.append(kwargs)
 
     async def answer_user_question(self, session_id, question_id, answers):
         self.answered.append((session_id, question_id, answers))
@@ -209,6 +211,23 @@ class TestAssistantServiceMore:
             await service.interrupt_session("missing")
         interrupted = await service.interrupt_session("s1")
         assert interrupted["session_status"] == "interrupted"
+
+    @pytest.mark.asyncio
+    async def test_send_or_create_threads_locale_into_continuation(self, tmp_path):
+        """Continuation (existing session) must forward the request locale so a
+        cold-recovered session rebuilds its language regulation correctly."""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta(id="s1", status="idle")
+
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([meta])
+
+        await service.send_or_create("demo", "world", session_id="s1", locale="en")
+
+        assert sm.sent == [("s1", "world")]
+        assert sm.sent_kwargs[0]["locale"] == "en"
 
     @pytest.mark.asyncio
     async def test_delete_session_closes_active_session_before_delete(self, tmp_path):

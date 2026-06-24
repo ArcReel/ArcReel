@@ -259,10 +259,10 @@ class AssistantService:
             text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
             if sdk_prompt is not None:
                 await self.session_manager.send_message(
-                    session_id, sdk_prompt, echo_text=text, echo_content=echo_blocks, meta=meta
+                    session_id, sdk_prompt, echo_text=text, echo_content=echo_blocks, meta=meta, locale=locale
                 )
             else:
-                await self.session_manager.send_message(session_id, text, meta=meta)
+                await self.session_manager.send_message(session_id, text, meta=meta, locale=locale)
             return {"status": "accepted", "session_id": session_id}
         else:
             # New session
