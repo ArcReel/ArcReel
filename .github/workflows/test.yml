@@ -28,9 +28,11 @@ jobs:
               - '!.github/ISSUE_TEMPLATE/**'
               - '!.github/pull_request_template.md'
       - id: gate
-        # Release PR(release-please-- 前缀)只 bump 版本与 CHANGELOG，重 job 必然与 base 一致，
-        # 强制 code=false 让 backend/postgres/frontend 直接 skip；其余分支沿用 paths-filter 结果。
-        # head_ref 经 env 传入，避免分支名作为表达式注入到 run 脚本。
+        # Release PR(release-please-- 前缀)只改版本相关产物：pyproject / 前端 package.json 的 version、
+        # release-please manifest、CHANGELOG，并由 release-please workflow 推回 uv.lock 同步 commit，
+        # 不含源码逻辑改动。为加快版本 PR 合并，强制 code=false 让 backend/postgres/frontend 直接 skip。
+        # 取舍：lockfile / 版本字段层面的回归不在 PR 阶段拦截，合入 main 后由 push 触发的 CI 兜底。
+        # 其余分支沿用 paths-filter 结果。head_ref 经 env 传入，避免分支名作为表达式注入到 run 脚本。
         env:
           HEAD_REF: ${{ github.head_ref }}
           FILTER_CODE: ${{ steps.filter.outputs.code }}
