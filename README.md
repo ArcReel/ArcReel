@@ -64,7 +64,7 @@
 </td>
 <td width="20%" align="center">
 <h3>⚡ 异步任务队列</h3>
-RPM 速率限制 + Image/Video 独立并发通道，lease-based 调度，支持断点续传
+RPM 速率限制 + Image/Video/Audio 独立并发通道，lease-based 调度，支持断点续传
 </td>
 <td width="20%" align="center">
 <h3>🖥️ 可视化工作台</h3>
@@ -252,7 +252,7 @@ flowchart TB
 
     subgraph Core["Core Library"]
         C1["VideoBackend 抽象层<br/>Gemini · 火山方舟 · Grok · OpenAI · Vidu · 阿里百炼 · MiniMax · 可灵 · 自定义"] ~~~ C2["ImageBackend 抽象层<br/>Gemini · 火山方舟 · Grok · OpenAI · Vidu · 阿里百炼 · MiniMax · 可灵 · 自定义"]
-        C5["TextBackend 抽象层<br/>Gemini · 火山方舟 · Grok · OpenAI · 阿里百炼 · MiniMax · 自定义"] ~~~ C3["GenerationQueue<br/>RPM 限速 · Image/Video 通道"]
+        C5["TextBackend 抽象层<br/>Gemini · 火山方舟 · Grok · OpenAI · 阿里百炼 · MiniMax · 自定义"] ~~~ C3["GenerationQueue<br/>RPM 限速 · Image/Video/Audio 通道"]
         C4["ProjectManager<br/>文件系统 + 版本管理"]
     end
 

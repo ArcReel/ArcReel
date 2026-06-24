@@ -64,7 +64,7 @@ Built on the <strong>Claude Agent SDK</strong>, orchestrating Skills + focused S
 </td>
 <td width="20%" align="center">
 <h3>⚡ Async Task Queue</h3>
-RPM rate limiting + independent Image/Video concurrency channels, lease-based scheduling with checkpoint resume
+RPM rate limiting + independent Image/Video/Audio concurrency channels, lease-based scheduling with checkpoint resume
 </td>
 <td width="20%" align="center">
 <h3>🖥️ Visual Workspace</h3>
@@ -244,7 +244,7 @@ flowchart TB
 
     subgraph Core["Core Library"]
         C1["VideoBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · DashScope · MiniMax · Kling · Custom"] ~~~ C2["ImageBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · DashScope · MiniMax · Kling · Custom"]
-        C5["TextBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · DashScope · MiniMax · Custom"] ~~~ C3["GenerationQueue<br/>RPM Limiting · Image/Video Channels"]
+        C5["TextBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · DashScope · MiniMax · Custom"] ~~~ C3["GenerationQueue<br/>RPM Limiting · Image/Video/Audio Channels"]
         C4["ProjectManager<br/>File System + Version Management"]
     end
 
