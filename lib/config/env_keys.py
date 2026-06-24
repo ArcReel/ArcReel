@@ -24,7 +24,15 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     "VIDU_API_KEY",
     "DASHSCOPE_API_KEY",
     "MINIMAX_API_KEY",
+    "OPENAI_API_KEY",
     "GOOGLE_APPLICATION_CREDENTIALS",
+    # OpenAI SDK 在 client 未显式传值时回落读的 env 旋钮（非密钥命名，
+    # _SECRET_ENV_NAME_PATTERNS 的子串匹配兜不到）。整组纳入覆盖名单，
+    # 避免它们经 fork 漏进 SDK / Bash 子进程。
+    "OPENAI_BASE_URL",
+    "OPENAI_ORG_ID",
+    "OPENAI_PROJECT_ID",
+    "OPENAI_CUSTOM_HEADERS",
     "GEMINI_BASE_URL",
     "GEMINI_IMAGE_MODEL",
     "GEMINI_VIDEO_MODEL",
@@ -45,6 +53,7 @@ PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
         "VIDU_API_KEY",
         "DASHSCOPE_API_KEY",
         "MINIMAX_API_KEY",
+        "OPENAI_API_KEY",
         "GOOGLE_APPLICATION_CREDENTIALS",
     }
 )
