@@ -219,9 +219,11 @@ def _structured_fallback_reason(text: str, response_schema: dict | type | None) 
     JSON」的既有行为，不额外收紧。
     """
     if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
-        # model_validate_json 单次解析即同时覆盖「非 JSON」与「违反 schema」两种情况
+        # model_validate_json 单次解析即同时覆盖「非 JSON」与「违反 schema」两种情况；
+        # strict=True 与原生请求的 response_format.json_schema.strict=True 对齐——代理若
+        # 返回可强转但类型不严格匹配的 JSON（如 int 字段给 "30"），同样判定为未强制 schema。
         try:
-            response_schema.model_validate_json(text)
+            response_schema.model_validate_json(text, strict=True)
         except ValidationError as exc:
             return f"返回内容不满足 response_schema（代理可能未强制 schema）：{_summarize_validation_error(exc)}"
         return None

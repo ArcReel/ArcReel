@@ -285,6 +285,44 @@ class TestInstructorFallback:
         assert result.output_tokens == 90
         mock_patched.chat.completions.create_with_completion.assert_awaited_once()
 
+    async def test_coercible_but_non_strict_json_triggers_instructor_fallback(self):
+        """原生返回可强转但类型不严格匹配的 JSON（age 为数字字符串 "30"），严格校验下视为未强制 schema，应降级。"""
+        # 宽松校验会把 "30" 强转为 30 而放行；strict=True 与原生 response_format 的 strict 对齐，拒绝并降级
+        coercible_json = json.dumps({"name": "Alice", "age": "30"})
+        instructor_result = _PersonSchema(name="Alice", age=30)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = MagicMock()
+        instructor_completion.usage.prompt_tokens = 70
+        instructor_completion.usage.completion_tokens = 25
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(coercible_json, 100, 60))
+
+        mock_patched = AsyncMock()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("instructor.from_openai", return_value=mock_patched),
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(
+                prompt="Extract info",
+                response_schema=_PersonSchema,
+            )
+            result = await backend.generate(request)
+
+        assert result.text == instructor_result.model_dump_json()
+        mock_client.chat.completions.create.assert_awaited_once()
+        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
+        # 原生计费 token（100/60）并入 Instructor 结果（70/25）
+        assert result.input_tokens == 170
+        assert result.output_tokens == 85
+
     async def test_missing_required_field_json_triggers_instructor_fallback(self):
         """原生返回缺必填字段的合法 JSON（如 age 缺失），应降级到 Instructor 而非直接放行。"""
         # 缺 age 必填字段
