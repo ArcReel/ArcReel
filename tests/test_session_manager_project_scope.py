@@ -190,8 +190,8 @@ class TestSessionManagerProjectScope:
 
         # Session-invariant facts are present
         assert "项目标识：demo" in prompt
-        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
-        assert "按需读取 project.json" in prompt
+        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve().as_posix()}" in prompt
+        assert "项目元数据（标题、风格、概述等）存于 project.json，需要时读取。" in prompt
         assert "Bash 命令必须写在单行" in prompt
 
         # The cwd line embeds an arbitrary temp path; exclude it so ASCII tokens
@@ -239,8 +239,8 @@ class TestSessionManagerProjectScope:
         prompt = manager._build_project_context("empty")
 
         assert "项目标识：empty" in prompt
-        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
-        assert "按需读取 project.json" in prompt
+        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve().as_posix()}" in prompt
+        assert "项目元数据（标题、风格、概述等）存于 project.json，需要时读取。" in prompt
 
         await engine.dispose()
 

@@ -584,9 +584,8 @@ class SessionManager:
             "## 当前项目上下文",
             "",
             f"- 项目标识：{project_name}",
-            f"- 项目目录（即当前工作目录 cwd）：{project_cwd}",
-            "- 项目元数据存于 project.json，可能在会话期间被修改；需要某项元数据时按需读取 project.json "
-            "获取当前值，不要沿用此前对话中出现过的旧值。",
+            f"- 项目目录（即当前工作目录 cwd）：{project_cwd.as_posix()}",
+            "- 项目元数据（标题、风格、概述等）存于 project.json，需要时读取。",
             "- Bash 命令必须写在单行，禁止使用 `\\` 换行，JSON 参数使用紧凑格式。",
         ]
         return "\n".join(parts)
