@@ -544,10 +544,11 @@ class SessionManager:
     def _build_append_prompt(self, project_name: str, locale: str = "zh") -> str:
         """Build the append portion for SystemPromptPreset.
 
-        Combines the ArcReel persona with project-specific context from
-        project.json.  The base CLAUDE.md is auto-loaded by the SDK via
-        setting_sources=["project"] and the CLAUDE.md symlink in the
-        project cwd.
+        Combines the ArcReel persona, the locale language regulation, and the
+        session-invariant project context (identity, cwd, operating rules).
+        Mutable project metadata is not included here — it lives in project.json
+        and is read on demand. The project's CLAUDE.md (mode variant projected
+        into the cwd) is auto-loaded by the SDK via setting_sources=["project"].
         """
         parts = [self._PERSONA_PROMPT]
 
@@ -567,71 +568,28 @@ class SessionManager:
         return "\n".join(parts)
 
     def _build_project_context(self, project_name: str) -> str:
-        """Build project-specific context from project.json metadata."""
+        """Build session-invariant project context for the system prompt.
+
+        Holds only facts that cannot change within a session: project identity,
+        cwd, and static operating rules. Mutable metadata (title, style,
+        overview, ...) lives in project.json and is read on demand by the agent
+        and tools — never baked into the session-fixed system prompt.
+        """
         try:
             project_cwd = self._resolve_project_cwd(project_name)
         except (ValueError, FileNotFoundError):
             return ""
 
-        project_json = project_cwd / "project.json"
-        if not project_json.exists():
-            return ""
-
-        try:
-            config = json.loads(project_json.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("Failed to read project.json for %s: %s", project_name, exc)
-            return ""
-
-        if not isinstance(config, dict):
-            logger.warning("project.json for %s is not a JSON object", project_name)
-            return ""
-
         parts = [
             "## 当前项目上下文",
             "",
+            f"- 项目标识：{project_name}",
+            f"- 项目目录（即当前工作目录 cwd）：{project_cwd}",
+            "- 项目元数据存于 project.json，可能在会话期间被修改；需要某项元数据时按需读取 project.json "
+            "获取当前值，不要沿用此前对话中出现过的旧值。",
+            "- Bash 命令必须写在单行，禁止使用 `\\` 换行，JSON 参数使用紧凑格式。",
         ]
-
-        # TODO: 当前定位是自部署服务，这里直接拼接项目元数据以保持实现简单。
-        # TODO: 若后续演进为 SaaS / 多租户服务，需要把 title/style/overview 等用户输入
-        # TODO: 按“非指令上下文”做边界化或转义，降低 prompt injection 风险。
-        parts.append(f"- 项目标识：{project_name}")
-        if title := config.get("title"):
-            parts.append(f"- 项目标题：{title}")
-        if mode := config.get("content_mode"):
-            parts.append(f"- 内容模式：{mode}")
-        if style := config.get("style"):
-            parts.append(f"- 视觉风格：{style}")
-        if style_desc := config.get("style_description"):
-            parts.append(f"- 风格描述：{style_desc}")
-        parts.append(f"- 项目目录（即当前工作目录 cwd）：{project_cwd}")
-        parts.append(
-            "- Read/Edit/Write 等工具的 file_path 参数必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。"
-        )
-        parts.append(
-            "- Bash 调用 skill 脚本时必须使用相对路径（如 `python .claude/skills/.../script.py`），不要转换为绝对路径。"
-        )
-        parts.append("- Bash 命令必须写在单行，禁止使用 `\\` 换行，JSON 参数使用紧凑格式。")
-
-        self._append_overview_section(parts, config.get("overview", {}))
-
         return "\n".join(parts)
-
-    @staticmethod
-    def _append_overview_section(parts: list[str], overview: Any) -> None:
-        """Append project overview fields to prompt parts."""
-        if not isinstance(overview, dict) or not overview:
-            return
-        parts.append("")
-        parts.append("### 项目概述")
-        if synopsis := overview.get("synopsis"):
-            parts.append(synopsis)
-        if genre := overview.get("genre"):
-            parts.append(f"- 题材：{genre}")
-        if theme := overview.get("theme"):
-            parts.append(f"- 主题：{theme}")
-        if world := overview.get("world_setting"):
-            parts.append(f"- 世界观：{world}")
 
     def _build_session_store(self) -> DbSessionStore | None:
         """Return a cached per-user DbSessionStore, or None when env disables it.

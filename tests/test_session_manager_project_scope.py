@@ -155,8 +155,8 @@ class TestSessionManagerProjectScope:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_project_context_injects_project_context(self, tmp_path):
-        """Verify full project.json fields are injected into the system prompt."""
+    async def test_build_project_context_excludes_mutable_metadata(self, tmp_path):
+        """Mutable metadata must NOT leak into the session-fixed system prompt."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
         project_json = project_dir / "project.json"
@@ -188,28 +188,43 @@ class TestSessionManagerProjectScope:
 
         prompt = manager._build_project_context("demo")
 
-        # Project metadata fields
+        # Session-invariant facts are present
         assert "项目标识：demo" in prompt
-        assert "项目标题：重生之皇后威武" in prompt
-        assert "重生之皇后威武" in prompt
-        assert "narration" in prompt
-        assert "Photographic" in prompt
-        assert "Soft diffused lighting" in prompt
         assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
-        assert "必须使用绝对路径" in prompt
-        assert "必须使用相对路径" in prompt
+        assert "按需读取 project.json" in prompt
+        assert "Bash 命令必须写在单行" in prompt
 
-        # Overview fields
-        assert "姜月茴重生后逆袭的故事" in prompt
-        assert "古装宫斗" in prompt
-        assert "复仇与救赎" in prompt
-        assert "架空古代皇朝" in prompt
+        # The cwd line embeds an arbitrary temp path; exclude it so ASCII tokens
+        # that may appear in the test's tmp_path can't cause false substring matches.
+        body = "\n".join(line for line in prompt.splitlines() if "项目目录" not in line)
+
+        # Mutable metadata (every label and value) must be absent — read on demand instead
+        for token in (
+            "项目标题",
+            "重生之皇后威武",
+            "内容模式",
+            "narration",
+            "视觉风格",
+            "Photographic",
+            "风格描述",
+            "Soft diffused lighting",
+            "项目概述",
+            "姜月茴重生后逆袭的故事",
+            "古装宫斗",
+            "复仇与救赎",
+            "架空古代皇朝",
+        ):
+            assert token not in body
+
+        # Redundant path rules now live only in CLAUDE.{mode}.md — guard against re-adding them here
+        assert "必须使用绝对路径" not in body
+        assert "必须使用相对路径" not in body
 
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_project_context_graceful_fallback_no_project_json(self, tmp_path):
-        """Verify graceful degradation when project.json does not exist."""
+    async def test_build_project_context_emits_block_without_project_json(self, tmp_path):
+        """Output is independent of project.json: the stable block is emitted even when it is absent."""
         project_dir = tmp_path / "projects" / "empty"
         project_dir.mkdir(parents=True)
         # No project.json created
@@ -223,48 +238,9 @@ class TestSessionManagerProjectScope:
 
         prompt = manager._build_project_context("empty")
 
-        # Should return empty string — base prompt is auto-loaded by SDK
-        assert prompt == ""
-
-        await engine.dispose()
-
-    @pytest.mark.asyncio
-    async def test_build_project_context_partial_fields(self, tmp_path):
-        """Verify partial project.json (some fields missing) works correctly."""
-        project_dir = tmp_path / "projects" / "partial"
-        project_dir.mkdir(parents=True)
-        project_json = project_dir / "project.json"
-        project_json.write_text(
-            json.dumps(
-                {
-                    "title": "测试项目",
-                    "content_mode": "drama",
-                    # No style, style_description, or overview
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-
-        store, engine = await _make_store()
-        manager = SessionManager(
-            project_root=tmp_path,
-            data_dir=tmp_path,
-            meta_store=store,
-        )
-
-        prompt = manager._build_project_context("partial")
-
-        # Present fields should be injected
-        assert "项目标识：partial" in prompt
-        assert "项目标题：测试项目" in prompt
+        assert "项目标识：empty" in prompt
         assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
-        assert "测试项目" in prompt
-        assert "drama" in prompt
-
-        # Missing fields should NOT cause errors or appear
-        assert "Photographic" not in prompt
-        assert "项目概述" not in prompt  # No overview section header
+        assert "按需读取 project.json" in prompt
 
         await engine.dispose()
 
@@ -309,10 +285,9 @@ class TestAllowedToolsAndConstants:
 
 class TestSystemPromptProjectContext:
     @pytest.mark.asyncio
-    async def test_build_project_context_returns_empty_without_project_json(self, tmp_path):
-        """Without project.json, system_prompt should be empty (SDK auto-loads CLAUDE.md)."""
-        project_dir = tmp_path / "projects" / "demo"
-        project_dir.mkdir(parents=True)
+    async def test_build_project_context_returns_empty_when_project_dir_missing(self, tmp_path):
+        """The only empty case left: no project directory at all (cwd cannot resolve)."""
+        (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
 
         store, engine = await _make_store()
         manager = SessionManager(
@@ -321,28 +296,6 @@ class TestSystemPromptProjectContext:
             meta_store=store,
         )
 
-        prompt = manager._build_project_context("demo")
+        prompt = manager._build_project_context("does-not-exist")
         assert prompt == ""
-        await engine.dispose()
-
-    @pytest.mark.asyncio
-    async def test_build_project_context_returns_project_context_only(self, tmp_path):
-        """system_prompt should only contain project.json context, not base prompt."""
-        project_dir = tmp_path / "projects" / "demo"
-        project_dir.mkdir(parents=True)
-        (project_dir / "project.json").write_text(
-            json.dumps({"title": "测试项目"}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-
-        store, engine = await _make_store()
-        manager = SessionManager(
-            project_root=tmp_path,
-            data_dir=tmp_path,
-            meta_store=store,
-        )
-
-        prompt = manager._build_project_context("demo")
-        assert "项目标题：测试项目" in prompt
-        assert "当前项目上下文" in prompt
         await engine.dispose()
