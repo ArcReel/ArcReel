@@ -6,6 +6,7 @@ import json
 import logging
 
 from openai import AsyncOpenAI, BadRequestError
+from pydantic import BaseModel, ValidationError
 
 from lib.config.url_utils import is_official_openai_base_url
 from lib.logging_utils import format_kwargs_for_log
@@ -117,18 +118,21 @@ class OpenAITextBackend:
         output_tokens = usage.completion_tokens if usage else None
         text = choice.message.content or ""
 
-        if request.response_schema and not _is_valid_json(text):
-            logger.warning(
-                "原生 response_format 返回非 JSON 内容（代理可能未支持 response_format），降级到 Instructor 路径",
-            )
-            return await _instructor_fallback(
-                self._client,
-                self._model,
-                request,
-                messages,
-                provider=self._provider_name,
-                token_param=self._max_tokens_param,
-            )
+        if request.response_schema:
+            fallback_reason = _structured_fallback_reason(text, request.response_schema)
+            if fallback_reason:
+                logger.warning(
+                    "原生 response_format %s，降级到带校验的 Instructor 路径",
+                    fallback_reason,
+                )
+                return await _instructor_fallback(
+                    self._client,
+                    self._model,
+                    request,
+                    messages,
+                    provider=self._provider_name,
+                    token_param=self._max_tokens_param,
+                )
 
         warn_if_truncated(
             getattr(choice, "finish_reason", None),
@@ -193,6 +197,29 @@ def _is_valid_json(text: str) -> bool:
         return True
     except (ValueError, TypeError):
         return False
+
+
+def _structured_fallback_reason(text: str, response_schema: dict | type | None) -> str | None:
+    """判断原生 response_format 的返回是否需要降级到带校验的 Instructor 路径。
+
+    返回降级原因（用于日志）；None 表示原生输出可直接采用。两类触发场景：
+
+    1. 返回非 JSON：代理静默忽略 response_format，吐出纯文本/markdown。
+    2. 返回违反 schema 的合法 JSON：代理接受 response_format 参数却不真正强制
+       schema（国内中转 / 非 OpenAI 模型常见），枚举值非法或缺必填字段。此类
+       违例 JSON 若直接放行，会一路漏到下游 Pydantic 校验才抛裸 ValidationError。
+
+    仅 Pydantic 模型可做 schema 校验；dict schema 无对应模型，沿用「仅校验是否合法
+    JSON」的既有行为，不额外收紧。
+    """
+    if not _is_valid_json(text):
+        return "返回非 JSON 内容（代理可能未支持 response_format）"
+    if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
+        try:
+            response_schema.model_validate_json(text)
+        except ValidationError as exc:
+            return f"返回的 JSON 不满足 response_schema（代理可能未强制 schema）：{exc}"
+    return None
 
 
 def _is_schema_error(exc: BaseException) -> bool:

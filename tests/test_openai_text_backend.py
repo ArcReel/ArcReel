@@ -244,6 +244,100 @@ class TestInstructorFallback:
         assert result.input_tokens == 50
         assert result.output_tokens == 20
 
+    async def test_schema_violating_json_triggers_instructor_fallback_pydantic(self):
+        """原生返回 200 + 合法 JSON 但违反 response_schema（代理接受却不强制 schema），应降级到 Instructor。"""
+        # 代理返回合法 JSON，但 age 是中文字符串、违反 Pydantic int 约束
+        violating_json = json.dumps({"name": "Alice", "age": "三十"}, ensure_ascii=False)
+        instructor_result = _PersonSchema(name="Alice", age=30)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = MagicMock()
+        instructor_completion.usage.prompt_tokens = 80
+        instructor_completion.usage.completion_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json, 100, 60))
+
+        mock_patched = AsyncMock()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("instructor.from_openai", return_value=mock_patched),
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(
+                prompt="Extract info",
+                response_schema=_PersonSchema,
+            )
+            result = await backend.generate(request)
+
+        # 不再把违例 JSON 直接放行，而是返回经 Instructor 校验后的结果
+        assert result.text == instructor_result.model_dump_json()
+        assert result.input_tokens == 80
+        assert result.output_tokens == 30
+        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
+
+    async def test_missing_required_field_json_triggers_instructor_fallback(self):
+        """原生返回缺必填字段的合法 JSON（如 title 缺失），应降级到 Instructor 而非直接放行。"""
+        # 缺 age 必填字段
+        violating_json = json.dumps({"name": "Bob"})
+        instructor_result = _PersonSchema(name="Bob", age=25)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = None
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json, 90, 40))
+
+        mock_patched = AsyncMock()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("instructor.from_openai", return_value=mock_patched),
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(
+                prompt="Extract info",
+                response_schema=_PersonSchema,
+            )
+            result = await backend.generate(request)
+
+        assert result.text == instructor_result.model_dump_json()
+        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
+
+    async def test_schema_valid_json_with_dict_schema_no_fallback(self):
+        """dict schema（无 Pydantic 模型可校验）下，合法 JSON 不应触发额外的 schema 校验降级。"""
+        schema_response = json.dumps({"name": "Alice", "age": 30})
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(
+                prompt="Extract info",
+                response_schema={
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                },
+            )
+            result = await backend.generate(request)
+
+        assert result.text == schema_response
+        mock_fallback.assert_not_called()
+
     async def test_bad_request_error_triggers_instructor_fallback_pydantic(self):
         """原生 response_format 抛 BadRequestError 且 schema 为 Pydantic 类时，走 Instructor 降级。"""
         mock_client = AsyncMock()
