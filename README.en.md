@@ -60,7 +60,7 @@ Built on the <strong>Claude Agent SDK</strong>, orchestrating Skills + focused S
 </td>
 <td width="20%" align="center">
 <h3>🎬 Multi-Provider Video Generation</h3>
-<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, <strong>Vidu Q3</strong>, <strong>Kling</strong>, <strong>Hailuo</strong>, and custom providers, switchable at global or project level
+<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, <strong>Vidu Q3</strong>, <strong>MiniMax</strong>, <strong>Kling</strong>, and custom providers, switchable at global or project level
 </td>
 <td width="20%" align="center">
 <h3>⚡ Async Task Queue</h3>

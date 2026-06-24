@@ -60,7 +60,7 @@
 </td>
 <td width="20%" align="center">
 <h3>🎬 多供应商视频生成</h3>
-<strong>Veo 3.1</strong>、<strong>Seedance</strong>、<strong>Grok</strong>、<strong>Sora 2</strong>、<strong>Vidu Q3</strong>、<strong>可灵</strong>、<strong>Hailuo</strong> 及自定义供应商，全局/项目级可切换
+<strong>Veo 3.1</strong>、<strong>Seedance</strong>、<strong>Grok</strong>、<strong>Sora 2</strong>、<strong>Vidu Q3</strong>、<strong>MiniMax</strong>、<strong>可灵</strong> 及自定义供应商，全局/项目级可切换
 </td>
 <td width="20%" align="center">
 <h3>⚡ 异步任务队列</h3>
