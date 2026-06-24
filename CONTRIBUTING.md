@@ -87,7 +87,6 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 
 **已知约束：**
 
-- ESLint 锁在 v9 系列：`eslint-plugin-react-hooks@7` 的 peer dependency 尚未支持 ESLint v10，待插件更新后独立升级
 - TypeScript 版本锁：`typescript-eslint@8.x` 的 peer 范围为 `typescript <6.1`；升 TS 到 6.1+ 前需同步升级 `typescript-eslint`
 
 **测试覆盖率：**

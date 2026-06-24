@@ -56,11 +56,11 @@ Built on the <strong>Claude Agent SDK</strong>, orchestrating Skills + focused S
 </td>
 <td width="20%" align="center">
 <h3>🎨 Multi-Provider Image Generation</h3>
-<strong>Gemini</strong>, <strong>Volcengine Ark</strong>, <strong>Grok</strong>, <strong>OpenAI</strong>, <strong>Vidu</strong>, and custom providers. Character design sheets ensure consistency; clue tracking maintains prop/scene continuity across shots
+<strong>Gemini</strong>, <strong>Volcengine Ark</strong>, <strong>Grok</strong>, <strong>OpenAI</strong>, <strong>Vidu</strong>, <strong>DashScope</strong>, <strong>MiniMax</strong>, <strong>Kling</strong>, and custom providers. Character design sheets ensure consistency; clue tracking maintains prop/scene continuity across shots
 </td>
 <td width="20%" align="center">
 <h3>🎬 Multi-Provider Video Generation</h3>
-<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, <strong>Vidu Q3</strong>, and custom providers, switchable at global or project level
+<strong>Veo 3.1</strong>, <strong>Seedance</strong>, <strong>Grok</strong>, <strong>Sora 2</strong>, <strong>Vidu Q3</strong>, <strong>Kling</strong>, <strong>Hailuo</strong>, and custom providers, switchable at global or project level
 </td>
 <td width="20%" align="center">
 <h3>⚡ Async Task Queue</h3>
@@ -111,7 +111,7 @@ cp .env.example .env    # Set POSTGRES_PASSWORD
 docker compose up -d
 ```
 
-After first launch, log in with the default account (username `admin`, password set via `AUTH_PASSWORD` in `.env`; if not set, it will be auto-generated and written back to `.env` on first startup). Then go to **Settings** (`/settings`) to complete configuration:
+After first launch, log in with the default account (username `admin`, password set via `AUTH_PASSWORD` in `.env`; if not set, it will be auto-generated and written back to `.env` on first startup). Then go to **Settings** (`/app/settings`) to complete configuration:
 
 1. **ArcReel Agent** — Configure provider credentials that power the AI assistant. Supports Anthropic and compatible providers, with custom Base URL and model
 2. **AI Image/Video/Text Generation** — Configure at least one provider's API Key (Gemini / Volcengine Ark / Grok / OpenAI / Vidu), or add a custom provider
@@ -123,11 +123,14 @@ After first launch, log in with the default account (username `admin`, password 
 - **Complete Production Pipeline** — Novel → Screenplay → Character Design → Storyboard Images → Video Clips → Final Cut, one-click orchestration
 - **Multi-Agent Architecture** — Orchestration Skill detects project state and auto-dispatches focused Subagents; each Subagent completes one task and returns a summary
 - **Sandboxed Agent Runtime** — Agent tool calls run inside a bwrap sandbox by default; filesystem, network, and subprocess capabilities are allow-listed. Auto-enabled on Linux/macOS; gracefully degrades when native Windows lacks sandbox support
-- **Multi-Provider Support** — Image/Video/Text generation all support Gemini, Volcengine Ark, Grok, OpenAI, and Vidu as built-in providers, switchable at global or project level; the AI assistant credentials also support multi-provider configuration
+- **Multi-Provider Support** — Image/Video/Text generation support Gemini, Volcengine Ark, Grok, OpenAI, Vidu, DashScope, MiniMax, and Kling as built-in providers, switchable at global or project level; the AI assistant credentials also support multi-provider configuration
 - **Custom Providers** — Connect any OpenAI-compatible or Google-compatible API (e.g., Ollama, vLLM, third-party proxies); auto-discovers available models and assigns media types, with full feature parity with built-in providers
-- **Two Content Modes** — Narration mode splits by reading rhythm; Drama mode organizes by scene/dialogue structure
+- **Three Content Modes** — Narration mode splits by reading rhythm; Drama mode organizes by scene/dialogue structure; Ad/Short-video mode generates promo shots by target duration, single episode straight to a single video
 - **Three Video Generation Modes** — Image-to-video (driven by storyboard) / Grid-to-video (compose grid_4/6/9, split cells as first/last frames) / Reference-to-video (generate directly from character/scene/prop asset images, skipping the storyboard step)
-- **Progressive Episode Planning** — Human-AI collaborative splitting of long novels: peek probe → Agent suggests breakpoints → user confirms → physical split, produce on demand
+- **Multiple Script Sources** — Adapt from raw novel text, or import a finished screenplay: dialogue and voice-over preserved verbatim, characters extracted from the author's cast list, extras and empty shots create no assets
+- **Ad / Short-Video Projects** — A project type for promo shorts: upload multiple product photos and generate standard product reference images, one-click eight-segment promo shot script, product shots anchored to the real product throughout, CapCut export includes a voice-over subtitle track
+- **Narration Voiceover (TTS)** — Configure voice and speed in Settings, audition each storyboard segment and one-click fill the whole episode, or have the AI assistant generate the full set in one sentence; supports DashScope Qwen3 TTS and any OpenAI-compatible TTS, CapCut draft export includes a per-segment voice-over track
+- **Progressive Episode Planning** — Human-AI collaborative splitting of long novels: plan a batch of plot-complete episodes at once, Agent suggests breakpoints, user confirms then physical split, a one-sentence note re-plans the whole batch, produce on demand
 - **Style Reference Images** — Upload style references; AI auto-analyzes and applies uniformly to all image generation for visual consistency
 - **Character Consistency** — AI generates character design sheets first; all subsequent storyboards and videos reference these designs
 - **Clue Tracking** — Key props and scene elements marked as "clues" maintain visual continuity across shots
@@ -150,8 +153,11 @@ ArcReel supports multiple built-in and custom providers through unified `ImageBa
 | **Gemini** (Google) | Nano Banana 2, Nano Banana Pro | Text-to-image, Image-to-image (multi-reference) | Per-resolution lookup (USD) |
 | **Volcengine Ark** | Seedream 5.0, Seedream 5.0 Lite, Seedream 4.5, Seedream 4.0 | Text-to-image, Image-to-image | Per-image (CNY) |
 | **Grok** (xAI) | Grok Imagine Image, Grok Imagine Image Pro | Text-to-image, Image-to-image | Per-image (USD) |
-| **OpenAI** | GPT Image 2, GPT Image 1.5, GPT Image 1 Mini | Text-to-image, Image-to-image (multi-reference) | Per-token usage (USD) |
+| **OpenAI** | GPT Image 2 | Text-to-image, Image-to-image (multi-reference) | Per-token usage (USD) |
 | **Vidu** (Shengshu) | Vidu Q2 Image, Vidu Q1 Image | Text-to-image, Image-to-image | Credits-based (CNY) |
+| **DashScope** (Alibaba) | Qwen Image 2.0 / Pro, Qwen Image Edit Plus / Max, Wan 2.7 Image / Pro | Text-to-image, Image-to-image | — |
+| **MiniMax** | MiniMax Image 01 | Text-to-image, Image-to-image (single-face reference) | — |
+| **Kling** (Kuaishou) | Kling Image O1, Kling V3-Omni Image | Text-to-image, Image-to-image | — |
 
 ### Video Providers
 
@@ -162,6 +168,9 @@ ArcReel supports multiple built-in and custom providers through unified `ImageBa
 | **Grok** (xAI) | Grok Imagine Video | Text-to-video, Image-to-video | 1–15 | Per-second (USD) |
 | **OpenAI** | Sora 2, Sora 2 Pro | Text-to-video, Image-to-video | 4 / 8 / 12 | Per-second (USD) |
 | **Vidu** (Shengshu) | Vidu Q3 Turbo, Vidu Q3 Pro, Vidu Q3 (Reference), Vidu 2.0 | Text-to-video, Image-to-video, Reference-to-video, Audio generation, Seed control | 1–16 (Reference-to-video 3–16; 2.0: 4 / 8) | Credits-based (CNY) |
+| **DashScope** (Alibaba) | HappyHorse 1.0 (image/text/reference-to-video), Wan 2.7 (image/text/reference-to-video) | Text-to-video, Image-to-video, Reference-to-video, Audio generation, Seed control | 2–15 | — |
+| **MiniMax** | MiniMax Hailuo 2.3 / 2.3 Fast, MiniMax S2V-01 | Text-to-video, Image-to-video, Single-face reference-to-video | 6 / 10 (S2V-01: 6) | — |
+| **Kling** (Kuaishou) | Kling 2.5 Turbo, Kling v3, Kling v3 Omni, Kling v2.6, Kling Video O1 | Text-to-video, Image-to-video, Reference-to-video, Audio generation | 5 / 10 (v3 · Omni: 3–15) | — |
 
 ### Text Providers
 
@@ -171,6 +180,8 @@ ArcReel supports multiple built-in and custom providers through unified `ImageBa
 | **Volcengine Ark** | Doubao Seed 2.0 Pro / Lite / Mini, Doubao Seed 1.8 | Text generation, Structured output, Visual understanding | Per-token usage (CNY) |
 | **Grok** (xAI) | Grok 4.20 Reasoning / Non-Reasoning, Grok 4.1 Fast Reasoning / Non-Reasoning | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
 | **OpenAI** | GPT-5.5, GPT-5.4, GPT-5.4 Mini, GPT-5.4 Nano | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
+| **DashScope** (Alibaba) | Qwen Plus, Qwen3.6 Plus / Flash, Qwen3 Max, Qwen3.7 Max, Qwen Long | Text generation, Structured output | — |
+| **MiniMax** | MiniMax M3, MiniMax M2.7 | Text generation, Structured output | — |
 
 ### Custom Providers
 
@@ -232,8 +243,8 @@ flowchart TB
     end
 
     subgraph Core["Core Library"]
-        C1["VideoBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · Custom"] ~~~ C2["ImageBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · Custom"]
-        C5["TextBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Custom"] ~~~ C3["GenerationQueue<br/>RPM Limiting · Image/Video Channels"]
+        C1["VideoBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · DashScope · MiniMax · Kling · Custom"] ~~~ C2["ImageBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · Vidu · DashScope · MiniMax · Kling · Custom"]
+        C5["TextBackend Abstraction<br/>Gemini · Volcengine Ark · Grok · OpenAI · DashScope · MiniMax · Custom"] ~~~ C3["GenerationQueue<br/>RPM Limiting · Image/Video Channels"]
         C4["ProjectManager<br/>File System + Version Management"]
     end
 
@@ -252,9 +263,10 @@ flowchart TB
 | **Frontend** | React 19, TypeScript, Tailwind CSS 4, wouter, zustand, Framer Motion, Vite |
 | **Backend** | FastAPI, Python 3.12+, uvicorn, Pydantic 2 |
 | **AI Agents** | Claude Agent SDK (Skill + Subagent multi-agent architecture) |
-| **Image Generation** | Gemini (`google-genai`), Volcengine Ark (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI (`openai`), Vidu (`httpx`) |
-| **Video Generation** | Gemini Veo 3.1 (`google-genai`), Volcengine Ark Seedance 2.0/1.5 (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI Sora 2 (`openai`), Vidu Q3 (`httpx`) |
-| **Text Generation** | Gemini (`google-genai`), Volcengine Ark (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI (`openai`), Instructor (structured output fallback) |
+| **Image Generation** | Gemini (`google-genai`), Volcengine Ark (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI (`openai`), Vidu / DashScope / MiniMax / Kling (`httpx`) |
+| **Video Generation** | Gemini Veo 3.1 (`google-genai`), Volcengine Ark Seedance 2.0/1.5 (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI Sora 2 (`openai`), Vidu Q3 / DashScope / MiniMax Hailuo / Kling (`httpx`) |
+| **Text Generation** | Gemini (`google-genai`), Volcengine Ark (`volcengine-python-sdk[ark]`), Grok (`xai-sdk`), OpenAI (`openai`), DashScope / MiniMax (`httpx`), Instructor (structured output fallback) |
+| **Narration Voiceover (TTS)** | DashScope Qwen3 TTS (`httpx`), any OpenAI-compatible TTS (custom provider) |
 | **Media Processing** | FFmpeg, Pillow |
 | **ORM & Database** | SQLAlchemy 2.0 (async), Alembic, aiosqlite, asyncpg — SQLite (default) / PostgreSQL (production) |
 | **Authentication** | JWT (`pyjwt`), API Key (SHA-256 hash), Argon2 password hashing (`pwdlib`) |
