@@ -230,6 +230,24 @@ class TestAssistantServiceMore:
         assert sm.sent_kwargs[0]["locale"] == "en"
 
     @pytest.mark.asyncio
+    async def test_send_or_create_threads_locale_into_multimodal_continuation(self, tmp_path):
+        """The image-bearing continuation branch (sdk_prompt is not None) must also
+        forward the request locale, not just the text branch."""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta(id="s1", status="idle")
+
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([meta])
+
+        image = SimpleNamespace(data="ZmFrZQ==", media_type="image/png")
+        await service.send_or_create("demo", "hello", session_id="s1", images=[image], locale="vi")
+
+        assert sm.sent_kwargs[0]["locale"] == "vi"
+        assert sm.sent_kwargs[0]["echo_content"] is not None
+
+    @pytest.mark.asyncio
     async def test_delete_session_closes_active_session_before_delete(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta(id="s1")

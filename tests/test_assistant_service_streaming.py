@@ -54,7 +54,9 @@ class _FakeSessionManager:
         return list(self.replay_messages)
 
     @contextlib.asynccontextmanager
-    async def stream_messages(self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0):
+    async def stream_messages(
+        self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0, locale: str = "zh"
+    ):
         """Mirror the real CM: replay snapshot → _replay_done → live queue → _idle."""
         self.call_log.append(("stream_messages", session_id, replay))
         queue: asyncio.Queue = asyncio.Queue()

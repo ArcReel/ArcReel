@@ -33,6 +33,7 @@ from fastapi.sse import ServerSentEvent
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
+from lib.i18n import DEFAULT_LOCALE, get_locale
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
 from server.agent_runtime.message_utils import extract_plain_user_content
@@ -242,7 +243,7 @@ class AssistantService:
         *,
         session_id: str | None = None,
         images: list["ImageAttachment"] | None = None,
-        locale: str = "zh",
+        locale: str = DEFAULT_LOCALE,
     ) -> dict[str, Any]:
         """Unified send: create new session or send to existing one."""
         self.pm.get_project_path(project_name)  # Validate project
@@ -367,8 +368,11 @@ class AssistantService:
                 yield event
             return
 
+        # 冷恢复经由 stream 路径复活会话时，按当前请求 locale 重建语言规范段，
+        # 与 send_message 路径一致；无 request（如非 SSE 消费者）回落默认 locale。
+        locale = get_locale(request) if request is not None else DEFAULT_LOCALE
         async with self.session_manager.stream_messages(
-            session_id, replay=True, idle_timeout=self.stream_heartbeat_seconds
+            session_id, replay=True, idle_timeout=self.stream_heartbeat_seconds, locale=locale
         ) as stream:
             replayed: list[dict[str, Any]] = []
             projector: AssistantStreamProjector | None = None

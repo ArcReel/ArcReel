@@ -64,6 +64,33 @@ def _dummy_actor() -> SessionActor:
     return SessionActor(client_factory=_factory, on_message=lambda msg: None)
 
 
+@asynccontextmanager
+async def _cold_revival_clients(session_manager, monkeypatch):
+    """Patch the SDK symbols so a non-resident session revives against a fake
+    client, and yield the list capturing every constructed client. Each client's
+    ``options.kwargs["system_prompt"]["append"]`` carries the rebuilt prompt, so
+    tests can assert which locale the language regulation was rendered with."""
+
+    async def _fake_env(_self):
+        return {}
+
+    monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
+
+    created_clients: list[_FakeClaudeClient] = []
+
+    def _track_client(*, options):
+        c = _FakeClaudeClient(options=options)
+        created_clients.append(c)
+        return c
+
+    with monkeypatch.context() as m:
+        m.setattr(sm_mod, "SDK_AVAILABLE", True)
+        m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
+        m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
+        m.setattr(sm_mod, "HookMatcher", None)
+        yield created_clients
+
+
 class _FakeAllow:
     def __init__(self, updated_input):
         self.updated_input = updated_input
@@ -160,31 +187,34 @@ class TestSessionManagerMore:
         """Cold-recovery revival rebuilds the language regulation from the
         caller's locale instead of falling back to the default zh."""
 
-        async def _fake_env(_self):
-            return {}
-
-        monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
-
         (tmp_path / "projects" / "demo").mkdir(parents=True)
         meta = await meta_store.create("demo", "sdk-locale-vi")
 
-        created_clients: list[_FakeClaudeClient] = []
-
-        def _track_client(*, options):
-            c = _FakeClaudeClient(options=options)
-            created_clients.append(c)
-            return c
-
-        with monkeypatch.context() as m:
-            m.setattr(sm_mod, "SDK_AVAILABLE", True)
-            m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
-            m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
-            m.setattr(sm_mod, "HookMatcher", None)
+        async with _cold_revival_clients(session_manager, monkeypatch) as created_clients:
             await session_manager.get_or_connect(meta.id, locale="vi")
             await asyncio.sleep(0)
             assert created_clients
             append = created_clients[0].options.kwargs["system_prompt"]["append"]
             assert "Tiếng Việt" in append
+            assert "中文" not in append
+            await session_manager.close_session(meta.id)
+
+    @pytest.mark.asyncio
+    async def test_stream_messages_threads_locale_into_cold_revival(
+        self, session_manager, meta_store, tmp_path, monkeypatch
+    ):
+        """The SSE stream path is a second cold-revival entry: subscribing to a
+        non-resident session must rebuild the language regulation from the
+        caller's locale, matching the send-message path."""
+        (tmp_path / "projects" / "demo").mkdir(parents=True)
+        meta = await meta_store.create("demo", "sdk-locale-stream-en")
+
+        async with _cold_revival_clients(session_manager, monkeypatch) as created_clients:
+            async with session_manager.stream_messages(meta.id, replay=False, locale="en"):
+                await asyncio.sleep(0)
+            assert created_clients
+            append = created_clients[0].options.kwargs["system_prompt"]["append"]
+            assert "English" in append
             assert "中文" not in append
             await session_manager.close_session(meta.id)
 
