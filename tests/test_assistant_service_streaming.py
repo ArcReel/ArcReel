@@ -6,6 +6,7 @@ import contextlib
 import pytest
 from fastapi.sse import ServerSentEvent
 
+from lib.i18n import DEFAULT_LOCALE
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
 from tests.factories import make_session_meta
@@ -55,7 +56,7 @@ class _FakeSessionManager:
 
     @contextlib.asynccontextmanager
     async def stream_messages(
-        self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0, locale: str = "zh"
+        self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
     ):
         """Mirror the real CM: replay snapshot → _replay_done → live queue → _idle."""
         self.call_log.append(("stream_messages", session_id, replay))
