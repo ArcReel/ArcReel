@@ -125,7 +125,7 @@ class OpenAITextBackend:
                     "原生 response_format %s，降级到带校验的 Instructor 路径",
                     fallback_reason,
                 )
-                return await _instructor_fallback(
+                result = await _instructor_fallback(
                     self._client,
                     self._model,
                     request,
@@ -133,6 +133,12 @@ class OpenAITextBackend:
                     provider=self._provider_name,
                     token_param=self._max_tokens_param,
                 )
+                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，
+                # 否则 UsageTracker 会系统性漏记这部分真实消耗。
+                if usage:
+                    result.input_tokens = (result.input_tokens or 0) + (usage.prompt_tokens or 0)
+                    result.output_tokens = (result.output_tokens or 0) + (usage.completion_tokens or 0)
+                return result
 
         warn_if_truncated(
             getattr(choice, "finish_reason", None),
@@ -212,14 +218,27 @@ def _structured_fallback_reason(text: str, response_schema: dict | type | None) 
     仅 Pydantic 模型可做 schema 校验；dict schema 无对应模型，沿用「仅校验是否合法
     JSON」的既有行为，不额外收紧。
     """
-    if not _is_valid_json(text):
-        return "返回非 JSON 内容（代理可能未支持 response_format）"
     if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
+        # model_validate_json 单次解析即同时覆盖「非 JSON」与「违反 schema」两种情况
         try:
             response_schema.model_validate_json(text)
         except ValidationError as exc:
-            return f"返回的 JSON 不满足 response_schema（代理可能未强制 schema）：{exc}"
+            return f"返回内容不满足 response_schema（代理可能未强制 schema）：{_summarize_validation_error(exc)}"
+        return None
+    if not _is_valid_json(text):
+        return "返回非 JSON 内容（代理可能未支持 response_format）"
     return None
+
+
+def _summarize_validation_error(exc: ValidationError) -> str:
+    """把 ValidationError 压成简短的字段定位摘要。
+
+    只取字段路径（loc）与错误数，**不含模型原始输入值**——后者可能很大且会把
+    模型生成内容写进日志（经 /system/logs/download 外泄），也避免单条日志膨胀到数 KB。
+    """
+    locs = [".".join(str(part) for part in err.get("loc", ())) or "<root>" for err in exc.errors()[:5]]
+    suffix = "…" if exc.error_count() > 5 else ""
+    return f"{exc.error_count()} 处字段不符（{', '.join(locs)}{suffix}）"
 
 
 def _is_schema_error(exc: BaseException) -> bool:

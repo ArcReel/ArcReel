@@ -241,8 +241,10 @@ class TestInstructorFallback:
 
         assert result.text == instructor_result.model_dump_json()
         assert result.provider == PROVIDER_OPENAI
-        assert result.input_tokens == 50
-        assert result.output_tokens == 20
+        # 原生 200 调用（100/60）已被代理计费，与 Instructor 调用（50/20）的 token 合并计入
+        assert result.input_tokens == 150
+        assert result.output_tokens == 80
+        mock_client.chat.completions.create.assert_awaited_once()
 
     async def test_schema_violating_json_triggers_instructor_fallback_pydantic(self):
         """原生返回 200 + 合法 JSON 但违反 response_schema（代理接受却不强制 schema），应降级到 Instructor。"""
@@ -277,12 +279,14 @@ class TestInstructorFallback:
 
         # 不再把违例 JSON 直接放行，而是返回经 Instructor 校验后的结果
         assert result.text == instructor_result.model_dump_json()
-        assert result.input_tokens == 80
-        assert result.output_tokens == 30
+        # 先原生再降级：原生调用恰发生一次，其计费 token（100/60）并入 Instructor 结果（80/30）
+        mock_client.chat.completions.create.assert_awaited_once()
+        assert result.input_tokens == 180
+        assert result.output_tokens == 90
         mock_patched.chat.completions.create_with_completion.assert_awaited_once()
 
     async def test_missing_required_field_json_triggers_instructor_fallback(self):
-        """原生返回缺必填字段的合法 JSON（如 title 缺失），应降级到 Instructor 而非直接放行。"""
+        """原生返回缺必填字段的合法 JSON（如 age 缺失），应降级到 Instructor 而非直接放行。"""
         # 缺 age 必填字段
         violating_json = json.dumps({"name": "Bob"})
         instructor_result = _PersonSchema(name="Bob", age=25)
@@ -310,14 +314,19 @@ class TestInstructorFallback:
             )
             result = await backend.generate(request)
 
+        # Instructor usage 为 None，结果 token 即原生 200 调用的计费量（90/40）
         assert result.text == instructor_result.model_dump_json()
+        mock_client.chat.completions.create.assert_awaited_once()
+        assert result.input_tokens == 90
+        assert result.output_tokens == 40
         mock_patched.chat.completions.create_with_completion.assert_awaited_once()
 
-    async def test_schema_valid_json_with_dict_schema_no_fallback(self):
-        """dict schema（无 Pydantic 模型可校验）下，合法 JSON 不应触发额外的 schema 校验降级。"""
-        schema_response = json.dumps({"name": "Alice", "age": 30})
+    async def test_schema_violating_json_with_dict_schema_no_fallback(self):
+        """dict schema 无对应 Pydantic 模型，即便 JSON 违反所声明类型也沿用「仅校验合法 JSON」的既有行为，不降级。"""
+        # 合法 JSON，但 age 是字符串、违反 dict schema 声明的 integer——dict schema 路径不做此校验
+        violating_json = json.dumps({"name": "Alice", "age": "thirty"})
         mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json))
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
@@ -335,7 +344,7 @@ class TestInstructorFallback:
             )
             result = await backend.generate(request)
 
-        assert result.text == schema_response
+        assert result.text == violating_json
         mock_fallback.assert_not_called()
 
     async def test_bad_request_error_triggers_instructor_fallback_pydantic(self):
