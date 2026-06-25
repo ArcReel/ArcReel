@@ -16,5 +16,6 @@ drama / narration 剧本走两段式：step1（normalize）把源文整理为 ma
 
 - step1 工具契约变更（`normalize_drama_script` 等从「只出 markdown」变为「出结构」）；供人工审阅的中间产物仍在，但由结构渲染、而非自由文本原稿。
 - step2（generate-script）prompt / 流程以 step1 确认的结构化数据为唯一基底——完整保留 step1 已定的场景 / 片段边界与 `characters_in_scene` / `scenes` / `props`、`utterances` / `source_text` / `novel_text` 等非视觉字段，仅生成 / 覆盖视觉层（`image_prompt` / `video_prompt`）；移除按 source_kind 重新提取口播的分支。
+- step2 透传以工程手段保真、不靠 prompt 自觉：step2 的 LLM 输出 schema 只定义视觉字段（`image_prompt` / `video_prompt`），由后端按 `scene_id` 把视觉层缝回 step1 已确认结构，非视觉字段不进 LLM 输出——物理保证 100% 保真，杜绝 Structured Outputs 下的标点 / 内容漂移。
 - 新增 step1→step2 之间的 web 审核状态与确认动作（service / router + 前端）；step2 由用户确认触发。
 - drama 的 `utterances` / `source_text` 数据模型见 ADR 0040；novel 画外音克制放开同见 0040（其内容在 step1 产出、step2 透传）。
