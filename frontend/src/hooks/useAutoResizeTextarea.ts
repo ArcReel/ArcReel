@@ -7,20 +7,24 @@ import { useCallback, useEffect, useRef } from "react";
  */
 export function useAutoResizeTextarea(value: string) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const borderHeightRef = useRef<number | null>(null);
 
   const resize = useCallback(() => {
     const el = ref.current;
-    if (el) {
-      el.style.height = "auto";
-      // scrollHeight excludes the border, so under box-sizing: border-box the
-      // element ends up 2px short and clips its last line. Add the border back.
+    if (!el) return;
+    // scrollHeight excludes the border, so under box-sizing: border-box the
+    // element ends up 2px short and clips its last line. The border width is
+    // static, so measure it once and reuse it instead of forcing a style
+    // recalc on every keystroke.
+    if (borderHeightRef.current === null) {
       const style = window.getComputedStyle(el);
-      const borderHeight =
+      borderHeightRef.current =
         style.boxSizing === "border-box"
           ? parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
           : 0;
-      el.style.height = `${el.scrollHeight + borderHeight}px`;
     }
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + borderHeightRef.current}px`;
   }, []);
 
   useEffect(() => {
