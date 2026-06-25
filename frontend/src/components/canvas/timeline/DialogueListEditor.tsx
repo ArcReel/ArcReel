@@ -33,6 +33,14 @@ function DialogueRow({ value, onUpdate, onRemove }: DialogueRowProps) {
         ref={ref}
         value={value.line}
         onChange={(e) => onUpdate({ line: e.target.value })}
+        onKeyDown={(e) => {
+          // A dialogue line stays single-line; the textarea only wraps long
+          // text. Block Enter from inserting a newline, but let IME use it to
+          // commit a candidate (isComposing).
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+          }
+        }}
         onInput={resize}
         placeholder={t("line_placeholder")}
         rows={1}

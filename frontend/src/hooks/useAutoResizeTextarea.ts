@@ -12,7 +12,14 @@ export function useAutoResizeTextarea(value: string) {
     const el = ref.current;
     if (el) {
       el.style.height = "auto";
-      el.style.height = `${el.scrollHeight}px`;
+      // scrollHeight excludes the border, so under box-sizing: border-box the
+      // element ends up 2px short and clips its last line. Add the border back.
+      const style = window.getComputedStyle(el);
+      const borderHeight =
+        style.boxSizing === "border-box"
+          ? parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+          : 0;
+      el.style.height = `${el.scrollHeight + borderHeight}px`;
     }
   }, []);
 

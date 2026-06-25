@@ -41,6 +41,23 @@ describe("DialogueListEditor", () => {
     ]);
   });
 
+  it("blocks Enter so a dialogue line stays single-line", () => {
+    render(<DialogueListEditor dialogue={dialogue} onChange={() => {}} />);
+    const prevented = !fireEvent.keyDown(screen.getByDisplayValue(dialogue[0].line), {
+      key: "Enter",
+    });
+    expect(prevented).toBe(true);
+  });
+
+  it("lets IME use Enter to commit a candidate", () => {
+    render(<DialogueListEditor dialogue={dialogue} onChange={() => {}} />);
+    const prevented = !fireEvent.keyDown(screen.getByDisplayValue(dialogue[0].line), {
+      key: "Enter",
+      isComposing: true,
+    });
+    expect(prevented).toBe(false);
+  });
+
   it("appends an empty pair on add", () => {
     const onChange = vi.fn();
     render(<DialogueListEditor dialogue={dialogue} onChange={onChange} />);
