@@ -1,10 +1,55 @@
 import { useTranslation } from "react-i18next";
 import { Plus, X } from "lucide-react";
 import type { Dialogue } from "@/types";
+import { useAutoResizeTextarea } from "@/hooks/useAutoResizeTextarea";
 
 interface DialogueListEditorProps {
   dialogue: Dialogue[];
   onChange: (dialogue: Dialogue[]) => void;
+}
+
+interface DialogueRowProps {
+  value: Dialogue;
+  onUpdate: (patch: Partial<Dialogue>) => void;
+  onRemove: () => void;
+}
+
+/** A single speaker/line pair. The line uses an auto-growing textarea so long
+ *  dialogue wraps and stays fully visible instead of being clipped. */
+function DialogueRow({ value, onUpdate, onRemove }: DialogueRowProps) {
+  const { t } = useTranslation("dashboard");
+  const { ref, resize } = useAutoResizeTextarea(value.line);
+
+  return (
+    <div className="flex items-start gap-1.5">
+      <input
+        type="text"
+        value={value.speaker}
+        onChange={(e) => onUpdate({ speaker: e.target.value })}
+        placeholder={t("speaker_placeholder")}
+        className="dlg-input dlg-input--speaker w-16 shrink-0"
+      />
+      <textarea
+        ref={ref}
+        value={value.line}
+        onChange={(e) => onUpdate({ line: e.target.value })}
+        onInput={resize}
+        placeholder={t("line_placeholder")}
+        rows={1}
+        className="dlg-input min-w-0 flex-1 resize-none overflow-hidden"
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={t("dialogue_remove")}
+        title={t("dialogue_remove")}
+        className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+        style={{ color: "var(--color-text-4)" }}
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
 }
 
 /** Editable list of speaker/line dialogue pairs. */
@@ -32,32 +77,12 @@ export function DialogueListEditor({
   return (
     <div className="flex flex-col gap-1.5">
       {dialogue.map((d, i) => (
-        <div key={i} className="flex items-start gap-1.5">
-          <input
-            type="text"
-            value={d.speaker}
-            onChange={(e) => update(i, { speaker: e.target.value })}
-            placeholder={t("speaker_placeholder")}
-            className="dlg-input dlg-input--speaker w-16 shrink-0"
-          />
-          <input
-            type="text"
-            value={d.line}
-            onChange={(e) => update(i, { line: e.target.value })}
-            placeholder={t("line_placeholder")}
-            className="dlg-input min-w-0 flex-1"
-          />
-          <button
-            type="button"
-            onClick={() => remove(i)}
-            aria-label={t("dialogue_remove")}
-            title={t("dialogue_remove")}
-            className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-            style={{ color: "var(--color-text-4)" }}
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        <DialogueRow
+          key={i}
+          value={d}
+          onUpdate={(patch) => update(i, patch)}
+          onRemove={() => remove(i)}
+        />
       ))}
 
       <button

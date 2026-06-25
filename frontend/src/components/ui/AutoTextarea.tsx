@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useAutoResizeTextarea } from "@/hooks/useAutoResizeTextarea";
 
 interface AutoTextareaProps {
   value: string;
@@ -18,19 +18,7 @@ export function AutoTextarea({
   id,
   "aria-labelledby": ariaLabelledBy,
 }: AutoTextareaProps) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  const resize = useCallback(() => {
-    const el = ref.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = `${el.scrollHeight}px`;
-    }
-  }, []);
-
-  useEffect(() => {
-    resize();
-  }, [value, resize]);
+  const { ref, resize } = useAutoResizeTextarea(value);
 
   return (
     <textarea
