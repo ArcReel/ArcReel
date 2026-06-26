@@ -355,6 +355,23 @@ class TestDataValidator:
         assert not result.valid
         assert any("speaker" in error for error in result.errors)
 
+    def test_validate_episode_drama_rejects_non_string_speaker(self, tmp_path):
+        # speaker 非字符串非 null（如数字）→ 校验失败：镜像 Pydantic 的 speaker: str | None 类型约束，
+        # 不在结构校验里静默放行、到 Pydantic 才崩
+        result = self._drama_episode_with_scene(
+            tmp_path, {"utterances": [{"kind": "voiceover", "speaker": 123, "text": "解说"}]}
+        )
+        assert not result.valid
+        assert any("speaker" in error for error in result.errors)
+
+    def test_validate_episode_drama_accepts_voiceover_blank_speaker(self, tmp_path):
+        # voiceover 的空串 / 纯空白 speaker 等价「无 speaker」（与 Pydantic _normalize_speaker 同口径）→ 放行，
+        # 不比权威 Pydantic 模型更严
+        result = self._drama_episode_with_scene(
+            tmp_path, {"utterances": [{"kind": "voiceover", "speaker": "  ", "text": "解说"}]}
+        )
+        assert result.valid
+
     def test_validate_episode_drama_legacy_voiceover_tolerated(self, tmp_path):
         # 存量 drama（无 utterances、残留旧 voiceover）走读时迁移，校验层放行、不阻塞导出
         result = self._drama_episode_with_scene(tmp_path, {"voiceover": ["旧画外音"]})

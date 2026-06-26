@@ -675,7 +675,16 @@ class DataValidator:
             if not isinstance(text, str) or not text.strip():
                 errors.append(f"{uprefix} text 必须是非空字符串")
             speaker = item.get("speaker")
-            has_speaker = isinstance(speaker, str) and bool(speaker.strip())
+            if speaker is not None and not isinstance(speaker, str):
+                # speaker 仅允许字符串或 null（镜像 Utterance.speaker: str | None 的类型约束）：
+                # 数字 / 布尔 / 对象等在 Pydantic 层即类型校验失败，这里同口径 fail-loud，避免
+                # 非法 shape 在结构校验里静默放行、到 Pydantic 才崩。置 has_speaker=True 表示
+                # 「提供了 speaker」，使 dialogue 不再叠报「缺 speaker」（类型错才是根因）。
+                errors.append(f"{uprefix} speaker 必须是字符串或 null")
+                has_speaker = True
+            else:
+                # 字符串（空串 / 纯空白按 Utterance._normalize_speaker 同口径归一为「无 speaker」）或 None
+                has_speaker = isinstance(speaker, str) and bool(speaker.strip())
             if kind == "dialogue" and not has_speaker:
                 errors.append(f"{uprefix} dialogue 必须带非空 speaker")
             elif kind == "voiceover" and has_speaker:

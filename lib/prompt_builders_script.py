@@ -332,11 +332,13 @@ def build_drama_prompt(
     utterances_guide = _DRAMA_UTTERANCES_GUIDE_SCREENPLAY if is_screenplay else _DRAMA_UTTERANCES_GUIDE_NOVEL
     creative_goal = _DRAMA_GOAL_SCREENPLAY if is_screenplay else _DRAMA_GOAL_NOVEL
     # screenplay 下台词 / 说话人 / 画外音逐字保真，必须排除在目标语言要求之外：text 逐字保留原文，
-    # speaker 是角色资产引用键（须等于登记角色名），任一被翻译都会与 project.json 资产失配。
+    # 而 speaker 与 characters_in_scene / scenes / props 都是资产引用键（须逐字等于 project.json 登记名），
+    # 任一被翻译都会与 project.json 资产失配——data_validator 对这些引用做精确集合校验，翻译即校验失败。
     language_rule = (
-        f"除 `utterances[].text` 与 `utterances[].speaker` 外，"
-        f"所有字符串值必须使用 {target_language}；这些字段逐字保留剧本原文、不翻译、不改写"
-        "（speaker 沿用 characters_in_scene 中登记的角色名原文，群演沿用原文称呼）。JSON 键名 / 枚举值保持英文。"
+        f"除资产引用字段（`characters_in_scene[]` / `scenes[]` / `props[]`，须逐字等于 project.json 登记名）"
+        f"与 `utterances[].text` / `utterances[].speaker` 外，其余自然语言字符串值必须使用 {target_language}；"
+        "上述豁免字段逐字保留原文、不翻译、不改写（speaker 沿用 characters_in_scene 中登记的角色名原文，"
+        "群演沿用原文称呼）。JSON 键名 / 枚举值保持英文。"
         if is_screenplay
         else f"所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。"
     )

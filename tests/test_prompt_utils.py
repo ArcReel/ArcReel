@@ -99,6 +99,16 @@ class TestUtterancesToDialogue:
         assert utterances_to_dialogue("nope") == []
         assert utterances_to_dialogue([1, "x", {"kind": "dialogue", "speaker": " ", "text": " "}]) == []
 
+    def test_drops_dialogue_missing_speaker_or_text(self):
+        # dialogue 须 speaker 与 line 同时非空才进口型音轨：缺 speaker（契约要求 dialogue 必带非空
+        # speaker）或缺 text 的脏 dialogue 一律丢弃，不把无主台词重新喂给 lip-sync / video YAML
+        utterances = [
+            {"kind": "dialogue", "speaker": "", "text": "无主台词"},
+            {"kind": "dialogue", "speaker": "王", "text": ""},
+            {"kind": "dialogue", "speaker": "姜月茴", "text": "你来了。"},
+        ]
+        assert utterances_to_dialogue(utterances) == [{"speaker": "姜月茴", "line": "你来了。"}]
+
     def test_feeds_video_prompt_to_yaml_dialogue(self):
         # 与 video_prompt_to_yaml 串联：drama 台词从 utterances 派生后正确出现在 YAML Dialogue
         dialogue = utterances_to_dialogue([{"kind": "dialogue", "speaker": "王", "text": "走吧。"}])

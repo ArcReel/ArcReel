@@ -113,7 +113,8 @@ def utterances_to_dialogue(utterances: object) -> list[dict[str, str]]:
     ``{speaker, line}`` 列表（保留时序）。
 
     voiceover-kind 不进视频提示词（无 speaker，留给字幕 / TTS）。对脏数据稳健：非 list 整体、
-    非 dict 元素、非 dialogue 条目一律跳过，speaker/line 皆空也跳过。
+    非 dict 元素、非 dialogue 条目一律跳过；dialogue 须 speaker 与 line 同时非空才进口型音轨，
+    缺 speaker 的脏 dialogue（契约要求 dialogue 必带非空 speaker）不重新喂给 lip-sync / video prompt。
     """
     dialogue: list[dict[str, str]] = []
     if not isinstance(utterances, list):
@@ -123,7 +124,7 @@ def utterances_to_dialogue(utterances: object) -> list[dict[str, str]]:
             continue
         speaker = str(entry.get("speaker") or "").strip()
         line = str(entry.get("text") or "").strip()
-        if speaker or line:
+        if speaker and line:
             dialogue.append({"speaker": speaker, "line": line})
     return dialogue
 

@@ -168,6 +168,9 @@ class TestScreenplaySourceKind:
         assert "utterances[].speaker" in screenplay
         assert "utterances[].text" in screenplay
         assert "utterances[].speaker" not in novel
+        # characters_in_scene / scenes / props 同为资产引用键（data_validator 精确集合校验），
+        # 须一并豁免：被翻译即与 project.json 登记名失配、导致校验失败或下游找不到资产
+        assert "characters_in_scene[]" in screenplay
 
     def test_normalize_novel_default_keeps_adaptation_semantics(self):
         prompt = self._normalize_prompt("novel")
