@@ -571,6 +571,13 @@ class ScriptGenerator:
         if dupes:
             raise ValueError(f"step1_segments.json segment_id 重复: {dupes}")
 
+        # _add_metadata 落盘前会把 E\d+ 前缀改写成当前 episode：原始 id 互异但改写后可能相撞
+        # （E1S02_1 与 E2S02_1 在 episode=2 都成 E2S02_1）。提前 fail-loud，杜绝重复 id 静默落盘。
+        rewritten_ids = [str(_rewrite_episode_prefix(sid, episode)) for sid in ids]
+        rewritten_dupes = sorted(sid for sid, count in Counter(rewritten_ids).items() if count > 1)
+        if rewritten_dupes:
+            raise ValueError(f"step1_segments.json segment_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
+
         allowed = {int(d) for d in supported_durations}
         bad = sorted({s["duration_seconds"] for s in segments if s["duration_seconds"] not in allowed})
         if bad:

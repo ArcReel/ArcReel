@@ -940,6 +940,13 @@ class TestLoadNarrationStep1:
         with pytest.raises(ValueError, match="重复|E1S01"):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    def test_post_rewrite_collision_raises(self, tmp_path):
+        """原始 id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud。"""
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 2, {"segments": [_step1_seg("E1S02_1", "甲"), _step1_seg("E2S02_1", "乙")]})
+        with pytest.raises(ValueError, match="改写|E2S02_1"):
+            sg._load_narration_step1(2, [4, 6, 8])
+
     def test_duration_outside_supported_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [_step1_seg("E1S01", "甲", duration=5)]})  # 5 ∉ [4,6,8]
