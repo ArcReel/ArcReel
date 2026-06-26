@@ -640,16 +640,11 @@ class ScriptGenerator:
         从工程上根除扩写漂移。校验 segment_id 唯一且与 step1 全覆盖：缺、多、重都 fail-loud，
         杜绝顺序错配与漏段。
         """
-        raw_visual = visual_data.get("segments")
-        visual_segments = raw_visual if isinstance(raw_visual, list) else []
+        visual_segments = visual_data["segments"]
 
         visual_by_id: dict[str, dict] = {}
         for item in visual_segments:
-            if not isinstance(item, dict):
-                continue
-            sid = item.get("segment_id")
-            if not isinstance(sid, str) or not sid:
-                raise ValueError(f"episode {episode} 视觉层存在缺失 segment_id 的条目")
+            sid = item["segment_id"]
             if sid in visual_by_id:
                 raise ValueError(f"episode {episode} 视觉层 segment_id 重复: {sid}")
             visual_by_id[sid] = item
@@ -666,9 +661,7 @@ class ScriptGenerator:
         merged_segments: list[dict] = []
         for s1 in step1_segments:
             sid = s1["segment_id"]
-            visual = dict(visual_by_id[sid])
-            visual.pop("segment_id", None)  # 锚字段两侧相等，去掉避免覆盖
-            merged_segments.append({**s1, **visual})
+            merged_segments.append({**s1, **visual_by_id[sid]})
 
         title = visual_data.get("title")
         return {

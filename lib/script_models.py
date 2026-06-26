@@ -237,7 +237,7 @@ class NarrationStep1Segment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(description="片段 ID，格式 E{集}S{序号}")
+    segment_id: str = Field(min_length=1, description="片段 ID，格式 E{集}S{序号}")
     novel_text: str = Field(min_length=1, description="小说原文（逐字保留，用于配音与透传）")
     duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -269,7 +269,7 @@ class NarrationVisualSegment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(description="对齐锚：必须取自 step1 片段表，逐一对应、不增不减")
+    segment_id: str = Field(min_length=1, description="对齐锚：必须取自 step1 片段表，逐一对应、不增不减")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
 
