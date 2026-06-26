@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type { ScriptReviewState } from "@/types";
 
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
@@ -114,6 +115,27 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
     expect(screen.getByText("E1S01")).toBeInTheDocument();
+  });
+
+  it("adopts externally edited (agent) content on refetch when the user has no edits", async () => {
+    const edited = dramaState();
+    (edited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =
+      "agent 改写后的台词";
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValueOnce(edited);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
+
+    // 模拟 agent 在外部改了 step1 → revision 变 → 触发重新拉取
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    });
+
+    await waitFor(() => expect(screen.getByDisplayValue("agent 改写后的台词")).toBeInTheDocument());
+    expect(get).toHaveBeenCalledTimes(2);
   });
 
   it("shows an empty state when there is no step1 content", async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2, Clock, Lock, Save } from "lucide-react";
 import { API } from "@/api";
@@ -175,21 +175,27 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
+  // 上一次并入的服务端内容序列化，用于判定"用户是否有未保存编辑"（相对上一份服务端内容）。
+  const serverContentRef = useRef<string | null>(null);
+
   const serverContent = state?.content ?? null;
   const dirty = useMemo(() => isDirty(draft, serverContent), [draft, serverContent]);
   const busy = saving || confirming;
 
-  const applyState = useCallback((next: ScriptReviewState) => {
+  // 把服务端状态并入本地草稿：用户主动动作（保存 / 确认）总是采用服务端内容；外部刷新
+  // （挂载 / agent 改 step1 触发的 revision）仅在用户无未保存编辑时采用，否则保留用户草稿，
+  // 避免外部刷新覆盖正在编辑的内容（用户保存时再决定覆盖）。
+  const ingest = useCallback((next: ScriptReviewState, fromUserAction: boolean) => {
+    const nextContent = next.content ?? null;
     setState(next);
-    // 仅在无未保存编辑时把本地草稿同步到服务端内容，避免覆盖用户正在编辑的草稿
-    // （agent 在外部改了 step1 时，保留用户编辑、由其保存时决定覆盖）。
-    setDraft((prev) =>
-      prev != null && next.content != null && isDirty(prev, next.content)
-        ? prev
-        : next.content
-          ? (JSON.parse(JSON.stringify(next.content)) as DramaNormalizedScript | NarrationStep1Draft)
-          : null,
-    );
+    setDraft((prev) => {
+      const userHadEdits = (prev ? JSON.stringify(prev) : null) !== serverContentRef.current;
+      serverContentRef.current = nextContent ? JSON.stringify(nextContent) : null;
+      if (!fromUserAction && userHadEdits) return prev;
+      return nextContent
+        ? (JSON.parse(JSON.stringify(nextContent)) as DramaNormalizedScript | NarrationStep1Draft)
+        : null;
+    });
   }, []);
 
   useEffect(() => {
@@ -199,7 +205,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     if (!state) setLoading(true);
     API.getScriptReview(projectName, episode)
       .then((next) => {
-        if (!cancelled) applyState(next);
+        if (!cancelled) ingest(next, false);
       })
       .catch(() => {
         if (!cancelled) setState(null);
@@ -211,35 +217,35 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- state 仅用于决定是否显示加载态，加入 deps 会在每次刷新后重新拉取造成循环
-  }, [projectName, episode, draftRevision, applyState]);
+  }, [projectName, episode, draftRevision, ingest]);
 
   const handleSave = useCallback(async () => {
     if (!draft) return;
     setSaving(true);
     try {
-      applyState(await API.saveScriptReviewContent(projectName, episode, draft));
+      ingest(await API.saveScriptReviewContent(projectName, episode, draft), true);
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);
     }
-  }, [draft, projectName, episode, applyState, pushToast, t]);
+  }, [draft, projectName, episode, ingest, pushToast, t]);
 
   const handleConfirm = useCallback(async () => {
     setConfirming(true);
     try {
       if (dirty && draft) {
-        applyState(await API.saveScriptReviewContent(projectName, episode, draft));
+        ingest(await API.saveScriptReviewContent(projectName, episode, draft), true);
       }
-      applyState(await API.confirmScriptReview(projectName, episode));
+      ingest(await API.confirmScriptReview(projectName, episode), true);
       pushToast(t("dashboard:review_confirmed"), "success");
     } catch (err) {
       pushToast(errorMessage(err) || t("dashboard:review_confirm_failed"), "error");
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, projectName, episode, applyState, pushToast, t]);
+  }, [dirty, draft, projectName, episode, ingest, pushToast, t]);
 
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {
