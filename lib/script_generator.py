@@ -7,6 +7,7 @@ script_generator.py - 剧本生成器
 import json
 import logging
 import re
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
@@ -566,12 +567,12 @@ class ScriptGenerator:
             raise ValueError("step1_segments.json segments 为空")
 
         ids = [s["segment_id"] for s in segments]
-        dupes = sorted({sid for sid in ids if ids.count(sid) > 1})
+        dupes = sorted(sid for sid, count in Counter(ids).items() if count > 1)
         if dupes:
             raise ValueError(f"step1_segments.json segment_id 重复: {dupes}")
 
         allowed = {int(d) for d in supported_durations}
-        bad = sorted({int(s["duration_seconds"]) for s in segments if int(s["duration_seconds"]) not in allowed})
+        bad = sorted({s["duration_seconds"] for s in segments if s["duration_seconds"] not in allowed})
         if bad:
             raise ValueError(f"step1_segments.json duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
