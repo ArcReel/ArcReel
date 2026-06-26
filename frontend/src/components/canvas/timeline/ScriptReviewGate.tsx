@@ -278,7 +278,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     <div className="flex flex-col gap-3">
       {/* 审核状态条 + 确认动作 */}
       <header
-        className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-[10px] border border-hairline px-3.5 py-2.5"
+        className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-[10px] border border-hairline px-3.5 py-2.5 backdrop-blur-md"
         style={CARD_STYLE}
       >
         <div className="flex items-center gap-2">
