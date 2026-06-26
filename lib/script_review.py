@@ -111,6 +111,10 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     stored_fingerprint = stored_review(project, episode).get("fingerprint")
     if stored_fingerprint is not None:
         return "confirmed" if stored_fingerprint == live else "pending_review"
+    # 无确认指纹（存量 / 首次）：用 step2 产物是否已存在做 grandfather 判据。
+    # 过渡态局限：存量集没有指纹基线，无法区分「step1 未动」与「step1 已重拆但未确认」——
+    # 只要旧 step2 文件仍在，重拆后的 step1 也会被放行、不重新拦审。这是「不无谓阻塞存量重跑」的
+    # 取舍代价，且自愈：用户或 agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
     return "confirmed" if step2_generated(project_path, project, episode) else "pending_review"
 
 

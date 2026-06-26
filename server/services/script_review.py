@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,7 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
-from lib.json_io import atomic_write_json
+from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
 
@@ -111,9 +110,10 @@ class ScriptReviewService:
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
-    """读取并解析结构化 step1 文件；缺失 / 非法 JSON / 非对象时返回 None（状态另由指纹派生兜底）。"""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    """读取并解析结构化 step1 文件；缺失 / 非法 JSON / 非对象时返回 None（状态另由指纹派生兜底）。
+
+    容错读取复用 ``lib.json_io.load_json_or_none``（OSError / JSON / 编码错误归 None），与项目
+    其余 JSON 读取同口径；本函数再叠加「顶层须为对象」守卫，非对象同样返回 None。
+    """
+    data = load_json_or_none(path)
     return data if isinstance(data, dict) else None

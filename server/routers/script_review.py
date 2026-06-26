@@ -34,11 +34,10 @@ _ERROR_STATUS: dict[str, int] = {
     "invalid_content": 422,
     "episode_not_found": 404,
 }
+# 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
     "no_step1": "script_review_no_step1",
-    "invalid_content": "script_review_invalid_content",
-    "episode_not_found": "episode_not_found",
 }
 
 
