@@ -775,12 +775,24 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     return sg
 
 
-def _step1_seg(segment_id: str, novel_text: str, *, duration: int = 4, brk: bool = False) -> dict:
+def _step1_seg(
+    segment_id: str,
+    novel_text: str,
+    *,
+    duration: int = 4,
+    brk: bool = False,
+    characters: list[str] | None = None,
+    scenes: list[str] | None = None,
+    props: list[str] | None = None,
+) -> dict:
     return {
         "segment_id": segment_id,
         "novel_text": novel_text,
         "duration_seconds": duration,
         "segment_break": brk,
+        "characters_in_segment": characters or [],
+        "scenes": scenes or [],
+        "props": props or [],
     }
 
 
@@ -958,6 +970,20 @@ class TestLoadNarrationStep1:
         self._write(sg, 1, {"segments": []})
         with pytest.raises(ValueError):
             sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_missing_asset_arrays_raises(self, tmp_path):
+        """step1 资产字段必填：漏写 characters_in_segment/scenes/props → fail-loud（不静默补 []）。"""
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": [{"segment_id": "E1S01", "novel_text": "甲", "duration_seconds": 4}]})
+        with pytest.raises(ValueError):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_explicit_empty_asset_arrays_pass(self, tmp_path):
+        """无资产时显式写 [] 合法，通过校验。"""
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": [_step1_seg("E1S01", "甲", characters=[], scenes=[], props=[])]})
+        segments = sg._load_narration_step1(1, [4, 6, 8])
+        assert segments[0]["characters_in_segment"] == []
 
 
 def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):

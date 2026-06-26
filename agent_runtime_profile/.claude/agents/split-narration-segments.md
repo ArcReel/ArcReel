@@ -78,7 +78,8 @@ mcp__arcreel__get_video_capabilities({})
 
 **资产登记**（`characters_in_segment` / `scenes` / `props`）：
 - 列出该片段 `novel_text` 中实际出现（被叙述或对话提及）的已登记角色 / 场景 / 道具
-- 只能引用 project.json 中已登记的名称；该片段无对应资产时填空数组 `[]`
+- 只能引用 project.json 中已登记的名称
+- 三个数组**均必填**：每段都必须给出这三个键，无对应资产时显式写空数组 `[]`（step1 校验拒绝缺字段，不静默补默认值）
 
 **标记 segment_break**：
 - 在重要场景切换点标 `true`（时间跳跃、空间转换、情节转折）

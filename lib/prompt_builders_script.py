@@ -194,6 +194,13 @@ _NORMALIZE_BREAK_RULE_SCREENPLAY = (
 # ---------------------------------------------------------------------------
 
 
+def _neutralize_tags(value: str) -> str:
+    """中和动态文本里的尖括号：novel_text / 资产名出现 </segments> 等标签序列时，避免打散
+    标签化 prompt 的块结构。属 prompt 鲁棒性——step2 输出仍由 response_schema 强制，无安全边界。
+    """
+    return value.replace("<", "＜").replace(">", "＞")
+
+
 def _format_narration_step1_segments(step1_segments: list[dict]) -> str:
     """把 step1 结构化片段渲染为 step2 的只读上下文：segment_id + 内容字段 + 逐字原文。
 
@@ -203,15 +210,14 @@ def _format_narration_step1_segments(step1_segments: list[dict]) -> str:
         return "（无片段）"
     lines: list[str] = []
     for seg in step1_segments:
-        sid = seg.get("segment_id", "?")
+        sid = _neutralize_tags(str(seg.get("segment_id", "?")))
         dur = seg.get("duration_seconds", "?")
         brk = "，场景切换" if seg.get("segment_break") else ""
-        chars = "、".join(seg.get("characters_in_segment") or []) or "无"
-        scene_names = "、".join(seg.get("scenes") or []) or "无"
-        prop_names = "、".join(seg.get("props") or []) or "无"
-        novel = seg.get("novel_text", "")
-        # 多行 novel_text 的续行缩进进原文块，避免 flush-left 溢出 <segments> 结构
-        novel_block = novel.replace("\n", "\n  ")
+        chars = _neutralize_tags("、".join(seg.get("characters_in_segment") or []) or "无")
+        scene_names = _neutralize_tags("、".join(seg.get("scenes") or []) or "无")
+        prop_names = _neutralize_tags("、".join(seg.get("props") or []) or "无")
+        # 多行 novel_text 续行缩进进原文块，避免 flush-left 溢出 <segments>；尖括号一并中和防注入
+        novel_block = _neutralize_tags(seg.get("novel_text") or "").replace("\n", "\n  ")
         lines.append(
             f"- {sid}（时长 {dur}s{brk}）｜出场角色：{chars}｜场景：{scene_names}｜道具：{prop_names}\n  原文：{novel_block}"
         )

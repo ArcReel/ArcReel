@@ -231,9 +231,9 @@ class NarrationStep1Segment(BaseModel):
 
     只承载 step1 已定的内容字段：片段边界（segment_id / segment_break）、逐字 novel_text、
     时长。视觉层（image_prompt / video_prompt）由 step2 生成后按 segment_id 合并进来。
-    characters_in_segment / scenes / props 由 step1 登记（内容层是资产引用的单一真相源，
-    缺省空列表）：step2 视觉层 schema 不含资产字段，只读消费这些登记作为写 image_prompt /
-    video_prompt 的上下文，不补登记、不改写——合并后落到同一 NarrationSegment。
+    characters_in_segment / scenes / props 由 step1 登记（内容层是资产引用的单一真相源）：
+    step2 视觉层 schema 不含资产字段、只读消费、不补登记不改写，故三者必填——无资产须显式写 []，
+    缺字段即 fail-loud，杜绝把漏登记静默吞成空数组。合并后落到同一 NarrationSegment。
     """
 
     model_config = _STRICT_CONFIG
@@ -242,9 +242,9 @@ class NarrationStep1Segment(BaseModel):
     novel_text: str = Field(min_length=1, description="小说原文（逐字保留，用于配音与透传）")
     duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
-    characters_in_segment: list[str] = Field(default_factory=list, description="出场角色名称列表")
-    scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
-    props: list[str] = Field(default_factory=list, description="出场道具名称列表")
+    characters_in_segment: list[str] = Field(description="出场角色名称列表；无则显式写 []")
+    scenes: list[str] = Field(description="出场场景名称列表；无则显式写 []")
+    props: list[str] = Field(description="出场道具名称列表；无则显式写 []")
 
 
 class NarrationStep1Draft(BaseModel):
