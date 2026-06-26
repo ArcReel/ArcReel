@@ -89,6 +89,63 @@ export interface VoiceoverUtterance {
 
 export type Utterance = DialogueUtterance | VoiceoverUtterance;
 
+/**
+ * step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端 lib/script_models.py 的
+ * DramaSceneContent / DramaNormalizedScript 与 NarrationStep1Segment / NarrationStep1Draft：
+ * step1 已定内容层，step2 视觉生成（image_prompt / video_prompt）由用户确认后才触发。
+ */
+export interface DramaSceneContent {
+  scene_id: string;
+  duration_seconds: number;
+  segment_break: boolean;
+  characters_in_scene: string[];
+  scenes: string[];
+  props: string[];
+  /** 视觉改编自由文本（供 step2 生成画面，不内嵌口播）。 */
+  scene_description: string;
+  /** 场景级有序发声序列：台词 / 画外音按时序排列（审核 gate 的富编辑对象）。 */
+  utterances: Utterance[];
+  /** 逐字原文摘录（追溯锚，不朗读、不出音）。 */
+  source_text: string;
+}
+
+export interface DramaNormalizedScript {
+  title: string;
+  scenes: DramaSceneContent[];
+}
+
+export interface NarrationStep1Segment {
+  segment_id: string;
+  /** 小说原文（逐字保留，审核 gate 的可编辑对象）。 */
+  novel_text: string;
+  duration_seconds: number;
+  segment_break: boolean;
+  characters_in_segment: string[];
+  scenes: string[];
+  props: string[];
+}
+
+export interface NarrationStep1Draft {
+  segments: NarrationStep1Segment[];
+  episode?: number;
+}
+
+export type ScriptReviewStatus =
+  | "not_applicable"
+  | "no_step1"
+  | "pending_review"
+  | "confirmed";
+
+/** step1→step2 审核 gate 状态（后端 server/services/script_review.py 的 get_state 响应）。 */
+export interface ScriptReviewState {
+  episode: number;
+  content_mode: string | null;
+  status: ScriptReviewStatus;
+  fingerprint: string | null;
+  confirmed_at: string | null;
+  content: DramaNormalizedScript | NarrationStep1Draft | null;
+}
+
 export interface Composition {
   shot_type: ShotType;
   lighting: string;

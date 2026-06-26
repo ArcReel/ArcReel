@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { PreprocessingView } from "./PreprocessingView";
+import { ScriptReviewGate } from "./ScriptReviewGate";
 import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { AdReferenceUnitsPanel } from "./AdReferenceUnitsPanel";
@@ -325,7 +325,7 @@ export function TimelineCanvas({
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "preprocessing" && hasDraft && editorContentMode !== "ad" ? (
           <div className="h-full overflow-y-auto p-4">
-            <PreprocessingView
+            <ScriptReviewGate
               projectName={projectName}
               episode={episode}
               contentMode={editorContentMode}

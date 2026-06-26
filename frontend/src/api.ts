@@ -46,6 +46,9 @@ import type {
   TransitionType,
   AdShot,
   AdReferenceUnit,
+  ScriptReviewState,
+  DramaNormalizedScript,
+  NarrationStep1Draft,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -751,6 +754,44 @@ class API {
         method: "PATCH",
         body: JSON.stringify(updates),
       }
+    );
+  }
+
+  // ==================== step1→step2 审核 gate ====================
+
+  /** 读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。 */
+  static async getScriptReview(
+    projectName: string,
+    episode: number
+  ): Promise<ScriptReviewState> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review`
+    );
+  }
+
+  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。 */
+  static async saveScriptReviewContent(
+    projectName: string,
+    episode: number,
+    content: DramaNormalizedScript | NarrationStep1Draft
+  ): Promise<ScriptReviewState> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content`,
+      {
+        method: "PUT",
+        body: JSON.stringify(content),
+      }
+    );
+  }
+
+  /** 用户显式确认 step1 内容，放行 step2 视觉生成。 */
+  static async confirmScriptReview(
+    projectName: string,
+    episode: number
+  ): Promise<ScriptReviewState> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/confirm`,
+      { method: "POST" }
     );
   }
 

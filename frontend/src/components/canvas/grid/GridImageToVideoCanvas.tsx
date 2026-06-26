@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { EpisodeHeader } from "../timeline/EpisodeHeader";
-import { PreprocessingView } from "../timeline/PreprocessingView";
+import { ScriptReviewGate } from "../timeline/ScriptReviewGate";
 import { ShotSplitView } from "../timeline/ShotSplitView";
 import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
@@ -318,7 +318,7 @@ export function GridImageToVideoCanvas({
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "preprocessing" && hasDraft && editorContentMode ? (
           <div className="h-full overflow-y-auto p-4">
-            <PreprocessingView
+            <ScriptReviewGate
               projectName={projectName}
               episode={episode}
               contentMode={editorContentMode}
