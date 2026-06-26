@@ -1,0 +1,119 @@
+"""step1→step2 web 审核 gate 的服务层：审阅状态读取、结构化中间态编辑、确认动作。
+
+纯 gate 逻辑（适用性 / 指纹 / 状态派生）在 ``lib.script_review``；本层叠加 ProjectManager
+持久化（确认指纹落 project.json ``episodes[i].step1_review``）与结构化内容的 Pydantic 校验、落盘。
+
+确认触发 step2 的语义是「放行」而非「服务端 launcher」：step2（剧本视觉生成）由 agent 的
+``generate_episode_script`` 工具执行，本服务只负责把审核状态翻到 confirmed；该工具读时经
+``lib.script_review.gate_blocks_step2`` 校验，pending 时拒绝、confirmed 后放行。
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, ValidationError
+
+from lib import script_review
+from lib.json_io import atomic_write_json
+from lib.project_manager import ProjectManager
+from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
+
+#: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
+#: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
+#: narration 为 NarrationStep1Draft（结构化 novel_text 片段）。
+_CONTENT_MODEL: dict[str, type[BaseModel]] = {
+    "drama": DramaNormalizedScript,
+    "narration": NarrationStep1Draft,
+}
+
+
+class ScriptReviewError(Exception):
+    """gate 操作的领域错误。``code`` 供 router 映射 HTTP 状态与 i18n key；``message`` 为技术细节。"""
+
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(message or code)
+        self.code = code
+        self.message = message
+
+
+class ScriptReviewService:
+    """封装 step1→step2 审核 gate 的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
+
+    def __init__(self, pm: ProjectManager):
+        self.pm = pm
+
+    def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
+        """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
+
+        ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}）；
+        不适用 gate 或 step1 缺失 / 损坏时为 None。
+        """
+        project = self.pm.load_project(project_name)
+        project_path = self.pm.get_project_path(project_name)
+        path = script_review.step1_path(project_path, project, episode)
+        fingerprint = script_review.content_fingerprint(path) if path is not None else None
+        return {
+            "episode": episode,
+            "content_mode": project.get("content_mode"),
+            "status": script_review.review_status(project_path, project, episode),
+            "fingerprint": fingerprint,
+            "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
+            "content": _read_json(path) if path is not None else None,
+        }
+
+    def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
+        """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。
+
+        内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
+        """
+        project = self.pm.load_project(project_name)
+        project_path = self.pm.get_project_path(project_name)
+        path = script_review.step1_path(project_path, project, episode)
+        if path is None:
+            raise ScriptReviewError("not_applicable")
+        model = _CONTENT_MODEL[project["content_mode"]]
+        try:
+            validated = model.model_validate(content).model_dump()
+        except ValidationError as exc:
+            raise ScriptReviewError("invalid_content", str(exc)) from exc
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(path, validated)
+        return self.get_state(project_name, episode)
+
+    def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
+        """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
+
+        无 step1 / 不适用 / 集条目缺失时抛 ScriptReviewError，由 router 映射 4xx。
+        """
+        project = self.pm.load_project(project_name)
+        project_path = self.pm.get_project_path(project_name)
+        path = script_review.step1_path(project_path, project, episode)
+        if path is None:
+            raise ScriptReviewError("not_applicable")
+        fingerprint = script_review.content_fingerprint(path)
+        if fingerprint is None:
+            raise ScriptReviewError("no_step1")
+        if script_review.find_episode(project, episode) is None:
+            raise ScriptReviewError("episode_not_found")
+
+        confirmed_at = datetime.now(UTC).isoformat()
+
+        def _mutate(p: dict[str, Any]) -> None:
+            if not script_review.apply_confirmation(p, episode, fingerprint, confirmed_at):
+                raise ScriptReviewError("episode_not_found")
+
+        self.pm.update_project(project_name, _mutate)
+        return self.get_state(project_name, episode)
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    """读取并解析结构化 step1 文件；缺失 / 非法 JSON / 非对象时返回 None（状态另由指纹派生兜底）。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None

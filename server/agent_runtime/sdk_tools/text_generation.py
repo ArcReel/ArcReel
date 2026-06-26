@@ -15,6 +15,7 @@ from typing import Any
 from claude_agent_sdk import tool
 from pydantic import BaseModel, ValidationError
 
+from lib import script_review
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode_ledger import episode_outline_context
@@ -169,6 +170,23 @@ def generate_episode_script_tool(ctx: ToolContext):
                 prompt = await generator.build_prompt(episode)
                 return {
                     "content": [{"type": "text", "text": f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}"}]
+                }
+
+            # step1→step2 审核 gate：drama / narration 的结构化 step1 中间态须经 web 显式确认才放行
+            # step2 视觉生成；未确认（或确认后内容又被改）时阻塞，引导用户先在 Web 端审阅确认。
+            # ad（无 step1）/ reference_video（step1 为自由文本 md）不适用，gate 自动放行。
+            if script_review.gate_blocks_step2(project_path, project_data, episode):
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "⏸️ step1 结构化中间态尚未经 web 审核确认，step2 视觉生成被 gate 阻塞。"
+                                "请在 Web 端审阅并确认本集 step1 内容后再生成剧本。"
+                            ),
+                        }
+                    ],
+                    "is_error": True,
                 }
 
             generator = await ScriptGenerator.create(project_path)
