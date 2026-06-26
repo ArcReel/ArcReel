@@ -214,7 +214,7 @@ _Avoid_: 把 source_text 当会被配音 / 朗读的内容；与 episode 级 `so
 
 **源文件性质（source_kind）/ 剧本源（screenplay source）**：
 project.json 顶层字段，取值 `novel`（小说，默认——现状行为）/ `screenplay`（用户上传的成品剧本）。标记源文件**已是作者写好的成品剧本**而非待改编的小说。`screenplay` 时整条 drama 链路从「创作」翻为「提取优先」：分集边界、场景、台词、集尾钩子按剧本**原样提取**（作者即权威），LLM 只补剧本未写的视觉生产层（image_prompt / video_prompt）。是与 content_mode（narration/drama/ad）/ generation_mode 都正交的第三条轴——「源文件性质」，不是内容类型也不是视频来源。
-**逐字保真只锚「可听见的内容」**——角色台词文字与画外音文字（`DramaScene.utterances` 内的发声条目，台词带说话人、画外音无）不改写、不丢、不润色；排版/标签（`△`/`【画外音】`/markdown）、运镜与舞台提示（`（航拍，全景）`/`（压低声音）`）、视觉描述、泛指群演（`老人甲`/空镜）一律由 LLM 裁量转写或剥离，泛指 speaker 不进资产（见 `docs/adr/0036`）。
+**逐字保真只锚「可听见的内容」**——角色台词文字与画外音文字（`DramaScene.utterances` 内的发声条目，台词带说话人、画外音无说话人）不改写、不丢、不润色；排版/标签（`△`/`【画外音】`/markdown）、运镜与舞台提示（`（航拍，全景）`/`（压低声音）`）、视觉描述、泛指群演（`老人甲`/空镜）一律由 LLM 裁量转写或剥离，泛指 speaker 不进资产（见 `docs/adr/0036`）。
 _Avoid_: 用「剧本」同时指上传源与生成产物——上传源是「剧本源（screenplay）」、产物是「剧本（script JSON）」，两个概念；把 screenplay 当新 content_mode；对 screenplay 仍跑「改编式 step1」或「重规划式 plan_episodes」——那正是要消除的二次改写（台词丢失、作者分集被篡改）；把「逐字」理解为连排版/舞台提示/群演都原样照搬——逐字只约束「说出来的话」，不约束「看见的制作」与「纸面排版」。
 
 **分集账本（episode ledger）**：
