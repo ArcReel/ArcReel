@@ -44,6 +44,28 @@ class TestPromptBuildersScript:
         assert "祠堂" in prompt
         assert "玉佩" in prompt
 
+    def test_build_narration_prompt_indents_multiline_novel_text(self):
+        prompt = build_narration_prompt(
+            project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
+            style="古风",
+            style_description="cinematic",
+            characters={},
+            scenes={},
+            props={},
+            step1_segments=[
+                {
+                    "segment_id": "E1S01",
+                    "novel_text": "第一行。\n第二行。",
+                    "duration_seconds": 4,
+                    "segment_break": False,
+                }
+            ],
+            aspect_ratio="9:16",
+            episode=1,
+        )
+        # 多行 novel_text 续行缩进进原文块（前缀两空格），不 flush-left 溢出片段结构
+        assert "原文：第一行。\n  第二行。" in prompt
+
     def test_build_narration_prompt_is_visual_only_passthrough(self):
         prompt = build_narration_prompt(
             project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},

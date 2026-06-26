@@ -670,7 +670,7 @@ def _get_step_files(content_mode: str, generation_mode: str | None = None) -> di
     return {1: "step1_normalized_script.md"}
 
 
-# step1 实际文件候选 —— 读取失败时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
+# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
 # narration 结构化中间态为 step1_segments.json；保留旧 step1_segments.md 以便存量在制品仍可浏览。
 _STEP1_CANDIDATES = [
     "step1_reference_units.md",
@@ -678,6 +678,14 @@ _STEP1_CANDIDATES = [
     "step1_segments.md",
     "step1_normalized_script.md",
 ]
+
+# 按 primary 文件名分组的优先候选（mode 感知）：先在本模式自家候选里回落，再兜底其他模式遗留文件。
+# narration 优先结构化 .json、再旧版 .md，杜绝跨模式切换遗留把 narration 误选到 reference_units.md。
+_STEP1_FAMILY: dict[str, list[str]] = {
+    "step1_segments.json": ["step1_segments.json", "step1_segments.md"],
+    "step1_normalized_script.md": ["step1_normalized_script.md"],
+    "step1_reference_units.md": ["step1_reference_units.md"],
+}
 
 
 def _get_step_title(filename: str, _t: Callable[..., str]) -> str:
@@ -711,13 +719,14 @@ def _load_project_modes(project_name: str, episode: int) -> tuple[str, str | Non
 
 
 def _resolve_step1_path(drafts_dir: Path, step_num: int, primary: Path) -> Path:
-    """主路径不存在时在 _STEP1_CANDIDATES 里回落，兼容跨模式切换遗留文件。
+    """主路径不存在时按 primary 所属模式优先回落，再兜底其他模式遗留文件（mode 感知）。
 
     step_num != 1 或主路径已存在：原样返回 primary；调用方自行 exists() 判定。
     """
     if step_num != 1 or primary.exists():
         return primary
-    for candidate in _STEP1_CANDIDATES:
+    family = _STEP1_FAMILY.get(primary.name, [primary.name])
+    for candidate in dict.fromkeys([*family, *_STEP1_CANDIDATES]):
         alt = drafts_dir / candidate
         if alt.exists():
             return alt

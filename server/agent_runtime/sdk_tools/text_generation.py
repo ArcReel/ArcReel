@@ -86,7 +86,12 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
         return drafts_path / "step1_reference_units.md", "split-reference-video-units subagent (Step 1)"
     if content_mode == "drama":
         return drafts_path / "step1_normalized_script.md", "normalize_drama_script tool"
-    return drafts_path / "step1_segments.json", "split-narration-segments subagent (Step 1)"
+    # narration 生成需结构化 step1_segments.json；仅存旧 step1_segments.md 时给出与
+    # ScriptGenerator._load_narration_step1 一致的重切迁移提示，而非笼统的缺文件错误。
+    step1_json = drafts_path / "step1_segments.json"
+    if not step1_json.exists() and (drafts_path / "step1_segments.md").exists():
+        return step1_json, "重跑 split-narration-segments 把旧 step1_segments.md 重新拆分为结构化 step1_segments.json"
+    return step1_json, "split-narration-segments subagent (Step 1)"
 
 
 def generate_episode_script_tool(ctx: ToolContext):

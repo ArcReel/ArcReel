@@ -231,8 +231,9 @@ class NarrationStep1Segment(BaseModel):
 
     只承载 step1 已定的内容字段：片段边界（segment_id / segment_break）、逐字 novel_text、
     时长。视觉层（image_prompt / video_prompt）由 step2 生成后按 segment_id 合并进来。
-    characters_in_segment / scenes / props 为可选（缺省空列表）：内容拆分阶段已知资产时
-    可直接登记，未登记则留给 step2 视觉层判定——两条路径合并后都落到同一 NarrationSegment。
+    characters_in_segment / scenes / props 由 step1 登记（内容层是资产引用的单一真相源，
+    缺省空列表）：step2 视觉层 schema 不含资产字段，只读消费这些登记作为写 image_prompt /
+    video_prompt 的上下文，不补登记、不改写——合并后落到同一 NarrationSegment。
     """
 
     model_config = _STRICT_CONFIG

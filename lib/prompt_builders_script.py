@@ -210,8 +210,10 @@ def _format_narration_step1_segments(step1_segments: list[dict]) -> str:
         scene_names = "、".join(seg.get("scenes") or []) or "无"
         prop_names = "、".join(seg.get("props") or []) or "无"
         novel = seg.get("novel_text", "")
+        # 多行 novel_text 的续行缩进进原文块，避免 flush-left 溢出 <segments> 结构
+        novel_block = novel.replace("\n", "\n  ")
         lines.append(
-            f"- {sid}（时长 {dur}s{brk}）｜出场角色：{chars}｜场景：{scene_names}｜道具：{prop_names}\n  原文：{novel}"
+            f"- {sid}（时长 {dur}s{brk}）｜出场角色：{chars}｜场景：{scene_names}｜道具：{prop_names}\n  原文：{novel_block}"
         )
     return "\n".join(lines)
 

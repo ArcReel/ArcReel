@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 # 逐镜头规划），缺失按 0 计入，避免杜撰值污染与目标总时长的对照。
 _FALLBACK_ITEM_DURATIONS: dict[str, int] = {"narration": 4, "drama": 8, "ad": 0}
 
-# 剧本缺失时按 content_mode 探测的 step1 草稿文件名。ad 不走拆分中间稿
-# （brief 不经 source_loader），显式 None 表示无草稿可探测；未知值沿用历史
-# 兜底落 drama 草稿名。
-_DRAFT_FILENAMES: dict[str, str | None] = {
-    "narration": "step1_segments.json",
-    "drama": "step1_normalized_script.md",
-    "ad": None,
+# 剧本缺失时按 content_mode 探测的 step1 草稿候选文件名（按优先序，任一存在即视为已分段）。
+# narration 同时认结构化 step1_segments.json 与旧版 step1_segments.md：「是否分过段」与「格式
+# 迁移」是两回事，存量 .md-only 项目也算已分段（迁移到 .json 由生成阶段的重切提示兜住），不被
+# 误判为「从未开始」。ad 不走拆分中间稿（brief 不经 source_loader），空元组表示无草稿可探测；
+# 未知值沿用历史兜底落 drama 草稿名。
+_DRAFT_FILENAMES: dict[str, tuple[str, ...]] = {
+    "narration": ("step1_segments.json", "step1_segments.md"),
+    "drama": ("step1_normalized_script.md",),
+    "ad": (),
 }
 
 
@@ -201,11 +203,12 @@ class StatusCalculator:
                 safe_num = int(episode_num)
             except (ValueError, TypeError):
                 return "none", None
-            draft_filename = _DRAFT_FILENAMES.get(content_mode, _DRAFT_FILENAMES["drama"])
-            if draft_filename is None:
+            draft_filenames = _DRAFT_FILENAMES.get(content_mode, _DRAFT_FILENAMES["drama"])
+            if not draft_filenames:
                 return "none", None
-            draft_file = project_dir / f"drafts/episode_{safe_num}/{draft_filename}"
-            return ("segmented" if draft_file.exists() else "none"), None
+            drafts_dir = project_dir / f"drafts/episode_{safe_num}"
+            segmented = any((drafts_dir / name).exists() for name in draft_filenames)
+            return ("segmented" if segmented else "none"), None
         except ValueError as e:
             logger.warning(
                 "剧本 JSON 损坏或路径无效，跳过状态计算 project=%s file=%s: %s",

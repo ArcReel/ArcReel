@@ -101,6 +101,15 @@ class TestStatusCalculator:
         assert status2 == "segmented"
         assert script2 is None
 
+        # Case 2b: narration 仅有旧 step1_segments.md（存量）→ 仍认作 ("segmented", None)
+        draft_dir_legacy = project_path / "drafts" / "episode_6"
+        draft_dir_legacy.mkdir(parents=True)
+        (draft_dir_legacy / "step1_segments.md").write_text("legacy md")
+        calc_legacy = StatusCalculator(_FakePM(project_root, {}, {}))
+        status_legacy, script_legacy = calc_legacy._load_episode_script("demo", 6, "scripts/episode_6.json")
+        assert status_legacy == "segmented"
+        assert script_legacy is None
+
         # Case 3: 两者都不存在 → ("none", None)
         calc3 = StatusCalculator(_FakePM(project_root, {}, {}))
         status3, script3 = calc3._load_episode_script("demo", 3, "scripts/episode_3.json")

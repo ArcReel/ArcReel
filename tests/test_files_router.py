@@ -442,6 +442,15 @@ class TestFilesRouter:
         assert files._get_step_title("step1_reference_units.md", _t) == "片段拆分"
         assert files._get_step_title("unknown.md", _t) == "unknown.md"
 
+    def test_resolve_step1_path_narration_prefers_own_legacy_md(self, tmp_path):
+        """narration step1 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。"""
+        drafts_dir = tmp_path / "drafts" / "episode_1"
+        drafts_dir.mkdir(parents=True)
+        (drafts_dir / "step1_reference_units.md").write_text("ref leftover", encoding="utf-8")
+        (drafts_dir / "step1_segments.md").write_text("narration legacy", encoding="utf-8")
+        resolved = files._resolve_step1_path(drafts_dir, 1, drafts_dir / "step1_segments.json")
+        assert resolved.name == "step1_segments.md"
+
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
         """参考生视频模式下读/写 step1_reference_units.md，避免被按 content_mode 错误路由"""
         client, pm = _client(monkeypatch, tmp_path)
