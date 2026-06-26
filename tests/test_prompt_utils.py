@@ -109,6 +109,17 @@ class TestUtterancesToDialogue:
         ]
         assert utterances_to_dialogue(utterances) == [{"speaker": "姜月茴", "line": "你来了。"}]
 
+    def test_supports_pydantic_utterance_instances(self):
+        # 兼容已实例化的 Pydantic Utterance 模型对象（不止原始 dict）：取属性而非键，
+        # dialogue-kind 正确派生、voiceover 跳过，与 dict 形态同口径
+        from lib.script_models import Utterance
+
+        utterances = [
+            Utterance(kind="voiceover", speaker=None, text="旁白"),
+            Utterance(kind="dialogue", speaker="王", text="走吧。"),
+        ]
+        assert utterances_to_dialogue(utterances) == [{"speaker": "王", "line": "走吧。"}]
+
     def test_feeds_video_prompt_to_yaml_dialogue(self):
         # 与 video_prompt_to_yaml 串联：drama 台词从 utterances 派生后正确出现在 YAML Dialogue
         dialogue = utterances_to_dialogue([{"kind": "dialogue", "speaker": "王", "text": "走吧。"}])
