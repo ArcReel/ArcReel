@@ -63,10 +63,13 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
 
 def content_fingerprint(path: Path) -> str | None:
     """step1 内容指纹：合法 JSON 取规范化 dump 的 sha256（键序 / 空白重排不改指纹、语义变更才改），
-    非 JSON 退化为原始字节 sha256；文件不存在时 None。"""
+    非 JSON 退化为原始字节 sha256；文件不存在（FileNotFoundError）时 None。
+
+    只把「文件不存在」降级为 None（→ no_step1、gate 放行）；权限不足、目录占位、短暂 I/O 等其它
+    OSError 一律向上抛，避免把真实文件系统故障静默当成「step1 未产出」而误放行 step2。"""
     try:
         raw = path.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return None
     try:
         canonical = json.dumps(json.loads(raw), sort_keys=True, ensure_ascii=False, separators=(",", ":"))

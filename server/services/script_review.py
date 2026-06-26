@@ -45,6 +45,15 @@ class ScriptReviewService:
     def __init__(self, pm: ProjectManager):
         self.pm = pm
 
+    def _require_episode(self, project: dict[str, Any], episode: int) -> None:
+        """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，缺失抛 episode_not_found。
+
+        与 ``confirm`` 的写入前置一致：避免 ``get_state`` 把未登记分集误报成 no_step1、
+        ``save_content`` 给未登记分集写出永远无法与 project.json 关联的孤儿 step1 文件。
+        """
+        if script_review.find_episode(project, episode) is None:
+            raise ScriptReviewError("episode_not_found")
+
     def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
 
@@ -54,6 +63,10 @@ class ScriptReviewService:
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
+        if path is not None:
+            # 适用 gate（drama / narration 非 reference_video）才要求分集已登记；
+            # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
+            self._require_episode(project, episode)
         fingerprint = script_review.content_fingerprint(path) if path is not None else None
         return {
             "episode": episode,
@@ -74,6 +87,7 @@ class ScriptReviewService:
         path = script_review.step1_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
+        self._require_episode(project, episode)
         model = _CONTENT_MODEL[project["content_mode"]]
         try:
             validated = model.model_validate(content).model_dump()
@@ -86,18 +100,24 @@ class ScriptReviewService:
     def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
         """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
 
-        无 step1 / 不适用 / 集条目缺失时抛 ScriptReviewError，由 router 映射 4xx。
+        无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法时抛 ScriptReviewError，由 router 映射 4xx。
         """
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
+        self._require_episode(project, episode)
         fingerprint = script_review.content_fingerprint(path)
         if fingerprint is None:
             raise ScriptReviewError("no_step1")
-        if script_review.find_episode(project, episode) is None:
-            raise ScriptReviewError("episode_not_found")
+        # 确认前按 content_mode 模型校验 step1 结构：content_fingerprint 对非法 JSON / 任意字节
+        # 也会产出哈希，仅凭 fingerprint 非空会把损坏草稿确认放行、拖到 step2 才暴露；此处拒绝。
+        model = _CONTENT_MODEL[project["content_mode"]]
+        try:
+            model.model_validate(_read_json(path))
+        except ValidationError as exc:
+            raise ScriptReviewError("invalid_content", str(exc)) from exc
 
         confirmed_at = datetime.now(UTC).isoformat()
 

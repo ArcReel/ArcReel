@@ -58,6 +58,8 @@ async def get_script_review(project_name: str, episode: int, _user: CurrentUser,
     try:
         service = ScriptReviewService(get_project_manager())
         return await asyncio.to_thread(service.get_state, project_name, episode)
+    except ScriptReviewError as exc:
+        _raise_review_error(exc, episode, _t)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 

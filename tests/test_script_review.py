@@ -230,6 +230,34 @@ class TestErrors:
             svc.save_content("demo", 1, _drama_step1())
         assert exc.value.code == "not_applicable"
 
+    def test_get_state_unregistered_episode_rejected(self, tmp_path):
+        """适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_step1）。"""
+        pm = _make_project(tmp_path, "drama")  # 仅登记第 1 集
+        svc = ScriptReviewService(pm)
+        with pytest.raises(ScriptReviewError) as exc:
+            svc.get_state("demo", 99)
+        assert exc.value.code == "episode_not_found"
+
+    def test_save_unregistered_episode_writes_no_orphan(self, tmp_path):
+        """给未登记分集保存 → episode_not_found，且不落 drafts/episode_99 孤儿 step1 文件。"""
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        with pytest.raises(ScriptReviewError) as exc:
+            svc.save_content("demo", 99, _drama_step1())
+        assert exc.value.code == "episode_not_found"
+        orphan = pm.get_project_path("demo") / "drafts" / "episode_99" / "step1_normalized_script.json"
+        assert not orphan.exists()
+
+    def test_confirm_corrupt_step1_rejected(self, tmp_path):
+        """step1 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        path = _write_step1(pm, "drama", _drama_step1())
+        path.write_bytes(b"\x00\x01 not json at all {")
+        with pytest.raises(ScriptReviewError) as exc:
+            svc.confirm("demo", 1)
+        assert exc.value.code == "invalid_content"
+
 
 # ---------------------------------------------------------------------------
 # step2 工具阻塞 enforcement：pending 时 generate_episode_script 拒绝

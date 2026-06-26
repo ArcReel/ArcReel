@@ -117,3 +117,10 @@ class TestScriptReviewRouter:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 409
+
+    def test_get_unregistered_episode_404(self, tmp_path, monkeypatch):
+        """未在 project.json 登记的分集 → GET 返回 404，而非误报 no_step1 的 200。"""
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            got = client.get("/api/v1/projects/demo/episodes/99/script-review")
+            assert got.status_code == 404

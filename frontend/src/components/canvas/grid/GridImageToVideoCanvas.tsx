@@ -319,6 +319,7 @@ export function GridImageToVideoCanvas({
         {activeTab === "preprocessing" && hasDraft && editorContentMode ? (
           <div className="h-full overflow-y-auto p-4">
             <ScriptReviewGate
+              key={`${projectName}:${episode}`}
               projectName={projectName}
               episode={episode}
               contentMode={editorContentMode}

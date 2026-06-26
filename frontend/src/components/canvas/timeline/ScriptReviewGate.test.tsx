@@ -138,6 +138,32 @@ describe("ScriptReviewGate", () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves the user's unsaved edits when an external refetch arrives", async () => {
+    const serverEdited = dramaState();
+    (serverEdited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =
+      "服务端覆盖文案";
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValueOnce(serverEdited);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
+
+    // 用户本地编辑，尚未保存
+    fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
+    await screen.findByText("保存");
+
+    // 外部刷新到来（agent 改 step1 → revision 变）→ 应保留用户草稿、不被服务端内容覆盖
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    });
+
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("服务端覆盖文案")).not.toBeInTheDocument();
+  });
+
   it("shows an empty state when there is no step1 content", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
       dramaState({ status: "no_step1", content: null, fingerprint: null }),
