@@ -36,19 +36,58 @@ _TRANSITION_MAP: dict[str, TransitionType] = {
     "dissolve": TransitionType.叠化,
 }
 
-# content_mode → 字幕文案源字段。narration 按朗读原文、ad 按每镜头口播文案；
-# 未注册的模式（drama / 未知脏值）不挂字幕轨。
+# content_mode → 整段单字幕文案源字段。narration 按朗读原文、ad 按每镜头口播文案，
+# 整段共用一条字幕。drama 不走单字段：口播是场景级有序 utterances，按 span 逐条派生
+# （见 _SPAN_SUBTITLE_MODES / _utterance_subtitle_spans），故不登记于此。
 _SUBTITLE_TEXT_FIELDS: dict[str, str] = {
     "narration": "novel_text",
     "ad": "voiceover_text",
 }
 
+# 字幕由有序 span 派生（而非单字段）的内容模式。drama 从 utterances 派生 subtitle_spans；
+# ad + reference_video 路径虽也产 span，但 content_mode 仍是 ad（已在 _SUBTITLE_TEXT_FIELDS），
+# 故此处只列 drama。未注册且不在此集合的模式（未知脏值）不挂字幕轨。
+_SPAN_SUBTITLE_MODES: frozenset[str] = frozenset({"drama"})
+
 from lib.path_safety import safe_resolve
 from lib.project_manager import ProjectManager, effective_mode
 from lib.reference_video.ad_units import ad_shots_by_id
 from lib.script_models import ad_shot_duration_seconds, script_shape
+from lib.speech_rate import estimate_spoken_seconds
 
 logger = logging.getLogger(__name__)
+
+
+def _has_subtitle_track(content_mode: str) -> bool:
+    """该内容模式是否注册为字幕模式（生成字幕轨）。
+
+    单字段模式（narration / ad）与 span 派生模式（drama）都为真；未注册的未知脏值为假。
+    """
+    return content_mode in _SUBTITLE_TEXT_FIELDS or content_mode in _SPAN_SUBTITLE_MODES
+
+
+def _utterance_subtitle_spans(utterances: object, language: str | None) -> list[dict[str, Any]]:
+    """从 drama 场景的有序 utterances 派生 subtitle_spans。
+
+    台词（dialogue）与画外音（voiceover）一并成字幕、按 utterances 真实先后排列；每条时长
+    按语速估算（``estimate_spoken_seconds``，单一真相源），顺次摆放、offset 累加。空 / 纯空白
+    text、非 dict 条目、估时长为 0 的条目跳过且不占 offset——既不产退化字幕，也不留空位。
+    不依场景时长拉伸：估算总时长可短于场景，余下自然留白、不撑满场景。
+    """
+    spans: list[dict[str, Any]] = []
+    offset = 0.0
+    for utterance in utterances if isinstance(utterances, list) else []:
+        if not isinstance(utterance, dict):
+            continue
+        text = utterance.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        duration = estimate_spoken_seconds(text, language)
+        if duration <= 0:
+            continue
+        spans.append({"offset_seconds": offset, "duration_seconds": duration, "text": text})
+        offset += duration
+    return spans
 
 
 def _script_content_mode(script: dict) -> str:
@@ -90,12 +129,15 @@ class JianyingDraftService:
         project_dir: Path,
         *,
         generation_mode: str | None = None,
+        language: str | None = None,
     ) -> list[dict[str, Any]]:
         """从剧本中提取已完成视频的片段列表
 
         分镜列表与 id 字段按 ``script_shape`` 分派（narration→segments、drama→scenes、
         ad→shots，未知模式沿用 drama 形状兜底）；字幕文案按 ``_SUBTITLE_TEXT_FIELDS``
-        取各模式的文案源字段，归一到 ``subtitle_text``。
+        取各模式的文案源字段，归一到 ``subtitle_text``。drama 改走 span 派生：从场景级
+        有序 ``utterances`` 按语速估算出 ``subtitle_spans``（``language`` 决定语速，由调用方
+        按项目 ``source_language`` 传入），整段 ``subtitle_text`` 留空。
 
         ad + reference_video 路径成片是 unit 级视频（``reference_units`` 派生索引），
         按 unit 收集；``generation_mode`` 须由调用方按 project.json 解析传入——
@@ -107,6 +149,7 @@ class JianyingDraftService:
         shape = script_shape(content_mode)
         items = script.get(shape.items_key, [])
         subtitle_field = _SUBTITLE_TEXT_FIELDS.get(content_mode)
+        is_drama = content_mode == "drama"
 
         clips = []
         for item in items:
@@ -124,17 +167,19 @@ class JianyingDraftService:
             # 不让单镜头脏数据把整次导出带崩（TextSegment 对非 str 序列化即抛错）
             subtitle_value = item.get(subtitle_field) if subtitle_field else None
 
-            clips.append(
-                {
-                    "id": item.get(shape.id_field, ""),
-                    "duration_seconds": item.get("duration_seconds", 8),
-                    "video_clip": video_clip,
-                    "abs_path": abs_path,
-                    "subtitle_text": subtitle_value if isinstance(subtitle_value, str) else "",
-                    "transition_to_next": item.get("transition_to_next", "cut"),
-                    "narration_audio_abs": safe_resolve(project_dir, assets.get("narration_audio")),
-                }
-            )
+            clip: dict[str, Any] = {
+                "id": item.get(shape.id_field, ""),
+                "duration_seconds": item.get("duration_seconds", 8),
+                "video_clip": video_clip,
+                "abs_path": abs_path,
+                "subtitle_text": subtitle_value if isinstance(subtitle_value, str) else "",
+                "transition_to_next": item.get("transition_to_next", "cut"),
+                "narration_audio_abs": safe_resolve(project_dir, assets.get("narration_audio")),
+            }
+            # drama：从场景 utterances 派生有序字幕 span（台词 + 画外音按真实先后，按语速估时长）
+            if is_drama:
+                clip["subtitle_spans"] = _utterance_subtitle_spans(item.get("utterances"), language)
+            clips.append(clip)
 
         return clips
 
@@ -241,8 +286,8 @@ class JianyingDraftService:
         # 视频轨
         script_file.add_track(TrackType.video)
 
-        # 字幕轨：仅注册了字幕文案源字段的模式（narration/ad）生成；drama 无字幕轨
-        has_subtitle = content_mode in _SUBTITLE_TEXT_FIELDS
+        # 字幕轨：注册为字幕模式的内容模式生成（narration / ad 单字段、drama 从 utterances 派生 span）
+        has_subtitle = _has_subtitle_track(content_mode)
         text_style: TextStyle | None = None
         text_border: TextBorder | None = None
         text_shadow: TextShadow | None = None
@@ -422,10 +467,13 @@ class JianyingDraftService:
         # 2. 收集已完成视频（生成路径按 project.json 解析：ad 参考直出收集 unit 级片段）
         content_mode = _script_content_mode(script_data)
         ep_entry = next((e for e in project.get("episodes", []) if e.get("episode") == episode), None)
+        # drama 字幕语速按项目源语言取（source_language 是唯一真相源，缺失 / 脏值时回退默认语速）
+        source_language = project.get("source_language")
         clips = self._collect_video_clips(
             script_data,
             project_dir,
             generation_mode=effective_mode(project=project, episode=ep_entry or {}),
+            language=source_language if isinstance(source_language, str) else None,
         )
         if not clips:
             raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")

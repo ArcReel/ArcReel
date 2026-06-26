@@ -78,6 +78,112 @@ class TestCollectVideoClips:
         assert clips[0]["id"] == "E1S01"
         assert clips[0]["subtitle_text"] == ""
 
+    def test_drama_mode_derives_subtitle_spans_from_utterances(self, tmp_path):
+        """drama：从 utterances 按真实先后派生 subtitle_spans，台词 / 画外音交错保持顺序，
+        时长按语速估算、顺次摆放（offset 累加）。"""
+        from lib.speech_rate import estimate_spoken_seconds
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "scene_E1S01.mp4").write_bytes(b"fake")
+
+        utterances = [
+            {"kind": "voiceover", "speaker": None, "text": "三年后"},
+            {"kind": "dialogue", "speaker": "小明", "text": "我回来了"},
+            {"kind": "voiceover", "speaker": None, "text": "他终于明白母亲的苦心"},
+        ]
+        script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "utterances": utterances,
+                    "generated_assets": {"video_clip": "videos/scene_E1S01.mp4", "status": "completed"},
+                },
+            ],
+        }
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir)
+
+        assert len(clips) == 1
+        spans = clips[0]["subtitle_spans"]
+        # 台词 + 画外音全部成字幕，按 utterances 真实先后排列
+        assert [s["text"] for s in spans] == ["三年后", "我回来了", "他终于明白母亲的苦心"]
+        # drama 走 span 派生，整段单字幕文案为空
+        assert clips[0]["subtitle_text"] == ""
+        # 时长按语速估算（口径取自单一真相源），顺次摆放
+        expected = [estimate_spoken_seconds(u["text"], None) for u in utterances]
+        assert [s["duration_seconds"] for s in spans] == pytest.approx(expected)
+        offset = 0.0
+        for span, dur in zip(spans, expected):
+            assert span["offset_seconds"] == pytest.approx(offset)
+            offset += dur
+
+    def test_drama_subtitle_spans_allow_gap_not_filling_scene(self, tmp_path):
+        """drama：短台词按语速估时长，不撑满长场景，余下留白。"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "scene_E1S01.mp4").write_bytes(b"fake")
+
+        script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 30,
+                    "utterances": [{"kind": "dialogue", "speaker": "小明", "text": "你好"}],
+                    "generated_assets": {"video_clip": "videos/scene_E1S01.mp4", "status": "completed"},
+                },
+            ],
+        }
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir)
+
+        clip = clips[0]
+        assert clip["duration_seconds"] == 30
+        spans_total = sum(s["duration_seconds"] for s in clip["subtitle_spans"])
+        assert spans_total < clip["duration_seconds"]
+
+    def test_drama_subtitle_spans_skip_empty_and_malformed_utterances(self, tmp_path):
+        """drama：空 / 纯空白 text 与非 dict 条目不产 span、不阻断收集，offset 不留空位。"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "scene_E1S01.mp4").write_bytes(b"fake")
+
+        script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "utterances": [
+                        {"kind": "voiceover", "speaker": None, "text": "   "},
+                        "not-a-dict",
+                        {"kind": "dialogue", "speaker": "小明", "text": "开始"},
+                    ],
+                    "generated_assets": {"video_clip": "videos/scene_E1S01.mp4", "status": "completed"},
+                },
+            ],
+        }
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir)
+
+        spans = clips[0]["subtitle_spans"]
+        assert [s["text"] for s in spans] == ["开始"]
+        assert spans[0]["offset_seconds"] == 0
+
     def test_ad_mode_collects_shots_with_voiceover_subtitle(self, tmp_path):
         """ad 模式：收集 shots，字幕文案取每镜头 voiceover_text"""
         from server.services.jianying_draft_service import JianyingDraftService
@@ -365,24 +471,67 @@ class TestGenerateDraft:
         for text_seg in text_track["segments"]:
             assert text_seg["clip"]["transform"]["y"] == pytest.approx(-0.75)
 
-    def test_drama_mode_no_subtitle_track(self, tmp_path):
-        """drama 模式不生成字幕轨"""
+    def test_drama_mode_includes_subtitle_track(self, tmp_path):
+        """drama 注册为字幕模式：携带 subtitle_spans 时生成字幕轨并按 span 在片段内逐条渲染。"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        videos_dir = tmp_path / "videos"
+        videos_dir.mkdir()
+        make_test_video(videos_dir / "scene_S1.mp4", duration_sec=5.0)
+
+        draft_dir = tmp_path / "drafts" / "剧集字幕草稿"
+
+        clips = [
+            {
+                "id": "S1",
+                "local_path": str(videos_dir / "scene_S1.mp4"),
+                "subtitle_text": "",
+                "subtitle_spans": [
+                    {"offset_seconds": 0, "duration_seconds": 1.0, "text": "三年后"},
+                    {"offset_seconds": 1.0, "duration_seconds": 1.5, "text": "我回来了"},
+                ],
+            },
+        ]
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        svc._generate_draft(
+            draft_dir=draft_dir,
+            draft_name="剧集字幕草稿",
+            clips=clips,
+            width=1080,
+            height=1920,
+            content_mode="drama",
+        )
+
+        content = json.loads((draft_dir / "draft_content.json").read_text(encoding="utf-8"))
+        tracks = content.get("tracks", [])
+        # 视频轨 + 字幕轨
+        assert len(tracks) == 2
+        texts = content.get("materials", {}).get("texts", [])
+        assert len(texts) == 2
+        text_track = next(t for t in tracks if t.get("type") == "text")
+        starts = sorted(seg["target_timerange"]["start"] for seg in text_track["segments"])
+        assert starts[0] == 0
+        assert starts[1] == 1_000_000
+
+    def test_drama_mode_without_utterances_has_empty_subtitle_track(self, tmp_path):
+        """drama 无 utterances（spans 为空）：仍注册字幕轨，但不落字幕片段。"""
         from server.services.jianying_draft_service import JianyingDraftService
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
         make_test_video(videos_dir / "scene_S1.mp4")
 
-        draft_dir = tmp_path / "drafts" / "无字幕草稿"
+        draft_dir = tmp_path / "drafts" / "空字幕草稿"
 
         clips = [
-            {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "subtitle_text": ""},
+            {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "subtitle_text": "", "subtitle_spans": []},
         ]
 
         svc = JianyingDraftService.__new__(JianyingDraftService)
         svc._generate_draft(
             draft_dir=draft_dir,
-            draft_name="无字幕草稿",
+            draft_name="空字幕草稿",
             clips=clips,
             width=1920,
             height=1080,
@@ -391,7 +540,9 @@ class TestGenerateDraft:
 
         content = json.loads((draft_dir / "draft_content.json").read_text(encoding="utf-8"))
         tracks = content.get("tracks", [])
-        assert len(tracks) == 1
+        # 视频轨 + 字幕轨；字幕轨存在但无字幕片段（与 narration / ad 空字幕一致）
+        assert len(tracks) == 2
+        assert content.get("materials", {}).get("texts", []) == []
 
 
 class TestNarrationAudioTrack:
