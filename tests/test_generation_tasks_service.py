@@ -526,6 +526,68 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
 
+    async def test_execute_video_task_drama_dialogue_from_utterances(self, monkeypatch, tmp_path):
+        """drama 口型台词从场景级 dialogue-kind utterances 取（覆盖 payload 已不带的
+        video_prompt.dialogue）；voiceover-kind 不进视频 YAML。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        # 改用 drama 剧本：E1S01 携带有序 utterances（voiceover 在前、dialogue 在后）
+        fake_pm.script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "segment_break": False,
+                    "characters_in_scene": ["王"],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "首镜头",
+                    "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                    "utterances": [
+                        {"kind": "voiceover", "speaker": None, "text": "那是命运的开端。"},
+                        {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+                    ],
+                }
+            ],
+        }
+
+        from lib.config import resolver as resolver_mod
+        from lib.config.resolver import ProviderModel
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
+        )
+        monkeypatch.setattr(
+            resolver_mod.ConfigResolver,
+            "video_capabilities_for_model",
+            _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
+        )
+
+        # payload 的 video_prompt 不带 dialogue（drama 新结构）
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        # dialogue-kind 台词与说话人进 YAML，voiceover-kind 不进视频提示词
+        assert "你来了。" in prompt_yaml
+        assert "王" in prompt_yaml
+        assert "那是命运的开端。" not in prompt_yaml
+
     async def test_execute_video_task_default_duration_from_caps(self, monkeypatch, tmp_path):
         """无显式 duration 时，默认值由 caps 收口（取 supported_durations[0]），且必然合法。"""
         project_path = _prepare_files(tmp_path)

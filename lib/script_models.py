@@ -82,15 +82,31 @@ class ImagePrompt(BaseModel):
     composition: Composition = Field(description="构图信息")
 
 
-class VideoPrompt(BaseModel):
-    """视频生成 Prompt"""
+class _VideoPromptCore(BaseModel):
+    """video_prompt 的画面层公共字段（动作 / 运镜 / 环境音）；dialogue 由具体变体决定是否携带。"""
 
     model_config = _STRICT_CONFIG
 
     action: str = Field(description="动作描述：仅描述物理可观察动作，避免内心动词（如 陷入/回忆/意识到）")
     camera_motion: CameraMotion = Field(description="镜头运动")
     ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
+
+
+class VideoPrompt(_VideoPromptCore):
+    """narration / ad 视频生成 Prompt：含角色对话 dialogue。
+
+    drama 不用本模型——其台词迁入场景级 ``DramaScene.utterances``，video_prompt 用无-dialogue 的
+    ``DramaVideoPrompt`` 变体（见 ADR 0040）。
+    """
+
     dialogue: list[Dialogue] = Field(default_factory=list, description="对话列表，仅当原文有引号对话时填写")
+
+
+class DramaVideoPrompt(_VideoPromptCore):
+    """drama 视频生成 Prompt：无 dialogue（口播统一迁入场景级 ``DramaScene.utterances``）。
+
+    ``extra="forbid"`` 下任何残留的 ``dialogue`` 键会被 ``DramaScene`` 读时迁移先行剥离。
+    """
 
 
 class GeneratedAssets(BaseModel):
@@ -206,6 +222,47 @@ class NarrationEpisodeScript(BaseModel):
 # ============ 剧集动画模式（Drama） ============
 
 
+UtteranceKind = Literal["dialogue", "voiceover"]
+
+
+class Utterance(BaseModel):
+    """drama 场景级有序发声条目：插入顺序即幕内时序（台词与画外音的先后）。
+
+    判别式联合 ``{kind, speaker, text}``，``kind`` 决定下游路由与 ``kind ⇄ speaker`` 约束：
+    - ``dialogue``：角色台词，必带非空 ``speaker``，进视频 YAML 交供应商出口型音轨；
+    - ``voiceover``：无说话人的旁白解说，``speaker`` 必为 ``None``，不作视频提示词（留给字幕 / TTS）。
+
+    取显式 ``kind`` 而非「speaker 有无隐式判别」：与 ``ReferenceResource.type`` 既有判别式风格一致、
+    LLM 结构化输出更稳（见 ADR 0040）。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    kind: UtteranceKind = Field(description="发声类型：dialogue=角色台词、voiceover=无说话人画外音")
+    speaker: str | None = Field(default=None, description="说话角色名；dialogue 必填非空、voiceover 必须为 null")
+    text: str = Field(description="发声内容原文，逐字保留")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_speaker(cls, data: object) -> object:
+        # 空串 / 纯空白 speaker 归一为 None：voiceover 的「无说话人」既可写 null 也可写 ""，统一到
+        # None 后由下方 kind ⇄ speaker 校验裁决（dialogue 的空 speaker 因此被判非法）。
+        if isinstance(data, dict):
+            speaker = data.get("speaker")
+            if isinstance(speaker, str) and not speaker.strip():
+                data = {**data, "speaker": None}
+        return data
+
+    @model_validator(mode="after")
+    def _check_kind_speaker(self) -> "Utterance":
+        if self.kind == "dialogue":
+            if not self.speaker:
+                raise ValueError("dialogue utterance 必须带非空 speaker")
+        elif self.speaker is not None:
+            raise ValueError("voiceover utterance 不得带 speaker")
+        return self
+
+
 class DramaScene(BaseModel):
     """剧集动画模式的场景"""
 
@@ -220,11 +277,58 @@ class DramaScene(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _strip_legacy_fields(cls, data: object) -> object:
-        if isinstance(data, dict):
-            for k in cls.LEGACY_DROPPED_FIELDS:
-                data.pop(k, None)
+    def _migrate_legacy(cls, data: object) -> object:
+        """读时迁移：剥离已废弃字段，并把旧口播双字段（``video_prompt.dialogue`` + ``voiceover``）
+        合成为有序 ``utterances``。
+
+        判据「无 utterances 键」= 存量数据：合成时 dialogue 段在前、voiceover 段在后（旧数据无交错
+        信息，确定性 best-effort、不假装还原），并剥离 ``voiceover`` 与 ``video_prompt.dialogue`` 使
+        ``DramaVideoPrompt`` 的 ``extra="forbid"`` 不报错。缺说话人的旧台词归为无说话人 voiceover
+        （保内容、不编造 speaker）。新数据（``utterances`` 已在）走快路径、不改写。不就地改调用方 dict。
+        """
+        if not isinstance(data, dict):
+            return data
+        legacy_present = any(k in data for k in cls.LEGACY_DROPPED_FIELDS)
+        needs_spoken_migration = "utterances" not in data
+        if not legacy_present and not needs_spoken_migration:
+            return data
+        data = dict(data)
+        for k in cls.LEGACY_DROPPED_FIELDS:
+            data.pop(k, None)
+        if needs_spoken_migration:
+            data["utterances"] = cls._synthesize_utterances(data)
+            data.pop("voiceover", None)
+            video_prompt = data.get("video_prompt")
+            if isinstance(video_prompt, dict) and "dialogue" in video_prompt:
+                data["video_prompt"] = {k: v for k, v in video_prompt.items() if k != "dialogue"}
         return data
+
+    @staticmethod
+    def _synthesize_utterances(scene: dict[str, object]) -> list[dict[str, object]]:
+        """从旧 ``video_prompt.dialogue`` + 场景 ``voiceover`` 合成有序 utterances（dialogue 段在前）。"""
+        utterances: list[dict[str, object]] = []
+        video_prompt = scene.get("video_prompt")
+        if isinstance(video_prompt, dict):
+            dialogue = video_prompt.get("dialogue")
+            if isinstance(dialogue, list):
+                for entry in dialogue:
+                    if not isinstance(entry, dict):
+                        continue
+                    text = str(entry.get("line") or "").strip()
+                    if not text:
+                        continue
+                    speaker = str(entry.get("speaker") or "").strip()
+                    if speaker:
+                        utterances.append({"kind": "dialogue", "speaker": speaker, "text": text})
+                    else:
+                        # 旧台词缺说话人 → 归为无说话人 voiceover（best-effort，保内容、不编造 speaker）
+                        utterances.append({"kind": "voiceover", "speaker": None, "text": text})
+        voiceover = scene.get("voiceover")
+        if isinstance(voiceover, list):
+            for line in voiceover:
+                if isinstance(line, str) and line.strip():
+                    utterances.append({"kind": "voiceover", "speaker": None, "text": line.strip()})
+        return utterances
 
     scene_id: str = Field(description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
@@ -233,11 +337,14 @@ class DramaScene(BaseModel):
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
-    video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    # 画外音/旁白原文（逐字保真锚，日后接 TTS）。取 list[str] 而非 str：一个场景可含多段
-    # 有序画外音插入（基数为多）。仅 source_kind=screenplay 提取时填入；novel-drama 恒空数组。
-    # 与 video_prompt.dialogue（角色台词）分工：dialogue 有 speaker，voiceover 无。
-    voiceover: list[str] = Field(default_factory=list, description="画外音/旁白原文列表，逐字保留，按出现顺序")
+    # drama 用无-dialogue 变体：台词迁入下方 utterances，video_prompt 只承载画面动作 / 运镜 / 环境音。
+    video_prompt: DramaVideoPrompt = Field(description="视频生成提示词")
+    # 场景级有序发声序列，取代旧 video_prompt.dialogue（角色台词）与场景 voiceover（画外音）双字段：
+    # dialogue/voiceover 条目按时序排在同一列表，插入顺序即幕内先后（见 ADR 0040）。
+    utterances: list[Utterance] = Field(
+        default_factory=list,
+        description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
+    )
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。

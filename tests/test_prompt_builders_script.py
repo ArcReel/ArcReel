@@ -142,14 +142,17 @@ class TestScreenplaySourceKind:
         # 默认 novel 维持原「改编/创作」语义，dialogue 仍要求 speaker ∈ characters_in_scene
         assert "改编" in prompt
         assert "characters_in_scene" in prompt
-        # novel-drama 无画外音轨：voiceover 字段引导要求留空
+        # 口播改由场景级有序 utterances 承载（取代旧 video_prompt.dialogue + voiceover 双字段）
+        assert "utterances" in prompt
+        # novel-drama 无画外音轨：引导要求不产出 voiceover 条目
         assert "voiceover" in prompt
 
     def test_drama_screenplay_flips_to_verbatim_extraction(self):
         prompt = self._drama_prompt("screenplay")
-        # 台词逐字照搬、画外音逐字提取的指令在场
+        # 台词逐字照搬、画外音逐字提取的指令在场，落点为有序 utterances
         assert "逐字" in prompt
         assert "画外音" in prompt
+        assert "utterances" in prompt
         assert "voiceover" in prompt
         # 翻面为「转写而非再创作」，不含「改编」语义
         assert "改编" not in prompt
@@ -161,9 +164,10 @@ class TestScreenplaySourceKind:
         novel = self._drama_prompt("novel")
         assert "不翻译" in screenplay
         assert "不翻译" not in novel
-        # speaker 是角色资产引用键，翻译会与登记角色名失配，须一并豁免
-        assert "video_prompt.dialogue[].speaker" in screenplay
-        assert "video_prompt.dialogue[].speaker" not in novel
+        # speaker 是角色资产引用键，翻译会与登记角色名失配，须随 text 一并豁免（落在 utterances 上）
+        assert "utterances[].speaker" in screenplay
+        assert "utterances[].text" in screenplay
+        assert "utterances[].speaker" not in novel
 
     def test_normalize_novel_default_keeps_adaptation_semantics(self):
         prompt = self._normalize_prompt("novel")

@@ -8,9 +8,11 @@ from lib.script_models import (
     Dialogue,
     DramaEpisodeScript,
     DramaScene,
+    DramaVideoPrompt,
     ImagePrompt,
     NarrationEpisodeScript,
     NarrationSegment,
+    Utterance,
     VideoPrompt,
 )
 
@@ -24,6 +26,10 @@ def _image_prompt() -> ImagePrompt:
 
 def _video_prompt() -> VideoPrompt:
     return VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声")
+
+
+def _drama_video_prompt() -> DramaVideoPrompt:
+    return DramaVideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声")
 
 
 class TestScriptModels:
@@ -63,49 +69,137 @@ class TestScriptModels:
             characters_in_scene=["王"],
             scenes=["庙宇"],
             props=["玉佩"],
-            image_prompt=ImagePrompt(
-                scene="场景",
-                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
-            ),
-            video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
+            image_prompt=_image_prompt(),
+            video_prompt=_drama_video_prompt(),
         )
         assert scene.scenes == ["庙宇"]
         assert scene.props == ["玉佩"]
         assert not hasattr(scene, "clues_in_scene")
 
-    def test_drama_scene_voiceover_defaults_empty(self):
-        """未提供 voiceover 时默认空数组（novel-drama 下恒空）。"""
-        scene = DramaScene(
-            scene_id="E1S01",
-            characters_in_scene=["王"],
-            image_prompt=ImagePrompt(
-                scene="场景",
-                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
-            ),
-            video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
-        )
-        assert scene.voiceover == []
+    def test_drama_video_prompt_has_no_dialogue_field(self):
+        """drama 用无-dialogue 变体：video_prompt 不携带 dialogue 字段（台词迁入 utterances）。"""
+        assert "dialogue" not in DramaVideoPrompt.model_fields
+        # narration / ad 共享的 VideoPrompt 仍保留 dialogue
+        assert "dialogue" in VideoPrompt.model_fields
 
-    def test_drama_scene_voiceover_round_trips(self):
-        """voiceover 接受多段字符串列表并 round-trip 不丢（screenplay 画外音落点）。"""
-        voiceover = ["多年以后，她仍记得那个夜晚。", "那是命运的开端。"]
+    def test_drama_scene_utterances_defaults_empty(self):
+        """未提供 utterances 时默认空数组（无口播场景）。"""
         scene = DramaScene(
             scene_id="E1S01",
             characters_in_scene=["王"],
-            image_prompt=ImagePrompt(
-                scene="场景",
-                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
-            ),
-            video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
-            voiceover=voiceover,
+            image_prompt=_image_prompt(),
+            video_prompt=_drama_video_prompt(),
         )
-        assert scene.voiceover == voiceover
+        assert scene.utterances == []
+
+    def test_drama_scene_utterances_round_trips_ordered(self):
+        """utterances 按时序接受 dialogue / voiceover 混合条目并 round-trip 不丢、不重排。"""
+        utterances = [
+            Utterance(kind="voiceover", text="多年以后，她仍记得那个夜晚。"),
+            Utterance(kind="dialogue", speaker="王", text="你来了。"),
+            Utterance(kind="voiceover", text="那是命运的开端。"),
+        ]
+        scene = DramaScene(
+            scene_id="E1S01",
+            characters_in_scene=["王"],
+            image_prompt=_image_prompt(),
+            video_prompt=_drama_video_prompt(),
+            utterances=utterances,
+        )
         dumped = scene.model_dump()
-        assert dumped["voiceover"] == voiceover
-        assert DramaScene.model_validate(dumped).voiceover == voiceover
+        assert dumped["utterances"] == [
+            {"kind": "voiceover", "speaker": None, "text": "多年以后，她仍记得那个夜晚。"},
+            {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+            {"kind": "voiceover", "speaker": None, "text": "那是命运的开端。"},
+        ]
+        assert DramaScene.model_validate(dumped).utterances == utterances
 
-    def test_drama_scene_rejects_unknown_field_alongside_voiceover(self):
-        """extra='forbid' 守卫仍生效：voiceover 不放松未知字段拒绝。"""
+    def test_utterance_dialogue_requires_speaker(self):
+        """kind ⇄ speaker：dialogue 必带非空 speaker，缺失 / 空白则校验失败。"""
+        with pytest.raises(ValidationError):
+            Utterance(kind="dialogue", text="台词无说话人")
+        with pytest.raises(ValidationError):
+            Utterance(kind="dialogue", speaker="   ", text="空白说话人")
+
+    def test_utterance_voiceover_rejects_speaker(self):
+        """kind ⇄ speaker：voiceover 不得带 speaker。"""
+        with pytest.raises(ValidationError):
+            Utterance(kind="voiceover", speaker="王", text="画外音不该有说话人")
+
+    def test_utterance_voiceover_blank_speaker_normalized_to_none(self):
+        """voiceover 的空白 speaker 归一为 None（既可写 null 也可写 ""）。"""
+        assert Utterance(kind="voiceover", speaker="", text="旁白").speaker is None
+        assert Utterance(kind="voiceover", text="旁白").speaker is None
+
+    def test_drama_scene_migrates_legacy_dialogue_and_voiceover(self):
+        """存量 drama 读时迁移：旧 video_prompt.dialogue + voiceover 合成 utterances 并剥离旧字段。"""
+        legacy = {
+            "scene_id": "E1S01",
+            "characters_in_scene": ["王"],
+            "image_prompt": {
+                "scene": "s",
+                "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+            },
+            "video_prompt": {
+                "action": "a",
+                "camera_motion": "Static",
+                "ambiance_audio": "x",
+                "dialogue": [{"speaker": "王", "line": "你来了。"}],
+            },
+            "voiceover": ["多年以后，她仍记得那个夜晚。"],
+        }
+        scene = DramaScene.model_validate(legacy)
+        # dialogue 段在前、voiceover 段在后（确定性 best-effort）
+        assert scene.utterances == [
+            Utterance(kind="dialogue", speaker="王", text="你来了。"),
+            Utterance(kind="voiceover", text="多年以后，她仍记得那个夜晚。"),
+        ]
+        # 旧字段被剥离：video_prompt 无 dialogue、场景无 voiceover 属性
+        assert not hasattr(scene, "voiceover")
+        assert "dialogue" not in scene.video_prompt.model_dump()
+
+    def test_drama_scene_migrates_speakerless_legacy_dialogue_to_voiceover(self):
+        """缺说话人的旧台词归为无说话人 voiceover（保内容、不编造 speaker、不致校验失败）。"""
+        legacy = {
+            "scene_id": "E1S01",
+            "characters_in_scene": ["王"],
+            "image_prompt": {
+                "scene": "s",
+                "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+            },
+            "video_prompt": {
+                "action": "a",
+                "camera_motion": "Static",
+                "ambiance_audio": "x",
+                "dialogue": [{"speaker": "", "line": "无主台词"}],
+            },
+        }
+        scene = DramaScene.model_validate(legacy)
+        assert scene.utterances == [Utterance(kind="voiceover", text="无主台词")]
+
+    def test_drama_scene_rejects_dialogue_in_video_prompt_for_new_data(self):
+        """新数据（utterances 已在）不再迁移：video_prompt 残留 dialogue 触发 extra='forbid'。"""
+        with pytest.raises(ValidationError):
+            DramaScene.model_validate(
+                {
+                    "scene_id": "E1S01",
+                    "characters_in_scene": ["王"],
+                    "image_prompt": {
+                        "scene": "s",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                    },
+                    "video_prompt": {
+                        "action": "a",
+                        "camera_motion": "Static",
+                        "ambiance_audio": "x",
+                        "dialogue": [{"speaker": "王", "line": "x"}],
+                    },
+                    "utterances": [],
+                }
+            )
+
+    def test_drama_scene_rejects_unknown_field(self):
+        """extra='forbid' 守卫仍生效：utterances 不放松未知字段拒绝。"""
         with pytest.raises(ValidationError):
             DramaScene.model_validate(
                 {
@@ -116,7 +210,7 @@ class TestScriptModels:
                         "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
                     },
                     "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
-                    "voiceover": ["旁白"],
+                    "utterances": [],
                     "hallucinated_field": "x",
                 }
             )
@@ -168,11 +262,8 @@ class TestScriptModels:
         scene = DramaScene(
             scene_id="E1S01",
             characters_in_scene=["姜月茴"],
-            image_prompt=ImagePrompt(
-                scene="场景",
-                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
-            ),
-            video_prompt=VideoPrompt(action="前进", camera_motion="Static", ambiance_audio="雨声"),
+            image_prompt=_image_prompt(),
+            video_prompt=_drama_video_prompt(),
         )
         assert scene.duration_seconds == 8
 
@@ -189,19 +280,8 @@ class TestScriptModels:
                 DramaScene(
                     scene_id="E1S01",
                     characters_in_scene=["姜月茴"],
-                    image_prompt=ImagePrompt(
-                        scene="场景",
-                        composition=Composition(
-                            shot_type="Medium Shot",
-                            lighting="暖光",
-                            ambiance="薄雾",
-                        ),
-                    ),
-                    video_prompt=VideoPrompt(
-                        action="前进",
-                        camera_motion="Static",
-                        ambiance_audio="雨声",
-                    ),
+                    image_prompt=_image_prompt(),
+                    video_prompt=_drama_video_prompt(),
                 )
             ],
         )
@@ -311,8 +391,9 @@ class TestLLMSchemaExclusion:
         for forbidden in ("note", "generated_assets"):
             assert forbidden not in keys
         assert "duration_seconds" not in DramaEpisodeScript.model_json_schema()["properties"]
-        # voiceover 是 LLM 可见的一等字段（screenplay 提取画外音的落点），不应被排除
-        assert "voiceover" in keys
+        # utterances 是 LLM 可见的一等字段（drama 口播序列的落点），取代旧 voiceover
+        assert "utterances" in keys
+        assert "voiceover" not in keys
 
     def test_reference_video_schema_excludes_runtime_fields(self):
         from lib.script_models import ReferenceVideoScript

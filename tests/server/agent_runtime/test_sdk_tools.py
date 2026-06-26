@@ -737,6 +737,37 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     assert "duration_seconds" not in specs2[0].payload
 
 
+def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
+    """drama：_get_video_prompt 从场景级 dialogue-kind utterances 派生 video YAML 台词，
+    voiceover-kind 不进；narration / ad（无 utterances 字段）原样渲染既有 video_prompt.dialogue。"""
+    import yaml
+
+    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+
+    drama_item = {
+        "scene_id": "E1S01",
+        "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+        "utterances": [
+            {"kind": "voiceover", "speaker": None, "text": "那是命运的开端。"},
+            {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+        ],
+    }
+    parsed = yaml.safe_load(_get_video_prompt(drama_item))
+    assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
+
+    narration_item = {
+        "segment_id": "E1S01",
+        "video_prompt": {
+            "action": "走",
+            "camera_motion": "Static",
+            "ambiance_audio": "脚步声",
+            "dialogue": [{"speaker": "Alice", "line": "hello"}],
+        },
+    }
+    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item))
+    assert parsed_narr["Dialogue"] == [{"Speaker": "Alice", "Line": "hello"}]
+
+
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     """参考生视频入队经统一守卫点：prompt 由 shots 拼接后随 payload 入队（见 ADR-0001）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs

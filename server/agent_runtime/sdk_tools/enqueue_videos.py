@@ -19,7 +19,7 @@ from lib.generation_queue_client import (
     enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager, effective_mode
-from lib.prompt_utils import is_structured_video_prompt, video_prompt_to_yaml
+from lib.prompt_utils import is_structured_video_prompt, utterances_to_dialogue, video_prompt_to_yaml
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
@@ -41,6 +41,10 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
         item_id = item.get("segment_id") or item.get("scene_id")
         raise ValueError(f"片段/场景缺少 video_prompt 字段: {item_id}")
     if is_structured_video_prompt(prompt):
+        # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
+        # dialogue 出口（drama video_prompt 已不带 dialogue）。narration / ad 无 utterances 字段、原样渲染。
+        if "utterances" in item:
+            prompt = {**prompt, "dialogue": utterances_to_dialogue(item.get("utterances"))}
         return video_prompt_to_yaml(prompt)
     if isinstance(prompt, dict):
         item_id = item.get("segment_id") or item.get("scene_id")

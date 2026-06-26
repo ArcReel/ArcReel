@@ -300,63 +300,65 @@ class TestDataValidator:
         result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
         assert result.valid
 
-    def test_validate_episode_drama_rejects_non_list_voiceover(self, tmp_path):
-        # voiceover 出现但不是数组 → 结构错误（与 characters_in_scene / props 同口径）
+    def _drama_episode_with_scene(self, tmp_path, scene_extra: dict):
+        # 构造一个最小 drama 剧集，scene 合并 scene_extra（用于针对性校验 utterances）
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("drama"))
+        scene = {
+            "scene_id": "E2S01",
+            "duration_seconds": 8,
+            "characters_in_scene": ["姜月茴"],
+            "scenes": ["古宅"],
+            "props": ["玉佩"],
+            "image_prompt": "img",
+            "video_prompt": "vid",
+        }
+        scene.update(scene_extra)
         _write_json(
             project_dir / "scripts" / "episode_2.json",
+            {"episode": 2, "title": "第二集", "content_mode": "drama", "scenes": [scene]},
+        )
+        return validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
+
+    def test_validate_episode_drama_accepts_valid_utterances(self, tmp_path):
+        # 合法 utterances（dialogue 带 speaker、voiceover 无 speaker）→ 通过
+        result = self._drama_episode_with_scene(
+            tmp_path,
             {
-                "episode": 2,
-                "title": "第二集",
-                "content_mode": "drama",
-                "scenes": [
-                    {
-                        "scene_id": "E2S01",
-                        "duration_seconds": 8,
-                        "characters_in_scene": ["姜月茴"],
-                        "scenes": ["古宅"],
-                        "props": ["玉佩"],
-                        "voiceover": "这不是数组",
-                        "image_prompt": "img",
-                        "video_prompt": "vid",
-                    }
-                ],
+                "utterances": [
+                    {"kind": "dialogue", "speaker": "姜月茴", "text": "你来了。"},
+                    {"kind": "voiceover", "speaker": None, "text": "那是命运的开端。"},
+                ]
             },
         )
+        assert result.valid
 
-        result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
+    def test_validate_episode_drama_rejects_non_list_utterances(self, tmp_path):
+        # utterances 出现但不是数组 → 结构错误
+        result = self._drama_episode_with_scene(tmp_path, {"utterances": "这不是数组"})
         assert not result.valid
-        assert any("voiceover" in error for error in result.errors)
+        assert any("utterances" in error for error in result.errors)
 
-    def test_validate_episode_drama_rejects_non_string_voiceover_item(self, tmp_path):
-        # voiceover 是数组但含非字符串元素 → 结构错误（锁住 list[str] 契约）
-        project_dir = tmp_path / "projects" / "demo"
-        _write_json(project_dir / "project.json", _project_payload("drama"))
-        _write_json(
-            project_dir / "scripts" / "episode_2.json",
-            {
-                "episode": 2,
-                "title": "第二集",
-                "content_mode": "drama",
-                "scenes": [
-                    {
-                        "scene_id": "E2S01",
-                        "duration_seconds": 8,
-                        "characters_in_scene": ["姜月茴"],
-                        "scenes": ["古宅"],
-                        "props": ["玉佩"],
-                        "voiceover": ["正常旁白", 1],
-                        "image_prompt": "img",
-                        "video_prompt": "vid",
-                    }
-                ],
-            },
+    def test_validate_episode_drama_rejects_dialogue_without_speaker(self, tmp_path):
+        # kind ⇄ speaker：dialogue 缺非空 speaker → 校验失败
+        result = self._drama_episode_with_scene(
+            tmp_path, {"utterances": [{"kind": "dialogue", "speaker": "", "text": "无主台词"}]}
         )
-
-        result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
         assert not result.valid
-        assert any("voiceover" in error for error in result.errors)
+        assert any("speaker" in error for error in result.errors)
+
+    def test_validate_episode_drama_rejects_voiceover_with_speaker(self, tmp_path):
+        # kind ⇄ speaker：voiceover 带 speaker → 校验失败
+        result = self._drama_episode_with_scene(
+            tmp_path, {"utterances": [{"kind": "voiceover", "speaker": "旁白人", "text": "解说"}]}
+        )
+        assert not result.valid
+        assert any("speaker" in error for error in result.errors)
+
+    def test_validate_episode_drama_legacy_voiceover_tolerated(self, tmp_path):
+        # 存量 drama（无 utterances、残留旧 voiceover）走读时迁移，校验层放行、不阻塞导出
+        result = self._drama_episode_with_scene(tmp_path, {"voiceover": ["旧画外音"]})
+        assert result.valid
 
     def test_validate_helpers_on_missing_files(self, tmp_path):
         result = validate_project("missing", projects_root=str(tmp_path / "projects"))

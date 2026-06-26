@@ -5,6 +5,7 @@ from lib.prompt_utils import (
     is_structured_image_prompt,
     is_structured_video_prompt,
     normalize_style,
+    utterances_to_dialogue,
     validate_camera_motion,
     validate_shot_type,
     video_prompt_to_yaml,
@@ -76,6 +77,37 @@ class TestPromptUtils:
         assert not is_structured_image_prompt("text")
         assert is_structured_video_prompt({"action": "x"})
         assert not is_structured_video_prompt([])
+
+
+class TestUtterancesToDialogue:
+    def test_takes_dialogue_kind_in_order_maps_text_to_line(self):
+        # 仅 dialogue-kind 进 video YAML 的 {speaker, line}，按时序保留，voiceover 不进
+        utterances = [
+            {"kind": "voiceover", "speaker": None, "text": "旁白一"},
+            {"kind": "dialogue", "speaker": "姜月茴", "text": "你来了。"},
+            {"kind": "voiceover", "speaker": None, "text": "旁白二"},
+            {"kind": "dialogue", "speaker": "王", "text": "嗯。"},
+        ]
+        assert utterances_to_dialogue(utterances) == [
+            {"speaker": "姜月茴", "line": "你来了。"},
+            {"speaker": "王", "line": "嗯。"},
+        ]
+
+    def test_robust_to_dirty_data(self):
+        # 非 list / 非 dict 元素 / 缺 kind / 全空一律跳过，不抛
+        assert utterances_to_dialogue(None) == []
+        assert utterances_to_dialogue("nope") == []
+        assert utterances_to_dialogue([1, "x", {"kind": "dialogue", "speaker": " ", "text": " "}]) == []
+
+    def test_feeds_video_prompt_to_yaml_dialogue(self):
+        # 与 video_prompt_to_yaml 串联：drama 台词从 utterances 派生后正确出现在 YAML Dialogue
+        dialogue = utterances_to_dialogue([{"kind": "dialogue", "speaker": "王", "text": "走吧。"}])
+        parsed = yaml.safe_load(
+            video_prompt_to_yaml(
+                {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声", "dialogue": dialogue}
+            )
+        )
+        assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "走吧。"}]
 
     def test_validators(self):
         assert validate_shot_type("Close-up")

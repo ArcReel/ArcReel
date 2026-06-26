@@ -108,6 +108,26 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
+def utterances_to_dialogue(utterances: object) -> list[dict[str, str]]:
+    """drama 口型音轨出口：从有序 ``utterances`` 取 dialogue-kind 条目，转成 video YAML 的
+    ``{speaker, line}`` 列表（保留时序）。
+
+    voiceover-kind 不进视频提示词（无 speaker，留给字幕 / TTS）。对脏数据稳健：非 list 整体、
+    非 dict 元素、非 dialogue 条目一律跳过，speaker/line 皆空也跳过。
+    """
+    dialogue: list[dict[str, str]] = []
+    if not isinstance(utterances, list):
+        return dialogue
+    for entry in utterances:
+        if not isinstance(entry, dict) or entry.get("kind") != "dialogue":
+            continue
+        speaker = str(entry.get("speaker") or "").strip()
+        line = str(entry.get("text") or "").strip()
+        if speaker or line:
+            dialogue.append({"speaker": speaker, "line": line})
+    return dialogue
+
+
 def is_structured_image_prompt(image_prompt) -> bool:
     """
     检查 image_prompt 是否为结构化格式

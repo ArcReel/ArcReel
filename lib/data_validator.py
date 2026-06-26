@@ -633,16 +633,10 @@ class DataValidator:
                 if invalid:
                     errors.append(f"{prefix}: props 引用了不存在于 project.json 的道具: {invalid}")
 
-            # voiceover 为可选画外音列表（screenplay 模式逐字保留，novel 模式留空）；
-            # 缺失放行，出现则必须是数组、元素必须是字符串，锁住 list[str] 契约，
-            # 与上方 characters_in_scene / scenes / props 同口径（逐项 append、不 raise）。
-            voiceover = scene.get("voiceover")
-            if voiceover is not None and not isinstance(voiceover, list):
-                errors.append(f"{prefix}: voiceover 必须是数组")
-            elif isinstance(voiceover, list):
-                for vi, item in enumerate(voiceover):
-                    if not isinstance(item, str):
-                        errors.append(f"{prefix}: voiceover[{vi}] 必须是字符串")
+            # utterances：场景级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
+            # 缺失放行（存量 drama 走读时迁移，旧双字段不在此层校验）；出现则校验结构与
+            # kind ⇄ speaker 约束，与上方 characters_in_scene 等同口径（逐项 append、不 raise）。
+            self._validate_utterances(scene.get("utterances"), prefix, errors)
 
             if not scene.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -656,6 +650,36 @@ class DataValidator:
                     scene.get("generated_assets"),
                     errors,
                 )
+
+    @staticmethod
+    def _validate_utterances(utterances: Any, prefix: str, errors: list[str]) -> None:
+        """校验 drama 场景级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
+
+        每条须为 ``{kind, speaker, text}``：kind ∈ {dialogue, voiceover}、text 非空字符串；
+        dialogue 必带非空 speaker、voiceover 不得带 speaker。逐项 append、不 raise。
+        """
+        if utterances is None:
+            return
+        if not isinstance(utterances, list):
+            errors.append(f"{prefix}: utterances 必须是数组")
+            return
+        for ui, item in enumerate(utterances):
+            uprefix = f"{prefix}: utterances[{ui}]"
+            if not isinstance(item, dict):
+                errors.append(f"{uprefix} 必须是对象")
+                continue
+            kind = item.get("kind")
+            if kind not in ("dialogue", "voiceover"):
+                errors.append(f"{uprefix} kind 必须是 dialogue 或 voiceover")
+            text = item.get("text")
+            if not isinstance(text, str) or not text.strip():
+                errors.append(f"{uprefix} text 必须是非空字符串")
+            speaker = item.get("speaker")
+            has_speaker = isinstance(speaker, str) and bool(speaker.strip())
+            if kind == "dialogue" and not has_speaker:
+                errors.append(f"{uprefix} dialogue 必须带非空 speaker")
+            elif kind == "voiceover" and has_speaker:
+                errors.append(f"{uprefix} voiceover 不得带 speaker")
 
     def _validate_shots(
         self,

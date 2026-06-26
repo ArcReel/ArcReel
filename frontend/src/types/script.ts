@@ -64,6 +64,19 @@ export interface Dialogue {
   line: string;
 }
 
+export type UtteranceKind = "dialogue" | "voiceover";
+
+/**
+ * Drama 场景级有序发声条目：dialogue（角色台词，speaker 非空）与 voiceover（无说话人画外音，
+ * speaker 为 null）按时序排列。取代旧 video_prompt.dialogue + 场景 voiceover 双字段（见 ADR 0040）。
+ * 富审阅 / 编辑 UI 见 #920；本阶段仅类型 / 形状守卫。
+ */
+export interface Utterance {
+  kind: UtteranceKind;
+  speaker: string | null;
+  text: string;
+}
+
 export interface Composition {
   shot_type: ShotType;
   lighting: string;
@@ -119,6 +132,11 @@ export interface DramaScene {
   props?: string[];
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;
+  /**
+   * 场景级有序发声序列：角色台词与画外音按时序排列。新结构（drama）；
+   * 存量 drama 走后端读时迁移，前端读到时此字段可能缺省。
+   */
+  utterances?: Utterance[];
   transition_to_next: TransitionType;
   note?: string;
   generated_assets?: GeneratedAssets;

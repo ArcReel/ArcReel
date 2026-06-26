@@ -1,7 +1,28 @@
-import type { ImagePrompt, VideoPrompt } from "@/types";
+import type { ImagePrompt, Utterance, VideoPrompt } from "@/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+/**
+ * 严格守卫：单条 utterance 必须含 kind ∈ {dialogue, voiceover}、text 字符串，且满足 kind ⇄ speaker——
+ * dialogue 带非空 speaker、voiceover 的 speaker 为 null/缺省。drama 字段迁移后由剧本视图据此安全
+ * 收窄发声条目，避免访问 undefined 字段崩溃。
+ */
+export function isUtterance(value: unknown): value is Utterance {
+  if (!isRecord(value)) return false;
+  if (value.kind !== "dialogue" && value.kind !== "voiceover") return false;
+  if (typeof value.text !== "string") return false;
+  const speaker = value.speaker;
+  if (value.kind === "dialogue") {
+    return typeof speaker === "string" && speaker.trim().length > 0;
+  }
+  return speaker === null || speaker === undefined;
+}
+
+/** 守卫：整段 utterances 必须是数组且每条都是良构 utterance（缺省/非数组判否）。 */
+export function isUtteranceArray(value: unknown): value is Utterance[] {
+  return Array.isArray(value) && value.every(isUtterance);
 }
 
 /**
