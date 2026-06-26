@@ -446,6 +446,36 @@ describe("API", () => {
         }),
       });
     });
+
+    it("covers step1→step2 script-review gate endpoints", async () => {
+      const requestSpy = vi.spyOn(API, "request").mockResolvedValue({ status: "pending_review" } as never);
+
+      const content = {
+        segments: [
+          {
+            segment_id: "E1S01",
+            novel_text: "原文",
+            duration_seconds: 6,
+            segment_break: false,
+            characters_in_segment: [],
+            scenes: [],
+            props: [],
+          },
+        ],
+      };
+      await API.getScriptReview("a b", 1);
+      await API.saveScriptReviewContent("demo", 2, content);
+      await API.confirmScriptReview("demo", 3);
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes/2/script-review/content", {
+        method: "PUT",
+        body: JSON.stringify(content),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes/3/script-review/confirm", {
+        method: "POST",
+      });
+    });
   });
 
   describe("fetch-based wrappers", () => {
