@@ -76,6 +76,7 @@ MESSAGES = {
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_step_num": "Invalid step number: {step_num}",
     "draft_file_not_found": "Draft file does not exist",
+    "draft_invalid_json": "Step 1 draft must be a valid JSON object with a non-empty scenes array",
     "draft_event_label": "Episode {episode} {label_prefix}",
     "normalized_script": "Normalized Script",
     "segment_splitting": "Segment Splitting",

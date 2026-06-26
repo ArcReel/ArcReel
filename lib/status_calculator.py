@@ -21,11 +21,12 @@ _FALLBACK_ITEM_DURATIONS: dict[str, int] = {"narration": 4, "drama": 8, "ad": 0}
 # 剧本缺失时按 content_mode 探测的 step1 草稿候选文件名（按优先序，任一存在即视为已分段）。
 # narration 同时认结构化 step1_segments.json 与旧版 step1_segments.md：「是否分过段」与「格式
 # 迁移」是两回事，存量 .md-only 项目也算已分段（迁移到 .json 由生成阶段的重切提示兜住），不被
-# 误判为「从未开始」。ad 不走拆分中间稿（brief 不经 source_loader），空元组表示无草稿可探测；
-# 未知值沿用历史兜底落 drama 草稿名。
+# 误判为「从未开始」。drama 内容抽取前移后 step1 是结构化 JSON（见 ADR 0041），旧 .md 残留不再
+# 视为有效 step1——仅 .md 无剧本 JSON 的在制品会被路由回重跑 step1。ad 不走拆分中间稿
+# （brief 不经 source_loader），空元组表示无草稿可探测；未知值沿用历史兜底落 drama 草稿名。
 _DRAFT_FILENAMES: dict[str, tuple[str, ...]] = {
     "narration": ("step1_segments.json", "step1_segments.md"),
-    "drama": ("step1_normalized_script.md",),
+    "drama": ("step1_normalized_script.json",),
     "ad": (),
 }
 

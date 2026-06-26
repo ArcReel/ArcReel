@@ -13,19 +13,50 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import tool
+from pydantic import BaseModel, ValidationError
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.episode_ledger import episode_outline_context
 from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
 from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
+from lib.script_models import build_drama_normalized_script_model
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
+from lib.text_utils import strip_json_code_fences
 from server.agent_runtime.sdk_tools._context import ToolContext, fetch_video_caps, tool_error
 
 logger = logging.getLogger(__name__)
 
 _FALLBACK_SUPPORTED_DURATIONS: list[int] = [4, 6, 8]
+
+# step1 结构化内容（utterances + source_text 逐字 + 视觉描述）比旧 markdown 表更长，
+# 且 source_text 逐字摘录原文，输出体量接近原文级；放宽上限避免长集被截断。
+_NORMALIZE_MAX_OUTPUT_TOKENS = 32000
+
+
+def _parse_normalized_content(response_text: str, model: type[BaseModel]) -> dict:
+    """解析并校验 step1 结构化内容响应为 dict；校验失败 fail-loud 抛 ValueError，不返回未校验内容。
+
+    ``model`` 取自调用处用 ``supported_durations`` 构造的同一份动态 schema（即 response_schema），
+    令本地校验与 response_schema 同口径：即使 backend 未严格执行 schema，超出 supported_durations
+    的 duration_seconds、缺字段、坏 utterances 也在此被拦截。校验失败抛错而非降级保留原始 JSON——
+    否则未校验内容会被当成正式 step1_normalized_script.json 落盘（下游 _load_drama_step1_content 仅守
+    最外层形状、放行），把非法时长 / 缺字段拖到 step2 或最终 save_script 才暴露。与 narration 的
+    _load_narration_step1 严格读取同口径：只有经 schema 校验的内容才成为持久化的 step1 真值源。
+    """
+    text = strip_json_code_fences(response_text)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"step1 规范化内容 JSON 解析失败: {e}")
+    if not isinstance(data, dict):
+        raise ValueError("step1 规范化内容结构异常：顶层应为对象 {title, scenes}")
+    try:
+        return model.model_validate(data).model_dump()
+    except ValidationError as e:
+        raise ValueError(f"step1 规范化内容结构校验失败: {e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +116,8 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
     if generation_mode == "reference_video":
         return drafts_path / "step1_reference_units.md", "split-reference-video-units subagent (Step 1)"
     if content_mode == "drama":
-        return drafts_path / "step1_normalized_script.md", "normalize_drama_script tool"
+        # 内容抽取前移后 drama step1 是结构化 JSON（见 ADR 0041）
+        return drafts_path / "step1_normalized_script.json", "normalize_drama_script tool"
     # narration 生成需结构化 step1_segments.json；仅存旧 step1_segments.md 时给出与
     # ScriptGenerator._load_narration_step1 一致的重切迁移提示，而非笼统的缺文件错误。
     step1_json = drafts_path / "step1_segments.json"
@@ -176,8 +208,9 @@ async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None
 def normalize_drama_script_tool(ctx: ToolContext):
     @tool(
         "normalize_drama_script",
-        "把 source/ 小说原文（或指定 source 文件）转化为 Markdown 规范化剧本，保存到 "
-        "drafts/episode_N/step1_normalized_script.md，供 generate_episode_script 消费。"
+        "把 source/ 小说原文（或指定 source 文件）抽取为结构化分镜内容（场景边界、出场资产、"
+        "逐字口播 utterances、原文锚 source_text、视觉改编描述），保存到 "
+        "drafts/episode_N/step1_normalized_script.json，供 generate_episode_script 透传消费。"
         "dry_run=true 时仅返回 prompt。",
         {
             "type": "object",
@@ -232,6 +265,8 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 return {"content": [{"type": "text", "text": "❌ 小说原文为空"}], "is_error": True}
 
             default_duration, supported_durations = await _fetch_caps_with_fallback(project)
+            # 分集大纲（故事节点 / 钩子）随内容抽取前移到 step1，驱动内容覆盖与末场落地（见 ADR 0041）。
+            episode_outline, next_episode_outline = episode_outline_context(project, episode)
             prompt = build_normalize_prompt(
                 novel_text=novel_text,
                 project_overview=project.get("overview", {}),
@@ -243,6 +278,11 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 supported_durations=supported_durations,
                 episode=episode,
                 source_kind=project.get("source_kind") or DEFAULT_SOURCE_KIND,
+                episode_outline=episode_outline,
+                next_episode_outline=next_episode_outline,
+                # 输出语言取项目 source_language（生成内容语言的唯一真相源）；缺省回退默认中文，
+                # 非中文项目的 step1 内容据此用目标语言产出，而非默认中文。
+                target_language=project.get("source_language") or "中文",
             )
 
             if dry_run:
@@ -255,28 +295,38 @@ def normalize_drama_script_tool(ctx: ToolContext):
                     ]
                 }
 
+            # 结构化输出：response_schema 约束为 duration 枚举硬约束的规范化剧本模型（按
+            # supported_durations 动态构造），直接产出 utterances + source_text + 视觉描述，
+            # 消除「结构→自由文本→结构」双重转写。本地解析复用同一 schema 保持同口径校验。
+            schema = build_drama_normalized_script_model(supported_durations)
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
             result = await generator.generate(
-                TextGenerationRequest(prompt=prompt, max_output_tokens=16000),
+                TextGenerationRequest(
+                    prompt=prompt,
+                    response_schema=schema,
+                    max_output_tokens=_NORMALIZE_MAX_OUTPUT_TOKENS,
+                ),
                 project_name=ctx.project_name,
             )
-            response = result.text
+            content = _parse_normalized_content(result.text, schema)
+
+            # 与 _load_drama_step1_content 的读取契约同口径：scenes 须为非空列表，避免把空 / 形状坏的
+            # step1 当成功产物写盘、拖到 step2 / 最终生成才必然失败。
+            raw_scenes = content.get("scenes")
+            if not isinstance(raw_scenes, list) or not raw_scenes:
+                raise ValueError("step1 规范化内容结构异常：scenes 必须是非空的场景对象数组")
 
             drafts_dir = project_path / "drafts" / f"episode_{episode}"
             drafts_dir.mkdir(parents=True, exist_ok=True)
-            step1_path = drafts_dir / "step1_normalized_script.md"
-            step1_path.write_text(response.strip(), encoding="utf-8")
+            step1_path = drafts_dir / "step1_normalized_script.json"
+            step1_path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
 
-            scene_count = sum(
-                1
-                for line in response.split("\n")
-                if line.strip().startswith("|") and "场景 ID" not in line and "---" not in line
-            )
+            scenes = raw_scenes
             return {
                 "content": [
                     {
                         "type": "text",
-                        "text": f"✅ 规范化剧本已保存: {step1_path}\n📊 生成统计: {scene_count} 个场景",
+                        "text": f"✅ 规范化剧本（结构化内容）已保存: {step1_path}\n📊 生成统计: {len(scenes)} 个场景",
                     }
                 ]
             }

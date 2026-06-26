@@ -443,6 +443,29 @@ class TestDataValidator:
         assert result.valid, result.errors
         assert not any("说话时长" in w for w in result.warnings)
 
+    def test_validate_episode_drama_accepts_source_text(self, tmp_path):
+        # source_text（逐字原文锚）为字符串 → 通过
+        result = self._drama_episode_with_scene(tmp_path, {"source_text": "推门而入，信纸还在桌上。"})
+        assert result.valid
+
+    def test_validate_episode_drama_accepts_missing_source_text(self, tmp_path):
+        # source_text 缺失（存量 / best-effort 留空）→ 放行，默认空串
+        result = self._drama_episode_with_scene(tmp_path, {})
+        assert result.valid
+
+    def test_validate_episode_drama_rejects_non_string_source_text(self, tmp_path):
+        # source_text 非字符串（如数字）→ 校验失败：镜像 Pydantic 的 source_text: str 类型约束
+        result = self._drama_episode_with_scene(tmp_path, {"source_text": 123})
+        assert not result.valid
+        assert any("source_text" in error for error in result.errors)
+
+    def test_validate_episode_drama_rejects_null_source_text(self, tmp_path):
+        # source_text 显式 null → 校验失败：区分「键缺失」（放行、默认空串）与「显式 null」（拒绝），
+        # 与共享模型 source_text: str（extra=forbid 下拒 null）同口径，避免校验器先放行、模型层再失败
+        result = self._drama_episode_with_scene(tmp_path, {"source_text": None})
+        assert not result.valid
+        assert any("source_text" in error for error in result.errors)
+
     def test_validate_helpers_on_missing_files(self, tmp_path):
         result = validate_project("missing", projects_root=str(tmp_path / "projects"))
         assert not result.valid

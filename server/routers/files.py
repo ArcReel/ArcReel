@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
@@ -667,15 +668,18 @@ def _get_step_files(content_mode: str, generation_mode: str | None = None) -> di
         return {1: "step1_reference_units.md"}
     if content_mode == "narration":
         return {1: "step1_segments.json"}
-    return {1: "step1_normalized_script.md"}
+    # drama 内容抽取前移后 step1 是结构化 JSON（见 ADR 0041）
+    return {1: "step1_normalized_script.json"}
 
 
 # step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
-# narration 结构化中间态为 step1_segments.json；保留旧 step1_segments.md 以便存量在制品仍可浏览。
+# narration 结构化中间态为 step1_segments.json、drama 为 step1_normalized_script.json；
+# 各自保留旧 .md 候选以便存量在制品仍可浏览。
 _STEP1_CANDIDATES = [
     "step1_reference_units.md",
     "step1_segments.json",
     "step1_segments.md",
+    "step1_normalized_script.json",
     "step1_normalized_script.md",
 ]
 
@@ -683,7 +687,7 @@ _STEP1_CANDIDATES = [
 # narration 优先结构化 .json、再旧版 .md，杜绝跨模式切换遗留把 narration 误选到 reference_units.md。
 _STEP1_FAMILY: dict[str, list[str]] = {
     "step1_segments.json": ["step1_segments.json", "step1_segments.md"],
-    "step1_normalized_script.md": ["step1_normalized_script.md"],
+    "step1_normalized_script.json": ["step1_normalized_script.json", "step1_normalized_script.md"],
     "step1_reference_units.md": ["step1_reference_units.md"],
 }
 
@@ -691,6 +695,7 @@ _STEP1_FAMILY: dict[str, list[str]] = {
 def _get_step_title(filename: str, _t: Callable[..., str]) -> str:
     """获取步骤标题"""
     titles = {
+        "step1_normalized_script.json": _t("normalized_script"),
         "step1_normalized_script.md": _t("normalized_script"),
         "step1_segments.json": _t("segment_splitting"),
         "step1_segments.md": _t("segment_splitting"),
@@ -788,6 +793,26 @@ async def update_draft_content(
             # 若写入 fallback 到老文件，切模式后后续 subagent 读 step_files[step_num] 仍为空，
             # 导致"前端保存成功但生成报缺少 step1"。
             draft_path = drafts_dir / step_files[step_num]
+
+            # drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
+            # ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
+            # 非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
+            # 失败）。仅约束 drama 的结构化 step1；narration / reference 的 step1 草稿不在此校验。
+            if content_mode == "drama" and draft_path.suffix == ".json":
+                try:
+                    parsed = json.loads(content)
+                except json.JSONDecodeError:
+                    raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+                scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
+                if (
+                    not isinstance(parsed, dict)
+                    or not isinstance(scenes, list)
+                    or not scenes
+                    or any(not isinstance(scene, dict) for scene in scenes)
+                    or any(not isinstance(scene.get("scene_id"), str) or not scene.get("scene_id") for scene in scenes)
+                ):
+                    raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+
             is_new = not draft_path.exists()
             draft_path.write_text(content, encoding="utf-8")
 

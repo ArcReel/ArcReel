@@ -18,20 +18,6 @@ def _normalize(text: str) -> str:
     return "".join(text.split())
 
 
-def _kwargs() -> dict:
-    return dict(
-        project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
-        style="动漫",
-        style_description="日漫半厚涂",
-        characters={"主角": {"description": "X"}},
-        scenes={"庙宇": {"description": "Y"}},
-        props={"玉佩": {"description": "Z"}},
-        supported_durations=[4, 5, 6, 7, 8],
-        default_duration=4,
-        episode=2,
-    )
-
-
 def _narration_kwargs() -> dict:
     """narration step2 走透传式：step1 结构化片段入参，无时长枚举/默认值。"""
     return dict(
@@ -46,15 +32,26 @@ def _narration_kwargs() -> dict:
     )
 
 
+def _drama_kwargs() -> dict:
+    """step2（视觉层）drama prompt 入参：内容已在 step1 定稿，step2 只收渲染好的内容块。"""
+    return dict(
+        project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+        style="动漫",
+        style_description="日漫半厚涂",
+        scenes_content="### E2S01（时长 4 秒）\n视觉改编：xxx",
+        episode=2,
+    )
+
+
 def test_drama_v2_on_injects_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
-    text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+    text = build_drama_prompt(**_drama_kwargs())
     assert _normalize(DRAMA_PACING_RULES) in _normalize(text)
 
 
 def test_drama_v2_off_omits_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "off")
-    text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+    text = build_drama_prompt(**_drama_kwargs())
     assert _normalize(DRAMA_PACING_RULES) not in _normalize(text)
 
 
@@ -73,7 +70,7 @@ def test_narration_v2_off_omits_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_drama_no_enum_dump_in_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
-    text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+    text = build_drama_prompt(**_drama_kwargs())
     # 枚举值不再以"全枚举列表"形式出现
     assert "Tracking Shot" not in text
     assert "Pan Left, Pan Right" not in text
@@ -82,14 +79,14 @@ def test_drama_no_enum_dump_in_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_drama_no_hard_char_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     """LLM 无法精确数字数，硬性"≤200 字"约束已移除。"""
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
-    text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+    text = build_drama_prompt(**_drama_kwargs())
     assert "200 字以内" not in text
     assert "150 字以内" not in text
 
 
 def test_drama_injects_episode_constraints() -> None:
     """drama prompt 必须明确告知 LLM 当前 episode，避免 ID 跨集污染（#574）。"""
-    text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
+    text = build_drama_prompt(**_drama_kwargs())
     assert "第 2 集" in text
     assert "E2S" in text
     assert "<episode_constraints>" in text

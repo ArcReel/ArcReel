@@ -67,7 +67,8 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
     )
 
 
-def _valid_drama_response() -> dict:
+def _drama_step1_content() -> dict:
+    """drama step1 结构化内容：含 utterances + source_text + scene_description（视觉改编）。"""
     return {
         "title": "第一集",
         "scenes": [
@@ -76,20 +77,27 @@ def _valid_drama_response() -> dict:
                 "duration_seconds": 8,
                 "segment_break": False,
                 "characters_in_scene": ["姜月茴"],
+                "scenes": [],
+                "props": [],
+                "scene_description": "姜月茴立于庭院，目光沉静，晨光斜照。",
+                "utterances": [{"kind": "dialogue", "speaker": "姜月茴", "text": "你来了。"}],
+                "source_text": "姜月茴缓步走进庭院，抬眼望来。",
+            }
+        ],
+    }
+
+
+def _drama_visual_response() -> dict:
+    """drama step2 视觉层响应：仅 scene_id + image_prompt + video_prompt（无 dialogue）。"""
+    return {
+        "scenes": [
+            {
+                "scene_id": "E1S01",
                 "image_prompt": {
                     "scene": "场景",
-                    "composition": {
-                        "shot_type": "Medium Shot",
-                        "lighting": "暖光",
-                        "ambiance": "薄雾",
-                    },
+                    "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
                 },
-                "video_prompt": {
-                    "action": "转身",
-                    "camera_motion": "Static",
-                    "ambiance_audio": "风声",
-                    "dialogue": [],
-                },
+                "video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"},
             }
         ],
     }
@@ -158,8 +166,33 @@ class TestScriptGenerator:
         # 透传式 prompt：不再要求 LLM 复制 novel_text，只产视觉层
         assert "只产视觉层" in prompt
 
+    async def test_narration_step2_build_prompt_uses_project_source_language(self, tmp_path):
+        """narration step2（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {"synopsis": "概述"},
+                "characters": {"姜月茴": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+                "source_language": "English",
+                "_supported_durations": [4, 6, 8],
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "verbatim source line.", duration=4)])
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 输出语言锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 English" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
+
     async def test_load_step1_drama_missing_raises_without_fallback(self, tmp_path):
-        """drama 集缺 step1_normalized_script.md 时显式报错；不得降级改读 narration 的拆分表。"""
+        """drama 集缺 step1_normalized_script.json 时显式报错；不得降级改读 narration 的拆分表。"""
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
@@ -174,98 +207,119 @@ class TestScriptGenerator:
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "其他模式中间文件")
 
         generator = ScriptGenerator(project_path)
-        with pytest.raises(FileNotFoundError, match="step1_normalized_script.md"):
+        with pytest.raises(FileNotFoundError, match="step1_normalized_script.json"):
             generator._load_step1(1)
 
-    async def test_drama_prompt_includes_current_and_next_episode_outlines(self, tmp_path):
-        """drama 剧本生成输入须包含账本里本集大纲（故事节点/钩子/下集预告）与下集大纲。"""
-        project_path = tmp_path / "demo"
-        _write_drama_ledger_project(
-            project_path,
-            [
-                {
-                    "episode": 1,
-                    "title": "初入江湖",
-                    "script_file": "scripts/episode_1.json",
-                    "hook": "少年坠崖生死未卜",
-                    "outline": {
-                        "story_beats": ["少年下山", "初遇黑衣人"],
-                        "next_episode_teaser": "崖底神秘人出手相救",
-                    },
-                    "ledger_status": "planned",
-                },
-                {
-                    "episode": 2,
-                    "title": "绝处逢生",
-                    "script_file": "scripts/episode_2.json",
-                    "hook": "神秘人身份揭晓",
-                    "outline": {
-                        "story_beats": ["崖底醒来", "拜师学艺"],
-                        "next_episode_teaser": None,
-                    },
-                    "ledger_status": "planned",
-                },
-            ],
-        )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
-
-        generator = ScriptGenerator(project_path)
-        prompt = await generator.build_prompt(1)
-
-        # 本集大纲：本集标题 / 故事节点 / 集尾钩子 / 下集预告语
-        assert "本集标题：初入江湖" in prompt
-        assert "少年下山" in prompt
-        assert "初遇黑衣人" in prompt
-        assert "少年坠崖生死未卜" in prompt
-        assert "崖底神秘人出手相救" in prompt
-        # 下集大纲：用于衔接的下一集内容
-        assert "下集标题：绝处逢生" in prompt
-        assert "崖底醒来" in prompt
-
-    async def test_drama_prompt_last_episode_without_next_outline(self, tmp_path):
-        """末集（账本无下一集条目）正常生成 prompt：含本集大纲，不渲染下集大纲段。"""
-        project_path = tmp_path / "demo"
-        _write_drama_ledger_project(
-            project_path,
-            [
-                {
-                    "episode": 1,
-                    "title": "大结局",
-                    "script_file": "scripts/episode_1.json",
-                    "hook": "尘埃落定",
-                    "outline": {"story_beats": ["决战", "告别"], "next_episode_teaser": None},
-                    "ledger_status": "planned",
-                },
-            ],
-        )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
-
-        generator = ScriptGenerator(project_path)
-        prompt = await generator.build_prompt(1)
-
-        assert "决战" in prompt
-        assert "尘埃落定" in prompt
-        assert "<next_episode_outline>" not in prompt
-
-    async def test_drama_prompt_without_ledger_outline_omits_outline_section(self, tmp_path):
-        """旧式条目（账本无规划数据）：prompt 不渲染大纲段，生成不受影响。"""
+    async def test_load_drama_step1_content_rejects_non_dict_top_level(self, tmp_path):
+        """drama step1 顶层非对象（如 JSON 数组）→ ValueError，不静默当空剧本。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", "[]")
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="顶层应为对象"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_non_list_scenes(self, tmp_path):
+        """drama step1 scenes 非列表（如对象）→ ValueError fail-fast，不被当成空剧本继续。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_json(
+            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+            {"title": "第一集", "scenes": {}},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="scenes 必须是非空"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_empty_scenes(self, tmp_path):
+        """drama step1 scenes 为空列表 → ValueError fail-fast（空剧本不是合法 step1 产物，避免落盘 scenes=[]）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_json(
+            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+            {"title": "第一集", "scenes": []},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="scenes 必须是非空"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_non_dict_scene_item(self, tmp_path):
+        """drama step1 scenes 列表含非对象项（数字 / 字符串）→ ValueError，不拖到 render/merge 阶段才炸。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_json(
+            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+            {"title": "第一集", "scenes": [{"scene_id": "E1S01"}, 42]},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="必须是场景对象"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_empty_scene_id(self, tmp_path):
+        """drama step1 场景 scene_id 为空串 / 缺失 → ValueError fail-fast（空 scene_id 拖到合并阶段才暴露）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_json(
+            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+            {"title": "第一集", "scenes": [{"scene_id": ""}]},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="scene_id 必须是非空字符串"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_rewritten_scene_id_collision(self, tmp_path):
+        """原始 scene_id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud，
+        避免下游产物文件名 / 资产键撞车（与 _load_narration_step1 同口径）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 2, "title": "第二集", "script_file": "scripts/episode_2.json"}],
+        )
+        _write_json(
+            project_path / "drafts" / "episode_2" / "step1_normalized_script.json",
+            {"title": "第二集", "scenes": [{"scene_id": "E1S02_1"}, {"scene_id": "E2S02_1"}]},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="改写到 episode=2 后重复"):
+            generator._load_drama_step1_content(2)
+
+    async def test_drama_step2_build_prompt_renders_step1_content(self, tmp_path):
+        """drama step2（视觉层）build_prompt 须把 step1 已定稿内容渲染入 prompt，仅求视觉字段。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
 
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        assert "E1S01 | 场景" in prompt
-        assert "<episode_outline>" not in prompt
-        assert "<next_episode_outline>" not in prompt
-        assert "末场" not in prompt
+        # 已定稿内容透传进 prompt：scene_id + 视觉改编描述 + 口播（仅供理解）
+        assert "E1S01" in prompt
+        assert "姜月茴立于庭院" in prompt
+        # step2 只补视觉层
+        assert "image_prompt" in prompt
+        assert "video_prompt" in prompt
 
-    async def test_drama_prompt_requires_hook_to_land_in_final_scene(self, tmp_path):
-        """账本有钩子/预告时，prompt 须要求其落地到末场内容（而非只停留在规划文档）。"""
+    async def test_drama_step2_build_prompt_omits_outline(self, tmp_path):
+        """分集大纲随内容抽取前移到 step1（normalize）；step2 视觉层 prompt 不再渲染大纲段。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -275,22 +329,42 @@ class TestScriptGenerator:
                     "title": "初入江湖",
                     "script_file": "scripts/episode_1.json",
                     "hook": "少年坠崖生死未卜",
-                    "outline": {
-                        "story_beats": ["少年下山"],
-                        "next_episode_teaser": "崖底神秘人出手相救",
-                    },
+                    "outline": {"story_beats": ["少年下山"], "next_episode_teaser": "崖底神秘人出手相救"},
                     "ledger_status": "planned",
                 },
             ],
+            characters={"姜月茴": {}},
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
 
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        # 落地要求与钩子内容须同时在场：仅有指引而无钩子（或反之）都不构成可执行要求
-        assert "末场" in prompt
-        assert "少年坠崖生死未卜" in prompt
+        # 大纲 / 钩子内容不在 step2 prompt（它们驱动 step1 内容生成，不影响 step2 视觉）
+        assert "<episode_outline>" not in prompt
+        assert "少年坠崖生死未卜" not in prompt
+
+    async def test_drama_step2_build_prompt_uses_project_source_language(self, tmp_path):
+        """step2 视觉层 prompt 的输出语言须取项目 source_language（与 step1 同源），非中文项目不得回落中文。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        # 注入非中文 source_language（生成内容语言真相源）
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["source_language"] = "English"
+        _write_json(project_json_path, payload)
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 输出语言锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 English" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
 
     async def test_parse_response_invalid_json_raises(self, tmp_path):
         project_path = tmp_path / "demo"
@@ -366,20 +440,21 @@ class TestScriptGenerator:
             ],
             characters={"姜月茴": {}},
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
 
-        fake = _FakeTextGenerator(json.dumps(_valid_drama_response(), ensure_ascii=False))
+        # drama 两段式：step2 LLM 只出视觉层，后端按 scene_id 合并回 step1 内容
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
-
-        async def _fixed_caps():
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _fixed_caps
         output = await generator.generate(1)
 
         payload = json.loads(output.read_text(encoding="utf-8"))
         assert payload["hook"] == "少年坠崖生死未卜"
         assert payload["next_episode_teaser"] == "崖底神秘人出手相救"
+        # step1 的逐字内容（utterances / source_text）经合并透传到最终剧本
+        scene = payload["scenes"][0]
+        assert scene["source_text"] == "姜月茴缓步走进庭院，抬眼望来。"
+        assert scene["utterances"][0]["text"] == "你来了。"
+        assert scene["image_prompt"]["scene"] == "场景"
 
     async def test_generate_without_ledger_hook_leaves_fields_null(self, tmp_path):
         """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
@@ -442,77 +517,47 @@ class TestScriptGenerator:
         assert payload["episode"] == 10
         assert payload["segments"][0]["segment_id"] == "E10S01"
 
-    async def test_generate_passes_duration_constrained_schema(self, tmp_path):
-        """generate 应传入 duration_seconds 被 supported_durations 枚举硬约束的 Pydantic 类。
+    async def test_generate_drama_step2_passes_visual_schema(self, tmp_path):
+        """drama step2 LLM 输出 schema 是 DramaVisualScript（仅 scene_id + 视觉字段，无非视觉字段）。"""
+        from lib.script_models import DramaVisualScript
 
-        schema 是 DramaEpisodeScript 的动态约束子类（非静态类本身），其 scenes 时长字段在
-        JSON schema 里渲染为 enum——LLM 结构化输出层即被卡死。
-        """
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
-            {
-                "title": "项目",
-                "content_mode": "drama",
-                "overview": {},
-                "characters": {"姜月茴": {}},
-                "clues": {"玉佩": {}},
-                "style": "古风",
-                "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
-            },
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
 
-        from lib.script_models import DramaEpisodeScript
-
-        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
-
-        # caps 解析耦合本机 DB（已配置的视频供应商会盖过 project.json 兜底），此处固定能力
-        # 让断言 hermetic：验证的是「按解析出的 supported_durations 构造枚举约束」这条机制。
-        async def _fixed_caps():
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _fixed_caps
-
-        # 结构非法的响应在写盘统一入口被严格校验拒绝；但模型调用已发生，
-        # 仍可断言传入的 schema 形态。
-        with pytest.raises(ScriptStructureValidationError):
-            await generator.generate(1)
+        await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema
-        assert isinstance(schema, type) and issubclass(schema, DramaEpisodeScript)
-        duration_enums = [
-            props["duration_seconds"].get("enum")
-            for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())
-            if "duration_seconds" in props
-        ]
-        assert [4, 6, 8] in duration_enums
+        assert schema is DramaVisualScript
+        props = DramaVisualScript.model_json_schema()["$defs"]["DramaSceneVisual"]["properties"]
+        # 非视觉字段不进 LLM 输出 schema（工程透传，杜绝漂移）
+        assert "utterances" not in props
+        assert "source_text" not in props
+        assert "duration_seconds" not in props
 
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):
-        """generate 应在 TextGenerationRequest 上设置 SCRIPT_MAX_OUTPUT_TOKENS。"""
+        """drama step2 generate 应在 TextGenerationRequest 上设置 SCRIPT_MAX_OUTPUT_TOKENS。"""
         from lib.script_generator import SCRIPT_MAX_OUTPUT_TOKENS
+        from lib.script_models import DramaVisualMergeError
 
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
-            {
-                "title": "项目",
-                "content_mode": "drama",
-                "overview": {},
-                "characters": {"姜月茴": {}},
-                "clues": {"玉佩": {}},
-                "style": "古风",
-                "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
-            },
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
 
+        # 空视觉响应 → 合并时 step1 场景缺视觉，fail-loud；但模型调用已发生，仍可断言请求参数
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
-        with pytest.raises(ScriptStructureValidationError):
+        with pytest.raises(DramaVisualMergeError):
             await generator.generate(1)
 
         assert fake.backend.last_request.max_output_tokens == SCRIPT_MAX_OUTPUT_TOKENS
