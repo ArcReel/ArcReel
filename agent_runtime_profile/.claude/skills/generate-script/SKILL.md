@@ -15,7 +15,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 1. 项目目录下存在 `project.json`（含 style / overview / characters / scenes / props）
 2. 已完成 Step 1 预处理（按 `effective_mode` 选择一种中间文件）：
-   - narration（图生视频 / 宫格生视频 + 说书）：`drafts/episode_N/step1_segments.md`
+   - narration（图生视频 / 宫格生视频 + 说书）：`drafts/episode_N/step1_segments.json`（结构化片段：逐字 novel_text + 时长 + segment_break + 出场角色 / 场景 / 道具）
    - drama（图生视频 / 宫格生视频 + 剧集动画）：`drafts/episode_N/step1_normalized_script.md`
    - reference_video（参考生视频）：`drafts/episode_N/step1_reference_units.md`
    - **ad（广告/短片）例外**：不需要任何 step1 中间文件——创作输入是 `project.json` 的
@@ -48,7 +48,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - ad → `AdEpisodeScript`（平铺 `shots[]`，骨架不随生成路径更换；storyboard 路径
      duration 按 supported_durations 枚举硬约束，reference_video 路径为 1-15 秒自由整数）
    - reference_video（narration/drama 下）→ `ReferenceVideoScript`（含 `video_units[]`）
-   - narration → `NarrationEpisodeScript`
+   - narration → step2 走两段式：LLM 的 `response_schema` 是 `NarrationVisualEpisodeScript`（仅 `segment_id` + image_prompt + video_prompt），后端按 `segment_id` 把视觉层合并回 step1 的结构化片段（novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具透传），得到完整 `NarrationEpisodeScript`。novel_text 不进 LLM 输出 → 不发生扩写漂移
    - drama → `DramaEpisodeScript`
 6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、统计信息（片段 / 场景 / unit 数、总时长）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
    - 注：顶层 `generation_mode` 仅在 narration/drama 的参考生视频剧本中写入（值恒为 `reference_video`）；ad 剧本骨架唯一（仅 `shots[]` + `content_mode`），**不写入顶层 `generation_mode`**，消费方不得按该字段对 ad 剧本分派。
@@ -59,7 +59,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 - `title`：LLM 写入的剧集标题
 - `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
-- narration 模式：`segments[]`（每个片段含 image_prompt、video_prompt、novel_text、duration_seconds 等）
+- narration 模式：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
 - drama 模式：`scenes[]`（每个场景含 image_prompt、video_prompt、duration_seconds 等）
 - ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等），`metadata.total_shots`；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存；无论生成路径如何均**不含**顶层 `generation_mode`
 - reference_video 模式：`video_units[]`（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等），`metadata.total_units`，并写入顶层 `generation_mode: "reference_video"`

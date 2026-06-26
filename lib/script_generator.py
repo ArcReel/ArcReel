@@ -17,7 +17,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.episode_ledger import normalize_source_text
 from lib.project_manager import ProjectManager, effective_mode, resolve_source_kind
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
@@ -30,6 +29,8 @@ from lib.script_models import (
     AdEpisodeScript,
     DramaEpisodeScript,
     NarrationEpisodeScript,
+    NarrationStep1Draft,
+    NarrationVisualEpisodeScript,
     ReferenceVideoScript,
     ad_script_total_duration,
     build_ad_reference_episode_script_model,
@@ -39,7 +40,6 @@ from lib.script_models import (
 )
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
-from lib.text_metrics import count_reading_units
 from lib.text_utils import strip_json_code_fences
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,6 @@ _EID_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
 _QUALITY_PROBE_SCENE_MIN_LEN = 40
 _QUALITY_PROBE_ACTION_MIN_LEN = 25
 _QUALITY_PROBE_SHOT_TEXT_MIN_LEN = 15
-_NOVEL_TEXT_DRIFT_THRESHOLD = 0.10
 
 
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
@@ -187,16 +186,21 @@ class ScriptGenerator:
             return await self._generate_and_save(prompt, schema, episode, output_filename)
 
         caps = await self._fetch_video_capabilities()
-        step1_md = self._load_step1(episode)
 
         characters = self.project_json.get("characters", {})
         scenes = self.project_json.get("scenes", {})
         props = self.project_json.get("props", {})
 
-        # 三分支同口径解析一次：作为 prompt 的时长约束文本，并据此构造 duration 枚举硬约束的 schema。
+        # 解析一次时长能力：reference/drama 据此构造 duration 枚举硬约束 schema；
+        # narration 用于校验 step1 各片段时长成员合法（step2 不再产出时长）。
         supported_durations = self._resolve_supported_durations(caps)
 
+        # narration 走两段式：step1 结构化片段透传内容层（novel_text 等），step2 仅产视觉层、
+        # 按 segment_id 合并回 step1。非 narration 走单段（step1 markdown 直喂 LLM）。
+        narration_step1: list[dict] | None = None
+
         if gen_mode == "reference_video":
+            step1_md = self._load_step1(episode)
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -213,8 +217,9 @@ class ScriptGenerator:
             )
             # unit 总时长（duration_seconds = 各 shot 之和）枚举约束到 supported_durations：
             # 发给 API 的就是这个总和，源头杜绝非成员值漏到供应商报错。
-            schema = build_reference_video_script_model(supported_durations)
+            schema: type = build_reference_video_script_model(supported_durations)
         elif self.content_mode == "narration":
+            narration_step1 = self._load_narration_step1(episode, supported_durations)
             prompt = build_narration_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -222,16 +227,15 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                segments_md=step1_md,
-                supported_durations=supported_durations,
-                default_duration=self.project_json.get("default_duration"),
+                step1_segments=narration_step1,
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
-            # duration_seconds 收紧为 supported_durations 的 enum：LLM 结构化输出层即被卡死，
-            # 避免生成出执行层 assert_duration_supported 会拒、或漏到供应商 API 报错的非成员时长。
-            schema = build_episode_script_model("narration", supported_durations)
+            # step2 只产视觉层（image_prompt/video_prompt），按 segment_id 对齐 step1 合并；
+            # novel_text/时长/break 由 step1 透传，不进 LLM 输出，从工程上根除扩写漂移。
+            schema = NarrationVisualEpisodeScript
         else:
+            step1_md = self._load_step1(episode)
             episode_outline, next_episode_outline = self._ledger_outline_context(episode)
             prompt = build_drama_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -251,7 +255,7 @@ class ScriptGenerator:
             )
             schema = build_episode_script_model("drama", supported_durations)
 
-        return await self._generate_and_save(prompt, schema, episode, output_filename)
+        return await self._generate_and_save(prompt, schema, episode, output_filename, narration_step1=narration_step1)
 
     async def _generate_and_save(
         self,
@@ -259,8 +263,14 @@ class ScriptGenerator:
         schema: type,
         episode: int,
         output_filename: str | None,
+        *,
+        narration_step1: list[dict] | None = None,
     ) -> Path:
-        """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各内容模式共用尾段）。"""
+        """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各内容模式共用尾段）。
+
+        ``narration_step1`` 非 None 时走两段式合并：LLM 输出视觉层，按 segment_id 合并回
+        step1 已定结构（novel_text 等透传）；否则走单段解析（reference/drama/ad）。
+        """
         assert self.generator is not None  # generate() 入口已检查
         # 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)
@@ -276,7 +286,11 @@ class ScriptGenerator:
         response_text = result.text
 
         # 解析并验证响应
-        script_data = self._parse_response(response_text, episode)
+        if narration_step1 is not None:
+            visual_data = self._parse_narration_visual(response_text, episode)
+            script_data = self._merge_narration_visual(narration_step1, visual_data, episode)
+        else:
+            script_data = self._parse_response(response_text, episode)
 
         # 补充元数据
         script_data = self._add_metadata(script_data, episode)
@@ -351,7 +365,6 @@ class ScriptGenerator:
             return prompt
 
         caps = await self._fetch_video_capabilities()
-        step1_md = self._load_step1(episode)
         characters = self.project_json.get("characters", {})
         scenes = self.project_json.get("scenes", {})
         props = self.project_json.get("props", {})
@@ -364,7 +377,7 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                units_md=step1_md,
+                units_md=self._load_step1(episode),
                 supported_durations=self._resolve_supported_durations(caps),
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
@@ -379,13 +392,12 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                segments_md=step1_md,
-                supported_durations=self._resolve_supported_durations(caps),
-                default_duration=self.project_json.get("default_duration"),
+                step1_segments=self._load_narration_step1(episode, self._resolve_supported_durations(caps)),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
         else:
+            step1_md = self._load_step1(episode)
             episode_outline, next_episode_outline = self._ledger_outline_context(episode)
             return build_drama_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -493,17 +505,17 @@ class ScriptGenerator:
             return json.load(f)
 
     def _load_step1(self, episode: int) -> str:
-        """加载 Step 1 的 Markdown 中间文件。
+        """加载 Step 1 的 Markdown 中间文件（reference_video / drama 单段路径）。
 
         每种模式只对应一个期望文件，缺失时显式报错并指明期望路径——不降级改读
         其他模式的中间文件（静默 fallback 会让剧本基于错误模式的中间产物生成）。
+        narration（storyboard/grid）走结构化两段式，单独经 ``_load_narration_step1`` 读
+        ``step1_segments.json``，不进本方法。
         """
         drafts_path = self.project_path / "drafts" / f"episode_{episode}"
         gen_mode = self._effective_generation_mode(episode)
         if gen_mode == "reference_video":
             step1_path = drafts_path / "step1_reference_units.md"
-        elif self.content_mode == "narration":
-            step1_path = drafts_path / "step1_segments.md"
         else:
             step1_path = drafts_path / "step1_normalized_script.md"
 
@@ -515,6 +527,55 @@ class ScriptGenerator:
             )
 
         return step1_path.read_text(encoding="utf-8")
+
+    def _load_narration_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
+        """加载并校验 narration step1 结构化中间文件 ``step1_segments.json``。
+
+        返回逐字 ``novel_text``、时长、``segment_break`` 等内容字段的片段列表（dict），
+        供 step2 prompt 渲染与视觉层合并复用——novel_text 由此透传、不经 step2 的 LLM 重出。
+        校验：结构合法、segment_id 唯一、``duration_seconds`` ∈ ``supported_durations``
+        （duration 约束由原 step2 schema enum 前移到 step1，因 step2 不再产出该字段）。
+        仅存在结构化前的旧 ``step1_segments.md`` 时给明确的「重跑拆分」报错——不写
+        md→json 迁移器（旧 md 产于结构化中间态引入前、不含手工编辑）。
+        """
+        drafts_path = self.project_path / "drafts" / f"episode_{episode}"
+        step1_json = drafts_path / "step1_segments.json"
+        if not step1_json.exists():
+            legacy_md = drafts_path / "step1_segments.md"
+            if legacy_md.exists():
+                raise FileNotFoundError(
+                    f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {step1_json}；"
+                    "请重跑 split-narration-segments 产出结构化 step1_segments.json"
+                )
+            raise FileNotFoundError(
+                f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成片段拆分"
+            )
+
+        try:
+            raw = json.loads(step1_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"step1_segments.json 解析失败: {e}")
+
+        try:
+            draft = NarrationStep1Draft.model_validate(raw)
+        except ValidationError as e:
+            raise ValueError(f"step1_segments.json 结构校验失败: {e}")
+
+        segments = [s.model_dump() for s in draft.segments]
+        if not segments:
+            raise ValueError("step1_segments.json segments 为空")
+
+        ids = [s["segment_id"] for s in segments]
+        dupes = sorted({sid for sid in ids if ids.count(sid) > 1})
+        if dupes:
+            raise ValueError(f"step1_segments.json segment_id 重复: {dupes}")
+
+        allowed = {int(d) for d in supported_durations}
+        bad = sorted({int(s["duration_seconds"]) for s in segments if int(s["duration_seconds"]) not in allowed})
+        if bad:
+            raise ValueError(f"step1_segments.json duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
+
+        return segments
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
         """
@@ -551,6 +612,68 @@ class ScriptGenerator:
             logger.warning("数据验证警告: %s", e)
             # 返回原始数据，允许部分不符合 schema
             return data
+
+    def _parse_narration_visual(self, response_text: str, episode: int) -> dict:
+        """解析 step2 视觉层 LLM 响应（NarrationVisualEpisodeScript）。
+
+        严格校验 + model_dump：视觉 schema 的 segment 走 ``extra="forbid"``，LLM 若混入
+        novel_text 等非视觉字段即拒（而非静默携带进合并覆盖 step1 透传值）；dump 后视觉
+        数据只含 title + segment_id + image_prompt / video_prompt，合并阶段不会污染内容层。
+        """
+        text = strip_json_code_fences(response_text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"step2 视觉层 JSON 解析失败: {e}")
+        try:
+            validated = NarrationVisualEpisodeScript.model_validate(data)
+        except ValidationError as e:
+            raise ValueError(f"step2 视觉层结构校验失败: {e}")
+        return validated.model_dump()
+
+    def _merge_narration_visual(self, step1_segments: list[dict], visual_data: dict, episode: int) -> dict:
+        """把 step2 LLM 的视觉层按 segment_id 合并回 step1 已确认的结构。
+
+        step1 结构（novel_text、时长、segment_break 等内容字段）是单一真相源，逐字透传；
+        LLM 只产出视觉层，按 segment_id 对齐合并回各片段——novel_text 永不经 LLM 重出，
+        从工程上根除扩写漂移。校验 segment_id 唯一且与 step1 全覆盖：缺、多、重都 fail-loud，
+        杜绝顺序错配与漏段。
+        """
+        raw_visual = visual_data.get("segments")
+        visual_segments = raw_visual if isinstance(raw_visual, list) else []
+
+        visual_by_id: dict[str, dict] = {}
+        for item in visual_segments:
+            if not isinstance(item, dict):
+                continue
+            sid = item.get("segment_id")
+            if not isinstance(sid, str) or not sid:
+                raise ValueError(f"episode {episode} 视觉层存在缺失 segment_id 的条目")
+            if sid in visual_by_id:
+                raise ValueError(f"episode {episode} 视觉层 segment_id 重复: {sid}")
+            visual_by_id[sid] = item
+
+        step1_ids = [str(s.get("segment_id")) for s in step1_segments]
+        step1_id_set = set(step1_ids)
+        missing = [sid for sid in step1_ids if sid not in visual_by_id]
+        if missing:
+            raise ValueError(f"episode {episode} 视觉层缺少 step1 片段: {missing}")
+        extra = [sid for sid in visual_by_id if sid not in step1_id_set]
+        if extra:
+            raise ValueError(f"episode {episode} 视觉层含 step1 未定义的 segment_id: {extra}")
+
+        merged_segments: list[dict] = []
+        for s1 in step1_segments:
+            sid = str(s1.get("segment_id"))
+            visual = dict(visual_by_id[sid])
+            visual.pop("segment_id", None)  # 锚字段两侧相等，去掉避免覆盖
+            merged_segments.append({**s1, **visual})
+
+        title = visual_data.get("title")
+        return {
+            "title": title if isinstance(title, str) and title.strip() else f"第{episode}集",
+            "segments": merged_segments,
+        }
 
     def _add_metadata(self, script_data: dict, episode: int) -> dict:
         """
@@ -702,36 +825,8 @@ class ScriptGenerator:
                     sorted(set(short_ids)),
                 )
 
-            # narration 模式 novel_text 漂移观察:LLM 应原文回填,但实测有偷偷扩写。
-            # 仅 WARN,不阻断/不重试/不推前端,符合「LLM 出错少数情况轻量不阻塞」原则。
-            if self.content_mode == "narration" and gen_mode != "reference_video":
-                source_path = self.project_path / "source" / f"episode_{episode}.txt"
-                if source_path.is_file():
-                    source_lang = self.project_json.get("source_language", "zh")
-                    # 归一化边界:LLM 输出几乎必然 NFC,源若为 NFD(越南语 macOS
-                    # 文件名等罕见场景)会让 \w word boundary 把组合重音拆词,导致 expected
-                    # 偏大触发 false drift。两侧统一过账本归一化函数(NFC + 换行折叠,
-                    # 后者对计数无影响)后比较 fair。
-                    source_text = normalize_source_text(source_path.read_text(encoding="utf-8"))
-                    expected = count_reading_units(source_text, source_lang)
-                    actual = sum(
-                        count_reading_units(
-                            normalize_source_text(str(seg.get("novel_text") or "")),
-                            source_lang,
-                        )
-                        for seg in script_data.get("segments") or []
-                        if isinstance(seg, dict)
-                    )
-                    if expected > 0:
-                        delta_ratio = abs(actual - expected) / expected
-                        if delta_ratio > _NOVEL_TEXT_DRIFT_THRESHOLD:
-                            logger.warning(
-                                "episode %d novel_text drift: expected=%d actual=%d delta=%.1f%%",
-                                episode,
-                                expected,
-                                actual,
-                                delta_ratio * 100,
-                            )
+            # narration 的 novel_text 现由 step1 透传、step2 不再重出，扩写漂移已从结构上
+            # 消除（不存在「LLM 偷偷扩写」的窗口），故不再做 novel_text 漂移探针。
 
             # ad 总时长偏差观察：剧本总时长应贴近 target_duration，但供应商时长枚举的
             # 量化误差让精确命中不现实。仅 WARN，不阻断/不重试/不推前端。

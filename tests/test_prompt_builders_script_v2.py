@@ -32,6 +32,20 @@ def _kwargs() -> dict:
     )
 
 
+def _narration_kwargs() -> dict:
+    """narration step2 走透传式：step1 结构化片段入参，无时长枚举/默认值。"""
+    return dict(
+        project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+        style="动漫",
+        style_description="日漫半厚涂",
+        characters={"主角": {"description": "X"}},
+        scenes={"庙宇": {"description": "Y"}},
+        props={"玉佩": {"description": "Z"}},
+        step1_segments=[{"segment_id": "E2S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}],
+        episode=2,
+    )
+
+
 def test_drama_v2_on_injects_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
     text = build_drama_prompt(scenes_md="| E1S01 | xxx | 4 | 剧情 | 是 |", **_kwargs())
@@ -46,13 +60,13 @@ def test_drama_v2_off_omits_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_narration_v2_on_injects_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "on")
-    text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
+    text = build_narration_prompt(**_narration_kwargs())
     assert _normalize(NARRATION_PACING_RULES) in _normalize(text)
 
 
 def test_narration_v2_off_omits_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_PROMPT_RULES_V2", "off")
-    text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
+    text = build_narration_prompt(**_narration_kwargs())
     assert _normalize(NARRATION_PACING_RULES) not in _normalize(text)
 
 
@@ -82,8 +96,8 @@ def test_drama_injects_episode_constraints() -> None:
 
 
 def test_narration_injects_episode_constraints() -> None:
-    """narration prompt 同样需告知 episode；step1 用 G01 编号，episode 必须靠 prompt 传递（#574）。"""
-    text = build_narration_prompt(segments_md="| G01 | xxx | 25 | 4s | 否 | - |", **_kwargs())
+    """narration prompt 须告知 episode；step1 已铸定 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
+    text = build_narration_prompt(**_narration_kwargs())
     assert "第 2 集" in text
     assert "E2S" in text
     assert "<episode_constraints>" in text

@@ -32,7 +32,7 @@ skills:
 
 使用 Glob 工具确认中间文件存在，按 `effective_mode` × `content_mode` 三分支检查：
 - effective_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/step1_reference_units.md`（缺失时需先运行 `split-reference-video-units`）
-- effective_mode ∈ {storyboard, grid} 且 content_mode == narration：`drafts/episode_{N}/step1_segments.md`（缺失时需先运行 `split-narration-segments`）
+- effective_mode ∈ {storyboard, grid} 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
 - effective_mode ∈ {storyboard, grid} 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.md`（缺失时需先运行 `normalize-drama-script`）
 
 只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的预处理 subagent。

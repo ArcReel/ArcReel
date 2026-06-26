@@ -6,9 +6,9 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 | generation_mode | content_mode | 数据主结构 | 预处理 subagent | step1 中间文件 | 脚本 schema | 视觉参考来源 |
 |---|---|---|---|---|---|---|
-| `storyboard` | `narration` | `segments[]` | split-narration-segments | `step1_segments.md` | NarrationEpisodeScript | 每片段一张分镜图作起始帧 |
+| `storyboard` | `narration` | `segments[]` | split-narration-segments | `step1_segments.json` | NarrationEpisodeScript | 每片段一张分镜图作起始帧 |
 | `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `step1_normalized_script.md` | DramaEpisodeScript | 每场景一张分镜图作起始帧 |
-| `grid` | `narration` | `segments[]` + 宫格分组 | split-narration-segments | `step1_segments.md` | NarrationEpisodeScript | 宫格图切块 |
+| `grid` | `narration` | `segments[]` + 宫格分组 | split-narration-segments | `step1_segments.json` | NarrationEpisodeScript | 宫格图切块 |
 | `grid` | `drama` | `scenes[]` + 宫格分组 | normalize-drama-script | `step1_normalized_script.md` | DramaEpisodeScript | 宫格图切块 |
 | `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.md` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
 
@@ -22,7 +22,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 Step 3 预处理（按 effective_mode(project, episode) 分派；中间文件统一位于 drafts/episode_{N}/）
   effective_mode = reference_video        → dispatch split-reference-video-units → step1_reference_units.md
   effective_mode ∈ {storyboard, grid}：
-    content_mode = narration               → dispatch split-narration-segments   → step1_segments.md
+    content_mode = narration               → dispatch split-narration-segments   → step1_segments.json
     content_mode = drama                   → dispatch normalize-drama-script     → step1_normalized_script.md
 
 Step 4 JSON 剧本

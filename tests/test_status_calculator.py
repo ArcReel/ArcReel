@@ -95,7 +95,7 @@ class TestStatusCalculator:
         # Case 2: 脚本不存在，draft 文件存在 → ("segmented", None)
         draft_dir = project_path / "drafts" / "episode_2"
         draft_dir.mkdir(parents=True)
-        (draft_dir / "step1_segments.md").write_text("ok")
+        (draft_dir / "step1_segments.json").write_text("ok")
         calc2 = StatusCalculator(_FakePM(project_root, {}, {}))
         status2, script2 = calc2._load_episode_script("demo", 2, "scripts/episode_2.json")
         assert status2 == "segmented"
@@ -298,7 +298,7 @@ class TestStatusCalculator:
         """
         project_root = tmp_path / "projects"
         (project_root / "demo" / "drafts" / "episode_1").mkdir(parents=True)
-        (project_root / "demo" / "drafts" / "episode_1" / "step1_segments.md").write_text("ok", encoding="utf-8")
+        (project_root / "demo" / "drafts" / "episode_1" / "step1_segments.json").write_text("ok", encoding="utf-8")
         project = {
             "overview": {"synopsis": "test"},
             "characters": {},

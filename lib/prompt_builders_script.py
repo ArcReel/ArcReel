@@ -194,6 +194,28 @@ _NORMALIZE_BREAK_RULE_SCREENPLAY = (
 # ---------------------------------------------------------------------------
 
 
+def _format_narration_step1_segments(step1_segments: list[dict]) -> str:
+    """把 step1 结构化片段渲染为 step2 的只读上下文：segment_id + 内容字段 + 逐字原文。
+
+    这些字段在 step1 已定、step2 透传不重出；此处仅作为「为该片段写好视觉层」的依据呈现。
+    """
+    if not step1_segments:
+        return "（无片段）"
+    lines: list[str] = []
+    for seg in step1_segments:
+        sid = seg.get("segment_id", "?")
+        dur = seg.get("duration_seconds", "?")
+        brk = "，场景切换" if seg.get("segment_break") else ""
+        chars = "、".join(seg.get("characters_in_segment") or []) or "无"
+        scene_names = "、".join(seg.get("scenes") or []) or "无"
+        prop_names = "、".join(seg.get("props") or []) or "无"
+        novel = seg.get("novel_text", "")
+        lines.append(
+            f"- {sid}（时长 {dur}s{brk}）｜出场角色：{chars}｜场景：{scene_names}｜道具：{prop_names}\n  原文：{novel}"
+        )
+    return "\n".join(lines)
+
+
 def build_narration_prompt(
     project_overview: dict,
     style: str,
@@ -201,24 +223,26 @@ def build_narration_prompt(
     characters: dict,
     scenes: dict,
     props: dict,
-    segments_md: str,
-    supported_durations: list[int],
+    step1_segments: list[dict],
     episode: int,
-    default_duration: int | None = None,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """构建说书模式的剧本生成 prompt。"""
-    character_names = list(characters.keys())
-    scene_names = list(scenes.keys())
-    prop_names = list(props.keys())
+    """构建说书模式 step2（视觉层）prompt。
+
+    step1 已定的 novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具按 segment_id
+    透传，step2 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
+    LLM 不重出这些字段——novel_text 由此不再经 step2 的 LLM 扩写漂移。
+    """
     pacing_block = (render_pacing_section("narration") + "\n\n") if is_v2_enabled() else ""
+    segments_block = _format_narration_step1_segments(step1_segments)
 
     return f"""# 角色与任务
 
-你是一位资深的短视频分镜编剧，专精把小说片段改写为可直接驱动 AI 图像 / 视频生成的结构化分镜剧本。
-你的任务：基于下方"小说片段拆分表"，逐条产出符合 schema 的 JSON 剧本。
+你是一位资深的短视频分镜编剧，专精把已定稿的小说片段转化为可直接驱动 AI 图像 / 视频生成的视觉分镜。
+你的任务：基于下方已定稿的"片段表"，为**每个片段**产出视觉层（image_prompt 与 video_prompt），按 segment_id 一一对齐。
 
+**只产视觉层**：novel_text、时长、segment_break、出场角色 / 场景 / 道具均已在 step1 定稿、按 segment_id 透传，**不要重复输出、不要改写**；你只产出 image_prompt 与 video_prompt。
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
@@ -251,29 +275,18 @@ def build_narration_prompt(
 </props>
 
 <segments>
-{segments_md}
+{segments_block}
 </segments>
 
-segments 表每行是一个待生成的片段，包含：片段 ID（E{episode}S{{序号}}，当前为第 {episode} 集）、小说原文、{_format_duration_constraint(supported_durations, default_duration)}、是否含对话、是否为 segment_break。
+segments 表每个片段已定稿（segment_id、逐字原文、时长、出场角色 / 场景 / 道具、是否场景切换），为只读上下文。
 
 <episode_constraints>
-当前正在生成第 {episode} 集。本集所有 segment_id 必须严格使用 `E{episode}S{{两位序号}}` 格式（如 E{episode}S01、E{episode}S02），不得使用其他集号前缀。
-若 segments 表里出现非 `E{episode}` 前缀（如 E1S..），视为脏数据，请按当前集号 `E{episode}` 重写。
+当前正在生成第 {episode} 集。为每个片段输出一条视觉层，其 segment_id 必须与 segments 表逐字一致——逐一对应，不增、不减、不改写。
 </episode_constraints>
 
 # 字段写作指引
 
-对每个片段，按下列章节填写字段。
-
-## 基础字段
-
-- **novel_text**：原样复制小说原文，不修改、不删改标点。
-- **characters_in_segment** / **scenes** / **props**：仅列出此片段画面或对话中实际出现的资产。
-  - 候选 characters：[{", ".join(character_names) or "（无）"}]
-  - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
-  - 候选 props：[{", ".join(prop_names) or "（无）"}]
-  - 不要发明候选之外的名称。
-- **segment_break** / **duration_seconds**：与 segments 表保持一致。
+为每个片段产出下列视觉字段（其余字段由 step1 透传，勿输出）。
 
 ## 图片提示词（image_prompt）——切换到「摄影师」视角
 
@@ -287,11 +300,11 @@ segments 表每行是一个待生成的片段，包含：片段 ID（E{episode}S
 - **video_prompt.action**：{_ACTION_WRITING_GUIDE}
 - **video_prompt.camera_motion**：每个片段只选一种，按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
-- **video_prompt.dialogue**：仅当小说原文带引号对话时填写；speaker 必须出现在 characters_in_segment。
+- **video_prompt.dialogue**：仅当该片段原文带引号对话时填写；speaker 必须出现在该片段的出场角色中。
 
 # 创作目标
 
-输出可直接驱动 AI 生成的、视觉一致、节奏紧凑的分镜剧本。忠于原文叙事、保留情绪张力。
+输出可直接驱动 AI 生成的、视觉一致、节奏紧凑的分镜视觉层。忠于原文叙事、保留情绪张力。
 """
 
 

@@ -871,7 +871,7 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
     project_path = fake_ctx.project_path
     drafts = project_path / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_segments.md").write_text("step1 content", encoding="utf-8")
+    (drafts / "step1_segments.json").write_text("step1 content", encoding="utf-8")
     (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     class _FakeGenerator:
@@ -901,7 +901,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     project_path = fake_ctx.project_path
     drafts = project_path / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_segments.md").write_text("step1", encoding="utf-8")
+    (drafts / "step1_segments.json").write_text("step1", encoding="utf-8")
     (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     captured: dict[str, dict[str, Any]] = {"calls": {}}

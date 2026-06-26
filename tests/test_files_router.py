@@ -428,13 +428,15 @@ class TestFilesRouter:
         _t = make_translator()
         assert files._extract_step_number("step12_x.md") == 12
         assert files._extract_step_number("not-match.md") == 0
-        assert files._get_step_files("narration") == {1: "step1_segments.md"}
+        assert files._get_step_files("narration") == {1: "step1_segments.json"}
         assert files._get_step_files("drama") == {1: "step1_normalized_script.md"}
         # reference_video 走独立的 step1 文件
         assert files._get_step_files("drama", "reference_video") == {1: "step1_reference_units.md"}
         assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.md"}
         # 其他 generation_mode 回落到 content_mode
-        assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.md"}
+        assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.json"}
+        assert files._get_step_title("step1_segments.json", _t) == "片段拆分"
+        # 旧 step1_segments.md 仍保留标题映射，便于存量在制品浏览
         assert files._get_step_title("step1_segments.md", _t) == "片段拆分"
         assert files._get_step_title("step1_normalized_script.md", _t) == "规范化剧本"
         assert files._get_step_title("step1_reference_units.md", _t) == "片段拆分"

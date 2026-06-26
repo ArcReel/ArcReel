@@ -22,7 +22,7 @@ _FALLBACK_ITEM_DURATIONS: dict[str, int] = {"narration": 4, "drama": 8, "ad": 0}
 # （brief 不经 source_loader），显式 None 表示无草稿可探测；未知值沿用历史
 # 兜底落 drama 草稿名。
 _DRAFT_FILENAMES: dict[str, str | None] = {
-    "narration": "step1_segments.md",
+    "narration": "step1_segments.json",
     "drama": "step1_normalized_script.md",
     "ad": None,
 }

@@ -13,7 +13,7 @@ class TestPromptBuildersScript:
         assert _format_names({"玉佩": {}, "祠堂": {}}) == "- 玉佩\n- 祠堂"
         assert _format_names({}) == "（暂无）"
 
-    def test_build_narration_prompt_contains_dynamic_durations(self):
+    def test_build_narration_prompt_renders_step1_segments_as_context(self):
         prompt = build_narration_prompt(
             project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
             style="古风",
@@ -21,33 +21,47 @@ class TestPromptBuildersScript:
             characters={"姜月茴": {}},
             scenes={"祠堂": {}},
             props={"玉佩": {}},
-            segments_md="E1S01 | 文本",
-            supported_durations=[4, 6, 8],
-            default_duration=4,
+            step1_segments=[
+                {
+                    "segment_id": "E1S01",
+                    "novel_text": "她推开祠堂的门。",
+                    "duration_seconds": 6,
+                    "segment_break": True,
+                    "characters_in_segment": ["姜月茴"],
+                    "scenes": ["祠堂"],
+                    "props": ["玉佩"],
+                }
+            ],
             aspect_ratio="9:16",
             episode=1,
         )
-        assert "4, 6, 8" in prompt
-        assert "默认 4 秒" in prompt
+        # step1 内容作只读上下文渲染：segment_id + 逐字 novel_text + 时长 + 场景切换 + 资产
+        assert "E1S01" in prompt
+        assert "她推开祠堂的门。" in prompt
+        assert "6s" in prompt
+        assert "场景切换" in prompt
+        assert "姜月茴" in prompt
         assert "祠堂" in prompt
         assert "玉佩" in prompt
 
-    def test_build_narration_prompt_auto_duration(self):
+    def test_build_narration_prompt_is_visual_only_passthrough(self):
         prompt = build_narration_prompt(
             project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
             style="古风",
             style_description="cinematic",
             characters={"姜月茴": {}},
             scenes={},
-            props={"玉佩": {}},
-            segments_md="E1S01 | 文本",
-            supported_durations=[5, 10],
-            default_duration=None,
+            props={},
+            step1_segments=[
+                {"segment_id": "E1S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}
+            ],
             aspect_ratio="9:16",
             episode=1,
         )
-        assert "5, 10" in prompt
-        assert "按内容节奏自行决定" in prompt
+        # 透传式：只产视觉层，不要求 LLM 复制 novel_text
+        assert "只产视觉层" in prompt
+        assert "image_prompt" in prompt
+        assert "video_prompt" in prompt
 
     def test_build_drama_prompt_aspect_ratio_vertical(self):
         prompt = build_drama_prompt(
