@@ -654,7 +654,7 @@ class ScriptGenerator:
                 raise ValueError(f"episode {episode} 视觉层 segment_id 重复: {sid}")
             visual_by_id[sid] = item
 
-        step1_ids = [str(s.get("segment_id")) for s in step1_segments]
+        step1_ids = [s["segment_id"] for s in step1_segments]
         step1_id_set = set(step1_ids)
         missing = [sid for sid in step1_ids if sid not in visual_by_id]
         if missing:
@@ -665,7 +665,7 @@ class ScriptGenerator:
 
         merged_segments: list[dict] = []
         for s1 in step1_segments:
-            sid = str(s1.get("segment_id"))
+            sid = s1["segment_id"]
             visual = dict(visual_by_id[sid])
             visual.pop("segment_id", None)  # 锚字段两侧相等，去掉避免覆盖
             merged_segments.append({**s1, **visual})
