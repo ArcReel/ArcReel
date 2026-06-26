@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from lib.data_validator import DataValidator, validate_episode, validate_project
+from lib.data_validator import (
+    DRAMA_SPEECH_OVERFLOW_TOLERANCE,
+    DataValidator,
+    validate_episode,
+    validate_project,
+)
+from lib.speech_rate import estimate_spoken_seconds
 
 
 def _write_json(path: Path, payload: dict):
@@ -376,6 +382,66 @@ class TestDataValidator:
         # 存量 drama（无 utterances、残留旧 voiceover）走读时迁移，校验层放行、不阻塞导出
         result = self._drama_episode_with_scene(tmp_path, {"voiceover": ["旧画外音"]})
         assert result.valid
+
+    def test_validate_episode_drama_warns_when_speech_overflows_scene(self, tmp_path):
+        # 单向上界：估算说话时长（台词）超场景 duration × 容差 → 仅 warn，不阻塞保存
+        long_line = "台词" * 60  # 120 个汉字阅读单位，远超 8 秒场景的容差上界
+        assert estimate_spoken_seconds(long_line, None) > 8 * (1 + DRAMA_SPEECH_OVERFLOW_TOLERANCE)
+        result = self._drama_episode_with_scene(
+            tmp_path,
+            {
+                "duration_seconds": 8,
+                "utterances": [{"kind": "dialogue", "speaker": "姜月茴", "text": long_line}],
+            },
+        )
+        assert result.valid, result.errors
+        assert any("说话时长" in w for w in result.warnings)
+
+    def test_validate_episode_drama_speech_overflow_counts_voiceover(self, tmp_path):
+        # 说话量含画外音：台词 + 画外音一并计入估算（与字幕派生同口径）
+        long_vo = "旁白" * 60
+        result = self._drama_episode_with_scene(
+            tmp_path,
+            {
+                "duration_seconds": 8,
+                "utterances": [{"kind": "voiceover", "speaker": None, "text": long_vo}],
+            },
+        )
+        assert result.valid, result.errors
+        assert any("说话时长" in w for w in result.warnings)
+
+    def test_validate_episode_drama_no_warning_when_speech_fits(self, tmp_path):
+        # 界内：说话量在场景 duration × 容差以内 → 不产说话量 warning
+        result = self._drama_episode_with_scene(
+            tmp_path,
+            {
+                "duration_seconds": 8,
+                "utterances": [
+                    {"kind": "dialogue", "speaker": "姜月茴", "text": "你来了。"},
+                    {"kind": "voiceover", "speaker": None, "text": "夜色渐深。"},
+                ],
+            },
+        )
+        assert result.valid, result.errors
+        assert not any("说话时长" in w for w in result.warnings)
+
+    def test_validate_episode_drama_no_warning_when_speech_far_under_duration(self, tmp_path):
+        # 单向上界：说话量远少于场景时长不警告（duration 由画面驱动、留白合法，不管「说话太少」）
+        result = self._drama_episode_with_scene(
+            tmp_path,
+            {
+                "duration_seconds": 30,
+                "utterances": [{"kind": "dialogue", "speaker": "姜月茴", "text": "嗯。"}],
+            },
+        )
+        assert result.valid, result.errors
+        assert not any("说话时长" in w for w in result.warnings)
+
+    def test_validate_episode_drama_no_speech_warning_without_utterances(self, tmp_path):
+        # 无 utterances（存量 / 未填）→ 不产说话量 warning，也不崩
+        result = self._drama_episode_with_scene(tmp_path, {"duration_seconds": 8})
+        assert result.valid, result.errors
+        assert not any("说话时长" in w for w in result.warnings)
 
     def test_validate_helpers_on_missing_files(self, tmp_path):
         result = validate_project("missing", projects_root=str(tmp_path / "projects"))
