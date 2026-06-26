@@ -40,6 +40,11 @@ class TestRegistryHit:
         assert isinstance(pricing, PerTokenVideo)
         assert pricing.currency == "CNY"
 
+    def test_ark_seedance_2_mini_per_token(self):
+        pricing = lookup_pricing("ark", "doubao-seedance-2-0-mini-260615", "video")
+        assert isinstance(pricing, PerTokenVideo)
+        assert pricing.currency == "CNY"
+
 
 class TestUnknownProviderFallsBackToGemini:
     @pytest.mark.parametrize("provider", ["gemini", "unknown", "seedance"])
@@ -85,8 +90,8 @@ class TestUnknownModelFallback:
         with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
             pricing = lookup_pricing("ark", "no-such-model", "video")
         assert isinstance(pricing, PerTokenVideo)
-        # 回落到 ark 默认视频模型
-        assert "doubao-seedance-1-5-pro-251215" in pricing.rates
+        # 回落到 ark 默认视频模型（mini）
+        assert "doubao-seedance-2-0-mini-260615" in pricing.rates
         assert any("no-such-model" in r.getMessage() for r in caplog.records)
 
     def test_agent_plan_no_pricing_falls_back_to_gemini_quietly(self, caplog):

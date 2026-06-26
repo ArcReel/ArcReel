@@ -154,21 +154,36 @@ class TestArkVideoCost:
 
     def test_online_no_audio(self):
         amount, currency = cost_calculator.calculate_cost(
-            "ark", "video", usage_tokens=246840, service_tier="default", generate_audio=False
+            "ark",
+            "video",
+            usage_tokens=246840,
+            service_tier="default",
+            generate_audio=False,
+            model="doubao-seedance-1-5-pro-251215",
         )
         assert currency == "CNY"
         assert amount == pytest.approx(1.9747, rel=1e-3)
 
     def test_flex_with_audio(self):
         amount, currency = cost_calculator.calculate_cost(
-            "ark", "video", usage_tokens=246840, service_tier="flex", generate_audio=True
+            "ark",
+            "video",
+            usage_tokens=246840,
+            service_tier="flex",
+            generate_audio=True,
+            model="doubao-seedance-1-5-pro-251215",
         )
         assert currency == "CNY"
         assert amount == pytest.approx(1.9747, rel=1e-3)
 
     def test_flex_no_audio(self):
         amount, currency = cost_calculator.calculate_cost(
-            "ark", "video", usage_tokens=246840, service_tier="flex", generate_audio=False
+            "ark",
+            "video",
+            usage_tokens=246840,
+            service_tier="flex",
+            generate_audio=False,
+            model="doubao-seedance-1-5-pro-251215",
         )
         assert currency == "CNY"
         assert amount == pytest.approx(0.9874, rel=1e-3)
@@ -181,11 +196,12 @@ class TestArkVideoCost:
         assert currency == "CNY"
 
     def test_unknown_model_uses_default(self):
+        # 未知模型回落到 ark 默认视频模型（mini）的费率
         amount, currency = cost_calculator.calculate_cost(
             "ark", "video", usage_tokens=1_000_000, service_tier="default", generate_audio=True, model="unknown-model"
         )
         assert currency == "CNY"
-        assert amount == pytest.approx(16.0)
+        assert amount == pytest.approx(23.0)
 
     def test_seedance_2_cost(self):
         amount, currency = cost_calculator.calculate_cost(
@@ -221,6 +237,29 @@ class TestArkVideoCost:
         )
         assert currency == "CNY"
         assert amount == pytest.approx(37.00)
+
+    def test_seedance_2_mini_cost(self):
+        amount, currency = cost_calculator.calculate_cost(
+            "ark",
+            "video",
+            usage_tokens=1_000_000,
+            service_tier="default",
+            generate_audio=True,
+            model="doubao-seedance-2-0-mini-260615",
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(23.00)
+
+    def test_seedance_2_mini_cost_no_audio_same_price(self):
+        amount, _ = cost_calculator.calculate_cost(
+            "ark",
+            "video",
+            usage_tokens=1_000_000,
+            service_tier="default",
+            generate_audio=False,
+            model="doubao-seedance-2-0-mini-260615",
+        )
+        assert amount == pytest.approx(23.00)
 
 
 class TestGrokVideoCost:

@@ -833,7 +833,7 @@ class TestResolveVideoBackend:
         project = {"video_backend": "ark"}  # 裸 provider
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
         assert resolved.provider_id == "ark"
-        assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # registry 中 ark 的默认 video model
+        assert resolved.model_id == "doubao-seedance-2-0-mini-260615"  # registry 中 ark 的默认 video model
 
     async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
         """in-flight 历史任务 payload 携带 legacy video_provider（如 seedance）→ 不予信任，回退已迁移的 project。"""
@@ -851,7 +851,7 @@ class TestResolveVideoBackend:
         payload = {"video_provider": "ark", "video_provider_settings": "not-a-dict"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, {}, payload)
         assert resolved.provider_id == "ark"
-        assert resolved.model_id == "doubao-seedance-1-5-pro-251215"  # 补 ark 默认 video model
+        assert resolved.model_id == "doubao-seedance-2-0-mini-260615"  # 补 ark 默认 video model
 
 
 def test_parse_int_variants():
