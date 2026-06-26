@@ -654,6 +654,12 @@ class DataValidator:
             # 时仅提示「说不完」，不阻塞、不改写 duration（duration 由画面驱动）。
             self._warn_scene_speech_overflow(scene, prefix, language, warnings)
 
+            # source_text：逐字原文锚（best-effort，由 step1 内容抽取填入、step2 透传）。镜像共享模型
+            # 的 source_text: str（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
+            # 一并拒绝；键缺失放行（默认空串，存量数据无此字段）。用 in 判定以区分缺失与显式 null。
+            if "source_text" in scene and not isinstance(scene["source_text"], str):
+                errors.append(f"{prefix}: source_text 必须是字符串")
+
             if not scene.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
             if not scene.get("video_prompt"):

@@ -76,6 +76,7 @@ MESSAGES = {
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
+    "draft_invalid_json": "Bản nháp Step 1 phải là một đối tượng JSON hợp lệ với mảng scenes không rỗng, trong đó mỗi scene là một đối tượng có scene_id không rỗng",
     "draft_event_label": "Tập {episode} {label_prefix}",
     "normalized_script": "Kịch bản đã chuẩn hóa",
     "segment_splitting": "Chia đoạn",

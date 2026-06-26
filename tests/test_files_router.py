@@ -360,13 +360,55 @@ class TestFilesRouter:
             payload["content_mode"] = "drama"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-            update_drama = client.put(
+            # drama step1 落 .json：任意文本被拒（400）
+            reject_text = client.put(
                 "/api/v1/projects/demo/drafts/2/step1",
                 content="drama draft",
                 headers={"content-type": "text/plain"},
             )
+            assert reject_text.status_code == 400
+
+            # 合法 JSON 但 scenes 为空 → 被拒（400）：与 _load_drama_step1_content 的非空 scenes 契约同口径
+            reject_empty = client.put(
+                "/api/v1/projects/demo/drafts/2/step1",
+                content='{"title": "第二集", "scenes": []}',
+                headers={"content-type": "text/plain"},
+            )
+            assert reject_empty.status_code == 400
+
+            # scenes 含非对象项（数字 / 字符串）→ 被拒（400）：与 _load_drama_step1_content 的逐项对象契约同口径
+            reject_non_dict_scene = client.put(
+                "/api/v1/projects/demo/drafts/2/step1",
+                content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}, 42]}',
+                headers={"content-type": "text/plain"},
+            )
+            assert reject_non_dict_scene.status_code == 400
+
+            # scene 缺 scene_id → 被拒（400）：与 _load_drama_step1_content 的 scene_id 非空字符串契约同口径，
+            # 避免写入端放行、消费端必失败的"保存成功但生成必失败"断层
+            reject_missing_scene_id = client.put(
+                "/api/v1/projects/demo/drafts/2/step1",
+                content='{"title": "第二集", "scenes": [{}]}',
+                headers={"content-type": "text/plain"},
+            )
+            assert reject_missing_scene_id.status_code == 400
+
+            # scene_id 为空串 → 被拒（400）
+            reject_empty_scene_id = client.put(
+                "/api/v1/projects/demo/drafts/2/step1",
+                content='{"title": "第二集", "scenes": [{"scene_id": ""}]}',
+                headers={"content-type": "text/plain"},
+            )
+            assert reject_empty_scene_id.status_code == 400
+
+            # 含非空 scenes 的合法 JSON 被接受（200），落到结构化草稿路径
+            update_drama = client.put(
+                "/api/v1/projects/demo/drafts/2/step1",
+                content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}]}',
+                headers={"content-type": "text/plain"},
+            )
             assert update_drama.status_code == 200
-            assert update_drama.json()["path"] == "drafts/episode_2/step1_normalized_script.md"
+            assert update_drama.json()["path"] == "drafts/episode_2/step1_normalized_script.json"
 
             missing_step = client.delete("/api/v1/projects/demo/drafts/2/step9")
             assert missing_step.status_code == 400
@@ -429,7 +471,7 @@ class TestFilesRouter:
         assert files._extract_step_number("step12_x.md") == 12
         assert files._extract_step_number("not-match.md") == 0
         assert files._get_step_files("narration") == {1: "step1_segments.json"}
-        assert files._get_step_files("drama") == {1: "step1_normalized_script.md"}
+        assert files._get_step_files("drama") == {1: "step1_normalized_script.json"}
         # reference_video 走独立的 step1 文件
         assert files._get_step_files("drama", "reference_video") == {1: "step1_reference_units.md"}
         assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.md"}
@@ -438,6 +480,7 @@ class TestFilesRouter:
         assert files._get_step_title("step1_segments.json", _t) == "片段拆分"
         # 旧 step1_segments.md 仍保留标题映射，便于存量在制品浏览
         assert files._get_step_title("step1_segments.md", _t) == "片段拆分"
+        assert files._get_step_title("step1_normalized_script.json", _t) == "规范化剧本"
         assert files._get_step_title("step1_normalized_script.md", _t) == "规范化剧本"
         assert files._get_step_title("step1_reference_units.md", _t) == "片段拆分"
         assert files._get_step_title("unknown.md", _t) == "unknown.md"

@@ -397,7 +397,7 @@ class DramaScene(BaseModel):
                     utterances.append({"kind": "voiceover", "speaker": None, "text": line.strip()})
         return utterances
 
-    scene_id: str = Field(description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    scene_id: str = Field(min_length=1, description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
@@ -412,6 +412,9 @@ class DramaScene(BaseModel):
         default_factory=list,
         description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
     )
+    # 逐字原文摘录（追溯锚，类比说书 novel_text，但纯作追溯、不被朗读、不出音、best-effort）。
+    # 由 step1（内容抽取）填入，step2（视觉）透传不改；存量数据缺失时默认空串（不更坏守卫放行）。
+    source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
@@ -439,6 +442,144 @@ class DramaEpisodeScript(BaseModel):
     hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
     next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
     scenes: list[DramaScene] = Field(description="场景列表")
+
+
+# ============ 剧集动画两段式：step1 内容 / step2 视觉（见 ADR 0041） ============
+#
+# 内容抽取前移到 step1：场景边界、characters/scenes/props、utterances（逐字口播）、source_text
+# （逐字原文锚）、scene_description（视觉改编自由文本）一次定稿。step2 只生成视觉层
+# （image_prompt / video_prompt），LLM 输出 schema 仅含 scene_id（对齐锚）+ 视觉字段——
+# 非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移，由后端按 scene_id
+# 合并回 step1 已定内容（merge_drama_visual_into_scenes）。
+
+
+class DramaSceneContent(BaseModel):
+    """step1（normalize）产出的场景内容层：除视觉层（image_prompt / video_prompt）外的全部字段。
+
+    作为 step2 视觉生成、以及后续 web 审阅 / 编辑的结构化中间态契约（落盘于
+    ``drafts/episode_N/step1_normalized_script.json``，外层为 ``DramaNormalizedScript``）。
+    三个文本字段职责严格区分、不可混填：
+
+    - ``scene_description``：**视觉改编自由文本**——只承载画面可见内容（角色动作、神态、环境、光影），
+      供 step2 生成 image_prompt / video_prompt 作画面基底；**不内嵌任何口播**，允许相对原文创作改编
+      （丢失 / 漂移可容忍，非保真字段）。
+    - ``utterances``：**逐字口播**——场景内"说出来的话"的有序序列（台词 dialogue 带 speaker、画外音
+      voiceover 无 speaker），下游字幕 / TTS 的单一真相源，step2 透传不改、不重识别。
+    - ``source_text``：**逐字原文追溯锚**——本场景所源自的原文片段摘录，供人工对照、失真定位、单场景
+      重生成；不被朗读、不出音，与 utterances 分属两事（utterances 是发声、source_text 是溯源）。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    scene_id: str = Field(min_length=1, description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
+    segment_break: bool = Field(default=False, description="是否为场景切换点")
+    characters_in_scene: list[str] = Field(description="出场角色名称列表")
+    scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
+    props: list[str] = Field(default_factory=list, description="出场道具名称列表")
+    scene_description: str = Field(description="场景视觉改编描述（自由文本，仅承载视觉内容，供 step2 生成视觉层）")
+    utterances: list[Utterance] = Field(
+        default_factory=list,
+        description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列，逐字保留",
+    )
+    source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
+
+
+class DramaNormalizedScript(BaseModel):
+    """step1 规范化剧本：场景内容列表。作为 step2 视觉生成与后续 web 审阅 / 编辑的唯一基底。
+
+    顶层不走 ``extra="forbid"``（同 ``DramaEpisodeScript``）：避免落盘时附带的运行时字段触发拒绝。
+    """
+
+    title: str = Field(description="剧集标题")
+    scenes: list[DramaSceneContent] = Field(description="场景内容列表")
+
+
+class DramaSceneVisual(BaseModel):
+    """step2（generate-script）产出的场景视觉层：仅 scene_id（对齐锚）+ 视觉字段。
+
+    ``scene_id`` 必须等于 step1 已定场景的 scene_id，后端按它（非列表顺序）合并回内容层。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    scene_id: str = Field(min_length=1, description="对齐锚：必须等于 step1 已定场景的 scene_id")
+    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
+    video_prompt: DramaVideoPrompt = Field(description="视频生成提示词（无 dialogue，口播在 step1 utterances）")
+
+
+class DramaVisualScript(BaseModel):
+    """step2 视觉层剧本：各场景视觉字段（按 scene_id 与 step1 内容对齐）。
+
+    顶层不走 ``extra="forbid"`` 同 ``DramaNormalizedScript``。``title`` 可选，最终标题取自 step1 内容。
+    """
+
+    title: str = Field(default="", description="剧集标题（可选，最终以 step1 内容为准）")
+    scenes: list[DramaSceneVisual] = Field(description="各场景视觉层（按 scene_id 对齐 step1 内容）")
+
+
+class DramaVisualMergeError(ValueError):
+    """step2 视觉层与 step1 内容层按 scene_id 合并失败（缺覆盖 / 悬空 / 重复 scene_id）。"""
+
+
+#: 合并后从内容层剔除的、不属于最终 ``DramaScene`` 的 step1-only 字段。
+_DRAMA_CONTENT_ONLY_FIELDS = frozenset({"scene_description"})
+
+
+def merge_drama_visual_into_scenes(
+    content_scenes: list[dict[str, object]],
+    visual_scenes: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """把 step2 视觉层按 ``scene_id`` 合并回 step1 内容层，产出最终 ``DramaScene`` dict 列表。
+
+    工程透传（见 ADR 0041）：非视觉字段（utterances / source_text / characters_in_scene 等）一律取自
+    step1 内容、不受 step2 影响；视觉字段（image_prompt / video_prompt）取自 step2。按 ``scene_id``
+    对齐（非列表顺序），并校验 scene_id 两侧唯一与全覆盖——内容缺视觉、视觉悬空、内容或视觉重复
+    scene_id 均抛 ``DramaVisualMergeError``（内容侧重复会让两个场景共用同一视觉、并在下游产物文件名
+    上撞键，故同样 fail-loud）。结果顺序沿用内容层。不就地修改入参。
+    """
+    visual_by_id: dict[str, dict[str, object]] = {}
+    for visual in visual_scenes:
+        # 类型注解为 dict，但 _parse_drama_visual 校验失败降级会返回含非 dict 条目的原始列表，
+        # 运行时未必成立——此守卫把脏条目转成 DramaVisualMergeError，而非后续 .get() 的 AttributeError。
+        if not isinstance(visual, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise DramaVisualMergeError(f"step2 视觉层条目必须是对象: {visual!r}")
+        sid = visual.get("scene_id")
+        if not isinstance(sid, str) or not sid:
+            raise DramaVisualMergeError(f"step2 视觉层条目缺少 scene_id: {visual!r}")
+        if sid in visual_by_id:
+            raise DramaVisualMergeError(f"step2 视觉层 scene_id 重复: {sid}")
+        visual_by_id[sid] = visual
+
+    merged: list[dict[str, object]] = []
+    content_ids: set[str] = set()
+    for content in content_scenes:
+        # 同上：内容层条目运行时未必是 dict（坏 step1 / 降级输入），守卫转 fail-loud。
+        if not isinstance(content, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise DramaVisualMergeError(f"step1 内容层条目必须是对象: {content!r}")
+        sid = content.get("scene_id")
+        if not isinstance(sid, str) or not sid:
+            raise DramaVisualMergeError(f"step1 内容层条目缺少 scene_id: {content!r}")
+        if sid in content_ids:
+            raise DramaVisualMergeError(f"step1 内容层 scene_id 重复: {sid}")
+        content_ids.add(sid)
+        visual = visual_by_id.get(sid)
+        if visual is None:
+            raise DramaVisualMergeError(f"step1 场景 {sid} 缺少对应的 step2 视觉层")
+        # _parse_drama_visual 校验失败降级会回原始 scenes，其中可能有只含 scene_id、缺视觉字段的半成品；
+        # 在合并阶段 fail-loud，避免写入 None 后绕过 DramaVisualMergeError、拖到 save_script 才以通用异常失败。
+        if "image_prompt" not in visual or "video_prompt" not in visual:
+            raise DramaVisualMergeError(f"step2 视觉层场景 {sid} 缺少必要的视觉字段")
+        scene = {k: v for k, v in content.items() if k not in _DRAMA_CONTENT_ONLY_FIELDS}
+        scene["image_prompt"] = visual["image_prompt"]
+        scene["video_prompt"] = visual["video_prompt"]
+        merged.append(scene)
+
+    orphans = set(visual_by_id) - content_ids
+    if orphans:
+        raise DramaVisualMergeError(f"step2 视觉层存在 step1 内容中不存在的 scene_id: {sorted(orphans)}")
+
+    return merged
 
 
 # ============ 广告/短片模式（Ad） ============
@@ -743,6 +884,25 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
         "DramaEpisodeScript",
         __base__=DramaEpisodeScript,
         scenes=(list[scene], Field(description="场景列表")),
+    )
+
+
+def build_drama_normalized_script_model(supported_durations: list[int]) -> type[BaseModel]:
+    """构造 step1 规范化剧本模型，``duration_seconds`` 被 ``supported_durations`` 枚举硬约束。
+
+    内容抽取前移后由 step1 决定场景时长，故 duration 枚举约束加在内容层 ``DramaSceneContent`` 上
+    （与 ``build_episode_script_model`` 同口径，渲染为 response_schema 的 enum / const）；step2 视觉层
+    不含 duration，沿用静态 ``DramaVisualScript``。
+    """
+    scene = _constrained_duration_item(
+        DramaSceneContent,
+        _duration_literal(supported_durations),
+        "场景时长（秒），必须取 supported_durations 中的值",
+    )
+    return create_model(
+        "DramaNormalizedScript",
+        __base__=DramaNormalizedScript,
+        scenes=(list[scene], Field(description="场景内容列表")),
     )
 
 

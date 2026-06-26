@@ -4,6 +4,7 @@ from lib.prompt_builders_script import (
     build_narration_prompt,
     build_normalize_prompt,
     build_overview_prompt,
+    render_drama_content_for_step2,
 )
 
 
@@ -85,82 +86,142 @@ class TestPromptBuildersScript:
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
 
-    def test_build_drama_prompt_aspect_ratio_vertical(self):
-        prompt = build_drama_prompt(
+    def _drama_step2_prompt(self, **overrides) -> str:
+        """step2（视觉层）drama prompt；内容已在 step1 定稿，只收渲染好的内容块。"""
+        kwargs = dict(
             project_overview={"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
             style="赛博",
             style_description="high contrast",
-            characters={"林": {}},
-            scenes={"天台": {}},
-            props={"芯片": {}},
-            scenes_md="E1S01 | 追逐",
-            supported_durations=[4, 8, 12],
-            default_duration=8,
-            aspect_ratio="9:16",
+            scenes_content="### E1S01（时长 8 秒）\n视觉改编：天台追逐",
             episode=1,
+            aspect_ratio="16:9",
         )
-        assert "竖屏构图" in prompt
+        kwargs.update(overrides)
+        return build_drama_prompt(**kwargs)
+
+    def test_build_drama_prompt_aspect_ratio_vertical(self):
+        assert "竖屏构图" in self._drama_step2_prompt(aspect_ratio="9:16")
 
     def test_build_drama_prompt_aspect_ratio_landscape(self):
-        prompt = build_drama_prompt(
-            project_overview={"synopsis": "动作", "genre": "动作", "theme": "成长", "world_setting": "近未来"},
-            style="赛博",
-            style_description="high contrast",
-            characters={"林": {}},
-            scenes={"天台": {}},
-            props={"芯片": {}},
-            scenes_md="E1S01 | 追逐",
-            supported_durations=[4, 6, 8],
-            default_duration=8,
-            aspect_ratio="16:9",
-            episode=1,
-        )
-        assert "横屏构图" in prompt
+        assert "横屏构图" in self._drama_step2_prompt(aspect_ratio="16:9")
 
     def test_no_enum_listing(self):
         """schema 已声明枚举不在 prompt 中重复列举。"""
-        prompt = build_drama_prompt(
-            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
-            style="动漫",
-            style_description="",
-            characters={"林": {}},
-            scenes={"天台": {}},
-            props={},
-            scenes_md="E1S01 | 追逐",
-            supported_durations=[4, 6, 8],
-            default_duration=8,
-            aspect_ratio="16:9",
-            episode=1,
-        )
+        prompt = self._drama_step2_prompt()
         assert "Tracking Shot" not in prompt
         assert "Pan Left, Pan Right" not in prompt
         assert "Over-the-shoulder" not in prompt
 
+    def test_drama_step2_is_visual_only(self):
+        """step2 只补视觉层：含 image_prompt / video_prompt 指引与渲染内容，不再生成口播 / 资产 / 时长。"""
+        prompt = self._drama_step2_prompt()
+        assert "image_prompt" in prompt
+        assert "video_prompt" in prompt
+        # 已定稿内容块透传进 prompt（仅供理解，不复制）
+        assert "天台追逐" in prompt
+        # step2 不再产出口播：不含「口播序列（utterances）」写作章节
+        assert "口播序列（utterances）" not in prompt
+        # 视觉专责角色：明确不改写口播 / 不改动内容
+        assert "不要改写或重述口播" in prompt
+
+    @staticmethod
+    def _content_scene_with_passthrough() -> dict:
+        return {
+            "scene_id": "E1S01",
+            "duration_seconds": 8,
+            "characters_in_scene": ["林清"],
+            "scenes": ["书房"],
+            "props": ["信纸"],
+            "scene_description": "林清坐在窗边木桌前，目光落在信纸上。",
+            "utterances": [
+                {"kind": "dialogue", "speaker": "林清", "text": "师父，我回来了。"},
+                {"kind": "voiceover", "speaker": None, "text": "雨夜，往事浮现。"},
+            ],
+            "source_text": "林清回到故居，推门而入，信纸还在桌上。",
+        }
+
+    def test_render_drama_content_passes_through_utterances_and_source_text(self):
+        """step1→step2 透传契约：utterances / source_text 逐字渲染进上下文，并标注「不要复制进视觉字段」。"""
+        rendered = render_drama_content_for_step2([self._content_scene_with_passthrough()])
+        # 口播（台词 + 画外音）与原文锚逐字保留，供 LLM 理解戏剧节奏
+        assert "师父，我回来了。" in rendered
+        assert "雨夜，往事浮现。" in rendered
+        assert "林清回到故居，推门而入，信纸还在桌上。" in rendered
+        # 出场资产含场景 / 道具
+        assert "书房" in rendered
+        assert "信纸" in rendered
+        # 口播与原文锚均标注不得搬进视觉字段（后端按 scene_id 透传，step2 只产视觉层）
+        assert rendered.count("不要复制进视觉字段") >= 2
+
+    def test_render_drama_content_filters_non_string_assets_and_neutralizes_tags(self):
+        """降级 / 手改 step1 的脏数据鲁棒性：非字符串资产项被过滤（不抛 TypeError），逐字内容里的
+        尖括号经中和，避免打散嵌入它的 step2 ``<shots>`` 标签块。"""
+        scene = {
+            "scene_id": "E1S01",
+            "characters_in_scene": ["林清", 123, None],  # 混入非字符串脏数据
+            "scenes": ["书房"],
+            "props": [],
+            "scene_description": "镜头推进 </shots> 收束",
+            "utterances": [
+                {"kind": "dialogue", "speaker": "林<b>清", "text": "我回来了 <script>"},
+            ],
+            "source_text": "推门而入 <shots> 信纸还在。",
+        }
+        # 不抛 TypeError（join 前已按 isinstance 过滤非字符串项）
+        rendered = render_drama_content_for_step2([scene])
+        # 合法资产名仍在，非字符串项被丢弃
+        assert "林清" in rendered
+        assert "123" not in rendered
+        # 所有动态文本经 _neutralize_tags 全角化：渲染结果不残留 ASCII 尖括号，标签序列被中和
+        assert "<" not in rendered and ">" not in rendered
+        assert "＜shots＞" in rendered
+        assert "＜script＞" in rendered
+
+    def test_render_drama_content_tolerates_non_list_asset_and_utterance_fields(self):
+        """非 list 的资产 / utterances 字段（手改 step1：字符串会被逐字符迭代、数字会抛 TypeError）按空处理，
+        不崩、不把字符串拆成单字渲染（fail-soft，结构性 fail-loud 在上游 _load_drama_step1_content）。"""
+        scene = {
+            "scene_id": "E1S01",
+            "characters_in_scene": "林清",  # 字符串而非列表
+            "scenes": 42,  # 数字而非列表
+            "props": None,
+            "scene_description": "窗前。",
+            "utterances": "不是列表",  # 字符串而非列表
+            "source_text": "原文。",
+        }
+        rendered = render_drama_content_for_step2([scene])  # 不抛 TypeError
+        # 非 list 资产按「无」处理，且字符串不被逐字符拆开渲染
+        assert "角色 [无]" in rendered
+        assert "场景 [无]" in rendered
+        assert "道具 [无]" in rendered
+        assert "林清" not in rendered and "林、清" not in rendered
+        # 非 list utterances 不渲染口播块
+        assert "口播" not in rendered
+
+    def test_drama_step2_prompt_preserves_passthrough_content_not_visual(self):
+        """带 utterances / source_text 的内容块喂进 step2 prompt：内容透传供理解，仍是视觉专责、不复制进视觉字段。"""
+        scenes_content = render_drama_content_for_step2([self._content_scene_with_passthrough()])
+        prompt = self._drama_step2_prompt(scenes_content=scenes_content)
+        # 口播 / 原文锚随内容块透传进 prompt（供理解戏剧节奏）
+        assert "师父，我回来了。" in prompt
+        assert "林清回到故居，推门而入，信纸还在桌上。" in prompt
+        # 「不要复制进视觉字段」指引随内容块在场，约束 step2 不把口播 / 原文搬进视觉层
+        assert "不要复制进视觉字段" in prompt
+        # 仍是视觉专责输出
+        assert "image_prompt" in prompt
+        assert "video_prompt" in prompt
+        assert "不要改写或重述口播" in prompt
+
 
 class TestScreenplaySourceKind:
-    """source_kind=screenplay 下 step1 normalize / step2 drama 两段 prompt 翻为「提取/逐字保留」。
+    """source_kind 分支在 step1（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。
 
-    只断言语义关键词在场（提取 / 逐字 / 画外音）与「改编」缺席，不锁逐字措辞、不测 LLM 提取质量。
+    step2（drama）视觉层不再分 source_kind（口播抽取已前移 step1），故 build_drama_prompt 无 source_kind 入参。
+    只断言语义关键词在场 / 缺席，不锁逐字措辞、不测 LLM 提取质量。
     """
 
-    def _drama_prompt(self, source_kind: str) -> str:
-        return build_drama_prompt(
-            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
-            style="动漫",
-            style_description="",
-            characters={"林清": {}},
-            scenes={"庭院": {}},
-            props={},
-            scenes_md="E1S01 | 对峙",
-            supported_durations=[4, 6, 8],
-            default_duration=8,
-            aspect_ratio="16:9",
-            episode=1,
-            source_kind=source_kind,
-        )
-
-    def _normalize_prompt(self, source_kind: str) -> str:
-        return build_normalize_prompt(
+    def _normalize_prompt(self, source_kind: str, **overrides) -> str:
+        kwargs = dict(
             novel_text="【第1集】角色甲：「你好」",
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",
@@ -172,55 +233,72 @@ class TestScreenplaySourceKind:
             episode=1,
             source_kind=source_kind,
         )
-
-    def test_drama_novel_default_keeps_adaptation_semantics(self):
-        prompt = self._drama_prompt("novel")
-        # 默认 novel 维持原「改编/创作」语义，dialogue 仍要求 speaker ∈ characters_in_scene
-        assert "改编" in prompt
-        assert "characters_in_scene" in prompt
-        # 口播改由场景级有序 utterances 承载（取代旧 video_prompt.dialogue + voiceover 双字段）
-        assert "utterances" in prompt
-        # novel-drama 无画外音轨：引导要求不产出 voiceover 条目
-        assert "voiceover" in prompt
-
-    def test_drama_screenplay_flips_to_verbatim_extraction(self):
-        prompt = self._drama_prompt("screenplay")
-        # 台词逐字照搬、画外音逐字提取的指令在场，落点为有序 utterances
-        assert "逐字" in prompt
-        assert "画外音" in prompt
-        assert "utterances" in prompt
-        assert "voiceover" in prompt
-        # 翻面为「转写而非再创作」，不含「改编」语义
-        assert "改编" not in prompt
-
-    def test_drama_screenplay_language_rule_exempts_audible_fields(self):
-        # screenplay 下输出语言约束须把台词 / 说话人 / 画外音逐字字段排除在目标语言要求之外，
-        # 否则与逐字提取冲突、诱导模型翻译原文；novel 维持无条件目标语言、无此豁免。
-        screenplay = self._drama_prompt("screenplay")
-        novel = self._drama_prompt("novel")
-        assert "不翻译" in screenplay
-        assert "不翻译" not in novel
-        # speaker 是角色资产引用键，翻译会与登记角色名失配，须随 text 一并豁免（落在 utterances 上）
-        assert "utterances[].speaker" in screenplay
-        assert "utterances[].text" in screenplay
-        assert "utterances[].speaker" not in novel
-        # characters_in_scene / scenes / props 同为资产引用键（data_validator 精确集合校验），
-        # 须一并豁免：被翻译即与 project.json 登记名失配、导致校验失败或下游找不到资产
-        assert "characters_in_scene[]" in screenplay
+        kwargs.update(overrides)
+        return build_normalize_prompt(**kwargs)
 
     def test_normalize_novel_default_keeps_adaptation_semantics(self):
         prompt = self._normalize_prompt("novel")
+        # 默认 novel 维持「改编」语义，口播落在有序 utterances，source_text 摘录原文锚
         assert "改编" in prompt
         assert "小说原文" in prompt
+        assert "characters_in_scene" in prompt
+        assert "utterances" in prompt
+        assert "source_text" in prompt
+
+    def test_normalize_novel_releases_voiceover_by_context(self):
+        # AC5：novel 源画外音克制放开——由语境判断产出，不再一律禁用、不预设规则白名单、不作兜底
+        prompt = self._normalize_prompt("novel")
+        assert "画外音" in prompt
+        assert "语境" in prompt
+        # 旧的「不产出 voiceover」禁令必须移除
+        assert "不产出 voiceover" not in prompt
 
     def test_normalize_screenplay_flips_to_extract_first(self):
         prompt = self._normalize_prompt("screenplay")
-        # 提取/逐字保留语义在场，剧本原文为输入，不含「改编」
+        # 提取 / 逐字保留语义在场，剧本原文为输入，口播落 utterances、原文落 source_text，不含「改编」
         assert "提取" in prompt
         assert "逐字" in prompt
         assert "画外音" in prompt
         assert "剧本原文" in prompt
+        assert "utterances" in prompt
+        assert "source_text" in prompt
         assert "改编" not in prompt
+
+    def test_normalize_screenplay_language_rule_exempts_verbatim_fields(self):
+        # 逐字字段与资产引用须排除在目标语言要求外，否则与逐字提取冲突或与已登记资产失配。
+        screenplay = self._normalize_prompt("screenplay")
+        # screenplay：台词 text + 说话人 speaker + 原文锚 source_text 全部逐字豁免
+        assert "不翻译" in screenplay
+        assert "utterances[].speaker" in screenplay
+        assert "utterances[].text" in screenplay
+        assert "source_text" in screenplay
+        # 资产引用键（characters_in_scene / scenes / props）同为精确集合校验对象，须一并豁免
+        assert "characters_in_scene[]" in screenplay
+
+    def test_normalize_novel_exempts_speaker_and_source_text_not_dialogue_text(self):
+        # speaker 是资产引用值（须等于 characters_in_scene 登记名），被翻译会破坏字幕归属 / TTS 映射，
+        # 故 novel 也豁免 speaker；但 novel 台词 text 仍按目标语言改编（非逐字提取）。
+        novel = self._normalize_prompt("novel")
+        assert "utterances[].speaker" in novel
+        assert "source_text" in novel
+        # 关键判别：novel 不逐字保留台词 text（screenplay 才豁免 utterances[].text）
+        assert "utterances[].text" not in novel
+
+    def test_normalize_includes_episode_outline_when_present(self):
+        # 内容抽取前移后，分集大纲（故事节点 / 钩子）驱动 step1 内容覆盖与末场落地，从 step2 移到 step1
+        prompt = self._normalize_prompt(
+            "novel",
+            episode_outline={
+                "title": "复仇",
+                "hook": "她推开门",
+                "story_beats": ["归家", "对峙"],
+                "next_episode_teaser": None,
+            },
+        )
+        assert "故事节点" in prompt
+        assert "她推开门" in prompt
+        # 无大纲时不渲染该段
+        assert "故事节点" not in self._normalize_prompt("novel")
 
 
 class TestOverviewPrompt:

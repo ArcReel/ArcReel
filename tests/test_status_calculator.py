@@ -116,20 +116,30 @@ class TestStatusCalculator:
         assert status3 == "none"
         assert script3 is None
 
-        # Case 4: drama 模式 — step1_normalized_script.md 存在 → ("segmented", None)
+        # Case 4: drama 模式 — step1_normalized_script.json（结构化内容）存在 → ("segmented", None)
         draft_dir_drama = project_path / "drafts" / "episode_4"
         draft_dir_drama.mkdir(parents=True)
-        (draft_dir_drama / "step1_normalized_script.md").write_text("drama draft")
+        (draft_dir_drama / "step1_normalized_script.json").write_text('{"title":"t","scenes":[]}')
         calc4 = StatusCalculator(_FakePM(project_root, {}, {}))
         status4, script4 = calc4._load_episode_script("demo", 4, "scripts/episode_4.json", content_mode="drama")
         assert status4 == "segmented"
         assert script4 is None
 
-        # Case 5: drama 模式 — 无 step1_normalized_script.md → ("none", None)
+        # Case 5: drama 模式 — 无 step1_normalized_script.json → ("none", None)
         calc5 = StatusCalculator(_FakePM(project_root, {}, {}))
         status5, script5 = calc5._load_episode_script("demo", 5, "scripts/episode_5.json", content_mode="drama")
         assert status5 == "none"
         assert script5 is None
+
+        # Case 6（AC8）：drama 仅残留旧 step1_normalized_script.md（无 .json、无剧本 JSON）→ ("none", None)
+        # 旧 .md 是结构化前的自由文本残留，不视为有效 step1；在制品会被路由回重跑 step1。
+        draft_dir_drama_legacy = project_path / "drafts" / "episode_7"
+        draft_dir_drama_legacy.mkdir(parents=True)
+        (draft_dir_drama_legacy / "step1_normalized_script.md").write_text("legacy free-text draft")
+        calc6 = StatusCalculator(_FakePM(project_root, {}, {}))
+        status6, script6 = calc6._load_episode_script("demo", 7, "scripts/episode_7.json", content_mode="drama")
+        assert status6 == "none"
+        assert script6 is None
 
     def test_calculate_current_phase_setup(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))

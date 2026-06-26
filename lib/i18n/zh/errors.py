@@ -76,6 +76,7 @@ MESSAGES = {
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_step_num": "无效的步骤编号: {step_num}",
     "draft_file_not_found": "草稿文件不存在",
+    "draft_invalid_json": "step1 草稿必须是包含非空 scenes 数组的合法 JSON 对象，且每个场景都是带非空 scene_id 的对象",
     "draft_event_label": "第 {episode} 集{label_prefix}",
     "normalized_script": "规范化剧本",
     "segment_splitting": "片段拆分",

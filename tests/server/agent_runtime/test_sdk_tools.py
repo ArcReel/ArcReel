@@ -29,6 +29,7 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_selected_tool,
 )
 from server.agent_runtime.sdk_tools.text_generation import (
+    _parse_normalized_content,
     generate_episode_script_tool,
     get_video_capabilities_tool,
     normalize_drama_script_tool,
@@ -947,6 +948,31 @@ async def test_generate_episode_script_ad_skips_step1(fake_ctx: ToolContext, mon
     assert out.get("is_error") is not True
 
 
+def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
+    """_parse_normalized_content 复用按 supported_durations 构造的动态 schema：合法 duration 经模型
+    校验并补全默认字段；超出枚举的 duration 触发 fail-loud（抛 ValueError），而非被静态模型(ge=1,le=60)
+    静默放行、也不降级保留未校验内容写盘。"""
+    from lib.script_models import build_drama_normalized_script_model
+
+    model = build_drama_normalized_script_model([4, 6, 8])
+    base_scene = {
+        "scene_id": "E1S01",
+        "duration_seconds": 8,
+        "characters_in_scene": ["林清"],
+        "scene_description": "林清立于窗前。",
+    }
+
+    valid = _parse_normalized_content(json.dumps({"title": "t", "scenes": [base_scene]}), model)
+    # 合法 duration → 模型校验通过，补全 DramaSceneContent 默认字段（source_text 默认空串）
+    assert valid["scenes"][0]["duration_seconds"] == 8
+    assert valid["scenes"][0]["source_text"] == ""
+
+    bad = {**base_scene, "duration_seconds": 5}  # 5 不在 supported_durations
+    # 超出枚举 → 动态 schema 校验失败 → fail-loud 抛 ValueError，不把未校验内容当成正式 step1 落盘
+    with pytest.raises(ValueError, match="step1 规范化内容结构校验失败"):
+        _parse_normalized_content(json.dumps({"title": "t", "scenes": [bad]}), model)
+
+
 async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -963,6 +989,60 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "DRY RUN" in out["content"][0]["text"]
+
+
+async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext, monkeypatch) -> None:
+    """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
+    非中文项目的 step1 输出语言据此切换，而非恒退默认中文。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    # 工具经 ctx.pm.load_project 取项目；source_language 是输出语言的唯一真相源
+    fake_ctx.pm.project_payload["source_language"] = "English"  # type: ignore[attr-defined]
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "chapter1.txt").write_text("once upon a time", encoding="utf-8")
+
+    async def fake_caps(_p):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    assert out.get("is_error") is not True
+    assert "English" in out["content"][0]["text"]
+
+
+async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext, monkeypatch) -> None:
+    """normalize 产出空 scenes → 工具报错，不把空 step1 当成功产物写盘（与 _load_drama_step1_content 同口径）。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def fake_caps(_p):
+        return 4, [4, 6, 8]
+
+    class _EmptyGenerator:
+        async def generate(self, _request, project_name=None):
+            class _R:
+                text = json.dumps({"title": "第一集", "scenes": []}, ensure_ascii=False)
+
+            return _R()
+
+    async def fake_create(task_type, project_name=None):
+        return _EmptyGenerator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+    # 空 scenes 不写盘，避免生成阶段才必然失败
+    assert not (project_path / "drafts" / "episode_1" / "step1_normalized_script.json").exists()
 
 
 async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -987,6 +1067,35 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     assert "E1S01" not in prompt_text
 
 
+async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext, monkeypatch) -> None:
+    """内容抽取前移后，分集大纲（故事节点 / 钩子）随 step1 注入 normalize prompt（见 ADR 0041）。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+    fake_ctx.pm.project_payload["episodes"] = [  # type: ignore[attr-defined]
+        {
+            "episode": 1,
+            "title": "初入江湖",
+            "hook": "少年坠崖生死未卜",
+            "outline": {"story_beats": ["少年下山"], "next_episode_teaser": None},
+        }
+    ]
+
+    async def fake_caps(_p):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "少年下山" in prompt_text
+    assert "少年坠崖生死未卜" in prompt_text
+
+
 async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
     """工具必须把 ctx.project_name 传给 TextGenerator.create/generate，
     否则项目级 text_backend_script 覆盖被跳过，且 usage tracking 会丢 project_name。"""
@@ -1007,7 +1116,26 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
             captured["generate_project_name"] = project_name
 
             class _R:
-                text = "| 场景 ID | 描述 |\n|---|---|\n| E1S01 | 山中 |"
+                # step1 现在产出结构化 JSON（DramaNormalizedScript），非 markdown 表
+                text = json.dumps(
+                    {
+                        "title": "第一集",
+                        "scenes": [
+                            {
+                                "scene_id": "E1S01",
+                                "duration_seconds": 4,
+                                "segment_break": False,
+                                "characters_in_scene": [],
+                                "scenes": [],
+                                "props": [],
+                                "scene_description": "山中清晨",
+                                "utterances": [],
+                                "source_text": "从前有座山",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
 
             return _R()
 
