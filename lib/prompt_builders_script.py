@@ -429,7 +429,7 @@ def build_drama_prompt(
 </shots>
 
 <episode_constraints>
-当前正在生成第 {episode} 集。每条视觉层的 scene_id 必须逐字等于上方分镜内容里的 scene_id（`E{episode}S{{两位序号}}` 格式），不得改写、合并或新增。
+当前正在生成第 {episode} 集。每条视觉层的 scene_id 必须逐字等于上方分镜内容里的 scene_id；若该 ID 含拆分/编辑后缀（如 `_1`），也必须原样保留，不得改写、合并或新增。
 </episode_constraints>
 
 # 字段写作指引

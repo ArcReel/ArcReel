@@ -92,6 +92,15 @@ def test_drama_injects_episode_constraints() -> None:
     assert "<episode_constraints>" in text
 
 
+def test_drama_step2_scene_id_preserves_edit_suffix_no_fixed_format() -> None:
+    """step2 视觉层 scene_id 须逐字保留 step1 原 ID（含拆分/编辑后缀如 E2S02_1）；
+    不得施加 E{集}S{两位序号} 固定格式约束——模型若去掉后缀，merge 按精确串对齐会整集失败。"""
+    text = build_drama_prompt(**_drama_kwargs())
+    assert "逐字等于" in text
+    assert "后缀" in text
+    assert "两位序号" not in text
+
+
 def test_narration_injects_episode_constraints() -> None:
     """narration prompt 须告知 episode；step1 已铸定 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
     text = build_narration_prompt(**_narration_kwargs())

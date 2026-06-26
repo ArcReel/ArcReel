@@ -18,6 +18,7 @@ from pydantic import BaseModel, ValidationError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode_ledger import episode_outline_context
+from lib.json_io import atomic_write_json
 from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
 from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
@@ -319,7 +320,9 @@ def normalize_drama_script_tool(ctx: ToolContext):
             drafts_dir = project_path / "drafts" / f"episode_{episode}"
             drafts_dir.mkdir(parents=True, exist_ok=True)
             step1_path = drafts_dir / "step1_normalized_script.json"
-            step1_path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+            # step1 真相源须原子写入：复用 atomic_write_json（同目录 tempfile + os.replace），
+            # 避免 normalize 中断 / 并发重跑留下半写 JSON 被下游当成损坏草稿。
+            atomic_write_json(step1_path, content)
 
             scenes = raw_scenes
             return {
