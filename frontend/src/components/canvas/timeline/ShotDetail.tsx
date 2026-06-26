@@ -619,34 +619,38 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      <div>
-        <div
-          className="mb-2 text-[10.5px] font-bold uppercase"
-          style={{
-            color: "var(--color-text-4)",
-            letterSpacing: "1px",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {t("detail_section_dialogue")}
-        </div>
-        {vidDraft ? (
-          <DialogueListEditor
-            dialogue={vidDraft.dialogue ?? []}
-            onChange={handleDialogueChange}
-          />
-        ) : (
+      {/* drama 口播已迁到 step1 审核 gate 的 utterances 富编辑：此处编辑 video_prompt.dialogue
+          仅服务 narration / ad（drama 的 video_prompt 不含 dialogue）。 */}
+      {contentMode !== "drama" && (
+        <div>
           <div
-            className="rounded-md py-3 text-center text-[11.5px] italic"
+            className="mb-2 text-[10.5px] font-bold uppercase"
             style={{
-              border: "1px dashed var(--color-hairline)",
               color: "var(--color-text-4)",
+              letterSpacing: "1px",
+              fontFamily: "var(--font-mono)",
             }}
           >
-            {t("detail_dialogue_empty")}
+            {t("detail_section_dialogue")}
           </div>
-        )}
-      </div>
+          {vidDraft ? (
+            <DialogueListEditor
+              dialogue={vidDraft.dialogue ?? []}
+              onChange={handleDialogueChange}
+            />
+          ) : (
+            <div
+              className="rounded-md py-3 text-center text-[11.5px] italic"
+              style={{
+                border: "1px dashed var(--color-hairline)",
+                color: "var(--color-text-4)",
+              }}
+            >
+              {t("detail_dialogue_empty")}
+            </div>
+          )}
+        </div>
+      )}
 
       {(hasNarrationText || contentMode === "narration") && (
         <div>

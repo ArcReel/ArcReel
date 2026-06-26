@@ -47,6 +47,8 @@ mcp__arcreel__generate_episode_script({"episode": {N}})
 
 等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。
 
+若错误为 **web 审核 gate 阻塞**（drama / narration 的 step1 结构化中间态尚未经 Web 端显式确认，或确认后内容又被改），这不是数据错误：不要反复重试、不要改写中间文件，应回报主 agent，引导用户在 Web 端审阅并确认本集 step1 内容后再重试本步骤。
+
 ### Step 3: 验证生成结果
 
 使用 Read 工具读取生成的 `scripts/episode_{N}.json`，

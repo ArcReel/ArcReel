@@ -897,13 +897,26 @@ async def test_generate_episode_script_missing_step1(fake_ctx: ToolContext) -> N
 
 async def test_generate_episode_script_writes_to_default_project_scripts(fake_ctx: ToolContext, monkeypatch) -> None:
     """output 参数已下线；写出路径必须由 ScriptGenerator 内部决定，handler 不应让 agent 控制。"""
+    from lib import script_review
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     project_path = fake_ctx.project_path
     drafts = project_path / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_segments.json").write_text("step1", encoding="utf-8")
-    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
+    step1 = drafts / "step1_segments.json"
+    step1.write_text("step1", encoding="utf-8")
+    # step1→step2 审核 gate：须先确认才放行生成，否则 handler 早返 gate 阻塞而非调 ScriptGenerator。
+    # 把已存确认指纹对齐当前 step1 内容指纹，模拟「用户已在 Web 确认」。
+    fingerprint = script_review.content_fingerprint(step1)
+    (project_path / "project.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "episodes": [{"episode": 1, "step1_review": {"fingerprint": fingerprint, "confirmed_at": "t"}}],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     captured: dict[str, dict[str, Any]] = {"calls": {}}
 

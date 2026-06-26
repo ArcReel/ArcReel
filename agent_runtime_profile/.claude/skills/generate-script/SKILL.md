@@ -21,6 +21,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
    - **ad（广告/短片）例外**：不需要任何 step1 中间文件——创作输入是 `project.json` 的
      `brief` + `products`（含 selling_points）+ `target_duration`，prompt 由后端按审定的
      带货八段框架配比表构建（`products` 为空自动分流通用短片 prompt）
+3. **drama / narration（图生 / 宫格）须先经 web 审核 gate 确认**：step1 结构化中间态在 Web 端审阅、可手动 / agent 编辑，用户**显式确认后**本工具才生成 step2 视觉层；未确认（或确认后内容又被改）时工具拒绝并提示去 Web 确认。ad 与 reference_video 不受此 gate 约束。
 
 ## 用法
 
