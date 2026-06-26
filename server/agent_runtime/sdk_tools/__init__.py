@@ -43,6 +43,7 @@ from server.agent_runtime.sdk_tools.patch_script import (
     split_segment_tool,
 )
 from server.agent_runtime.sdk_tools.text_generation import (
+    confirm_script_review_tool,
     generate_episode_script_tool,
     get_video_capabilities_tool,
     normalize_drama_script_tool,
@@ -68,6 +69,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_video_selected",
     "generate_narration_audio",
     "generate_episode_script",
+    "confirm_script_review",
     "normalize_drama_script",
     "get_video_capabilities",
     "plan_episodes",
@@ -98,6 +100,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             generate_video_selected_tool(ctx),
             generate_narration_audio_tool(ctx),
             generate_episode_script_tool(ctx),
+            confirm_script_review_tool(ctx),
             normalize_drama_script_tool(ctx),
             get_video_capabilities_tool(ctx),
             plan_episodes_tool(ctx),

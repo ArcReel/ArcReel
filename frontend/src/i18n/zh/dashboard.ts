@@ -1175,6 +1175,7 @@ export default {
   'tool_name_generate_video_selected': '生成视频（多选）',
   'tool_name_generate_narration_audio': '生成旁白配音',
   'tool_name_generate_episode_script': '生成剧本',
+  'tool_name_confirm_script_review': '确认 step1 审核',
   'tool_name_normalize_drama_script': '规范化剧本',
   'tool_name_get_video_capabilities': '查询视频模型能力',
   'tool_name_plan_episodes': '分集规划',

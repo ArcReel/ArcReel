@@ -81,6 +81,15 @@ def _write_step1(pm: ProjectManager, content_mode: str, content: dict) -> Path:
     return path
 
 
+def _write_step2(pm: ProjectManager) -> Path:
+    """写出 step2 产物（生成的剧本 JSON），模拟「已产 step2」。"""
+    scripts = pm.get_project_path("demo") / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    path = scripts / "episode_1.json"
+    atomic_write_json(path, {"title": "第一集", "scenes": []})
+    return path
+
+
 # ---------------------------------------------------------------------------
 # 状态流转（drama）
 # ---------------------------------------------------------------------------
@@ -242,3 +251,63 @@ class TestStep2Enforcement:
         assert result.get("is_error") is True
         text = result["content"][0]["text"]
         assert "step1" in text and "阻塞" in text
+
+    async def test_confirm_tool_unblocks_step2(self, tmp_path):
+        """agent 路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
+        from server.agent_runtime.sdk_tools._context import ToolContext
+        from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
+
+        pm = _make_project(tmp_path, "drama")
+        _write_step1(pm, "drama", _drama_step1())
+        project_path = pm.get_project_path("demo")
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+
+        ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+        result = await confirm_script_review_tool(ctx).handler({"episode": 1})
+
+        assert result.get("is_error") is not True
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+
+# ---------------------------------------------------------------------------
+# 存量穷举：{step1 有无 × step2 有无 × step1_review 有无} 的 gate 派生态
+# ---------------------------------------------------------------------------
+
+
+class TestLegacyEnumeration:
+    def test_no_step1(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "no_step1"
+
+    def test_step1_no_step2_no_review_pending(self, tmp_path):
+        """feature 后首次产 step1（未产 step2、无确认）→ 待审、阻塞。"""
+        pm = _make_project(tmp_path, "drama")
+        _write_step1(pm, "drama", _drama_step1())
+        assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "pending_review"
+
+    def test_step1_step2_no_review_grandfathered_confirmed(self, tmp_path):
+        """存量项目（已产 step1 + step2、无 step1_review 字段）→ grandfather 放行，不阻塞重跑。"""
+        pm = _make_project(tmp_path, "drama")
+        _write_step1(pm, "drama", _drama_step1())
+        _write_step2(pm)
+        project_path = pm.get_project_path("demo")
+        assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "confirmed"
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+    def test_step1_step2_review_matching_confirmed(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        _write_step1(pm, "drama", _drama_step1())
+        _write_step2(pm)
+        ScriptReviewService(pm).confirm("demo", 1)
+        assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "confirmed"
+
+    def test_step1_step2_review_mismatch_pending(self, tmp_path):
+        """已确认后 step1 又被改（即便 step2 在）→ 重新待审，指纹优先于 grandfather。"""
+        pm = _make_project(tmp_path, "drama")
+        _write_step1(pm, "drama", _drama_step1())
+        _write_step2(pm)
+        ScriptReviewService(pm).confirm("demo", 1)
+        edited = _drama_step1()
+        edited["scenes"][0]["source_text"] = "改写后的原文锚"
+        ScriptReviewService(pm).save_content("demo", 1, edited)
+        assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "pending_review"

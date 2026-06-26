@@ -201,6 +201,53 @@ def generate_episode_script_tool(ctx: ToolContext):
 
 
 # ---------------------------------------------------------------------------
+# confirm_script_review
+# ---------------------------------------------------------------------------
+
+
+def confirm_script_review_tool(ctx: ToolContext):
+    @tool(
+        "confirm_script_review",
+        "确认本集 step1 结构化中间态（drama / narration 的逐字口播 / 原文），放行 step2 视觉生成。"
+        "仅在用户对话中明确同意进入视觉生成、或已在 Web 端审阅认可后调用——这是 step2 的显式确认动作，"
+        "与 Web 端确认等价；未确认时 generate_episode_script 会被审核 gate 阻塞。",
+        {
+            "type": "object",
+            "properties": {"episode": {"type": "integer", "description": "剧集编号"}},
+            "required": ["episode"],
+        },
+    )
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            episode = int(args["episode"])
+            # 延迟导入避免 sdk_tools 在导入期耦合 server.services。
+            from server.services.script_review import ScriptReviewError, ScriptReviewService
+
+            service = ScriptReviewService(ctx.pm)
+            try:
+                state = service.confirm(ctx.project_name, episode)
+            except ScriptReviewError as exc:
+                return {
+                    "content": [
+                        {"type": "text", "text": f"❌ 无法确认 step1 审核（{exc.code}）：{exc.message or exc.code}"}
+                    ],
+                    "is_error": True,
+                }
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"✅ 第 {episode} 集 step1 已确认，step2 视觉生成已放行（status={state['status']}）",
+                    }
+                ]
+            }
+        except Exception as exc:  # noqa: BLE001
+            return tool_error("confirm_script_review", exc)
+
+    return _handler
+
+
+# ---------------------------------------------------------------------------
 # normalize_drama_script
 # ---------------------------------------------------------------------------
 
@@ -360,5 +407,6 @@ def normalize_drama_script_tool(ctx: ToolContext):
 __all__ = [
     "get_video_capabilities_tool",
     "generate_episode_script_tool",
+    "confirm_script_review_tool",
     "normalize_drama_script_tool",
 ]

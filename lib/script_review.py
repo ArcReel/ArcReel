@@ -82,15 +82,36 @@ def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
     return review if isinstance(review, dict) else {}
 
 
+def step2_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:
+    """该集 step2 产物（生成的剧本 JSON）是否已存在——存量 grandfather 判据。
+
+    取自 episode 条目的 ``script_file``（缺省回退约定路径 ``scripts/episode_N.json``，与
+    ScriptGenerator 固定写出口径一致）。
+    """
+    ep = find_episode(project, episode) or {}
+    script_file = ep.get("script_file") or f"scripts/episode_{episode}.json"
+    return (project_path / script_file).exists()
+
+
 def review_status(project_path: Path, project: dict[str, Any], episode: int) -> ReviewStatus:
-    """派生该集审核状态：比对已存确认指纹与 live step1 内容指纹。"""
+    """派生该集审核状态。
+
+    穷举 {step1 有无 × step2 有无 × step1_review 有无}：
+    - 无 step1（或 gate 不适用）：not_applicable / no_step1；
+    - 有确认指纹：与 live step1 内容指纹一致 → confirmed，不一致（step1 改过）→ pending_review；
+    - 无确认指纹（存量 / 首次）：已产 step2（存量项目升级前已通过该集）→ grandfather 放行 confirmed，
+      避免新 gate 无谓阻塞存量 step2 重跑；未产 step2（feature 后首次产 step1）→ pending_review 待确认。
+    """
     path = step1_path(project_path, project, episode)
     if path is None:
         return "not_applicable"
     live = content_fingerprint(path)
     if live is None:
         return "no_step1"
-    return "confirmed" if stored_review(project, episode).get("fingerprint") == live else "pending_review"
+    stored_fingerprint = stored_review(project, episode).get("fingerprint")
+    if stored_fingerprint is not None:
+        return "confirmed" if stored_fingerprint == live else "pending_review"
+    return "confirmed" if step2_generated(project_path, project, episode) else "pending_review"
 
 
 def gate_blocks_step2(project_path: Path, project: dict[str, Any], episode: int) -> bool:

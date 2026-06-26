@@ -1174,6 +1174,7 @@ export default {
   'tool_name_generate_video_selected': 'Generate video (selected)',
   'tool_name_generate_narration_audio': 'Generate narration audio',
   'tool_name_generate_episode_script': 'Generate script',
+  'tool_name_confirm_script_review': 'Confirm step 1 review',
   'tool_name_normalize_drama_script': 'Normalize drama script',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',
