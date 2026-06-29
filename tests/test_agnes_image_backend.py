@@ -247,6 +247,65 @@ class TestResponseHandling:
             with pytest.raises(RuntimeError):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
+    async def test_url_download_failure_falls_back_to_b64(self, tmp_path: Path):
+        # URL 下载失败但同响应带 b64_json：回退落盘，不丢弃已计费的成功生成
+        raw = b"\x89PNG\r\nfallback"
+        b64 = base64.b64encode(raw).decode("ascii")
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"created": 1, "data": [{"url": "https://x/out.png", "b64_json": b64}]}
+        client = _mock_client(resp)
+        download = AsyncMock(side_effect=RuntimeError("download boom"))
+        out = tmp_path / "o.png"
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.agnes import AgnesImageBackend
+
+            b = AgnesImageBackend(api_key="sk")
+            result = await b.generate(ImageGenerationRequest(prompt="x", output_path=out))
+
+        assert out.read_bytes() == raw
+        # 走 b64 回退路径，无远端 URL
+        assert result.image_uri is None
+        download.assert_called()
+
+    async def test_url_download_failure_without_b64_still_raises(self, tmp_path: Path):
+        # 仅有 url 且下载失败、无 b64 兜底：照常上抛，不静默吞错
+        client = _mock_client(_img_response())
+        download = AsyncMock(side_effect=RuntimeError("download boom"))
+        p1, p2 = _patches(client, download)
+        with p1, p2:
+            from lib.image_backends.agnes import AgnesImageBackend
+
+            b = AgnesImageBackend(api_key="sk")
+            with pytest.raises(RuntimeError):
+                await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
+
+    async def test_missing_url_b64_log_redacts_body(self, tmp_path: Path, caplog):
+        # 响应缺 url/b64 时只记键名与 data 条数，敏感字段值不落日志
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "created": 1,
+            "data": [{"prompt": "secret-prompt"}],
+            "signed_url": "https://x/secret?sig=abc",
+        }
+        client = _mock_client(resp)
+        download = AsyncMock()
+        p1, p2 = _patches(client, download)
+        with p1, p2, caplog.at_level("ERROR"):
+            from lib.image_backends.agnes import AgnesImageBackend
+
+            b = AgnesImageBackend(api_key="sk")
+            with pytest.raises(RuntimeError):
+                await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
+
+        log_text = caplog.text
+        assert "secret-prompt" not in log_text
+        assert "sig=abc" not in log_text
+        # 键名进日志便于诊断
+        assert "signed_url" in log_text
+
 
 class TestHttpErrors:
     async def test_400_surfaces_httpstatuserror_single_call(self, tmp_path: Path):

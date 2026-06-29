@@ -56,3 +56,12 @@ class TestHeaders:
         h = agnes_headers("sk-abc")
         assert h["Authorization"] == "Bearer sk-abc"
         assert h["Content-Type"] == "application/json"
+
+    def test_strips_whitespace_key(self):
+        # 复用 resolve_agnes_api_key：构造头前先归一化，不把首尾空白带进 Bearer
+        assert agnes_headers("  sk-abc  ")["Authorization"] == "Bearer sk-abc"
+
+    def test_blank_key_raises(self):
+        # 空白 key 本地即 raise，不拼出 "Bearer " 拖到请求期才 401
+        with pytest.raises(ValueError):
+            agnes_headers("   ")

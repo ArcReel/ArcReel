@@ -39,7 +39,12 @@ def agnes_base_url(configured: str | None = None) -> str:
 
 
 def agnes_headers(api_key: str) -> dict[str, str]:
-    """Bearer 鉴权头。"""
+    """Bearer 鉴权头。
+
+    复用 resolve_agnes_api_key 校验：空串 / 纯空白即本地 raise，避免拼出
+    ``Authorization: Bearer `` 把缺失 key 拖到请求期才收上游 401。
+    """
+    api_key = resolve_agnes_api_key(api_key)
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",

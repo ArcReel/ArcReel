@@ -190,21 +190,33 @@ class AgnesImageBackend:
     async def _persist_image(self, data: dict, output_path: Path) -> str | None:
         """把 images/generations 响应落地为本地文件，返回远端 URL（base64 路径返回 None）。
 
-        优先 URL（立即下载），URL 缺失降级 base64 解码写盘；两者皆空即报错。
+        优先 URL（立即下载）；URL 缺失或下载失败时降级到同响应内 base64 解码写盘，
+        避免一次已计费的成功生成因下载环节失败而无法落盘；两者皆空即报错。
         """
         url = _extract_first_str(data, "url")
-        if url:
-            await self._download_result(url, output_path)
-            return url
-
         b64 = _extract_first_str(data, "b64_json")
+        if url:
+            try:
+                await self._download_result(url, output_path)
+                return url
+            except Exception:
+                if not b64:
+                    raise
+                logger.warning("Agnes 结果 URL 下载失败，改用响应内 b64_json 落盘")
+
         if b64:
             await _write_base64_image(b64, output_path)
             return None
 
-        # 完整响应体记日志便于诊断，但不嵌进异常消息——避免 body 里的 "503"/"timeout" 等子串
-        # 被默认 _should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
-        logger.error("Agnes 图像响应缺少 url/b64_json: %s", data)
+        # 完整响应体可能含 prompt / 签名 URL 等敏感字段，与请求日志脱敏策略一致：只记键名与
+        # data 条数，不落整 body；异常消息同样不嵌 body——避免 "503"/"timeout" 子串被默认
+        # _should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
+        data_items = data.get("data")
+        logger.error(
+            "Agnes 图像响应缺少 url/b64_json: keys=%s data_count=%s",
+            sorted(str(key) for key in data),
+            len(data_items) if isinstance(data_items, list) else None,
+        )
         raise RuntimeError("Agnes 图像响应缺少 url/b64_json")
 
     @with_retry_async(
