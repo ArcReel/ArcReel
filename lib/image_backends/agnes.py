@@ -176,7 +176,7 @@ class AgnesImageBackend:
                 raise ImageCapabilityError(
                     "image_reference_images_unreadable",
                     model=self._model,
-                    names=path.name if path else f"#{idx}",
+                    names=path.name if path and path.name else f"#{idx}",
                 )
             try:
                 uris.append(image_to_base64_data_uri(path))

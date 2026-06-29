@@ -32,7 +32,7 @@ def _b64_response(b64: str) -> MagicMock:
     return resp
 
 
-def _mock_client(resp: MagicMock) -> AsyncMock:
+def _mock_client(resp: MagicMock | httpx.Response) -> AsyncMock:
     client = AsyncMock()
     client.post = AsyncMock(return_value=resp)
     client.__aenter__ = AsyncMock(return_value=client)
@@ -46,18 +46,9 @@ def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
     return ReferenceImage(path=str(p))
 
 
-def _http_error(status_code: int, message: str) -> httpx.HTTPStatusError:
+def _error_response(status_code: int) -> httpx.Response:
     request = httpx.Request("POST", "https://x/v1/images/generations")
-    response = httpx.Response(status_code, request=request, text=message)
-    return httpx.HTTPStatusError(f"error {status_code}", request=request, response=response)
-
-
-def _error_response(status_code: int) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.text = "boom"
-    resp.raise_for_status = MagicMock(side_effect=_http_error(status_code, "boom"))
-    return resp
+    return httpx.Response(status_code, request=request, text="boom")
 
 
 def _patches(client: AsyncMock, download: AsyncMock):
