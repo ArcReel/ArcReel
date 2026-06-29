@@ -71,7 +71,7 @@ def test_optional_keys_have_no_worker_for_unsupported_lane():
     for name, meta in PROVIDER_REGISTRY.items():
         supported_worker_keys = {_LANE_WORKER_KEY[m] for m in meta.media_types if m in _LANE_WORKER_KEY}
         for key in meta.optional_keys:
-            if key.endswith("_max_workers"):
+            if key in _LANE_WORKER_KEY.values():
                 assert key in supported_worker_keys, f"{name}: optional_keys 含 {key} 但 provider 不支持对应 lane"
 
 
