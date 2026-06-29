@@ -115,6 +115,38 @@ class TestNumFramesAndSize:
         assert width % 8 == 0 and height % 8 == 0
 
 
+class TestDurationCoercion:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (10, 10),
+            ("10.0", 10),
+            ("9.6", 10),  # half-up 取整，不少计费秒
+            ("9.4", 9),
+            (4.5, 5),
+            (0, None),  # 非正值回 None，由 caller 回落请求时长
+            ("0", None),
+            (-3, None),
+            ("abc", None),
+            (None, None),
+        ],
+    )
+    def test_coerce_duration(self, value: object, expected: int | None):
+        from lib.video_backends.agnes import _coerce_duration
+
+        assert _coerce_duration(value) == expected
+
+    def test_extract_duration_falls_back_when_usage_zero(self):
+        from lib.video_backends.agnes import _extract_duration_seconds
+
+        # usage.duration_seconds=0 不应落到结果对象，回落请求时长
+        assert _extract_duration_seconds({"usage": {"duration_seconds": 0}}, fallback=5) == 5
+        # 优先 usage，其次顶层 seconds，再回落
+        assert _extract_duration_seconds({"usage": {"duration_seconds": "9.6"}}, fallback=5) == 10
+        assert _extract_duration_seconds({"seconds": "7"}, fallback=5) == 7
+        assert _extract_duration_seconds({}, fallback=5) == 5
+
+
 class TestTextToVideo:
     async def test_happy_path_submits_and_polls(self, tmp_path: Path):
         create_resp = _make_response(200, {"task_id": "task-42", "status": "queued"})
@@ -152,6 +184,8 @@ class TestTextToVideo:
         assert result.duration_seconds == 5
         assert result.task_id == "task-42"
         assert result.video_uri == "https://cdn.agnes/out.mp4"
+        # Agnes 无音频能力，成片恒无声
+        assert result.generate_audio is False
 
         post_call = client.post.call_args
         assert post_call.args[0] == "https://apihub.agnes-ai.com/v1/videos"
@@ -362,6 +396,61 @@ class TestImageChannels:
                 )
             assert ei.value.code == "video_start_image_unreadable"
 
+    async def test_missing_end_image_fails_loud_with_end_code(self, tmp_path: Path):
+        """首尾帧模式下尾帧缺失：错误码指向尾帧而非首帧。"""
+        start = _write_image(tmp_path / "s.png", b"start-bytes")
+        client = _mock_client(post=AsyncMock(side_effect=AssertionError("缺尾帧不应提交")))
+
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            with pytest.raises(VideoCapabilityError) as ei:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p",
+                        output_path=tmp_path / "o.mp4",
+                        start_image=start,
+                        end_image=tmp_path / "missing-end.png",
+                        aspect_ratio="9:16",
+                        duration_seconds=5,
+                    )
+                )
+            assert ei.value.code == "video_end_image_unreadable"
+
+    async def test_empty_path_objects_degrade_to_text_to_video(self, tmp_path: Path):
+        """空 Path（``Path("")`` 塌成 ``Path(".")``）应归一化为 None，回落文生视频而非误报无法读取。"""
+        create_resp = _make_response(200, {"task_id": "t-empty", "status": "queued"})
+        poll_resp = _make_response(200, _completed("t-empty"))
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(return_value=poll_resp),
+        )
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    start_image=Path(""),
+                    reference_images=[Path("")],
+                    aspect_ratio="9:16",
+                    duration_seconds=5,
+                )
+            )
+
+        body = client.post.call_args.kwargs["json"]
+        assert "image" not in body
+        assert "extra_body" not in body
+
 
 class TestFailureAndTimeout:
     async def test_failed_status_raises(self, tmp_path: Path):
@@ -388,6 +477,34 @@ class TestFailureAndTimeout:
                     )
                 )
 
+        fake_download.assert_not_called()
+
+    async def test_non_failed_terminal_status_fails_fast(self, tmp_path: Path):
+        """上游以 cancelled 等非 failed 失败态收尾时快速失败，不轮询到 timeout。"""
+        create_resp = _make_response(200, {"task_id": "t-cxl", "status": "queued"})
+        cancelled = _make_response(
+            200, {"task_id": "t-cxl", "status": "cancelled", "error": {"message": "user cancelled"}}
+        )
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(return_value=cancelled),
+        )
+        fake_download = AsyncMock()
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            with pytest.raises(RuntimeError, match="user cancelled"):
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                    )
+                )
         fake_download.assert_not_called()
 
     async def test_completed_without_video_url_raises(self, tmp_path: Path):

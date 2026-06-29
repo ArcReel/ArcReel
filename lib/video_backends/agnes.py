@@ -15,14 +15,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 import httpx
 
 from lib.agnes_shared import agnes_base_url, agnes_headers, resolve_agnes_api_key
 from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_AGNES
 from lib.retry import (
@@ -80,6 +83,10 @@ _POLL_TIMEOUT_PER_SECOND = 60.0
 
 _KEYFRAMES_MODE = "keyframes"
 
+# 失败终态集合：除文档化的 failed 外，纳入 error / cancelled / canceled，避免上游以非标准失败态
+# 收尾时被当「仍在进行」轮询到超时。
+_FAILED_STATUSES = ("failed", "error", "cancelled", "canceled")
+
 # 进日志的安全标量白名单；image / extra_body 内的 base64 一律不入日志。
 _SAFE_LOG_KEYS = ("model", "height", "width", "num_frames", "frame_rate", "seed")
 
@@ -130,35 +137,45 @@ def _extract_task_id(body: dict) -> str:
         value = body.get(key)
         if isinstance(value, str) and value:
             return value
-    raise RuntimeError(f"Agnes 视频提交返回体缺少 task_id: {body}")
+    # 仅暴露字段名，不回显整串响应（可能含 prompt / 签名 URL 等敏感字段，与 _safe_body_for_log 同口径）。
+    raise RuntimeError(f"Agnes 视频提交返回体缺少 task_id（字段: {sorted(body)}）")
 
 
 def _extract_duration_seconds(final: dict, fallback: int) -> int:
-    """从轮询终态取实际时长（``usage.duration_seconds`` 优先，回落顶层 ``seconds``，再回落请求值）。"""
+    """从轮询终态取实际计费时长（``usage.duration_seconds`` 优先，回落顶层 ``seconds``，再回落请求值）。"""
     usage = final.get("usage")
     if isinstance(usage, dict):
-        parsed = _coerce_int(usage.get("duration_seconds"))
+        parsed = _coerce_duration(usage.get("duration_seconds"))
         if parsed is not None:
             return parsed
-    parsed = _coerce_int(final.get("seconds"))
+    parsed = _coerce_duration(final.get("seconds"))
     if parsed is not None:
         return parsed
     return fallback
 
 
-def _coerce_int(value: object) -> int | None:
-    """把 ``"10.0"`` / ``10`` 这类时长值归一化为 int；不可解析回 None。"""
+def _coerce_duration(value: object) -> int | None:
+    """把 ``"10.0"`` / ``10`` 这类时长值归一化为计费秒数：half-up 取整（4.5→5，不少计），
+    非正值 / 超 24h 上限（防 DB Integer 列溢出）/ 不可解析一律回 None，由 caller 回落请求时长。
+    """
     if value is None:
         return None
     try:
-        return int(float(value))  # pyright: ignore[reportArgumentType]
-    except (TypeError, ValueError):
+        decimal_value = Decimal(str(value))
+        if not 0 < decimal_value <= MAX_BILLED_DURATION_SECONDS:
+            return None
+        return int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
         return None
 
 
 def _failure_reason(state: dict) -> str | None:
-    """``status=failed`` → 错误描述；其余 → None。"""
-    if state.get("status") != "failed":
+    """失败终态（failed / error / cancelled / canceled）→ 错误描述；其余 → None。
+
+    不止认 ``failed``：上游若以其他失败态收尾，仅认 completed/failed 会把它当「仍在进行」轮询到
+    max_wait 才抛误导性 TimeoutError，白占 worker 通道；显式枚举失败态让其快速失败。
+    """
+    if state.get("status") not in _FAILED_STATUSES:
         return None
     err = state.get("error")
     if isinstance(err, dict):
@@ -212,7 +229,9 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        payload = self._build_payload(request)
+        # 读盘 + base64 编码（首尾帧最多 2 张、参考图最多 4 张，可能数 MB）offload 到线程，
+        # 避免阻塞共享 worker 事件循环（与 image 后端及 grok/gemini 视频后端一致）。
+        payload = await asyncio.to_thread(self._build_payload, request)
         logger.info(
             "调用 %s 视频 API model=%s body=%s",
             self.name,
@@ -265,7 +284,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             payload["extra_body"] = {"image": [self._encode_reference(p) for p in reference_images]}
         elif start_image is not None and end_image is not None:
             payload["extra_body"] = {
-                "image": [self._encode_start(start_image), self._encode_start(end_image)],
+                "image": [self._encode_start(start_image), self._encode_end(end_image)],
                 "mode": _KEYFRAMES_MODE,
             }
         elif start_image is not None:
@@ -275,32 +294,39 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def _single_path(value: str | Path | None) -> Path | None:
-        """把请求里的图像字段归一化成 Path；空 / 空串 → None。"""
-        if isinstance(value, (str, Path)) and str(value):
-            return Path(value)
-        return None
+        """把请求里的图像字段归一化成 Path；空 / 空串 / 空 Path（``Path("")`` 会塌成 ``Path(".")``）→ None。"""
+        if value is None:
+            return None
+        text = str(value)
+        if not text or text == ".":
+            return None
+        return Path(text)
 
-    @staticmethod
-    def _valid_paths(values: list[Path] | None) -> list[Path]:
-        return [Path(v) for v in (values or []) if v]
+    @classmethod
+    def _valid_paths(cls, values: list[Path] | None) -> list[Path]:
+        """归一化参考图列表：剔除空 / 空 Path（``[Path(v) for v if v]`` 对 Path 恒真，不起过滤作用）。"""
+        return [p for v in (values or []) if (p := cls._single_path(v)) is not None]
 
     def _encode_start(self, path: Path) -> str:
-        """裸 base64 编码首/尾帧；缺失或不可读 fail-loud（不静默退化为文生视频）。"""
-        if not path.is_file():
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name)
-        try:
-            return _image_to_bare_base64(path)
-        except OSError as exc:
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name) from exc
+        """裸 base64 编码首帧；缺失或不可读 fail-loud（不静默退化为文生视频）。"""
+        return self._encode_image(path, error_code="video_start_image_unreadable", name=path.name)
+
+    def _encode_end(self, path: Path) -> str:
+        """裸 base64 编码尾帧；缺失或不可读 fail-loud（错误指向尾帧而非首帧）。"""
+        return self._encode_image(path, error_code="video_end_image_unreadable", name=path.name)
 
     def _encode_reference(self, path: Path) -> str:
         """裸 base64 编码参考图；缺失或不可读 fail-loud（不静默丢弃后照常计费）。"""
+        return self._encode_image(path, error_code="video_reference_images_unreadable", names=path.name)
+
+    def _encode_image(self, path: Path, *, error_code: str, **err_params: str) -> str:
+        """裸 base64 编码图像；缺失或不可读时按通道 error_code / 参数名 fail-loud。"""
         if not path.is_file():
-            raise VideoCapabilityError("video_reference_images_unreadable", model=self._model, names=path.name)
+            raise VideoCapabilityError(error_code, model=self._model, **err_params)
         try:
             return _image_to_bare_base64(path)
         except OSError as exc:
-            raise VideoCapabilityError("video_reference_images_unreadable", model=self._model, names=path.name) from exc
+            raise VideoCapabilityError(error_code, model=self._model, **err_params) from exc
 
     # ── HTTP submit / poll / download ───────────────────────────────────
 
@@ -369,7 +395,8 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
         video_url = final.get("remixed_from_video_id")
         if not isinstance(video_url, str) or not video_url:
-            raise RuntimeError(f"Agnes 任务完成但缺少 remixed_from_video_id 成片 URL: {final}")
+            # 仅暴露字段名，不回显整串响应（可能含签名 URL 等敏感字段，与 _safe_body_for_log 同口径）。
+            raise RuntimeError(f"Agnes 任务完成但缺少 remixed_from_video_id 成片 URL（字段: {sorted(final)}）")
 
         await self._download_with_retry(video_url, request.output_path)
         logger.info("Agnes 视频下载完成: %s", request.output_path)
@@ -382,7 +409,9 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             video_uri=video_url,
             task_id=task_id,
             seed=request.seed,
-            generate_audio=request.generate_audio,
+            # Agnes 视频无音频能力（未声明 GENERATE_AUDIO、提交体不带音频字段），成片恒无声；
+            # 固定 False 与 kling/vidu 无声模型一致，避免下游（计费/版本元数据/剪映导出）误判有声。
+            generate_audio=False,
         )
 
     @staticmethod
