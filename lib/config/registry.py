@@ -1078,8 +1078,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         required_keys=["access_key", "secret_key"],
         optional_keys=["image_max_workers", "video_max_workers"],
         secret_keys=["access_key", "secret_key"],
-        # JWT 直连视频：默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
-        # v2-6（pro 人声）、video-o1（多图主体 R2V）。图像模型留后续片接入。
+        # JWT 直连：视频默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
+        # v2-6（pro 人声）、video-o1（多图主体 R2V）；图像 kling-image-o1（默认）+ v3-omni（两栖）。
         models={
             "kling-v2-5-turbo": ModelInfo(
                 display_name="可灵 2.5 Turbo",
