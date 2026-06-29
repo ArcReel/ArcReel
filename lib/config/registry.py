@@ -1076,6 +1076,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # 首个需要两个 secret 字符串的内置 provider（JWT HS256 鉴权），凭证按 registry key 名
         # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。
         required_keys=["access_key", "secret_key"],
+        optional_keys=["image_max_workers", "video_max_workers"],
         secret_keys=["access_key", "secret_key"],
         # JWT 直连视频：默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
         # v2-6（pro 人声）、video-o1（多图主体 R2V）。图像模型留后续片接入。
