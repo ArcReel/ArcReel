@@ -242,10 +242,11 @@ class TestCapacityTable:
 
         monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
         monkeypatch.delenv("VIDEO_MAX_WORKERS", raising=False)
+        monkeypatch.delenv("AUDIO_MAX_WORKERS", raising=False)
         table = CapacityTable.from_env()
         for pid, meta in PROVIDER_REGISTRY.items():
             assert pid in table._limits
-            for lane, global_default in (("image", 5), ("video", 3)):
+            for lane, global_default in (("image", 5), ("video", 3), ("audio", 10)):
                 if lane not in meta.media_types:
                     assert table.get(pid, lane) == 0  # 不支持的 lane → 投影为 0
                 elif lane not in meta.default_concurrency:
