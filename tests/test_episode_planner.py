@@ -306,8 +306,8 @@ class TestPlan:
         assert [s.title for s in result.episodes] == ["Dawn"]
 
     async def test_plan_resolves_anchor_with_unicode_nfc_mismatch(self, tmp_path: Path):
-        """锚点与源文 Unicode 规范形不一致（锚为 NFD 分解形 ↔ 源文 NFC）：折叠兜底先对
-        锚副本做 NFC 归一再匹配，还原精确 NFC 偏移；Tier1 字节级行为与源文坐标不变。"""
+        """锚点与源文 Unicode 规范形不一致（锚为 NFD 分解形 ↔ 源文 NFC）：折叠兜底对锚副本
+        施加与 window 相同的 normalize_source_text 归一再匹配，还原精确偏移；Tier1 与源文坐标不变。"""
         source = unicodedata.normalize("NFC", "Tôi yêu tiếng Việt. Hôm nay trời đẹp lắm.")
         project_dir = _write_project(tmp_path, source_text=source)
         nfc_anchor = "Tôi yêu tiếng Việt."
@@ -323,6 +323,32 @@ class TestPlan:
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
         assert ep1 == source[:end]  # 切片取 NFC 原文，未改写源文
+        assert [s.title for s in result.episodes] == ["Mở đầu"]
+
+    async def test_plan_resolves_anchor_with_crlf_and_combining_length_change(self, tmp_path: Path):
+        """长度护栏：锚同时含 \\r\\n 与会改变长度的组合字符（NFD），两者都让锚比源文对应子串更长。
+        归一副本走 normalize_source_text（NFC + 换行统一），end 跨度按归一锚长还原，断言源文偏移/
+        切片逐字节落在归一坐标系上、不被 \\r 或组合字符撑长漂移；Tier1 仍逐字节不变。"""
+        # 源文已是存储坐标系形态（NFC + \n）；窗口与切片均在此坐标系上
+        source = "Tôi yêu tiếng Việt.\nHôm nay trời đẹp lắm. Mọi thứ thật tuyệt vời."
+        project_dir = _write_project(tmp_path, source_text=source)
+        nfc_sub = "Tôi yêu tiếng Việt.\nHôm nay"  # 源文中的精确子串（NFC + \n）
+        # 模型回显：组合字符分解（NFD，变长）+ 换行写成 \r\n（再 +1）
+        crlf_nfd_anchor = unicodedata.normalize("NFD", nfc_sub).replace("\n", "\r\n")
+        assert "\r\n" in crlf_nfd_anchor and len(crlf_nfd_anchor) > len(nfc_sub)
+
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "Mở đầu", "hook": "hook", "end_anchor": crlf_nfd_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        eps = _load_project(project_dir)["episodes"]
+        end = source.index(nfc_sub) + len(nfc_sub)  # 归一坐标系下的精确末偏移（非锚原长）
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]  # 切片逐字节落在源文坐标上，未被 \r/组合字符撑长漂移
         assert [s.title for s in result.episodes] == ["Mở đầu"]
 
     async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
