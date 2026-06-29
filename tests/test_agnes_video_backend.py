@@ -403,6 +403,28 @@ class TestImageChannels:
             assert ei.value.code == "video_reference_images_with_frames_unsupported"
         client.post.assert_not_called()
 
+    async def test_end_image_only_fails_loud(self, tmp_path: Path):
+        """仅提供尾帧（无首帧）时 fail-loud——Agnes 无独立尾帧通道，不静默退化为文生视频。"""
+        end = _write_image(tmp_path / "e.png", b"end")
+        client = _mock_client(post=AsyncMock(side_effect=AssertionError("仅尾帧不应提交")))
+
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            with pytest.raises(VideoCapabilityError) as ei:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p",
+                        output_path=tmp_path / "o.mp4",
+                        end_image=end,
+                        aspect_ratio="9:16",
+                        duration_seconds=5,
+                    )
+                )
+            assert ei.value.code == "video_end_image_requires_start_image"
+        client.post.assert_not_called()
+
     async def test_missing_start_image_fails_loud(self, tmp_path: Path):
         client = _mock_client(post=AsyncMock(side_effect=AssertionError("缺图不应提交")))
 

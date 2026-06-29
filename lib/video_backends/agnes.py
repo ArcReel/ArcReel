@@ -284,6 +284,11 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         if reference_images and (start_image is not None or end_image is not None):
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
 
+        # 尾帧仅在 keyframes（首+尾）模式下生效，无独立尾帧通道。只给尾帧时 fail-loud，而非静默
+        # 退化为文生视频——video_capabilities.last_frame=True 表示支持首尾帧对，不含单独尾帧。
+        if end_image is not None and start_image is None:
+            raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
+
         if reference_images:
             if len(reference_images) > _MAX_REFERENCE_IMAGES:
                 raise VideoCapabilityError(
