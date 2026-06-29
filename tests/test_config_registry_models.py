@@ -95,7 +95,9 @@ class TestProviderMeta:
                 default_concurrency={"vidoe": 1},
             )
 
-    @pytest.mark.parametrize("bad_limit", [0, -1, "1", 3.0])
+    # True 是 int 子类、值等于 1，须显式拦截，否则配置笔误 default_concurrency={"video": True}
+    # 会被静默当成并发 1。
+    @pytest.mark.parametrize("bad_limit", [0, -1, "1", 3.0, True])
     def test_default_concurrency_non_positive_int_raises(self, bad_limit):
         with pytest.raises(ValueError, match=">=1 的整数"):
             ProviderMeta(

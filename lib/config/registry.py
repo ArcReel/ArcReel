@@ -69,9 +69,10 @@ class ProviderMeta:
                 raise ValueError(
                     f"{self.display_name} default_concurrency 含未知 lane {lane!r}，合法值：{sorted(_VALID_LANES)}"
                 )
-            # isinstance 看似多余（声明类型已是 int），但注册表是手写静态数据，运行时
-            # Python 不强制注解；此处兜住作者笔误（如字符串 "1"、浮点 3.0）违反声明类型。
-            if not isinstance(limit, int) or limit < 1:  # pyright: ignore[reportUnnecessaryIsInstance]
+            # 注册表是手写静态数据，运行时 Python 不强制注解；用精确类型判定兜住作者笔误。
+            # bool 是 int 子类，isinstance(True, int) 为真会把 True 当并发 1 静默放行；字符串
+            # "1"、浮点 3.0 同样违反声明类型。type() is int 把这几类一并挡在 import 期。
+            if type(limit) is not int or limit < 1:
                 raise ValueError(f"{self.display_name} default_concurrency[{lane!r}] 必须是 >=1 的整数，得到 {limit!r}")
 
     @property
