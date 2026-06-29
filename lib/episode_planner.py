@@ -163,6 +163,61 @@ class _DraftRejected(Exception):
         self.reasons = reasons
 
 
+# 全/半角标点折叠表：把同一标点的全角 / 表意形态映射到半角规范形，仅供匹配时构造
+# 折叠副本用，绝不落库。逐字符 1:1 映射（长度不变），折叠坐标即 NFC 精确坐标。
+_PUNCT_FOLD: dict[str, str] = {
+    "。": ".",  # U+3002 表意句号
+    "．": ".",  # U+FF0E 全角句点
+    "，": ",",  # U+FF0C 全角逗号
+    "！": "!",  # U+FF01 全角叹号
+    "？": "?",  # U+FF1F 全角问号
+    "：": ":",  # U+FF1A 全角冒号
+    "；": ";",  # U+FF1B 全角分号
+    "（": "(",  # U+FF08 全角左括号
+    "）": ")",  # U+FF09 全角右括号
+    "～": "~",  # U+FF5E 全角波浪号
+}
+# 折叠值必须是单字符：_fold_for_match 的逐字符 1:1 等长依赖于此。一旦某条映射折成多字符，
+# 折叠串偏移就相对 NFC 原文漂移，end = start + len(anchor) 会算出错误切点。导入期即拦截违例。
+assert all(len(dst) == 1 for dst in _PUNCT_FOLD.values()), "折叠表的值必须是单字符以保证等长映射"
+
+
+def _fold_for_match(text: str) -> str:
+    """构造匹配用折叠副本：折叠全/半角标点 + 把每个空白字符折成一个半角空格（逐字符等长，不合并连续空白）。
+
+    严格逐字符 1:1 映射（每个字符映射为恰好一个字符，连续空白按原数量逐个保留、不压缩），
+    长度与原文一致，因而折叠串上的偏移即原文 NFC 坐标系内的精确偏移。容差只限定在标点
+    全/半角与单个空白字符的宽度，不做编辑距离 / 语义级模糊匹配。
+    """
+    out: list[str] = []
+    for ch in text:
+        folded = _PUNCT_FOLD.get(ch)
+        if folded is not None:
+            out.append(folded)
+        elif ch.isspace():
+            out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _find_all_overlapping(haystack: str, needle: str) -> list[int]:
+    """收集 needle 在 haystack 内的全部起点（允许重叠）。
+
+    str.count 只统计非重叠匹配，会把重叠出现（如 "aaaa" 中的 "aaa"）误判为唯一；
+    步进 1 滑动查找，按允许重叠的口径判定 0/1/多次。空 needle 直接返回空列表
+    （调用方的 anchor 受 min_length=2 约束不会为空，此处仅作 helper 的防御边界）。
+    """
+    if not needle:
+        return []
+    starts: list[int] = []
+    found = haystack.find(needle)
+    while found != -1:
+        starts.append(found)
+        found = haystack.find(needle, found + 1)
+    return starts
+
+
 def _resolve_boundaries(
     window: str,
     drafts: list[NarrationEpisodeDraft],
@@ -177,32 +232,58 @@ def _resolve_boundaries(
     ``snap_whitespace_tail`` 任一生效——前者是 replan 闭合范围，后者是 plan 的
     全文结尾窗口，贴齐后每个字符都归属某一集）。``cover_to_end=True`` 时残留
     非空白尾巴视为校验失败。
+
+    锚点定位分级：先精确 ``find``（命中即与逐字节匹配完全一致，Tier1 不做任何归一）；
+    精确落空时退化到容错——先对锚副本施加与 window 相同的 ``normalize_source_text`` 归一
+    （NFC + 换行统一），把「window 已归一、anchor 未归一」整类失配一次性闭合，再按折叠
+    全/半角标点 + 折叠空白宽度的等价口径在折叠副本上扫描。折叠对 window 为 1:1 等长映射，
+    故命中起点即归一坐标系下的精确起点；跨度取归一后的锚长（``normalize_source_text`` 非
+    长度保持，end 必须用归一锚长而非原 anchor 长，否则 \\r 或组合字符撑长会让偏移漂移）。
+    切片仍取归一后的原文、不改写源文标点。折叠后仍多处命中时维持「无法唯一定位」拒绝。
     """
     reasons: list[str] = []
     ends: list[int] = []
     pos = 0
     ordering_valid = True
+    folded_window: str | None = None  # 懒构造：仅在精确匹配落空时折叠一次
     for idx, ep in enumerate(drafts, start=1):
         anchor = ep.end_anchor
-        # str.count 只统计非重叠匹配，会把重叠出现（如 "aaaa" 中的 "aaa"）误判为唯一；
-        # 步进 1 滑动查找收集所有起点，按允许重叠的口径判定 0/1/多次
-        starts: list[int] = []
-        found = window.find(anchor)
-        while found != -1:
-            starts.append(found)
-            found = window.find(anchor, found + 1)
+        match_len = len(anchor)  # 精确命中：跨度即原 anchor 长度（与 window 逐字节一致）
+        starts = _find_all_overlapping(window, anchor)
+        matched_by_fold = False
+        if not starts:
+            # 精确落空：退化到容错匹配。对「匹配用的锚副本」施加与 window 完全相同的归一
+            # （normalize_source_text：NFC + 换行统一，window 本就经它产出），再折叠标点全/半角
+            # 与空白宽度，在对 window 等长的折叠副本上定位精确偏移；Tier1 字节级行为与源文坐标
+            # 不变。normalize_source_text 非长度保持，故 end 跨度取归一后锚长 match_len（不是原
+            # anchor 长），与归一坐标系对齐，避免 \r / 组合字符撑长导致偏移漂移、损坏切片坐标。
+            if folded_window is None:
+                folded_window = _fold_for_match(window)
+            normalized_anchor = normalize_source_text(anchor)
+            starts = _find_all_overlapping(folded_window, _fold_for_match(normalized_anchor))
+            if starts:
+                matched_by_fold = True
+                match_len = len(normalized_anchor)
         if not starts:
             reasons.append(f"第 {idx} 条的 end_anchor 在原文窗口中不存在（必须逐字摘抄，含标点）: {anchor!r}")
             ordering_valid = False
             continue
         if len(starts) > 1:
-            reasons.append(
-                f"第 {idx} 条的 end_anchor 在原文窗口中出现 {len(starts)} 次，无法唯一定位，"
-                f"请改用更长或更独特的片段: {anchor!r}"
-            )
+            if matched_by_fold:
+                # 折叠路径的「出现 N 次」是标点 / 空白折叠对齐后的计数；模型按字面 anchor 逐字数
+                # 往往是 0 次，必须点明计数口径，否则模型对不上、可能反复重交同一 anchor 耗尽重试
+                reasons.append(
+                    f"第 {idx} 条的 end_anchor 在原文窗口中按归一（NFC 与换行统一）及标点全/半角、空白折叠对齐后出现 {len(starts)} 次"
+                    f"（逐字精确匹配可能为 0 次），无法唯一定位，请改用更长或更独特、与原文逐字一致的片段: {anchor!r}"
+                )
+            else:
+                reasons.append(
+                    f"第 {idx} 条的 end_anchor 在原文窗口中出现 {len(starts)} 次，无法唯一定位，"
+                    f"请改用更长或更独特的片段: {anchor!r}"
+                )
             ordering_valid = False
             continue
-        end = starts[0] + len(anchor)
+        end = starts[0] + match_len
         if ordering_valid and end <= pos:
             reasons.append(
                 f"第 {idx} 条的 end_anchor 位置不在上一集结尾之后（各集范围必须连续推进、不重叠）: {anchor!r}"
