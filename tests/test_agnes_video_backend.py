@@ -377,6 +377,32 @@ class TestImageChannels:
                 )
             assert ei.value.code == "video_reference_images_exceeded"
 
+    @pytest.mark.parametrize("with_start", [True, False])
+    async def test_reference_images_with_frame_fails_loud(self, tmp_path: Path, with_start: bool):
+        """参考图与首/尾帧同时给出时 fail-loud（单通道互斥），不静默走参考图分支丢掉关键帧。"""
+        ref = _write_image(tmp_path / "r.png", b"ref")
+        frame = _write_image(tmp_path / "f.png", b"frame")
+        client = _mock_client(post=AsyncMock(side_effect=AssertionError("混合输入不应提交")))
+
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            with pytest.raises(VideoCapabilityError) as ei:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p",
+                        output_path=tmp_path / "o.mp4",
+                        reference_images=[ref],
+                        start_image=frame if with_start else None,
+                        end_image=None if with_start else frame,
+                        aspect_ratio="9:16",
+                        duration_seconds=5,
+                    )
+                )
+            assert ei.value.code == "video_reference_images_with_frames_unsupported"
+        client.post.assert_not_called()
+
     async def test_missing_start_image_fails_loud(self, tmp_path: Path):
         client = _mock_client(post=AsyncMock(side_effect=AssertionError("缺图不应提交")))
 
@@ -691,6 +717,92 @@ class TestResume:
             assert ei.value.job_id == "task-404"
             assert ei.value.provider == PROVIDER_AGNES
             assert client.get.call_count == 1
+
+
+class TestDurationValidation:
+    @pytest.mark.parametrize("duration", [0, 19, 30])
+    async def test_out_of_range_duration_fails_loud_without_submit(self, tmp_path: Path, duration: int):
+        """越界时长（< 1 或 > 18）在建单前 fail-loud，不静默截帧到 441、不 POST、不错记计费时长。"""
+        client = _mock_client(post=AsyncMock(side_effect=AssertionError("越界时长不应提交")))
+
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            with pytest.raises(VideoCapabilityError) as ei:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=duration
+                    )
+                )
+            assert ei.value.code == "video_duration_not_supported"
+        client.post.assert_not_called()
+
+
+class TestProviderJobIdPersistence:
+    async def test_persists_agnes_task_id_for_worker_request(self, tmp_path: Path):
+        """worker 路径（request.task_id 非空）下，submit 返回的 Agnes task_id 作为 job_id 写回，覆盖 resume 契约。"""
+        create_resp = _make_response(200, {"task_id": "agnes-task-42", "status": "queued"})
+        poll_resp = _make_response(200, _completed("agnes-task-42"))
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(return_value=poll_resp),
+        )
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+        persist = AsyncMock()
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+            patch("lib.video_backends.base.persist_provider_job_id", persist),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    aspect_ratio="9:16",
+                    duration_seconds=5,
+                    task_id="worker-task-99",
+                )
+            )
+
+        persist.assert_awaited_once()
+        args, kwargs = persist.call_args
+        assert args[0] == "worker-task-99"  # worker 任务 id
+        assert args[1] == "agnes-task-42"  # Agnes submit 返回的 task_id 作为 job_id 写回
+        assert kwargs["provider"] == PROVIDER_AGNES
+
+    async def test_non_worker_request_skips_persistence(self, tmp_path: Path):
+        """非 worker 路径（task_id=None）不调用持久化，避免空 task_id 写库。"""
+        create_resp = _make_response(200, {"task_id": "agnes-task-1", "status": "queued"})
+        poll_resp = _make_response(200, _completed("agnes-task-1"))
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(return_value=poll_resp),
+        )
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+        persist = AsyncMock()
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+            patch("lib.video_backends.base.persist_provider_job_id", persist),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        persist.assert_not_called()
 
 
 class TestRegistration:

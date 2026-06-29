@@ -203,6 +203,7 @@ MESSAGES = {
     "video_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
     "video_reference_images_unsupported": "Mô hình {model} không hỗ trợ ảnh tham chiếu đa chủ thể; hãy bỏ ảnh tham chiếu hoặc chuyển sang mô hình có hỗ trợ tạo video từ ảnh tham chiếu",
     "video_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng nhận được {count}; hãy giảm số lượng ảnh tham chiếu",
+    "video_reference_images_with_frames_unsupported": "Mô hình {model} không thể dùng ảnh tham chiếu cùng với khung hình đầu/cuối; hãy chọn một trong hai",
     "video_start_image_unreadable": "Ảnh khung hình đầu của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình đầu",
     "video_end_image_unreadable": "Ảnh khung hình cuối của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình cuối",
     # Agent credentials

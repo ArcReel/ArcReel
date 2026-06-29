@@ -63,6 +63,11 @@ _FPS = 24
 _FRAME_STEP = 8
 _MAX_NUM_FRAMES = 441
 
+# 后端防御时长边界，与 registry agnes-video-v2.0 的 supported_durations（1..18s）同步。越界请求
+# fail-loud，而非静默截断到 _MAX_NUM_FRAMES——否则 30s 请求实际只生成约 18s，却按原请求秒数计费。
+_MIN_DURATION_SECONDS = 1
+_MAX_DURATION_SECONDS = 18
+
 # 参考图（多图主体）上限——保守值，与 registry ModelInfo.max_reference_images 同值（编排层裁剪读
 # registry、backend 生成时防御读此处）。待 Agnes console / 实测核对，不硬编当既成事实。
 _MAX_REFERENCE_IMAGES = 4
@@ -257,6 +262,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         通道优先级（单通道，不叠加）：参考图 → ``extra_body.image=[refs]``；首+尾帧 →
         ``extra_body.image=[s,e]`` + ``mode=keyframes``；仅起始图 → 顶层 ``image``；都无 → 文生视频。
         """
+        self._reject_out_of_range_duration(request.duration_seconds)
         width, height = _resolve_size(request.resolution, request.aspect_ratio)
         payload: dict = {
             "model": self._model,
@@ -272,6 +278,11 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         reference_images = self._valid_paths(request.reference_images)
         start_image = self._single_path(request.start_image)
         end_image = self._single_path(request.end_image)
+
+        # 参考图与首/尾帧走互斥的单通道（reference_images_with_start_frame=False）。两者同时给出时
+        # fail-loud，而非静默走参考图分支丢掉用户的首/尾帧。
+        if reference_images and (start_image is not None or end_image is not None):
+            raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
 
         if reference_images:
             if len(reference_images) > _MAX_REFERENCE_IMAGES:
@@ -292,6 +303,16 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
         return payload
 
+    def _reject_out_of_range_duration(self, duration_seconds: int) -> None:
+        """时长越界 [_MIN, _MAX] 时 fail-loud；上游若漏校验，避免静默截帧 + 错记计费时长。"""
+        if not _MIN_DURATION_SECONDS <= duration_seconds <= _MAX_DURATION_SECONDS:
+            raise VideoCapabilityError(
+                "video_duration_not_supported",
+                model=self._model,
+                duration=duration_seconds,
+                supported=f"{_MIN_DURATION_SECONDS}-{_MAX_DURATION_SECONDS}",
+            )
+
     @staticmethod
     def _single_path(value: str | Path | None) -> Path | None:
         """把请求里的图像字段归一化成 Path；空 / 空串 / 空 Path（``Path("")`` 会塌成 ``Path(".")``）→ None。"""
@@ -309,15 +330,15 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
     def _encode_start(self, path: Path) -> str:
         """裸 base64 编码首帧；缺失或不可读 fail-loud（不静默退化为文生视频）。"""
-        return self._encode_image(path, error_code="video_start_image_unreadable", name=path.name)
+        return self._encode_image(path, error_code="video_start_image_unreadable", name=path.name or str(path))
 
     def _encode_end(self, path: Path) -> str:
         """裸 base64 编码尾帧；缺失或不可读 fail-loud（错误指向尾帧而非首帧）。"""
-        return self._encode_image(path, error_code="video_end_image_unreadable", name=path.name)
+        return self._encode_image(path, error_code="video_end_image_unreadable", name=path.name or str(path))
 
     def _encode_reference(self, path: Path) -> str:
         """裸 base64 编码参考图；缺失或不可读 fail-loud（不静默丢弃后照常计费）。"""
-        return self._encode_image(path, error_code="video_reference_images_unreadable", names=path.name)
+        return self._encode_image(path, error_code="video_reference_images_unreadable", names=path.name or str(path))
 
     def _encode_image(self, path: Path, *, error_code: str, **err_params: str) -> str:
         """裸 base64 编码图像；缺失或不可读时按通道 error_code / 参数名 fail-loud。"""
