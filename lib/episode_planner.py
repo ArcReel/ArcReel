@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -205,8 +206,11 @@ def _find_all_overlapping(haystack: str, needle: str) -> list[int]:
     """收集 needle 在 haystack 内的全部起点（允许重叠）。
 
     str.count 只统计非重叠匹配，会把重叠出现（如 "aaaa" 中的 "aaa"）误判为唯一；
-    步进 1 滑动查找，按允许重叠的口径判定 0/1/多次。
+    步进 1 滑动查找，按允许重叠的口径判定 0/1/多次。空 needle 直接返回空列表
+    （调用方的 anchor 受 min_length=2 约束不会为空，此处仅作 helper 的防御边界）。
     """
+    if not needle:
+        return []
     starts: list[int] = []
     found = haystack.find(needle)
     while found != -1:
@@ -230,10 +234,11 @@ def _resolve_boundaries(
     全文结尾窗口，贴齐后每个字符都归属某一集）。``cover_to_end=True`` 时残留
     非空白尾巴视为校验失败。
 
-    锚点定位分级：先精确 ``find``（命中即与逐字节匹配完全一致）；精确落空时按折叠
+    锚点定位分级：先精确 ``find``（命中即与逐字节匹配完全一致，Tier1 不做任何归一）；
+    精确落空时退化到容错——先对锚副本做 NFC 归一（window 本就是 NFC 坐标系），再按折叠
     全/半角标点 + 折叠空白宽度的等价口径在折叠副本上扫描，折叠为 1:1 等长映射，命中
-    起点即 NFC 坐标系下的精确起点（切片仍取原文，不改写源文标点）。折叠后仍多处命中
-    时维持「无法唯一定位」拒绝。
+    起点即 NFC 坐标系下的精确起点、跨度取 NFC 锚长（切片仍取原文，不改写源文标点）。
+    折叠后仍多处命中时维持「无法唯一定位」拒绝。
     """
     reasons: list[str] = []
     ends: list[int] = []
@@ -242,14 +247,20 @@ def _resolve_boundaries(
     folded_window: str | None = None  # 懒构造：仅在精确匹配落空时折叠一次
     for idx, ep in enumerate(drafts, start=1):
         anchor = ep.end_anchor
+        match_len = len(anchor)  # 精确命中：跨度即原 anchor 长度（与 window 逐字节一致）
         starts = _find_all_overlapping(window, anchor)
         matched_by_fold = False
         if not starts:
-            # 精确落空：退化到标点 / 空白宽度容错，在等长折叠副本上定位精确偏移
+            # 精确落空：退化到容错匹配。仅对「匹配用的锚副本」先 NFC 归一（window 已是
+            # normalize_source_text 的 NFC 产物），再折叠标点全/半角与空白宽度，在等长折叠
+            # 副本上定位精确偏移；Tier1 字节级行为与源文坐标不变，跨度按 NFC 锚长与 NFC 坐标对齐。
             if folded_window is None:
                 folded_window = _fold_for_match(window)
-            starts = _find_all_overlapping(folded_window, _fold_for_match(anchor))
-            matched_by_fold = bool(starts)
+            nfc_anchor = unicodedata.normalize("NFC", anchor)
+            starts = _find_all_overlapping(folded_window, _fold_for_match(nfc_anchor))
+            if starts:
+                matched_by_fold = True
+                match_len = len(nfc_anchor)
         if not starts:
             reasons.append(f"第 {idx} 条的 end_anchor 在原文窗口中不存在（必须逐字摘抄，含标点）: {anchor!r}")
             ordering_valid = False
@@ -259,7 +270,7 @@ def _resolve_boundaries(
                 # 折叠路径的「出现 N 次」是标点 / 空白折叠对齐后的计数；模型按字面 anchor 逐字数
                 # 往往是 0 次，必须点明计数口径，否则模型对不上、可能反复重交同一 anchor 耗尽重试
                 reasons.append(
-                    f"第 {idx} 条的 end_anchor 在原文窗口中按标点全/半角与空白折叠对齐后出现 {len(starts)} 次"
+                    f"第 {idx} 条的 end_anchor 在原文窗口中按 NFC 归一与标点全/半角、空白折叠对齐后出现 {len(starts)} 次"
                     f"（逐字精确匹配可能为 0 次），无法唯一定位，请改用更长或更独特、与原文逐字一致的片段: {anchor!r}"
                 )
             else:
@@ -269,7 +280,7 @@ def _resolve_boundaries(
                 )
             ordering_valid = False
             continue
-        end = starts[0] + len(anchor)
+        end = starts[0] + match_len
         if ordering_valid and end <= pos:
             reasons.append(
                 f"第 {idx} 条的 end_anchor 位置不在上一集结尾之后（各集范围必须连续推进、不重叠）: {anchor!r}"

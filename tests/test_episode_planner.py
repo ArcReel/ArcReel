@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from lib.episode_planner import (
     EpisodePlanningError,
     PlanningConflictError,
     ReplanConfirmationRequired,
+    _find_all_overlapping,
 )
 from lib.text_backends.base import TextGenerationResult
 
@@ -87,6 +89,16 @@ def _load_project(project_dir: Path) -> dict:
 
 def _plan_response(episodes: list[dict]) -> str:
     return json.dumps({"episodes": episodes}, ensure_ascii=False)
+
+
+class TestFindAllOverlapping:
+    def test_collects_overlapping_starts(self):
+        assert _find_all_overlapping("aaaa", "aaa") == [0, 1]
+
+    def test_empty_needle_returns_empty_without_hanging(self):
+        # 空 needle 防御边界：直接返回 []，不进入逐位滑动（调用方 anchor 受 min_length=2 约束）
+        assert _find_all_overlapping("abcabc", "") == []
+        assert _find_all_overlapping("", "") == []
 
 
 class TestPlan:
@@ -292,6 +304,26 @@ class TestPlan:
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == source[:end]
         assert [s.title for s in result.episodes] == ["Dawn"]
+
+    async def test_plan_resolves_anchor_with_unicode_nfc_mismatch(self, tmp_path: Path):
+        """锚点与源文 Unicode 规范形不一致（锚为 NFD 分解形 ↔ 源文 NFC）：折叠兜底先对
+        锚副本做 NFC 归一再匹配，还原精确 NFC 偏移；Tier1 字节级行为与源文坐标不变。"""
+        source = unicodedata.normalize("NFC", "Tôi yêu tiếng Việt. Hôm nay trời đẹp lắm.")
+        project_dir = _write_project(tmp_path, source_text=source)
+        nfc_anchor = "Tôi yêu tiếng Việt."
+        nfd_anchor = unicodedata.normalize("NFD", nfc_anchor)  # 模型回显成分解形
+        assert nfd_anchor != nfc_anchor and len(nfd_anchor) != len(nfc_anchor)
+        fake = _FakeTextGenerator([_plan_response([{"title": "Mở đầu", "hook": "hook", "end_anchor": nfd_anchor}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        eps = _load_project(project_dir)["episodes"]
+        end = source.index(nfc_anchor) + len(nfc_anchor)  # 精确 NFC 偏移
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]  # 切片取 NFC 原文，未改写源文
+        assert [s.title for s in result.episodes] == ["Mở đầu"]
 
     async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
         """折叠后仍命中多处：维持「无法唯一定位」拒绝并重试，不静默挑第一处。"""
