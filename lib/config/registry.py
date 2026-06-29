@@ -50,6 +50,10 @@ class ProviderMeta:
     secret_keys: list[str] = field(default_factory=list)
     models: dict[str, ModelInfo] = field(default_factory=dict)
     default_base_url: str | None = None
+    # 按 lane（image / video / audio）声明的出厂默认并发上限；某条 lane 未列入则该 lane
+    # 走全局默认。容量回退优先级：用户配置值 > 此处声明默认 > 全局默认。声明给不支持的
+    # lane 无害——_lane_limits 会按 media_types 把不支持的 lane 投影为 0。
+    default_concurrency: dict[str, int] = field(default_factory=dict)
 
     @property
     def media_types(self) -> list[str]:

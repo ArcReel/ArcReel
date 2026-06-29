@@ -62,7 +62,7 @@ _Avoid_: job（无此概念）。
 中间状态，表示 cancel 信号已发出但 worker 内 asyncio task 尚未走完 finally 收尾。cancel API 把 DB 从 `running` 改成 `cancelling` 后立即返回；worker finally 在 mark 终态时只能从 `cancelling` 转 `cancelled`（不再走 succeeded/failed 分支）。这是状态机里唯一一个**从 `running` 出发、由 worker 之外的代码改写的非终态**——`queued` 由 enqueue API 写、`cancelled` 直接由 cancel queued 路径写都属于「外部写入」，但前者不从 running 出发、后者是终态。
 
 **slot（执行槽）**：
-GenerationWorker 内并发执行 task 的容量，维度是 **provider × media_type**（不是简单的 image/video 两条总通道）。slot 拆成两件性质不同的东西：**容量**是 provider config 给的上限标量（唯一真相，用户改设置才变），默认 `IMAGE_MAX_WORKERS=5` / `VIDEO_MAX_WORKERS=3`，可在 provider config 里覆盖；**占用**是 worker 内存里在跑 / 排队的 task 记账（随 task 来去一直在变）。TTS 落地后并列新增 audio 容量（`AUDIO_MAX_WORKERS`，默认值随实现设定——TTS 便宜快、倾向放宽，见 `docs/adr/0010`）。一个 provider 的 video 池满，**只阻塞该 provider 的 video 任务**，不影响其他 provider；但若用户的项目只配了一个 video provider，这等于阻塞所有 video 任务。
+GenerationWorker 内并发执行 task 的容量，维度是 **provider × media_type**（不是简单的 image/video 两条总通道）。slot 拆成两件性质不同的东西：**容量**是 provider config 给的上限标量（唯一真相，用户改设置才变），默认 `IMAGE_MAX_WORKERS=5` / `VIDEO_MAX_WORKERS=3`，可在 provider config 里覆盖；每条 lane 按三层回退取值——**用户配置值 > 供应商在注册表（`ProviderMeta.default_concurrency`）声明的出厂默认 > 全局默认**，声明默认是给上游容量受限的供应商出厂即串行/限并发的中间层，未声明的供应商仍退全局默认；**占用**是 worker 内存里在跑 / 排队的 task 记账（随 task 来去一直在变）。TTS 落地后并列新增 audio 容量（`AUDIO_MAX_WORKERS`，默认值随实现设定——TTS 便宜快、倾向放宽，见 `docs/adr/0010`）。一个 provider 的 video 池满，**只阻塞该 provider 的 video 任务**，不影响其他 provider；但若用户的项目只配了一个 video provider，这等于阻塞所有 video 任务。
 _Avoid_: concurrency limit（太泛）。
 
 **CapacityTable / SlotTable**：
