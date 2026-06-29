@@ -18,6 +18,11 @@ class CustomProvider(TimestampMixin, Base):
     discovery_format: Mapped[str] = mapped_column(String(32), nullable=False)  # "openai" | "google"
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
     api_key: Mapped[str] = mapped_column(Text, nullable=False)  # sensitive, masked in API responses
+    # 按 lane 命名的并发上限定型列；NULL = 未设置 → 容量装载回退全局默认。自定义供应商不在
+    # 内置注册表，故无声明默认层，回退为两层（用户列值 → 全局默认）。
+    image_max_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    video_max_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_max_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     @property
     def provider_id(self) -> str:

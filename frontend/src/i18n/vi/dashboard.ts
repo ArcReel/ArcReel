@@ -759,6 +759,12 @@ export default {
   'fill_api_key': 'Vui lòng điền khóa API',
   'enable_one_model': 'Phải bật ít nhất một mô hình',
   'enabled_model_needs_id': 'Mô hình đã bật phải có model_id',
+  'cp_concurrency_label': 'Giới hạn đồng thời',
+  'cp_concurrency_help': 'Số tác vụ đồng thời tối đa cho mỗi luồng phương tiện (ảnh / video / âm thanh). Để trống để dùng mặc định toàn cục.',
+  'cp_image_max_workers_label': 'Đồng thời ảnh',
+  'cp_video_max_workers_label': 'Đồng thời video',
+  'cp_audio_max_workers_label': 'Đồng thời âm thanh',
+  'cp_max_workers_placeholder': 'Mặc định',
 
   // CustomProviderDetail
   'discovery_format_label': 'Giao thức phát hiện mô hình',

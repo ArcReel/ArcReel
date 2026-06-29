@@ -26,6 +26,10 @@ export interface CustomProviderInfo {
   api_key_masked: string;
   models: CustomProviderModelInfo[];
   created_at: string;
+  /** 各 lane 并发上限；null = 未设置（走全局默认）。 */
+  image_max_workers: number | null;
+  video_max_workers: number | null;
+  audio_max_workers: number | null;
 }
 
 export interface CustomProviderModelInfo {
@@ -57,6 +61,21 @@ export interface CustomProviderCreateRequest {
   base_url: string;
   api_key: string;
   models: CustomProviderModelInput[];
+  /** 各 lane 并发上限；省略或 null = 未设置（走全局默认）。 */
+  image_max_workers?: number | null;
+  video_max_workers?: number | null;
+  audio_max_workers?: number | null;
+}
+
+export interface CustomProviderFullUpdateRequest {
+  display_name: string;
+  base_url: string;
+  api_key?: string;
+  models: CustomProviderModelInput[];
+  /** PUT 为并发上限权威来源：null 即清除（走全局默认）。 */
+  image_max_workers?: number | null;
+  video_max_workers?: number | null;
+  audio_max_workers?: number | null;
 }
 
 export interface CustomProviderModelInput {

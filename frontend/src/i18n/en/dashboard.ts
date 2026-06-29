@@ -782,6 +782,12 @@ export default {
   'fill_api_key': 'Please fill in API Key',
   'enable_one_model': 'At least one model must be enabled',
   'enabled_model_needs_id': 'Enabled models must have a model_id',
+  'cp_concurrency_label': 'Concurrency Limits',
+  'cp_concurrency_help': 'Max concurrent tasks per media lane (image / video / audio). Leave blank to use the global default.',
+  'cp_image_max_workers_label': 'Image Concurrency',
+  'cp_video_max_workers_label': 'Video Concurrency',
+  'cp_audio_max_workers_label': 'Audio Concurrency',
+  'cp_max_workers_placeholder': 'Default',
 
   // CustomProviderDetail
   'discovery_format_label': 'Model Discovery Protocol',

@@ -128,6 +128,50 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
   };
 }
 
+// 并发上限：number 输入用受控字符串存储；空串 = 未设置（null，走全局默认）。
+function workersToStr(n?: number | null): string {
+  return n != null ? String(n) : "";
+}
+
+function parseWorkers(s: string): number | null {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  const n = parseInt(trimmed, 10);
+  return Number.isNaN(n) ? null : n;
+}
+
+function WorkersInput({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="min-w-[110px]">
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <input
+        id={id}
+        type="number"
+        min={0}
+        step={1}
+        inputMode="numeric"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`${INPUT_CLS} max-w-[120px]`}
+      />
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // DurationsInputRow — 视频模型行内的 supported_durations 输入
 // ---------------------------------------------------------------------------
@@ -226,6 +270,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   const [models, setModels] = useState<ModelRow[]>(
     existing ? existing.models.map(existingToRow) : [],
   );
+  const [imageMaxWorkers, setImageMaxWorkers] = useState(workersToStr(existing?.image_max_workers));
+  const [videoMaxWorkers, setVideoMaxWorkers] = useState(workersToStr(existing?.video_max_workers));
+  const [audioMaxWorkers, setAudioMaxWorkers] = useState(workersToStr(existing?.audio_max_workers));
 
   // --- Loading / status ---
   const [discovering, setDiscovering] = useState(false);
@@ -368,6 +415,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           base_url: baseUrl,
           ...(apiKey ? { api_key: apiKey } : {}),
           models: payloadModels,
+          image_max_workers: parseWorkers(imageMaxWorkers),
+          video_max_workers: parseWorkers(videoMaxWorkers),
+          audio_max_workers: parseWorkers(audioMaxWorkers),
         });
       } else {
         await API.createCustomProvider({
@@ -376,6 +426,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           base_url: baseUrl,
           api_key: apiKey,
           models: payloadModels,
+          image_max_workers: parseWorkers(imageMaxWorkers),
+          video_max_workers: parseWorkers(videoMaxWorkers),
+          audio_max_workers: parseWorkers(audioMaxWorkers),
         });
       }
       onSaved();
@@ -384,7 +437,21 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setSaving(false);
     }
-  }, [displayName, discoveryFormat, baseUrl, apiKey, models, isEdit, existing, onSaved, showError, t]);
+  }, [
+    displayName,
+    discoveryFormat,
+    baseUrl,
+    apiKey,
+    models,
+    imageMaxWorkers,
+    videoMaxWorkers,
+    audioMaxWorkers,
+    isEdit,
+    existing,
+    onSaved,
+    showError,
+    t,
+  ]);
 
   // --- Model row helpers ---
   const updateModel = (key: string, patch: Partial<ModelRow>) => {
@@ -732,6 +799,37 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             </button>
           </div>
         )}
+
+        {/* Concurrency limits */}
+        <div>
+          <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+            {t("cp_concurrency_label")}
+          </div>
+          <p className="mb-3 text-[11px] text-text-4">{t("cp_concurrency_help")}</p>
+          <div className="flex flex-wrap gap-4">
+            <WorkersInput
+              id="cp-image-workers"
+              label={t("cp_image_max_workers_label")}
+              value={imageMaxWorkers}
+              onChange={setImageMaxWorkers}
+              placeholder={t("cp_max_workers_placeholder")}
+            />
+            <WorkersInput
+              id="cp-video-workers"
+              label={t("cp_video_max_workers_label")}
+              value={videoMaxWorkers}
+              onChange={setVideoMaxWorkers}
+              placeholder={t("cp_max_workers_placeholder")}
+            />
+            <WorkersInput
+              id="cp-audio-workers"
+              label={t("cp_audio_max_workers_label")}
+              value={audioMaxWorkers}
+              onChange={setAudioMaxWorkers}
+              placeholder={t("cp_max_workers_placeholder")}
+            />
+          </div>
+        </div>
 
         {/* Test result */}
         {testResult && (

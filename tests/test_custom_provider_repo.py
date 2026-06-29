@@ -168,6 +168,60 @@ class TestProviderCRUD:
         await repo.delete_provider(999)
 
 
+class TestConcurrencyColumns:
+    async def test_create_without_workers_defaults_to_null(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="P",
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+        )
+        await session.flush()
+        got = await repo.get_provider(p.id)
+        assert got is not None
+        assert got.image_max_workers is None
+        assert got.video_max_workers is None
+        assert got.audio_max_workers is None
+
+    async def test_create_with_workers_round_trip(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="P",
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+            image_max_workers=2,
+            video_max_workers=7,
+            audio_max_workers=0,
+        )
+        await session.flush()
+        got = await repo.get_provider(p.id)
+        assert got is not None
+        assert got.image_max_workers == 2
+        assert got.video_max_workers == 7
+        assert got.audio_max_workers == 0
+
+    async def test_update_workers_including_clear_to_null(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="P",
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+            image_max_workers=5,
+        )
+        await session.flush()
+
+        await repo.update_provider(p.id, image_max_workers=None, video_max_workers=4)
+        await session.flush()
+
+        got = await repo.get_provider(p.id)
+        assert got is not None
+        assert got.image_max_workers is None
+        assert got.video_max_workers == 4
+
+
 class TestModelManagement:
     async def _make_provider(self, repo: CustomProviderRepository, session: AsyncSession) -> int:
         p = await repo.create_provider(

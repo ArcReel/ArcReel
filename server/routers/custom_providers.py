@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import AfterValidator, BaseModel
+from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
@@ -43,6 +43,9 @@ def _validate_endpoint(value: str) -> str:
 # 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
 DiscoveryFormatLiteral = Literal["openai", "google"]
+
+# 并发上限定型字段：可空非负整数；None = 未设置 → 容量装载回退全局默认。
+MaxWorkers = Annotated[int | None, Field(default=None, ge=0)]
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +125,9 @@ class CreateProviderRequest(BaseModel):
     base_url: str
     api_key: str
     models: list[ModelInput] = []
+    image_max_workers: MaxWorkers
+    video_max_workers: MaxWorkers
+    audio_max_workers: MaxWorkers
 
 
 class UpdateProviderRequest(BaseModel):
@@ -137,6 +143,10 @@ class FullUpdateProviderRequest(BaseModel):
     base_url: str
     api_key: str | None = None  # None = 不修改
     models: list[ModelInput]
+    # 并发上限随 PUT 全量提交（空输入 → None → 全局默认）；None 即清除，非"不修改"。
+    image_max_workers: MaxWorkers
+    video_max_workers: MaxWorkers
+    audio_max_workers: MaxWorkers
 
 
 class ProviderConnectionRequest(BaseModel):
@@ -173,6 +183,9 @@ class ProviderResponse(BaseModel):
     api_key_masked: str
     models: list[ModelResponse]
     created_at: str | None = None
+    image_max_workers: int | None = None
+    video_max_workers: int | None = None
+    audio_max_workers: int | None = None
 
 
 class ConnectionTestResponse(BaseModel):
@@ -243,6 +256,9 @@ def _provider_to_response(provider, models) -> ProviderResponse:
         api_key_masked=mask_secret(provider.api_key),
         models=[_model_to_response(m) for m in models],
         created_at=dt_to_iso(provider.created_at),
+        image_max_workers=provider.image_max_workers,
+        video_max_workers=provider.video_max_workers,
+        audio_max_workers=provider.audio_max_workers,
     )
 
 
@@ -382,6 +398,9 @@ async def create_provider(
         base_url=body.base_url,
         api_key=body.api_key,
         models=model_dicts,
+        image_max_workers=body.image_max_workers,
+        video_max_workers=body.video_max_workers,
+        audio_max_workers=body.audio_max_workers,
     )
     await session.commit()
     await _invalidate_caches(request)
@@ -474,7 +493,14 @@ async def full_update_provider(
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
     repo = CustomProviderRepository(session)
-    kwargs: dict = {"display_name": body.display_name, "base_url": body.base_url}
+    kwargs: dict = {
+        "display_name": body.display_name,
+        "base_url": body.base_url,
+        # PUT 为并发上限的权威来源：始终写入（含 None 清除），不做"仅非空更新"
+        "image_max_workers": body.image_max_workers,
+        "video_max_workers": body.video_max_workers,
+        "audio_max_workers": body.audio_max_workers,
+    }
     if body.api_key is not None:
         kwargs["api_key"] = body.api_key
     provider = await repo.update_provider(provider_id, **kwargs)

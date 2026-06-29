@@ -979,6 +979,94 @@ class TestFullUpdateProvider:
         assert resp.status_code == 404
 
 
+class TestConcurrencyFields:
+    """image/video/audio_max_workers 经 POST / PUT 保存后回显，留空 → null，负值 → 422。"""
+
+    def test_create_echoes_workers(self, client: TestClient):
+        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
+            resp = client.post(
+                "/api/v1/custom-providers",
+                json={
+                    "display_name": "P",
+                    "discovery_format": "openai",
+                    "base_url": "https://x.com",
+                    "api_key": "sk-test-key-12345678",
+                    "models": [],
+                    "image_max_workers": 2,
+                    "video_max_workers": 7,
+                    "audio_max_workers": 0,
+                },
+            )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["image_max_workers"] == 2
+        assert body["video_max_workers"] == 7
+        assert body["audio_max_workers"] == 0
+
+    def test_create_defaults_to_null_when_omitted(self, client: TestClient):
+        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
+            resp = client.post(
+                "/api/v1/custom-providers",
+                json={
+                    "display_name": "P",
+                    "discovery_format": "openai",
+                    "base_url": "https://x.com",
+                    "api_key": "sk-test-key-12345678",
+                    "models": [],
+                },
+            )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["image_max_workers"] is None
+        assert body["video_max_workers"] is None
+        assert body["audio_max_workers"] is None
+
+    def test_create_rejects_negative(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "P",
+                "discovery_format": "openai",
+                "base_url": "https://x.com",
+                "api_key": "sk-test-key-12345678",
+                "models": [],
+                "image_max_workers": -1,
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_full_update_overwrites_and_clears(self, client: TestClient):
+        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
+            create_resp = client.post(
+                "/api/v1/custom-providers",
+                json={
+                    "display_name": "P",
+                    "discovery_format": "openai",
+                    "base_url": "https://x.com",
+                    "api_key": "sk-test-key-12345678",
+                    "models": [],
+                    "image_max_workers": 3,
+                    "video_max_workers": 4,
+                },
+            )
+            pid = create_resp.json()["id"]
+            # PUT 不带 image_max_workers → 视为 null（权威清除）；video 覆盖为 9
+            resp = client.put(
+                f"/api/v1/custom-providers/{pid}",
+                json={
+                    "display_name": "P",
+                    "base_url": "https://x.com",
+                    "models": [],
+                    "video_max_workers": 9,
+                },
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["image_max_workers"] is None
+        assert body["video_max_workers"] == 9
+        assert body["audio_max_workers"] is None
+
+
 class TestValidateBackendValueCustomPrefix:
     """回归: validate_backend_value 应接受 custom-* 前缀。"""
 

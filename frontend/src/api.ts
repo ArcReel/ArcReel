@@ -34,6 +34,7 @@ import type {
   CustomProviderInfo,
   CustomProviderModelInfo,
   CustomProviderCreateRequest,
+  CustomProviderFullUpdateRequest,
   CustomProviderModelInput,
   DiscoveredModel,
   EndpointDescriptor,
@@ -1894,7 +1895,7 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "PATCH", body: JSON.stringify(data) });
   }
 
-  static async fullUpdateCustomProvider(id: number, data: { display_name: string; base_url: string; api_key?: string; models: CustomProviderModelInput[] }): Promise<CustomProviderInfo> {
+  static async fullUpdateCustomProvider(id: number, data: CustomProviderFullUpdateRequest): Promise<CustomProviderInfo> {
     return this.request(`/custom-providers/${id}`, { method: "PUT", body: JSON.stringify(data) });
   }
 

@@ -273,8 +273,12 @@ class TestCapacityTable:
                 assert table.get(pid, "video") == 0
 
     @staticmethod
-    def _stub_from_db_sources(monkeypatch, configs: dict[str, dict[str, str]]) -> None:
-        """把 from_db 的两个数据源（provider config / 自定义供应商）替换为内存数据。"""
+    def _stub_from_db_sources(monkeypatch, configs: dict[str, dict[str, str]], custom_providers=None) -> None:
+        """把 from_db 的两个数据源（provider config / 自定义供应商）替换为内存数据。
+
+        custom_providers：``list_providers_with_models`` 的返回值，形如
+        ``[(provider, models), ...]``；默认空。
+        """
         from unittest.mock import AsyncMock, MagicMock
 
         for env in ("IMAGE_MAX_WORKERS", "VIDEO_MAX_WORKERS", "AUDIO_MAX_WORKERS"):
@@ -294,8 +298,65 @@ class TestCapacityTable:
         )
         monkeypatch.setattr(
             "lib.db.repositories.custom_provider_repo.CustomProviderRepository.list_providers_with_models",
-            AsyncMock(return_value=[]),
+            AsyncMock(return_value=custom_providers or []),
         )
+
+    @staticmethod
+    def _fake_custom_provider(pid: str, *, image=None, video=None, audio=None, endpoints=("openai-images",)):
+        """构造 ``(provider, models)`` 元组，供 list_providers_with_models 返回。"""
+        from types import SimpleNamespace
+
+        provider = SimpleNamespace(
+            provider_id=pid,
+            image_max_workers=image,
+            video_max_workers=video,
+            audio_max_workers=audio,
+        )
+        models = [SimpleNamespace(endpoint=ep, is_enabled=True) for ep in endpoints]
+        return provider, models
+
+    async def test_from_db_custom_provider_columns_used(self, monkeypatch):
+        """自定义供应商：列有值 → 取列值（投影到其支持的 lane）。"""
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[
+                self._fake_custom_provider(
+                    "custom-1",
+                    image=2,
+                    video=7,
+                    endpoints=("openai-images", "newapi-video"),
+                )
+            ],
+        )
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("custom-1", "image") == 2
+        assert table.get("custom-1", "video") == 7
+        # 不支持的 lane（无 audio 模型）投影为 0
+        assert table.get("custom-1", "audio") == 0
+
+    async def test_from_db_custom_provider_null_falls_back_to_global_default(self, monkeypatch):
+        """自定义供应商：列为 None → 回退全局默认（两层回退，无声明默认层）。"""
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[
+                self._fake_custom_provider(
+                    "custom-9",
+                    image=None,
+                    video=None,
+                    endpoints=("openai-images", "newapi-video"),
+                )
+            ],
+        )
+
+        table = await CapacityTable.from_db()
+
+        # 全局默认 image=5 / video=3（env 已在 _stub 中清除）
+        assert table.get("custom-9", "image") == 5
+        assert table.get("custom-9", "video") == 3
 
     @pytest.mark.parametrize("dirty", ["", "3.7", "abc"])
     async def test_from_db_dirty_value_falls_back_per_key(self, monkeypatch, caplog, dirty):

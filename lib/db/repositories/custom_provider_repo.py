@@ -20,6 +20,10 @@ class CustomProviderRepository(BaseRepository):
         base_url: str,
         api_key: str,
         models: list[dict] | None = None,
+        *,
+        image_max_workers: int | None = None,
+        video_max_workers: int | None = None,
+        audio_max_workers: int | None = None,
     ) -> CustomProvider:
         """创建供应商，可选同时创建模型列表。"""
         provider = CustomProvider(
@@ -27,6 +31,9 @@ class CustomProviderRepository(BaseRepository):
             discovery_format=discovery_format,
             base_url=base_url,
             api_key=api_key,
+            image_max_workers=image_max_workers,
+            video_max_workers=video_max_workers,
+            audio_max_workers=audio_max_workers,
         )
         self.session.add(provider)
         await self.session.flush()  # 获取 provider.id
