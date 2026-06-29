@@ -288,6 +288,16 @@ def _agnes_text_pricing(model_id: str, input_rate: float, output_rate: float) ->
     )
 
 
+# Agnes 视频费率（美元/秒），flat 按秒、与分辨率/音频无关；官方原价，当前促销 $0 不建模。
+def _agnes_video_pricing(model_id: str, per_second: float) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {("", None): per_second}},
+        default_model=model_id,
+        dimensions="flat",
+        currency="USD",
+    )
+
+
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
         display_name="AI Studio",
@@ -1192,9 +1202,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "agnes": ProviderMeta(
         display_name="Agnes",
-        description="Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像与文本生成。",
+        description="Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1218,6 +1228,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 resolutions=["1K", "2K"],
                 pricing=_agnes_image_pricing("agnes-image-2.1-flash", 0.003),
+            ),
+            # --- video ---
+            # agnes-video-v2.0：apihub 异步 /v1/videos，图生 / 首尾帧 / 多图主体参考；fps 固定 24、
+            # 时长 1–18s。resolutions 为保守 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # max_reference_images 保守值，待 console / 实测核对，不硬编当既成事实。
+            "agnes-video-v2.0": ModelInfo(
+                display_name="Agnes Video 2.0",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                default=True,
+                supported_durations=list(range(1, 19)),
+                resolutions=["480p", "720p", "1080p"],
+                max_reference_images=4,
+                pricing=_agnes_video_pricing("agnes-video-v2.0", 0.005),
             ),
         },
         default_base_url=AGNES_BASE_URL,

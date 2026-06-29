@@ -53,6 +53,20 @@ class TestRegistryHit:
         # 输入 $0.03 / 输出 $0.15 每 1M tokens
         assert pricing.rates["agnes-2.0-flash"] == {"input": 0.03, "output": 0.15}
 
+    def test_agnes_video_flat_per_second(self):
+        from lib.pricing.strategies import PricingParams, calculate_pricing
+
+        pricing = lookup_pricing("agnes", "agnes-video-v2.0", "video")
+        assert isinstance(pricing, PerSecondMatrix)
+        assert pricing.dimensions == "flat"
+        assert pricing.currency == "USD"
+        # flat 按秒 $0.005/s，与分辨率/音频无关
+        amount, currency = calculate_pricing(
+            pricing, PricingParams(call_type="video", model="agnes-video-v2.0", duration_seconds=10)
+        )
+        assert amount == pytest.approx(0.05)
+        assert currency == "USD"
+
 
 class TestUnknownProviderFallsBackToGemini:
     @pytest.mark.parametrize("provider", ["gemini", "unknown", "seedance"])

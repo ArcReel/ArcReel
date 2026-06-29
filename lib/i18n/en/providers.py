@@ -24,7 +24,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_dashscope": "Alibaba Cloud Model Studio (DashScope) full-modality platform supporting Qwen text, Qwen-Image / Wan images, and HappyHorse / Wan video (including reference-to-video).",
     "provider_desc_minimax": "MiniMax (Hailuo) multimodal platform with text, image and video generation. Connects to the domestic site by default; set base_url to the international site for overseas access.",
     "provider_desc_kling": "Kuaishou Kling video and image generation platform, authenticated with an Access Key and Secret Key.",
-    "provider_desc_agnes": "Agnes multimodal platform (OpenAI-style), authenticated with a Bearer API key; currently supports image and text generation.",
+    "provider_desc_agnes": "Agnes multimodal platform (OpenAI-style), authenticated with a Bearer API key; currently supports image, text and video generation.",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo only accepts known model names; no public model list.",

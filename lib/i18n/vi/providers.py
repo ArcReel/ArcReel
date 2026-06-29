@@ -24,7 +24,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_dashscope": "Nền tảng đa phương thức Alibaba Cloud Model Studio (DashScope) hỗ trợ văn bản Qwen, ảnh Qwen-Image / Wan và video HappyHorse / Wan (bao gồm video tham chiếu).",
     "provider_desc_minimax": "Nền tảng đa phương thức MiniMax (Hailuo) hỗ trợ tạo văn bản, ảnh và video. Mặc định kết nối site nội địa; đặt base_url sang site quốc tế khi dùng ở nước ngoài.",
     "provider_desc_kling": "Nền tảng tạo video và ảnh Kling của Kuaishou, xác thực bằng Access Key và Secret Key.",
-    "provider_desc_agnes": "Nền tảng đa phương thức Agnes (phong cách OpenAI), xác thực bằng Bearer API key; hiện hỗ trợ tạo ảnh và văn bản.",
+    "provider_desc_agnes": "Nền tảng đa phương thức Agnes (phong cách OpenAI), xác thực bằng Bearer API key; hiện hỗ trợ tạo ảnh, văn bản và video.",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",
