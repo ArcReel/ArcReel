@@ -245,8 +245,15 @@ class TestCapacityTable:
         table = CapacityTable.from_env()
         for pid, meta in PROVIDER_REGISTRY.items():
             assert pid in table._limits
-            assert table.get(pid, "image") == (5 if "image" in meta.media_types else 0)
-            assert table.get(pid, "video") == (3 if "video" in meta.media_types else 0)
+            for lane, global_default in (("image", 5), ("video", 3)):
+                if lane not in meta.media_types:
+                    assert table.get(pid, lane) == 0  # 不支持的 lane → 投影为 0
+                elif lane not in meta.default_concurrency:
+                    # 未声明出厂默认的 lane 必须落到硬编码全局默认。这条断言不读
+                    # meta.default_concurrency，故非重言——能抓住装载回退漂移。声明了默认的
+                    # lane（如 agnes video）由该 provider 的专项测试钉死字面值；此处不用 meta
+                    # 反推，否则对任何声明值都恒真，等于不设防。
+                    assert table.get(pid, lane) == global_default
 
     def test_from_env_reads_env(self, monkeypatch):
         monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
@@ -491,6 +498,23 @@ class TestCapacityTable:
         for pid in ("declared-video", "declared-audio", "plain-video", "declared-unsupported"):
             for lane in ("image", "video", "audio"):
                 assert db_table.get(pid, lane) == env_table.get(pid, lane)
+
+    def test_agnes_video_default_one_outranks_active_global_env(self, monkeypatch):
+        """真实注册表：Agnes 视频 lane 出厂钉死 1，即便部署把全局 VIDEO_MAX_WORKERS 调高也不解除。
+
+        这是本切片要的 503 规避保证——声明默认压过「活跃的」全局 env（而非仅压过缺省值）。
+        顺带验证两条隔离性质：声明只作用于 video lane（image 仍随全局默认）；钉死是 Agnes 专属，
+        未声明默认的视频供应商（ark）仍跟随全局 env。机制本身（声明默认 > 全局、用户值 > 声明默认、
+        跨 from_env/from_db 一致）已由上面的合成 declared-* 测试覆盖，此处只钉真实条目的接线。
+        """
+        monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
+        monkeypatch.setenv("VIDEO_MAX_WORKERS", "5")
+
+        table = CapacityTable.from_env()
+
+        assert table.get("agnes", "video") == 1  # 声明默认压过活跃的全局 5
+        assert table.get("agnes", "image") == 5  # 声明不外溢到未声明的 image lane
+        assert table.get("ark", "video") == 5  # 未声明默认的视频供应商仍跟随全局 env
 
 
 class TestGenerationWorker:

@@ -1245,6 +1245,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url=AGNES_BASE_URL,
+        # Agnes 视频上游对并发敏感，出厂串行（默认 1）避免主动制造 503 Service busy；
+        # 用户可经 video_max_workers 覆盖。其余 lane 未声明，走全局默认。
+        default_concurrency={"video": 1},
     ),
 }
 
