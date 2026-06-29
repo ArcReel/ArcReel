@@ -788,6 +788,7 @@ export default {
   'cp_video_max_workers_label': 'Video Concurrency',
   'cp_audio_max_workers_label': 'Audio Concurrency',
   'cp_max_workers_placeholder': 'Default',
+  'max_workers_invalid': 'Concurrency limits must be non-negative integers. Check the image / video / audio inputs.',
 
   // CustomProviderDetail
   'discovery_format_label': 'Model Discovery Protocol',

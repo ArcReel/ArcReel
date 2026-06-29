@@ -72,10 +72,11 @@ export interface CustomProviderFullUpdateRequest {
   base_url: string;
   api_key?: string;
   models: CustomProviderModelInput[];
-  /** PUT 为并发上限权威来源：null 即清除（走全局默认）。 */
-  image_max_workers?: number | null;
-  video_max_workers?: number | null;
-  audio_max_workers?: number | null;
+  /** PUT 为并发上限权威来源：必填，null 即清除（走全局默认）。省略字段会被服务端当作
+   *  清空，故类型上设为必填，防止调用方静默漏传意外清掉已有配置。 */
+  image_max_workers: number | null;
+  video_max_workers: number | null;
+  audio_max_workers: number | null;
 }
 
 export interface CustomProviderModelInput {

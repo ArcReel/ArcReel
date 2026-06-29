@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
@@ -12,6 +12,22 @@ class CustomProvider(TimestampMixin, Base):
     """用户自定义的 AI 供应商。"""
 
     __tablename__ = "custom_provider"
+    # 与加列迁移保持同步：三条并发上限列在 DB 层强制非负，repo 直写或手工 SQL 都无法
+    # 写入负值；NULL=未设置回退默认、0=该 lane 不支持仍然合法。
+    __table_args__ = (
+        CheckConstraint(
+            "image_max_workers IS NULL OR image_max_workers >= 0",
+            name="ck_custom_provider_image_max_workers_non_negative",
+        ),
+        CheckConstraint(
+            "video_max_workers IS NULL OR video_max_workers >= 0",
+            name="ck_custom_provider_video_max_workers_non_negative",
+        ),
+        CheckConstraint(
+            "audio_max_workers IS NULL OR audio_max_workers >= 0",
+            name="ck_custom_provider_audio_max_workers_non_negative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)

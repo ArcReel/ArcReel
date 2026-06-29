@@ -789,6 +789,7 @@ export default {
   'cp_video_max_workers_label': '视频并发',
   'cp_audio_max_workers_label': '音频并发',
   'cp_max_workers_placeholder': '默认',
+  'max_workers_invalid': '并发上限必须为非负整数，请检查图片 / 视频 / 音频并发输入。',
 
   // CustomProviderDetail
   'discovery_format_label': '模型发现协议',

@@ -221,6 +221,21 @@ class TestConcurrencyColumns:
         assert got.image_max_workers is None
         assert got.video_max_workers == 4
 
+    @pytest.mark.parametrize("field", ["image_max_workers", "video_max_workers", "audio_max_workers"])
+    async def test_create_negative_workers_rejected_by_check_constraint(self, session: AsyncSession, field: str):
+        """DB 层 CHECK 约束拦截负值，repo 直写也无法绕过（create_provider 内部 flush 即触发）。"""
+        from sqlalchemy.exc import IntegrityError
+
+        repo = CustomProviderRepository(session)
+        with pytest.raises(IntegrityError):
+            await repo.create_provider(
+                display_name="P",
+                discovery_format="openai",
+                base_url="https://x",
+                api_key="k",
+                **{field: -1},
+            )
+
 
 class TestModelManagement:
     async def _make_provider(self, repo: CustomProviderRepository, session: AsyncSession) -> int:

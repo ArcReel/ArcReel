@@ -133,11 +133,15 @@ function workersToStr(n?: number | null): string {
   return n != null ? String(n) : "";
 }
 
-function parseWorkers(s: string): number | null {
+// 空串 = 未设置（null，走全局默认）；否则必须是非负整数。返回 undefined 表示非法
+// 输入（小数、科学计数、负号、含非数字字符），由 handleSave 拦截并提示——不再用 parseInt
+// 静默截断（"1.5"→1、"1e3"→1）把非法值写成错误配置。
+function parseWorkers(s: string): number | null | undefined {
   const trimmed = s.trim();
   if (!trimmed) return null;
-  const n = parseInt(trimmed, 10);
-  return Number.isNaN(n) ? null : n;
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) ? n : undefined;
 }
 
 function WorkersInput({
@@ -406,6 +410,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       }
       return;
     }
+    // 并发上限严格解析：非法（小数/科学计数/负号/非数字）→ undefined，阻断保存并提示
+    const imageMax = parseWorkers(imageMaxWorkers);
+    const videoMax = parseWorkers(videoMaxWorkers);
+    const audioMax = parseWorkers(audioMaxWorkers);
+    if (imageMax === undefined || videoMax === undefined || audioMax === undefined) {
+      showError(t("max_workers_invalid"));
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit && existing) {
@@ -415,9 +427,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           base_url: baseUrl,
           ...(apiKey ? { api_key: apiKey } : {}),
           models: payloadModels,
-          image_max_workers: parseWorkers(imageMaxWorkers),
-          video_max_workers: parseWorkers(videoMaxWorkers),
-          audio_max_workers: parseWorkers(audioMaxWorkers),
+          image_max_workers: imageMax,
+          video_max_workers: videoMax,
+          audio_max_workers: audioMax,
         });
       } else {
         await API.createCustomProvider({
@@ -426,9 +438,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           base_url: baseUrl,
           api_key: apiKey,
           models: payloadModels,
-          image_max_workers: parseWorkers(imageMaxWorkers),
-          video_max_workers: parseWorkers(videoMaxWorkers),
-          audio_max_workers: parseWorkers(audioMaxWorkers),
+          image_max_workers: imageMax,
+          video_max_workers: videoMax,
+          audio_max_workers: audioMax,
         });
       }
       onSaved();
