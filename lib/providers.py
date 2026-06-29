@@ -12,6 +12,7 @@ PROVIDER_NEWAPI = "newapi"
 PROVIDER_DASHSCOPE = "dashscope"
 PROVIDER_MINIMAX = "minimax"
 PROVIDER_KLING = "kling"
+PROVIDER_AGNES = "agnes"
 PROVIDER_ANTHROPIC = "anthropic"
 
 CallType = Literal["image", "video", "text", "audio"]

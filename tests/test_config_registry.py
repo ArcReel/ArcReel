@@ -13,6 +13,7 @@ def test_all_providers_registered():
         "dashscope",
         "minimax",
         "kling",
+        "agnes",
     }
 
 

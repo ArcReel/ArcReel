@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from lib.agnes_shared import AGNES_BASE_URL
 from lib.ark_shared import ARK_BASE_URL
 from lib.dashscope_shared import DASHSCOPE_BASE_URL
 from lib.minimax_shared import MINIMAX_BASE_URL
@@ -247,6 +248,11 @@ def _kling_image_flat_pricing(model_id: str, per_image: float) -> PerImageFlat:
 
 def _kling_image_by_resolution_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="CNY")
+
+
+# Agnes 图片费率（美元/张），官方原价；当前促销 $0 不建模。
+def _agnes_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
+    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
 
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
@@ -1149,6 +1155,28 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url="https://api.klingai.com/v1",
+    ),
+    "agnes": ProviderMeta(
+        display_name="Agnes",
+        description="Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像生成。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- image ---
+            # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
+            # 仅注册 2.1（2.0 与其价格 / 字段实测无差异，model 目录收敛）。
+            # resolutions 为保守 UI 档位（未逐档实测）；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            "agnes-image-2.1-flash": ModelInfo(
+                display_name="Agnes Image 2.1 Flash",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["1K", "2K"],
+                pricing=_agnes_image_pricing("agnes-image-2.1-flash", 0.003),
+            ),
+        },
+        default_base_url=AGNES_BASE_URL,
     ),
 }
 

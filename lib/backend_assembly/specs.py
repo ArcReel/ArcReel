@@ -330,6 +330,9 @@ PROVIDER_SPEC_REGISTRY.update(
 PROVIDER_SPEC_REGISTRY.update(
     {(_KLING_REGISTRY_BACKEND, media_type): _kling_spec(media_type) for media_type in ("image", "video")}
 )
+# agnes 简单族，当前仅图像（文本 / 视频模态另片接入，届时各自登记）；不并入
+# _SIMPLE_IMAGE_VIDEO_PROVIDERS 以免登记尚无 backend 的 video spec。
+PROVIDER_SPEC_REGISTRY[("agnes", "image")] = _simple_spec("agnes", "image")
 
 # ── 文本族注册 ────────────────────────────────────────────────────
 # 简单文本三家（registry_backend = provider_id 自身）；gemini 两个 provider_id 按 backend 分两行
