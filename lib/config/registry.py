@@ -41,6 +41,10 @@ class ModelInfo:
     api_model_name: str | None = None
 
 
+# 合法并发 lane 名，与 CapacityTable 的 image/video/audio 三条容量通道对齐。
+_VALID_LANES = frozenset({"image", "video", "audio"})
+
+
 @dataclass(frozen=True)
 class ProviderMeta:
     display_name: str
@@ -50,6 +54,26 @@ class ProviderMeta:
     secret_keys: list[str] = field(default_factory=list)
     models: dict[str, ModelInfo] = field(default_factory=dict)
     default_base_url: str | None = None
+    # 按 lane（image / video / audio）声明的出厂默认并发上限；某条 lane 未列入则该 lane
+    # 走全局默认。容量回退优先级：用户配置值 > 此处声明默认 > 全局默认。声明给不支持的
+    # lane 无害——_lane_limits 会按 media_types 把不支持的 lane 投影为 0。键名与上限值在
+    # __post_init__ 校验。
+    default_concurrency: dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # default_concurrency 是注册表静态声明：拼错的 lane key 会被静默忽略、该 lane 漂回
+        # 全局默认（限并发失效），非正整数上限则在投影后变成 capacity<=0、把支持的 lane 误判为
+        # 不支持。这两类都是 import 期就该 fail-fast 的作者笔误，而非到 worker 装载容量表时才暴露。
+        for lane, limit in self.default_concurrency.items():
+            if lane not in _VALID_LANES:
+                raise ValueError(
+                    f"{self.display_name} default_concurrency 含未知 lane {lane!r}，合法值：{sorted(_VALID_LANES)}"
+                )
+            # 注册表是手写静态数据，运行时 Python 不强制注解；用精确类型判定兜住作者笔误。
+            # bool 是 int 子类，isinstance(True, int) 为真会把 True 当并发 1 静默放行；字符串
+            # "1"、浮点 3.0 同样违反声明类型。type() is int 把这几类一并挡在 import 期。
+            if type(limit) is not int or limit < 1:
+                raise ValueError(f"{self.display_name} default_concurrency[{lane!r}] 必须是 >=1 的整数，得到 {limit!r}")
 
     @property
     def media_types(self) -> list[str]:
@@ -1076,9 +1100,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # 首个需要两个 secret 字符串的内置 provider（JWT HS256 鉴权），凭证按 registry key 名
         # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。
         required_keys=["access_key", "secret_key"],
+        optional_keys=["image_max_workers", "video_max_workers"],
         secret_keys=["access_key", "secret_key"],
-        # JWT 直连视频：默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
-        # v2-6（pro 人声）、video-o1（多图主体 R2V）。图像模型留后续片接入。
+        # JWT 直连：视频默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
+        # v2-6（pro 人声）、video-o1（多图主体 R2V）；图像 kling-image-o1（默认）+ v3-omni（两栖）。
         models={
             "kling-v2-5-turbo": ModelInfo(
                 display_name="可灵 2.5 Turbo",

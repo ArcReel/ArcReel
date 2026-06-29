@@ -64,6 +64,14 @@ def test_kling_credentials_and_base_url() -> None:
     assert p.default_base_url == "https://api.klingai.com/v1"
 
 
+def test_kling_declares_image_and_video_max_workers() -> None:
+    """可灵覆盖 image + video 两条 lane，optional_keys 须声明两者的并发上限字段。"""
+    p = PROVIDER_REGISTRY["kling"]
+    assert {"image", "video"} <= set(p.media_types)
+    assert "image_max_workers" in p.optional_keys
+    assert "video_max_workers" in p.optional_keys
+
+
 def test_kling_default_video_model_v2_5_turbo() -> None:
     """JWT 直连视频默认模型 kling-v2-5-turbo，能力声明齐备。"""
     p = PROVIDER_REGISTRY["kling"]
