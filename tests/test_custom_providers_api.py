@@ -980,7 +980,7 @@ class TestFullUpdateProvider:
 
 
 class TestConcurrencyFields:
-    """image/video/audio_max_workers 经 POST / PUT 保存后回显，留空 → null，负值 → 422。"""
+    """image/video/audio_max_workers 经 POST / PUT 保存后回显，留空 → null，0/负值 → 422。"""
 
     def test_create_echoes_workers(self, client: TestClient):
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
@@ -994,14 +994,14 @@ class TestConcurrencyFields:
                     "models": [],
                     "image_max_workers": 2,
                     "video_max_workers": 7,
-                    "audio_max_workers": 0,
+                    "audio_max_workers": 1,
                 },
             )
         assert resp.status_code == 201
         body = resp.json()
         assert body["image_max_workers"] == 2
         assert body["video_max_workers"] == 7
-        assert body["audio_max_workers"] == 0
+        assert body["audio_max_workers"] == 1
 
     def test_create_defaults_to_null_when_omitted(self, client: TestClient):
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
@@ -1021,7 +1021,8 @@ class TestConcurrencyFields:
         assert body["video_max_workers"] is None
         assert body["audio_max_workers"] is None
 
-    def test_create_rejects_negative(self, client: TestClient):
+    @pytest.mark.parametrize("bad_value", [-1, 0])
+    def test_create_rejects_below_one(self, client: TestClient, bad_value: int):
         resp = client.post(
             "/api/v1/custom-providers",
             json={
@@ -1030,7 +1031,7 @@ class TestConcurrencyFields:
                 "base_url": "https://x.com",
                 "api_key": "sk-test-key-12345678",
                 "models": [],
-                "image_max_workers": -1,
+                "image_max_workers": bad_value,
             },
         )
         assert resp.status_code == 422

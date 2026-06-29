@@ -133,15 +133,15 @@ function workersToStr(n?: number | null): string {
   return n != null ? String(n) : "";
 }
 
-// 空串 = 未设置（null，走全局默认）；否则必须是非负整数。返回 undefined 表示非法
-// 输入（小数、科学计数、负号、含非数字字符），由 handleSave 拦截并提示——不再用 parseInt
-// 静默截断（"1.5"→1、"1e3"→1）把非法值写成错误配置。
+// 空串 = 未设置（null，走全局默认）；否则必须是正整数（≥1）。返回 undefined 表示非法
+// 输入（0、小数、科学计数、负号、含非数字字符），由 handleSave 拦截并提示——不再用 parseInt
+// 静默截断（"1.5"→1、"1e3"→1）把非法值写成错误配置。0 不是合法用户输入。
 function parseWorkers(s: string): number | null | undefined {
   const trimmed = s.trim();
   if (!trimmed) return null;
   if (!/^\d+$/.test(trimmed)) return undefined;
   const n = Number(trimmed);
-  return Number.isSafeInteger(n) ? n : undefined;
+  return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
 }
 
 function WorkersInput({
@@ -163,7 +163,7 @@ function WorkersInput({
       <input
         id={id}
         type="number"
-        min={0}
+        min={1}
         step={1}
         inputMode="numeric"
         autoComplete="off"

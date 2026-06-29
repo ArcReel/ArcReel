@@ -12,20 +12,21 @@ class CustomProvider(TimestampMixin, Base):
     """用户自定义的 AI 供应商。"""
 
     __tablename__ = "custom_provider"
-    # 与加列迁移保持同步：三条并发上限列在 DB 层强制非负，repo 直写或手工 SQL 都无法
-    # 写入负值；NULL=未设置回退默认、0=该 lane 不支持仍然合法。
+    # 与加列迁移保持同步：三条并发上限列在 DB 层强制 ≥1，repo 直写或手工 SQL 都无法写入
+    # 0 或负值；NULL=未设置回退默认。0 不是合法用户输入，仅作 CapacityTable 内部「不支持该
+    # lane」哨兵（由 lane 投影在内存里产生，绝不写回这些列）。
     __table_args__ = (
         CheckConstraint(
-            "image_max_workers IS NULL OR image_max_workers >= 0",
-            name="ck_custom_provider_image_max_workers_non_negative",
+            "image_max_workers IS NULL OR image_max_workers >= 1",
+            name="ck_custom_provider_image_max_workers_positive",
         ),
         CheckConstraint(
-            "video_max_workers IS NULL OR video_max_workers >= 0",
-            name="ck_custom_provider_video_max_workers_non_negative",
+            "video_max_workers IS NULL OR video_max_workers >= 1",
+            name="ck_custom_provider_video_max_workers_positive",
         ),
         CheckConstraint(
-            "audio_max_workers IS NULL OR audio_max_workers >= 0",
-            name="ck_custom_provider_audio_max_workers_non_negative",
+            "audio_max_workers IS NULL OR audio_max_workers >= 1",
+            name="ck_custom_provider_audio_max_workers_positive",
         ),
     )
 

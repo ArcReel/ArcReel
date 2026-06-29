@@ -193,14 +193,14 @@ class TestConcurrencyColumns:
             api_key="k",
             image_max_workers=2,
             video_max_workers=7,
-            audio_max_workers=0,
+            audio_max_workers=1,
         )
         await session.flush()
         got = await repo.get_provider(p.id)
         assert got is not None
         assert got.image_max_workers == 2
         assert got.video_max_workers == 7
-        assert got.audio_max_workers == 0
+        assert got.audio_max_workers == 1
 
     async def test_update_workers_including_clear_to_null(self, session: AsyncSession):
         repo = CustomProviderRepository(session)
@@ -222,8 +222,11 @@ class TestConcurrencyColumns:
         assert got.video_max_workers == 4
 
     @pytest.mark.parametrize("field", ["image_max_workers", "video_max_workers", "audio_max_workers"])
-    async def test_create_negative_workers_rejected_by_check_constraint(self, session: AsyncSession, field: str):
-        """DB 层 CHECK 约束拦截负值，repo 直写也无法绕过（create_provider 内部 flush 即触发）。"""
+    @pytest.mark.parametrize("value", [-1, 0])
+    async def test_create_non_positive_workers_rejected_by_check_constraint(
+        self, session: AsyncSession, field: str, value: int
+    ):
+        """DB 层 CHECK 约束拦截 0 与负值，repo 直写也无法绕过（create_provider 内部 flush 即触发）。"""
         from sqlalchemy.exc import IntegrityError
 
         repo = CustomProviderRepository(session)
@@ -233,7 +236,7 @@ class TestConcurrencyColumns:
                 discovery_format="openai",
                 base_url="https://x",
                 api_key="k",
-                **{field: -1},
+                **{field: value},
             )
 
 

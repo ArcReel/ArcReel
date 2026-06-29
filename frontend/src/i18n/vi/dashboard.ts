@@ -760,12 +760,12 @@ export default {
   'enable_one_model': 'Phải bật ít nhất một mô hình',
   'enabled_model_needs_id': 'Mô hình đã bật phải có model_id',
   'cp_concurrency_label': 'Giới hạn đồng thời',
-  'cp_concurrency_help': 'Số tác vụ đồng thời tối đa cho mỗi luồng phương tiện (ảnh / video / âm thanh). Để trống để dùng mặc định toàn cục.',
+  'cp_concurrency_help': 'Số tác vụ đồng thời tối đa cho mỗi luồng phương tiện (ảnh / video / âm thanh). Để trống = mặc định toàn cục; tối thiểu 1.',
   'cp_image_max_workers_label': 'Đồng thời ảnh',
   'cp_video_max_workers_label': 'Đồng thời video',
   'cp_audio_max_workers_label': 'Đồng thời âm thanh',
   'cp_max_workers_placeholder': 'Mặc định',
-  'max_workers_invalid': 'Giới hạn đồng thời phải là số nguyên không âm. Kiểm tra ô nhập hình ảnh / video / âm thanh.',
+  'max_workers_invalid': 'Giới hạn đồng thời phải là số nguyên dương. Kiểm tra ô nhập hình ảnh / video / âm thanh.',
 
   // CustomProviderDetail
   'discovery_format_label': 'Giao thức phát hiện mô hình',

@@ -89,9 +89,12 @@ def test_upgrade_adds_columns_existing_row_null(alembic_cfg: Config, revisions: 
         engine.dispose()
 
 
+@pytest.mark.parametrize("bad_value", [-1, 0])
 @pytest.mark.parametrize("col", _COLS)
-def test_upgrade_rejects_negative_workers(alembic_cfg: Config, revisions: tuple[str, str], col: str):
-    """升级后三列各带非负 CHECK 约束，写入负值被 DB 拒绝；NULL 与 0 仍合法。"""
+def test_upgrade_rejects_non_positive_workers(
+    alembic_cfg: Config, revisions: tuple[str, str], col: str, bad_value: int
+):
+    """升级后三列各带正整数 CHECK 约束，写入 0 与负值被 DB 拒绝；NULL 与 ≥1 仍合法。"""
     revision_id, _ = revisions
     command.upgrade(alembic_cfg, revision_id)
 
@@ -104,22 +107,22 @@ def test_upgrade_rejects_negative_workers(alembic_cfg: Config, revisions: tuple[
                 sa.text(
                     "INSERT INTO custom_provider "
                     f"(id, display_name, discovery_format, base_url, api_key, {col}, created_at, updated_at) "
-                    "VALUES (1, 'P', 'openai', 'https://x', 'k', -1, "
+                    f"VALUES (1, 'P', 'openai', 'https://x', 'k', {bad_value}, "
                     "'2026-06-29 00:00:00', '2026-06-29 00:00:00')"
                 )
             )
-        # 0 与 NULL 合法
+        # ≥1 合法
         with engine.begin() as conn:
             conn.execute(
                 sa.text(
                     "INSERT INTO custom_provider "
                     f"(id, display_name, discovery_format, base_url, api_key, {col}, created_at, updated_at) "
-                    "VALUES (2, 'P', 'openai', 'https://x', 'k', 0, "
+                    "VALUES (2, 'P', 'openai', 'https://x', 'k', 1, "
                     "'2026-06-29 00:00:00', '2026-06-29 00:00:00')"
                 )
             )
             value = conn.execute(sa.text(f"SELECT {col} FROM custom_provider WHERE id = 2")).scalar_one()
-        assert value == 0
+        assert value == 1
     finally:
         engine.dispose()
 

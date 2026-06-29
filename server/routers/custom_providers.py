@@ -44,8 +44,8 @@ def _validate_endpoint(value: str) -> str:
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
 DiscoveryFormatLiteral = Literal["openai", "google"]
 
-# 并发上限定型字段：可空非负整数；None = 未设置 → 容量装载回退全局默认。
-MaxWorkers = Annotated[int | None, Field(default=None, ge=0)]
+# 并发上限定型字段：可空正整数（≥1）；None = 未设置 → 容量装载回退全局默认。
+MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
 logger = logging.getLogger(__name__)
 

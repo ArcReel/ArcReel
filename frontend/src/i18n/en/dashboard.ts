@@ -783,12 +783,12 @@ export default {
   'enable_one_model': 'At least one model must be enabled',
   'enabled_model_needs_id': 'Enabled models must have a model_id',
   'cp_concurrency_label': 'Concurrency Limits',
-  'cp_concurrency_help': 'Max concurrent tasks per media lane (image / video / audio). Leave blank to use the global default.',
+  'cp_concurrency_help': 'Max concurrent tasks per media lane (image / video / audio). Leave blank for the global default; minimum 1.',
   'cp_image_max_workers_label': 'Image Concurrency',
   'cp_video_max_workers_label': 'Video Concurrency',
   'cp_audio_max_workers_label': 'Audio Concurrency',
   'cp_max_workers_placeholder': 'Default',
-  'max_workers_invalid': 'Concurrency limits must be non-negative integers. Check the image / video / audio inputs.',
+  'max_workers_invalid': 'Concurrency limits must be positive integers. Check the image / video / audio inputs.',
 
   // CustomProviderDetail
   'discovery_format_label': 'Model Discovery Protocol',
