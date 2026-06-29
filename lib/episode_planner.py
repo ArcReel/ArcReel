@@ -163,6 +163,55 @@ class _DraftRejected(Exception):
         self.reasons = reasons
 
 
+# 全/半角标点折叠表：把同一标点的全角 / 表意形态映射到半角规范形，仅供匹配时构造
+# 折叠副本用，绝不落库。逐字符 1:1 映射（长度不变），折叠坐标即 NFC 精确坐标。
+_PUNCT_FOLD: dict[str, str] = {
+    "。": ".",  # U+3002 表意句号
+    "．": ".",  # U+FF0E 全角句点
+    "，": ",",  # U+FF0C 全角逗号
+    "！": "!",  # U+FF01 全角叹号
+    "？": "?",  # U+FF1F 全角问号
+    "：": ":",  # U+FF1A 全角冒号
+    "；": ";",  # U+FF1B 全角分号
+    "（": "(",  # U+FF08 全角左括号
+    "）": ")",  # U+FF09 全角右括号
+    "～": "~",  # U+FF5E 全角波浪号
+}
+
+
+def _fold_for_match(text: str) -> str:
+    """构造匹配用折叠副本：折叠全/半角标点 + 把各类空白折成单个半角空格。
+
+    严格逐字符 1:1 映射（每个字符映射为恰好一个字符），长度与原文一致，
+    因而折叠串上的偏移即原文 NFC 坐标系内的精确偏移。容差只限定在标点全/半角与
+    空白宽度，不做编辑距离 / 语义级模糊匹配。
+    """
+    out: list[str] = []
+    for ch in text:
+        folded = _PUNCT_FOLD.get(ch)
+        if folded is not None:
+            out.append(folded)
+        elif ch.isspace():
+            out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _find_all_overlapping(haystack: str, needle: str) -> list[int]:
+    """收集 needle 在 haystack 内的全部起点（允许重叠）。
+
+    str.count 只统计非重叠匹配，会把重叠出现（如 "aaaa" 中的 "aaa"）误判为唯一；
+    步进 1 滑动查找，按允许重叠的口径判定 0/1/多次。
+    """
+    starts: list[int] = []
+    found = haystack.find(needle)
+    while found != -1:
+        starts.append(found)
+        found = haystack.find(needle, found + 1)
+    return starts
+
+
 def _resolve_boundaries(
     window: str,
     drafts: list[NarrationEpisodeDraft],
@@ -177,20 +226,25 @@ def _resolve_boundaries(
     ``snap_whitespace_tail`` 任一生效——前者是 replan 闭合范围，后者是 plan 的
     全文结尾窗口，贴齐后每个字符都归属某一集）。``cover_to_end=True`` 时残留
     非空白尾巴视为校验失败。
+
+    锚点定位分级：先精确 ``find``（命中即与逐字节匹配完全一致）；精确落空时按折叠
+    全/半角标点 + 折叠空白宽度的等价口径在折叠副本上扫描，折叠为 1:1 等长映射，命中
+    起点即 NFC 坐标系下的精确起点（切片仍取原文，不改写源文标点）。折叠后仍多处命中
+    时维持「无法唯一定位」拒绝。
     """
     reasons: list[str] = []
     ends: list[int] = []
     pos = 0
     ordering_valid = True
+    folded_window: str | None = None  # 懒构造：仅在精确匹配落空时折叠一次
     for idx, ep in enumerate(drafts, start=1):
         anchor = ep.end_anchor
-        # str.count 只统计非重叠匹配，会把重叠出现（如 "aaaa" 中的 "aaa"）误判为唯一；
-        # 步进 1 滑动查找收集所有起点，按允许重叠的口径判定 0/1/多次
-        starts: list[int] = []
-        found = window.find(anchor)
-        while found != -1:
-            starts.append(found)
-            found = window.find(anchor, found + 1)
+        starts = _find_all_overlapping(window, anchor)
+        if not starts:
+            # 精确落空：退化到标点 / 空白宽度容错，在等长折叠副本上定位精确偏移
+            if folded_window is None:
+                folded_window = _fold_for_match(window)
+            starts = _find_all_overlapping(folded_window, _fold_for_match(anchor))
         if not starts:
             reasons.append(f"第 {idx} 条的 end_anchor 在原文窗口中不存在（必须逐字摘抄，含标点）: {anchor!r}")
             ordering_valid = False
