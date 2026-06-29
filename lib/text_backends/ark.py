@@ -124,8 +124,15 @@ class ArkTextBackend:
                 logger.warning("原生 response_format %s，降级到带校验的 Instructor 路径", fallback_reason)
                 result = await self._structured_fallback(request, messages)
                 # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，否则会系统性漏记。
-                result.input_tokens = (result.input_tokens or 0) + (native.input_tokens or 0)
-                result.output_tokens = (result.output_tokens or 0) + (native.output_tokens or 0)
+                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
+                if result.input_tokens is not None or native.input_tokens is not None:
+                    result.input_tokens = (result.input_tokens if result.input_tokens is not None else 0) + (
+                        native.input_tokens if native.input_tokens is not None else 0
+                    )
+                if result.output_tokens is not None or native.output_tokens is not None:
+                    result.output_tokens = (result.output_tokens if result.output_tokens is not None else 0) + (
+                        native.output_tokens if native.output_tokens is not None else 0
+                    )
                 return result
             return native
 

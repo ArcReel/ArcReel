@@ -245,6 +245,14 @@ class TestStructuredFallbackReason:
 
         assert structured_fallback_reason("not json", {"type": "object"}) is not None
 
+    def test_none_schema_never_triggers_fallback(self):
+        from lib.text_backends.base import structured_fallback_reason
+
+        # response_schema 为 None（纯文本生成）时，纯文本不得被误判为需降级
+        assert structured_fallback_reason("plain text, not json", None) is None
+        assert structured_fallback_reason('{"a": 1}', None) is None
+        assert structured_fallback_reason("", None) is None
+
 
 class TestIsValidJson:
     def test_valid(self):

@@ -171,8 +171,11 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     避免对供应商已接受的合法响应触发多余的计费降级调用。
 
     仅 Pydantic 模型可做 schema 校验；dict schema 无对应模型，沿用「仅校验是否合法 JSON」的
-    既有行为，不额外收紧。
+    既有行为，不额外收紧。response_schema 为 None（无结构化输出诉求）直接视为无需降级。
     """
+    if response_schema is None:
+        # 纯文本生成无结构化诉求，原生输出直接采用，不能按「非 JSON」误判触发降级。
+        return None
     if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
         # model_validate_json 单次解析即同时覆盖「非 JSON」与「违反 schema」两种情况。
         try:

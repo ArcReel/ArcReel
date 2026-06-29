@@ -377,6 +377,33 @@ class TestSuccessPathReverify:
         assert result.input_tokens == 10
         assert result.output_tokens == 5
 
+    async def test_both_usages_none_preserves_none_not_zero(self, backend, sync_to_thread):
+        """原生与 Instructor 计量皆 None → 合并后保持 None（未追踪），不塌成字面 0。"""
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        # 原生 200 返回非 JSON 触发降级，且原生 usage 缺失
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="## markdown not json"))],
+            usage=None,
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        instructor_result = Person(name="Bob", age=25)
+        completion = SimpleNamespace(usage=None)
+        mock_patched = MagicMock()
+        mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
+
+        with patch("instructor.from_openai", return_value=mock_patched):
+            result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        assert result.text == instructor_result.model_dump_json()
+        assert result.input_tokens is None
+        assert result.output_tokens is None
+
     async def test_valid_json_satisfying_schema_no_fallback(self, backend, sync_to_thread):
         """原生 200 + 满足 schema 的 JSON → 直接采用，不降级。"""
         from pydantic import BaseModel
