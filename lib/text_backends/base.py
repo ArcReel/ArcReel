@@ -148,8 +148,11 @@ def summarize_validation_error(exc: ValidationError) -> str:
 
     只取字段路径（loc）与错误数，**不含模型原始输入值**——后者可能很大且会把
     模型生成内容写进日志（经诊断日志打包外泄），也避免单条日志膨胀到数 KB。
+    用 include_input=False 在源头剔除 input，不让原始值进入 error dict（防御纵深）。
     """
-    locs = [".".join(str(part) for part in err.get("loc", ())) or "<root>" for err in exc.errors()[:5]]
+    locs = [
+        ".".join(str(part) for part in err.get("loc", ())) or "<root>" for err in exc.errors(include_input=False)[:5]
+    ]
     suffix = "…" if exc.error_count() > 5 else ""
     return f"{exc.error_count()} 处字段不符（{', '.join(locs)}{suffix}）"
 
