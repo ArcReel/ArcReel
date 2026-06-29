@@ -121,7 +121,7 @@ async def test_set_max_workers_canonicalizes_on_write(config_service: ConfigServ
 
 
 async def test_set_other_number_keys_not_restricted_to_integers(config_service: ConfigService):
-    # request_gap / *_rpm 语义允许小数，不受容量键的非负整数校验约束
+    # request_gap / *_rpm 语义允许小数，不受容量键的正整数校验约束
     await config_service.set_provider_config("gemini-aistudio", "request_gap", "0.5")
     config = await config_service.get_provider_config("gemini-aistudio")
     assert config["request_gap"] == "0.5"
