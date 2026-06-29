@@ -13,7 +13,10 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lib.config.registry import ProviderMeta
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +125,15 @@ class CapacityTable:
             "audio": audio if "audio" in media_types else 0,
         }
 
+    @staticmethod
+    def _lane_default(meta: ProviderMeta, lane: str, global_default: int) -> int:
+        """某条 lane 在用户未配时的回退默认：供应商注册表声明默认（若有）→ 否则全局默认。
+
+        三层回退的中间层单点：from_env / from_db 共用，避免两路漂移。声明默认的合法性
+        （key 是合法 lane、值为 >=1 整数）由 ProviderMeta.__post_init__ 在 import 期保证。
+        """
+        return meta.default_concurrency.get(lane, global_default)
+
     @classmethod
     def from_env(cls) -> CapacityTable:
         """从环境变量 / 默认值构造（DB 不可用前或测试用）。"""
@@ -130,8 +142,14 @@ class CapacityTable:
         image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
         video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
         audio_max = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
+        # 无用户配置的装载路径：每条 lane 取声明默认（若有）→ 否则全局默认
         limits = {
-            pid: cls._lane_limits(meta.media_types, image_max, video_max, audio_max)
+            pid: cls._lane_limits(
+                meta.media_types,
+                cls._lane_default(meta, "image", image_max),
+                cls._lane_default(meta, "video", video_max),
+                cls._lane_default(meta, "audio", audio_max),
+            )
             for pid, meta in PROVIDER_REGISTRY.items()
         }
         return cls(_limits=limits, _defaults={"image": image_max, "video": video_max, "audio": audio_max})
@@ -155,9 +173,17 @@ class CapacityTable:
             all_configs = await svc.get_all_provider_configs()
             for provider_id, meta in PROVIDER_REGISTRY.items():
                 config = all_configs.get(provider_id, {})
-                image_max = _parse_lane_max(config, "image_max_workers", default_image, provider_id)
-                video_max = _parse_lane_max(config, "video_max_workers", default_video, provider_id)
-                audio_max = _parse_lane_max(config, "audio_max_workers", default_audio, provider_id)
+                # 用户未配某条 lane 时，_parse_lane_max 回退到此处给的 default——
+                # 即声明默认（若有）→ 否则全局默认；用户配了则解析值覆盖之
+                image_max = _parse_lane_max(
+                    config, "image_max_workers", cls._lane_default(meta, "image", default_image), provider_id
+                )
+                video_max = _parse_lane_max(
+                    config, "video_max_workers", cls._lane_default(meta, "video", default_video), provider_id
+                )
+                audio_max = _parse_lane_max(
+                    config, "audio_max_workers", cls._lane_default(meta, "audio", default_audio), provider_id
+                )
                 # _lane_limits 统一负责"不支持的 lane → 0"，三个装载路径共用同一投影点
                 limits[provider_id] = cls._lane_limits(meta.media_types, image_max, video_max, audio_max)
 
