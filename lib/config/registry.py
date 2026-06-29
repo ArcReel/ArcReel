@@ -279,6 +279,15 @@ def _agnes_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
 
 
+# Agnes 文本费率（美元/百万 token），官方原价。
+def _agnes_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="USD",
+    )
+
+
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
         display_name="AI Studio",
@@ -1183,11 +1192,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "agnes": ProviderMeta(
         display_name="Agnes",
-        description="Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像生成。",
+        description="Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像与文本生成。",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_max_workers"],
         secret_keys=["api_key"],
         models={
+            # --- text ---
+            # agnes-2.0-flash：OpenAI 兼容 /v1/chat/completions，原生 response_format json_schema
+            # 结构化输出，失败再降级 Instructor（见 AgnesTextBackend）。
+            "agnes-2.0-flash": ModelInfo(
+                display_name="Agnes 2.0 Flash",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                default=True,
+                pricing=_agnes_text_pricing("agnes-2.0-flash", 0.03, 0.15),
+            ),
             # --- image ---
             # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
             # 仅注册 2.1（2.0 与其价格 / 字段实测无差异，model 目录收敛）。

@@ -46,6 +46,13 @@ class TestRegistryHit:
         assert isinstance(pricing, PerTokenVideo)
         assert pricing.currency == "CNY"
 
+    def test_agnes_text_per_token(self):
+        pricing = lookup_pricing("agnes", "agnes-2.0-flash", "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.currency == "USD"
+        # 输入 $0.03 / 输出 $0.15 每 1M tokens
+        assert pricing.rates["agnes-2.0-flash"] == {"input": 0.03, "output": 0.15}
+
 
 class TestUnknownProviderFallsBackToGemini:
     @pytest.mark.parametrize("provider", ["gemini", "unknown", "seedance"])
@@ -104,6 +111,16 @@ class TestUnknownModelFallback:
         assert pricing.rates["agnes-image-2.1-flash"] == 0.003
         assert pricing.currency == "USD"
         assert any("agnes-image-2.0-unregistered" in r.getMessage() for r in caplog.records)
+
+    def test_agnes_unknown_text_model_falls_back_to_own_default(self, caplog):
+        # agnes 有专属 PerToken 文本表，未知 model 应回落 agnes 自有默认文本费率（非 Gemini 通用），
+        # 故 agnes 须在 _OWN_TABLE_PROVIDERS 内。
+        with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
+            pricing = lookup_pricing("agnes", "agnes-2.0-unregistered", "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.rates["agnes-2.0-flash"] == {"input": 0.03, "output": 0.15}
+        assert pricing.currency == "USD"
+        assert any("agnes-2.0-unregistered" in r.getMessage() for r in caplog.records)
 
     def test_agent_plan_no_pricing_falls_back_to_gemini_quietly(self, caplog):
         with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):

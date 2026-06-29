@@ -43,3 +43,8 @@ from lib.providers import PROVIDER_OPENAI
 from lib.text_backends.openai import OpenAITextBackend
 
 register_backend(PROVIDER_OPENAI, OpenAITextBackend)
+
+from lib.providers import PROVIDER_AGNES
+from lib.text_backends.agnes import AgnesTextBackend
+
+register_backend(PROVIDER_AGNES, AgnesTextBackend)
