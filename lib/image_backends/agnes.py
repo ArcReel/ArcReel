@@ -45,27 +45,15 @@ _DEFAULT_SHORT = 1440
 _SAFE_LOG_KEYS = ("model", "size", "n")
 
 
-def _extract_image_url(payload: object) -> str | None:
-    """从 OpenAI 兼容响应 ``data[].url`` 取首个 URL；无则 None。"""
+def _extract_first_str(payload: object, key: str) -> str | None:
+    """从 OpenAI 兼容响应 ``data[].<key>`` 取首个非空字符串（url / b64_json 共用）；无则 None。"""
     data = payload.get("data") if isinstance(payload, dict) else None
     if isinstance(data, list):
         for item in data:
             if isinstance(item, dict):
-                url = item.get("url")
-                if isinstance(url, str) and url:
-                    return url
-    return None
-
-
-def _extract_image_base64(payload: object) -> str | None:
-    """从 OpenAI 兼容响应 ``data[].b64_json`` 取首个 base64；无则 None。"""
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if isinstance(data, list):
-        for item in data:
-            if isinstance(item, dict):
-                b64 = item.get("b64_json")
-                if isinstance(b64, str) and b64:
-                    return b64
+                value = item.get(key)
+                if isinstance(value, str) and value:
+                    return value
     return None
 
 
@@ -204,12 +192,12 @@ class AgnesImageBackend:
 
         优先 URL（立即下载），URL 缺失降级 base64 解码写盘；两者皆空即报错。
         """
-        url = _extract_image_url(data)
+        url = _extract_first_str(data, "url")
         if url:
             await self._download_result(url, output_path)
             return url
 
-        b64 = _extract_image_base64(data)
+        b64 = _extract_first_str(data, "b64_json")
         if b64:
             await _write_base64_image(b64, output_path)
             return None

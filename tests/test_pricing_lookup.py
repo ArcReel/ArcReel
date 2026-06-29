@@ -12,6 +12,7 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.pricing.lookup import lookup_pricing
 from lib.pricing.types import (
     PerImageByResolution,
+    PerImageFlat,
     PerImageOpenAIToken,
     PerSecondMatrix,
     PerToken,
@@ -93,6 +94,16 @@ class TestUnknownModelFallback:
         # 回落到 ark 默认视频模型（mini）
         assert "doubao-seedance-2-0-mini-260615" in pricing.rates
         assert any("no-such-model" in r.getMessage() for r in caplog.records)
+
+    def test_agnes_unknown_image_model_falls_back_to_own_default(self, caplog):
+        # agnes 有专属 PerImageFlat 表，未知 model 应回落 agnes 自有默认（$0.003 USD），
+        # 而非 Gemini 通用图像费率——故 agnes 须在 _OWN_TABLE_PROVIDERS 内。
+        with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
+            pricing = lookup_pricing("agnes", "agnes-image-2.0-unregistered", "image")
+        assert isinstance(pricing, PerImageFlat)
+        assert pricing.rates["agnes-image-2.1-flash"] == 0.003
+        assert pricing.currency == "USD"
+        assert any("agnes-image-2.0-unregistered" in r.getMessage() for r in caplog.records)
 
     def test_agent_plan_no_pricing_falls_back_to_gemini_quietly(self, caplog):
         with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
