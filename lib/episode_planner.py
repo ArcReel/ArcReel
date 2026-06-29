@@ -177,14 +177,17 @@ _PUNCT_FOLD: dict[str, str] = {
     "）": ")",  # U+FF09 全角右括号
     "～": "~",  # U+FF5E 全角波浪号
 }
+# 折叠值必须是单字符：_fold_for_match 的逐字符 1:1 等长依赖于此。一旦某条映射折成多字符，
+# 折叠串偏移就相对 NFC 原文漂移，end = start + len(anchor) 会算出错误切点。导入期即拦截违例。
+assert all(len(dst) == 1 for dst in _PUNCT_FOLD.values()), "折叠表的值必须是单字符以保证等长映射"
 
 
 def _fold_for_match(text: str) -> str:
-    """构造匹配用折叠副本：折叠全/半角标点 + 把各类空白折成单个半角空格。
+    """构造匹配用折叠副本：折叠全/半角标点 + 把每个空白字符折成一个半角空格（逐字符等长，不合并连续空白）。
 
-    严格逐字符 1:1 映射（每个字符映射为恰好一个字符），长度与原文一致，
-    因而折叠串上的偏移即原文 NFC 坐标系内的精确偏移。容差只限定在标点全/半角与
-    空白宽度，不做编辑距离 / 语义级模糊匹配。
+    严格逐字符 1:1 映射（每个字符映射为恰好一个字符，连续空白按原数量逐个保留、不压缩），
+    长度与原文一致，因而折叠串上的偏移即原文 NFC 坐标系内的精确偏移。容差只限定在标点
+    全/半角与单个空白字符的宽度，不做编辑距离 / 语义级模糊匹配。
     """
     out: list[str] = []
     for ch in text:
@@ -240,20 +243,30 @@ def _resolve_boundaries(
     for idx, ep in enumerate(drafts, start=1):
         anchor = ep.end_anchor
         starts = _find_all_overlapping(window, anchor)
+        matched_by_fold = False
         if not starts:
             # 精确落空：退化到标点 / 空白宽度容错，在等长折叠副本上定位精确偏移
             if folded_window is None:
                 folded_window = _fold_for_match(window)
             starts = _find_all_overlapping(folded_window, _fold_for_match(anchor))
+            matched_by_fold = bool(starts)
         if not starts:
             reasons.append(f"第 {idx} 条的 end_anchor 在原文窗口中不存在（必须逐字摘抄，含标点）: {anchor!r}")
             ordering_valid = False
             continue
         if len(starts) > 1:
-            reasons.append(
-                f"第 {idx} 条的 end_anchor 在原文窗口中出现 {len(starts)} 次，无法唯一定位，"
-                f"请改用更长或更独特的片段: {anchor!r}"
-            )
+            if matched_by_fold:
+                # 折叠路径的「出现 N 次」是标点 / 空白折叠对齐后的计数；模型按字面 anchor 逐字数
+                # 往往是 0 次，必须点明计数口径，否则模型对不上、可能反复重交同一 anchor 耗尽重试
+                reasons.append(
+                    f"第 {idx} 条的 end_anchor 在原文窗口中按标点全/半角与空白折叠对齐后出现 {len(starts)} 次"
+                    f"（逐字精确匹配可能为 0 次），无法唯一定位，请改用更长或更独特、与原文逐字一致的片段: {anchor!r}"
+                )
+            else:
+                reasons.append(
+                    f"第 {idx} 条的 end_anchor 在原文窗口中出现 {len(starts)} 次，无法唯一定位，"
+                    f"请改用更长或更独特的片段: {anchor!r}"
+                )
             ordering_valid = False
             continue
         end = starts[0] + len(anchor)

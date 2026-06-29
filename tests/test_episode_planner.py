@@ -227,9 +227,9 @@ class TestPlan:
         assert [s.title for s in result.episodes] == ["乙"]
 
     async def test_plan_resolves_anchor_with_halfwidth_punctuation(self, tmp_path: Path):
-        """锚点与源文仅差全/半角标点宽度（。→ .）：折叠容错还原精确 NFC 偏移，一次通过不重试。"""
+        """锚点与源文仅差全/半角标点宽度（，→ , 与 。→ .）：折叠容错还原精确 NFC 偏移，一次通过不重试。"""
         project_dir = _write_project(tmp_path)
-        half_width_anchor = "玉中藏着剑诀."  # 源文是全角 。，模型回显成半角 .
+        half_width_anchor = "古玉,玉中藏着剑诀."  # 源文是全角 ，与 。，模型回显成半角 , 与 .
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": half_width_anchor}])]
         )
@@ -246,7 +246,7 @@ class TestPlan:
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
 
     async def test_plan_drama_resolves_anchor_with_punctuation_width_mismatch(self, tmp_path: Path):
-        """drama 草稿同样走折叠容错：标点宽度不匹配（。→ .、，→ ,）时解析到正确精确偏移。"""
+        """drama 草稿同样走折叠容错：标点宽度不匹配（。→ .）时解析到正确精确偏移。"""
         project_dir = _write_project(tmp_path, content_mode="drama")
         half_width_anchor = "被追杀的少女."  # 源文全角 。
         fake = _FakeTextGenerator(
