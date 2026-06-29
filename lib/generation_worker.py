@@ -13,7 +13,10 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lib.config.registry import ProviderMeta
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +126,11 @@ class CapacityTable:
         }
 
     @staticmethod
-    def _lane_default(meta: Any, lane: str, global_default: int) -> int:
+    def _lane_default(meta: ProviderMeta, lane: str, global_default: int) -> int:
         """某条 lane 在用户未配时的回退默认：供应商注册表声明默认（若有）→ 否则全局默认。
 
-        三层回退的中间层单点：from_env / from_db 共用，避免两路漂移。
+        三层回退的中间层单点：from_env / from_db 共用，避免两路漂移。声明默认的合法性
+        （key 是合法 lane、值为 >=1 整数）由 ProviderMeta.__post_init__ 在 import 期保证。
         """
         return meta.default_concurrency.get(lane, global_default)
 
