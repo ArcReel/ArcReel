@@ -81,3 +81,9 @@ from lib.providers import PROVIDER_KLING  # noqa: E402
 from lib.video_backends.kling import KlingVideoBackend  # noqa: E402
 
 register_backend(PROVIDER_KLING, KlingVideoBackend)
+
+# Agnes — apihub 异步视频端点（裸 base64 + 轮询 + resume）
+from lib.providers import PROVIDER_AGNES  # noqa: E402
+from lib.video_backends.agnes import AgnesVideoBackend  # noqa: E402
+
+register_backend(PROVIDER_AGNES, AgnesVideoBackend)

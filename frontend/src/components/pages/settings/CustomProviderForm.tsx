@@ -128,6 +128,54 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
   };
 }
 
+// 并发上限：number 输入用受控字符串存储；空串 = 未设置（null，走全局默认）。
+function workersToStr(n?: number | null): string {
+  return n != null ? String(n) : "";
+}
+
+// 空串 = 未设置（null，走全局默认）；否则必须是正整数（≥1）。返回 undefined 表示非法
+// 输入（0、小数、科学计数、负号、含非数字字符），由 handleSave 拦截并提示——不再用 parseInt
+// 静默截断（"1.5"→1、"1e3"→1）把非法值写成错误配置。0 不是合法用户输入。
+function parseWorkers(s: string): number | null | undefined {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
+}
+
+function WorkersInput({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="min-w-[110px]">
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <input
+        id={id}
+        type="number"
+        min={1}
+        step={1}
+        inputMode="numeric"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`${INPUT_CLS} max-w-[120px]`}
+      />
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // DurationsInputRow — 视频模型行内的 supported_durations 输入
 // ---------------------------------------------------------------------------
@@ -226,6 +274,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   const [models, setModels] = useState<ModelRow[]>(
     existing ? existing.models.map(existingToRow) : [],
   );
+  const [imageMaxWorkers, setImageMaxWorkers] = useState(workersToStr(existing?.image_max_workers));
+  const [videoMaxWorkers, setVideoMaxWorkers] = useState(workersToStr(existing?.video_max_workers));
+  const [audioMaxWorkers, setAudioMaxWorkers] = useState(workersToStr(existing?.audio_max_workers));
 
   // --- Loading / status ---
   const [discovering, setDiscovering] = useState(false);
@@ -359,6 +410,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       }
       return;
     }
+    // 并发上限严格解析：非法（小数/科学计数/负号/非数字）→ undefined，阻断保存并提示
+    const imageMax = parseWorkers(imageMaxWorkers);
+    const videoMax = parseWorkers(videoMaxWorkers);
+    const audioMax = parseWorkers(audioMaxWorkers);
+    if (imageMax === undefined || videoMax === undefined || audioMax === undefined) {
+      showError(t("max_workers_invalid"));
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit && existing) {
@@ -368,6 +427,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           base_url: baseUrl,
           ...(apiKey ? { api_key: apiKey } : {}),
           models: payloadModels,
+          image_max_workers: imageMax,
+          video_max_workers: videoMax,
+          audio_max_workers: audioMax,
         });
       } else {
         await API.createCustomProvider({
@@ -376,6 +438,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           base_url: baseUrl,
           api_key: apiKey,
           models: payloadModels,
+          image_max_workers: imageMax,
+          video_max_workers: videoMax,
+          audio_max_workers: audioMax,
         });
       }
       onSaved();
@@ -384,7 +449,21 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setSaving(false);
     }
-  }, [displayName, discoveryFormat, baseUrl, apiKey, models, isEdit, existing, onSaved, showError, t]);
+  }, [
+    displayName,
+    discoveryFormat,
+    baseUrl,
+    apiKey,
+    models,
+    imageMaxWorkers,
+    videoMaxWorkers,
+    audioMaxWorkers,
+    isEdit,
+    existing,
+    onSaved,
+    showError,
+    t,
+  ]);
 
   // --- Model row helpers ---
   const updateModel = (key: string, patch: Partial<ModelRow>) => {
@@ -732,6 +811,37 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             </button>
           </div>
         )}
+
+        {/* Concurrency limits */}
+        <div>
+          <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+            {t("cp_concurrency_label")}
+          </div>
+          <p className="mb-3 text-[11px] text-text-4">{t("cp_concurrency_help")}</p>
+          <div className="flex flex-wrap gap-4">
+            <WorkersInput
+              id="cp-image-workers"
+              label={t("cp_image_max_workers_label")}
+              value={imageMaxWorkers}
+              onChange={setImageMaxWorkers}
+              placeholder={t("cp_max_workers_placeholder")}
+            />
+            <WorkersInput
+              id="cp-video-workers"
+              label={t("cp_video_max_workers_label")}
+              value={videoMaxWorkers}
+              onChange={setVideoMaxWorkers}
+              placeholder={t("cp_max_workers_placeholder")}
+            />
+            <WorkersInput
+              id="cp-audio-workers"
+              label={t("cp_audio_max_workers_label")}
+              value={audioMaxWorkers}
+              onChange={setAudioMaxWorkers}
+              placeholder={t("cp_max_workers_placeholder")}
+            />
+          </div>
+        </div>
 
         {/* Test result */}
         {testResult && (

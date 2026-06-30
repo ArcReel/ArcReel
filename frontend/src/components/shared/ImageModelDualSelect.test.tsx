@@ -46,6 +46,9 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
     base_url: "https://x.example.com",
     api_key_masked: "sk-***",
     created_at: "2026-01-01T00:00:00Z",
+    image_max_workers: null,
+    video_max_workers: null,
+    audio_max_workers: null,
     models: [
       {
         id: 1,

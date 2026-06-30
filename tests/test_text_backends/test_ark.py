@@ -308,6 +308,226 @@ class TestCapabilityAwareStructured:
         backend_with_structured._openai_client.chat.completions.create.assert_called_once()
 
 
+class TestSuccessPathReverify:
+    """原生 200 后复验 schema：违例则降级带校验路径，并合并原生计费 token。"""
+
+    @pytest.fixture
+    def backend(self, mock_ark):
+        _, mock_client = mock_ark
+        b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
+        b._test_client = mock_client
+        b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
+        return b
+
+    async def test_violating_json_pydantic_triggers_fallback_with_token_merge(self, backend, sync_to_thread):
+        """原生 200 + 违反 Pydantic schema 的 JSON → 降级 + token 合并。"""
+        import json
+
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        violating = json.dumps({"name": "Alice", "age": "三十"}, ensure_ascii=False)
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=violating))],
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=60),
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        instructor_result = Person(name="Alice", age=30)
+        completion = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=80, completion_tokens=30))
+        mock_patched = MagicMock()
+        mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
+
+        with patch("instructor.from_openai", return_value=mock_patched):
+            result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        assert result.text == instructor_result.model_dump_json()
+        # 原生 200 调用（100/60）已被代理计费，与 Instructor 调用（80/30）合并
+        assert result.input_tokens == 180
+        assert result.output_tokens == 90
+        backend._test_client.chat.completions.create.assert_called_once()
+
+    async def test_non_json_triggers_fallback(self, backend, sync_to_thread):
+        """原生 200 + 非 JSON（代理静默忽略 response_format）→ 降级。"""
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="## markdown not json"))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        instructor_result = Person(name="Bob", age=25)
+        completion = SimpleNamespace(usage=None)
+        mock_patched = MagicMock()
+        mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
+
+        with patch("instructor.from_openai", return_value=mock_patched):
+            result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        assert result.text == instructor_result.model_dump_json()
+        # Instructor usage 为 None，结果 token 即原生 200 调用计费量（10/5）
+        assert result.input_tokens == 10
+        assert result.output_tokens == 5
+
+    async def test_both_usages_none_preserves_none_not_zero(self, backend, sync_to_thread):
+        """原生与 Instructor 计量皆 None → 合并后保持 None（未追踪），不塌成字面 0。"""
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        # 原生 200 返回非 JSON 触发降级，且原生 usage 缺失
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="## markdown not json"))],
+            usage=None,
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        instructor_result = Person(name="Bob", age=25)
+        completion = SimpleNamespace(usage=None)
+        mock_patched = MagicMock()
+        mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
+
+        with patch("instructor.from_openai", return_value=mock_patched):
+            result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        assert result.text == instructor_result.model_dump_json()
+        assert result.input_tokens is None
+        assert result.output_tokens is None
+
+    async def test_valid_json_satisfying_schema_no_fallback(self, backend, sync_to_thread):
+        """原生 200 + 满足 schema 的 JSON → 直接采用，不降级。"""
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        import json
+
+        valid = json.dumps({"name": "Alice", "age": 30})
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=valid))],
+            usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        with patch("instructor.from_openai") as mock_from_openai:
+            result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        assert result.text == valid
+        assert result.input_tokens == 20
+        assert result.output_tokens == 10
+        mock_from_openai.assert_not_called()
+
+    async def test_dict_schema_non_json_falls_back_to_json_object_with_token_merge(self, backend, sync_to_thread):
+        """dict schema 原生 200 返回非 JSON → json_object 降级，并合并原生 token。"""
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="not json"))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        fb = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
+            usage=SimpleNamespace(prompt_tokens=30, completion_tokens=15),
+        )
+        backend._openai_client.chat.completions.create = MagicMock(return_value=fb)
+
+        result = await backend.generate(TextGenerationRequest(prompt="x", response_schema={"type": "object"}))
+
+        assert result.text == '{"key": "value"}'
+        # 原生 10/5 与 json_object 降级 30/15 合并
+        assert result.input_tokens == 40
+        assert result.output_tokens == 20
+        call_kwargs = backend._openai_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["response_format"] == {"type": "json_object"}
+
+    async def test_dict_schema_valid_json_no_fallback(self, backend, sync_to_thread):
+        """dict schema 原生 200 + 合法 JSON（即便违反声明类型）→ 不降级。"""
+        import json
+
+        violating = json.dumps({"key": "value", "age": "thirty"})
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=violating))],
+            usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+        backend._openai_client.chat.completions.create = MagicMock()
+
+        result = await backend.generate(
+            TextGenerationRequest(
+                prompt="x",
+                response_schema={"type": "object", "properties": {"age": {"type": "integer"}}},
+            )
+        )
+
+        assert result.text == violating
+        backend._openai_client.chat.completions.create.assert_not_called()
+
+    async def test_coercible_value_does_not_trigger_fallback(self, backend, sync_to_thread):
+        """原生 200 + 可强转值（int 字段给 "30"）→ 不降级。
+
+        ark 原生 response_format 未声明 strict，复验同样 strict=False，容忍可强转值，
+        避免对供应商已接受的合法响应触发多余的计费降级调用。
+        """
+        import json
+
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        coercible = json.dumps({"name": "Alice", "age": "30"})
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=coercible))],
+            usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        with patch("instructor.from_openai") as mock_from_openai:
+            result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        assert result.text == coercible
+        assert result.input_tokens == 20
+        assert result.output_tokens == 10
+        mock_from_openai.assert_not_called()
+
+    async def test_empty_choices_on_200_falls_back(self, backend, sync_to_thread):
+        """原生 200 但 choices 为空（中转/内容审核）→ 解析异常被 catch → 降级，不逃逸。"""
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        mock_resp = SimpleNamespace(choices=[], usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5))
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        instructor_result = Person(name="Bob", age=25)
+        completion = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=80, completion_tokens=30))
+        mock_patched = MagicMock()
+        mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
+
+        with patch("instructor.from_openai", return_value=mock_patched):
+            result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        # 解析异常落入 except → 降级路径，返回带校验结果（不并入原生 token：原生未成功解析）
+        assert result.text == instructor_result.model_dump_json()
+        assert result.input_tokens == 80
+        assert result.output_tokens == 30
+
+
 class TestBaseUrl:
     def test_custom_base_url_passes_to_both_clients(self):
         with patch("lib.text_backends.ark.create_ark_client") as mock_ark_create:
