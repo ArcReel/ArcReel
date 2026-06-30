@@ -38,7 +38,18 @@ class TestCustomProviderTable:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("custom_provider")}
             )
-        expected = {"id", "display_name", "discovery_format", "base_url", "api_key", "created_at", "updated_at"}
+        expected = {
+            "id",
+            "display_name",
+            "discovery_format",
+            "base_url",
+            "api_key",
+            "image_max_workers",
+            "video_max_workers",
+            "audio_max_workers",
+            "created_at",
+            "updated_at",
+        }
         assert columns == expected
 
 

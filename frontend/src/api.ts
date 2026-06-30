@@ -34,6 +34,7 @@ import type {
   CustomProviderInfo,
   CustomProviderModelInfo,
   CustomProviderCreateRequest,
+  CustomProviderFullUpdateRequest,
   CustomProviderModelInput,
   DiscoveredModel,
   EndpointDescriptor,
@@ -1890,11 +1891,11 @@ class API {
     return this.request(`/custom-providers/${id}`);
   }
 
-  static async updateCustomProvider(id: number, data: Partial<Omit<CustomProviderCreateRequest, "discovery_format" | "models">>): Promise<void> {
+  static async updateCustomProvider(id: number, data: Partial<Omit<CustomProviderCreateRequest, "discovery_format" | "models" | "image_max_workers" | "video_max_workers" | "audio_max_workers">>): Promise<void> {
     return this.request(`/custom-providers/${id}`, { method: "PATCH", body: JSON.stringify(data) });
   }
 
-  static async fullUpdateCustomProvider(id: number, data: { display_name: string; base_url: string; api_key?: string; models: CustomProviderModelInput[] }): Promise<CustomProviderInfo> {
+  static async fullUpdateCustomProvider(id: number, data: CustomProviderFullUpdateRequest): Promise<CustomProviderInfo> {
     return this.request(`/custom-providers/${id}`, { method: "PUT", body: JSON.stringify(data) });
   }
 

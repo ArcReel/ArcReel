@@ -12,6 +12,7 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.pricing.lookup import lookup_pricing
 from lib.pricing.types import (
     PerImageByResolution,
+    PerImageFlat,
     PerImageOpenAIToken,
     PerSecondMatrix,
     PerToken,
@@ -44,6 +45,27 @@ class TestRegistryHit:
         pricing = lookup_pricing("ark", "doubao-seedance-2-0-mini-260615", "video")
         assert isinstance(pricing, PerTokenVideo)
         assert pricing.currency == "CNY"
+
+    def test_agnes_text_per_token(self):
+        pricing = lookup_pricing("agnes", "agnes-2.0-flash", "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.currency == "USD"
+        # 输入 $0.03 / 输出 $0.15 每 1M tokens
+        assert pricing.rates["agnes-2.0-flash"] == {"input": 0.03, "output": 0.15}
+
+    def test_agnes_video_flat_per_second(self):
+        from lib.pricing.strategies import PricingParams, calculate_pricing
+
+        pricing = lookup_pricing("agnes", "agnes-video-v2.0", "video")
+        assert isinstance(pricing, PerSecondMatrix)
+        assert pricing.dimensions == "flat"
+        assert pricing.currency == "USD"
+        # flat 按秒 $0.005/s，与分辨率/音频无关
+        amount, currency = calculate_pricing(
+            pricing, PricingParams(call_type="video", model="agnes-video-v2.0", duration_seconds=10)
+        )
+        assert amount == pytest.approx(0.05)
+        assert currency == "USD"
 
 
 class TestUnknownProviderFallsBackToGemini:
@@ -93,6 +115,26 @@ class TestUnknownModelFallback:
         # 回落到 ark 默认视频模型（mini）
         assert "doubao-seedance-2-0-mini-260615" in pricing.rates
         assert any("no-such-model" in r.getMessage() for r in caplog.records)
+
+    def test_agnes_unknown_image_model_falls_back_to_own_default(self, caplog):
+        # agnes 有专属 PerImageFlat 表，未知 model 应回落 agnes 自有默认（$0.003 USD），
+        # 而非 Gemini 通用图像费率——故 agnes 须在 _OWN_TABLE_PROVIDERS 内。
+        with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
+            pricing = lookup_pricing("agnes", "agnes-image-2.0-unregistered", "image")
+        assert isinstance(pricing, PerImageFlat)
+        assert pricing.rates["agnes-image-2.1-flash"] == 0.003
+        assert pricing.currency == "USD"
+        assert any("agnes-image-2.0-unregistered" in r.getMessage() for r in caplog.records)
+
+    def test_agnes_unknown_text_model_falls_back_to_own_default(self, caplog):
+        # agnes 有专属 PerToken 文本表，未知 model 应回落 agnes 自有默认文本费率（非 Gemini 通用），
+        # 故 agnes 须在 _OWN_TABLE_PROVIDERS 内。
+        with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
+            pricing = lookup_pricing("agnes", "agnes-2.0-unregistered", "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.rates["agnes-2.0-flash"] == {"input": 0.03, "output": 0.15}
+        assert pricing.currency == "USD"
+        assert any("agnes-2.0-unregistered" in r.getMessage() for r in caplog.records)
 
     def test_agent_plan_no_pricing_falls_back_to_gemini_quietly(self, caplog):
         with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):

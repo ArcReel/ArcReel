@@ -92,7 +92,7 @@ async def test_unknown_provider_raises(config_service: ConfigService):
 
 
 @pytest.mark.parametrize("key", ["image_max_workers", "video_max_workers", "audio_max_workers"])
-@pytest.mark.parametrize("value", ["", "3.7", "abc", "-1"])
+@pytest.mark.parametrize("value", ["", "3.7", "abc", "-1", "0"])
 async def test_set_max_workers_rejects_invalid_values(config_service: ConfigService, key: str, value: str):
     from lib.config.service import ProviderConfigValueError
 
@@ -101,12 +101,12 @@ async def test_set_max_workers_rejects_invalid_values(config_service: ConfigServ
     assert exc_info.value.key == key
     assert exc_info.value.value == value
     # router 依赖 code/params 泛化渲染 i18n 文案，契约在此 pin 住
-    assert exc_info.value.code == "max_workers_must_be_nonnegative_integer"
+    assert exc_info.value.code == "max_workers_must_be_positive_integer"
     assert exc_info.value.params == {"field": key, "value": value}
 
 
-@pytest.mark.parametrize("value", ["0", "5"])
-async def test_set_max_workers_accepts_nonnegative_integers(config_service: ConfigService, value: str):
+@pytest.mark.parametrize("value", ["1", "5"])
+async def test_set_max_workers_accepts_positive_integers(config_service: ConfigService, value: str):
     await config_service.set_provider_config("ark", "image_max_workers", value)
     config = await config_service.get_provider_config("ark")
     assert config["image_max_workers"] == value
@@ -121,7 +121,7 @@ async def test_set_max_workers_canonicalizes_on_write(config_service: ConfigServ
 
 
 async def test_set_other_number_keys_not_restricted_to_integers(config_service: ConfigService):
-    # request_gap / *_rpm 语义允许小数，不受容量键的非负整数校验约束
+    # request_gap / *_rpm 语义允许小数，不受容量键的正整数校验约束
     await config_service.set_provider_config("gemini-aistudio", "request_gap", "0.5")
     config = await config_service.get_provider_config("gemini-aistudio")
     assert config["request_gap"] == "0.5"

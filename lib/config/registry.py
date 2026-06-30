@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from lib.agnes_shared import AGNES_BASE_URL
 from lib.ark_shared import ARK_BASE_URL
 from lib.dashscope_shared import DASHSCOPE_BASE_URL
 from lib.minimax_shared import MINIMAX_BASE_URL
@@ -271,6 +272,30 @@ def _kling_image_flat_pricing(model_id: str, per_image: float) -> PerImageFlat:
 
 def _kling_image_by_resolution_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="CNY")
+
+
+# Agnes 图片费率（美元/张），官方原价；当前促销 $0 不建模。
+def _agnes_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
+    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
+
+
+# Agnes 文本费率（美元/百万 token），官方原价。
+def _agnes_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+    return PerToken(
+        rates={model_id: {"input": input_rate, "output": output_rate}},
+        default_model=model_id,
+        currency="USD",
+    )
+
+
+# Agnes 视频费率（美元/秒），flat 按秒、与分辨率/音频无关；官方原价，当前促销 $0 不建模。
+def _agnes_video_pricing(model_id: str, per_second: float) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {("", None): per_second}},
+        default_model=model_id,
+        dimensions="flat",
+        currency="USD",
+    )
 
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
@@ -1174,6 +1199,55 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url="https://api.klingai.com/v1",
+    ),
+    "agnes": ProviderMeta(
+        display_name="Agnes",
+        description="Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- text ---
+            # agnes-2.0-flash：OpenAI 兼容 /v1/chat/completions，原生 response_format json_schema
+            # 结构化输出，失败再降级 Instructor（见 AgnesTextBackend）。
+            "agnes-2.0-flash": ModelInfo(
+                display_name="Agnes 2.0 Flash",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                default=True,
+                pricing=_agnes_text_pricing("agnes-2.0-flash", 0.03, 0.15),
+            ),
+            # --- image ---
+            # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
+            # 仅注册 2.1（2.0 与其价格 / 字段实测无差异，model 目录收敛）。
+            # resolutions 为保守 UI 档位（未逐档实测）；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            "agnes-image-2.1-flash": ModelInfo(
+                display_name="Agnes Image 2.1 Flash",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["1K", "2K"],
+                pricing=_agnes_image_pricing("agnes-image-2.1-flash", 0.003),
+            ),
+            # --- video ---
+            # agnes-video-v2.0：apihub 异步 /v1/videos，图生 / 首尾帧 / 多图主体参考；fps 固定 24、
+            # 时长 1–18s。resolutions 为保守 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # max_reference_images 保守值，待 console / 实测核对，不硬编当既成事实。
+            "agnes-video-v2.0": ModelInfo(
+                display_name="Agnes Video 2.0",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                default=True,
+                supported_durations=list(range(1, 19)),
+                resolutions=["480p", "720p", "1080p"],
+                max_reference_images=4,
+                pricing=_agnes_video_pricing("agnes-video-v2.0", 0.005),
+            ),
+        },
+        default_base_url=AGNES_BASE_URL,
+        # Agnes 视频上游对并发敏感，出厂串行（默认 1）避免主动制造 503 Service busy；
+        # 用户可经 video_max_workers 覆盖。其余 lane 未声明，走全局默认。
+        default_concurrency={"video": 1},
     ),
 }
 

@@ -285,7 +285,7 @@ class TestKlingSpec:
 
 
 class TestTextSimpleSpec:
-    """简单文本族（ark / ark-agent-plan / grok）：model + api_key（无条件透传）+ base_url
+    """简单文本族（ark / ark-agent-plan / grok / agnes）：model + api_key（无条件透传）+ base_url
     （user > registry default，仅非空才传）。映射到文本 registry 的 create_backend，registry_backend
     即 provider_id 自身。"""
 
@@ -328,6 +328,20 @@ class TestTextSimpleSpec:
         config = _loaded(credentials={"api_key": "grok-key"}, provider_id="grok")
         spec.build_backend(config, "grok-4")
         mock_create.assert_called_once_with("grok", model="grok-4", api_key="grok-key")
+
+    @patch("lib.text_backends.registry.create_backend")
+    def test_agnes_falls_back_to_registry_default_base_url(self, mock_create):
+        # agnes 走简单文本族（registry_backend = provider_id），无用户 base_url 时回落 registry default。
+        spec = get_provider_spec("agnes", "text")
+        assert spec.registry_backend == "agnes"
+        config = _loaded(credentials={"api_key": "ag-key"}, provider_id="agnes")
+        spec.build_backend(config, "agnes-2.0-flash")
+        mock_create.assert_called_once_with(
+            "agnes",
+            model="agnes-2.0-flash",
+            api_key="ag-key",
+            base_url="https://apihub.agnes-ai.com/v1",
+        )
 
     @patch("lib.text_backends.registry.create_backend")
     def test_api_key_passed_unconditionally_even_when_missing(self, mock_create):
@@ -444,12 +458,13 @@ class TestRegistryShape:
             assert (provider, "video") in PROVIDER_SPEC_REGISTRY
 
     def test_text_family_complete(self):
-        # 文本八对：六 provider + gemini 两 id（aistudio/vertex）
+        # 文本九对：七 provider + gemini 两 id（aistudio/vertex）
         text_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "text"}
         assert text_keys == {
             ("ark", "text"),
             ("ark-agent-plan", "text"),
             ("grok", "text"),
+            ("agnes", "text"),
             ("gemini-aistudio", "text"),
             ("gemini-vertex", "text"),
             ("openai", "text"),

@@ -10,6 +10,7 @@ import logging
 
 from lib.pricing.types import PerToken, Pricing, ViduDelegate
 from lib.providers import (
+    PROVIDER_AGNES,
     PROVIDER_ANTHROPIC,
     PROVIDER_ARK,
     PROVIDER_DASHSCOPE,
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 # （gemini-aistudio/vertex、裸 gemini、ark-agent-plan、未知）一律回落 Gemini 家族通用默认费率，
 # 复刻历史「仅 ark/grok/openai 走专属表、其余皆走全局 Gemini 表」的路由。
 _OWN_TABLE_PROVIDERS = frozenset(
-    {PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_DASHSCOPE, PROVIDER_MINIMAX, PROVIDER_KLING}
+    {PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_DASHSCOPE, PROVIDER_MINIMAX, PROVIDER_KLING, PROVIDER_AGNES}
 )
 
 # Anthropic 不在 PROVIDER_REGISTRY（无 ModelInfo 落点），文本定价作为 registry-external 例外。

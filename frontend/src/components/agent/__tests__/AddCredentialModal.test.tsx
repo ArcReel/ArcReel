@@ -306,6 +306,9 @@ describe("AddCredentialModal", () => {
       api_key_masked: "sk-abcd…1234",
       models: [],
       created_at: "2026-05-11T00:00:00Z",
+      image_max_workers: null,
+      video_max_workers: null,
+      audio_max_workers: null,
     };
 
     it("hides import button when no custom providers configured", async () => {

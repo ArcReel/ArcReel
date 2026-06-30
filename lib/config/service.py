@@ -26,10 +26,10 @@ _DEFAULT_NARRATION_VOICE = "Cherry"
 _DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
 _DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 
-# 写入层校验为非负整数的容量键（与 CapacityTable 的三条 lane 一一对应）。
+# 写入层校验为正整数的容量键（与 CapacityTable 的三条 lane 一一对应）。
 # 其余 number 字段（image_rpm / video_rpm / request_gap）语义不同（允许小数），不在此列。
 _MAX_WORKERS_KEYS = frozenset({"image_max_workers", "video_max_workers", "audio_max_workers"})
-_MAX_WORKERS_CODE = "max_workers_must_be_nonnegative_integer"
+_MAX_WORKERS_CODE = "max_workers_must_be_positive_integer"
 
 
 class ProviderConfigValueError(ValueError):
@@ -261,10 +261,11 @@ class ConfigService:
 
     @staticmethod
     def _validate_value(provider: str, key: str, value: str) -> None:
-        """容量键写入校验：非负整数（0 合法，语义=该 lane 容量为 0 即 fail-fast）。
+        """容量键写入校验：正整数（≥1）。留空即不写该 key（回退默认），不会走到这里。
 
-        坏值一旦入库，容量 reload 只能逐 key 回退默认值，配置变更静默失效，
-        因此在写入口拦下。
+        0 不是合法用户输入——它仅作 CapacityTable 内部「不支持该 lane」哨兵，由 lane 投影
+        在内存里产生，绝不写回。坏值一旦入库，容量 reload 只能逐 key 回退默认值，配置变更
+        静默失效，因此在写入口拦下。
         """
         if key not in _MAX_WORKERS_KEYS:
             return
@@ -272,7 +273,7 @@ class ConfigService:
             parsed = int(value)
         except ValueError:
             raise ProviderConfigValueError(provider, key, value, code=_MAX_WORKERS_CODE) from None
-        if parsed < 0:
+        if parsed < 1:
             raise ProviderConfigValueError(provider, key, value, code=_MAX_WORKERS_CODE)
 
     @staticmethod

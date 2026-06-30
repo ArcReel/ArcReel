@@ -61,3 +61,8 @@ from lib.image_backends.kling import KlingImageBackend
 from lib.providers import PROVIDER_KLING
 
 register_backend(PROVIDER_KLING, KlingImageBackend)
+
+from lib.image_backends.agnes import AgnesImageBackend
+from lib.providers import PROVIDER_AGNES
+
+register_backend(PROVIDER_AGNES, AgnesImageBackend)

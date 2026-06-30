@@ -191,7 +191,12 @@ class CapacityTable:
             for provider, models in await repo.list_providers_with_models():
                 pid = provider.provider_id  # "custom-{id}"
                 media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
-                limits[pid] = cls._lane_limits(media_types, default_image, default_video, default_audio)
+                # 自定义供应商不在内置注册表，无声明默认层 → 两层回退：列有值取列值，
+                # 列为 NULL 走全局默认。投影仍交给 _lane_limits 统一处理不支持的 lane。
+                image_max = provider.image_max_workers if provider.image_max_workers is not None else default_image
+                video_max = provider.video_max_workers if provider.video_max_workers is not None else default_video
+                audio_max = provider.audio_max_workers if provider.audio_max_workers is not None else default_audio
+                limits[pid] = cls._lane_limits(media_types, image_max, video_max, audio_max)
 
         logger.info("从 DB 加载供应商容量表: %s", limits)
         return cls(
