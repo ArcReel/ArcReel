@@ -326,27 +326,19 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         ? await API.discoverModelsForProvider(existing.id)
         : await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       const discovered = res.models.map(discoveredToRow);
-      setModels((prev) =>
-        mergeDiscoveredModels(prev, discovered, endpointToMediaType, endpointToImageCapabilities),
-      );
+      // 用 getState 读最新 catalog 映射，而非 handleDiscover 闭包捕获的渲染期值：catalog 在
+      // mount 时异步拉取，若用户在其就绪前点「获取模型」，闭包里仍是空 map，合并会跳过默认
+      // 消解，保存时可能 default_model_conflict。
+      const { endpointToMediaType: mediaMap, endpointToImageCapabilities: capsMap } =
+        useEndpointCatalogStore.getState();
+      setModels((prev) => mergeDiscoveredModels(prev, discovered, mediaMap, capsMap));
       setModelFilter("");
     } catch (e) {
       showError(errMsg(e, t("fetch_models_failed")));
     } finally {
       setDiscovering(false);
     }
-  }, [
-    discoveryFormat,
-    baseUrl,
-    apiKey,
-    useStoredCredential,
-    baseUrlChanged,
-    existing,
-    endpointToMediaType,
-    endpointToImageCapabilities,
-    showError,
-    t,
-  ]);
+  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {

@@ -252,4 +252,27 @@ describe("mergeDiscoveredModels", () => {
       "z-chat",
     ]);
   });
+
+  it("keeps multiple manually-added rows with empty model_id (no Map key collision)", () => {
+    // 用户连点「手动添加」加了两行未填 model_id（都为 ""），再点获取模型。
+    // 若用 model_id 建 Map 去重，两空行键冲突会静默丢一行；修复后两行都应保留。
+    const prev = [
+      row("", "openai-chat", false),
+      row("", "newapi-video", false),
+      row("z-chat", "openai-chat", true),
+    ];
+    const discovered = [row("z-chat", "openai-chat", false), row("a-chat", "openai-chat", true)];
+    const merged = mergeDiscoveredModels(prev, discovered, ENDPOINT_TO_MEDIA);
+    expect(merged.filter((m) => m.model_id === "").length).toBe(2);
+    // 既存默认仍受保护，发现的同 media_type 默认让出
+    expect(merged.filter((m) => m.is_default).map((m) => m.model_id)).toEqual(["z-chat"]);
+  });
+
+  it("create-mode passthrough does not reconcile discovery defaults", () => {
+    // create 模式原样透传 discovery 响应、不做槽位消解：实际 discovery 每个 media_type 至多
+    // 一个默认（不会冲突），此处用人造的重叠默认锁定「不改写 discovery」契约，冲突交后端校验。
+    const discovered = [row("w", "openai-images", true), row("e", "openai-images-edits", true)];
+    const merged = mergeDiscoveredModels([], discovered, ENDPOINT_TO_MEDIA, ENDPOINT_TO_CAPS);
+    expect(merged.filter((m) => m.is_default).map((m) => m.model_id)).toEqual(["w", "e"]);
+  });
 });

@@ -87,45 +87,67 @@ export type MergeRow = { model_id: string; endpoint: EndpointKey; is_default: bo
 
 /** 合并「获取模型」结果到当前表单行，并消解默认冲突。
  *
- *  合并：按 discovered 顺序保留已有行（含其 is_default 与价格等编辑态），新发现行
- *  追加在对应位置，未被发现响应覆盖的手动行保留在末尾。
+ *  create 模式（prev 为空）：直接返回 discovery 响应的浅拷贝，不做消解——无既存默认需
+ *  保护，且发现接口对每个 media_type 至多标一个默认（见后端 discovery _build_result_list），
+ *  响应本身无冲突。保持「create 模式原样透传 discovery」的约束。
  *
- *  默认消解：发现接口对每个 media_type 取首项 is_default=true（见后端 discovery
- *  _build_result_list）。编辑模式下若该槽位已有用户既存默认，朴素合并会得到「同一
- *  media_type 两个默认」，保存时被后端 _check_unique_defaults 拒绝（default_model_conflict）。
- *  故合并后做一次消解：既存行优先占据其槽位，新发现行命中已占槽位时让出
- *  （is_default→false）；空槽位仍允许新发现行补默认。endpoint 未知 / catalog 未加载的行
- *  不占槽也不让出。 */
+ *  合并（编辑模式）：按 discovered 顺序保留已有行（含其 is_default 与价格等编辑态），新发现行
+ *  追加在对应位置，未被发现响应覆盖的既存行保留在末尾。未填 model_id 的手动行（model_id 同为
+ *  空串）不进 Map 去重，否则键冲突会静默丢行；单独按原顺序补在末尾。
+ *
+ *  默认消解：编辑模式下若某槽位已有用户既存默认，朴素合并会得到「同一 media_type 两个默认」，
+ *  保存时被后端 _check_unique_defaults 拒绝（default_model_conflict）。故合并后做一次消解：
+ *  既存行优先占据其槽位，新发现行命中已占槽位时让出（is_default→false）；空槽位仍允许新发现行
+ *  补默认。endpoint 未知 / catalog 未加载的行不占槽也不让出。 */
 export function mergeDiscoveredModels<T extends MergeRow>(
   prev: T[],
   discovered: T[],
   endpointToMediaType: Record<string, MediaType>,
   endpointToImageCaps: Record<string, ImageCap[] | undefined> = {},
 ): T[] {
-  const remaining = new Map(prev.map((r) => [r.model_id, r]));
+  if (prev.length === 0) {
+    return discovered.map((row) => ({ ...row }));
+  }
+
+  // 未填 model_id 的手动行 model_id 同为空串，进 Map 会互相覆盖（键唯一）导致静默丢行；
+  // 单独留存，按原顺序补在末尾。
+  const remaining = new Map<string, T>();
+  const emptyIdRows: T[] = [];
+  for (const r of prev) {
+    const key = r.model_id.trim();
+    if (key) remaining.set(key, r);
+    else emptyIdRows.push(r);
+  }
+
   const merged: { row: T; fromExisting: boolean }[] = [];
   for (const d of discovered) {
-    const existing = remaining.get(d.model_id);
+    const key = d.model_id.trim();
+    const existing = key ? remaining.get(key) : undefined;
     if (existing) {
       merged.push({ row: existing, fromExisting: true });
-      remaining.delete(d.model_id);
+      remaining.delete(key);
     } else {
       merged.push({ row: d, fromExisting: false });
     }
   }
-  // 保留未被发现响应覆盖的手动行
+  // 保留未被发现响应覆盖的既存行（含未填 model_id 的手动行）
   for (const r of remaining.values()) {
+    merged.push({ row: r, fromExisting: true });
+  }
+  for (const r of emptyIdRows) {
     merged.push({ row: r, fromExisting: true });
   }
 
   // 既存行先占槽（prev 来自已通过后端校验的 DB，内部无冲突），新发现行后处理、命中即让出
   const claimed = new Set<string>();
   const out = merged.map(({ row }) => ({ ...row }));
-  const order = [
-    ...merged.map((_, i) => i).filter((i) => merged[i].fromExisting),
-    ...merged.map((_, i) => i).filter((i) => !merged[i].fromExisting),
-  ];
-  for (const i of order) {
+  const existingIndices: number[] = [];
+  const newIndices: number[] = [];
+  merged.forEach((item, i) => {
+    if (item.fromExisting) existingIndices.push(i);
+    else newIndices.push(i);
+  });
+  for (const i of [...existingIndices, ...newIndices]) {
     const row = out[i];
     if (!row.is_default) continue;
     const slots = defaultSlotsFor(row.endpoint, endpointToMediaType, endpointToImageCaps);
