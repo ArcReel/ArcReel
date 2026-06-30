@@ -19,4 +19,24 @@ describe("ProviderIcon", () => {
     expect(screen.queryByTestId("lobehub-stub-icon")).not.toBeInTheDocument();
     expect(screen.getByText("z")).toBeInTheDocument();
   });
+
+  // 回归测试：守住已接线的内置 provider 图标不退化。
+  // 注意这不是覆盖保证——图标库没有的内置 provider（如 Agnes）合法地走字母徽章，
+  // 故本表只列「已接线」的 id，新增无图标 provider 不会、也不该让它变红。
+  const WIRED_BUILTIN_PROVIDER_IDS = [
+    "gemini-aistudio",
+    "gemini-vertex",
+    "grok",
+    "ark",
+    "ark-agent-plan",
+    "dashscope",
+    "minimax",
+    "openai",
+    "vidu",
+    "kling",
+  ];
+  it.each(WIRED_BUILTIN_PROVIDER_IDS)("renders a brand icon for built-in provider %s", (providerId) => {
+    render(<ProviderIcon providerId={providerId} />);
+    expect(screen.getByTestId("lobehub-stub-icon")).toBeInTheDocument();
+  });
 });
