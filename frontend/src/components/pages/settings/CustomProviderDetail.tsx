@@ -142,7 +142,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
                 border: "1px solid var(--color-hairline-strong)",
               }}
             >
-              {Array.from(provider.display_name ?? "")[0] ?? "?"}
+              {Array.from(provider.display_name)[0] ?? "?"}
             </span>
             <div className="min-w-0">
               <div className="flex items-center gap-2.5">
