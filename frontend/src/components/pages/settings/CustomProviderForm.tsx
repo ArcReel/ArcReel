@@ -12,7 +12,13 @@ import type {
   DiscoveredModel,
   EndpointKey,
 } from "@/types";
-import { priceLabel, urlPreviewFor, toggleDefaultReducer, type DiscoveryFormat } from "./customProviderHelpers";
+import {
+  priceLabel,
+  urlPreviewFor,
+  toggleDefaultReducer,
+  mergeDiscoveredModels,
+  type DiscoveryFormat,
+} from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
@@ -320,31 +326,27 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         ? await API.discoverModelsForProvider(existing.id)
         : await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       const discovered = res.models.map(discoveredToRow);
-      setModels((prev) => {
-        const existingIds = new Map(prev.map((r) => [r.model_id, r]));
-        const merged: ModelRow[] = [];
-        for (const d of discovered) {
-          const existing = existingIds.get(d.model_id);
-          if (existing) {
-            merged.push(existing);
-            existingIds.delete(d.model_id);
-          } else {
-            merged.push(d);
-          }
-        }
-        // Keep manually added models that weren't in the discovery response
-        for (const r of existingIds.values()) {
-          merged.push(r);
-        }
-        return merged;
-      });
+      setModels((prev) =>
+        mergeDiscoveredModels(prev, discovered, endpointToMediaType, endpointToImageCapabilities),
+      );
       setModelFilter("");
     } catch (e) {
       showError(errMsg(e, t("fetch_models_failed")));
     } finally {
       setDiscovering(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
+  }, [
+    discoveryFormat,
+    baseUrl,
+    apiKey,
+    useStoredCredential,
+    baseUrlChanged,
+    existing,
+    endpointToMediaType,
+    endpointToImageCapabilities,
+    showError,
+    t,
+  ]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {

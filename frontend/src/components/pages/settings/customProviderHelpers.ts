@@ -68,3 +68,72 @@ export function toggleDefaultReducer<T extends ModelLike>(
     return overlap ? { ...r, is_default: false } : r;
   });
 }
+
+/** 一行模型占用的「默认槽位」集合：非 image → media_type 自身；image → 各 capability
+ *  前缀 `image:`。endpoint 不在 catalog（如 anthropic-messages）或 catalog 未加载 →
+ *  空集，该行不参与互斥（与后端 _check_unique_defaults 对未知 endpoint 跳过校验一致）。 */
+function defaultSlotsFor(
+  endpoint: EndpointKey,
+  endpointToMediaType: Record<string, MediaType>,
+  endpointToImageCaps: Record<string, ImageCap[] | undefined>,
+): string[] {
+  const media = endpointToMediaType[endpoint];
+  if (media === undefined) return [];
+  if (media !== "image") return [media];
+  return (endpointToImageCaps[endpoint] ?? []).map((c) => `image:${c}`);
+}
+
+export type MergeRow = { model_id: string; endpoint: EndpointKey; is_default: boolean };
+
+/** 合并「获取模型」结果到当前表单行，并消解默认冲突。
+ *
+ *  合并：按 discovered 顺序保留已有行（含其 is_default 与价格等编辑态），新发现行
+ *  追加在对应位置，未被发现响应覆盖的手动行保留在末尾。
+ *
+ *  默认消解：发现接口对每个 media_type 取首项 is_default=true（见后端 discovery
+ *  _build_result_list）。编辑模式下若该槽位已有用户既存默认，朴素合并会得到「同一
+ *  media_type 两个默认」，保存时被后端 _check_unique_defaults 拒绝（default_model_conflict）。
+ *  故合并后做一次消解：既存行优先占据其槽位，新发现行命中已占槽位时让出
+ *  （is_default→false）；空槽位仍允许新发现行补默认。endpoint 未知 / catalog 未加载的行
+ *  不占槽也不让出。 */
+export function mergeDiscoveredModels<T extends MergeRow>(
+  prev: T[],
+  discovered: T[],
+  endpointToMediaType: Record<string, MediaType>,
+  endpointToImageCaps: Record<string, ImageCap[] | undefined> = {},
+): T[] {
+  const remaining = new Map(prev.map((r) => [r.model_id, r]));
+  const merged: { row: T; fromExisting: boolean }[] = [];
+  for (const d of discovered) {
+    const existing = remaining.get(d.model_id);
+    if (existing) {
+      merged.push({ row: existing, fromExisting: true });
+      remaining.delete(d.model_id);
+    } else {
+      merged.push({ row: d, fromExisting: false });
+    }
+  }
+  // 保留未被发现响应覆盖的手动行
+  for (const r of remaining.values()) {
+    merged.push({ row: r, fromExisting: true });
+  }
+
+  // 既存行先占槽（prev 来自已通过后端校验的 DB，内部无冲突），新发现行后处理、命中即让出
+  const claimed = new Set<string>();
+  const out = merged.map(({ row }) => ({ ...row }));
+  const order = [
+    ...merged.map((_, i) => i).filter((i) => merged[i].fromExisting),
+    ...merged.map((_, i) => i).filter((i) => !merged[i].fromExisting),
+  ];
+  for (const i of order) {
+    const row = out[i];
+    if (!row.is_default) continue;
+    const slots = defaultSlotsFor(row.endpoint, endpointToMediaType, endpointToImageCaps);
+    if (slots.some((s) => claimed.has(s))) {
+      row.is_default = false;
+    } else {
+      for (const s of slots) claimed.add(s);
+    }
+  }
+  return out;
+}
