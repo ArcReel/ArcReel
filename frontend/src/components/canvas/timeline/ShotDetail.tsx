@@ -455,11 +455,11 @@ export function ShotDetail({
     }
     if (isDrama) {
       const draftUtterances = draft.utterances ?? EMPTY_UTTERANCES;
-      if (utterancesSig(draftUtterances) !== upstreamUtterancesSig)
+      if (draftUtterances !== upstreamUtterances && utterancesSig(draftUtterances) !== upstreamUtterancesSig)
         patch.utterances = draftUtterances;
     }
     return patch;
-  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterancesSig]);
+  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances, upstreamUtterancesSig]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
