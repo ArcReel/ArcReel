@@ -420,6 +420,9 @@ export function ShotDetail({
       ),
     [isAd, ip, vp, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances],
   );
+  // 上游发声序列签名单独记忆化：dirtyPatch 随每次 keystroke 重算，
+  // 但上游极少变，避免逐键重复序列化整个 upstreamUtterances。
+  const upstreamUtterancesSig = useMemo(() => utterancesSig(upstreamUtterances), [upstreamUtterances]);
   // 上游变更（保存完成 / agent 编辑）：草稿干净时静默跟随；脏时保留用户输入。
   // 渲染阶段状态同步（React 推荐）：本次渲染内直接比对上游签名并校正草稿，
   // 免去 useEffect 的额外渲染周期与依赖项管理。draft 直接读当前渲染值，无需 ref 镜像。
@@ -452,11 +455,11 @@ export function ShotDetail({
     }
     if (isDrama) {
       const draftUtterances = draft.utterances ?? EMPTY_UTTERANCES;
-      if (utterancesSig(draftUtterances) !== utterancesSig(upstreamUtterances))
+      if (utterancesSig(draftUtterances) !== upstreamUtterancesSig)
         patch.utterances = draftUtterances;
     }
     return patch;
-  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances]);
+  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterancesSig]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
