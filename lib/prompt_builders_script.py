@@ -547,7 +547,7 @@ def build_normalize_prompt(
     speech_rate = speech_rate_units_per_second(source_language)
     unit_label = reading_unit_noun(source_language)
     duration_lower_bound_rule = (
-        "再按台词口播长度设下界：先估算该场 utterances（台词 + 画外音）逐字念完约需的秒数"
+        "再按台词口播长度设下界：先估算该场 utterances（台词 + 画外音）念完约需的秒数"
         f"（口播语速约 {speech_rate:g} {unit_label}/秒），在上述可选值里取**不低于**这个秒数的最接近档位；"
         "这是单向下界——画面 / 情绪留白可继续把时长往上撑，但台词永不把时长压到念不完的短档，"
         "utterances 为空（纯画面、无口播）的场景没有此下界、按画面自行取值；"
