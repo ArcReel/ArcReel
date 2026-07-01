@@ -1,7 +1,8 @@
 """SDK MCP tools for editing an episode script by id.
 
-把 agent 对 ``scripts/*.json`` 的一切编辑收归这组工具：通用字段编辑（``patch_episode_script``）
-+ 结构性增删拆（``insert_segment`` / ``remove_segment`` / ``split_segment``）。每个工具在
+把 agent 对 ``scripts/*.json`` 的一切编辑收归这组工具：批量字段编辑（``patch_episode_script``，
+一次改多分镜 × 多字段的 ``{分镜id: {字段路径: 值}}`` 映射）+ 结构性增删拆（``insert_segment`` /
+``remove_segment`` / ``split_segment``）。每个工具在
 ``ProjectManager.locked_script`` 读-改-写上下文里调 ``lib.script_editor`` 的纯函数核心改
 dict，退出时经写盘统一入口 ``_write_script_unlocked`` 写回——继承「不更坏」结构校验、metadata
 重算、加锁与 filename↔episode 一致性。结构错误当场以「不更坏」语义挡下并返回明确错误。
@@ -16,6 +17,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.script_editor import (
+    ScriptEditError,
     insert_segment,
     patch_field,
     remove_segment,
@@ -23,6 +25,9 @@ from lib.script_editor import (
     split_segment,
 )
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+
+# 改了这些顶层字段路径的分镜须紧接着重新生成对应图/视频（工具不自动作废旧资产）。
+_REGEN_TRIGGER_FIELDS = ("image_prompt", "video_prompt")
 
 
 def _item_ids(script: dict[str, Any]) -> list[str]:
@@ -33,36 +38,71 @@ def _item_ids(script: dict[str, Any]) -> list[str]:
 def patch_episode_script_tool(ctx: ToolContext):
     @tool(
         "patch_episode_script",
-        "按分镜 id（segment_id/scene_id/unit_id）编辑剧本的一个字段，支持嵌套路径"
-        "（如 image_prompt.scene、duration_seconds、video_prompt.action）。三种内容/生成模式通用。"
-        "纯字段 setter，不触碰已生成资产——改了 prompt 须另行重新生成对应分镜图/视频。"
-        "叶子字段不存在会被创建（允许补 LLM 漏写的 optional 字段如 video_prompt.dialogue）;"
+        "批量编辑一个剧本文件里多个分镜的多个字段：传 script（单文件名）+ edits 映射，"
+        "形如 {分镜id: {字段路径: 新值}}。一次调用可改多分镜 × 多字段；单条编辑写成长度 1 的 map。"
+        "分镜 id 为 segment_id/scene_id/unit_id（三种内容/生成模式通用，由数据形状判别）。"
+        "字段支持点分嵌套路径（如 image_prompt.scene、duration_seconds、video_prompt.action）。"
+        "all-or-nothing 原子：任一编辑非法（id 未命中 / 字段路径不存在 / 改 generated_assets 或分镜 id / "
+        "最终结构校验失败）→ 整批零落盘；错误指出触发的分镜 id 与字段，修正后整批重提即可。"
+        "纯字段 setter，不触碰已生成资产——批量改了任意分镜的 image_prompt / video_prompt 后，"
+        "须紧接着重新生成对应分镜的图/视频，否则会留下「新 prompt + 旧画面」的陈旧。"
+        "叶子字段不存在会被创建（允许补 LLM 漏写的 optional 字段如 video_prompt.dialogue）；"
         "拼写错误（如 image_prompt.scen 应为 image_prompt.scene）会经写盘统一入口的 Pydantic "
-        "extra='forbid' 结构校验拒,提交前请确认字段名拼写正确。",
+        "extra='forbid' 结构校验拒，提交前请确认字段名拼写正确。",
         {
             "type": "object",
             "properties": {
-                "script": {"type": "string", "description": "剧本文件名（纯文件名，如 episode_1.json）"},
-                "id": {"type": "string", "description": "分镜 id（如 E1S03 / E1U02）"},
-                "field": {
+                "script": {
                     "type": "string",
-                    "description": "字段名或点分嵌套路径（如 duration_seconds、image_prompt.scene）；"
-                    "不可改 generated_assets;叶子不存在会创建,但需是合法 schema 字段否则写盘被拒",
+                    "description": "剧本文件名（纯文件名，如 episode_1.json）；单集单文件，多集编辑每集一次调用",
                 },
-                "value": {"description": "新值（类型随字段而定）"},
+                "edits": {
+                    "type": "object",
+                    "description": "{ 分镜id: { 字段路径: 新值 } } 映射；至少一个分镜、每个分镜至少一个字段。"
+                    "字段路径支持点分嵌套；不可改 generated_assets 与分镜 id 字段；"
+                    "叶子不存在会创建，但需是合法 schema 字段否则写盘被拒。",
+                },
             },
-            "required": ["script", "id", "field", "value"],
+            "required": ["script", "edits"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
             script_filename = validate_script_filename(args["script"])
-            item_id = str(args["id"])
-            field = str(args["field"])
-            value = args["value"]
+            edits = args.get("edits")
+            if not isinstance(edits, dict) or not edits:
+                raise ScriptEditError("edits 必须是非空 { 分镜id: { 字段路径: 值 } } 映射")
+
+            applied: list[tuple[str, list[str]]] = []
+            regen_ids: list[str] = []
+            # 全批在同一个 locked_script 上下文内逐条 patch_field 就地改 dict：任一编辑抛异常即
+            # 冒出 with 体 → 写盘被跳过 → 整批零落盘；全部 apply 后写盘统一入口跑一次「不更坏」
+            # 结构校验，非法则整体拒。原子性由 locked_script 承重，无需额外事务管线。
             with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
-                patch_field(script, item_id, field, value)
-            return {"content": [{"type": "text", "text": f"✅ 已更新 {item_id} 的 {field}"}]}
+                for raw_id, field_map in edits.items():
+                    scene_id = str(raw_id)
+                    if not isinstance(field_map, dict) or not field_map:
+                        raise ScriptEditError(f"分镜 {scene_id} 的编辑必须是非空 {{ 字段路径: 值 }} 映射")
+                    fields: list[str] = []
+                    for raw_field, value in field_map.items():
+                        field = str(raw_field)
+                        try:
+                            patch_field(script, scene_id, field, value)
+                        except ScriptEditError as exc:
+                            raise ScriptEditError(f"分镜 {scene_id} 的字段 {field}：{exc}") from exc
+                        fields.append(field)
+                        if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
+                            regen_ids.append(scene_id)
+                    applied.append((scene_id, fields))
+
+            lines = [f"✅ 已更新 {len(applied)} 个分镜的字段："]
+            lines += [f"  {sid}: {', '.join(flds)}" for sid, flds in applied]
+            if regen_ids:
+                lines.append(
+                    f"⚠️  改了 image_prompt / video_prompt 的分镜（{', '.join(regen_ids)}）"
+                    "须紧接着重新生成对应图/视频，否则会留下「新 prompt + 旧画面」的陈旧。"
+                )
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
         except Exception as exc:  # noqa: BLE001
             return tool_error("patch_episode_script", exc)
 

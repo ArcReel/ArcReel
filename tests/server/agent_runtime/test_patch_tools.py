@@ -49,12 +49,77 @@ def _script() -> dict[str, Any]:
     }
 
 
+def _scene(scene_id: str, duration: int = 8) -> dict[str, Any]:
+    return {
+        "scene_id": scene_id,
+        "duration_seconds": duration,
+        "scene_type": "剧情",
+        "characters_in_scene": ["角色A"],
+        "image_prompt": {
+            "scene": "场景描述",
+            "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+        },
+        "video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"},
+    }
+
+
+def _drama_script() -> dict[str, Any]:
+    return {
+        "episode": 1,
+        "title": "标题",
+        "content_mode": "drama",
+        "summary": "摘要",
+        "novel": {"title": "小说", "chapter": "第一章"},
+        "scenes": [_scene("E1S01"), _scene("E1S02")],
+    }
+
+
+def _unit(unit_id: str) -> dict[str, Any]:
+    shots = [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    return {
+        "unit_id": unit_id,
+        "shots": shots,
+        "references": [],
+        "duration_seconds": sum(s["duration"] for s in shots),
+    }
+
+
+def _reference_script() -> dict[str, Any]:
+    return {
+        "episode": 1,
+        "title": "标题",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "summary": "摘要",
+        "novel": {"title": "小说", "chapter": "第一章"},
+        "video_units": [_unit("E1U1"), _unit("E1U2")],
+    }
+
+
 @pytest.fixture
 def ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.save_script("demo", _script(), "episode_1.json")
+    return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+
+
+@pytest.fixture
+def drama_ctx(tmp_path: Path) -> ToolContext:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode="drama")
+    pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+    pm.save_script("demo", _drama_script(), "episode_1.json")
+    return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+
+
+@pytest.fixture
+def ref_ctx(tmp_path: Path) -> ToolContext:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    pm.save_script("demo", _reference_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
 
@@ -73,67 +138,184 @@ def _text(out: dict[str, Any]) -> str:
 
 
 class TestPatchEpisodeScript:
-    async def test_patch_nested_field(self, ctx: ToolContext) -> None:
-        out = await _call(
-            patch_episode_script_tool(ctx),
-            {"script": "episode_1.json", "id": "E1S02", "field": "image_prompt.scene", "value": "新场景"},
-        )
-        assert out.get("is_error") is not True
-        assert _load(ctx)["segments"][1]["image_prompt"]["scene"] == "新场景"
-
-    async def test_patch_unknown_id_errors(self, ctx: ToolContext) -> None:
-        out = await _call(
-            patch_episode_script_tool(ctx),
-            {"script": "episode_1.json", "id": "E9", "field": "duration_seconds", "value": 5},
-        )
-        assert out.get("is_error") is True
-
-    async def test_patch_to_invalid_blocked_by_funnel(self, ctx: ToolContext) -> None:
-        """把合法剧本改非法（duration 越界）→ 写盘统一入口「不更坏」语义当场挡下。"""
-        out = await _call(
-            patch_episode_script_tool(ctx),
-            {"script": "episode_1.json", "id": "E1S01", "field": "duration_seconds", "value": 999},
-        )
-        assert out.get("is_error") is True
-        assert _load(ctx)["segments"][0]["duration_seconds"] == 4  # 未落盘
-
-    async def test_patch_rejects_path_in_script_arg(self, ctx: ToolContext) -> None:
-        out = await _call(
-            patch_episode_script_tool(ctx),
-            {"script": "../x.json", "id": "E1S01", "field": "duration_seconds", "value": 5},
-        )
-        assert out.get("is_error") is True
-
-    async def test_patch_hallucinated_leaf_blocked_by_funnel(self, ctx: ToolContext) -> None:
-        """_set_nested 单元层面允许任意叶子写入(为了让 agent 补 LLM 漏写的 optional 字段),
-        但 lib/script_models.py 子模型(VideoPrompt / ImagePrompt / Composition 等)
-        都加了 model_config = ConfigDict(extra="forbid"),写盘统一入口的「不更坏」校验
-        会把 hallucinated 字段(如 video_prompt.hallucinated_key)列为 ValidationError 拒写。
-        防止 LLM typo / hallucination 字段静默落盘 JSON 文件。
-        """
+    async def test_batch_multi_segment_multi_field(self, ctx: ToolContext) -> None:
+        """一次调用改多分镜 × 多字段，全部落盘。"""
         out = await _call(
             patch_episode_script_tool(ctx),
             {
                 "script": "episode_1.json",
-                "id": "E1S01",
-                "field": "video_prompt.hallucinated_key",
-                "value": "stray",
+                "edits": {
+                    "E1S01": {"image_prompt.scene": "新场景一", "duration_seconds": 6},
+                    "E1S02": {"video_prompt.action": "抬头"},
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        saved = _load(ctx)["segments"]
+        assert saved[0]["image_prompt"]["scene"] == "新场景一"
+        assert saved[0]["duration_seconds"] == 6
+        assert saved[1]["video_prompt"]["action"] == "抬头"
+
+    async def test_single_edit_is_length_one_map(self, ctx: ToolContext) -> None:
+        """单条编辑 = 长度 1 的 map（不再有 id/field/value 单条形态）。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S02": {"image_prompt.scene": "新场景"}}},
+        )
+        assert out.get("is_error") is not True
+        assert _load(ctx)["segments"][1]["image_prompt"]["scene"] == "新场景"
+
+    async def test_unknown_id_rolls_back_whole_batch(self, ctx: ToolContext) -> None:
+        """一批里含未命中 id → 整批零落盘（同批的合法编辑也回滚），错误定位到该 id。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {
+                    "E1S01": {"image_prompt.scene": "本应回滚"},
+                    "E9": {"duration_seconds": 5},
+                },
             },
         )
         assert out.get("is_error") is True
-        # 校验未落盘:重新 load script 应不含 hallucinated_key
-        assert "hallucinated_key" not in _load(ctx)["segments"][0]["video_prompt"]
+        text = _text(out)
+        assert "E9" in text
+        # 同批的合法编辑未落盘（all-or-nothing）
+        assert _load(ctx)["segments"][0]["image_prompt"]["scene"] == "场景描述"
 
-    async def test_patch_image_prompt_scene_typo_blocked_by_funnel(self, ctx: ToolContext) -> None:
-        """同款典型 typo 场景:agent 想写 image_prompt.scene 但拼成 .scen。
-        _set_nested 在 dict 上加 'scen' 成功,_guard_no_worse 经 ImagePrompt 的
-        extra="forbid" 拒写——agent 拿到结构错误明确知道是字段名错。"""
+    async def test_invalid_value_rolls_back_whole_batch(self, ctx: ToolContext) -> None:
+        """某条把合法剧本改非法（duration 越界）→ 写盘统一入口挡下，整批不落盘。"""
         out = await _call(
             patch_episode_script_tool(ctx),
-            {"script": "episode_1.json", "id": "E1S01", "field": "image_prompt.scen", "value": "x"},
+            {
+                "script": "episode_1.json",
+                "edits": {
+                    "E1S01": {"duration_seconds": 999},
+                    "E1S02": {"image_prompt.scene": "本应回滚"},
+                },
+            },
         )
         assert out.get("is_error") is True
-        assert "scen" not in _load(ctx)["segments"][0]["image_prompt"]
+        saved = _load(ctx)["segments"]
+        assert saved[0]["duration_seconds"] == 4  # 未落盘
+        assert saved[1]["image_prompt"]["scene"] == "场景描述"  # 同批回滚
+
+    async def test_error_localizes_scene_id_and_field(self, ctx: ToolContext) -> None:
+        """字段路径不存在 → 错误精确指出触发的 scene_id + field。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"image_prompt.nope.deep": "x"}}},
+        )
+        assert out.get("is_error") is True
+        text = _text(out)
+        assert "E1S01" in text
+        assert "image_prompt.nope.deep" in text
+
+    async def test_empty_edits_rejected(self, ctx: ToolContext) -> None:
+        """空 edits map 被拒（对齐 patch_project 的非空映射校验）。"""
+        out = await _call(patch_episode_script_tool(ctx), {"script": "episode_1.json", "edits": {}})
+        assert out.get("is_error") is True
+
+    async def test_empty_field_map_rejected(self, ctx: ToolContext) -> None:
+        """某分镜的子映射为空 → 拒（禁止零信号成功）。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {}}},
+        )
+        assert out.get("is_error") is True
+        assert _load(ctx)["segments"][0]["image_prompt"]["scene"] == "场景描述"
+
+    async def test_reject_generated_assets(self, ctx: ToolContext) -> None:
+        """禁改 generated_assets（逐字继承单编辑约束），整批不落盘。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"generated_assets.status": "completed"}}},
+        )
+        assert out.get("is_error") is True
+
+    async def test_reject_id_field(self, ctx: ToolContext) -> None:
+        """禁改分镜 id 字段（逐字继承单编辑约束）。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"segment_id": "E1S99"}}},
+        )
+        assert out.get("is_error") is True
+        assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S01", "E1S02"]
+
+    async def test_create_missing_optional_leaf(self, ctx: ToolContext) -> None:
+        """叶子字段不存在可创建（补 LLM 漏写的 optional 字段 video_prompt.dialogue）。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1S01": {"video_prompt.dialogue": [{"speaker": "甲", "line": "台词"}]}},
+            },
+        )
+        assert out.get("is_error") is not True
+        assert _load(ctx)["segments"][0]["video_prompt"]["dialogue"] == [{"speaker": "甲", "line": "台词"}]
+
+    async def test_rejects_path_in_script_arg(self, ctx: ToolContext) -> None:
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "../x.json", "edits": {"E1S01": {"duration_seconds": 5}}},
+        )
+        assert out.get("is_error") is True
+
+    async def test_hallucinated_leaf_blocked_by_funnel(self, ctx: ToolContext) -> None:
+        """中间路径存在、叶子被凭空创建的 hallucinated 字段（video_prompt.hallucinated_key）
+        经写盘统一入口 extra='forbid' 结构校验拒写，不静默落盘。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"video_prompt.hallucinated_key": "stray"}}},
+        )
+        assert out.get("is_error") is True
+        assert "hallucinated_key" not in _load(ctx)["segments"][0]["video_prompt"]
+
+    async def test_middle_path_typo_fail_loud(self, ctx: ToolContext) -> None:
+        """中间路径拼错（image_prompt.scen 应为 .scene）→ fail-loud，错误定位到 id/field。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"image_prompt.scen.x": "y"}}},
+        )
+        assert out.get("is_error") is True
+        text = _text(out)
+        assert "E1S01" in text and "image_prompt.scen.x" in text
+
+    async def test_prompt_change_includes_regen_hint(self, ctx: ToolContext) -> None:
+        """改了 image_prompt / video_prompt 后，返回文本聚合『须重新生成』提示。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"image_prompt.scene": "新场景"}}},
+        )
+        assert out.get("is_error") is not True
+        assert "重新生成" in _text(out)
+
+    async def test_non_prompt_change_omits_regen_hint(self, ctx: ToolContext) -> None:
+        """只改非 prompt 字段（duration_seconds）时不追加重生提示。"""
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"duration_seconds": 5}}},
+        )
+        assert out.get("is_error") is not True
+        assert "重新生成" not in _text(out)
+
+    async def test_drama_mode_by_scene_id(self, drama_ctx: ToolContext) -> None:
+        """drama 模式：按 scene_id 定位，批量改字段落盘。"""
+        out = await _call(
+            patch_episode_script_tool(drama_ctx),
+            {"script": "episode_1.json", "edits": {"E1S02": {"image_prompt.scene": "剧集新场景"}}},
+        )
+        assert out.get("is_error") is not True
+        assert _load(drama_ctx)["scenes"][1]["image_prompt"]["scene"] == "剧集新场景"
+
+    async def test_reference_mode_by_unit_id(self, ref_ctx: ToolContext) -> None:
+        """reference 模式：按 unit_id 定位，批量改字段落盘。"""
+        out = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"note": "单元备注"}}},
+        )
+        assert out.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
 
 
 class TestInsertRemoveSplit:
