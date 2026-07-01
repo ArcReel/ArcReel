@@ -1340,6 +1340,26 @@ async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext
     assert "过长" in out["content"][0]["text"]
 
 
+async def test_plan_episodes_accepts_boundary_length_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """instructions 恰好等于上限长度应被接受（覆盖 > 比较的差一边界）。"""
+    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    result = PlanResult(
+        episodes=[
+            EpisodePlanSummary(episode=1, title="第一章", hook="悬念", reading_units=800, ledger_status="planned")
+        ],
+        cursor=None,
+    )
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
+    text = "章" * mod._MAX_INSTRUCTIONS_LEN
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": text})
+
+    assert out.get("is_error") is not True
+    assert captured["plan_instructions"] == text
+
+
 async def test_plan_episodes_planner_value_error_not_mislabeled_as_param_error(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1443,6 +1463,26 @@ async def test_replan_episodes_rejects_overlong_instructions(fake_ctx: ToolConte
     )
     assert out.get("is_error") is True
     assert "过长" in out["content"][0]["text"]
+
+
+async def test_replan_episodes_accepts_boundary_length_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """instructions 恰好等于上限长度应被接受（覆盖 > 比较的差一边界）。"""
+    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    result = PlanResult(
+        episodes=[
+            EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="planned")
+        ],
+        cursor=None,
+    )
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
+    text = "重" * mod._MAX_INSTRUCTIONS_LEN
+    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": text})
+
+    assert out.get("is_error") is not True
+    assert captured["replan_args"] == (2, text, False)
 
 
 async def test_replan_episodes_rejects_non_integer_from_episode(fake_ctx: ToolContext) -> None:

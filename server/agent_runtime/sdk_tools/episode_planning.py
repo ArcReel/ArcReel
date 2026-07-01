@@ -56,7 +56,10 @@ def plan_episodes_tool(ctx: ToolContext):
             "properties": {
                 "instructions": {
                     "type": "string",
-                    "description": "用户分集偏好原文（可选，如「按章节对齐切分」）；每批调用都要重复带上，缺省/空白视同未传",
+                    "description": (
+                        "用户分集偏好原文（可选，如「按章节对齐切分」）；每批调用都要重复带上，"
+                        f"缺省/空白视同未传，最长 {_MAX_INSTRUCTIONS_LEN} 字符"
+                    ),
                 }
             },
         },
@@ -100,7 +103,10 @@ def replan_episodes_tool(ctx: ToolContext):
             "type": "object",
             "properties": {
                 "from_episode": {"type": "integer", "description": "重排起点集号（意见中最早受影响的集）"},
-                "instructions": {"type": "string", "description": "用户重排意见原文（可含多处意见）"},
+                "instructions": {
+                    "type": "string",
+                    "description": f"用户重排意见原文（可含多处意见），最长 {_MAX_INSTRUCTIONS_LEN} 字符",
+                },
                 "confirm_consumed": {
                     "type": "boolean",
                     "description": "已向用户确认波及的已消费集后置 true",
