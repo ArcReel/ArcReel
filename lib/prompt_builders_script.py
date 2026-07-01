@@ -12,6 +12,7 @@
 from lib.prompt_rules import is_v2_enabled
 from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.speech_rate import speech_rate_units_per_second
+from lib.text_metrics import reading_unit_noun
 
 
 def _format_names(items: dict) -> str:
@@ -41,18 +42,6 @@ def _format_duration_constraint(supported_durations: list[int], default_duration
             )
         return f"时长：{body}，默认 {default_duration} 秒"
     return f"时长：{body}，按内容节奏自行决定"
-
-
-def _reading_unit_label(language: str | None) -> str:
-    """口播时长估算里『阅读单位』的中文称谓：zh 计字、en / vi 计词。
-
-    与 ``lib.text_metrics.count_reading_units`` 的按语言计数口径对齐（语速真相源同源），
-    使生成期下界软指引里「N 字 / 秒」「N 词 / 秒」的单位名与实际估算口径一致。
-    """
-    code = (language or "").strip().lower()
-    if code in ("en", "vi"):
-        return "词"
-    return "字"
 
 
 def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
@@ -556,7 +545,7 @@ def build_normalize_prompt(
     # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源按 source_language 注入、不写死，与保存期上界
     # warning、字幕派生同口径。纯软约束：只在 prompt 里下发靠模型遵守，不加生成后机械改写、不加硬阻塞。
     speech_rate = speech_rate_units_per_second(source_language)
-    unit_label = _reading_unit_label(source_language)
+    unit_label = reading_unit_noun(source_language)
     duration_lower_bound_rule = (
         "再按台词口播长度设下界：先估算该场 utterances（台词 + 画外音）逐字念完约需的秒数"
         f"（口播语速约 {speech_rate:g} {unit_label}/秒），在上述可选值里取**不低于**这个秒数的最接近档位；"

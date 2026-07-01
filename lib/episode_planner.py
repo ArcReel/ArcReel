@@ -33,7 +33,7 @@ from lib.episode_ledger import (
 from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
-from lib.text_metrics import count_reading_units
+from lib.text_metrics import count_reading_units, reading_unit_noun
 from lib.text_utils import strip_json_code_fences
 
 logger = logging.getLogger(__name__)
@@ -968,7 +968,7 @@ def _build_planning_prompt(
     """
     overview = project.get("overview") or {}
     language = str(project.get("source_language") or "zh")
-    unit_name = "词" if language in ("en", "vi") else "字"
+    unit_name = reading_unit_noun(language)
     target_units = project.get("episode_target_units")
     is_screenplay = resolve_source_kind(project) == "screenplay"
 
