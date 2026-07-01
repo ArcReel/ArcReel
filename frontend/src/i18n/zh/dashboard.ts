@@ -1227,6 +1227,7 @@ export default {
   'shot_notes_close': '关闭备注',
   'shot_notes_title': '备注',
   'detail_section_dialogue': '对话',
+  'detail_section_utterances': '发声序列',
   'detail_section_novel': '原文',
   'detail_section_voiceover': '口播文案',
   'detail_voiceover_placeholder': '这一镜的口播台词，照稿可配音；纯画面镜头留空…',

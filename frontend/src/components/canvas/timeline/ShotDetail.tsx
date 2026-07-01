@@ -18,11 +18,13 @@ import type {
   ImagePrompt,
   VideoPrompt,
   Dialogue,
+  Utterance,
 } from "@/types";
 import { AD_SECTION_VALUES } from "@/types";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
+import { UtteranceListEditor } from "./UtteranceListEditor";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { NarrationAudioCard } from "./NarrationAudioCard";
@@ -92,11 +94,18 @@ interface DraftState {
   voiceover_text?: string;
   /** 仅 ad 模式：带货框架段落标签草稿 */
   section?: string;
+  /** 仅 drama 模式：场景级有序发声序列草稿（台词 + 画外音） */
+  utterances?: Utterance[];
 }
 
 // 字段集合稳定（ImagePrompt/VideoPrompt/string），JSON.stringify 即可作等值签名：
 // 任何字段顺序差异都来自我们自己的 setter 或上游同一构造路径，键序一致。
 const stableSig = (value: unknown): string => JSON.stringify(value ?? null);
+
+// 稳定空 utterances 引用：缺省 / 非 drama 时统一指向同一常量，避免每次渲染新建 `[]`
+// 让 upstreamSig memo 依赖失效而做无谓 stringify。UtteranceListEditor 只经 map/filter/spread
+// 产出新数组、从不就地改写，故共享此常量安全。
+const EMPTY_UTTERANCES: Utterance[] = [];
 
 /** 由上游值构造干净草稿（useState 初始化 / 上游静默跟随 / 取消编辑三处共用）。 */
 function baselineDraft(
@@ -105,26 +114,25 @@ function baselineDraft(
   isAd: boolean,
   voiceover: string,
   section: string,
+  isDrama: boolean,
+  utterances: Utterance[],
 ): DraftState {
   return {
     image_prompt: ip,
     video_prompt: vp,
     ...(isAd ? { voiceover_text: voiceover, section } : {}),
+    ...(isDrama ? { utterances } : {}),
   };
 }
 
 /** 草稿等值签名：与上游基线签名同键形状（漂移会让"干净草稿静默跟随上游"失效）。 */
-function draftSig(d: DraftState, isAd: boolean): string {
-  return stableSig(
-    isAd
-      ? {
-          ip: d.image_prompt,
-          vp: d.video_prompt,
-          voiceover_text: d.voiceover_text ?? "",
-          section: d.section ?? "",
-        }
-      : { ip: d.image_prompt, vp: d.video_prompt },
-  );
+function draftSig(d: DraftState, isAd: boolean, isDrama: boolean): string {
+  return stableSig({
+    ip: d.image_prompt,
+    vp: d.video_prompt,
+    ...(isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
+    ...(isDrama ? { utterances: d.utterances ?? [] } : {}),
+  });
 }
 
 interface DurationPillProps {
@@ -354,12 +362,16 @@ export function ShotDetail({
   const adShot = isAd ? (segment as AdShot) : null;
   const upstreamVoiceover = adShot?.voiceover_text ?? "";
   const upstreamSection = adShot?.section ?? "";
+  const isDrama = contentMode === "drama";
+  const dramaScene = isDrama ? (segment as DramaScene) : null;
+  // drama 场景级发声序列（迁移后存量数据可能缺省，读到空即无发声）。
+  const upstreamUtterances = dramaScene?.utterances ?? EMPTY_UTTERANCES;
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
   // 在切镜头时硬重置整个组件，所以这里只需处理"上游同字段静默更新"的情况。
   // 备注不进入草稿，由 NotesDrawer 收起时直接落库。
   const [draft, setDraft] = useState<DraftState>(() =>
-    baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection),
+    baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
   );
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
@@ -390,8 +402,13 @@ export function ShotDetail({
   };
 
   const upstreamSig = useMemo(
-    () => draftSig(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection), isAd),
-    [isAd, ip, vp, upstreamVoiceover, upstreamSection],
+    () =>
+      draftSig(
+        baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
+        isAd,
+        isDrama,
+      ),
+    [isAd, ip, vp, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances],
   );
   const baselineSigRef = useRef(upstreamSig);
   const draftRef = useRef(draft);
@@ -404,11 +421,11 @@ export function ShotDetail({
   // 把 draft 放到 ref 里读，避免每次 keystroke 都重跑 effect+stringify。
   useEffect(() => {
     if (baselineSigRef.current === upstreamSig) return;
-    if (draftSig(draftRef.current, isAd) === baselineSigRef.current) {
-      setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection));
+    if (draftSig(draftRef.current, isAd, isDrama) === baselineSigRef.current) {
+      setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
     }
     baselineSigRef.current = upstreamSig;
-  }, [upstreamSig, ip, vp, isAd, upstreamVoiceover, upstreamSection]);
+  }, [upstreamSig, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances]);
 
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
@@ -429,8 +446,13 @@ export function ShotDetail({
       if ((draft.section ?? "") !== upstreamSection)
         patch.section = draft.section ?? "";
     }
+    if (isDrama) {
+      const draftUtterances = draft.utterances ?? EMPTY_UTTERANCES;
+      if (stableSig(draftUtterances) !== stableSig(upstreamUtterances))
+        patch.utterances = draftUtterances;
+    }
     return patch;
-  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection]);
+  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
@@ -471,6 +493,10 @@ export function ShotDetail({
     handleVidUpdate({ dialogue });
   };
 
+  const handleUtterancesChange = (utterances: Utterance[]) => {
+    setDraft((d) => ({ ...d, utterances }));
+  };
+
   const handleImgStringChange = (val: string) => {
     setDraft((d) => ({ ...d, image_prompt: val }));
   };
@@ -497,7 +523,7 @@ export function ShotDetail({
 
   const handleCancel = () => {
     if (saving) return;
-    setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection));
+    setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
   };
 
   const sbEstimate = segCost?.estimate?.image;
@@ -619,9 +645,27 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      {/* drama 口播已迁到 step1 审核 gate 的 utterances 富编辑：此处编辑 video_prompt.dialogue
-          仅服务 narration / ad（drama 的 video_prompt 不含 dialogue）。 */}
-      {contentMode !== "drama" && (
+      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 台词已迁到场景级
+          utterances（判别式台词 + 画外音），此处直接编辑 scene.utterances 并双向保存同步。 */}
+      {isDrama ? (
+        <div>
+          <div
+            className="mb-2 text-[10.5px] font-bold uppercase"
+            style={{
+              color: "var(--color-text-4)",
+              letterSpacing: "1px",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {t("detail_section_utterances")}
+          </div>
+          <UtteranceListEditor
+            utterances={draft.utterances ?? EMPTY_UTTERANCES}
+            onChange={handleUtterancesChange}
+            disabled={saving}
+          />
+        </div>
+      ) : (
         <div>
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"

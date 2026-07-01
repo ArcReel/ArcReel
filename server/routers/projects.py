@@ -881,6 +881,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
                                     "scenes",
                                     "props",
                                     "segment_break",
+                                    "utterances",
                                     "note",
                                 ]:
                                     if value is None and key != "note":

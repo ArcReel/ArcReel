@@ -1117,6 +1117,7 @@ export default {
   'detail_image_prompt_placeholder': 'Mô tả khung hình: bối cảnh, nhân vật, hành động, bố cục…',
   'detail_image_prompt_title': 'Image Prompt · Phân cảnh',
   'detail_section_dialogue': 'DIALOGUE',
+  'detail_section_utterances': 'LỜI NÓI',
   'detail_section_novel': 'ORIGINAL TEXT',
   'detail_section_voiceover': 'LỜI THOẠI QUẢNG CÁO',
   'detail_voiceover_placeholder': 'Lời thoại của cảnh này, sẵn sàng để thu âm; để trống nếu cảnh chỉ có hình ảnh…',

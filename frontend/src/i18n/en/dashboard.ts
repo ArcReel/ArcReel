@@ -1226,6 +1226,7 @@ export default {
   'shot_notes_close': 'Close notes',
   'shot_notes_title': 'NOTES',
   'detail_section_dialogue': 'DIALOGUE',
+  'detail_section_utterances': 'UTTERANCES',
   'detail_section_novel': 'ORIGINAL TEXT',
   'detail_section_voiceover': 'VOICEOVER',
   'detail_voiceover_placeholder': 'Voiceover line for this shot, ready to record; leave empty for visual-only shots…',
