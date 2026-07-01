@@ -116,6 +116,8 @@ def replan_episodes_tool(ctx: ToolContext):
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        # 参数校验与 planner 调用分属两个 try：校验阶段的 KeyError/ValueError 才算参数错误，
+        # planner 内部（如供应商未配置）抛出的 ValueError 走 tool_error 通用路径，不被误标。
         try:
             raw_from_episode = args["from_episode"]
             if not isinstance(raw_from_episode, int) or isinstance(raw_from_episode, bool) or raw_from_episode < 1:
@@ -135,7 +137,10 @@ def replan_episodes_tool(ctx: ToolContext):
             if not isinstance(raw_confirm, bool):
                 raise ValueError(f"confirm_consumed 必须是布尔值（JSON true/false），收到 {raw_confirm!r}")
             confirm_consumed = raw_confirm
+        except (KeyError, ValueError) as exc:
+            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
 
+        try:
             planner = await EpisodePlanner.create(ctx.project_path)
             result = await planner.replan(from_episode, instructions, confirm_consumed=confirm_consumed)
             if isinstance(result, ReplanConfirmationRequired):
@@ -157,8 +162,6 @@ def replan_episodes_tool(ctx: ToolContext):
                 stale = "、".join(str(num) for num in result.stale_episodes)
                 header += f"（第 {stale} 集标 stale，需重做下游产物）"
             return {"content": [{"type": "text", "text": _format_summary(result, header=header)}]}
-        except (KeyError, ValueError) as exc:
-            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
         except (EpisodePlanningError, FileNotFoundError) as exc:
             return {"content": [{"type": "text", "text": f"❌ 分集重排失败：{exc}"}], "is_error": True}
         except Exception as exc:  # noqa: BLE001
