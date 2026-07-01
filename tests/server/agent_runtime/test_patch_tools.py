@@ -96,6 +96,29 @@ def _reference_script() -> dict[str, Any]:
     }
 
 
+def _ad_shot(shot_id: str, duration: int = 5) -> dict[str, Any]:
+    return {
+        "shot_id": shot_id,
+        "section": "hook",
+        "duration_seconds": duration,
+        "voiceover_text": "口播文案",
+        "image_prompt": {
+            "scene": "场景描述",
+            "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+        },
+        "video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"},
+    }
+
+
+def _ad_script() -> dict[str, Any]:
+    return {
+        "episode": 1,
+        "title": "标题",
+        "content_mode": "ad",
+        "shots": [_ad_shot("E1S01"), _ad_shot("E1S02")],
+    }
+
+
 @pytest.fixture
 def ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
@@ -120,6 +143,15 @@ def ref_ctx(tmp_path: Path) -> ToolContext:
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.save_script("demo", _reference_script(), "episode_1.json")
+    return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+
+
+@pytest.fixture
+def ad_ctx(tmp_path: Path) -> ToolContext:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode="ad")
+    pm.create_project_metadata("demo", "Demo", "Anime", "ad")
+    pm.save_script("demo", _ad_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
 
@@ -316,6 +348,15 @@ class TestPatchEpisodeScript:
         )
         assert out.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
+
+    async def test_ad_mode_by_shot_id(self, ad_ctx: ToolContext) -> None:
+        """ad 模式：按 shot_id 定位，批量改字段落盘。"""
+        out = await _call(
+            patch_episode_script_tool(ad_ctx),
+            {"script": "episode_1.json", "edits": {"E1S02": {"voiceover_text": "新口播"}}},
+        )
+        assert out.get("is_error") is not True
+        assert _load(ad_ctx)["shots"][1]["voiceover_text"] == "新口播"
 
 
 class TestInsertRemoveSplit:

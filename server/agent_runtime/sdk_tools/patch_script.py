@@ -40,10 +40,11 @@ def patch_episode_script_tool(ctx: ToolContext):
         "patch_episode_script",
         "批量编辑一个剧本文件里多个分镜的多个字段：传 script（单文件名）+ edits 映射，"
         "形如 {分镜id: {字段路径: 新值}}。一次调用可改多分镜 × 多字段；单条编辑写成长度 1 的 map。"
-        "分镜 id 为 segment_id/scene_id/unit_id（三种内容/生成模式通用，由数据形状判别）。"
+        "分镜 id 由数据形状判别（segment_id/scene_id/unit_id/shot_id），各内容/生成模式通用。"
         "字段支持点分嵌套路径（如 image_prompt.scene、duration_seconds、video_prompt.action）。"
         "all-or-nothing 原子：任一编辑非法（id 未命中 / 字段路径不存在 / 改 generated_assets 或分镜 id / "
-        "最终结构校验失败）→ 整批零落盘；错误指出触发的分镜 id 与字段，修正后整批重提即可。"
+        "最终结构校验失败）→ 整批零落盘。前三类错误指出触发的分镜 id 与字段；最终结构校验失败按写盘统一入口的 "
+        "Pydantic 字段路径（含数组下标，如 segments.4.video_prompt.x）报告。修正后整批重提即可。"
         "纯字段 setter，不触碰已生成资产——批量改了任意分镜的 image_prompt / video_prompt 后，"
         "须紧接着重新生成对应分镜的图/视频，否则会留下「新 prompt + 旧画面」的陈旧。"
         "叶子字段不存在会被创建（允许补 LLM 漏写的 optional 字段如 video_prompt.dialogue）；"
@@ -59,7 +60,8 @@ def patch_episode_script_tool(ctx: ToolContext):
                 "edits": {
                     "type": "object",
                     "description": "{ 分镜id: { 字段路径: 新值 } } 映射；至少一个分镜、每个分镜至少一个字段。"
-                    "字段路径支持点分嵌套；不可改 generated_assets 与分镜 id 字段；"
+                    "同一分镜的所有字段写在它唯一的子映射里——勿重复该分镜 id（JSON 重复键只保留最后一个，"
+                    "会静默丢失前面的编辑）。字段路径支持点分嵌套；不可改 generated_assets 与分镜 id 字段；"
                     "叶子不存在会创建，但需是合法 schema 字段否则写盘被拒。",
                 },
             },
