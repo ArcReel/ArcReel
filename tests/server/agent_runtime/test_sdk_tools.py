@@ -1238,7 +1238,9 @@ def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
                 captured["project_path"] = project_path
             return cls()
 
-        async def plan(self):
+        async def plan(self, instructions=None):
+            if captured is not None:
+                captured["plan_instructions"] = instructions
             if isinstance(result, BaseException):
                 raise result
             return result
@@ -1277,6 +1279,53 @@ async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     assert "古玉藏诀" in text and "剑诀来历成谜" in text and "812" in text
     assert "城门遇袭" in text
     assert captured["project_path"] == fake_ctx.project_path
+    assert captured["plan_instructions"] is None  # 不传时透传 None
+
+
+async def test_plan_episodes_forwards_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """用户分集偏好经 instructions 透传给 EpisodePlanner.plan（strip 后非空）。"""
+    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    result = PlanResult(
+        episodes=[
+            EpisodePlanSummary(episode=1, title="第一章", hook="悬念", reading_units=800, ledger_status="planned")
+        ],
+        cursor=None,
+    )
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "  按章节对齐切分  "})
+
+    assert out.get("is_error") is not True
+    assert captured["plan_instructions"] == "按章节对齐切分"
+
+
+async def test_plan_episodes_blank_instructions_treated_as_none(fake_ctx: ToolContext, monkeypatch) -> None:
+    """纯空白 instructions 视同未传：透传 None，与不传逐字一致。"""
+    from lib.episode_planner import PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None, source_exhausted=True), captured)
+    )
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "   \n "})
+
+    assert out.get("is_error") is not True
+    assert captured["plan_instructions"] is None
+
+
+async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """instructions 传非字符串（如数组）按参数错误上报，不静默吞掉。"""
+    from lib.episode_planner import PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None)))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": ["按章切"]})
+
+    assert out.get("is_error") is True
+    assert "instructions" in out["content"][0]["text"]
 
 
 async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch) -> None:

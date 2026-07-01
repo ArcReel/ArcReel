@@ -43,13 +43,29 @@ def plan_episodes_tool(ctx: ToolContext):
         "窗口内所有剧情弧完整的集（标题/钩子/原文范围；drama 另含分集大纲），在同一把项目锁内"
         "写账本、派生 source/episode_N.txt 并清理残留派生文件。返回账本摘要（每集标题+钩子+体量）。"
         "窗口字数与每批集数上限为内部默认，project.json 顶层 planning_window_chars / "
-        "planning_max_episodes 可覆盖，每集目标体量沿用 episode_target_units。",
-        {"type": "object", "properties": {}},
+        "planning_max_episodes 可覆盖，每集目标体量沿用 episode_target_units。"
+        "用户表达分集偏好（如按章节对齐切分、指定某处收尾）时经 instructions 传入原文；规划器会"
+        "以「必须全部落实」的强度对齐该偏好、优先于默认剧情弧完整性。规划按窗口分多批（长篇会多次"
+        "调用本工具），instructions 不持久化，规划全部完成前每一批调用都要重复带上同一偏好。",
+        {
+            "type": "object",
+            "properties": {
+                "instructions": {
+                    "type": "string",
+                    "description": "用户分集偏好原文（可选，如「按章节对齐切分」）；每批调用都要重复带上，缺省/空白视同未传",
+                }
+            },
+        },
     )
-    async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            raw_instructions = args.get("instructions")
+            if raw_instructions is not None and not isinstance(raw_instructions, str):
+                raise ValueError(f"instructions 必须是字符串，收到 {type(raw_instructions).__name__}")
+            instructions = raw_instructions.strip() if isinstance(raw_instructions, str) else ""
+
             planner = await EpisodePlanner.create(ctx.project_path)
-            result = await planner.plan()
+            result = await planner.plan(instructions=instructions or None)
             if not result.episodes and result.source_exhausted:
                 return {"content": [{"type": "text", "text": "源文已全部规划完毕，没有可规划的新内容。"}]}
             return {
@@ -57,6 +73,8 @@ def plan_episodes_tool(ctx: ToolContext):
                     {"type": "text", "text": _format_summary(result, header=f"✅ 已规划 {len(result.episodes)} 集：")}
                 ]
             }
+        except ValueError as exc:
+            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
         except (EpisodePlanningError, FileNotFoundError) as exc:
             return {"content": [{"type": "text", "text": f"❌ 分集规划失败：{exc}"}], "is_error": True}
         except Exception as exc:  # noqa: BLE001

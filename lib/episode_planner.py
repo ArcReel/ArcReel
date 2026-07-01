@@ -388,12 +388,17 @@ class EpisodePlanner:
 
     # ---------------------------------------------------------------- plan
 
-    async def plan(self) -> PlanResult:
+    async def plan(self, instructions: str | None = None) -> PlanResult:
         """规划下一批集：从 planning_cursor 起的窗口产出剧情弧完整的集并提交账本。
 
         当前源文件已无剩余有效内容时按文件名序自动推进到下一个源文件；
         ``source_exhausted=True`` 表示全部源文件都已规划完毕。
+
+        ``instructions`` 是可选的用户分集偏好（如按章节对齐切分），strip 后为空视同未传；
+        非空则以「必须全部落实」的强度注入规划 prompt，优先于默认剧情弧完整性。规划按窗口
+        分多批、指令不持久化，调用方须在每批 plan 调用都重复带上。
         """
+        planning_instructions = (instructions or "").strip() or None
         project = backfill_episode_ledger(self.project_path, self.pm.load_project(self.project_name))
         start_ref = self._effective_start(project)
         source_rel, start = start_ref
@@ -422,8 +427,9 @@ class EpisodePlanner:
                 max_episodes=max_episodes,
                 content_mode=content_mode,
                 context_entries=_context_entries(project),
-                instructions=None,
+                instructions=planning_instructions,
                 fixed_boundary=False,
+                is_replan=False,
                 failure=failure,
             )
 
@@ -545,6 +551,7 @@ class EpisodePlanner:
                     context_entries=context,
                     instructions=instructions,
                     fixed_boundary=True,
+                    is_replan=True,
                     slice_position=(slice_idx + 1, total_slices),
                     failure=failure,
                 )
@@ -957,14 +964,17 @@ def _build_planning_prompt(
     context_entries: list[dict[str, Any]],
     instructions: str | None,
     fixed_boundary: bool,
+    is_replan: bool,
     failure: list[str] | None,
     slice_position: tuple[int, int] | None = None,
 ) -> str:
     """plan / replan 共用的规划 prompt。仅面向文本模型，不做 i18n。
 
-    ``slice_position=(第几段, 总段数)`` 标记当前 prompt 在重排范围中的位置；
-    总段数大于 1（范围跨多个源文件）时注入跨文件说明，提示模型用户意见中与
-    本段无关的部分由其他段落实。
+    ``instructions`` 非空时以「必须全部落实」的强度注入一个用户意见分节，分节 header 按
+    ``is_replan`` 区分措辞（plan 用「用户规划意见」、replan 用「用户重排意见」）；为空则不注入，
+    prompt 与无指令时逐字一致。``slice_position=(第几段, 总段数)`` 标记当前 prompt 在重排范围
+    中的位置；总段数大于 1（范围跨多个源文件）时注入跨文件说明，提示模型用户意见中与本段
+    无关的部分由其他段落实。
     """
     overview = project.get("overview") or {}
     language = str(project.get("source_language") or "zh")
@@ -999,7 +1009,8 @@ def _build_planning_prompt(
             lines.append(f"- 第 {entry.get('episode')} 集《{title}》 钩子：{hook}")
 
     if instructions:
-        lines += ["", "# 用户重排意见（必须全部落实）", instructions]
+        instructions_header = "# 用户重排意见（必须全部落实）" if is_replan else "# 用户规划意见（必须全部落实）"
+        lines += ["", instructions_header, instructions]
     if slice_position is not None and slice_position[1] > 1:
         current, total = slice_position
         lines += [
