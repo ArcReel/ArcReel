@@ -544,6 +544,9 @@ def build_normalize_prompt(
     # 台词口播时长单向下界软指引：模型为某场选 duration 时，不应选到装不下该场 utterances 口播的短档。
     # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源按 source_language 注入、不写死，与保存期上界
     # warning、字幕派生同口径。纯软约束：只在 prompt 里下发靠模型遵守，不加生成后机械改写、不加硬阻塞。
+    # source_language 来自 project.json，可能是非字符串脏数据；非字符串回退 None，避免下游
+    # speech_rate / reading_unit_noun 的 .strip() 触发 AttributeError（与保存期上界 warning 同口径守卫）。
+    source_language = source_language if isinstance(source_language, str) else None
     speech_rate = speech_rate_units_per_second(source_language)
     unit_label = reading_unit_noun(source_language)
     duration_lower_bound_rule = (
