@@ -349,6 +349,9 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源）；缺省回退默认中文，
                 # 非中文项目的 step1 内容据此用目标语言产出，而非默认中文。
                 target_language=project.get("source_language") or "中文",
+                # source_language（zh / en / vi 或 None）另供时长下界软指引取语速：drama step1 引导模型为
+                # 每场选不低于该场 utterances 口播时长的档位，语速按此从 lib.speech_rate 单一真相源注入。
+                source_language=project.get("source_language"),
             )
 
             if dry_run:
