@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ImageIcon,
@@ -107,6 +107,16 @@ const stableSig = (value: unknown): string => JSON.stringify(value ?? null);
 // 产出新数组、从不就地改写，故共享此常量安全。
 const EMPTY_UTTERANCES: Utterance[] = [];
 
+// voiceover 的 speaker 允许缺省或 null，两种写法语义等价（无说话人）。签名前归一：
+// voiceover speaker 统一为 null、并固定键序，避免 `{}` 与 `{ speaker: null }` 判成不同，
+// 否则上游把画外音字段规范化后 dirty 清不掉，切镜与生成会持续被禁用。
+const canonicalUtterance = (u: Utterance): Utterance =>
+  u.kind === "dialogue"
+    ? { kind: "dialogue", speaker: u.speaker, text: u.text }
+    : { kind: "voiceover", speaker: null, text: u.text };
+
+const utterancesSig = (list: Utterance[]): string => stableSig(list.map(canonicalUtterance));
+
 /** 由上游值构造干净草稿（useState 初始化 / 上游静默跟随 / 取消编辑三处共用）。 */
 function baselineDraft(
   ip: ImagePromptValue,
@@ -131,7 +141,7 @@ function draftSig(d: DraftState, isAd: boolean, isDrama: boolean): string {
     ip: d.image_prompt,
     vp: d.video_prompt,
     ...(isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
-    ...(isDrama ? { utterances: d.utterances ?? [] } : {}),
+    ...(isDrama ? { utterances: (d.utterances ?? EMPTY_UTTERANCES).map(canonicalUtterance) } : {}),
   });
 }
 
@@ -410,22 +420,16 @@ export function ShotDetail({
       ),
     [isAd, ip, vp, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances],
   );
-  const baselineSigRef = useRef(upstreamSig);
-  const draftRef = useRef(draft);
-  // 同步 draft 到 ref，供下方 effect 读取最新草稿而无需把 draft 加入 deps
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
-
   // 上游变更（保存完成 / agent 编辑）：草稿干净时静默跟随；脏时保留用户输入。
-  // 把 draft 放到 ref 里读，避免每次 keystroke 都重跑 effect+stringify。
-  useEffect(() => {
-    if (baselineSigRef.current === upstreamSig) return;
-    if (draftSig(draftRef.current, isAd, isDrama) === baselineSigRef.current) {
+  // 渲染阶段状态同步（React 推荐）：本次渲染内直接比对上游签名并校正草稿，
+  // 免去 useEffect 的额外渲染周期与依赖项管理。draft 直接读当前渲染值，无需 ref 镜像。
+  const [syncedUpstreamSig, setSyncedUpstreamSig] = useState(upstreamSig);
+  if (syncedUpstreamSig !== upstreamSig) {
+    if (draftSig(draft, isAd, isDrama) === syncedUpstreamSig) {
       setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
     }
-    baselineSigRef.current = upstreamSig;
-  }, [upstreamSig, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances]);
+    setSyncedUpstreamSig(upstreamSig);
+  }
 
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
@@ -448,7 +452,7 @@ export function ShotDetail({
     }
     if (isDrama) {
       const draftUtterances = draft.utterances ?? EMPTY_UTTERANCES;
-      if (stableSig(draftUtterances) !== stableSig(upstreamUtterances))
+      if (utterancesSig(draftUtterances) !== utterancesSig(upstreamUtterances))
         patch.utterances = draftUtterances;
     }
     return patch;
@@ -515,7 +519,7 @@ export function ShotDetail({
     setSaving(true);
     try {
       await onUpdatePrompt?.(segmentId, dirtyPatch);
-      // 上游会刷新 → useEffect 检测到 baselineSig 变化 → 草稿等于新基线时保持干净
+      // 上游会刷新 → 渲染阶段同步检测到上游签名变化 → 草稿等于新基线时保持干净
     } finally {
       setSaving(false);
     }
@@ -662,7 +666,7 @@ export function ShotDetail({
           <UtteranceListEditor
             utterances={draft.utterances ?? EMPTY_UTTERANCES}
             onChange={handleUtterancesChange}
-            disabled={saving}
+            disabled={saving || refsReadOnly}
           />
         </div>
       ) : (
