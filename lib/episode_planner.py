@@ -967,8 +967,7 @@ def _build_planning_prompt(
     本段无关的部分由其他段落实。
     """
     overview = project.get("overview") or {}
-    language = str(project.get("source_language") or "zh")
-    unit_name = reading_unit_noun(language)
+    unit_name = reading_unit_noun(_language_of(project))
     target_units = project.get("episode_target_units")
     is_screenplay = resolve_source_kind(project) == "screenplay"
 
