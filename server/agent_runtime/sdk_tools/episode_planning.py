@@ -18,6 +18,10 @@ from lib.episode_planner import (
 )
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
+# instructions 以「必须全部落实」的最高优先级注入规划 prompt，超长文本会失控 token 用量
+# 并稀释规划器对原文的处理，超限按参数错误提前拒绝。上限对偏好文本足够宽松，仅挡病态输入。
+_MAX_INSTRUCTIONS_LEN = 4000
+
 
 def _format_summary(result: PlanResult, *, header: str) -> str:
     """账本摘要：每集标题 + 钩子 + 体量（阅读单位）。"""
@@ -61,6 +65,9 @@ def plan_episodes_tool(ctx: ToolContext):
         raw_instructions = args.get("instructions")
         if raw_instructions is not None and not isinstance(raw_instructions, str):
             text = f"❌ 参数错误：instructions 必须是字符串，收到 {type(raw_instructions).__name__}"
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        if isinstance(raw_instructions, str) and len(raw_instructions) > _MAX_INSTRUCTIONS_LEN:
+            text = f"❌ 参数错误：instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
             return {"content": [{"type": "text", "text": text}], "is_error": True}
         instructions = raw_instructions.strip() if isinstance(raw_instructions, str) else ""
         try:
@@ -114,6 +121,10 @@ def replan_episodes_tool(ctx: ToolContext):
             instructions = raw_instructions.strip()
             if not instructions:
                 raise ValueError("instructions 不能为空")
+            if len(raw_instructions) > _MAX_INSTRUCTIONS_LEN:
+                raise ValueError(
+                    f"instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
+                )
             raw_confirm = args.get("confirm_consumed", False)
             if not isinstance(raw_confirm, bool):
                 raise ValueError(f"confirm_consumed 必须是布尔值（JSON true/false），收到 {raw_confirm!r}")

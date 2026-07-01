@@ -1328,6 +1328,18 @@ async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolConte
     assert "instructions" in out["content"][0]["text"]
 
 
+async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """instructions 超长按参数错误提前拒绝，不注入 prompt。"""
+    from lib.episode_planner import PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None)))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "章" * (mod._MAX_INSTRUCTIONS_LEN + 1)})
+
+    assert out.get("is_error") is True
+    assert "过长" in out["content"][0]["text"]
+
+
 async def test_plan_episodes_planner_value_error_not_mislabeled_as_param_error(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1419,6 +1431,18 @@ async def test_replan_episodes_rejects_string_confirm_consumed(fake_ctx: ToolCon
     )
     assert out.get("is_error") is True
     assert "confirm_consumed" in out["content"][0]["text"]
+
+
+async def test_replan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext) -> None:
+    """instructions 超长按参数错误拒绝。"""
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    out = await _call(
+        mod.replan_episodes_tool(fake_ctx),
+        {"from_episode": 2, "instructions": "重" * (mod._MAX_INSTRUCTIONS_LEN + 1)},
+    )
+    assert out.get("is_error") is True
+    assert "过长" in out["content"][0]["text"]
 
 
 async def test_replan_episodes_rejects_non_integer_from_episode(fake_ctx: ToolContext) -> None:
