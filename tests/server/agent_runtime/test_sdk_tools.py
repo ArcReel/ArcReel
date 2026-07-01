@@ -1328,6 +1328,21 @@ async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolConte
     assert "instructions" in out["content"][0]["text"]
 
 
+async def test_plan_episodes_planner_value_error_not_mislabeled_as_param_error(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """规划器内部抛出的 ValueError（如供应商未配置）走通用工具错误，不被误标为参数错误。"""
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(ValueError("未找到可用的 text 供应商")))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "未找到可用的 text 供应商" in text
+    assert "参数错误" not in text  # 供应商未配置不是入参问题
+
+
 async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_planner import PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod

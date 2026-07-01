@@ -58,12 +58,12 @@ def plan_episodes_tool(ctx: ToolContext):
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_instructions = args.get("instructions")
+        if raw_instructions is not None and not isinstance(raw_instructions, str):
+            text = f"❌ 参数错误：instructions 必须是字符串，收到 {type(raw_instructions).__name__}"
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        instructions = raw_instructions.strip() if isinstance(raw_instructions, str) else ""
         try:
-            raw_instructions = args.get("instructions")
-            if raw_instructions is not None and not isinstance(raw_instructions, str):
-                raise ValueError(f"instructions 必须是字符串，收到 {type(raw_instructions).__name__}")
-            instructions = raw_instructions.strip() if isinstance(raw_instructions, str) else ""
-
             planner = await EpisodePlanner.create(ctx.project_path)
             result = await planner.plan(instructions=instructions or None)
             if not result.episodes and result.source_exhausted:
@@ -73,8 +73,6 @@ def plan_episodes_tool(ctx: ToolContext):
                     {"type": "text", "text": _format_summary(result, header=f"✅ 已规划 {len(result.episodes)} 集：")}
                 ]
             }
-        except ValueError as exc:
-            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
         except (EpisodePlanningError, FileNotFoundError) as exc:
             return {"content": [{"type": "text", "text": f"❌ 分集规划失败：{exc}"}], "is_error": True}
         except Exception as exc:  # noqa: BLE001
