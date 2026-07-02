@@ -497,6 +497,65 @@ class TestProjectEventService:
         video_changes = service._diff_snapshots(mid, final)
         assert any(c["action"] == "video_ready" and c["entity_id"] == "E1U01" for c in video_changes)
 
+    def test_diff_snapshots_reports_reference_video_content_edits(self, tmp_path):
+        """reference_video 单元的内容体编辑（成员镜头文本 / 场景引用）触发 updated 事件——
+
+        角色引用之外的内容改动此前不发 updated：快照只捕获 characters 与 duration，未纳成员镜头
+        文本与非角色引用，单元内容真实变更却在差分里恒等。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("ref-edit")
+        pm.create_project_metadata("ref-edit", "Ref", "Anime", "narration")
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "ref-edit",
+                {
+                    "episode": 1,
+                    "title": "参考",
+                    "content_mode": "narration",
+                    "generation_mode": "reference_video",
+                    "video_units": [
+                        {
+                            "unit_id": "E1U01",
+                            "duration_seconds": 8,
+                            "shots": [{"duration": 4, "text": "@[Hero] 登场"}],
+                            "references": [{"type": "character", "name": "Hero"}],
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                },
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("ref-edit")
+
+        # 仅改成员镜头文本，不动角色 / 时长 / 资产。
+        script = pm.load_script("ref-edit", "episode_1.json")
+        script["video_units"][0]["shots"][0]["text"] = "@[Hero] 转身离去"
+        with project_change_source("filesystem"):
+            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
+        after_text = service._build_snapshot("ref-edit")
+        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["shots"] == [
+            {"text": "@[Hero] 转身离去", "duration": 4}
+        ]
+        text_changes = service._diff_snapshots(previous, after_text)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in text_changes)
+
+        # 追加场景引用（非角色）：触发 updated 且派生进 scenes（不误入 characters）。
+        script = pm.load_script("ref-edit", "episode_1.json")
+        script["video_units"][0]["references"].append({"type": "scene", "name": "码头"})
+        with project_change_source("filesystem"):
+            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
+        after_scene = service._build_snapshot("ref-edit")
+        scene_item = after_scene["scripts"]["episode_1.json"]["items"]["E1U01"]
+        assert scene_item["scenes"] == ["码头"]
+        assert scene_item["characters"] == ["Hero"]
+        scene_changes = service._diff_snapshots(after_text, after_scene)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in scene_changes)
+
     @pytest.mark.parametrize("kind", sorted(SKELETONS))
     def test_normalize_snapshot_covers_every_skeleton_kind(self, tmp_path, kind):
         """每个骨架种类都被 _normalize_script_snapshot 正确抽取条目——

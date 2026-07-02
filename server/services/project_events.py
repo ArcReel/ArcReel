@@ -571,12 +571,14 @@ class ProjectEventService:
             assets = item.get("generated_assets")
             if not isinstance(assets, dict):
                 assets = {}
+            characters, scenes, props = self._item_entities(item, skeleton.chars_field)
             items[item_id] = {
                 "duration_seconds": item.get("duration_seconds"),
                 "segment_break": bool(item.get("segment_break")),
-                "characters": self._item_characters(item, skeleton.chars_field),
-                "scenes": sorted(str(name) for name in item.get("scenes", []) or []),
-                "props": sorted(str(name) for name in item.get("props", []) or []),
+                "characters": characters,
+                "scenes": scenes,
+                "props": props,
+                "shots": self._item_member_shots(item.get("shots")),
                 "image_prompt": item.get("image_prompt"),
                 "video_prompt": item.get("video_prompt"),
                 "generated_assets": {
@@ -596,22 +598,48 @@ class ProjectEventService:
         }
 
     @staticmethod
-    def _item_characters(item: dict[str, Any], chars_field: str | None) -> list[str]:
-        """条目出场角色名单（排序）。
+    def _item_entities(item: dict[str, Any], chars_field: str | None) -> tuple[list[str], list[str], list[str]]:
+        """条目出场的 (角色, 场景, 道具) 名单（各自排序、去重）。
 
-        ``chars_field`` 非 ``None`` 时读逐条角色字段；为 ``None``（video_units 无该字段的显式缺位，
-        见 ``SKELETONS``）时从条目 ``references`` 中过滤 ``type == "character"`` 派生。
+        ``chars_field`` 非 ``None`` 时角色读逐条字段、场景/道具读顶层 ``scenes`` / ``props``；为
+        ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时三者均从条目
+        ``references`` 按 ``type == character/scene/prop`` 派生（与 ``status_calculator`` 同规则，
+        使 video_unit 的场景/道具引用编辑也能进入差分）。
         """
         if chars_field is not None:
-            return sorted(str(name) for name in item.get(chars_field, []) or [])
+            characters = sorted(str(name) for name in item.get(chars_field, []) or [])
+            scenes = sorted(str(name) for name in item.get("scenes", []) or [])
+            props = sorted(str(name) for name in item.get("props", []) or [])
+            return characters, scenes, props
+        buckets: dict[str, set[str]] = {"character": set(), "scene": set(), "prop": set()}
         references = item.get("references")
-        if not isinstance(references, list):
+        if isinstance(references, list):
+            for ref in references:
+                if not isinstance(ref, dict):
+                    continue
+                name = ref.get("name")
+                if not name:
+                    continue
+                ref_type = ref.get("type")
+                target = buckets.get(ref_type) if isinstance(ref_type, str) else None
+                if target is not None:
+                    target.add(str(name))
+        return sorted(buckets["character"]), sorted(buckets["scene"]), sorted(buckets["prop"])
+
+    @staticmethod
+    def _item_member_shots(shots: Any) -> list[dict[str, Any]]:
+        """video_units 成员镜头的内容体（``text`` / ``duration``），供 ``updated`` 差分捕获镜头
+        文本或时长编辑——这些内容不落在 ``characters`` / ``duration_seconds`` 上，不纳入则单元
+        内容改动无事件。storyboard 骨架（segments/scenes/shots）条目无成员镜头子列表，返回空列表。
+        """
+        if not isinstance(shots, list):
             return []
-        return sorted(
-            str(ref["name"])
-            for ref in references
-            if isinstance(ref, dict) and ref.get("type") == "character" and ref.get("name")
-        )
+        normalized: list[dict[str, Any]] = []
+        for shot in shots:
+            if not isinstance(shot, dict):
+                continue
+            normalized.append({"text": str(shot.get("text") or ""), "duration": shot.get("duration")})
+        return normalized
 
     def _diff_snapshots(
         self,
