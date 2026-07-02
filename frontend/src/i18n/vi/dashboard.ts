@@ -1045,6 +1045,8 @@ export default {
   'review_saved': 'Đã lưu nội dung Step 1',
   'review_confirmed': 'Đã xác nhận — đã mở khoá tạo hình ảnh',
   'review_confirm_failed': 'Không thể xác nhận, vui lòng thử lại',
+  'review_load_failed': 'Không thể tải nội dung tiền xử lý',
+  'review_retry': 'Thử lại',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

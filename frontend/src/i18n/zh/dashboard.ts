@@ -1080,6 +1080,8 @@ export default {
   'review_saved': 'step1 内容已保存',
   'review_confirmed': '已确认 — 视觉生成已放行',
   'review_confirm_failed': '确认失败，请重试',
+  'review_load_failed': '无法加载预处理内容',
+  'review_retry': '重试',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 
