@@ -899,13 +899,17 @@ class ScriptGenerator:
             # image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、非骨架分派。
             kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))
             id_key = SKELETONS[kind].id_field
-            items = script_data.get(kind) or []
+            # 降级保存的原始 dict 里数组可能为非列表脏值；`... or []` 挡不住真值标量，
+            # isinstance 守卫避免 `for` 迭代崩溃（外层 try/except 会吞异常但会误跳过整段探针）。
+            raw_items = script_data.get(kind)
+            items = raw_items if isinstance(raw_items, list) else []
             if kind == "video_units":
                 for u in items:
                     if not isinstance(u, dict):
                         continue
                     uid = str(u.get(id_key) or "?")
-                    for shot in u.get("shots") or []:
+                    raw_shots = u.get("shots")
+                    for shot in raw_shots if isinstance(raw_shots, list) else []:
                         if not isinstance(shot, dict):
                             continue
                         text = str(shot.get("text") or "")

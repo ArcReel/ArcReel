@@ -913,6 +913,16 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert out["metadata"]["total_segments"] == 0
         assert out["duration_seconds"] == 0
 
+    def test_quality_probe_survives_non_list_array(self, tmp_path: Path, caplog):
+        # 数组键为真值标量时,_quality_probe 应被 isinstance 守卫收敛为空;外层 try/except 虽会
+        # 吞异常,但不得走 “quality probe skipped” 兜底(那意味着守卫失效、整段探针被误跳过)。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe({"segments": 123}, episode=1)
+
+        assert not any("quality probe skipped" in r.message for r in caplog.records)
+
 
 def _step1_seg(
     segment_id: str,
