@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -67,9 +68,8 @@ def test_pure_construction_with_fake_roots() -> None:
 
 def test_policy_module_does_not_import_sdk_types() -> None:
     """规则真相源不 import SDK 类型——SDK 封皮（权限结果类型、hook 签名）留在 adapter。"""
-    import server.agent_runtime.agent_access_policy as mod
-
-    source = Path(mod.__file__).read_text(encoding="utf-8")
+    module = sys.modules[AgentAccessPolicy.__module__]
+    source = Path(module.__file__).read_text(encoding="utf-8")
     assert "claude_agent_sdk" not in source
 
 
