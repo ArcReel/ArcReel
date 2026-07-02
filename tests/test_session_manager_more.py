@@ -11,6 +11,7 @@ from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.message_serialization import build_runtime_status_message
 from server.agent_runtime.message_utils import extract_plain_user_content
+from server.agent_runtime.models import Heartbeat, LiveMessage, ReplayBatch
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
@@ -408,7 +409,8 @@ class TestSessionManagerMore:
         assert session_manager.sessions == {}
 
     @pytest.mark.asyncio
-    async def test_stream_messages_replay_boundary_live_and_idle(self, session_manager, meta_store):
+    async def test_stream_messages_event_sequence(self, session_manager, meta_store):
+        """事件序列：回放批次 → 逐条直播 → 心跳 → 溢出以流结束表达。"""
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-stream-seq")
@@ -421,17 +423,26 @@ class TestSessionManagerMore:
         session_manager.sessions[meta.id] = managed
 
         async with session_manager.stream_messages(meta.id, replay=True, idle_timeout=0.05) as stream:
-            assert (await anext(stream))["uuid"] == "replay-1"
-            assert (await anext(stream))["type"] == "_replay_done"
+            first = await anext(stream)
+            assert isinstance(first, ReplayBatch)
+            assert [m["uuid"] for m in first.messages] == ["replay-1"]
             managed.add_message({"type": "assistant", "uuid": "live-1"})
-            assert (await anext(stream))["uuid"] == "live-1"
-            # idle_timeout 内无消息 → _idle 哨兵
-            assert (await anext(stream))["type"] == "_idle"
+            live = await anext(stream)
+            assert isinstance(live, LiveMessage)
+            assert live.message["uuid"] == "live-1"
+            # idle_timeout 内无消息 → 心跳事件
+            assert isinstance(await anext(stream), Heartbeat)
+            # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 队列被清空，流结束。
+            for i in range(120):
+                managed.add_message({"type": "assistant", "uuid": f"m{i}"})
+            tail = [event async for event in stream]
+            assert tail == []
         # 正常退出后订阅者被移除
         assert managed.subscribers == set()
 
     @pytest.mark.asyncio
-    async def test_stream_messages_overflow_ends_iteration(self, session_manager, meta_store):
+    async def test_stream_messages_no_replay_yields_empty_batch(self, session_manager, meta_store):
+        """replay=False 首个事件仍是回放批次（空），协议形态对消费方保持统一。"""
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-stream-overflow")
@@ -440,19 +451,17 @@ class TestSessionManagerMore:
             project_name="demo",
             status="running",
         )
+        managed.message_buffer.append({"type": "assistant", "uuid": "buffered-1"})
         session_manager.sessions[meta.id] = managed
 
         async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=5.0) as stream:
-            assert (await anext(stream))["type"] == "_replay_done"
-            # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 注入 _queue_overflow。
+            first = await anext(stream)
+            assert isinstance(first, ReplayBatch)
+            assert first.messages == []
             for i in range(120):
                 managed.add_message({"type": "assistant", "uuid": f"m{i}"})
-            saw_overflow = False
-            async for msg in stream:
-                if msg.get("type") == "_queue_overflow":
-                    saw_overflow = True
-                    break
-            assert saw_overflow
+            # 溢出无专门事件泄漏给消费方：队列被清空后流直接结束。
+            assert [event async for event in stream] == []
         assert managed.subscribers == set()
 
     @pytest.mark.asyncio
@@ -471,8 +480,8 @@ class TestSessionManagerMore:
         async def consume():
             async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=0.02) as stream:
                 assert len(managed.subscribers) == 1
-                async for msg in stream:
-                    if msg.get("type") == "_replay_done":
+                async for event in stream:
+                    if isinstance(event, ReplayBatch):
                         continue
                     if exit_mode == "exception":
                         raise RuntimeError("boom")

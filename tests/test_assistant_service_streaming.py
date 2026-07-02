@@ -7,7 +7,7 @@ import pytest
 from fastapi.sse import ServerSentEvent
 
 from lib.i18n import DEFAULT_LOCALE
-from server.agent_runtime.models import SessionMeta
+from server.agent_runtime.models import Heartbeat, LiveMessage, ReplayBatch, SessionMeta
 from server.agent_runtime.service import AssistantService
 from tests.factories import make_session_meta
 
@@ -58,25 +58,23 @@ class _FakeSessionManager:
     async def stream_messages(
         self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
     ):
-        """Mirror the real CM: replay snapshot → _replay_done → live queue → _idle."""
+        """Mirror the real CM: ReplayBatch → live queue (LiveMessage / Heartbeat) → 溢出即流终。"""
         self.call_log.append(("stream_messages", session_id, replay))
         queue: asyncio.Queue = asyncio.Queue()
         self.last_queue = queue
         replay_msgs = list(self.replay_messages) if replay else []
 
         async def _iter():
-            for message in replay_msgs:
-                yield message
-            yield {"type": "_replay_done"}
+            yield ReplayBatch(messages=replay_msgs)
             while True:
                 try:
                     message = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
                 except TimeoutError:
-                    yield {"type": "_idle"}
+                    yield Heartbeat()
                     continue
-                yield message
                 if message.get("type") == "_queue_overflow":
                     return
+                yield LiveMessage(message=message)
 
         try:
             yield _iter()
@@ -145,7 +143,7 @@ class TestAssistantServiceStreaming:
         snapshot_event = await anext(stream)
         assert _parse_sse_event(snapshot_event)[0] == "snapshot"
 
-        # 直播阶段队列被挤爆 → _queue_overflow → 流结束。
+        # 直播阶段队列被挤爆 → seam 内部溢出哨兵被吞掉，溢出以流结束表达。
         queue = fake_manager.last_queue
         assert queue is not None
         queue.put_nowait({"type": "_queue_overflow", "session_id": "sdk-1"})

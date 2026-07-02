@@ -299,14 +299,6 @@ class TestAssistantServiceMore:
         assert snapshot["pending_questions"][0]["question_id"] == "aq-1"
 
         projector = AssistantStreamProjector(initial_messages=[])
-        events, should_break = await service._dispatch_live_message(
-            {"type": "_queue_overflow"},
-            projector,
-            "s1",
-        )
-        assert should_break is True
-        assert events == []
-
         events2, stop2 = await service._dispatch_live_message(
             {"type": "system", "subtype": "compact_boundary"},
             projector,

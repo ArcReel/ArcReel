@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server.agent_runtime.models import Heartbeat, LiveMessage, ReplayBatch
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import agent_chat
 
@@ -117,10 +118,15 @@ class TestAgentChatEndpoint:
 
 
 class _StubSessionManager:
-    """A SessionManager whose stream_messages yields a scripted sequence."""
+    """A SessionManager whose stream_messages yields a scripted event sequence.
 
-    def __init__(self, live_messages, *, status="running", flood=False):
-        self._live = list(live_messages)
+    脚本事件吐完即结束流——与真实 seam 的「溢出以流结束表达」一致;
+    flood=True 时持续以 <idle_timeout 间隔吐直播消息,心跳与流结束都不出现。
+    """
+
+    def __init__(self, events, *, replay_messages=None, status="running", flood=False):
+        self._events = list(events)
+        self._replay = list(replay_messages or [])
         self.status = status
         self._flood = flood
 
@@ -129,17 +135,17 @@ class _StubSessionManager:
 
     @contextlib.asynccontextmanager
     async def stream_messages(self, session_id, *, replay=True, idle_timeout=5.0):
-        live = self._live
+        events = self._events
+        replay_msgs = self._replay
         flood = self._flood
 
         async def _iter():
-            yield {"type": "_replay_done"}
-            for msg in live:
-                yield msg
-            # flood: 持续以 <idle_timeout 间隔吐消息,_idle 永不触发。
+            yield ReplayBatch(messages=list(replay_msgs))
+            for event in events:
+                yield event
             while flood:
                 await asyncio.sleep(0.01)
-                yield {"type": "assistant", "content": [{"type": "text", "text": "x"}]}
+                yield LiveMessage(message={"type": "assistant", "content": [{"type": "text", "text": "x"}]})
 
         yield _iter()
 
@@ -148,7 +154,7 @@ class TestCollectReply:
     async def test_enforces_deadline_under_continuous_traffic(self):
         """持续 <idle_timeout 间隔的消息流下,deadline 仍被每轮检查 → timeout。
 
-        回归保护:若 deadline 只在 _idle 上判,这里会无限挂起(由外层 wait_for 兜底失败)。
+        回归保护:若 deadline 只在心跳事件上判,这里会无限挂起(由外层 wait_for 兜底失败)。
         """
         service = SimpleNamespace(session_manager=_StubSessionManager([], flood=True))
         reply, status = await asyncio.wait_for(
@@ -157,11 +163,9 @@ class TestCollectReply:
         )
         assert status == "timeout"
 
-    async def test_queue_overflow_yields_error(self):
-        """直播阶段 _queue_overflow → 显式收尾为 error,不傻等超时。"""
-        service = SimpleNamespace(
-            session_manager=_StubSessionManager([{"type": "_queue_overflow", "session_id": "sdk-1"}]),
-        )
+    async def test_stream_end_yields_error(self):
+        """订阅队列溢出以流结束表达:流结束 → 显式收尾为 error,不傻等超时。"""
+        service = SimpleNamespace(session_manager=_StubSessionManager([]))
         reply, status = await asyncio.wait_for(
             agent_chat._collect_reply(service, "sess-1", timeout=5.0),
             timeout=5.0,
@@ -172,8 +176,8 @@ class TestCollectReply:
         service = SimpleNamespace(
             session_manager=_StubSessionManager(
                 [
-                    {"type": "assistant", "content": [{"type": "text", "text": "你好"}]},
-                    {"type": "result", "subtype": "success", "is_error": False},
+                    LiveMessage(message={"type": "assistant", "content": [{"type": "text", "text": "你好"}]}),
+                    LiveMessage(message={"type": "result", "subtype": "success", "is_error": False}),
                 ]
             ),
         )
@@ -183,6 +187,32 @@ class TestCollectReply:
         )
         assert status == "completed"
         assert reply == "你好"
+
+    async def test_replay_batch_messages_are_collected(self):
+        """回放批次内的消息与直播消息同规则处理:回放文本进 reply,回放终结消息即收尾。"""
+        service = SimpleNamespace(
+            session_manager=_StubSessionManager(
+                [LiveMessage(message={"type": "result", "subtype": "success", "is_error": False})],
+                replay_messages=[{"type": "assistant", "content": [{"type": "text", "text": "回放段"}]}],
+            ),
+        )
+        reply, status = await asyncio.wait_for(
+            agent_chat._collect_reply(service, "sess-1", timeout=5.0),
+            timeout=5.0,
+        )
+        assert status == "completed"
+        assert reply == "回放段"
+
+    async def test_heartbeat_checks_session_status(self):
+        """心跳事件上判会话状态:非 running 即收尾,不等 deadline。"""
+        service = SimpleNamespace(
+            session_manager=_StubSessionManager([Heartbeat()], status="idle"),
+        )
+        reply, status = await asyncio.wait_for(
+            agent_chat._collect_reply(service, "sess-1", timeout=5.0),
+            timeout=5.0,
+        )
+        assert status == "completed"
 
 
 class TestExtractTextFromAssistantMessage:

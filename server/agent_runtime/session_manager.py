@@ -30,7 +30,14 @@ from server.agent_runtime.message_serialization import (
     message_to_dict,
     utc_now_iso,
 )
-from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.models import (
+    Heartbeat,
+    LiveMessage,
+    ReplayBatch,
+    SessionMeta,
+    SessionStatus,
+    SessionStreamEvent,
+)
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
@@ -2025,45 +2032,46 @@ class SessionManager:
     @contextlib.asynccontextmanager
     async def stream_messages(
         self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
-    ) -> AsyncIterator[AsyncIterator[dict[str, Any]]]:
+    ) -> AsyncIterator[AsyncIterator[SessionStreamEvent]]:
         """Subscribe to a session's messages as a self-cleaning async iterator.
 
-        Yields an async iterator producing, in order:
+        Yields an async iterator producing semantic events, in order:
 
-        - the replayed buffer messages (when *replay*),
-        - a ``{"type": "_replay_done"}`` sentinel marking the live boundary,
-        - live messages as they are broadcast,
-        - a ``{"type": "_idle"}`` sentinel whenever *idle_timeout* elapses with no
-          message (consumers poll liveness / disconnect on it),
-        - a ``{"type": "_queue_overflow"}`` sentinel if the subscriber queue is
-          dropped under backpressure, after which iteration ends.
+        - a :class:`ReplayBatch` delivering the buffered history in one piece
+          (always the first event; empty when *replay* is off),
+        - a :class:`LiveMessage` per broadcast message,
+        - a :class:`Heartbeat` whenever *idle_timeout* elapses with no message
+          (consumers run liveness / disconnect self-checks on it).
 
-        Subscription, replay, queue draining and unsubscribe all live behind this
-        seam; cleanup is carried deterministically by ``__aexit__`` (see ADR-0005).
-        Consume as ``async with stream_messages(...) as stream: async for msg in stream``.
+        The stream ends when the subscriber queue is dropped under backpressure —
+        stream end is the reconnect signal; no overflow event reaches consumers
+        (the in-band ``_queue_overflow`` sentinel is internal to this seam).
+
+        Subscription, replay/live atomic hand-off, queue draining and unsubscribe
+        all live behind this seam; cleanup is carried deterministically by
+        ``__aexit__`` (see ADR-0005). Consume as
+        ``async with stream_messages(...) as stream: async for event in stream``.
 
         ``locale`` only matters when this subscription revives a cold session; an
         already-resident session ignores it (session-fixed system prompt).
         """
         queue, replay_msgs = await self._subscribe(session_id, replay=replay, locale=locale)
 
-        async def _iter() -> AsyncIterator[dict[str, Any]]:
+        async def _iter() -> AsyncIterator[SessionStreamEvent]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
             # by the enclosing context manager's __aexit__ (ADR-0005): a bare async
             # generator's finally only runs at GC on break/disconnect, which is the
             # exact leak this design avoids. Do not add a finally to this inner gen.
-            for msg in replay_msgs:
-                yield msg
-            yield {"type": "_replay_done"}
+            yield ReplayBatch(messages=replay_msgs)
             while True:
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
                 except TimeoutError:
-                    yield {"type": "_idle"}
+                    yield Heartbeat()
                     continue
-                yield msg
                 if msg.get("type") == "_queue_overflow":
                     return
+                yield LiveMessage(message=msg)
 
         try:
             yield _iter()
