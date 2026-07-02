@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, Clock, Lock, Save } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Lock, RotateCcw, Save } from "lucide-react";
 import { API } from "@/api";
 import type {
   DramaNormalizedScript,
@@ -18,6 +18,7 @@ import {
   ACCENT_BTN_CLS,
   CARD_STYLE,
   GHOST_BTN_CLS,
+  GHOST_BTN_LG_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 
@@ -172,6 +173,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const [state, setState] = useState<ScriptReviewState | null>(null);
   const [draft, setDraft] = useState<DramaNormalizedScript | NarrationStep1Draft | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<{ message: string } | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -194,14 +197,24 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     );
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setLoadError(null);
+    setLoading(true);
+    setReloadNonce((n) => n + 1);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    // 仅首次加载显示加载态；revision 触发的重新拉取静默刷新，避免闪烁。
+    // 已拿到过任一响应（空态或内容态）后，revision 触发的重新拉取静默刷新、不闪加载态；
+    const hadResponse = state != null;
+    // 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。
+    const hasContent = draft != null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!state) setLoading(true);
+    if (!hadResponse) setLoading(true);
     API.getScriptReview(projectName, episode)
       .then((next) => {
         if (cancelled) return;
+        setLoadError(null);
         setState(next);
         // 外部刷新（挂载 / agent 改 step1 触发的 revision）：用户无未保存编辑时采用服务端内容，
         // 有编辑则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。
@@ -213,8 +226,11 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           );
         }
       })
-      .catch(() => {
-        if (!cancelled) setState(null);
+      .catch((err) => {
+        if (cancelled) return;
+        // 屏上无真实内容（首屏失败，或空态后 revision 刷新失败）→ 错误态（区别于空态）+ 重试；
+        // 已有内容的静默刷新失败则保留现有内容，不破坏用户视图。
+        if (!hasContent) setLoadError({ message: errorMessage(err) });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -222,8 +238,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- state 仅用于决定是否显示加载态，加入 deps 会在每次刷新后重新拉取造成循环
-  }, [projectName, episode, draftRevision]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环
+  }, [projectName, episode, draftRevision, reloadNonce]);
 
   const handleSave = useCallback(async () => {
     if (!draft) return;
@@ -269,6 +285,25 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
 
   if (loading) {
     return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_preprocessing")}</div>;
+  }
+
+  // 加载错误态：区别于「无 step1 产物」空态，展示错误信息 + 重试入口。
+  if (loadError) {
+    return (
+      <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
+        <AlertTriangle className="h-6 w-6 text-amber-400" aria-hidden="true" />
+        <div className="flex flex-col gap-1">
+          <p className="text-[13px] font-medium text-text-2">{t("dashboard:review_load_failed")}</p>
+          {loadError.message && (
+            <p className="max-w-sm px-4 font-mono text-[11px] text-text-4">{loadError.message}</p>
+          )}
+        </div>
+        <button type="button" onClick={handleRetry} className={GHOST_BTN_LG_CLS}>
+          <RotateCcw className="h-3.5 w-3.5" />
+          {t("dashboard:review_retry")}
+        </button>
+      </div>
+    );
   }
 
   const status = state?.status ?? "no_step1";

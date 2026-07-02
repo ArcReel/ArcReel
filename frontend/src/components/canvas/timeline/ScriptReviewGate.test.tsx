@@ -171,4 +171,69 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
   });
+
+  it("renders a load-error state distinct from the empty state", async () => {
+    vi.spyOn(API, "getScriptReview").mockRejectedValue(new Error("网络异常"));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("无法加载预处理内容")).toBeInTheDocument());
+    // 错误态展示服务端错误信息与重试入口，且不与空态文案混淆。
+    expect(screen.getByText("网络异常")).toBeInTheDocument();
+    expect(screen.getByText("重试")).toBeInTheDocument();
+    expect(screen.queryByText("暂无预处理内容")).not.toBeInTheDocument();
+  });
+
+  it("surfaces an error with retry when a refetch fails after an empty state", async () => {
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState({ status: "no_step1", content: null, fingerprint: null }))
+      .mockRejectedValue(new Error("刷新失败"));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
+
+    // 空态无真实内容可保留：revision 静默刷新失败应进错误态（区别于空态）并给重试，不滞留在过时空态。
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    });
+
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("无法加载预处理内容")).toBeInTheDocument();
+    expect(screen.getByText("重试")).toBeInTheDocument();
+    expect(screen.queryByText("暂无预处理内容")).not.toBeInTheDocument();
+  });
+
+  it("keeps existing content when a silent refetch fails", async () => {
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockRejectedValue(new Error("刷新失败"));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
+
+    // revision 触发静默刷新失败：应保留已加载内容，不闪错误态 / 空态。
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    });
+
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByText("无法加载预处理内容")).not.toBeInTheDocument();
+    expect(screen.queryByText("暂无预处理内容")).not.toBeInTheDocument();
+  });
+
+  it("retries after a load error and recovers to normal content", async () => {
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockRejectedValueOnce(new Error("网络异常"))
+      .mockResolvedValue(dramaState());
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("重试")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("重试"));
+
+    await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
+    expect(screen.queryByText("无法加载预处理内容")).not.toBeInTheDocument();
+    expect(get).toHaveBeenCalledTimes(2);
+  });
 });

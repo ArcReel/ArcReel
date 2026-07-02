@@ -1079,6 +1079,8 @@ export default {
   'review_saved': 'Step 1 content saved',
   'review_confirmed': 'Confirmed — visual generation unlocked',
   'review_confirm_failed': 'Could not confirm, please try again',
+  'review_load_failed': "Couldn't load preprocessing content",
+  'review_retry': 'Retry',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 
