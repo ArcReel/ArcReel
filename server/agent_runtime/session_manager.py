@@ -35,7 +35,6 @@ from server.agent_runtime.message_serialization import (
     message_to_dict,
     utc_now_iso,
 )
-from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
@@ -2473,8 +2472,6 @@ class SessionManager:
                 "result",
             }
         ]
-
-    _extract_plain_user_content = staticmethod(extract_plain_user_content)
 
     async def _on_sdk_session_id_received(
         self,
