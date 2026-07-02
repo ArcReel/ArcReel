@@ -23,8 +23,10 @@ function makeUtterance(kind: UtteranceKind): Utterance {
     : { kind: "voiceover", speaker: null, text: "" };
 }
 
-/** 下一个稳定 key：取现有 key 数字后缀最大值 +1。纯函数，StrictMode 双调用幂等。 */
+/** 下一个稳定 key：取现有 key 数字后缀最大值 +1；空序列从 u0 起，与初始化命名对齐。
+ *  纯函数，StrictMode 双调用幂等。 */
 function nextKey(keys: string[]): string {
+  if (keys.length === 0) return "u0";
   const max = keys.reduce((m, k) => Math.max(m, Number(k.slice(1)) || 0), 0);
   return `u${max + 1}`;
 }
