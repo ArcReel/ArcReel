@@ -803,8 +803,10 @@ async def update_draft_content(
             # drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
             # ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
             # 非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
-            # 失败）。仅约束 drama 的结构化 step1；narration / reference 的 step1 草稿不在此校验。
-            if content_mode == "drama" and draft_path.suffix == ".json":
+            # 失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
+            # 结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration /
+            # reference 的 step1 落各自文件名，不匹配此校验。
+            if draft_path.name == STEP1_FILENAMES["drama"]:
                 try:
                     parsed = json.loads(content)
                 except json.JSONDecodeError:
