@@ -18,13 +18,13 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorDetails
 
 from lib.data_validator import ValidationResult
-from lib.script_editor import resolve_kind
 from lib.script_models import (
     AdEpisodeScript,
     DramaEpisodeScript,
     NarrationEpisodeScript,
     ReferenceVideoScript,
 )
+from lib.script_skeleton import resolve_script_kind
 
 
 class ScriptStructureValidationError(ValueError):
@@ -44,15 +44,16 @@ _KIND_MODEL: dict[str, type[BaseModel]] = {
 
 
 def _select_model(script: dict[str, Any]) -> type[BaseModel]:
-    """按模式判别该用哪个剧本模型，判别逻辑收归 `script_editor.resolve_kind`（单一真相源，
-    与编辑核心、写盘统一入口的 metadata 重算共用，不漂移）。
+    """按模式判别该用哪个剧本模型，判别逻辑收归 `script_skeleton.resolve_script_kind`（取证解析，
+    单一真相源，与编辑核心、写盘统一入口的 metadata 重算共用，不漂移）；kind → 模型的映射
+    (`_KIND_MODEL`) 留本地（模型不进注册表）。
 
-    判别**数据形状优先**(详见 `resolve_kind` docstring):video_units 唯一存在时才路由
+    判别**数据形状优先**(详见 `resolve_script_kind` docstring):video_units 唯一存在时才路由
     reference,否则按 content_mode → segments/scenes(空场景 drama 仍走 DramaEpisodeScript)。
     ``generation_mode`` 不参与判别——caller 端的生成路径(enqueue_videos 等)自己按
     generation_mode 分流;此函数只决定**结构校验**用哪个 Pydantic 模型。
     """
-    return _KIND_MODEL[resolve_kind(script)]
+    return _KIND_MODEL[resolve_script_kind(script)]
 
 
 def _format_error(err: ErrorDetails) -> str:

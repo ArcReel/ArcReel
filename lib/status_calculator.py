@@ -10,14 +10,19 @@ import logging
 from lib.episode_paths import STEP1_FILENAMES, STEP1_LEGACY_FILENAMES, episode_drafts_dir
 from lib.path_safety import safe_exists
 from lib.project_manager import effective_mode
-from lib.script_models import SCRIPT_SHAPES, ad_script_total_duration
+from lib.script_models import ad_script_total_duration
+from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
 logger = logging.getLogger(__name__)
 
-# 缺 duration_seconds 时按 content_mode 取的兜底时长（秒）。
-# narration/drama 沿用历史默认；ad 没有单镜头时长偏好（按 target_duration 预算
+# 缺 duration_seconds 时按骨架种类取的兜底时长（秒）。
+# segments/scenes 沿用历史默认；shots（ad）没有单镜头时长偏好（按 target_duration 预算
 # 逐镜头规划），缺失按 0 计入，避免杜撰值污染与目标总时长的对照。
-_FALLBACK_ITEM_DURATIONS: dict[str, int] = {"narration": 4, "drama": 8, "ad": 0}
+_FALLBACK_ITEM_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0}
+
+# 缺 content_mode 声明的老脚本：按主结构鸭子类型兜底探测的骨架种类，顺序固定
+# segments > scenes > shots（video_units 不参与——按声明分派，不嗅探残留派生索引）。
+_LEGACY_DUCK_TYPE_KINDS: tuple[str, ...] = ("segments", "scenes", "shots")
 
 # 「是否分过段」判定中兼认旧版 .md 别名的 content_mode：narration 的旧 step1_segments.md
 # 代表真实的分段工作、兼认；drama 的旧 .md 早于内容抽取前移（见 ADR 0041），不再视为有效
@@ -53,48 +58,56 @@ class StatusCalculator:
         self.pm = project_manager
 
     @classmethod
-    def _select_content_mode_and_items(cls, script: dict) -> tuple[str, list[dict]]:
-        """返回 ``(分派标签, items)``。
+    def _select_kind_and_items(cls, script: dict) -> tuple[str, list[dict]]:
+        """返回 ``(骨架种类, items)``，骨架种类 ∈ {segments, scenes, shots, video_units}。
 
-        分派标签 ``"narration" | "drama" | "ad" | "reference_video"`` 给下游分派使用：
-        非 ad 时 ``generation_mode == "reference_video"`` 优先；否则按 content_mode 选
-        对应剧本形状（SCRIPT_SHAPES）；都缺失时按主结构鸭子类型兜底（兼容老脚本未写
-        content_mode 的情况）。参考视频集判定不再回退到
-        ``content_mode == "reference_video"``——新数据已不可能产生该值。
-        ad 剧本骨架唯一：即使残留 generation_mode 戳也按 shots 分派，不找 video_units。
+        **主路径**按剧本声明的 ``(content_mode, generation_mode)`` 走规范解析
+        （``resolve_declared_kind``）——计分必须按声明分派、不嗅探数据形状（残留派生索引
+        不得污染 storyboard 计分）：``video_units`` 恒按声明取 ``video_units`` 数组、不回退。
+        **legacy 容忍**（本模块本地，不进解析器本体）：缺失/未知 content_mode 的存量剧本，
+        保留声明的 reference 短路 + 主结构鸭子类型兜底阶梯（现状行为）。
         """
         content_mode = script.get("content_mode")
         generation_mode = script.get("generation_mode")
-        if content_mode != "ad" and generation_mode == "reference_video":
-            return "reference_video", script.get("video_units") or []
-        if content_mode in SCRIPT_SHAPES:
-            items = script.get(SCRIPT_SHAPES[content_mode].items_key)
+        try:
+            kind = resolve_declared_kind(content_mode, generation_mode)
+        except ValueError:
+            kind = None
+
+        if kind == "video_units":
+            # 按声明分派：不回退鸭子类型，残留 segments/scenes 索引不得抢走参考集计分。
+            return "video_units", script.get("video_units") or []
+        if kind is not None:
+            items = script.get(kind)
             if isinstance(items, list):
-                return content_mode, items
+                return kind, items
+        elif generation_mode == "reference_video":
+            # 缺失/未知 content_mode 但声明了 reference：沿用历史 legacy 容忍，按声明取 video_units。
+            return "video_units", script.get("video_units") or []
 
-        for mode, shape in SCRIPT_SHAPES.items():
-            if isinstance(script.get(shape.items_key), list):
-                return mode, script.get(shape.items_key, [])
+        for legacy_kind in _LEGACY_DUCK_TYPE_KINDS:
+            if isinstance(script.get(legacy_kind), list):
+                return legacy_kind, script.get(legacy_kind, [])
 
-        return ("narration" if content_mode not in SCRIPT_SHAPES else content_mode), []
+        return (kind or "segments"), []
 
     def calculate_episode_stats(self, project_name: str, script: dict, *, generation_mode: str | None = None) -> dict:
-        """计算单集的统计信息 — 按 content_mode 分派。
+        """计算单集的统计信息 — 按骨架种类分派。
 
         ``generation_mode`` 由调用方按 project.json 解析（``effective_mode``）传入：
         ad 剧本不打 generation_mode 戳（骨架唯一），reference_video 路径的视频
         产物挂在派生索引 ``reference_units`` 的 unit 上而非 shots，计分需按声明的
         生成路径分派而不能嗅探数据形状（残留索引不应污染 storyboard 路径的状态）。
         """
-        content_mode, items = self._select_content_mode_and_items(script)
+        kind, items = self._select_kind_and_items(script)
 
-        if content_mode == "reference_video":
+        if kind == "video_units":
             return self._calculate_reference_video_stats(items)
 
-        if content_mode == "ad" and generation_mode == "reference_video":
+        if kind == "shots" and generation_mode == "reference_video":
             return self._calculate_ad_reference_stats(script, items)
 
-        default_duration = _FALLBACK_ITEM_DURATIONS[content_mode]
+        default_duration = _FALLBACK_ITEM_DURATIONS[kind]
         storyboard_done = sum(1 for i in items if i.get("generated_assets", {}).get("storyboard_image"))
         video_done = sum(1 for i in items if i.get("generated_assets", {}).get("video_clip"))
         total = len(items)
@@ -444,9 +457,9 @@ class StatusCalculator:
         Returns:
             注入计算字段后的剧本数据
         """
-        content_mode, items = self._select_content_mode_and_items(script)
-        # reference_video 标签不在表内，沿用历史 else 兜底值 8
-        default_duration = _FALLBACK_ITEM_DURATIONS.get(content_mode, 8)
+        kind, items = self._select_kind_and_items(script)
+        # video_units 骨架不在时长表内，沿用历史 else 兜底值 8
+        default_duration = _FALLBACK_ITEM_DURATIONS.get(kind, 8)
 
         total_duration = sum(i.get("duration_seconds", default_duration) for i in items)
 
@@ -463,24 +476,26 @@ class StatusCalculator:
         scenes_set = set()
         props_set = set()
 
-        if content_mode == "reference_video":
+        if kind == "video_units":
             for item in items:
                 for ref in item.get("references", []):
-                    kind = ref.get("type")
+                    ref_type = ref.get("type")
                     name = ref.get("name")
                     if not name:
                         continue
-                    if kind == "character":
+                    if ref_type == "character":
                         chars_set.add(name)
-                    elif kind == "scene":
+                    elif ref_type == "scene":
                         scenes_set.add(name)
-                    elif kind == "prop":
+                    elif ref_type == "prop":
                         props_set.add(name)
         else:
-            # 此分支 content_mode 必为 SCRIPT_SHAPES 注册模式（_select 已归一）
-            char_field = SCRIPT_SHAPES[content_mode].chars_field
+            # 此分支 kind 必为 storyboard 骨架（segments/scenes/shots，_select 已归一），
+            # chars_field 非 None；video_units 已在上分支按 references 派生角色。
+            char_field = SKELETONS[kind].chars_field
             for item in items:
-                chars_set.update(item.get(char_field, []))
+                if char_field is not None:
+                    chars_set.update(item.get(char_field, []))
                 scenes_set.update(item.get("scenes", []))
                 props_set.update(item.get("props", []))
 

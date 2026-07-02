@@ -47,8 +47,8 @@ from lib.script_models import (
     build_episode_script_model,
     build_reference_video_script_model,
     merge_drama_visual_into_scenes,
-    script_shape,
 )
+from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
@@ -175,7 +175,7 @@ class ScriptGenerator:
         # drama（storyboard / grid）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
         # step2 仅出视觉层（image_prompt / video_prompt），后端按 scene_id 合并回 step1 内容、
         # 透传 utterances / source_text 等非视觉字段。reference_video 路径不入此分支（用 video_units）；
-        # content_mode 未知（脏值）按 drama 形状处理，与 script_shape 兜底同口径。
+        # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
         if gen_mode != "reference_video" and self.content_mode != "narration":
             return await self._generate_drama_step2(episode, output_filename)
 
@@ -772,11 +772,13 @@ class ScriptGenerator:
                 if isinstance(u, dict) and "unit_id" in u:
                     u["unit_id"] = _rewrite_episode_prefix(u.get("unit_id"), ep)
         else:
-            # narration/drama/ad 统一按 SCRIPT_SHAPES 查表（ad 骨架唯一，不随生成路径换判别）
-            shape = script_shape(self.content_mode)
-            for s in script_data.get(shape.items_key) or []:
-                if isinstance(s, dict) and shape.id_field in s:
-                    s[shape.id_field] = _rewrite_episode_prefix(s.get(shape.id_field), ep)
+            # narration/drama/ad 统一经规范解析定骨架（ad 骨架唯一，不随生成路径换判别）；
+            # self.content_mode 为项目级校验值，解析不会 fail-loud。
+            kind = resolve_declared_kind(self.content_mode, gen_mode)
+            id_field = SKELETONS[kind].id_field
+            for s in script_data.get(kind) or []:
+                if isinstance(s, dict) and id_field in s:
+                    s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
         # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
@@ -873,11 +875,11 @@ class ScriptGenerator:
                         if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
                             short_ids.append(uid)
             else:
-                # narration/drama/ad 统一按 SCRIPT_SHAPES 查表；ad 骨架唯一，两条生成路径
+                # narration/drama/ad 统一经规范解析定骨架；ad 骨架唯一，两条生成路径
                 # 都按 shots 探针，与 narration/drama 共用 scene/action 的过短判定。
-                shape = script_shape(self.content_mode)
-                items = script_data.get(shape.items_key) or []
-                id_key = shape.id_field
+                kind = resolve_declared_kind(self.content_mode, gen_mode)
+                items = script_data.get(kind) or []
+                id_key = SKELETONS[kind].id_field
                 for item in items:
                     if not isinstance(item, dict):
                         continue

@@ -52,7 +52,8 @@ _SPAN_SUBTITLE_MODES: frozenset[str] = frozenset({"drama"})
 from lib.path_safety import safe_resolve
 from lib.project_manager import ProjectManager, effective_mode
 from lib.reference_video.ad_units import ad_shots_by_id
-from lib.script_models import ad_shot_duration_seconds, script_shape
+from lib.script_models import ad_shot_duration_seconds
+from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
 
 logger = logging.getLogger(__name__)
@@ -91,11 +92,11 @@ def _utterance_subtitle_spans(utterances: object, language: str | None) -> list[
 
 
 def _script_content_mode(script: dict) -> str:
-    """读取剧本 content_mode；非字符串脏值归一为空串（落 drama 形状、无字幕轨）。
+    """读取剧本 content_mode 供内容-行为分派（字幕轨 / 草稿命名）；非字符串脏值归一为空串。
 
-    旧实现对任意非 "narration" 值都按等值比较降级到 drama 路径；归一后
-    dict 成员判定（``script_shape`` / ``_SUBTITLE_TEXT_FIELDS``）不会因
-    不可哈希的脏值抛 TypeError，降级行为与历史一致。
+    归一后基于成员判定的字幕轨分派（``_SUBTITLE_TEXT_FIELDS`` / ``_SPAN_SUBTITLE_MODES``）
+    不会因不可哈希的脏值抛 TypeError；脏值不挂字幕轨，与历史一致。骨架分派另走
+    ``resolve_declared_kind``（读剧本原值、缺失/未知 fail-loud），不经此归一。
     """
     value = script.get("content_mode", "narration")
     return value if isinstance(value, str) else ""
@@ -133,9 +134,9 @@ class JianyingDraftService:
     ) -> list[dict[str, Any]]:
         """从剧本中提取已完成视频的片段列表
 
-        分镜列表与 id 字段按 ``script_shape`` 分派（narration→segments、drama→scenes、
-        ad→shots，未知模式沿用 drama 形状兜底）；字幕文案按 ``_SUBTITLE_TEXT_FIELDS``
-        取各模式的文案源字段，归一到 ``subtitle_text``。drama 改走 span 派生：从场景级
+        分镜列表按 ``resolve_declared_kind`` 定内容骨架（narration→segments、drama→scenes、
+        ad→shots；缺失/未知 content_mode fail-loud，不静默兜底）；字幕文案按
+        ``_SUBTITLE_TEXT_FIELDS`` 取各模式的文案源字段，归一到 ``subtitle_text``。drama 改走 span 派生：从场景级
         有序 ``utterances`` 按语速估算出 ``subtitle_spans``（``language`` 决定语速，由调用方
         按项目 ``source_language`` 传入），整段 ``subtitle_text`` 留空。
 
@@ -146,8 +147,12 @@ class JianyingDraftService:
         content_mode = _script_content_mode(script)
         if content_mode == "ad" and generation_mode == "reference_video":
             return self._collect_ad_reference_unit_clips(script, project_dir)
-        shape = script_shape(content_mode)
-        items = script.get(shape.items_key, [])
+        # 内容骨架经规范解析定分镜数组：content_mode 取剧本原值（缺失/未知即 fail-loud，不静默
+        # 兜底到 drama）。generation_mode 传 None——ad+参考已在上分支按 unit 收集，本分支只按
+        # content_mode 取内容骨架，非 ad 参考路径的 video_units 收集不属本分支职责。
+        kind = resolve_declared_kind(script.get("content_mode"), None)
+        items = script.get(kind, [])
+        id_field = SKELETONS[kind].id_field
         subtitle_field = _SUBTITLE_TEXT_FIELDS.get(content_mode)
         is_drama = content_mode == "drama"
 
@@ -168,7 +173,7 @@ class JianyingDraftService:
             subtitle_value = item.get(subtitle_field) if subtitle_field else None
 
             clip: dict[str, Any] = {
-                "id": item.get(shape.id_field, ""),
+                "id": item.get(id_field, ""),
                 "duration_seconds": item.get("duration_seconds", 8),
                 "video_clip": video_clip,
                 "abs_path": abs_path,
