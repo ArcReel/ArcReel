@@ -103,16 +103,16 @@ class TestSerializeValue:
         """Objects without model_dump or __dict__ are converted to string."""
 
         class CustomObj:
+            __slots__ = ()
+
             def __str__(self):
                 return "custom-string"
 
             def __repr__(self):
                 return "custom-string"
 
-        # Remove __dict__ to simulate an object without it
-        obj = 42  # int doesn't have model_dump, handled as primitive
-        result = serialize_value(obj)
-        assert result == 42
+        result = serialize_value(CustomObj())
+        assert result == "custom-string"
 
 
 class UserMessage:
