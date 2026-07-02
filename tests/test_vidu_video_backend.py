@@ -216,7 +216,7 @@ class TestBuildRequest:
 
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
         req = VideoGenerationRequest(
-            prompt="x",
+            prompt="[图1] meets [图2]",
             output_path=output_path,
             reference_images=[ref1, ref2],
             aspect_ratio="9:16",
@@ -225,11 +225,94 @@ class TestBuildRequest:
         endpoint, body = backend._build_request(req)
 
         assert endpoint == "/reference2video"
-        assert len(body["images"]) == 2
+        assert "images" not in body
+        assert body["subjects"] == [
+            {"name": "subject1", "images": ["data:image/png;base64,XX"]},
+            {"name": "subject2", "images": ["data:image/png;base64,XX"]},
+        ]
+        assert body["prompt"] == "@subject1 meets @subject2"
         # reference2video 接受 aspect_ratio
         assert body["aspect_ratio"] == "9:16"
         # range 3..16，5 透传
         assert body["duration"] == 5
+
+    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    def test_reference2video_q3_mix_keeps_non_subject_images(self, _mock, tmp_path: Path, output_path: Path):
+        ref = tmp_path / "r.png"
+        ref.write_bytes(b"x")
+
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-mix")
+        req = VideoGenerationRequest(
+            prompt="[图1] runs",
+            output_path=output_path,
+            reference_images=[ref],
+            duration_seconds=5,
+        )
+        endpoint, body = backend._build_request(req)
+
+        assert endpoint == "/reference2video"
+        assert body["images"] == ["data:image/png;base64,XX"]
+        assert "subjects" not in body
+        assert body["prompt"] == "[图1] runs"
+
+    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    def test_reference2video_subject_prompt_is_retrimmed_after_rendering(
+        self, _mock, tmp_path: Path, output_path: Path
+    ):
+        refs = [tmp_path / f"r{i}.png" for i in range(1, 8)]
+        for ref in refs:
+            ref.write_bytes(b"x")
+
+        prompt = " ".join(f"[图{i}]" for i in range(1, 8)) + " " + ("x" * 4965)
+
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
+        req = VideoGenerationRequest(
+            prompt=prompt,
+            output_path=output_path,
+            reference_images=refs,
+            duration_seconds=5,
+        )
+        _, body = backend._build_request(req)
+
+        assert len(body["prompt"]) == 5000
+        assert body["prompt"].startswith("@subject1 @subject2 @subject3")
+        assert body["prompt"].count("@subject") == 7
+
+    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    def test_reference2video_q2_pro_keeps_images_path(self, _mock, tmp_path: Path, output_path: Path):
+        refs = [tmp_path / f"r{i}.png" for i in range(5)]
+        for ref in refs:
+            ref.write_bytes(b"x")
+
+        backend = ViduVideoBackend(api_key="test-key", model="viduq2-pro")
+        req = VideoGenerationRequest(
+            prompt=" ".join(f"[图{i}]" for i in range(1, 6)),
+            output_path=output_path,
+            reference_images=refs,
+            duration_seconds=5,
+        )
+        endpoint, body = backend._build_request(req)
+
+        assert endpoint == "/reference2video"
+        assert body["images"] == ["data:image/png;base64,XX"] * 5
+        assert "subjects" not in body
+        assert body["prompt"] == "[图1] [图2] [图3] [图4] [图5]"
+
+    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    def test_reference2video_q3_mix_keeps_non_subject_prompt_limit(self, _mock, tmp_path: Path, output_path: Path):
+        ref = tmp_path / "r.png"
+        ref.write_bytes(b"x")
+
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-mix")
+        req = VideoGenerationRequest(
+            prompt="x" * 2001,
+            output_path=output_path,
+            reference_images=[ref],
+            duration_seconds=5,
+        )
+        _, body = backend._build_request(req)
+
+        assert len(body["prompt"]) == 2000
 
     def test_reference2video_with_q3_pro_raises_model_mismatch(self, tmp_path: Path, output_path: Path):
         ref = tmp_path / "r.png"
