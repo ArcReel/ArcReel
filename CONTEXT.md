@@ -194,7 +194,7 @@ _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范
 
 **骨架（skeleton / 骨架种类 skeleton kind）**：
 剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考生视频单元）。骨架是由 content_mode 与 generation_mode 两轴**派生**的概念，本身不是第三条轴：narration/drama/ad 各对应前三种骨架；narration/drama 在 generation_mode=reference_video 下整体换用 video_units 骨架，ad 骨架恒为 shots、不随生成路径变（见 `docs/adr/0033`）。对骨架有两种合法提问——**规范性**（按项目/剧集的模式配置，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在部分迁移等中间态下可能不一致，取证以数据形状优先。
-_Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（配置已改 reference 但数据仍在 segments 时，编辑要跟数据走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
+_Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（配置已改 reference_video 但数据仍在 segments 时，编辑要跟数据走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
 
 **宫格（grid）**：
 把同一段落多个场景合并成一张 N 格联合大图一次生成（grid_4/6/9）、再切割成各场景首尾帧的分镜生成路径；与逐张图生视频（storyboard）同为 generation_mode 下的「分镜→视频」路径，核心价值在一次生成保证画风/角色一致。
