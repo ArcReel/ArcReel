@@ -113,8 +113,8 @@ def _coerce_duration(item: object, fallback: int) -> int:
     """降级保存路径按稳健口径取单条时长:校验失败时保存的原始 dict 里数组可能含脏条目，
     直接 ``int(item.get(...))`` 会在非 dict 或 duration_seconds 非数字时崩溃。
 
-    非 dict 条目无时长语义、记 0；dict 内 duration_seconds 缺失或非数字（None / 布尔 /
-    非数字字符串）回退 ``fallback``。
+    非 dict 条目无时长语义、记 0；dict 内 duration_seconds 缺失、非数字（None / 布尔 /
+    非数字字符串）或非正数（校验器亦按 ``duration <= 0`` 判无效）回退 ``fallback``。
     """
     if not isinstance(item, dict):
         return 0
@@ -122,9 +122,10 @@ def _coerce_duration(item: object, fallback: int) -> int:
     if isinstance(value, bool):
         return fallback
     try:
-        return int(value)
+        parsed = int(value)
     except (TypeError, ValueError):
         return fallback
+    return parsed if parsed > 0 else fallback
 
 
 class ScriptGenerator:

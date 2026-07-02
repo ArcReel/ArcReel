@@ -888,6 +888,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
                     "junk_not_a_dict",
                     {"segment_id": "E1S02"},
                     {"segment_id": "E1S03", "duration_seconds": None},
+                    {"segment_id": "E1S04", "duration_seconds": -5},
                 ]
             },
             episode=2,
@@ -897,10 +898,11 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert out["segments"][0]["segment_id"] == "E2S01"
         assert out["segments"][1] == "junk_not_a_dict"
         assert out["segments"][2]["segment_id"] == "E2S02"
+        assert out["segments"][4]["segment_id"] == "E2S04"
         # 计数取列表长度（含脏条目），与既有口径一致
-        assert out["metadata"]["total_segments"] == 4
-        # 时长：5(有效) + 0(非 dict) + 4(缺失→兜底) + 4(None→兜底) = 13
-        assert out["duration_seconds"] == 13
+        assert out["metadata"]["total_segments"] == 5
+        # 时长：5(有效) + 0(非 dict) + 4(缺失→兜底) + 4(None→兜底) + 4(非正数→兜底) = 17
+        assert out["duration_seconds"] == 17
 
     def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
         # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代/求和崩溃。
