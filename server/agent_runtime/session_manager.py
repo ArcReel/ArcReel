@@ -8,7 +8,6 @@ import fnmatch
 import functools
 import json
 import logging
-import math
 import os
 import re
 import shlex
@@ -18,7 +17,6 @@ import unicodedata
 from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -29,11 +27,25 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
 from lib.logging_config import resolve_log_dir
+from server.agent_runtime.message_serialization import (
+    IMAGE_ONLY_SENTINEL,
+    build_runtime_status_message,
+    build_user_echo_message,
+    is_duplicate_user_echo,
+    message_to_dict,
+    utc_now_iso,
+)
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.usage_extraction import (
+    extract_assistant_cost,
+    extract_text_token_usage,
+    resolve_assistant_model,
+    resolve_configured_assistant_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +105,6 @@ class AgentStartupError(RuntimeError):
         if self.sdk_stderr:
             return f"{self.message}\n\n{self.sdk_stderr}"
         return self.message
-
-
-def _utc_now_iso() -> str:
-    """Return current UTC timestamp in ISO-8601 format."""
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass
@@ -397,30 +404,6 @@ class SessionManager:
     #   ``server.routers.providers.upload_vertex_credential`` 写入位置一致）
     # - ``agent_runtime_profile/.claude/settings.json`` 在
     #   ``agent_profile_dir()`` 下（受 ``ARCREEL_PROFILE_DIR`` 控制）
-
-    # Sentinel used in pending_user_echoes for image-only messages (no text).
-    # The SDK parser drops image blocks, so the replayed UserMessage arrives
-    # with empty content; this sentinel lets _is_duplicate_user_echo match it.
-    _IMAGE_ONLY_SENTINEL = "__image_only__"
-
-    # SDK message class name to type mapping
-    _MESSAGE_TYPE_MAP = {
-        "UserMessage": "user",
-        "AssistantMessage": "assistant",
-        "ResultMessage": "result",
-        "SystemMessage": "system",
-        "StreamEvent": "stream_event",
-        "TaskStartedMessage": "system",
-        "TaskProgressMessage": "system",
-        "TaskNotificationMessage": "system",
-    }
-
-    # Typed task message subtypes for precise classification
-    _TASK_MESSAGE_SUBTYPES = {
-        "TaskStartedMessage": "task_started",
-        "TaskProgressMessage": "task_progress",
-        "TaskNotificationMessage": "task_notification",
-    }
 
     def __init__(
         self,
@@ -1176,10 +1159,10 @@ class SessionManager:
             managed = managed_ref[0]
             if managed is None:
                 return
-            msg_dict = self._message_to_dict(raw_msg)
+            msg_dict = message_to_dict(raw_msg)
             if not isinstance(msg_dict, dict):
                 return
-            if self._is_duplicate_user_echo(managed, msg_dict):
+            if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
                 managed._inbox.put_nowait(msg_dict)
                 return
             self._handle_special_message(managed, msg_dict)
@@ -1217,7 +1200,7 @@ class SessionManager:
             )
             managed.status = "error"
             try:
-                managed.add_message(self._build_runtime_status_message("error", managed.session_id))
+                managed.add_message(build_runtime_status_message("error", managed.session_id))
             except Exception:
                 logger.debug("broadcast runtime_status after actor failure failed", exc_info=True)
             # Persist error state so DB doesn't stay at "running" after a crash.
@@ -1265,7 +1248,7 @@ class SessionManager:
             locale=locale,
             stderr=_collect_stderr,
         )
-        assistant_model = self._resolve_configured_assistant_model(getattr(options, "env", None))
+        assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
 
         actor = SessionActor(
             client_factory=lambda: ClaudeSDKClient(options=options),
@@ -1323,11 +1306,11 @@ class SessionManager:
 
         # Echo user message
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
-        dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
+        dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
             managed.pending_user_echoes.append(dedup_key)
         managed.last_user_prompt = display_text
-        managed.add_message(self._build_user_echo_message(display_text, echo_content))
+        managed.add_message(build_user_echo_message(display_text, echo_content))
 
         try:
             await managed.send_query(prompt)
@@ -1489,7 +1472,7 @@ class SessionManager:
                 locale=locale,
                 stderr=_collect_stderr,
             )
-            assistant_model = self._resolve_configured_assistant_model(getattr(options, "env", None))
+            assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
 
             actor = SessionActor(
                 client_factory=lambda: ClaudeSDKClient(options=options),
@@ -1562,7 +1545,7 @@ class SessionManager:
         # For image-only messages display_text is empty; use a sentinel so the
         # SDK-replayed empty-content user message can still be deduplicated.
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
-        dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
+        dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
 
         # Echo user input immediately so live SSE shows it even when the SDK
         # stream doesn't replay user messages in real time. Don't set status to
@@ -1572,7 +1555,7 @@ class SessionManager:
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
         managed.last_user_prompt = display_text
-        managed.add_message(self._build_user_echo_message(display_text, echo_content))
+        managed.add_message(build_user_echo_message(display_text, echo_content))
 
         # Persist status asynchronously — don't block the echo broadcast
         await self.meta_store.update_status(session_id, "running")
@@ -1663,15 +1646,15 @@ class SessionManager:
         result_msg: dict[str, Any],
         final_status: SessionStatus,
     ) -> None:
-        input_tokens, output_tokens, usage_tokens = self._extract_text_token_usage(result_msg)
-        total_cost_usd = self._extract_assistant_cost(result_msg)
+        input_tokens, output_tokens, usage_tokens = extract_text_token_usage(result_msg)
+        total_cost_usd = extract_assistant_cost(result_msg)
         if input_tokens is None and output_tokens is None and total_cost_usd is None:
             return
 
         call_id = await self.usage_tracker.start_call(
             project_name=managed.project_name,
             call_type="text",
-            model=self._resolve_assistant_model(result_msg, managed.assistant_model),
+            model=resolve_assistant_model(result_msg, managed.assistant_model),
             prompt=managed.last_user_prompt[:500] if managed.last_user_prompt else None,
             provider=PROVIDER_ANTHROPIC,
             user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
@@ -1685,153 +1668,6 @@ class SessionManager:
             cost_amount=total_cost_usd,
             currency="USD" if total_cost_usd is not None else None,
         )
-
-    @classmethod
-    def _extract_text_token_usage(cls, result_msg: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
-        usage = result_msg.get("usage")
-        usage_dict = usage if isinstance(usage, dict) else {}
-        raw_input_tokens = cls._first_int(usage_dict, "input_tokens", "prompt_tokens")
-        output_tokens = cls._first_int(usage_dict, "output_tokens", "completion_tokens")
-        cache_creation_tokens = cls._first_int(usage_dict, "cache_creation_input_tokens")
-        cache_read_tokens = cls._first_int(usage_dict, "cache_read_input_tokens")
-        if (
-            raw_input_tokens is None
-            and output_tokens is None
-            and cache_creation_tokens is None
-            and cache_read_tokens is None
-        ):
-            return cls._extract_model_usage_tokens(result_msg)
-
-        # Claude Agent SDK reports prompt cache tokens separately. Store them in
-        # input_tokens as well so aggregate usage includes the full prompt-side token volume.
-        input_parts = (raw_input_tokens, cache_creation_tokens, cache_read_tokens)
-        input_tokens = sum(part or 0 for part in input_parts) if any(part is not None for part in input_parts) else None
-        token_parts = (raw_input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
-        usage_tokens = sum(part or 0 for part in token_parts) if any(part is not None for part in token_parts) else None
-        return input_tokens, output_tokens, usage_tokens
-
-    @classmethod
-    def _extract_model_usage_tokens(cls, result_msg: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
-        model_usage = result_msg.get("model_usage")
-        if not isinstance(model_usage, dict):
-            return None, None, None
-
-        raw_input_total = 0
-        output_total = 0
-        cache_creation_total = 0
-        cache_read_total = 0
-        has_tokens = False
-        has_input_tokens = False
-        has_output_tokens = False
-        for usage in model_usage.values():
-            if not isinstance(usage, dict):
-                continue
-            raw_input = cls._first_int(usage, "inputTokens")
-            output = cls._first_int(usage, "outputTokens")
-            cache_creation = cls._first_int(usage, "cacheCreationInputTokens")
-            cache_read = cls._first_int(usage, "cacheReadInputTokens")
-            if any(part is not None for part in (raw_input, output, cache_creation, cache_read)):
-                has_tokens = True
-            if any(part is not None for part in (raw_input, cache_creation, cache_read)):
-                has_input_tokens = True
-            if output is not None:
-                has_output_tokens = True
-            raw_input_total += raw_input or 0
-            output_total += output or 0
-            cache_creation_total += cache_creation or 0
-            cache_read_total += cache_read or 0
-
-        if not has_tokens:
-            return None, None, None
-        input_tokens = raw_input_total + cache_creation_total + cache_read_total if has_input_tokens else None
-        output_tokens = output_total if has_output_tokens else None
-        usage_tokens = raw_input_total + output_total + cache_creation_total + cache_read_total
-        return input_tokens, output_tokens, usage_tokens
-
-    @classmethod
-    def _extract_assistant_cost(cls, result_msg: dict[str, Any]) -> float | None:
-        total_cost = cls._extract_float(result_msg.get("total_cost_usd"))
-        if total_cost is not None:
-            return total_cost
-
-        model_usage = result_msg.get("model_usage")
-        if not isinstance(model_usage, dict):
-            return None
-
-        model_cost_total = 0.0
-        has_model_cost = False
-        for usage in model_usage.values():
-            if not isinstance(usage, dict):
-                continue
-            cost = cls._extract_float(usage.get("costUSD"))
-            if cost is None:
-                continue
-            model_cost_total += cost
-            has_model_cost = True
-        return model_cost_total if has_model_cost else None
-
-    @classmethod
-    def _first_int(cls, source: dict[str, Any], *keys: str) -> int | None:
-        for key in keys:
-            value = cls._extract_int(source.get(key))
-            if value is not None:
-                return value
-        return None
-
-    @staticmethod
-    def _extract_int(value: Any) -> int | None:
-        if isinstance(value, bool) or value is None:
-            return None
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value) if math.isfinite(value) and value >= 0 and value.is_integer() else None
-        if isinstance(value, str):
-            value_str = value.strip()
-            if not value_str:
-                return None
-            try:
-                numeric_value = float(value_str)
-            except ValueError:
-                return None
-            if not math.isfinite(numeric_value) or numeric_value < 0 or not numeric_value.is_integer():
-                return None
-            return int(numeric_value)
-        return None
-
-    @staticmethod
-    def _extract_float(value: Any) -> float | None:
-        if isinstance(value, bool) or value is None:
-            return None
-        try:
-            numeric_value = float(value)
-        except (TypeError, ValueError):
-            return None
-        return numeric_value if math.isfinite(numeric_value) and numeric_value >= 0 else None
-
-    @staticmethod
-    def _resolve_assistant_model(result_msg: dict[str, Any], configured_model: str = "") -> str:
-        model = result_msg.get("model") or result_msg.get("model_name")
-        if isinstance(model, str) and model.strip():
-            return model.strip()
-        if configured_model.strip():
-            return configured_model.strip()
-        model_usage = result_msg.get("model_usage")
-        if isinstance(model_usage, dict) and len(model_usage) == 1:
-            model_name = next(iter(model_usage))
-            if isinstance(model_name, str) and model_name.strip():
-                return model_name.strip()
-        return os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-4"
-
-    @staticmethod
-    def _resolve_configured_assistant_model(env: Any) -> str:
-        if not isinstance(env, dict):
-            return ""
-        for key in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL"):
-            value = env.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return ""
 
     async def _mark_session_terminal(self, managed: ManagedSession, status: SessionStatus, reason: str) -> None:
         """Set terminal status on abnormal consumer exit."""
@@ -1855,7 +1691,7 @@ class SessionManager:
                     "type": "user",
                     "content": "[Request interrupted by user]",
                     "uuid": f"interrupt-echo-{uuid4().hex}",
-                    "timestamp": _utc_now_iso(),
+                    "timestamp": utc_now_iso(),
                 }
             )
 
@@ -2446,7 +2282,7 @@ class SessionManager:
             "question_id": f"aq_{uuid4().hex}",
             "tool_name": tool_name,
             "questions": questions,
-            "timestamp": _utc_now_iso(),
+            "timestamp": utc_now_iso(),
         }
         pending = managed.add_pending_question(payload)
         managed.add_message(payload)
@@ -2612,45 +2448,6 @@ class SessionManager:
             "其他 Bash 命令在 Windows 回退模式下不可用。"
         )
 
-    def _message_to_dict(self, message: Any) -> dict[str, Any]:
-        """Convert SDK message to dict for JSON serialization."""
-        msg_dict = self._serialize_value(message)
-
-        # Infer and add message type if not present
-        if isinstance(msg_dict, dict) and "type" not in msg_dict:
-            msg_type = self._infer_message_type(message)
-            if msg_type:
-                msg_dict["type"] = msg_type
-
-        # Inject precise subtype for typed task messages
-        if isinstance(msg_dict, dict):
-            class_name = type(message).__name__
-            subtype = self._TASK_MESSAGE_SUBTYPES.get(class_name)
-            if subtype:
-                msg_dict["subtype"] = subtype
-
-        return msg_dict
-
-    @staticmethod
-    def _build_user_echo_message(
-        text: str,
-        content_blocks: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        """Build a synthetic user message for real-time UI echo.
-
-        When content_blocks is provided (e.g. image + text blocks), the echo
-        content is a list of blocks so the UI can render image thumbnails in
-        the bubble.  If no blocks are provided, content is the plain text string.
-        """
-        content: Any = content_blocks if content_blocks is not None else text
-        return {
-            "type": "user",
-            "content": content,
-            "uuid": f"local-user-{uuid4().hex}",
-            "timestamp": _utc_now_iso(),
-            "local_echo": True,
-        }
-
     @staticmethod
     def _prune_transient_buffer(managed: ManagedSession) -> None:
         """Drop stale messages that should not leak into next round snapshots.
@@ -2677,48 +2474,7 @@ class SessionManager:
             }
         ]
 
-    @staticmethod
-    def _build_runtime_status_message(
-        status: SessionStatus,
-        session_id: str,
-    ) -> dict[str, Any]:
-        """Build runtime-only status message for SSE wake-up."""
-        return {
-            "type": "runtime_status",
-            "status": status,
-            "subtype": status,
-            "stop_reason": None,
-            "is_error": status == "error",
-            "session_id": session_id,
-            "uuid": f"runtime-status-{uuid4().hex}",
-            "timestamp": _utc_now_iso(),
-        }
-
     _extract_plain_user_content = staticmethod(extract_plain_user_content)
-
-    def _is_duplicate_user_echo(
-        self,
-        managed: ManagedSession,
-        message: dict[str, Any],
-    ) -> bool:
-        """Skip SDK-replayed user message if it matches local echo queue."""
-        if not managed.pending_user_echoes:
-            return False
-        incoming = self._extract_plain_user_content(message)
-        expected = managed.pending_user_echoes[0].strip()
-
-        # Image-only sentinel: the SDK parser drops image blocks, so the
-        # replayed UserMessage arrives with empty content (incoming is None).
-        if not incoming:
-            if message.get("type") != "user" or expected != self._IMAGE_ONLY_SENTINEL:
-                return False
-            managed.pending_user_echoes.pop(0)
-            return True
-
-        if incoming != expected:
-            return False
-        managed.pending_user_echoes.pop(0)
-        return True
 
     async def _on_sdk_session_id_received(
         self,
@@ -2776,33 +2532,6 @@ class SessionManager:
         if raw_sdk_id:
             return str(raw_sdk_id)
         return None
-
-    def _infer_message_type(self, message: Any) -> str | None:
-        """Infer message type from SDK message class name."""
-        class_name = type(message).__name__
-        return self._MESSAGE_TYPE_MAP.get(class_name)
-
-    def _serialize_value(self, value: Any) -> Any:
-        """Recursively serialize a value to JSON-safe types."""
-        if value is None or isinstance(value, (bool, int, float, str)):
-            return value
-
-        if isinstance(value, dict):
-            return {k: self._serialize_value(v) for k, v in value.items()}
-
-        if isinstance(value, (list, tuple)):
-            return [self._serialize_value(item) for item in value]
-
-        # Pydantic models — mode="json" 一次产出 JSON 安全结构，避免再次递归
-        if hasattr(value, "model_dump"):
-            return value.model_dump(mode="json")
-
-        # Dataclasses or objects with __dict__
-        if hasattr(value, "__dict__"):
-            return {k: self._serialize_value(v) for k, v in value.__dict__.items() if not k.startswith("_")}
-
-        # Fallback: convert to string
-        return str(value)
 
     async def get_message_buffer_snapshot(self, session_id: str) -> list[dict[str, Any]]:
         """Get current message buffer without creating a new SDK connection."""

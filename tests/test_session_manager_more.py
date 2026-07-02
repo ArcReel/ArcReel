@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime import session_manager as sm_mod
+from server.agent_runtime.message_serialization import build_runtime_status_message
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
@@ -355,7 +356,7 @@ class TestSessionManagerMore:
         assert session_manager._extract_sdk_session_id(raw, msg) == "sdk-1"
         assert session_manager._extract_sdk_session_id(raw, {"sessionId": "sdk-2"}) == "sdk-2"
 
-        status = session_manager._build_runtime_status_message("error", "s1")
+        status = build_runtime_status_message("error", "s1")
         assert status["type"] == "runtime_status"
         assert status["is_error"] is True
 

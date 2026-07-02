@@ -247,46 +247,6 @@ class TestSessionManagerSdkSessionId:
         assert refreshed is not None
         assert refreshed.status == "completed"
 
-    async def test_extract_text_token_usage_accepts_numeric_strings(self, session_manager):
-        input_tokens, output_tokens, usage_tokens = session_manager._extract_text_token_usage(
-            {
-                "usage": {
-                    "input_tokens": "1000.0",
-                    "output_tokens": "200",
-                    "cache_read_input_tokens": 50.0,
-                }
-            }
-        )
-
-        # input_tokens includes prompt cache read/creation tokens for aggregate reporting.
-        assert input_tokens == 1050
-        assert output_tokens == 200
-        assert usage_tokens == 1250
-
-    async def test_extract_text_token_usage_preserves_missing_as_none(self, session_manager):
-        input_tokens, output_tokens, usage_tokens = session_manager._extract_text_token_usage(
-            {"usage": {"input_tokens": None, "output_tokens": "not-a-number"}}
-        )
-
-        assert input_tokens is None
-        assert output_tokens is None
-        assert usage_tokens is None
-
-    async def test_extract_assistant_cost_rejects_invalid_values(self, session_manager):
-        assert session_manager._extract_assistant_cost({"total_cost_usd": -1}) is None
-        assert session_manager._extract_assistant_cost({"total_cost_usd": "nan"}) is None
-        assert session_manager._extract_assistant_cost({"model_usage": {"m": {"costUSD": -0.1}}}) is None
-
-    async def test_extract_text_token_usage_rejects_invalid_values(self, session_manager):
-        assert session_manager._extract_text_token_usage({"usage": {"input_tokens": "inf"}}) == (None, None, None)
-        assert session_manager._extract_text_token_usage({"usage": {"input_tokens": "1.9"}}) == (None, None, None)
-        assert session_manager._extract_text_token_usage({"usage": {"input_tokens": 1.9}}) == (None, None, None)
-        assert session_manager._extract_text_token_usage({"model_usage": {"m": {"inputTokens": float("nan")}}}) == (
-            None,
-            None,
-            None,
-        )
-
     async def test_on_sdk_session_id_received_noop_when_already_registered(self, session_manager, meta_store):
         """For sessions with resolved_sdk_id already set, it's a no-op."""
         managed = _make_managed(session_id="sdk-existing", resolved_sdk_id="sdk-existing")
