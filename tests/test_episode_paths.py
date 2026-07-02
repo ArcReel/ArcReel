@@ -66,8 +66,10 @@ def test_new_content_mode_registered_once_covers_gate_web_and_status(monkeypatch
 
 def test_ad_has_no_structured_step1_across_web_and_agent(tmp_path):
     """ad 不走结构化 step1：web 步骤映射为空、agent 写盘解析为 None（与状态计算显式排除同口径）。"""
-    # web 草稿读写：ad 不误落 drama 文件名，返回空映射
+    # web 草稿读写：ad 不误落 drama 文件名，返回空映射；ad 优先于 generation_mode，
+    # 带 reference_video 戳同样无 step1（与 _resolve_step1_path 先判 ad 同序）
     assert files._get_step_files("ad") == {}
+    assert files._get_step_files("ad", generation_mode="reference_video") == {}
     # agent 写盘：ad 不依赖 step1
     assert (
         text_generation._resolve_step1_path(tmp_path, 1, {"content_mode": "ad", "episodes": [{"episode": 1}]}) is None

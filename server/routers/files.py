@@ -667,16 +667,17 @@ def _extract_step_number(filename: str) -> int:
 def _get_step_files(content_mode: str, generation_mode: str | None = None) -> dict:
     """根据 generation_mode / content_mode 获取步骤文件名映射
 
-    reference_video 走 split-reference-video-units subagent → step1_reference_units.md，
-    ad 不走结构化 step1（与 status_calculator._draft_candidates 同口径显式排除），返回空映射，
-    调用方据此给出「无此步骤」而非误落 drama 文件名的 404。其他模式回落到 content_mode 的结构化
-    step1 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源 STEP1_FILENAMES，
-    新增 content_mode 自动覆盖。
+    ad 不走结构化 step1（与 _resolve_step1_path / status_calculator._draft_candidates 同口径显式
+    排除），即便带 reference_video generation_mode 也无 step1，故先于 generation_mode 判断返回空
+    映射，调用方据此给出「无此步骤」而非误落 drama / reference 文件名。reference_video 走
+    split-reference-video-units subagent → step1_reference_units.md；其他模式回落到 content_mode
+    的结构化 step1 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源
+    STEP1_FILENAMES，新增 content_mode 自动覆盖。
     """
-    if generation_mode == "reference_video":
-        return {1: REFERENCE_VIDEO_STEP1_FILENAME}
     if content_mode == "ad":
         return {}
+    if generation_mode == "reference_video":
+        return {1: REFERENCE_VIDEO_STEP1_FILENAME}
     return {1: STEP1_FILENAMES.get(content_mode, STEP1_FILENAMES["drama"])}
 
 
