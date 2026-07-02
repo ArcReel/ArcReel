@@ -5,6 +5,13 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
+# 官方 OpenAI 端点：既是 is_official_openai_base_url 的判定基准，也是上层
+# 客户端工厂在 base_url 为空时须显式回填的默认值——AsyncOpenAI 对空 base_url
+# 会回落读取 OPENAI_BASE_URL 环境变量，显式传入官方值即断掉该回落。单一来源，
+# 勿散落字面量。
+OFFICIAL_OPENAI_HOSTNAME = "api.openai.com"
+OFFICIAL_OPENAI_BASE_URL = f"https://{OFFICIAL_OPENAI_HOSTNAME}/v1"
+
 
 def is_official_openai_base_url(base_url: str | None) -> bool:
     """判断 OpenAI 兼容 base_url 是否指向官方 api.openai.com。
@@ -22,7 +29,7 @@ def is_official_openai_base_url(base_url: str | None) -> bool:
     if not effective:
         return True
     # hostname 自带小写化与去端口；无 scheme 时 hostname 为 None → 保守判非官方
-    return urlparse(effective).hostname == "api.openai.com"
+    return urlparse(effective).hostname == OFFICIAL_OPENAI_HOSTNAME
 
 
 def ensure_openai_base_url(url: str | None) -> str | None:
