@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.20.1](https://github.com/ArcReel/ArcReel/compare/v0.20.0...v0.20.1) (2026-07-02)
+
+
+### 🐛 Bug 修复
+
+* **config:** 供应商 base_url 收敛为 DB 配置唯一来源，移除环境变量兜底与隐式路由覆盖 ([#1017](https://github.com/ArcReel/ArcReel/issues/1017)) ([67d8924](https://github.com/ArcReel/ArcReel/commit/67d89244480ab35ca79834dd17dc21b289c0e6ac))
+* **events:** ad 与参考生视频项目恢复分镜级实时事件推送 ([#1012](https://github.com/ArcReel/ArcReel/issues/1012)) ([9e4298a](https://github.com/ArcReel/ArcReel/commit/9e4298a9961bfc06e7205d3c37e2b25a042ccfa9))
+* **script:** step1 文件名与剧本路径收敛到单一来源，杜绝审核 gate 被文件名漂移静默绕过 ([#995](https://github.com/ArcReel/ArcReel/issues/995)) ([68a6432](https://github.com/ArcReel/ArcReel/commit/68a6432d0af42749fc99827d8293fbbed7746031))
+* **timeline:** 修复审核面板发声列表编辑串位，加载失败区分错误态并支持重试 ([#996](https://github.com/ArcReel/ArcReel/issues/996)) ([227f83a](https://github.com/ArcReel/ArcReel/commit/227f83a0d1d327cba2c47c175cfa7c8d03bb6c9b))
+
+
+### ♻️ 重构
+
+* **agent:** 析出 SessionManager 的 token/cost 抽取与消息序列化为纯函数模块 ([#1018](https://github.com/ArcReel/ArcReel/issues/1018)) ([36a3d17](https://github.com/ArcReel/ArcReel/commit/36a3d17d2708814f19f2a0d579ebfc7abb4f5117))
+* **script:** 剧本骨架分派深收口与消费方穷尽性断言 ([#1011](https://github.com/ArcReel/ArcReel/issues/1011)) ([3e56cd1](https://github.com/ArcReel/ArcReel/commit/3e56cd16f3635061a505488be1eda58718808feb))
+* **script:** 剧本骨架知识收归单一真相源，旧字段名分派一次迁清 ([#1010](https://github.com/ArcReel/ArcReel/issues/1010)) ([3864c9c](https://github.com/ArcReel/ArcReel/commit/3864c9cfc683c0a203649b9c782530ec8179569e))
+
+
+### 📚 文档
+
+* **context:** 记录 ad 模式不接入剧本审核 gate 的范围决策 ([#992](https://github.com/ArcReel/ArcReel/issues/992)) ([aee22cf](https://github.com/ArcReel/ArcReel/commit/aee22cf3fa3ae8e0debab96ec676c3ba4defa815))
+* **script:** 剧本骨架收口设计 ADR 与「骨架」领域词条 ([#1001](https://github.com/ArcReel/ArcReel/issues/1001)) ([034ffe3](https://github.com/ArcReel/ArcReel/commit/034ffe3e6c9b8ad638ee7043dd416cf4ea0d54ae))
+
 ## [0.20.0](https://github.com/ArcReel/ArcReel/compare/v0.19.1...v0.20.0) (2026-07-01)
 
 
