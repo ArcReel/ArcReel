@@ -1286,7 +1286,7 @@ class SessionManager:
             raise
 
     async def get_or_connect(
-        self, session_id: str, *, meta: Optional["SessionMeta"] = None, locale: str = DEFAULT_LOCALE
+        self, session_id: str, *, meta: SessionMeta | None = None, locale: str = DEFAULT_LOCALE
     ) -> ManagedSession:
         """Get existing managed session or spin up an actor for resumed session.
 
@@ -1382,7 +1382,7 @@ class SessionManager:
         *,
         echo_text: str | None = None,
         echo_content: list[dict[str, Any]] | None = None,
-        meta: Optional["SessionMeta"] = None,
+        meta: SessionMeta | None = None,
         locale: str = DEFAULT_LOCALE,
     ) -> None:
         """Send a message via the session actor.
