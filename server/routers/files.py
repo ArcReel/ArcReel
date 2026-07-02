@@ -668,11 +668,15 @@ def _get_step_files(content_mode: str, generation_mode: str | None = None) -> di
     """根据 generation_mode / content_mode 获取步骤文件名映射
 
     reference_video 走 split-reference-video-units subagent → step1_reference_units.md，
-    其他模式回落到 content_mode 的结构化 step1 文件名（未知 content_mode 兜底 drama）。
-    结构化文件名取自单一真相源 STEP1_FILENAMES，新增 content_mode 自动覆盖。
+    ad 不走结构化 step1（与 status_calculator._draft_candidates 同口径显式排除），返回空映射，
+    调用方据此给出「无此步骤」而非误落 drama 文件名的 404。其他模式回落到 content_mode 的结构化
+    step1 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源 STEP1_FILENAMES，
+    新增 content_mode 自动覆盖。
     """
     if generation_mode == "reference_video":
         return {1: REFERENCE_VIDEO_STEP1_FILENAME}
+    if content_mode == "ad":
+        return {}
     return {1: STEP1_FILENAMES.get(content_mode, STEP1_FILENAMES["drama"])}
 
 

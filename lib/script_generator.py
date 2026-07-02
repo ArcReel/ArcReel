@@ -550,7 +550,9 @@ class ScriptGenerator:
         if gen_mode == "reference_video":
             step1_path = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
         else:
-            step1_path = drafts_path / STEP1_FILENAMES["drama"]
+            # 本方法只服务 drama 及未来其它走 drama 形状两段式的结构化模式（narration 另经
+            # _load_narration_step1）；按 content_mode 取登记的结构化文件名，脏值兜底 drama。
+            step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
 
         if not step1_path.exists():
             raise FileNotFoundError(

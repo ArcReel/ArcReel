@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lib import episode_paths, script_review, status_calculator
+from server.agent_runtime.sdk_tools import text_generation
 from server.routers import files
 
 
@@ -54,8 +55,25 @@ def test_new_content_mode_registered_once_covers_gate_web_and_status(monkeypatch
     # web 草稿读写：_get_step_files 返回同一文件名
     assert files._get_step_files("docudrama") == {1: "step1_docu.json"}
 
+    # agent 写盘：_resolve_step1_path 指向同一结构化文件名，不因 == "drama" 硬编码误落 narration
+    resolved = text_generation._resolve_step1_path(tmp_path, 1, project)
+    assert resolved is not None
+    assert resolved[0] == tmp_path / "drafts" / "episode_1" / "step1_docu.json"
+
     # 状态计算：新模式的草稿探测覆盖登记的结构化文件名
     assert "step1_docu.json" in status_calculator._draft_candidates("docudrama")
+
+
+def test_ad_has_no_structured_step1_across_web_and_agent(tmp_path):
+    """ad 不走结构化 step1：web 步骤映射为空、agent 写盘解析为 None（与状态计算显式排除同口径）。"""
+    # web 草稿读写：ad 不误落 drama 文件名，返回空映射
+    assert files._get_step_files("ad") == {}
+    # agent 写盘：ad 不依赖 step1
+    assert (
+        text_generation._resolve_step1_path(tmp_path, 1, {"content_mode": "ad", "episodes": [{"episode": 1}]}) is None
+    )
+    # 状态计算：ad 无草稿可探测
+    assert status_calculator._draft_candidates("ad") == ()
 
 
 def test_gate_only_json_status_and_web_also_md():
