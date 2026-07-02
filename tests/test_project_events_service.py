@@ -270,7 +270,7 @@ class TestProjectEventService:
         task = asyncio.create_task(service._subscribe("demo"))
         await asyncio.sleep(0.05)  # 让 _subscribe 注册 queue 并 park
         channel = service._channels["demo"]
-        assert channel.subscribers  # 已注册
+        assert channel.sse.has_subscribers  # 已注册
         watch_task = channel.task
 
         task.cancel()

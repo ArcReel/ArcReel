@@ -72,7 +72,7 @@ class _FakeSessionManager:
                 except TimeoutError:
                     yield Heartbeat()
                     continue
-                if message.get("type") == "_queue_overflow":
+                if message.get("type") == "_stream_end":
                     return
                 yield LiveMessage(message=message)
 
@@ -146,7 +146,7 @@ class TestAssistantServiceStreaming:
         # 直播阶段队列被挤爆 → seam 内部溢出哨兵被吞掉，溢出以流结束表达。
         queue = fake_manager.last_queue
         assert queue is not None
-        queue.put_nowait({"type": "_queue_overflow", "session_id": "sdk-1"})
+        queue.put_nowait({"type": "_stream_end", "session_id": "sdk-1"})
         with pytest.raises(StopAsyncIteration):
             await anext(stream)
         await stream.aclose()

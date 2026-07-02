@@ -5,7 +5,7 @@
 ## Consequences
 
 - `stream_messages()`/`stream_events()` 必须以 `async with` 消费，不能当裸 generator 直接 `async for`。新增 SSE 消费方一律走 CM 形态;评审遇到裸 `async for some_stream()` 即视为清理隐患。
-- 两条流的事件形态**按流而非全局**:会话流(`SessionManager.stream_messages`)产出语义化事件——首个事件为回放批次(`ReplayBatch`，历史消息一次性交付，回放与订阅的原子衔接收在 seam 内)，随后逐条直播(`LiveMessage`)与心跳(`Heartbeat`);订阅队列溢出以**流结束**表达，流结束即重连信号，in-band 哨兵(`_queue_overflow`)降为 seam 内部机制，消费方不感知。项目事件流(`ProjectEventService.stream_events`)仍是裸消息 dict + `_idle` 空闲哨兵(消费方靠 `msg.get("type")` 分发)，用"snapshot 作首个事件"取代回放边界、用"静默丢订阅者"取代溢出信号(见末条)。消费方须按"自己消费的是哪条流"处理对应形态。会话流 seam 的边界决策(typed 事件收编哨兵)见 `docs/adr/0046`。
+- 两条流的事件形态**按流而非全局**:会话流(`SessionManager.stream_messages`)产出语义化事件——首个事件为回放批次(`ReplayBatch`，历史消息一次性交付，回放与订阅的原子衔接收在 seam 内)，随后逐条直播(`LiveMessage`)与心跳(`Heartbeat`);订阅队列溢出以**流结束**表达，流结束即重连信号，溢出哨兵收在订阅广播组件 SseChannel(`server/sse_channel.py`)内部，消费方不感知。项目事件流(`ProjectEventService.stream_events`)仍是裸消息 dict + `_idle` 空闲哨兵(消费方靠 `msg.get("type")` 分发)，用"snapshot 作首个事件"取代回放边界、用"静默丢订阅者"取代溢出信号(见末条)。消费方须按"自己消费的是哪条流"处理对应形态。会话流 seam 的边界决策(typed 事件收编哨兵)见 `docs/adr/0046`。
 - 空闲唤醒一物两用:SSE 路径在其上查 `is_disconnected` + 发心跳;非 SSE 的同步收集方(`agent_chat._collect_reply`，无 `request`)在其上查自己的 deadline/会话状态。同一个唤醒(会话流的 `Heartbeat` / 项目事件流的 `_idle`)，各接各的存活策略。
 - 不要把"客户端断线时的及时清理"单独寄望于 FastAPI/anyio 的取消注入或 GC。断线及时性由消费方的 `is_disconnected` 自检负责;CM 的 `__aexit__` 负责"无论因何退出都注销"。两者缺一:只有 CM 而不自检，parked-at-send 断线仍漂到 GC;只自检而无 CM，异常路径仍可能漏注销。
-- `ProjectEventService` 的"队列满则静默丢订阅者"语义保持不变(无 `_queue_overflow` 哨兵);本次只收编接口形态，不改其溢出行为。被静默丢弃的订阅者最终由 `is_disconnected` 自检或对端重连收场,这一既有近似不在本决策范围内。
+- `ProjectEventService` 的"队列满则静默丢订阅者"语义保持不变(无溢出信号);本次只收编接口形态，不改其溢出行为。被静默丢弃的订阅者最终由 `is_disconnected` 自检或对端重连收场,这一既有近似不在本决策范围内。

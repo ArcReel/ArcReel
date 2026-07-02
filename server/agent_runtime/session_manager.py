@@ -44,6 +44,7 @@ from server.agent_runtime.usage_extraction import (
     resolve_assistant_model,
     resolve_configured_assistant_model,
 )
+from server.sse_channel import IDLE, EvictNonCriticalAndSignal, SseChannel
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,19 @@ class PendingQuestion:
     answer_future: asyncio.Future[dict[str, str]]
 
 
+def _make_session_channel() -> SseChannel:
+    """会话订阅广播通道：溢出策略为「逐出非关键消息 + 溢出信号」。
+
+    关键消息（result/runtime_status/user/assistant）不得静默丢弃；订阅者
+    队列彻底跟不上时其流被结束，流结束即重连信号（见 docs/adr/0046）。
+    """
+    return SseChannel(
+        overflow=EvictNonCriticalAndSignal(
+            is_critical=lambda message: message.get("type") in ManagedSession._CRITICAL_MESSAGE_TYPES,
+        ),
+    )
+
+
 @dataclass
 class ManagedSession:
     """A managed ClaudeSDKClient session."""
@@ -123,7 +137,7 @@ class ManagedSession:
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
     resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
     message_buffer: list[dict[str, Any]] = field(default_factory=list)
-    subscribers: set[asyncio.Queue] = field(default_factory=set)
+    channel: SseChannel = field(default_factory=_make_session_channel)
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
@@ -147,7 +161,7 @@ class ManagedSession:
         self.message_buffer.append(message)
         if len(self.message_buffer) > self.buffer_max_size:
             self._evict_oldest_buffer_entry()
-        self._broadcast_to_subscribers(message)
+        self.channel.broadcast(message)
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -204,78 +218,6 @@ class ManagedSession:
                 self.message_buffer.pop(i)
                 return
         self.message_buffer.pop(0)
-
-    def _broadcast_to_subscribers(self, message: dict[str, Any]) -> None:
-        """Push message to all subscriber queues, evicting non-critical on overflow."""
-        is_critical = message.get("type") in self._CRITICAL_MESSAGE_TYPES
-        stale_queues: list[asyncio.Queue] = []
-        for queue in self.subscribers:
-            if not self._try_enqueue(queue, message, is_critical):
-                stale_queues.append(queue)
-        for q in stale_queues:
-            # Drain the hopelessly full queue and inject a reconnect signal so
-            # the SSE consumer loop terminates instead of blocking forever.
-            self._drain_and_signal_reconnect(q)
-            self.subscribers.discard(q)
-
-    def _drain_and_signal_reconnect(self, queue: asyncio.Queue) -> None:
-        """Empty *queue* and push a reconnect signal so the SSE loop exits.
-
-        Uses a connection-level ``_queue_overflow`` type rather than
-        ``runtime_status`` so the SSE consumer can close the stream without
-        misrepresenting the session's actual status to the client.
-        """
-        while not queue.empty():
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        try:
-            queue.put_nowait(
-                {
-                    "type": "_queue_overflow",
-                    "session_id": self.session_id,
-                }
-            )
-        except asyncio.QueueFull:
-            pass  # should never happen after drain
-
-    def _try_enqueue(self, queue: asyncio.Queue, message: dict[str, Any], is_critical: bool) -> bool:
-        """Try to put *message* into *queue*. Returns False if the queue should be discarded."""
-        try:
-            queue.put_nowait(message)
-            return True
-        except asyncio.QueueFull:
-            if not is_critical:
-                return True  # non-critical drop is acceptable
-        # Critical message on a full queue — evict one non-critical to make room.
-        self._evict_non_critical(queue)
-        try:
-            queue.put_nowait(message)
-            return True
-        except asyncio.QueueFull:
-            return False
-
-    @staticmethod
-    def _evict_non_critical(queue: asyncio.Queue) -> bool:
-        """Try to remove one non-critical message from *queue* to make room."""
-        temp: list[dict[str, Any]] = []
-        evicted = False
-        while not queue.empty():
-            try:
-                msg = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            if not evicted and msg.get("type") not in ManagedSession._CRITICAL_MESSAGE_TYPES:
-                evicted = True  # drop this one
-                continue
-            temp.append(msg)
-        for msg in temp:
-            try:
-                queue.put_nowait(msg)
-            except asyncio.QueueFull:
-                break
-        return evicted
 
     def clear_buffer(self) -> None:
         """Clear message buffer after session completes."""
@@ -1022,7 +964,7 @@ class SessionManager:
         # The consumer task is already cancelled at this point so the SDK's own
         # echo will never arrive through the normal message pipeline.
         if status == "interrupted":
-            managed._broadcast_to_subscribers(
+            managed.channel.broadcast(
                 {
                     "type": "user",
                     "content": "[Request interrupted by user]",
@@ -1033,7 +975,7 @@ class SessionManager:
 
         # Broadcast terminal status so SSE subscribers unblock immediately
         # instead of waiting for the heartbeat timeout.
-        managed._broadcast_to_subscribers(
+        managed.channel.broadcast(
             {
                 "type": "runtime_status",
                 "status": status,
@@ -1476,13 +1418,15 @@ class SessionManager:
 
     async def _subscribe(
         self, session_id: str, *, replay: bool = True, locale: str = DEFAULT_LOCALE
-    ) -> tuple[asyncio.Queue, list[dict[str, Any]]]:
+    ) -> tuple[SseChannel, asyncio.Queue, list[dict[str, Any]]]:
         """Register a live-message queue and capture the replay snapshot atomically.
 
-        Returns the (live-only) queue plus a snapshot of the buffered messages.
-        The buffer snapshot and queue registration happen with no ``await`` in
-        between, so no synchronous live broadcast can interleave between the two
-        and be lost — the replay/live split has no race.
+        Returns the session channel, the (live-only) queue, plus a snapshot of
+        the buffered messages. The buffer snapshot and queue registration happen
+        with no ``await`` in between, so no synchronous live broadcast can
+        interleave between the two and be lost — the replay/live split has no
+        race. The replay snapshot (开场白) stays outside :class:`SseChannel`;
+        this synchronous critical section is what guarantees the atomic hand-off.
 
         ``locale`` is forwarded to ``get_or_connect`` so reviving a cold session
         through the stream path rebuilds its language regulation from the current
@@ -1494,14 +1438,13 @@ class SessionManager:
         managed = await self.get_or_connect(session_id, locale=locale)
         # Synchronous critical section — no ``await`` until registration completes.
         replay_snapshot = list(managed.message_buffer) if replay else []
-        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-        managed.subscribers.add(queue)
-        return queue, replay_snapshot
+        queue = managed.channel.subscribe()
+        return managed.channel, queue, replay_snapshot
 
     async def _unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
-        """Remove a queue from a session's subscriber set."""
+        """Remove a queue from a session's subscriber channel."""
         if session_id in self.sessions:
-            self.sessions[session_id].subscribers.discard(queue)
+            await self.sessions[session_id].channel.unsubscribe(queue)
 
     @contextlib.asynccontextmanager
     async def stream_messages(
@@ -1519,7 +1462,7 @@ class SessionManager:
 
         The stream ends when the subscriber queue is dropped under backpressure —
         stream end is the reconnect signal; no overflow event reaches consumers
-        (the in-band ``_queue_overflow`` sentinel is internal to this seam).
+        (the overflow sentinel is internal to :class:`SseChannel`).
 
         Subscription, replay/live atomic hand-off, queue draining and unsubscribe
         all live behind this seam; cleanup is carried deterministically by
@@ -1529,7 +1472,7 @@ class SessionManager:
         ``locale`` only matters when this subscription revives a cold session; an
         already-resident session ignores it (session-fixed system prompt).
         """
-        queue, replay_msgs = await self._subscribe(session_id, replay=replay, locale=locale)
+        channel, queue, replay_msgs = await self._subscribe(session_id, replay=replay, locale=locale)
 
         async def _iter() -> AsyncIterator[SessionStreamEvent]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
@@ -1537,15 +1480,8 @@ class SessionManager:
             # generator's finally only runs at GC on break/disconnect, which is the
             # exact leak this design avoids. Do not add a finally to this inner gen.
             yield ReplayBatch(messages=replay_msgs)
-            while True:
-                try:
-                    msg = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
-                except TimeoutError:
-                    yield Heartbeat()
-                    continue
-                if msg.get("type") == "_queue_overflow":
-                    return
-                yield LiveMessage(message=msg)
+            async for item in channel.iterate(queue, idle_timeout=idle_timeout):
+                yield Heartbeat() if item is IDLE else LiveMessage(message=item)
 
         try:
             yield _iter()

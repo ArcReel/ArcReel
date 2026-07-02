@@ -26,6 +26,7 @@ from lib.project_change_hints import (
 )
 from lib.project_manager import ProjectManager
 from lib.script_skeleton import SKELETONS, resolve_script_kind
+from server.sse_channel import IDLE, DropSubscriber, SseChannel
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def _fingerprint(value: Any) -> str:
 
 @dataclass
 class _ProjectChannel:
-    subscribers: set[asyncio.Queue] = field(default_factory=set)
+    sse: SseChannel
     ready_event: asyncio.Event = field(default_factory=asyncio.Event)
     scan_now: asyncio.Event = field(default_factory=asyncio.Event)
     pending_sources: set[ProjectChangeSource] = field(default_factory=set)
@@ -113,7 +114,52 @@ class ProjectEventService:
         self._channels.clear()
         self._loop = None
 
-    async def _subscribe(self, project_name: str) -> tuple[asyncio.Queue, dict[str, Any]]:
+    def _create_channel(self, project_name: str) -> _ProjectChannel:
+        """构造项目通道：溢出策略「移除订阅者」，首/末订阅者钩子启停后台扫描。"""
+        sse = SseChannel(
+            overflow=DropSubscriber(
+                on_removed=lambda count: logger.warning(
+                    "项目事件订阅队列溢出，移除 %s 个订阅者 project=%s",
+                    count,
+                    project_name,
+                ),
+            ),
+            on_first_subscriber=lambda: self._start_watch(project_name),
+            on_last_subscriber=lambda: self._stop_watch(project_name),
+        )
+        return _ProjectChannel(sse=sse)
+
+    def _start_watch(self, project_name: str) -> None:
+        """首订阅者钩子：启动（或重启已自行退出的）后台扫描任务。
+
+        溢出移除掉最后一个订阅者时 watch task 经 ``while has_subscribers`` 自行
+        退出而通道仍留在注册表，故重启条件是「任务不在跑」而非仅「首次订阅」。
+        """
+        channel = self._channels.get(project_name)
+        if channel is None:
+            return
+        if channel.task is not None and not channel.task.done():
+            return
+        channel.ready_event = asyncio.Event()
+        channel.scan_now = asyncio.Event()
+        channel.pending_sources.clear()
+        channel.task = asyncio.create_task(
+            self._watch_project(project_name, channel),
+            name=f"project-events-{project_name}",
+        )
+
+    async def _stop_watch(self, project_name: str) -> None:
+        """末订阅者钩子：停止后台扫描任务并注销通道。"""
+        channel = self._channels.get(project_name)
+        if channel is None:
+            return
+        task = channel.task
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        self._channels.pop(project_name, None)
+
+    async def _subscribe(self, project_name: str) -> tuple[SseChannel, asyncio.Queue, dict[str, Any]]:
         """Register a queue for *project_name* and return it with the initial snapshot.
 
         Private: the only consumer is :meth:`stream_events`, which owns the
@@ -122,48 +168,32 @@ class ProjectEventService:
         await asyncio.to_thread(self.pm.get_project_path, project_name)
         channel = self._channels.get(project_name)
         if channel is None:
-            channel = _ProjectChannel()
+            channel = self._create_channel(project_name)
             self._channels[project_name] = channel
 
-        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-        # 队列必须在首次扫描前注册,否则会漏掉扫描完成到注册之间广播的事件。
-        channel.subscribers.add(queue)
-
-        if channel.task is None or channel.task.done():
-            channel.ready_event = asyncio.Event()
-            channel.scan_now = asyncio.Event()
-            channel.pending_sources.clear()
-            channel.task = asyncio.create_task(
-                self._watch_project(project_name, channel),
-                name=f"project-events-{project_name}",
-            )
+        # 队列在首次扫描启动前注册(首订阅者钩子在注册后触发)，否则会漏掉
+        # 扫描完成到注册之间广播的事件。
+        queue = channel.sse.subscribe()
 
         try:
             await channel.ready_event.wait()
         except BaseException:
             # 客户端在首次扫描期间断开会取消这里:此时 _subscribe 尚未返回 queue,
             # stream_events 的 try/finally 进不去。同步清理掉刚注册的订阅者(空闲项目
-            # 下 watch task 不会自愈),不 await 以免取消重入。
-            channel.subscribers.discard(queue)
-            if not channel.subscribers and channel.task is not None:
+            # 下 watch task 不会自愈),不 await 以免取消重入——绕过异步末位钩子，
+            # 收尾自理。
+            if channel.sse.unsubscribe_nowait(queue) and channel.task is not None:
                 channel.task.cancel()
                 self._channels.pop(project_name, None)
             raise
-        return queue, self._build_snapshot_payload(project_name, channel)
+        return channel.sse, queue, self._build_snapshot_payload(project_name, channel)
 
     async def _unsubscribe(self, project_name: str, queue: asyncio.Queue) -> None:
-        """Remove a queue; stop the watch task once the last subscriber leaves."""
+        """Remove a queue; the last-subscriber hook stops the watch task."""
         channel = self._channels.get(project_name)
         if channel is None:
             return
-        channel.subscribers.discard(queue)
-        if channel.subscribers:
-            return
-        task = channel.task
-        if task is not None:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-        self._channels.pop(project_name, None)
+        await channel.sse.unsubscribe(queue)
 
     @contextlib.asynccontextmanager
     async def stream_events(
@@ -179,23 +209,19 @@ class ProjectEventService:
           event (consumers poll disconnect on it).
 
         The "queue full → silently drop subscriber" overflow semantics are
-        unchanged (no ``_queue_overflow`` sentinel). Subscription and unsubscribe
-        live behind this seam; cleanup is carried by ``__aexit__`` (see ADR-0005).
-        Consume as ``async with stream_events(...) as stream: async for item in stream``.
+        unchanged (:class:`DropSubscriber` — no overflow signal, the stream keeps
+        idling). Subscription and unsubscribe live behind this seam; cleanup is
+        carried by ``__aexit__`` (see ADR-0005). Consume as
+        ``async with stream_events(...) as stream: async for item in stream``.
         """
-        queue, snapshot = await self._subscribe(project_name)
+        sse, queue, snapshot = await self._subscribe(project_name)
 
         async def _iter() -> AsyncIterator[tuple[str, Any] | dict[str, Any]]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here — cleanup is owned
             # by the enclosing context manager's __aexit__ (ADR-0005). Do not add one.
             yield ("snapshot", snapshot)
-            while True:
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
-                except TimeoutError:
-                    yield {"type": "_idle"}
-                    continue
-                yield item
+            async for item in sse.iterate(queue, idle_timeout=idle_timeout):
+                yield {"type": "_idle"} if item is IDLE else item
 
         try:
             yield _iter()
@@ -299,7 +325,7 @@ class ProjectEventService:
             "source": source,
             "changes": [dict(change) for change in changes],
         }
-        self._broadcast(project_name, channel, "changes", payload)
+        channel.sse.broadcast(("changes", payload))
 
     def _rebuild_snapshot(self, project_name: str) -> tuple[dict[str, Any], str]:
         """同步方法（在线程池中执行）：重建快照并返回 (snapshot, fingerprint)。"""
@@ -309,7 +335,7 @@ class ProjectEventService:
 
     async def _watch_project(self, project_name: str, channel: _ProjectChannel) -> None:
         try:
-            while channel.subscribers:
+            while channel.sse.has_subscribers:
                 try:
                     # 仅文件 I/O 在线程中执行
                     snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
@@ -365,7 +391,7 @@ class ProjectEventService:
             "source": source,
             "changes": changes,
         }
-        self._broadcast(project_name, channel, "changes", payload)
+        channel.sse.broadcast(("changes", payload))
 
     def _build_snapshot_payload(
         self,
@@ -387,28 +413,6 @@ class ProjectEventService:
         if "webui" in pending_sources:
             return "webui"
         return "filesystem"
-
-    def _broadcast(
-        self,
-        project_name: str,
-        channel: _ProjectChannel,
-        event: str,
-        payload: dict[str, Any],
-    ) -> None:
-        stale: list[asyncio.Queue] = []
-        for subscriber in channel.subscribers:
-            try:
-                subscriber.put_nowait((event, payload))
-            except asyncio.QueueFull:
-                stale.append(subscriber)
-        for subscriber in stale:
-            channel.subscribers.discard(subscriber)
-        if stale:
-            logger.warning(
-                "项目事件订阅队列溢出，移除 %s 个订阅者 project=%s",
-                len(stale),
-                project_name,
-            )
 
     def _ensure_script_index_synced(self, project_name: str) -> None:
         project_path = self.pm.get_project_path(project_name)

@@ -119,19 +119,15 @@ class TestSessionManagerMore:
         assert len(managed.message_buffer) == 2
         assert all(msg["id"] != "a" for msg in managed.message_buffer)
 
-        queue = asyncio.Queue(maxsize=1)
-        queue.put_nowait({"type": "stream_event"})
-        managed.subscribers = {queue}
+        # add_message 经会话通道广播给订阅者。
+        queue = managed.channel.subscribe()
         managed.add_message({"type": "result", "uuid": "r1"})
         assert queue.get_nowait()["type"] == "result"
 
-        # queue has only critical message; next critical should overflow and drop subscriber
-        stale_queue = asyncio.Queue(maxsize=1)
-        stale_queue.put_nowait({"type": "result"})
-        managed.subscribers = {stale_queue}
-        managed.add_message({"type": "assistant"})
-        assert stale_queue.get_nowait()["type"] == "_queue_overflow"
-        assert stale_queue not in managed.subscribers
+        # 订阅者彻底跟不上（队列填满关键消息、无可逐出）→ 按会话流溢出策略移除。
+        for i in range(120):
+            managed.add_message({"type": "assistant", "uuid": f"m{i}"})
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
     async def test_pending_question_lifecycle(self):
@@ -399,12 +395,12 @@ class TestSessionManagerMore:
         managed.message_buffer.append({"type": "assistant", "uuid": "a1"})
         session_manager.sessions[meta.id] = managed
 
-        queue, replay = await session_manager._subscribe(meta.id, replay=True)
+        _channel, queue, replay = await session_manager._subscribe(meta.id, replay=True)
         # 回放作为快照单独返回，不再塞进直播队列。
         assert replay[0]["uuid"] == "a1"
         assert queue.empty()
         await session_manager._unsubscribe(meta.id, queue)
-        assert queue not in managed.subscribers
+        assert not managed.channel.has_subscribers
 
         await session_manager.shutdown_gracefully(timeout=0.01)
         assert client.disconnected is True
@@ -440,7 +436,7 @@ class TestSessionManagerMore:
             tail = [event async for event in stream]
             assert tail == []
         # 正常退出后订阅者被移除
-        assert managed.subscribers == set()
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
     async def test_stream_messages_no_replay_yields_empty_batch(self, session_manager, meta_store):
@@ -464,7 +460,7 @@ class TestSessionManagerMore:
                 managed.add_message({"type": "assistant", "uuid": f"m{i}"})
             # 溢出无专门事件泄漏给消费方：队列被清空后流直接结束。
             assert [event async for event in stream] == []
-        assert managed.subscribers == set()
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("exit_mode", ["break", "exception"])
@@ -481,7 +477,7 @@ class TestSessionManagerMore:
 
         async def consume():
             async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=0.02) as stream:
-                assert len(managed.subscribers) == 1
+                assert managed.channel.subscriber_count == 1
                 async for event in stream:
                     if isinstance(event, ReplayBatch):
                         continue
@@ -495,7 +491,7 @@ class TestSessionManagerMore:
         else:
             await consume()
         # break / 异常退出路径同样确定性移除订阅者
-        assert managed.subscribers == set()
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_within_project_root(self, tmp_path):
