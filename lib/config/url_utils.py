@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from urllib.parse import urlparse
 
@@ -14,13 +13,12 @@ def is_official_openai_base_url(base_url: str | None) -> bool:
     应改用 max_completion_tokens；第三方兼容端点（vLLM、各类中转）对新
     参数支持情况不一，须保守沿用 max_tokens。
 
-    base_url 为空（None/空白串）时，openai SDK 会回落到 OPENAI_BASE_URL
-    环境变量，再回落到官方端点，此处判定与 SDK 行为保持一致。
+    base_url 只来自 DB 配置（唯一来源），为空（None/空白串）时判定为官方端点。
 
     已知限制：指向中转/代理的 base_url 一律判非官方，若中转将 max_tokens
     原样转发给官方推理模型仍会被拒（显式 400，报错信息自描述）。
     """
-    effective = (base_url or "").strip() or (os.environ.get("OPENAI_BASE_URL") or "").strip()
+    effective = (base_url or "").strip()
     if not effective:
         return True
     # hostname 自带小写化与去端口；无 scheme 时 hostname 为 None → 保守判非官方

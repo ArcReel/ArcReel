@@ -9,18 +9,18 @@ from lib.config.url_utils import (
 
 
 class TestIsOfficialOpenAIBaseURL:
-    """官方端点判定：决定 OpenAI 后端的输出上限参数名。"""
+    """官方端点判定：决定 OpenAI 后端的输出上限参数名。
 
-    def test_none_without_env_is_official(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    base_url 只来自 DB 配置，不读取任何环境变量。
+    """
+
+    def test_none_is_official(self):
         assert is_official_openai_base_url(None) is True
 
-    def test_empty_string_without_env_is_official(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    def test_empty_string_is_official(self):
         assert is_official_openai_base_url("") is True
 
-    def test_whitespace_without_env_is_official(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    def test_whitespace_is_official(self):
         assert is_official_openai_base_url("   ") is True
 
     def test_official_url_is_official(self):
@@ -39,21 +39,15 @@ class TestIsOfficialOpenAIBaseURL:
     def test_url_without_scheme_is_not_official(self):
         assert is_official_openai_base_url("api.openai.com/v1") is False
 
-    def test_env_whitespace_only_treated_as_unset(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_BASE_URL", "   ")
-        assert is_official_openai_base_url(None) is True
-
-    def test_env_relay_overrides_empty_base_url(self, monkeypatch):
+    def test_env_var_does_not_affect_empty_base_url(self, monkeypatch):
         monkeypatch.setenv("OPENAI_BASE_URL", "https://relay.example.com/v1")
-        assert is_official_openai_base_url(None) is False
-
-    def test_env_official_with_empty_base_url(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         assert is_official_openai_base_url(None) is True
+        assert is_official_openai_base_url("") is True
 
-    def test_explicit_base_url_ignores_env(self, monkeypatch):
+    def test_env_var_does_not_affect_explicit_base_url(self, monkeypatch):
         monkeypatch.setenv("OPENAI_BASE_URL", "https://relay.example.com/v1")
         assert is_official_openai_base_url("https://api.openai.com/v1") is True
+        assert is_official_openai_base_url("https://vllm.internal:8000/v1") is False
 
 
 class TestNormalizeBaseUrl:
