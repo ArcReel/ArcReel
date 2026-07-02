@@ -77,8 +77,8 @@ class AssistantService:
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
         """Run async initialization (must be called from event loop).
 
-        ``sandbox_enabled=False`` 时 SessionManager 关闭 SDK SandboxSettings 并
-        把 Bash 工具调用切到代码白名单路径（详见 SessionManager 同名属性）。
+        ``sandbox_enabled=False`` 时关闭 SDK SandboxSettings 并把 Bash 工具调用
+        切到代码白名单路径（详见 ``SessionManager.configure_sandbox_runtime``）。
         默认 ``True`` 保持 macOS / Linux 现状不变。
         """
         if self._startup_done:
@@ -86,8 +86,10 @@ class AssistantService:
         async with self._startup_lock:
             if self._startup_done:
                 return
-            self.session_manager._in_docker = bool(in_docker)
-            self.session_manager._sandbox_enabled = bool(sandbox_enabled)
+            self.session_manager.configure_sandbox_runtime(
+                in_docker=bool(in_docker),
+                sandbox_enabled=bool(sandbox_enabled),
+            )
             await self._interrupt_stale_running_sessions()
             self._startup_done = True
 

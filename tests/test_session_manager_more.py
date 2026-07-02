@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime import session_manager as sm_mod
+from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.message_serialization import build_runtime_status_message
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.session_actor import SessionActor
@@ -577,7 +579,7 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_bash_without_path_check(self, tmp_path):
-        """Hook skips Bash (not in _PATH_TOOLS)."""
+        """Hook skips Bash (not in PATH_TOOLS)."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
 
@@ -731,7 +733,7 @@ class TestSessionManagerMore:
 
         await engine.dispose()
 
-    async def _make_sdk_hook_env(self, tmp_path, monkeypatch):
+    async def _make_sdk_hook_env(self, tmp_path):
         """Create a SessionManager + hook with SDK dir outside project_root."""
         app_root = tmp_path / "app"
         own_project = app_root / "projects" / "alpha"
@@ -751,24 +753,22 @@ class TestSessionManagerMore:
             data_dir=app_root,
             meta_store=meta_store,
         )
-        monkeypatch.setattr(sm_mod.SessionManager, "_CLAUDE_PROJECTS_DIR", claude_home)
+        # SDK 会话数据基准目录是 policy 的构造参数：换新 policy 即注入测试位置
+        mgr.access_policy = replace(mgr.access_policy, claude_projects_dir=claude_home)
 
         hook = mgr._build_file_access_hook(own_project)
         return hook, own_project, claude_home, engine
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path):
         """Hook allows Read for SDK tool-results of the CURRENT project.
 
         New policy: cwd-external non-projects paths (含 SDK 目录) 默认放行；
         Write 仍受 cwd 内限制约束。
         """
-        hook, own_project, claude_home, engine = await self._make_sdk_hook_env(
-            tmp_path,
-            monkeypatch,
-        )
+        hook, own_project, claude_home, engine = await self._make_sdk_hook_env(tmp_path)
 
-        encoded = sm_mod.SessionManager._encode_sdk_project_path(own_project)
+        encoded = AgentAccessPolicy.encode_sdk_project_path(own_project)
         tool_results_dir = claude_home / encoded / "abc-session" / "tool-results"
         tool_results_dir.mkdir(parents=True)
         result_file = tool_results_dir / "toolu_01Abc.txt"
@@ -793,16 +793,13 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path):
         """Hook denies Read for ANOTHER project's directory under projects/.
 
         New policy: 跨项目隔离基于 project_root/projects/<other>/ 的物理位置，
         而非 SDK 编码路径。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(
-            tmp_path,
-            monkeypatch,
-        )
+        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
 
         other_project = tmp_path / "app" / "projects" / "beta"
         other_project.mkdir(parents=True)
@@ -820,12 +817,12 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path):
         """Hook denies Write to any path outside project_cwd.
 
         New policy: 写工具一律拒绝 cwd 外路径；Read 已放宽至 cwd 外非 projects/ 路径。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path, monkeypatch)
+        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
 
         # Write outside cwd — denied
         result = await hook(
@@ -838,13 +835,13 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path):
         """Hook allows Read for SDK task output files under /tmp/claude-*.
 
         New policy: cwd-external non-projects 路径默认放行（含 SDK 后台任务输出），
         写工具仍受 cwd 内限制约束。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path, monkeypatch)
+        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
 
         # SDK task output path pattern: /tmp/claude-{N}/{encoded}/tasks/{id}.output
         task_output = "/tmp/claude-0/-app-projects-alpha-abc123/tasks/bdgaof0ba.output"

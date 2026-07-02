@@ -271,15 +271,15 @@ class TestAllowedToolsAndConstants:
 
     @pytest.mark.asyncio
     async def test_path_tools_no_ls(self, tmp_path):
-        """LS should not be in _PATH_TOOLS."""
+        """LS should not be in PATH_TOOLS."""
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
             meta_store=store,
         )
-        assert "LS" not in manager._PATH_TOOLS
-        assert "MultiEdit" not in manager._PATH_TOOLS
+        assert "LS" not in manager.access_policy.PATH_TOOLS
+        assert "MultiEdit" not in manager.access_policy.PATH_TOOLS
         await engine.dispose()
 
 

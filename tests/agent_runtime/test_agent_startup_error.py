@@ -56,9 +56,7 @@ def session_manager(tmp_path: Path) -> SessionManager:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     meta_store = SessionMetaStore()
-    sm = SessionManager(project_root, data_dir, meta_store)
-    sm._in_docker = False
-    return sm
+    return SessionManager(project_root, data_dir, meta_store)
 
 
 @pytest.mark.asyncio

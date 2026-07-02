@@ -154,7 +154,7 @@ def check_sandbox_available() -> bool:
     返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持
     当前平台（目前仅 Windows — sandboxing.md §"Platform support"），server
     仍可启动但 sandbox 关闭，Bash 工具回退到
-    ``SessionManager._WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
+    ``AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
     macOS / Linux 工具缺失仍硬失败（受支持平台禁止降级）。
     """
     system = platform.system()

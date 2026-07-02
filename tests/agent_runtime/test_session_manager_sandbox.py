@@ -1,4 +1,8 @@
-"""SessionManager sandbox + options.env 集成测试。"""
+"""SessionManager sandbox 接线测试：options 装配、hook 返回格式、权限链顺序。
+
+纯规则断言（路径裁决 / settings 编译 / 白名单谓词 / 密钥剥离变换）已搬家至
+tests/agent_runtime/test_agent_access_policy.py；本文件只测 SDK 封皮侧的接线。
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
@@ -19,9 +24,7 @@ def session_manager(tmp_path: Path) -> SessionManager:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     meta_store = SessionMetaStore()
-    sm = SessionManager(project_root, data_dir, meta_store)
-    sm._in_docker = False
-    return sm
+    return SessionManager(project_root, data_dir, meta_store)
 
 
 @pytest.mark.asyncio
@@ -83,8 +86,7 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
     # 非 Docker 默认 weakerNested=False
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
-    # 网络白名单仅保留 Anthropic + dev 常用域；provider 域名走 in-process MCP tool
-    # （issue #519），不再放行
+    # 网络白名单仅保留 Anthropic + dev 常用域；provider 域名走 in-process MCP tool，不再放行
     # 用 any(==) 显式列表成员比较，避免 CodeQL py/incomplete-url-substring-sanitization 误报
     allowed_domains = opts.sandbox.get("network", {}).get("allowedDomains", [])
     assert any(d == "anthropic.com" for d in allowed_domains)
@@ -97,175 +99,49 @@ async def test_build_options_includes_sandbox_settings(
     assert isinstance(deny_read, list)
 
 
-def test_bash_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    """unset 清单除了固定名单还要动态命中 *_API_KEY / *_AUTH_TOKEN 等模式。"""
-    from server.agent_runtime.session_manager import SessionManager
-
-    monkeypatch.setenv("GEMINI_CLI_IDE_AUTH_TOKEN", "abc")
-    monkeypatch.setenv("RANDOM_VENDOR_API_KEY", "def")
-    monkeypatch.setenv("PATH", "/usr/bin")  # 不应命中
-
-    SessionManager._collect_env_keys_to_scrub.cache_clear()
-    SessionManager._env_scrub_wrap_prefix.cache_clear()
-    try:
-        keys = SessionManager._collect_env_keys_to_scrub()
-        assert "GEMINI_CLI_IDE_AUTH_TOKEN" in keys
-        assert "RANDOM_VENDOR_API_KEY" in keys
-        assert "PATH" not in keys
-        # 固定清单
-        assert "ANTHROPIC_API_KEY" in keys
-        assert "ARK_API_KEY" in keys
-    finally:
-        SessionManager._collect_env_keys_to_scrub.cache_clear()
-        SessionManager._env_scrub_wrap_prefix.cache_clear()
-
-
-def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> None:
-    """枚举 worktree 下实际存在的敏感文件，跳过不存在项。"""
-    from server.agent_runtime.session_manager import SessionManager
-    from server.agent_runtime.session_store import SessionMetaStore
-
-    root = tmp_path / "repo"
-    root.mkdir()
-    (root / ".env").write_text("X=1", encoding="utf-8")
-    (root / ".env.local").write_text("Y=2", encoding="utf-8")
-    (root / "projects").mkdir()
-    (root / "projects" / ".arcreel.db").write_bytes(b"sqlite-fake")
-    (root / "projects" / ".arcreel.db-shm").write_bytes(b"shm")
-    # ``ARCREEL_PROFILE_DIR`` autouse fixture (tests/conftest.py) pins
-    # agent_profile_dir to ``tmp_path/agent_runtime_profile`` — populate that
-    # location so the sandbox helper picks it up via the env-aware resolver.
-    profile_dir = tmp_path / "agent_runtime_profile"
-    (profile_dir / ".claude").mkdir(parents=True)
-    (profile_dir / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
-    (root / "vertex_keys").mkdir()
-
-    sm = SessionManager(root, tmp_path / "data", SessionMetaStore())
-    paths = sm._build_sensitive_abs_paths()
-
-    # 必须命中真实存在的关键路径
-    assert str(root.resolve() / ".env") in paths
-    assert str(root.resolve() / ".env.local") in paths
-    assert str(profile_dir.resolve() / ".claude" / "settings.json") in paths
-    assert str(root.resolve() / "vertex_keys") in paths
-
-    # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
-    assert all(".system_config.json" not in p for p in paths)
-    # .arcreel.db + WAL 辅助文件已迁回敏感清单（issue #519 — 入队走 MCP tool）
-    assert str(root.resolve() / "projects" / ".arcreel.db") in paths
-    assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
-
-
-def test_logs_dir_is_sensitive_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """PROJECT_ROOT/logs 必须落在 sensitive prefixes 里，agent 不能 Read/Grep 全局日志。
-
-    背景：lib/logging_config.py 把日志目录默认改为 PROJECT_ROOT/logs 后，
-    _check_read_access 的 "仓库根内参考资料放行" 分支
-    （is_relative_to(_project_root_resolved)）会把全局服务器日志当成参考资料
-    放给 agent。规则 0 的 sensitive-path 拒绝必须在前面截住，所以 logs/ 要进
-    _sensitive_prefixes。
-    """
-    from lib import logging_config
-    from server.agent_runtime.session_manager import SessionManager
-    from server.agent_runtime.session_store import SessionMetaStore
-
-    root = tmp_path / "repo"
-    root.mkdir()
-    logs_dir = root / "logs"
-    logs_dir.mkdir()
-    (logs_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
-    (logs_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
-
-    # SessionManager 通过 lib.logging_config.resolve_log_dir() 解析 sensitive
-    # log 目录；钉到测试 root 才能让 deny 命中 tmp_path/repo/logs
-    monkeypatch.setattr(logging_config, "PROJECT_ROOT", root)
-    monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
-
-    sm = SessionManager(root, tmp_path / "data", SessionMetaStore())
-
-    # 当前 + 历史 log 文件都被认定为敏感
-    assert sm._is_sensitive_path((logs_dir / "arcreel.log").resolve())
-    assert sm._is_sensitive_path((logs_dir / "arcreel.log.2026-05-20").resolve())
-    # 整目录本身也是敏感（Glob/listdir 拒）
-    assert sm._is_sensitive_path(logs_dir.resolve())
-
-    # _build_sensitive_abs_paths 也必须把 logs 目录交给 SDK denyRead 清单
-    paths = sm._build_sensitive_abs_paths()
-    assert str(logs_dir.resolve()) in paths
-
-
-def test_logs_dir_honors_arcreel_log_dir_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """用户用 ARCREEL_LOG_DIR 把日志搬到任意目录（含 repo 外）时，sandbox
-    sensitive prefixes 必须跟着指过去——硬编码 repo/logs 会让 agent 仍能
-    Read/Grep 真实 LOG_DIR 下的日志，PR 上 gemini 给的 security-high 反馈。
-    """
-    from server.agent_runtime.session_manager import SessionManager
-    from server.agent_runtime.session_store import SessionMetaStore
-
+def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SessionManager 负责 env 解析（ARCREEL_LOG_DIR / ARCREEL_PROFILE_DIR /
+    projects_root 参数），把 resolve 后的根路径喂给 AgentAccessPolicy——用户把
+    日志/数据/profile 目录搬到任意位置（含 repo 外）时，deny 必须跟着指过去。"""
     repo = tmp_path / "repo"
     repo.mkdir()
-    # 把 LOG_DIR 设到 repo 之外，模拟用户自定义日志位置
     external_logs = tmp_path / "external" / "arcreel_logs"
     external_logs.mkdir(parents=True)
     (external_logs / "arcreel.log").write_text("secret\n", encoding="utf-8")
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(external_logs))
-
-    sm = SessionManager(repo, tmp_path / "data", SessionMetaStore())
-
-    # repo 外的自定义 LOG_DIR 也要被 deny
-    assert sm._is_sensitive_path((external_logs / "arcreel.log").resolve())
-    assert sm._is_sensitive_path(external_logs.resolve())
-    # repo/logs 在此场景下不应被默认 deny（避免误覆盖）
-    assert not sm._is_sensitive_path((repo / "logs" / "anything.txt").resolve())
-
-    paths = sm._build_sensitive_abs_paths()
-    assert str(external_logs.resolve()) in paths
-    assert str((repo / "logs").resolve()) not in paths
-
-
-def test_build_sensitive_abs_paths_honors_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 把数据/profile 目录搬到
-    项目外时，sandbox denyRead 必须跟着指到新位置——否则源码根下的硬编码
-    清单实际什么都护不到（gemini security-high review feedback / PR #528）。"""
-    from server.agent_runtime.session_manager import SessionManager
-    from server.agent_runtime.session_store import SessionMetaStore
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    # 数据目录搬到 repo 之外
     external_data = tmp_path / "external_data" / "projects"
     external_data.mkdir(parents=True)
-    (external_data / ".arcreel.db").write_bytes(b"db")
-    (external_data / ".arcreel.db-wal").write_bytes(b"wal")
-    (external_data / ".system_config.json").write_text("{}", encoding="utf-8")
-    (external_data.parent / "vertex_keys").mkdir()
-    # profile 目录搬到 repo 之外
     external_profile = tmp_path / "external_profile"
     (external_profile / ".claude").mkdir(parents=True)
-    (external_profile / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
 
+    monkeypatch.setenv("ARCREEL_LOG_DIR", str(external_logs))
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(external_profile))
 
-    sm = SessionManager(
-        repo,
-        tmp_path / "agent_data",
-        SessionMetaStore(),
-        projects_root=external_data,
-    )
-    paths = sm._build_sensitive_abs_paths()
+    sm = SessionManager(repo, tmp_path / "data", SessionMetaStore(), projects_root=external_data)
+    policy = sm.access_policy
 
-    assert str(external_data / ".arcreel.db") in paths
-    assert str(external_data / ".arcreel.db-wal") in paths
-    assert str(external_data / ".system_config.json") in paths
-    assert str(external_data.parent / "vertex_keys") in paths
-    assert str(external_profile.resolve() / ".claude" / "settings.json") in paths
-    # 旧的 ``repo/projects/.arcreel.db`` 路径已不复存在 — 不再误指 deny 到空位置
-    assert not any(str(repo) + "/projects/" in p for p in paths)
+    assert policy.log_dir == external_logs.resolve()
+    assert policy.agent_profile_root == external_profile.resolve()
+    assert policy.projects_root == external_data.resolve()
+    assert policy.project_root == repo.resolve()
+    # 端到端：env 覆盖后的真实位置被认定为敏感
+    assert policy.is_sensitive_path((external_logs / "arcreel.log").resolve())
+    assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
+    # repo/logs 在此场景下不应被默认 deny（避免误覆盖）
+    assert not policy.is_sensitive_path((repo / "logs" / "anything.txt").resolve())
 
-    # _is_sensitive_path 也必须能识别 env 覆盖后的真实位置
-    assert sm._is_sensitive_path((external_data / ".arcreel.db").resolve())
-    assert sm._is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
-    assert sm._is_sensitive_path((external_data.parent / "vertex_keys" / "k.json").resolve())
+
+def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
+    """startup 期注入平台事实：整体换新 policy 而非戳改私有属性，
+    后续 settings 编译 / hook 裁决立即消费新规则。"""
+    sm = _make_session_manager(tmp_path, sandbox_enabled=True)
+    cwd = sm.project_root / "projects" / "demo"
+    assert sm.access_policy.build_sandbox_settings(cwd)["enabled"] is True
+
+    sm.configure_sandbox_runtime(in_docker=True, sandbox_enabled=False)
+
+    assert sm.access_policy.sandbox_enabled is False
+    assert sm.access_policy.in_docker is True
+    assert sm.access_policy.build_sandbox_settings(cwd) == {"enabled": False}
 
 
 @pytest.mark.asyncio
@@ -334,7 +210,7 @@ async def test_bash_env_scrub_hook_passthrough_when_no_command(session_manager: 
 
 
 # ============================================================
-# Windows 沙箱回退：sandbox_enabled=False 分支
+# Windows 沙箱回退：sandbox_enabled=False 分支（权限链接线）
 # ============================================================
 
 
@@ -350,26 +226,6 @@ def _make_session_manager(tmp_path: Path, *, sandbox_enabled: bool) -> SessionMa
         SessionMetaStore(),
         sandbox_enabled=sandbox_enabled,
     )
-
-
-def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Path) -> None:
-    """sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。"""
-    sm = _make_session_manager(tmp_path, sandbox_enabled=False)
-    cwd = sm.project_root / "projects" / "demo"
-    assert sm._build_sandbox_settings(cwd) == {"enabled": False}
-
-
-def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
-    """sandbox_enabled=True（默认）依然返回完整 dict（含 network / filesystem）。"""
-    sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    cwd = sm.project_root / "projects" / "demo"
-    settings = sm._build_sandbox_settings(cwd)
-    assert settings["enabled"] is True
-    assert settings["autoAllowBashIfSandboxed"] is True
-    assert settings["allowUnsandboxedCommands"] is False
-    assert "allowedDomains" in settings["network"]
-    assert "denyRead" in settings["filesystem"]
-    assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
 
 
 @pytest.mark.asyncio
@@ -389,7 +245,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
     monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
     opts = await sm._build_options("test_proj")
 
-    for tool in SessionManager._BASH_TOOLS:
+    for tool in AgentAccessPolicy.BASH_TOOLS:
         assert (tool in opts.allowed_tools) is sandbox_enabled
     assert "Read" in opts.allowed_tools
     assert "Skill" in opts.allowed_tools
@@ -423,7 +279,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
     ],
 )
 async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, command: str, expected: str) -> None:
-    """sandbox 关闭时白名单 prefix 放行，其余拒；deny 文案派生自 _WINDOWS_BASH_PREFIX_WHITELIST。"""
+    """sandbox 关闭时白名单 prefix 放行，其余拒；deny 文案派生自 WINDOWS_BASH_PREFIX_WHITELIST。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
     callback = await sm._build_can_use_tool_callback("test_sid", [None])
     result = await callback("Bash", {"command": command}, None)
@@ -431,7 +287,7 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
     if expected == "PermissionResultDeny":
         assert "Bash 白名单" in result.message
         # deny 文案必须包含所有白名单 prefix（单一真相源）
-        for prefix in SessionManager._WINDOWS_BASH_PREFIX_WHITELIST:
+        for prefix in AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST:
             assert prefix in result.message
 
 
