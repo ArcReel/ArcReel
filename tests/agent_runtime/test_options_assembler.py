@@ -76,6 +76,7 @@ async def test_load_provider_env_overrides_injects_anthropic_and_empties() -> No
     assert env["ARK_API_KEY"] == ""
     assert env["XAI_API_KEY"] == ""
     assert env["GEMINI_API_KEY"] == ""
+    assert env["VIDU_API_KEY"] == ""
     assert env["GOOGLE_APPLICATION_CREDENTIALS"] == ""
 
 
