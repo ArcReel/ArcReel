@@ -25,10 +25,20 @@ from lib.project_change_hints import (
     register_project_change_listener,
 )
 from lib.project_manager import ProjectManager
+from lib.script_skeleton import SKELETONS, resolve_script_kind
 
 logger = logging.getLogger(__name__)
 
 PROJECT_EVENTS_POLL_SECONDS = 0.5
+
+# 条目名词按骨架种类硬编码——用于分镜级事件标签（如「镜头「E1S01」」）。名词 i18n 化是
+# 独立议题（与 ``_diff_named_entities`` 的「角色」/「线索」同为既有硬编码形态），不在此处收敛。
+_SKELETON_ITEM_NOUNS: dict[str, str] = {
+    "segments": "分镜",
+    "scenes": "场景",
+    "shots": "镜头",
+    "video_units": "视频单元",
+}
 
 
 def _utc_now_iso() -> str:
@@ -541,18 +551,21 @@ class ProjectEventService:
         }
 
     def _normalize_script_snapshot(self, script: dict[str, Any]) -> dict[str, Any]:
+        # 取证解析：由剧本数据形状判别骨架种类（narration/drama 走 reference 时 content_mode 仍是
+        # narration/drama，二值兜底会把 ad 的 shots 与 reference 的 video_units 全部漏读——差分恒空、
+        # 分镜级事件从不发出，正是本次修复的 bug 根因）。键即条目数组键。
         content_mode = str(script.get("content_mode") or "narration")
-        raw_items = script.get("segments" if content_mode == "narration" else "scenes", [])
+        kind = resolve_script_kind(script)
+        skeleton = SKELETONS[kind]
+        raw_items = script.get(kind, [])
         if not isinstance(raw_items, list):
             raw_items = []
-        id_field = "segment_id" if content_mode == "narration" else "scene_id"
-        chars_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
 
         items: dict[str, Any] = {}
         for item in raw_items:
             if not isinstance(item, dict):
                 continue
-            item_id = str(item.get(id_field) or "")
+            item_id = str(item.get(skeleton.id_field) or "")
             if not item_id:
                 continue
             assets = item.get("generated_assets")
@@ -561,7 +574,7 @@ class ProjectEventService:
             items[item_id] = {
                 "duration_seconds": item.get("duration_seconds"),
                 "segment_break": bool(item.get("segment_break")),
-                "characters": sorted(str(name) for name in item.get(chars_field, []) or []),
+                "characters": self._item_characters(item, skeleton.chars_field),
                 "scenes": sorted(str(name) for name in item.get("scenes", []) or []),
                 "props": sorted(str(name) for name in item.get("props", []) or []),
                 "image_prompt": item.get("image_prompt"),
@@ -578,8 +591,27 @@ class ProjectEventService:
             "episode": script.get("episode"),
             "title": str(script.get("title") or ""),
             "content_mode": content_mode,
+            "kind": kind,
             "items": items,
         }
+
+    @staticmethod
+    def _item_characters(item: dict[str, Any], chars_field: str | None) -> list[str]:
+        """条目出场角色名单（排序）。
+
+        ``chars_field`` 非 ``None`` 时读逐条角色字段；为 ``None``（video_units 无该字段的显式缺位，
+        见 ``SKELETONS``）时从条目 ``references`` 中过滤 ``type == "character"`` 派生。
+        """
+        if chars_field is not None:
+            return sorted(str(name) for name in item.get(chars_field, []) or [])
+        references = item.get("references")
+        if not isinstance(references, list):
+            return []
+        return sorted(
+            str(ref["name"])
+            for ref in references
+            if isinstance(ref, dict) and ref.get("type") == "character" and ref.get("name")
+        )
 
     def _diff_snapshots(
         self,
@@ -843,8 +875,8 @@ class ProjectEventService:
 
     @staticmethod
     def _build_script_item_label(item_id: str, script_meta: dict[str, Any]) -> str:
-        content_mode = str(script_meta.get("content_mode") or "narration")
-        noun = "分镜" if content_mode == "narration" else "场景"
+        kind = str(script_meta.get("kind") or "segments")
+        noun = _SKELETON_ITEM_NOUNS.get(kind, "分镜")
         return f"{noun}「{item_id}」"
 
     def _build_script_item_change(

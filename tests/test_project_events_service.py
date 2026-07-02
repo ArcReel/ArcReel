@@ -5,7 +5,20 @@ import pytest
 
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
-from server.services.project_events import ProjectEventService
+from lib.script_skeleton import SKELETONS
+from server.services.project_events import (
+    _SKELETON_ITEM_NOUNS,
+    ProjectEventService,
+)
+
+
+def _pending_assets() -> dict:
+    return {
+        "storyboard_image": None,
+        "video_clip": None,
+        "video_uri": None,
+        "status": "pending",
+    }
 
 
 async def _next_event(stream, *, timeout: float) -> tuple[str, dict]:
@@ -285,3 +298,234 @@ class TestProjectEventService:
 
         assert service.pm.projects_root == custom_projects.resolve()
         assert service.pm.get_project_path("demo") == (custom_projects / "demo").resolve()
+
+    def test_diff_snapshots_reports_ad_shot_lifecycle_events(self, tmp_path):
+        """ad(shots) 项目的分镜级事件：created / storyboard_ready / video_ready / updated。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("ad-demo")
+        pm.create_project_metadata("ad-demo", "Ad", "Anime", "ad")
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "ad-demo",
+                {
+                    "episode": 1,
+                    "title": "广告",
+                    "content_mode": "ad",
+                    "shots": [
+                        {
+                            "shot_id": "E1S01",
+                            "duration_seconds": 4,
+                            "characters_in_shot": ["Hero"],
+                            "scenes": [],
+                            "props": [],
+                            "image_prompt": "old",
+                            "video_prompt": "old",
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                },
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("ad-demo")
+        assert previous["scripts"]["episode_1.json"]["kind"] == "shots"
+        assert previous["scripts"]["episode_1.json"]["items"]["E1S01"]["characters"] == ["Hero"]
+
+        script = pm.load_script("ad-demo", "episode_1.json")
+        script["shots"][0]["image_prompt"] = "new"
+        script["shots"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+        script["shots"].append(
+            {
+                "shot_id": "E1S02",
+                "duration_seconds": 4,
+                "characters_in_shot": [],
+                "scenes": [],
+                "props": [],
+                "image_prompt": "p",
+                "video_prompt": "v",
+                "generated_assets": _pending_assets(),
+            }
+        )
+        with project_change_source("filesystem"):
+            pm.save_script("ad-demo", script, "episode_1.json", validate=False)
+
+        mid = service._build_snapshot("ad-demo")
+        changes = service._diff_snapshots(previous, mid)
+        assert any(c["action"] == "created" and c["entity_id"] == "E1S02" for c in changes)
+        assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1S01" for c in changes)
+        assert all(c["label"].startswith("镜头") for c in changes if c["entity_type"] == "segment")
+
+        script = pm.load_script("ad-demo", "episode_1.json")
+        script["shots"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
+        with project_change_source("filesystem"):
+            pm.save_script("ad-demo", script, "episode_1.json", validate=False)
+        final = service._build_snapshot("ad-demo")
+        video_changes = service._diff_snapshots(mid, final)
+        assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in video_changes)
+
+    def test_diff_snapshots_reports_drama_scene_lifecycle_events(self, tmp_path):
+        """drama(scenes) 项目的分镜级事件：created / storyboard_ready / video_ready。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("drama-demo")
+        pm.create_project_metadata("drama-demo", "Drama", "Anime", "drama")
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "drama-demo",
+                {
+                    "episode": 1,
+                    "title": "剧集",
+                    "content_mode": "drama",
+                    "scenes": [
+                        {
+                            "scene_id": "E1S01",
+                            "duration_seconds": 8,
+                            "characters_in_scene": ["Hero"],
+                            "scenes": [],
+                            "props": [],
+                            "image_prompt": "old",
+                            "video_prompt": "old",
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                },
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("drama-demo")
+        assert previous["scripts"]["episode_1.json"]["kind"] == "scenes"
+        assert previous["scripts"]["episode_1.json"]["items"]["E1S01"]["characters"] == ["Hero"]
+
+        script = pm.load_script("drama-demo", "episode_1.json")
+        script["scenes"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+        script["scenes"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
+        script["scenes"].append(
+            {
+                "scene_id": "E1S02",
+                "duration_seconds": 8,
+                "characters_in_scene": [],
+                "scenes": [],
+                "props": [],
+                "image_prompt": "p",
+                "video_prompt": "v",
+                "generated_assets": _pending_assets(),
+            }
+        )
+        with project_change_source("filesystem"):
+            pm.save_script("drama-demo", script, "episode_1.json", validate=False)
+
+        current = service._build_snapshot("drama-demo")
+        changes = service._diff_snapshots(previous, current)
+        assert any(c["action"] == "created" and c["entity_id"] == "E1S02" for c in changes)
+        assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
+        assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes)
+        assert all(c["label"].startswith("场景") for c in changes if c["entity_type"] == "segment")
+
+    def test_diff_snapshots_reports_reference_video_unit_lifecycle_events(self, tmp_path):
+        """reference_video(video_units) 项目的分镜级事件全周期，且 characters 从 references 派生。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("ref-demo")
+        pm.create_project_metadata("ref-demo", "Ref", "Anime", "narration")
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "ref-demo",
+                {
+                    "episode": 1,
+                    "title": "参考",
+                    "content_mode": "narration",
+                    "generation_mode": "reference_video",
+                    "video_units": [
+                        {
+                            "unit_id": "E1U01",
+                            "duration_seconds": 8,
+                            "shots": [{"duration": 4, "text": "@[Hero] 登场"}],
+                            "references": [
+                                {"type": "character", "name": "Hero"},
+                                {"type": "scene", "name": "街道"},
+                            ],
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                },
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("ref-demo")
+        prev_meta = previous["scripts"]["episode_1.json"]
+        assert prev_meta["kind"] == "video_units"
+        # characters 只取 references 中 type==character 的条目，不含 scene。
+        assert prev_meta["items"]["E1U01"]["characters"] == ["Hero"]
+
+        script = pm.load_script("ref-demo", "episode_1.json")
+        script["video_units"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1U01.png"
+        script["video_units"][0]["references"].append({"type": "character", "name": "Villain"})
+        script["video_units"].append(
+            {
+                "unit_id": "E1U02",
+                "duration_seconds": 6,
+                "shots": [{"duration": 6, "text": "空镜"}],
+                "references": [],
+                "generated_assets": _pending_assets(),
+            }
+        )
+        with project_change_source("filesystem"):
+            pm.save_script("ref-demo", script, "episode_1.json", validate=False)
+
+        mid = service._build_snapshot("ref-demo")
+        # 新增的 reference 角色反映进 characters。
+        assert mid["scripts"]["episode_1.json"]["items"]["E1U01"]["characters"] == ["Hero", "Villain"]
+        changes = service._diff_snapshots(previous, mid)
+        assert any(c["action"] == "created" and c["entity_id"] == "E1U02" for c in changes)
+        assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1U01" for c in changes)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in changes)
+        assert all(c["label"].startswith("视频单元") for c in changes if c["entity_type"] == "segment")
+
+        script = pm.load_script("ref-demo", "episode_1.json")
+        script["video_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
+        with project_change_source("filesystem"):
+            pm.save_script("ref-demo", script, "episode_1.json", validate=False)
+        final = service._build_snapshot("ref-demo")
+        video_changes = service._diff_snapshots(mid, final)
+        assert any(c["action"] == "video_ready" and c["entity_id"] == "E1U01" for c in video_changes)
+
+    @pytest.mark.parametrize("kind", sorted(SKELETONS))
+    def test_normalize_snapshot_covers_every_skeleton_kind(self, tmp_path, kind):
+        """每个骨架种类都被 _normalize_script_snapshot 正确抽取条目——
+
+        新增第五种骨架而未在归一化里处置时，本参数化断言会为该 kind 失败，
+        而非复刻 ad/reference_video 被静默跳过的路径。
+        """
+        content_mode = {
+            "segments": "narration",
+            "scenes": "drama",
+            "shots": "ad",
+            "video_units": "narration",
+        }[kind]
+        skeleton = SKELETONS[kind]
+        item: dict = {skeleton.id_field: "X1"}
+        if skeleton.chars_field is not None:
+            item[skeleton.chars_field] = ["Hero"]
+        else:
+            item["references"] = [{"type": "character", "name": "Hero"}]
+        script = {"content_mode": content_mode, kind: [item]}
+
+        service = ProjectEventService(tmp_path)
+        normalized = service._normalize_script_snapshot(script)
+        assert normalized["kind"] == kind
+        assert "X1" in normalized["items"]
+        assert normalized["items"]["X1"]["characters"] == ["Hero"]
+        label = service._build_script_item_label("X1", normalized)
+        assert label.endswith("「X1」") and not label.startswith("「")
+
+    def test_every_skeleton_kind_has_label_noun(self):
+        """标签名词表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出名词补全。"""
+        assert set(_SKELETON_ITEM_NOUNS) == set(SKELETONS)
