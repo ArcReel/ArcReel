@@ -192,13 +192,17 @@ _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范
 
 ### 剧本与分镜
 
+**骨架（skeleton / 骨架种类 skeleton kind）**：
+剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考生视频单元）。骨架是由 content_mode 与 generation_mode 两轴**派生**的概念，本身不是第三条轴：narration/drama/ad 各对应前三种骨架；narration/drama 在 generation_mode=reference_video 下整体换用 video_units 骨架，ad 骨架恒为 shots、不随生成路径变（见 `docs/adr/0033`）。对骨架有两种合法提问——**规范性**（按项目/剧集的模式配置，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在部分迁移等中间态下可能不一致，取证以数据形状优先。
+_Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（配置已改 reference 但数据仍在 segments 时，编辑要跟数据走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
+
 **宫格（grid）**：
 把同一段落多个场景合并成一张 N 格联合大图一次生成（grid_4/6/9）、再切割成各场景首尾帧的分镜生成路径；与逐张图生视频（storyboard）同为 generation_mode 下的「分镜→视频」路径，核心价值在一次生成保证画风/角色一致。
 _Avoid_: 把 reference_video 当作与 grid/storyboard 同维度的第三个平级取值——它跳过分镜、是凌驾于 content_mode 之上的独立骨架，并非这种「分镜→视频」路径；逐张模式的规范值是 storyboard，而非旧用语 single。
 
 **广告/短片模式（ad）**：
 content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。剧本骨架为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签，八值引导不硬枚举）与一等口播文案 `voiceover_text`；项目恒单集（episodes 恒为第 1 集单条），项目级新字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；generation_mode 仅开放 storyboard 与 reference_video（见 `docs/adr/0033`）。剧本一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息（含 selling_points）+ 审定的带货八段框架配比表（15/30/60/90 取最近档位，依据见 `docs/research/arcreel-ad-section-timing-research.md`），products 为空自动分流通用短片 prompt；镜头时长约束随生成路径切换——storyboard 为 supported_durations 硬枚举、reference_video 为 1-15 秒自由整数；剧本总时长偏离 `target_duration` 超阈值仅 warn 不阻塞。
-_Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有按 content_mode 分派的机制必须显式处理第三值；把 AdShot 与 video_unit 内的 shot（参考生视频子镜头）混为一谈——前者是剧本骨架的平铺镜头、后者是 unit 内时间编排；把 ad 未接 step1→step2 审核 gate 当作待补缺口——单发生成、无 step1 中间态是有意契约，重访条件见 `.out-of-scope/ad-step1-step2-review-gate.md`。
+_Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有按 content_mode 分派的机制必须显式处理第三值；把 AdShot 与 video_unit 内的 shot（参考生视频子镜头）混为一谈——前者是剧本骨架的平铺镜头、后者是 unit 内时间编排；把 ad 未接入 step1→step2 审核 gate 当作待补缺口——单发生成、无 step1 中间态是有意契约，重访条件见 `.out-of-scope/ad-step1-step2-review-gate.md`。
 
 **video_unit / shot（参考生视频单元）**：
 参考生视频模式下的生成单元：一个 video_unit 含 1–4 个 shot（子镜头），整 unit 共享一组按顺序编号的参考图（`[图N]`），跳过分镜直接由资产图生成。narration/drama 下剧本用 `video_units[]` 而非 `segments[]` / `scenes[]` 组织（unit 内容自包含）；ad 下骨架不变，unit 是从 `shots[]` **派生分组**的轻量索引（剧本 `reference_units[]`，仅引用 shot_id + 继承的参考集，产品参考绝对优先）——连续镜头、每 unit ≤4 shot、总长受供应商时长上限约束，分组为纯函数（`lib/reference_video/ad_units.py`）、可复现，成员与参考集未变的 unit 重派生时保留产物。
