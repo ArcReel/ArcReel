@@ -64,6 +64,16 @@ class TestBackfillAnchoring:
         result = backfill_episode_ledger(d, {"episodes": []})
         assert result["episodes"][0]["ledger_status"] == "consumed"
 
+    def test_consumed_via_structured_json_step1_draft(self, tmp_path: Path):
+        """结构化 .json step1（无旧 .md）也算已有下游：拆过段的集不被重规划覆盖。"""
+        d = _project(tmp_path)
+        _write_episode(d, 1, NOVEL[:CUT_1])
+        draft = d / "drafts" / "episode_1" / "step1_normalized_script.json"
+        draft.parent.mkdir(parents=True)
+        draft.write_text('{"scenes": []}', encoding="utf-8")
+        result = backfill_episode_ledger(d, {"episodes": []})
+        assert result["episodes"][0]["ledger_status"] == "consumed"
+
     def test_consumed_via_entry_script_file_nonstandard_name(self, tmp_path: Path):
         d = _project(tmp_path)
         _write_episode(d, 1, NOVEL[:CUT_1])

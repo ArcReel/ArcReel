@@ -23,7 +23,7 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from lib.episode_paths import episode_script_relpath
+from lib.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.path_safety import safe_exists
 
 logger = logging.getLogger(__name__)
@@ -241,8 +241,10 @@ def _has_downstream(project_dir: Path, episode_num: int, entry: Mapping[str, Any
         return True
     if (project_dir / episode_script_relpath(episode_num)).is_file():
         return True
-    drafts_dir = project_dir / "drafts" / f"episode_{episode_num}"
-    return drafts_dir.is_dir() and any(drafts_dir.glob("step1_*.md"))
+    drafts_dir = episode_drafts_dir(project_dir, episode_num)
+    # step1_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
+    # 覆盖所有 content_mode 的 step1 产物：只要拆过段就算已有下游，避免被重规划覆盖。
+    return drafts_dir.is_dir() and any(drafts_dir.glob("step1_*"))
 
 
 def _derive_cursor(

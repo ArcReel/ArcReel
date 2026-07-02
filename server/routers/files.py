@@ -686,7 +686,12 @@ _STEP1_FAMILY[REFERENCE_VIDEO_STEP1_FILENAME] = [REFERENCE_VIDEO_STEP1_FILENAME]
 
 # step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
 # 结构化 .json 与旧 .md 候选均由单一真相源派生；各自保留旧 .md 以便存量在制品仍可浏览。
-_STEP1_CANDIDATES = list(dict.fromkeys(name for family in _STEP1_FAMILY.values() for name in family))
+# 跨模式遗留回落的探测优先级固定为 reference_video → narration → drama（保持历史 tie-break，
+# 避免收敛后跨模式选到的遗留文件与旧实现不一致）；未登记于此序列的未来 content_mode 附加在后。
+_STEP1_PROBE_ORDER = [REFERENCE_VIDEO_STEP1_FILENAME, STEP1_FILENAMES["narration"], STEP1_FILENAMES["drama"]]
+_STEP1_CANDIDATES = list(
+    dict.fromkeys(name for key in [*_STEP1_PROBE_ORDER, *_STEP1_FAMILY] for name in _STEP1_FAMILY[key])
+)
 
 
 def _get_step_title(filename: str, _t: Callable[..., str]) -> str:

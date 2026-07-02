@@ -7,7 +7,7 @@
 
 import logging
 
-from lib.episode_paths import STEP1_FILENAMES, STEP1_LEGACY_FILENAMES
+from lib.episode_paths import STEP1_FILENAMES, STEP1_LEGACY_FILENAMES, episode_drafts_dir
 from lib.path_safety import safe_exists
 from lib.project_manager import effective_mode
 from lib.script_models import SCRIPT_SHAPES, ad_script_total_duration
@@ -216,7 +216,7 @@ class StatusCalculator:
             draft_filenames = _draft_candidates(content_mode)
             if not draft_filenames:
                 return "none", None
-            drafts_dir = project_dir / f"drafts/episode_{safe_num}"
+            drafts_dir = episode_drafts_dir(project_dir, safe_num)
             segmented = any((drafts_dir / name).exists() for name in draft_filenames)
             return ("segmented" if segmented else "none"), None
         except ValueError as e:
