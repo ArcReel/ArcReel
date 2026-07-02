@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.registry import PROVIDER_REGISTRY
@@ -67,6 +67,33 @@ _EID_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
 _QUALITY_PROBE_SCENE_MIN_LEN = 40
 _QUALITY_PROBE_ACTION_MIN_LEN = 25
 _QUALITY_PROBE_SHOT_TEXT_MIN_LEN = 15
+
+# 骨架种类 → 响应校验模型。模型类属上层依赖、不进 SKELETONS 窄表，映射留本地。
+# 键与 SKELETONS 逐一对应；新增第五种骨架时穷尽性断言逐个报红。
+_KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
+    "segments": NarrationEpisodeScript,
+    "scenes": DramaEpisodeScript,
+    "shots": AdEpisodeScript,
+    "video_units": ReferenceVideoScript,
+}
+
+# 骨架种类 → metadata 统计的计数键名。计数键名为业务附着（video_units→total_units 非
+# f"total_{kind}"），随 kind 显式保留、不进 SKELETONS 窄表。
+_METADATA_COUNT_KEY: dict[str, str] = {
+    "segments": "total_segments",
+    "scenes": "total_scenes",
+    "shots": "total_shots",
+    "video_units": "total_units",
+}
+
+# 骨架种类 → 缺 duration_seconds 时的兜底时长（秒）。业务附着值：segments/scenes 沿用
+# 历史默认，video_units 缺失按 0 计。shots（ad）无单镜头默认时长、改走 ad_script_total_duration
+# 稳健求和，故不在此表——第五种非 ad 骨架未登记即在 _add_metadata 处 KeyError 报红。
+_METADATA_FALLBACK_DURATION: dict[str, int] = {
+    "segments": 4,
+    "scenes": 8,
+    "video_units": 0,
+}
 
 
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
@@ -677,17 +704,12 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
 
-        # Pydantic 验证。ad 先于 generation_mode 判别：骨架唯一，reference 路径仍是 shots[]。
+        # 校验模型经规范解析定骨架种类（ad→shots 骨架唯一，reference→video_units），
+        # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
+        kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))
+        schema = _KIND_PARSE_SCHEMA[kind]
         try:
-            if self.content_mode == "ad":
-                validated = AdEpisodeScript.model_validate(data)
-            elif self._effective_generation_mode(episode) == "reference_video":
-                validated = ReferenceVideoScript.model_validate(data)
-            elif self.content_mode == "narration":
-                validated = NarrationEpisodeScript.model_validate(data)
-            else:
-                validated = DramaEpisodeScript.model_validate(data)
-            return validated.model_dump()
+            return schema.model_validate(data).model_dump()
         except ValidationError as e:
             logger.warning("数据验证警告: %s", e)
             # 返回原始数据，允许部分不符合 schema
@@ -767,18 +789,14 @@ class ScriptGenerator:
         # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
-        if self.content_mode != "ad" and gen_mode == "reference_video":
-            for u in script_data.get("video_units") or []:
-                if isinstance(u, dict) and "unit_id" in u:
-                    u["unit_id"] = _rewrite_episode_prefix(u.get("unit_id"), ep)
-        else:
-            # narration/drama/ad 统一经规范解析定骨架（ad 骨架唯一，不随生成路径换判别）；
-            # self.content_mode 为项目级校验值，解析不会 fail-loud。
-            kind = resolve_declared_kind(self.content_mode, gen_mode)
-            id_field = SKELETONS[kind].id_field
-            for s in script_data.get(kind) or []:
-                if isinstance(s, dict) and id_field in s:
-                    s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
+        # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + SKELETONS 查 id 字段改写
+        # （ad 骨架唯一、reference→video_units；不再手写 reference 分支）。self.content_mode
+        # 为项目级校验值，解析不会 fail-loud。kind 复用到下方 metadata 统计。
+        kind = resolve_declared_kind(self.content_mode, gen_mode)
+        id_field = SKELETONS[kind].id_field
+        for s in script_data.get(kind) or []:
+            if isinstance(s, dict) and id_field in s:
+                s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
         # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
@@ -823,26 +841,18 @@ class ScriptGenerator:
         script_data["metadata"]["updated_at"] = now
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
 
-        # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）
-        if self.content_mode == "ad":
-            # shots 无单镜头默认时长偏好，缺失按 0 计（与 StatusCalculator 口径一致）。
-            # 校验失败降级保存的原始 dict 里 shots 可能为 null / 含脏条目，求和走稳健口径。
-            raw_shots = script_data.get("shots")
-            shots = raw_shots if isinstance(raw_shots, list) else []
-            script_data["metadata"]["total_shots"] = len(shots)
-            script_data["duration_seconds"] = ad_script_total_duration(shots)
-        elif gen_mode == "reference_video":
-            units = script_data.get("video_units", [])
-            script_data["metadata"]["total_units"] = len(units)
-            script_data["duration_seconds"] = sum(int(u.get("duration_seconds", 0)) for u in units)
-        elif self.content_mode == "narration":
-            segments = script_data.get("segments", [])
-            script_data["metadata"]["total_segments"] = len(segments)
-            script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 4)) for s in segments)
+        # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
+        # 数组键经上方规范解析所得 kind 查表；计数键名与兜底时长为业务附着、随 kind 显式保留。
+        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目，isinstance 守卫走稳健口径。
+        raw_items = script_data.get(kind)
+        items = raw_items if isinstance(raw_items, list) else []
+        script_data["metadata"][_METADATA_COUNT_KEY[kind]] = len(items)
+        if kind == "shots":
+            # ad 逐镜头按 target_duration 预算规划、无单镜头默认时长，走 ad_script_total_duration。
+            script_data["duration_seconds"] = ad_script_total_duration(items)
         else:
-            scenes = script_data.get("scenes", [])
-            script_data["metadata"]["total_scenes"] = len(scenes)
-            script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 8)) for s in scenes)
+            fallback = _METADATA_FALLBACK_DURATION[kind]
+            script_data["duration_seconds"] = sum(int(i.get("duration_seconds", fallback)) for i in items)
 
         # 剥离废弃的 episode 级聚合字段（改为读时计算）
         script_data.pop("characters_in_episode", None)
@@ -862,12 +872,17 @@ class ScriptGenerator:
         try:
             short_ids: list[str] = []
 
-            gen_mode = self._effective_generation_mode(episode)
-            if self.content_mode != "ad" and gen_mode == "reference_video":
-                for u in script_data.get("video_units") or []:
+            # 骨架经规范解析统一判别、id 字段查 SKELETONS（同 _add_metadata id 改写处置）。
+            # video_units 的过短样本落在 unit 内嵌 shots.text，与 narration/drama/ad 平铺条目的
+            # image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、非骨架分派。
+            kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))
+            id_key = SKELETONS[kind].id_field
+            items = script_data.get(kind) or []
+            if kind == "video_units":
+                for u in items:
                     if not isinstance(u, dict):
                         continue
-                    uid = str(u.get("unit_id") or "?")
+                    uid = str(u.get(id_key) or "?")
                     for shot in u.get("shots") or []:
                         if not isinstance(shot, dict):
                             continue
@@ -875,11 +890,6 @@ class ScriptGenerator:
                         if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
                             short_ids.append(uid)
             else:
-                # narration/drama/ad 统一经规范解析定骨架；ad 骨架唯一，两条生成路径
-                # 都按 shots 探针，与 narration/drama 共用 scene/action 的过短判定。
-                kind = resolve_declared_kind(self.content_mode, gen_mode)
-                items = script_data.get(kind) or []
-                id_key = SKELETONS[kind].id_field
                 for item in items:
                     if not isinstance(item, dict):
                         continue

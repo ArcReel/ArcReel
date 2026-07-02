@@ -648,3 +648,39 @@ class TestAdStatusCalculation:
         assert kind == "segments"
         kind, _ = StatusCalculator._select_kind_and_items({"scenes": [{}], "shots": [{}]})
         assert kind == "scenes"
+
+
+# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+_KIND_TO_MODES = {
+    "segments": ("narration", None),
+    "scenes": ("drama", None),
+    "shots": ("ad", None),
+    "video_units": ("narration", "reference_video"),
+}
+
+
+class TestStatusCalculatorSkeletonExhaustiveness:
+    """穷尽性断言：calculate_episode_stats 的按 kind 分派覆盖 SKELETONS 全部键。
+
+    第五种骨架加入 SKELETONS（+ 规范解析映射）时，_FALLBACK_ITEM_DURATIONS 查表 KeyError，逐个报红。
+    """
+
+    @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
+    def test_calculate_episode_stats_covers_every_skeleton_kind(self, kind, tmp_path):
+        from lib.script_skeleton import SKELETONS
+
+        # 遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
+        assert set(_KIND_TO_MODES) == set(SKELETONS)
+
+        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        id_field = SKELETONS[kind].id_field
+        script = {"content_mode": content_mode, kind: [{id_field: "E1S01"}]}
+        if gen_mode:
+            script["generation_mode"] = gen_mode
+
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        stats = calc.calculate_episode_stats("demo", script, generation_mode=gen_mode)
+
+        assert isinstance(stats, dict)
+        assert "status" in stats
+        assert stats["scenes_count"] == 1

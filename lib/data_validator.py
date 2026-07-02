@@ -24,6 +24,7 @@ from lib.script_models import (
     REFERENCE_SHOT_DURATION_RANGE,
     ad_script_total_duration,
 )
+from lib.script_skeleton import resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
 
 #: drama 场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
@@ -1051,11 +1052,13 @@ class DataValidator:
         source_language = project.get("source_language")
         scene_language = source_language if isinstance(source_language, str) else None
 
-        # "视频来源"维度由 generation_mode 表达；content_mode 决定剧本数据排布
-        # （segments / scenes / shots）。ad 剧本骨架唯一、不随生成路径更换：
-        # 即使 generation_mode=reference_video 也按 shots 校验（见 docs/adr/0033）。
-        is_reference = content_mode != "ad" and effective_mode(project=project, episode=episode) == "reference_video"
-        if is_reference:
+        # "视频来源"维度由 generation_mode 表达；骨架种类经规范解析统一判别，不再自建
+        # (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、不随生成
+        # 路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个 validator
+        # 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
+        gen_mode = effective_mode(project=project, episode=episode)
+        kind = resolve_declared_kind(content_mode, gen_mode)
+        if kind == "video_units":
             self._validate_reference_video_script(
                 episode.get("video_units", []),
                 project_characters,
@@ -1065,7 +1068,7 @@ class DataValidator:
                 warnings,
                 project_dir=project_dir,
             )
-        elif content_mode == "narration":
+        elif kind == "segments":
             self._validate_segments(
                 episode.get("segments", []),
                 project_characters,
@@ -1075,7 +1078,7 @@ class DataValidator:
                 warnings,
                 project_dir=project_dir,
             )
-        elif content_mode == "ad":
+        elif kind == "shots":
             raw_products = project.get("products")
             shots = episode.get("shots", [])
             self._validate_shots(
@@ -1087,7 +1090,7 @@ class DataValidator:
                 errors,
                 warnings,
                 project_dir=project_dir,
-                reference_mode=effective_mode(project=project, episode=episode) == "reference_video",
+                reference_mode=gen_mode == "reference_video",
             )
             self._warn_ad_target_duration_drift(project, shots, warnings)
             self._validate_ad_reference_units(
@@ -1102,7 +1105,7 @@ class DataValidator:
                 errors,
                 warnings,
             )
-        else:
+        elif kind == "scenes":
             self._validate_scenes(
                 episode.get("scenes", []),
                 project_characters,
@@ -1113,6 +1116,8 @@ class DataValidator:
                 project_dir=project_dir,
                 language=scene_language,
             )
+        else:  # pragma: no cover - resolve_declared_kind 只回四种骨架；第五种未处置即报错
+            raise ValueError(f"未处置的骨架种类: {kind!r}")
 
     def validate_episode(self, project_name: str, episode_file: str) -> ValidationResult:
         """验证 episode JSON"""

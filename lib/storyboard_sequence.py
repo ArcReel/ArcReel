@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lib.script_editor import resolve_items
+from lib.script_skeleton import SKELETONS
 
 
 @dataclass(frozen=True)
@@ -26,31 +27,30 @@ PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
 )
 
 
-def get_storyboard_items(script: dict) -> tuple[list[dict], str, str, str, str]:
+def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str, str]:
     """返回 narration/drama/ad 模式剧本的分镜列表 + 各引用字段名。
 
     ``reference_video`` 模式没有 storyboard 一说（视频按 ``video_units`` 直出，
     见 ``server/agent_runtime/sdk_tools/enqueue_videos.py`` 的 reference 分支），
     这里硬返回空列表是「该模式下不存在 storyboard 任务」的明示，调用方据此跳过。
+    该分支的 ``char_field`` 取 ``SKELETONS`` 声明的缺位（``None``）——``video_units`` 无逐条
+    角色名单（角色以 ``references`` 条目形态存在），不返回假字段名让调用方 ``get()`` 静默取空。
 
     narration/drama 路径委托给 ``lib.script_editor.resolve_items``——与写盘咽喉
     / 编辑核心 / 元数据重算共用同一判别（``narration→segments``、``drama→scenes``、
-    以及 narration 数据落 scenes 键的历史兼容）。``segments`` / ``scenes`` 键存在
-    但值非 list（如 ``null``）时 ``resolve_items`` 抛 ``ScriptEditError``——读取侧的
-    调用方（``cost_estimation`` / 路由 / enqueue 工具）应让异常上冒，避免脏数据
-    被静默吞成 ``TypeError: 'NoneType' is not iterable``。
+    以及 narration 数据落 scenes 键的历史兼容）。``char_field`` 改查 ``SKELETONS`` 单一
+    真相源（``.get(kind, ...)`` 静默兜底删除），第五种骨架出现时未登记即随查表报错。
+    ``segments`` / ``scenes`` 键存在但值非 list（如 ``null``）时 ``resolve_items`` 抛
+    ``ScriptEditError``——读取侧的调用方（``cost_estimation`` / 路由 / enqueue 工具）应让
+    异常上冒，避免脏数据被静默吞成 ``TypeError: 'NoneType' is not iterable``。
     """
     if script.get("generation_mode") == "reference_video":
-        return ([], "unit_id", "characters_in_unit", "scenes", "props")
+        unit = SKELETONS["video_units"]
+        return ([], unit.id_field, unit.chars_field, "scenes", "props")
 
     items, id_field, kind = resolve_items(script)
-    # 角色引用字段名按 kind 显式分派；未知 kind 沿用历史兜底落 scenes 字段名
-    # （narration 数据落 scenes 键的历史兼容路径也归于此）。
-    char_field = {
-        "segments": "characters_in_segment",
-        "scenes": "characters_in_scene",
-        "shots": "characters_in_shot",
-    }.get(kind, "characters_in_scene")
+    # 角色引用字段名改查 SKELETONS 单一真相源（video_units→None 强制显式决策）。
+    char_field = SKELETONS[kind].chars_field
     return (items, id_field, char_field, "scenes", "props")
 
 

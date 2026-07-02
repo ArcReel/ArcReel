@@ -820,6 +820,63 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     return sg
 
 
+# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+_KIND_TO_MODES: dict[str, tuple[str, str | None]] = {
+    "segments": ("narration", None),
+    "scenes": ("drama", None),
+    "shots": ("ad", None),
+    "video_units": ("narration", "reference_video"),
+}
+
+
+class TestScriptGeneratorSkeletonExhaustiveness:
+    """穷尽性断言：script_generator 的骨架分派覆盖 SKELETONS 全部键。
+
+    第五种骨架加入 SKELETONS（+ 规范解析映射）时，未登记的本地映射与未处置的分派逐个报红。
+    """
+
+    def test_parse_schema_covers_every_skeleton_kind(self):
+        from lib.script_generator import _KIND_PARSE_SCHEMA
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_KIND_PARSE_SCHEMA) == set(SKELETONS)
+
+    def test_metadata_count_key_covers_every_skeleton_kind(self):
+        from lib.script_generator import _METADATA_COUNT_KEY
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_METADATA_COUNT_KEY) == set(SKELETONS)
+
+    def test_metadata_fallback_duration_covers_non_shots_kinds(self):
+        # shots（ad）走 ad_script_total_duration、不进兜底时长表；其余骨架均须登记。
+        from lib.script_generator import _METADATA_FALLBACK_DURATION
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_METADATA_FALLBACK_DURATION) == set(SKELETONS) - {"shots"}
+
+    @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
+    def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
+        from lib.script_generator import _METADATA_COUNT_KEY
+        from lib.script_skeleton import SKELETONS
+
+        # 参数化遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
+        assert set(_KIND_TO_MODES) == set(SKELETONS)
+
+        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        extra: dict = {"content_mode": content_mode}
+        if gen_mode:
+            extra["generation_mode"] = gen_mode
+        sg = _bare_generator(tmp_path, extra)
+
+        id_field = SKELETONS[kind].id_field
+        out = sg._add_metadata({kind: [{id_field: "E1S01"}]}, episode=2)
+
+        # 数组键 + id 字段经查表：前缀改写为当前集号
+        assert out[kind][0][id_field] == "E2S01"
+        # 计数键随 kind 显式落位
+        assert out["metadata"][_METADATA_COUNT_KEY[kind]] == 1
+
+
 def _step1_seg(
     segment_id: str,
     novel_text: str,

@@ -1179,3 +1179,51 @@ class TestSourceKindValidation:
         )
         result = validate_episode("demo", "episode_1.json", projects_root=str(tmp_path / "projects"))
         assert result.valid, result.errors
+
+
+# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+_KIND_TO_MODES = {
+    "segments": ("narration", None),
+    "scenes": ("drama", None),
+    "shots": ("ad", None),
+    "video_units": ("narration", "reference_video"),
+}
+# 骨架种类 → 该骨架应触达的 validator 方法名。
+_KIND_TO_VALIDATOR = {
+    "segments": "_validate_segments",
+    "scenes": "_validate_scenes",
+    "shots": "_validate_shots",
+    "video_units": "_validate_reference_video_script",
+}
+
+
+class TestDataValidatorSkeletonExhaustiveness:
+    """穷尽性断言：_validate_episode_payload 的骨架→validator 分派覆盖 SKELETONS 全部键。
+
+    第五种骨架加入 SKELETONS（+ 规范解析映射）时，分派 else 分支 fail-loud，此测试逐个报红。
+    """
+
+    @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
+    def test_episode_dispatch_covers_every_skeleton_kind(self, kind, tmp_path, monkeypatch):
+        from lib.script_skeleton import SKELETONS
+
+        # 遍历 SKELETONS 全键：新增第五种骨架而下方映射未登记即 KeyError 报红。
+        assert set(_KIND_TO_MODES) == set(SKELETONS)
+        assert set(_KIND_TO_VALIDATOR) == set(SKELETONS)
+
+        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        called: list[str] = []
+        spied = (*_KIND_TO_VALIDATOR.values(), "_warn_ad_target_duration_drift", "_validate_ad_reference_units")
+        for name in spied:
+            monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
+
+        project = {"content_mode": content_mode, "products": {}}
+        episode = {"episode": 1, "title": "第一集", "content_mode": content_mode}
+        if gen_mode:
+            project["generation_mode"] = gen_mode
+            episode["generation_mode"] = gen_mode
+
+        validator = DataValidator(projects_root=str(tmp_path / "projects"))
+        validator._validate_episode_payload(tmp_path, project, episode, [], [])
+
+        assert _KIND_TO_VALIDATOR[kind] in called
