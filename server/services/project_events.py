@@ -559,6 +559,11 @@ class ProjectEventService:
         skeleton = SKELETONS[kind]
         raw_items = script.get(kind, [])
         if not isinstance(raw_items, list):
+            logger.warning(
+                "剧本条目字段非列表，按空快照处理 kind=%s type=%s",
+                kind,
+                type(raw_items).__name__,
+            )
             raw_items = []
 
         items: dict[str, Any] = {}
@@ -607,9 +612,12 @@ class ProjectEventService:
         使 video_unit 的场景/道具引用编辑也能进入差分）。
         """
         if chars_field is not None:
-            characters = sorted(str(name) for name in item.get(chars_field, []) or [])
-            scenes = sorted(str(name) for name in item.get("scenes", []) or [])
-            props = sorted(str(name) for name in item.get("props", []) or [])
+            chars_raw = item.get(chars_field)
+            scenes_raw = item.get("scenes")
+            props_raw = item.get("props")
+            characters = sorted({str(name) for name in chars_raw}) if isinstance(chars_raw, list) else []
+            scenes = sorted({str(name) for name in scenes_raw}) if isinstance(scenes_raw, list) else []
+            props = sorted({str(name) for name in props_raw}) if isinstance(props_raw, list) else []
             return characters, scenes, props
         buckets: dict[str, set[str]] = {"character": set(), "scene": set(), "prop": set()}
         references = item.get("references")
