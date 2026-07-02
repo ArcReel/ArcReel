@@ -67,7 +67,7 @@ assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
 async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
     """从 DB 读 active credential，返回 {ENV_KEY: value} dict，**不写 os.environ**。
 
-    返回值由 SessionManager._build_provider_env_overrides() 注入到
+    返回值由 OptionsAssembler 的凭证注入（load_provider_env_overrides）注入到
     ClaudeAgentOptions.env。
 
     双轨期 fallback：active credential 字段为空时从 system_settings 兜底。

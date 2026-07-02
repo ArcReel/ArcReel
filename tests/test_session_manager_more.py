@@ -76,10 +76,10 @@ async def _cold_revival_clients(session_manager, monkeypatch):
     ``options.kwargs["system_prompt"]["append"]`` carries the rebuilt prompt, so
     tests can assert which locale the language regulation was rendered with."""
 
-    async def _fake_env(_self):
+    async def _fake_env():
         return {}
 
-    monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
 
     created_clients: list[_FakeClaudeClient] = []
 
@@ -90,9 +90,10 @@ async def _cold_revival_clients(session_manager, monkeypatch):
 
     with monkeypatch.context() as m:
         m.setattr(sm_mod, "SDK_AVAILABLE", True)
-        m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
+        m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
+        m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
         m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
-        m.setattr(sm_mod, "HookMatcher", None)
+        m.setattr("server.agent_runtime.options_assembler.HookMatcher", None)
         yield created_clients
 
 
@@ -149,13 +150,13 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_build_options_and_connect_paths(self, session_manager, meta_store, tmp_path, monkeypatch):
-        async def _fake_env(_self):
+        async def _fake_env():
             return {}
 
-        monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
 
         with monkeypatch.context() as m:
-            m.setattr(sm_mod, "SDK_AVAILABLE", False)
+            m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", False)
             with pytest.raises(RuntimeError):
                 await session_manager._build_options("demo")
 
@@ -172,9 +173,10 @@ class TestSessionManagerMore:
 
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", True)
-            m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
+            m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
+            m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
             m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
-            m.setattr(sm_mod, "HookMatcher", None)
+            m.setattr("server.agent_runtime.options_assembler.HookMatcher", None)
             managed = await session_manager.get_or_connect(meta.id)
             # Let the actor enter the async-context (connect).
             await asyncio.sleep(0)
@@ -183,7 +185,7 @@ class TestSessionManagerMore:
             # Graceful teardown so the actor task doesn't leak.
             await session_manager.close_session(meta.id)
 
-        assert await session_manager._keep_stream_open_hook({}, None, None) == {"continue_": True}
+        assert await session_manager._options_assembler._keep_stream_open_hook({}, None, None) == {"continue_": True}
 
     @pytest.mark.asyncio
     async def test_get_or_connect_threads_locale_into_system_prompt(
@@ -518,7 +520,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Read own project file — allowed (within project_cwd)
         result = await hook(
@@ -566,7 +568,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Write own project file — allowed
         result = await hook(
@@ -604,7 +606,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Bash — not a path tool, hook continues
         result = await hook(
@@ -638,7 +640,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Write .py in project dir — denied (code extension)
         result = await hook(
@@ -730,7 +732,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Read agent_runtime_profile/CLAUDE.md — allowed (readonly dir)
         result = await hook(
@@ -765,7 +767,7 @@ class TestSessionManagerMore:
         # SDK 会话数据基准目录是 policy 的构造参数：换新 policy 即注入测试位置
         mgr.access_policy = replace(mgr.access_policy, claude_projects_dir=claude_home)
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
         return hook, own_project, claude_home, engine
 
     @pytest.mark.asyncio
@@ -896,7 +898,7 @@ class TestJsonValidationHook:
         """Helper: invoke the JSON validation hook callback directly."""
         from pathlib import Path
 
-        hook_fn = manager._build_json_validation_hook(
+        hook_fn = manager._options_assembler._build_json_validation_hook(
             Path(project_cwd) if project_cwd else Path("/tmp"),
         )
         input_data = {
@@ -1140,7 +1142,7 @@ class TestJsonPostValidationHook:
     ):
         from pathlib import Path
 
-        hook_fn = manager._build_json_post_validation_hook(
+        hook_fn = manager._options_assembler._build_json_post_validation_hook(
             Path(project_cwd) if project_cwd else Path("/tmp"),
             json_backups if json_backups is not None else {},
         )

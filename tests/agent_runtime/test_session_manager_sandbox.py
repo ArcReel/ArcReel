@@ -45,7 +45,7 @@ async def test_provider_env_overrides_includes_anthropic_and_empties(
         return fake_dict
 
     with patch("lib.config.service.build_anthropic_env_dict", side_effect=fake_build):
-        env = await session_manager._build_provider_env_overrides()
+        env = await session_manager._options_assembler.build_provider_env_overrides()
 
     # Anthropic 注入真值
     assert env["ANTHROPIC_API_KEY"] == "sk-from-db"
@@ -74,10 +74,10 @@ async def test_build_options_includes_sandbox_settings(
     proj_dir.mkdir(parents=True)
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
-    async def fake_env(_self):
+    async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk", "ARK_API_KEY": ""}
 
-    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     opts = await session_manager._build_options("test_proj")
 
@@ -151,7 +151,7 @@ async def test_bash_env_scrub_hook_wraps_command_with_env_unset(session_manager:
     后续所有步骤；包装后的命令应由 allowed_tools 的 Bash allow 规则放行。"""
     from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 
-    result = await session_manager._bash_env_scrub_hook(
+    result = await session_manager._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "env | grep ANTHROPIC"}},
         None,
         None,
@@ -177,7 +177,7 @@ async def test_bash_env_scrub_hook_skips_wrap_when_sandbox_disabled(tmp_path: Pa
     hook 不包装也不给权限决策，原始命令落到 _can_use_tool 做白名单匹配
     （包装后命令以 ``env -u`` 开头，会让白名单永远匹配不上）。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
-    result = await sm._bash_env_scrub_hook(
+    result = await sm._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "ffmpeg -i in.mp4 out.mp4"}},
         None,
         None,
@@ -188,7 +188,7 @@ async def test_bash_env_scrub_hook_skips_wrap_when_sandbox_disabled(tmp_path: Pa
 @pytest.mark.asyncio
 async def test_bash_env_scrub_hook_handles_single_quotes(session_manager: SessionManager) -> None:
     """命令含单引号时不能破坏 shell 引号闭合。"""
-    result = await session_manager._bash_env_scrub_hook(
+    result = await session_manager._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "echo 'hello world'"}},
         None,
         None,
@@ -201,7 +201,7 @@ async def test_bash_env_scrub_hook_handles_single_quotes(session_manager: Sessio
 @pytest.mark.asyncio
 async def test_bash_env_scrub_hook_passthrough_when_no_command(session_manager: SessionManager) -> None:
     """空 command 时直接放行，不做包装。"""
-    result = await session_manager._bash_env_scrub_hook(
+    result = await session_manager._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {}},
         None,
         None,
@@ -239,10 +239,10 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
     proj_dir.mkdir(parents=True, exist_ok=True)
     (proj_dir / "project.json").write_text('{"title":"t"}', encoding="utf-8")
 
-    async def fake_env(_self):
+    async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
     opts = await sm._build_options("test_proj")
 
     for tool in AgentAccessPolicy.BASH_TOOLS:

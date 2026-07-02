@@ -32,8 +32,8 @@ async def _make_store():
     return store, engine
 
 
-async def _fake_provider_env(_self):
-    """Stub for SessionManager._build_provider_env_overrides — 跳过 DB 访问。"""
+async def _fake_provider_env():
+    """Stub for OptionsAssembler 凭证注入 — 跳过 DB 访问。"""
     return {}
 
 
@@ -48,11 +48,11 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
-        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
-        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
             with patch(
-                "server.agent_runtime.session_manager.ClaudeAgentOptions",
+                "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
             ):
                 options = await manager._build_options("demo")
@@ -69,11 +69,11 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
-        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
-        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
             with patch(
-                "server.agent_runtime.session_manager.ClaudeAgentOptions",
+                "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
             ):
                 with pytest.raises(FileNotFoundError):
@@ -92,15 +92,15 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
-        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
-        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
             with patch(
-                "server.agent_runtime.session_manager.ClaudeAgentOptions",
+                "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
             ):
                 with patch(
-                    "server.agent_runtime.session_manager.HookMatcher",
+                    "server.agent_runtime.options_assembler.HookMatcher",
                     _FakeHookMatcher,
                 ):
                     options = await manager._build_options("demo")
@@ -111,7 +111,7 @@ class TestSessionManagerProjectScope:
         assert matcher.matcher is None
         # Without can_use_tool: only file_access_hook
         assert len(matcher.hooks) == 1
-        assert matcher.hooks[0] is not manager._keep_stream_open_hook
+        assert matcher.hooks[0] is not manager._options_assembler._keep_stream_open_hook
 
         await engine.dispose()
 
@@ -126,18 +126,18 @@ class TestSessionManagerProjectScope:
             data_dir=tmp_path,
             meta_store=store,
         )
-        monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", _fake_provider_env)
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
         async def _can_use_tool(_tool_name, _input_data, _context):
             return None
 
-        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+        with patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True):
             with patch(
-                "server.agent_runtime.session_manager.ClaudeAgentOptions",
+                "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
             ):
                 with patch(
-                    "server.agent_runtime.session_manager.HookMatcher",
+                    "server.agent_runtime.options_assembler.HookMatcher",
                     _FakeHookMatcher,
                 ):
                     options = await manager._build_options(
@@ -150,7 +150,7 @@ class TestSessionManagerProjectScope:
         matcher = hooks["PreToolUse"][0]
         assert matcher.matcher is None
         assert len(matcher.hooks) == 2
-        assert matcher.hooks[0] is manager._keep_stream_open_hook
+        assert matcher.hooks[0] is manager._options_assembler._keep_stream_open_hook
 
         await engine.dispose()
 
@@ -186,7 +186,7 @@ class TestSessionManagerProjectScope:
             meta_store=store,
         )
 
-        prompt = manager._build_project_context("demo")
+        prompt = manager._options_assembler._build_project_context("demo")
 
         # Session-invariant facts are present
         assert "项目标识：demo" in prompt
@@ -236,7 +236,7 @@ class TestSessionManagerProjectScope:
             meta_store=store,
         )
 
-        prompt = manager._build_project_context("empty")
+        prompt = manager._options_assembler._build_project_context("empty")
 
         assert "项目标识：empty" in prompt
         assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve().as_posix()}" in prompt
@@ -296,6 +296,6 @@ class TestSystemPromptProjectContext:
             meta_store=store,
         )
 
-        prompt = manager._build_project_context("does-not-exist")
+        prompt = manager._options_assembler._build_project_context("does-not-exist")
         assert prompt == ""
         await engine.dispose()
