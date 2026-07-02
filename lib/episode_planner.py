@@ -30,6 +30,7 @@ from lib.episode_ledger import (
     normalize_source_text,
     parse_episode_num,
 )
+from lib.episode_paths import episode_script_relpath
 from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -315,7 +316,7 @@ def _ledger_entry_from_draft(
     entry: dict[str, Any] = {
         "episode": num,
         "title": draft_ep.title,
-        "script_file": script_file or f"scripts/episode_{num}.json",
+        "script_file": script_file or episode_script_relpath(num),
         "source_range": {"source_file": source_rel, "start": start, "end": end},
         "hook": draft_ep.hook,
         "ledger_status": status,

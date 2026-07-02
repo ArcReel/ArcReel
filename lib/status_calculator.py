@@ -7,6 +7,7 @@
 
 import logging
 
+from lib.episode_paths import STEP1_FILENAMES, STEP1_LEGACY_FILENAMES
 from lib.path_safety import safe_exists
 from lib.project_manager import effective_mode
 from lib.script_models import SCRIPT_SHAPES, ad_script_total_duration
@@ -18,17 +19,25 @@ logger = logging.getLogger(__name__)
 # 逐镜头规划），缺失按 0 计入，避免杜撰值污染与目标总时长的对照。
 _FALLBACK_ITEM_DURATIONS: dict[str, int] = {"narration": 4, "drama": 8, "ad": 0}
 
-# 剧本缺失时按 content_mode 探测的 step1 草稿候选文件名（按优先序，任一存在即视为已分段）。
-# narration 同时认结构化 step1_segments.json 与旧版 step1_segments.md：「是否分过段」与「格式
-# 迁移」是两回事，存量 .md-only 项目也算已分段（迁移到 .json 由生成阶段的重切提示兜住），不被
-# 误判为「从未开始」。drama 内容抽取前移后 step1 是结构化 JSON（见 ADR 0041），旧 .md 残留不再
-# 视为有效 step1——仅 .md 无剧本 JSON 的在制品会被路由回重跑 step1。ad 不走拆分中间稿
-# （brief 不经 source_loader），空元组表示无草稿可探测；未知值沿用历史兜底落 drama 草稿名。
-_DRAFT_FILENAMES: dict[str, tuple[str, ...]] = {
-    "narration": ("step1_segments.json", "step1_segments.md"),
-    "drama": ("step1_normalized_script.json",),
-    "ad": (),
-}
+# 「是否分过段」判定中兼认旧版 .md 别名的 content_mode：narration 的旧 step1_segments.md
+# 代表真实的分段工作、兼认；drama 的旧 .md 早于内容抽取前移（见 ADR 0041），不再视为有效
+# step1——仅 .md 无剧本 JSON 的在制品会被路由回重跑 step1，故不在此集合。这与 gate 只认结构化
+# .json、web 读取层兼认双模式旧 .md 的语义有意不同。
+_SEGMENTED_LEGACY_MODES: frozenset[str] = frozenset({"narration"})
+
+
+def _draft_candidates(content_mode: str) -> tuple[str, ...]:
+    """剧本缺失时按 content_mode 探测的 step1 草稿候选文件名（任一存在即视为已分段）。
+
+    结构化文件名取自单一真相源 ``lib.episode_paths.STEP1_FILENAMES``，新增 content_mode 自动覆盖。
+    ad 不走拆分中间稿（brief 不经 source_loader），返回空元组表示无草稿可探测；未知值沿用历史
+    兜底探 drama 结构化草稿名。旧版 .md 仅对 ``_SEGMENTED_LEGACY_MODES`` 内的模式附加。
+    """
+    if content_mode == "ad":
+        return ()
+    primary = STEP1_FILENAMES.get(content_mode) or STEP1_FILENAMES["drama"]
+    legacy = STEP1_LEGACY_FILENAMES.get(content_mode, ()) if content_mode in _SEGMENTED_LEGACY_MODES else ()
+    return (primary, *legacy)
 
 
 class StatusCalculator:
@@ -204,7 +213,7 @@ class StatusCalculator:
                 safe_num = int(episode_num)
             except (ValueError, TypeError):
                 return "none", None
-            draft_filenames = _DRAFT_FILENAMES.get(content_mode, _DRAFT_FILENAMES["drama"])
+            draft_filenames = _draft_candidates(content_mode)
             if not draft_filenames:
                 return "none", None
             drafts_dir = project_dir / f"drafts/episode_{safe_num}"

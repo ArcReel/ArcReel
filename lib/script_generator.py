@@ -18,6 +18,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    STEP1_FILENAMES,
+    STEP1_LEGACY_FILENAMES,
+    episode_drafts_dir,
+    episode_script_filename,
+)
 from lib.project_manager import ProjectManager, effective_mode
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
@@ -256,7 +263,7 @@ class ScriptGenerator:
         script_data = {"title": content.get("title") or f"第{episode}集", "scenes": merged_scenes}
         script_data = self._add_metadata(script_data, episode)
 
-        filename = output_filename or f"episode_{episode}.json"
+        filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
         output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
 
@@ -336,7 +343,7 @@ class ScriptGenerator:
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
-        filename = output_filename or f"episode_{episode}.json"
+        filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
         output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
 
@@ -538,12 +545,12 @@ class ScriptGenerator:
         narration（storyboard/grid）走结构化两段式，单独经 ``_load_narration_step1`` 读
         ``step1_segments.json``，不进本方法。
         """
-        drafts_path = self.project_path / "drafts" / f"episode_{episode}"
+        drafts_path = episode_drafts_dir(self.project_path, episode)
         gen_mode = self._effective_generation_mode(episode)
         if gen_mode == "reference_video":
-            step1_path = drafts_path / "step1_reference_units.md"
+            step1_path = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
         else:
-            step1_path = drafts_path / "step1_normalized_script.json"
+            step1_path = drafts_path / STEP1_FILENAMES["drama"]
 
         if not step1_path.exists():
             raise FileNotFoundError(
@@ -564,14 +571,15 @@ class ScriptGenerator:
         仅存在结构化前的旧 ``step1_segments.md`` 时给明确的「重跑拆分」报错——不写
         md→json 迁移器（旧 md 产于结构化中间态引入前、不含手工编辑）。
         """
-        drafts_path = self.project_path / "drafts" / f"episode_{episode}"
-        step1_json = drafts_path / "step1_segments.json"
+        drafts_path = episode_drafts_dir(self.project_path, episode)
+        narration_json = STEP1_FILENAMES["narration"]
+        step1_json = drafts_path / narration_json
         if not step1_json.exists():
-            legacy_md = drafts_path / "step1_segments.md"
+            legacy_md = drafts_path / STEP1_LEGACY_FILENAMES["narration"][0]
             if legacy_md.exists():
                 raise FileNotFoundError(
                     f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {step1_json}；"
-                    "请重跑 split-narration-segments 产出结构化 step1_segments.json"
+                    f"请重跑 split-narration-segments 产出结构化 {narration_json}"
                 )
             raise FileNotFoundError(
                 f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成片段拆分"

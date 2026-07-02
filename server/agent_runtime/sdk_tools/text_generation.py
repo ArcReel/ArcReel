@@ -19,6 +19,12 @@ from lib import script_review
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode_ledger import episode_outline_context
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    STEP1_FILENAMES,
+    STEP1_LEGACY_FILENAMES,
+    episode_drafts_dir,
+)
 from lib.json_io import atomic_write_json
 from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
 from lib.prompt_builders_script import build_normalize_prompt
@@ -114,17 +120,19 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
         {},
     )
     generation_mode = effective_mode(project=project_data, episode=episode_dict)
-    drafts_path = project_path / "drafts" / f"episode_{episode}"
+    drafts_path = episode_drafts_dir(project_path, episode)
     if generation_mode == "reference_video":
-        return drafts_path / "step1_reference_units.md", "split-reference-video-units subagent (Step 1)"
+        return drafts_path / REFERENCE_VIDEO_STEP1_FILENAME, "split-reference-video-units subagent (Step 1)"
     if content_mode == "drama":
         # 内容抽取前移后 drama step1 是结构化 JSON（见 ADR 0041）
-        return drafts_path / "step1_normalized_script.json", "normalize_drama_script tool"
-    # narration 生成需结构化 step1_segments.json；仅存旧 step1_segments.md 时给出与
+        return drafts_path / STEP1_FILENAMES["drama"], "normalize_drama_script tool"
+    # narration 生成需结构化 step1 JSON；仅存旧版 .md 时给出与
     # ScriptGenerator._load_narration_step1 一致的重切迁移提示，而非笼统的缺文件错误。
-    step1_json = drafts_path / "step1_segments.json"
-    if not step1_json.exists() and (drafts_path / "step1_segments.md").exists():
-        return step1_json, "重跑 split-narration-segments 把旧 step1_segments.md 重新拆分为结构化 step1_segments.json"
+    narration_json = STEP1_FILENAMES["narration"]
+    narration_legacy_md = STEP1_LEGACY_FILENAMES["narration"][0]
+    step1_json = drafts_path / narration_json
+    if not step1_json.exists() and (drafts_path / narration_legacy_md).exists():
+        return step1_json, f"重跑 split-narration-segments 把旧 {narration_legacy_md} 重新拆分为结构化 {narration_json}"
     return step1_json, "split-narration-segments subagent (Step 1)"
 
 
@@ -385,9 +393,9 @@ def normalize_drama_script_tool(ctx: ToolContext):
             if not isinstance(raw_scenes, list) or not raw_scenes:
                 raise ValueError("step1 规范化内容结构异常：scenes 必须是非空的场景对象数组")
 
-            drafts_dir = project_path / "drafts" / f"episode_{episode}"
+            drafts_dir = episode_drafts_dir(project_path, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)
-            step1_path = drafts_dir / "step1_normalized_script.json"
+            step1_path = drafts_dir / STEP1_FILENAMES["drama"]
             # step1 真相源须原子写入：复用 atomic_write_json（同目录 tempfile + os.replace），
             # 避免 normalize 中断 / 并发重跑留下半写 JSON 被下游当成损坏草稿。
             atomic_write_json(step1_path, content)
