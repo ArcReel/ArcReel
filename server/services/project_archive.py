@@ -718,8 +718,13 @@ class ProjectArchiveService:
                 )
 
         # 剧本戳 → 项目声明的回退链保留；链尾 narration 终兜底删除——项目级 content_mode
-        # 必填且被校验，两处皆缺即数据损坏，交由下方规范解析 fail-loud，不静默落 drama。
-        content_mode = str(script_payload.get("content_mode") or project_payload.get("content_mode"))
+        # 必填且被校验，两处皆缺（或非字符串脏值）即数据损坏，直接 fail-loud，不静默落 drama。
+        # 不用 str(...) 归一：会把缺失的 None 变成字面量 "None" 字符串，既让 reference 分支拿到
+        # 假值绕过 fail-loud，又使非 reference 分支的报错语义失真。
+        raw_content_mode = script_payload.get("content_mode") or project_payload.get("content_mode")
+        if not isinstance(raw_content_mode, str):
+            raise ValueError(f"未知或缺失 content_mode: {raw_content_mode!r}")
+        content_mode = raw_content_mode
         generation_mode = effective_mode(project=project_payload, episode=script_payload)
 
         # reference_video 模式的剧本用 video_units 组织，结构与 narration/drama 的
