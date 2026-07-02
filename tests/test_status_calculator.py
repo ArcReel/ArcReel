@@ -482,27 +482,11 @@ class TestStatusCalculator:
 class TestAdStatusCalculation:
     """广告/短片模式（平铺 shots[]）的状态与统计计算。"""
 
-    def test_select_ad_mode_and_items(self):
-        kind, items = StatusCalculator._select_kind_and_items({"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]})
-        assert kind == "shots"
-        assert len(items) == 1
-
     def test_select_ad_by_duck_typing_when_content_mode_absent(self):
+        # 本地 legacy 容忍：缺 content_mode 的存量 ad 剧本按 shots 键鸭子推断（矩阵不覆盖本地阶梯）。
         kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]})
         assert kind == "shots"
         assert len(items) == 1
-
-    def test_ad_with_reference_generation_mode_still_dispatches_shots(self):
-        """ad 剧本骨架唯一：残留 generation_mode 戳也按 shots 分派，不找 video_units。"""
-        kind, items = StatusCalculator._select_kind_and_items(
-            {
-                "content_mode": "ad",
-                "generation_mode": "reference_video",
-                "shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}],
-            }
-        )
-        assert kind == "shots"
-        assert len(items) == 2
 
     def test_calculate_episode_stats_for_ad(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))

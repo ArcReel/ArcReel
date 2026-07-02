@@ -114,6 +114,12 @@ class TestScriptResolver:
         # content_mode=narration 但数据落 scenes 键（无 segments）→ 回退 scenes。
         assert resolve_script_kind({"content_mode": "narration", "scenes": []}) == "scenes"
 
+    def test_generation_mode_ignored_data_shape_wins(self):
+        # partial migration 中间态：generation_mode 已改 reference_video 但数据仍在
+        # segments——取证解析不读 generation_mode，按数据形状返回 segments，编辑能力不丢失。
+        script = {"content_mode": "narration", "generation_mode": "reference_video", "segments": []}
+        assert resolve_script_kind(script) == "segments"
+
     def test_step4_key_existence_inference_when_content_mode_absent(self):
         assert resolve_script_kind({"scenes": []}) == "scenes"
         assert resolve_script_kind({"shots": []}) == "shots"

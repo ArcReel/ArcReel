@@ -193,7 +193,7 @@ _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范
 ### 剧本与分镜
 
 **骨架（skeleton / 骨架种类 skeleton kind）**：
-剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考生视频单元）。骨架是由 content_mode 与 generation_mode 两轴**派生**的概念，本身不是第三条轴：narration/drama/ad 各对应前三种骨架；narration/drama 在 generation_mode=reference_video 下整体换用 video_units 骨架，ad 骨架恒为 shots、不随生成路径变（见 `docs/adr/0033`）。对骨架有两种合法提问——**规范性**（按项目/剧集的模式配置，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在部分迁移等中间态下可能不一致，取证以数据形状优先。
+剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考生视频单元）。骨架是由 content_mode 与 generation_mode 两轴**派生**的概念，本身不是第三条轴：narration/drama/ad 各对应前三种骨架；narration/drama 在 generation_mode=reference_video 下整体换用 video_units 骨架，ad 骨架恒为 shots、不随生成路径变（见 `docs/adr/0033`）。对骨架有两种合法提问——**规范性**（按项目/剧集的模式配置，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在部分迁移等中间态下可能不一致，取证以数据形状优先。骨架知识收归零依赖叶子模块 `lib/script_skeleton.py`：以骨架种类为键的窄表 `SKELETONS`（键即条目数组键，行 `Skeleton(id_field, chars_field)`，`video_units` 无逐条角色名单故 `chars_field=None`）+ **规范解析** `resolve_declared_kind(content_mode, generation_mode)`（服务手持项目配置的消费方，未知/缺失 content_mode 抛 `ValueError`）+ **取证解析** `resolve_script_kind(script)`（服务手持剧本数据的消费方，保留数据形状优先的容忍阶梯）；两个解析器是全体消费方分派骨架的单一入口，设计依据见 `docs/adr/0045`。
 _Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（配置已改 reference_video 但数据仍在 segments 时，编辑要跟数据走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
 
 **宫格（grid）**：

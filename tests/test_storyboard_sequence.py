@@ -10,26 +10,6 @@ from lib.storyboard_sequence import (
 
 
 class TestStoryboardSequence:
-    def test_get_storyboard_items_supports_narration_and_drama(self):
-        narration = {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}
-        drama = {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]}
-
-        narration_items = get_storyboard_items(narration)
-        drama_items = get_storyboard_items(drama)
-
-        assert narration_items[1:] == (
-            "segment_id",
-            "characters_in_segment",
-            "scenes",
-            "props",
-        )
-        assert drama_items[1:] == (
-            "scene_id",
-            "characters_in_scene",
-            "scenes",
-            "props",
-        )
-
     def test_resolve_previous_storyboard_path_respects_first_item_and_segment_break(self, tmp_path: Path):
         project_path = tmp_path / "demo"
         (project_path / "storyboards").mkdir(parents=True)
@@ -132,17 +112,21 @@ _SCRIPT_BY_KIND = {
 
 
 class TestStoryboardSkeletonExhaustiveness:
-    """穷尽性断言：get_storyboard_items 的 char_field 覆盖 SKELETONS 全部键。
+    """穷尽性断言：get_storyboard_items 的 id_field / char_field 覆盖 SKELETONS 全部键。
 
-    char_field 直接查 SKELETONS，第五种骨架加入时 _SCRIPT_BY_KIND 未登记即报红。
+    id_field / char_field 直接查 SKELETONS，第五种骨架加入时 _SCRIPT_BY_KIND 未登记即报红；
+    原按模式硬编码的 narration/drama 映射断言收敛到此。
     """
 
     @pytest.mark.parametrize("kind", list(_SCRIPT_BY_KIND))
-    def test_get_storyboard_items_char_field_matches_registry(self, kind):
+    def test_get_storyboard_items_fields_match_registry(self, kind):
         from lib.script_skeleton import SKELETONS
 
         # 遍历 SKELETONS 全键：新增第五种骨架而 _SCRIPT_BY_KIND 未登记即 KeyError 报红。
         assert set(_SCRIPT_BY_KIND) == set(SKELETONS)
 
-        _items, _id_field, char_field, _scenes, _props = get_storyboard_items(_SCRIPT_BY_KIND[kind])
+        _items, id_field, char_field, scenes_field, props_field = get_storyboard_items(_SCRIPT_BY_KIND[kind])
+        assert id_field == SKELETONS[kind].id_field
         assert char_field == SKELETONS[kind].chars_field
+        # scenes / props 资产键为项目级常量，不随骨架变。
+        assert (scenes_field, props_field) == ("scenes", "props")

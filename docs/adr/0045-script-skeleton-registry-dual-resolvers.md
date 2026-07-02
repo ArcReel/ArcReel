@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 剧本骨架注册表以骨架种类为键，轴交互收口进规范/取证双解析器
@@ -26,4 +26,4 @@ status: proposed
 - 落地实现时，`project_events` 快照 bug 的修复随本收口的实现一并交付（不单独出临时修复 PR），ad 与 reference_video 项目届时恢复分镜级事件推送；video_units 条目快照的 `characters` 从 `references` 过滤 character 类型派生。
 - `script_shape()` 兜底删除是行为变更，现有 4 个注册表消费方的传值须逐个核对。
 - 约 45 处 content_mode 字面量分派须三分类处置：骨架-结构类（迁移查表/解析器）、内容-行为类（step1 路径、prompt 选择——content_mode 轴的正当业务分派，保留）、轴交互业务规则（如 ad / reference_video 跳过分镜估价，保留）；分类清单、PR 切分与散落分派测试的删留归 PRD 阶段。
-- 本 ADR status=proposed：`SKELETONS` / `script_skeleton` 等新名待实现落盘后再写入 `CONTEXT.md`（「骨架」概念本身描述现状，已收录）。后续 PR 若想引入复合键、把行为写入注册表、或恢复静默兜底，须先 deprecate 本 ADR。
+- 本 ADR status=accepted：设计已落地为 `lib/script_skeleton.py`（`SKELETONS` 窄表 + 规范解析 `resolve_declared_kind` + 取证解析 `resolve_script_kind`），实现落盘后的新名已写入 `CONTEXT.md`「骨架」条。后续 PR 若想引入复合键、把行为写入注册表、或恢复静默兜底，须先 deprecate 本 ADR。
