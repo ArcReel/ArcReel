@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime import session_manager as sm_mod
+from server.agent_runtime.message_serialization import build_runtime_status_message
+from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
@@ -341,21 +343,16 @@ class TestSessionManagerMore:
         assert "user interrupted" in deny.message
 
     def test_misc_helpers_and_serialization(self, session_manager):
-        assert sm_mod.SessionManager._extract_plain_user_content({"type": "user", "content": " hi "}) == "hi"
-        assert (
-            sm_mod.SessionManager._extract_plain_user_content(
-                {"type": "user", "content": [{"type": "text", "text": " hello "}]}
-            )
-            == "hello"
-        )
-        assert sm_mod.SessionManager._extract_plain_user_content({"type": "assistant"}) is None
+        assert extract_plain_user_content({"type": "user", "content": " hi "}) == "hi"
+        assert extract_plain_user_content({"type": "user", "content": [{"type": "text", "text": " hello "}]}) == "hello"
+        assert extract_plain_user_content({"type": "assistant"}) is None
 
         msg = {}
         raw = SimpleNamespace(session_id="sdk-1")
         assert session_manager._extract_sdk_session_id(raw, msg) == "sdk-1"
         assert session_manager._extract_sdk_session_id(raw, {"sessionId": "sdk-2"}) == "sdk-2"
 
-        status = session_manager._build_runtime_status_message("error", "s1")
+        status = build_runtime_status_message("error", "s1")
         assert status["type"] == "runtime_status"
         assert status["is_error"] is True
 
