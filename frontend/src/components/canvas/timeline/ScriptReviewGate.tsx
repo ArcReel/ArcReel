@@ -205,10 +205,12 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
 
   useEffect(() => {
     let cancelled = false;
-    const hadContent = state != null;
-    // 仅首次加载 / 重试（尚无内容）显示加载态；revision 触发的重新拉取静默刷新，避免闪烁。
+    // 已拿到过任一响应（空态或内容态）后，revision 触发的重新拉取静默刷新、不闪加载态；
+    const hadResponse = state != null;
+    // 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。
+    const hasContent = draft != null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!hadContent) setLoading(true);
+    if (!hadResponse) setLoading(true);
     API.getScriptReview(projectName, episode)
       .then((next) => {
         if (cancelled) return;
@@ -226,9 +228,9 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
       })
       .catch((err) => {
         if (cancelled) return;
-        // 首次加载失败 → 进入错误态（区别于空态），提供重试；
-        // 静默刷新（已有内容）失败则保留现有内容，不破坏用户视图。
-        if (!hadContent) setLoadError({ message: errorMessage(err) });
+        // 屏上无真实内容（首屏失败，或空态后 revision 刷新失败）→ 错误态（区别于空态）+ 重试；
+        // 已有内容的静默刷新失败则保留现有内容，不破坏用户视图。
+        if (!hasContent) setLoadError({ message: errorMessage(err) });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -236,7 +238,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- state 仅用于决定是否显示加载态/错误态，加入 deps 会在每次刷新后重新拉取造成循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环
   }, [projectName, episode, draftRevision, reloadNonce]);
 
   const handleSave = useCallback(async () => {
