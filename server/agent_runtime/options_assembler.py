@@ -80,6 +80,11 @@ class OptionsAssembler:
     时现取——``access_policy_provider``（``configure_sandbox_runtime`` 会整体换新）与
     ``max_turns_provider``（``refresh_config`` 会改写）。``resolve_project_cwd`` 由
     SessionManager 注入（项目名校验/作用域是会话管理侧职责）。
+
+    ``session_factory_provider`` / ``user_id_provider`` 同样用回调而非构造期快照：
+    store 在首次 ``build_session_store`` 时按当时取值建好并缓存，与析出前
+    ``_build_session_store`` 惰性读 SessionManager 属性的时点一致——避免用量记录
+    （实时读 ``_user_id``）与 transcript store 落到不同的 per-user 命名空间。
     """
 
     def __init__(
@@ -93,8 +98,8 @@ class OptionsAssembler:
         max_turns_provider: Callable[[], int | None],
         resolve_project_cwd: Callable[[str], Path],
         provider_env_loader: Callable[[], Awaitable[dict[str, str]]] | None = None,
-        session_factory: Any = None,
-        user_id: str = DEFAULT_USER_ID,
+        session_factory_provider: Callable[[], Any] | None = None,
+        user_id_provider: Callable[[], str] | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.projects_root = Path(projects_root)
@@ -104,8 +109,8 @@ class OptionsAssembler:
         self._max_turns_provider = max_turns_provider
         self._resolve_project_cwd = resolve_project_cwd
         self._provider_env_loader = provider_env_loader
-        self._session_factory = session_factory
-        self._user_id = user_id
+        self._session_factory_provider = session_factory_provider or (lambda: None)
+        self._user_id_provider = user_id_provider or (lambda: DEFAULT_USER_ID)
         # session store 单例缓存：每个 assembler 一份，避免每次 build 都新建 store。
         self._cached_session_store: DbSessionStore | None = None
         self._session_store_resolved = False
@@ -182,8 +187,8 @@ class OptionsAssembler:
         else:
             if not is_known_session_store_mode(mode):
                 logger.warning("Unknown ARCREEL_SDK_SESSION_STORE=%r; defaulting to db", mode)
-            factory = self._session_factory or default_async_session_factory
-            store = DbSessionStore(factory, user_id=self._user_id)
+            factory = self._session_factory_provider() or default_async_session_factory
+            store = DbSessionStore(factory, user_id=self._user_id_provider())
         self._cached_session_store = store
         self._session_store_resolved = True
         return store

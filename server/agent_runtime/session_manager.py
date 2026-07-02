@@ -386,10 +386,12 @@ class SessionManager:
         )
         self._load_config()
         self.usage_tracker = UsageTracker(session_factory=getattr(meta_store, "_session_factory", None))
-        # Options 装配器：持依赖、允许 I/O，异步 build 产出 SDK options。access_policy
-        # 与 max_turns 用 provider 回调现取——configure_sandbox_runtime / refresh_config
-        # 换新后对后续所有会话立即生效；_resolve_project_cwd（项目名校验/作用域）留在
-        # 会话管理侧，作为依赖注入。
+        # Options 装配器：持依赖、允许 I/O，异步 build 产出 SDK options。access_policy /
+        # max_turns / session_factory / user_id 一律用 provider 回调现取——前两者
+        # configure_sandbox_runtime / refresh_config 换新后对后续会话立即生效；后两者
+        # 保持析出前惰性读 self 属性的时点，与用量记录侧 _finalize_turn 实时读 _user_id
+        # 同源，避免 store 与用量落到不同 per-user 命名空间。_resolve_project_cwd
+        # （项目名校验/作用域）留在会话管理侧，作为依赖注入。
         self._options_assembler = OptionsAssembler(
             data_dir=self.data_dir,
             projects_root=self.projects_root,
@@ -398,8 +400,8 @@ class SessionManager:
             access_policy_provider=lambda: self.access_policy,
             max_turns_provider=lambda: self.max_turns,
             resolve_project_cwd=self._resolve_project_cwd,
-            session_factory=getattr(self, "_session_factory", None),
-            user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
+            session_factory_provider=lambda: getattr(self, "_session_factory", None),
+            user_id_provider=lambda: getattr(self, "_user_id", DEFAULT_USER_ID),
         )
 
     def configure_sandbox_runtime(self, *, in_docker: bool, sandbox_enabled: bool) -> None:

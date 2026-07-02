@@ -57,13 +57,14 @@ def test_store_db_explicit_returns_store(monkeypatch, tmp_path):
 
 
 def test_store_uses_session_factory_seam(monkeypatch, tmp_path):
-    """装配器的 session_factory / user_id 注入生效于 build_session_store。"""
+    """SessionManager 的 _session_factory / _user_id 经装配器 provider 现取生效于
+    build_session_store（store 首次构建时按当时属性值取，与析出前时点一致）。"""
     monkeypatch.delenv("ARCREEL_SDK_SESSION_STORE", raising=False)
     sm = _build_sm(tmp_path)
 
     sentinel = object()
-    sm._options_assembler._session_factory = sentinel  # type: ignore[attr-defined]
-    sm._options_assembler._user_id = "test-user"  # type: ignore[attr-defined]
+    sm._session_factory = sentinel  # type: ignore[attr-defined]
+    sm._user_id = "test-user"  # type: ignore[attr-defined]
 
     store = sm._build_session_store()
     assert isinstance(store, DbSessionStore)
