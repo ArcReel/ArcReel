@@ -876,6 +876,41 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         # 计数键随 kind 显式落位
         assert out["metadata"][_METADATA_COUNT_KEY[kind]] == 1
 
+    def test_add_metadata_survives_dirty_degraded_items(self, tmp_path: Path):
+        # 校验失败降级保存的原始 dict 里 segments 可能含非 dict / duration_seconds 非数字的脏条目；
+        # 前缀改写与时长求和都不得崩溃，时长按稳健口径逐条兜底。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        out = sg._add_metadata(
+            {
+                "segments": [
+                    {"segment_id": "E1S01", "duration_seconds": 5},
+                    "junk_not_a_dict",
+                    {"segment_id": "E1S02"},
+                    {"segment_id": "E1S03", "duration_seconds": None},
+                ]
+            },
+            episode=2,
+        )
+
+        # dict 条目前缀改写；非 dict 条目原样保留、不参与改写
+        assert out["segments"][0]["segment_id"] == "E2S01"
+        assert out["segments"][1] == "junk_not_a_dict"
+        assert out["segments"][2]["segment_id"] == "E2S02"
+        # 计数取列表长度（含脏条目），与既有口径一致
+        assert out["metadata"]["total_segments"] == 4
+        # 时长：5(有效) + 0(非 dict) + 4(缺失→兜底) + 4(None→兜底) = 13
+        assert out["duration_seconds"] == 13
+
+    def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
+        # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代/求和崩溃。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        out = sg._add_metadata({"segments": 123}, episode=1)
+
+        assert out["metadata"]["total_segments"] == 0
+        assert out["duration_seconds"] == 0
+
 
 def _step1_seg(
     segment_id: str,

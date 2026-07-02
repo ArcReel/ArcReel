@@ -109,6 +109,24 @@ def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     return new_rid
 
 
+def _coerce_duration(item: object, fallback: int) -> int:
+    """降级保存路径按稳健口径取单条时长:校验失败时保存的原始 dict 里数组可能含脏条目，
+    直接 ``int(item.get(...))`` 会在非 dict 或 duration_seconds 非数字时崩溃。
+
+    非 dict 条目无时长语义、记 0；dict 内 duration_seconds 缺失或非数字（None / 布尔 /
+    非数字字符串）回退 ``fallback``。
+    """
+    if not isinstance(item, dict):
+        return 0
+    value = item.get("duration_seconds", fallback)
+    if isinstance(value, bool):
+        return fallback
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 class ScriptGenerator:
     """
     剧本生成器
@@ -794,7 +812,10 @@ class ScriptGenerator:
         # 为项目级校验值，解析不会 fail-loud。kind 复用到下方 metadata 统计。
         kind = resolve_declared_kind(self.content_mode, gen_mode)
         id_field = SKELETONS[kind].id_field
-        for s in script_data.get(kind) or []:
+        # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
+        # `... or []` 只挡 falsy、挡不住真值标量，isinstance 守卫避免 `for` 迭代崩溃。
+        raw_rewrite_items = script_data.get(kind)
+        for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
             if isinstance(s, dict) and id_field in s:
                 s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
@@ -852,7 +873,7 @@ class ScriptGenerator:
             script_data["duration_seconds"] = ad_script_total_duration(items)
         else:
             fallback = _METADATA_FALLBACK_DURATION[kind]
-            script_data["duration_seconds"] = sum(int(i.get("duration_seconds", fallback)) for i in items)
+            script_data["duration_seconds"] = sum(_coerce_duration(i, fallback) for i in items)
 
         # 剥离废弃的 episode 级聚合字段（改为读时计算）
         script_data.pop("characters_in_episode", None)
