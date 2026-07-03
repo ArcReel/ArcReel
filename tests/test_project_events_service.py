@@ -105,6 +105,23 @@ class TestProjectEventService:
         # narration 分镜走时间线画布：锚点类型恒为 segment（回归守卫，不得漂移）。
         assert all(c["focus"]["anchor_type"] == "segment" for c in segment_updated)
 
+    def test_build_snapshot_survives_null_episodes(self, tmp_path):
+        # project.json 的 episodes 显式为 null 时快照构建不崩:load_project 直接回读磁盘
+        # JSON、不规范化 episodes,读侧按 fail-soft 用 ``or []`` 兜底而非 ``get(..., [])``。
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        project = pm.load_project("demo")
+        project["episodes"] = None
+        project_file = pm.get_project_path("demo") / ProjectManager.PROJECT_FILE
+        project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+        service = ProjectEventService(tmp_path)
+        snapshot = service._build_snapshot("demo")
+
+        assert snapshot["project"]["episodes"] == {}
+
     def test_diff_snapshots_reports_project_metadata_and_new_segments(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

@@ -446,7 +446,7 @@ class ProjectEventService:
 
         project = self.pm.load_project(project_name)
         current_episodes: dict[int, dict[str, str]] = {}
-        for ep in project.get("episodes", []):
+        for ep in project.get("episodes") or []:
             if not isinstance(ep, dict):
                 continue
             episode_num = ep.get("episode")
@@ -549,7 +549,7 @@ class ProjectEventService:
             for ep in sorted(
                 [
                     ep
-                    for ep in project.get("episodes", [])
+                    for ep in project.get("episodes") or []
                     if isinstance(ep, dict) and isinstance(ep.get("episode"), int)
                 ],
                 key=lambda value: value["episode"],
@@ -561,7 +561,7 @@ class ProjectEventService:
         # 声明的生成路径分派才能读到该产物——与 ``StatusCalculator`` / 剪映导出同口径，不嗅探数据形状。
         episodes_by_file = {
             ep["script_file"]: ep
-            for ep in project.get("episodes", [])
+            for ep in project.get("episodes") or []
             if isinstance(ep, dict) and isinstance(ep.get("script_file"), str)
         }
 
