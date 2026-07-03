@@ -507,7 +507,7 @@ class DataValidator:
 
     def _validate_segments(
         self,
-        segments: list[dict[str, Any]],
+        segments: list[dict[str, Any]] | Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -517,12 +517,18 @@ class DataValidator:
         project_dir: Path | None = None,
     ) -> None:
         """验证 segments（narration 模式）"""
+        if not isinstance(segments, list):
+            errors.append("segments 必须是数组")
+            return
         if not segments:
             errors.append("segments 数组为空")
             return
 
         for index, segment in enumerate(segments):
             prefix = f"segments[{index}]"
+            if not isinstance(segment, dict):
+                errors.append(f"{prefix}: 必须是对象")
+                continue
 
             segment_id = segment.get("segment_id")
             if not segment_id:
@@ -583,7 +589,7 @@ class DataValidator:
 
     def _validate_scenes(
         self,
-        scenes: list[dict[str, Any]],
+        scenes: list[dict[str, Any]] | Any,
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
@@ -597,12 +603,18 @@ class DataValidator:
 
         ``language`` 为项目 ``source_language``（说话量上界 warning 的语速按此取，与字幕派生同口径）。
         """
+        if not isinstance(scenes, list):
+            errors.append("scenes 必须是数组")
+            return
         if not scenes:
             errors.append("scenes 数组为空")
             return
 
         for index, scene in enumerate(scenes):
             prefix = f"scenes[{index}]"
+            if not isinstance(scene, dict):
+                errors.append(f"{prefix}: 必须是对象")
+                continue
 
             scene_id = scene.get("scene_id")
             if not scene_id:
