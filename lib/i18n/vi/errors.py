@@ -1,5 +1,6 @@
 MESSAGES = {
     "project_not_found": "Dự án '{name}' không tồn tại hoặc chưa được khởi tạo",
+    "overview_ai_response_invalid": "Không thể phân tích phản hồi của AI thành tổng quan dự án, vui lòng thử lại hoặc đổi mô hình/nhà cung cấp",
     "video_capabilities_unresolved": "Không xác định được khả năng mô hình video cho dự án '{name}': {reason}",
     "scope_invalid": "scope phải là full hoặc current",
     "download_expired": "Liên kết tải xuống đã hết hạn, vui lòng xuất lại",

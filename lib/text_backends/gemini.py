@@ -2,26 +2,37 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from dataclasses import replace
 
 from google import genai
 from PIL import Image
+from pydantic import BaseModel, ValidationError
 
 from ..config.url_utils import normalize_base_url
 from ..gemini_shared import VERTEX_SCOPES, with_retry_async
 from ..logging_utils import format_kwargs_for_log
 from ..providers import PROVIDER_GEMINI
+from ..text_utils import strip_json_code_fences
 from .base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    is_valid_json,
     resolve_schema,
+    structured_fallback_reason,
+    summarize_validation_error,
     warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
+
+# prompt 注入降级的最大调用次数：首次注入 schema + 一次带校验错误反馈的重试。
+# 每次都是计费调用；schema 注入后仍两连败的模型/中转，再多重试收益趋零。
+_FALLBACK_MAX_ATTEMPTS = 2
 
 
 # 这些关键字的值是「名字 → 子 schema 的映射」：其 key 是属性名/定义名，不是 schema 关键字。
@@ -221,6 +232,23 @@ class GeminiTextBackend:
                 output_tokens=output_tokens,
             )
 
+        if request.response_schema:
+            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema。中转/代理可能静默忽略
+            # response_json_schema 返回散文或违例 JSON，直接放行会一路漏到下游 Pydantic
+            # 校验才抛裸 ValidationError。Gemini 原生请求无 strict 声明，复验用 strict=False，
+            # 容忍可强转值，避免对供应商已接受的合法响应触发多余的计费降级调用。
+            fallback_reason = structured_fallback_reason(text, request.response_schema, strict=False)
+            if fallback_reason:
+                logger.warning("原生 response_json_schema %s，降级到 prompt 注入路径", fallback_reason)
+                result = await self._prompt_json_fallback(request)
+                # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
+                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
+                if result.input_tokens is not None or input_tokens is not None:
+                    result.input_tokens = (result.input_tokens or 0) + (input_tokens or 0)
+                if result.output_tokens is not None or output_tokens is not None:
+                    result.output_tokens = (result.output_tokens or 0) + (output_tokens or 0)
+                return result
+
         return TextGenerationResult(
             text=text,
             provider=PROVIDER_GEMINI,
@@ -228,3 +256,69 @@ class GeminiTextBackend:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
+
+    async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:
+        """Prompt 注入降级：schema 写进 prompt 重发纯文本调用，剥栅栏后校验，失败带反馈重试。
+
+        触发场景是中转/代理静默忽略 wire 级结构化参数（response_json_schema），此时任何
+        wire 级通道（含 instructor genai 集成的 JSON/TOOLS 模式，同样落在 response_schema /
+        function calling 参数上）都会被同一中转忽略，把 schema 约束写进 prompt 是唯一不依赖
+        wire 参数的手段。校验通过后返回规范化 JSON（model_dump_json），下游解析必定成功。
+        """
+        assert request.response_schema is not None  # 调用方（generate 复验分支）保证
+        schema_dict = resolve_schema(request.response_schema)
+        schema_model = request.response_schema if isinstance(request.response_schema, type) else None
+
+        base_prompt = (
+            f"{request.prompt}\n\n"
+            "仅输出一个符合以下 JSON Schema 的 JSON 对象，"
+            "不要输出任何解释、前后缀或 markdown 代码栅栏：\n"
+            f"{json.dumps(schema_dict, ensure_ascii=False)}"
+        )
+        feedback = ""
+        total_input: int | None = None
+        total_output: int | None = None
+        last_reason = ""
+        for _attempt in range(_FALLBACK_MAX_ATTEMPTS):
+            fb_request = replace(request, prompt=base_prompt + feedback, response_schema=None)
+            # response_schema=None 的递归调用走纯文本路径，不会再进降级分支；
+            # 日志、截断告警与瞬态错误重试悉数复用 generate 本体。
+            fb_result = await self.generate(fb_request)
+            if fb_result.input_tokens is not None or total_input is not None:
+                total_input = (total_input or 0) + (fb_result.input_tokens or 0)
+            if fb_result.output_tokens is not None or total_output is not None:
+                total_output = (total_output or 0) + (fb_result.output_tokens or 0)
+
+            text = strip_json_code_fences(fb_result.text)
+            normalized, last_reason = _validate_fallback_text(text, schema_model)
+            if normalized is not None:
+                return TextGenerationResult(
+                    text=normalized,
+                    provider=PROVIDER_GEMINI,
+                    model=self._model,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                )
+            feedback = f"\n\n上次输出不符合要求（{last_reason}），请严格按上述 JSON Schema 重新输出纯 JSON。"
+            logger.warning("prompt 注入降级输出校验未通过（%s），带反馈重试", last_reason)
+
+        raise ValueError(
+            f"模型 {_FALLBACK_MAX_ATTEMPTS + 1} 次尝试后仍未返回符合要求的 JSON（{last_reason}）；"
+            "当前供应商或模型可能不支持结构化输出，请更换模型或供应商后重试"
+        )
+
+
+def _validate_fallback_text(text: str, schema_model: type | None) -> tuple[str | None, str]:
+    """校验降级输出并规范化。返回 (规范化 JSON 文本, "") 或 (None, 失败原因)。
+
+    Pydantic 模型走完整 schema 校验并以 model_dump_json 规范化；dict schema 无对应模型，
+    沿用「合法 JSON 即放行」口径（与 structured_fallback_reason 对 dict schema 的行为对齐）。
+    """
+    if schema_model is not None and issubclass(schema_model, BaseModel):
+        try:
+            return schema_model.model_validate_json(text).model_dump_json(), ""
+        except ValidationError as exc:
+            return None, summarize_validation_error(exc)
+    if is_valid_json(text):
+        return text, ""
+    return None, "输出不是合法 JSON"

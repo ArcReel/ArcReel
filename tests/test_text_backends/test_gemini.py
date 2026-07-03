@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from lib.text_backends.base import (
     TextCapability,
@@ -114,7 +115,7 @@ class TestGenerate:
         assert js["properties"]["name"]["type"] == "string"
         assert js["required"] == ["name"]
 
-    async def test_episode_script_integer_enum_routes_to_json_schema(self, backend):
+    def test_episode_script_integer_enum_routes_to_json_schema(self, backend):
         """回归：duration_seconds 整数 enum 的剧本 schema 必须走 response_json_schema。
 
         build_episode_script_model 把 duration_seconds 收紧为 Literal[*supported_durations]
@@ -123,13 +124,8 @@ class TestGenerate:
         """
         from lib.script_models import build_episode_script_model
 
-        schema = build_episode_script_model("narration", [4, 6, 8])
-        mock_resp = SimpleNamespace(text="{}", usage_metadata=None)
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+        config = backend._build_config(build_episode_script_model("narration", [4, 6, 8]), None)
 
-        await backend.generate(TextGenerationRequest(prompt="x", response_schema=schema))
-
-        config = backend._test_client.aio.models.generate_content.call_args.kwargs["config"]
         assert "response_schema" not in config
         seg_props = config["response_json_schema"]["properties"]["segments"]["items"]["properties"]
         assert seg_props["duration_seconds"]["enum"] == [4, 6, 8]
@@ -227,3 +223,112 @@ class TestGenerate:
         call_kwargs = backend._test_client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs.get("config")
         assert config is None or "max_output_tokens" not in config
+
+
+class _OverviewModel(BaseModel):
+    genre: str
+    theme: str
+
+
+def _resp(text: str, input_tokens: int | None = None, output_tokens: int | None = None) -> SimpleNamespace:
+    usage = (
+        SimpleNamespace(prompt_token_count=input_tokens, candidates_token_count=output_tokens)
+        if input_tokens is not None or output_tokens is not None
+        else None
+    )
+    return SimpleNamespace(text=text, usage_metadata=usage)
+
+
+_PROSE = "经仔细阅读，该剧本讲述了一个都市逆袭故事。"
+_VALID_JSON = '{"genre": "都市", "theme": "逆袭"}'
+
+
+class TestStructuredFallback:
+    """中转 HTTP 200 但不强制 response_json_schema（返回散文/违例 JSON）时的降级路径。"""
+
+    @pytest.fixture
+    def backend(self, mock_genai):
+        mock_client = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        b = GeminiTextBackend(api_key="k")
+        b._test_client = mock_client
+        return b
+
+    async def test_prose_triggers_prompt_fallback_and_succeeds(self, backend):
+        """散文响应触发降级：schema 注入 prompt、不带 wire 结构化参数重发，token 并账。"""
+        gc = AsyncMock(side_effect=[_resp(_PROSE, 20, 10), _resp(_VALID_JSON, 30, 15)])
+        backend._test_client.aio.models.generate_content = gc
+
+        result = await backend.generate(TextGenerationRequest(prompt="分析剧本", response_schema=_OverviewModel))
+
+        assert gc.call_count == 2
+        fb_config = gc.call_args_list[1].kwargs.get("config")
+        assert fb_config is None or ("response_json_schema" not in fb_config and "response_mime_type" not in fb_config)
+        fb_prompt = gc.call_args_list[1].kwargs["contents"][-1]
+        assert "分析剧本" in fb_prompt
+        assert "JSON Schema" in fb_prompt
+        assert '"genre"' in fb_prompt
+        # 校验通过后返回规范化 JSON，下游 model_validate_json 必定成功
+        assert _OverviewModel.model_validate_json(result.text) == _OverviewModel(genre="都市", theme="逆袭")
+        assert result.input_tokens == 50
+        assert result.output_tokens == 25
+
+    async def test_fallback_strips_code_fences(self, backend):
+        """降级输出带 markdown 栅栏时剥离后校验。"""
+        fenced = f"```json\n{_VALID_JSON}\n```"
+        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(fenced)])
+        backend._test_client.aio.models.generate_content = gc
+
+        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
+
+        assert _OverviewModel.model_validate_json(result.text).genre == "都市"
+
+    async def test_fallback_retries_with_error_feedback(self, backend):
+        """降级首次输出违反 schema 时带错误反馈重试一次。"""
+        gc = AsyncMock(
+            side_effect=[
+                _resp(_PROSE, 10, 5),
+                _resp('{"genre": "都市"}', 10, 5),  # 缺必填 theme
+                _resp(_VALID_JSON, 10, 5),
+            ]
+        )
+        backend._test_client.aio.models.generate_content = gc
+
+        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
+
+        assert gc.call_count == 3
+        retry_prompt = gc.call_args_list[2].kwargs["contents"][-1]
+        assert "不符合" in retry_prompt
+        assert _OverviewModel.model_validate_json(result.text).theme == "逆袭"
+        assert result.input_tokens == 30
+        assert result.output_tokens == 15
+
+    async def test_fallback_exhausted_raises_value_error(self, backend):
+        """降级重试穷尽后 fail-loud，错误消息面向用户可读（不透传 pydantic 原始串）。"""
+        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(_PROSE), _resp(_PROSE)])
+        backend._test_client.aio.models.generate_content = gc
+
+        with pytest.raises(ValueError, match="结构化输出"):
+            await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
+
+        assert gc.call_count == 3
+
+    async def test_valid_schema_json_no_fallback(self, backend):
+        """满足 schema 的合法 JSON 不触发降级（单次调用）。"""
+        gc = AsyncMock(return_value=_resp(_VALID_JSON, 20, 10))
+        backend._test_client.aio.models.generate_content = gc
+
+        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
+
+        assert gc.call_count == 1
+        assert result.text == _VALID_JSON
+
+    async def test_dict_schema_prose_fallback_returns_stripped_json(self, backend):
+        """dict schema 无 Pydantic 模型可校验，降级后按「合法 JSON」标准放行。"""
+        schema = {"type": "object", "properties": {"k": {"type": "string"}}}
+        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp('```json\n{"k": "v"}\n```')])
+        backend._test_client.aio.models.generate_content = gc
+
+        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=schema))
+
+        assert result.text == '{"k": "v"}'
