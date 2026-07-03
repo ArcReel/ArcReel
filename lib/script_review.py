@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from lib.episode_paths import STEP1_FILENAMES, episode_drafts_dir, episode_script_relpath
+from lib.json_io import load_json_or_none
 from lib.project_manager import effective_mode
+from lib.short_drama_qa import QAResult, empty_result, evaluate_short_drama_qa, has_blocking_findings
 
 #: 审核状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
 #: pending_review=step1 已产出但未经确认（或确认后内容又变）→ 阻塞 step2；confirmed=已确认放行。
@@ -116,13 +118,29 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     return "confirmed" if step2_generated(project_path, project, episode) else "pending_review"
 
 
+def step1_qa_result(project_path: Path, project: dict[str, Any], episode: int) -> QAResult:
+    """派生该集 step1 QA 结果；不适用、缺失或不可解析时返回空结果。
+
+    QA 仍是 Phase 1 的派生态，不写入 project.json。把读取放在本模块，保证所有 step2 入口可复用
+    同一套「审核状态 + deterministic QA」阻塞语义，而不只依赖各自的工具层补丁。
+    """
+    path = step1_path(project_path, project, episode)
+    if path is None:
+        return empty_result()
+    content = load_json_or_none(path)
+    return evaluate_short_drama_qa(project, content if isinstance(content, dict) else None)
+
+
 def gate_blocks_step2(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """step2 是否应被 gate 阻塞——仅 pending_review 阻塞；not_applicable / no_step1 / confirmed 放行。
+    """step2 是否应被 gate 阻塞：pending_review 或 deterministic QA block 均阻塞。
 
     no_step1 不在此阻塞：step2 入口对缺 step1 另有「未找到 Step 1 文件」的早返提示，
-    本 gate 只负责「step1 在但未确认」这一道。
+    本 gate 负责「step1 在但未确认」和「step1 有可机械判定 QA block」两道。review_status 仍保留
+    存量 grandfather 的 confirmed 状态；但新 step2 生成不可把 grandfather 当作 QA bypass。
     """
-    return review_status(project_path, project, episode) == "pending_review"
+    return review_status(project_path, project, episode) == "pending_review" or has_blocking_findings(
+        step1_qa_result(project_path, project, episode)
+    )
 
 
 def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, confirmed_at: str) -> bool:

@@ -20,6 +20,7 @@ from lib import script_review
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
+from lib.short_drama_qa import empty_result, evaluate_short_drama_qa, has_blocking_findings
 
 #: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
@@ -33,10 +34,11 @@ _CONTENT_MODEL: dict[str, type[BaseModel]] = {
 class ScriptReviewError(Exception):
     """gate 操作的领域错误。``code`` 供 router 映射 HTTP 状态与 i18n key；``message`` 为技术细节。"""
 
-    def __init__(self, code: str, message: str = ""):
+    def __init__(self, code: str, message: str = "", payload: dict[str, Any] | None = None):
         super().__init__(message or code)
         self.code = code
         self.message = message
+        self.payload = payload
 
 
 class ScriptReviewService:
@@ -68,13 +70,16 @@ class ScriptReviewService:
             # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
             self._require_episode(project, episode)
         fingerprint = script_review.content_fingerprint(path) if path is not None else None
+        content = _read_json(path) if path is not None else None
+        qa = evaluate_short_drama_qa(project, content) if path is not None else empty_result()
         return {
             "episode": episode,
             "content_mode": project.get("content_mode"),
             "status": script_review.review_status(project_path, project, episode),
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
-            "content": _read_json(path) if path is not None else None,
+            "content": content,
+            **qa,
         }
 
     def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
@@ -114,10 +119,20 @@ class ScriptReviewService:
         # 确认前按 content_mode 模型校验 step1 结构：content_fingerprint 对非法 JSON / 任意字节
         # 也会产出哈希，仅凭 fingerprint 非空会把损坏草稿确认放行、拖到 step2 才暴露；此处拒绝。
         model = _CONTENT_MODEL[project["content_mode"]]
+        content = _read_json(path)
         try:
-            model.model_validate(_read_json(path))
+            model.model_validate(content)
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
+        qa = evaluate_short_drama_qa(project, content)
+        if has_blocking_findings(qa):
+            payload = {
+                "code": "qa_gate_blocked",
+                "message": "deterministic QA findings must be fixed before confirming step1 review",
+                "qa_summary": qa["qa_summary"],
+                "qa_findings": [f for f in qa["qa_findings"] if f.get("severity") == "block"],
+            }
+            raise ScriptReviewError("qa_gate_blocked", payload["message"], payload)
 
         confirmed_at = datetime.now(UTC).isoformat()
 

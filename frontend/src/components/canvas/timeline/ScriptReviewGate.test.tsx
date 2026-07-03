@@ -5,6 +5,14 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type { ScriptReviewState } from "@/types";
 
+function clearQaState(): Pick<ScriptReviewState, "qa_findings" | "qa_summary" | "qa_gate_status"> {
+  return {
+    qa_findings: [],
+    qa_summary: { info_count: 0, warn_count: 0, block_count: 0, gate_status: "clear", top_codes: [] },
+    qa_gate_status: "clear",
+  };
+}
+
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
@@ -12,6 +20,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
+    ...clearQaState(),
     content: {
       title: "第一集",
       scenes: [
@@ -42,6 +51,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
+    ...clearQaState(),
     content: {
       segments: [
         {
@@ -235,5 +245,48 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
     expect(screen.queryByText("无法加载预处理内容")).not.toBeInTheDocument();
     expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders QA findings and disables confirm for deterministic blocks", async () => {
+    const confirm = vi.spyOn(API, "confirmScriptReview").mockResolvedValue(dramaState());
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({
+        qa_gate_status: "blocked",
+        qa_summary: {
+          info_count: 0,
+          warn_count: 1,
+          block_count: 1,
+          gate_status: "blocked",
+          top_codes: ["missing_prop_reference"],
+        },
+        qa_findings: [
+          {
+            code: "missing_prop_reference",
+            severity: "block",
+            message: "E1S01 引用了未登记的 props 资产。",
+            path: "$.scenes[0].props",
+            evidence: "玉佩",
+            recommendation: "先登记道具。",
+          },
+          {
+            code: "weak_opening_hook",
+            severity: "warn",
+            message: "开篇钩子偏弱。",
+            recommendation: "加强危机。",
+          },
+        ],
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("短剧 QA 检查")).toBeInTheDocument());
+    expect(screen.getByText("missing_prop_reference")).toBeInTheDocument();
+    expect(screen.getByText("玉佩")).toBeInTheDocument();
+    expect(screen.getByText(/存在确定性阻塞项/)).toBeInTheDocument();
+    const confirmButton = screen.getByRole("button", { name: /确认并继续/ });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(confirmButton);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

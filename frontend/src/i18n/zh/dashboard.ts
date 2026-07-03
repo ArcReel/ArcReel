@@ -1082,6 +1082,10 @@ export default {
   'review_confirm_failed': '确认失败，请重试',
   'review_load_failed': '无法加载预处理内容',
   'review_retry': '重试',
+  'review_qa_title': '短剧 QA 检查',
+  'review_qa_summary': 'block {{block}} · warn {{warn}} · info {{info}}',
+  'review_qa_blocked_hint': '存在确定性阻塞项，修复并保存后才能确认。',
+  'review_qa_recommendation': '建议',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

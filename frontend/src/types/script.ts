@@ -130,6 +130,26 @@ export interface NarrationStep1Draft {
   episode?: number;
 }
 
+export type QaSeverity = "info" | "warn" | "block";
+export type QaGateStatus = "clear" | "warning" | "blocked";
+
+export interface ScriptReviewQaFinding {
+  code: string;
+  severity: QaSeverity;
+  message: string;
+  path?: string;
+  evidence?: string;
+  recommendation?: string;
+}
+
+export interface ScriptReviewQaSummary {
+  info_count: number;
+  warn_count: number;
+  block_count: number;
+  gate_status: QaGateStatus;
+  top_codes: string[];
+}
+
 export type ScriptReviewStatus =
   | "not_applicable"
   | "no_step1"
@@ -144,6 +164,9 @@ export interface ScriptReviewState {
   fingerprint: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationStep1Draft | null;
+  qa_findings: ScriptReviewQaFinding[];
+  qa_summary: ScriptReviewQaSummary;
+  qa_gate_status: QaGateStatus;
 }
 
 export interface Composition {

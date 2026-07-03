@@ -30,6 +30,7 @@ from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
 from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
 from lib.script_models import build_drama_normalized_script_model
+from lib.short_drama_qa import QAResult, has_blocking_findings
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
@@ -103,9 +104,35 @@ def get_video_capabilities_tool(ctx: ToolContext):
     return _handler
 
 
-# ---------------------------------------------------------------------------
-# generate_episode_script
-# ---------------------------------------------------------------------------
+def _format_qa_summary_for_tool(state: dict[str, Any] | QAResult | None) -> str:
+    if not state:
+        return ""
+    summary = state.get("qa_summary")
+    findings = state.get("qa_findings")
+    if not isinstance(summary, dict):
+        return ""
+    block_count = int(summary.get("block_count") or 0)
+    warn_count = int(summary.get("warn_count") or 0)
+    info_count = int(summary.get("info_count") or 0)
+    if not (block_count or warn_count or info_count):
+        return ""
+    lines = [f"\nQA 摘要：block={block_count}, warn={warn_count}, info={info_count}"]
+    if isinstance(findings, list):
+        for finding in findings[:5]:
+            if not isinstance(finding, dict):
+                continue
+            code = finding.get("code") or "qa_finding"
+            severity = finding.get("severity") or "info"
+            message = finding.get("message") or ""
+            evidence = finding.get("evidence") or ""
+            recommendation = finding.get("recommendation") or ""
+            line = f"- [{severity}] {code}: {message}"
+            if evidence:
+                line += f" 证据：{evidence}"
+            if recommendation:
+                line += f" 建议：{recommendation}"
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
@@ -182,9 +209,25 @@ def generate_episode_script_tool(ctx: ToolContext):
                 }
 
             # step1→step2 审核 gate：drama / narration 的结构化 step1 中间态须经 web 显式确认才放行
-            # step2 视觉生成；未确认（或确认后内容又被改）时阻塞，引导用户先在 Web 端审阅确认。
+            # step2 视觉生成；未确认（或确认后内容又被改）及 deterministic QA block 时阻塞。
             # ad（无 step1）/ reference_video（step1 为自由文本 md）不适用，gate 自动放行。
+            qa_state = script_review.step1_qa_result(project_path, project_data, episode)
             if script_review.gate_blocks_step2(project_path, project_data, episode):
+                qa_suffix = _format_qa_summary_for_tool(qa_state)
+                if has_blocking_findings(qa_state):
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "⛔ step1 QA 存在确定性阻塞项，step2 视觉生成已停止。"
+                                    "请在 Web 端修复并保存 step1 后重新确认。"
+                                    f"{qa_suffix}"
+                                ),
+                            }
+                        ],
+                        "is_error": True,
+                    }
                 return {
                     "content": [
                         {
@@ -192,6 +235,7 @@ def generate_episode_script_tool(ctx: ToolContext):
                             "text": (
                                 "⏸️ step1 结构化中间态尚未经 web 审核确认，step2 视觉生成被 gate 阻塞。"
                                 "请在 Web 端审阅并确认本集 step1 内容后再生成剧本。"
+                                f"{qa_suffix}"
                             ),
                         }
                     ],
@@ -236,9 +280,13 @@ def confirm_script_review_tool(ctx: ToolContext):
             try:
                 state = service.confirm(ctx.project_name, episode)
             except ScriptReviewError as exc:
+                qa_suffix = _format_qa_summary_for_tool(exc.payload) if exc.code == "qa_gate_blocked" else ""
                 return {
                     "content": [
-                        {"type": "text", "text": f"❌ 无法确认 step1 审核（{exc.code}）：{exc.message or exc.code}"}
+                        {
+                            "type": "text",
+                            "text": f"❌ 无法确认 step1 审核（{exc.code}）：{exc.message or exc.code}{qa_suffix}",
+                        }
                     ],
                     "is_error": True,
                 }

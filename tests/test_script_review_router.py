@@ -22,8 +22,8 @@ def _drama_step1() -> dict:
                 "duration_seconds": 8,
                 "segment_break": False,
                 "characters_in_scene": ["阿离"],
-                "scenes": [],
-                "props": [],
+                "scenes": ["屋檐"],
+                "props": ["信纸"],
                 "scene_description": "雨夜，阿离立于屋檐下",
                 "utterances": [
                     {"kind": "voiceover", "speaker": None, "text": "三年后。"},
@@ -40,6 +40,8 @@ def _client(monkeypatch, tmp_path: Path) -> tuple[TestClient, ProjectManager]:
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "drama")
     pm.add_character("demo", "阿离", "少女")
+    pm.add_project_scene("demo", "屋檐", "雨夜屋檐")
+    pm.add_prop("demo", "信纸", "关键证据")
     pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
@@ -75,7 +77,7 @@ class TestScriptReviewRouter:
             assert body["content"]["scenes"][0]["utterances"][1]["speaker"] == "阿离"
 
             # 确认前 step2 被阻塞
-            from lib import script_review
+            import lib.script_review as script_review
 
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
@@ -124,3 +126,34 @@ class TestScriptReviewRouter:
         with client:
             got = client.get("/api/v1/projects/demo/episodes/99/script-review")
             assert got.status_code == 404
+
+    def test_confirm_with_qa_block_returns_409_payload(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            content = _drama_step1()
+            content["scenes"][0]["props"] = ["信纸", "玉佩"]
+            _write_step1(pm, content)
+
+            resp = client.post(f"{base}/confirm")
+            assert resp.status_code == 409
+            detail = resp.json()["detail"]
+            assert detail["code"] == "qa_gate_blocked"
+            assert detail["qa_summary"]["block_count"] == 1
+            assert detail["qa_findings"][0]["code"] == "missing_prop_reference"
+
+    def test_confirm_with_unsupported_duration_returns_409_payload(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        pm.update_project("demo", lambda project: project.update({"_supported_durations": [4, 6, 8]}))
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            content = _drama_step1()
+            content["scenes"][0]["duration_seconds"] = 7
+            _write_step1(pm, content)
+
+            resp = client.post(f"{base}/confirm")
+
+            assert resp.status_code == 409
+            detail = resp.json()["detail"]
+            assert detail["code"] == "qa_gate_blocked"
+            assert detail["qa_findings"][0]["code"] == "unsupported_duration"

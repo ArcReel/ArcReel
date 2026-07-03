@@ -119,6 +119,65 @@ function DramaSceneCard({
   );
 }
 
+function QaFindingsPanel({ state }: { state: ScriptReviewState }) {
+  const { t } = useTranslation("dashboard");
+  const findings = state.qa_findings ?? [];
+  const summary = state.qa_summary;
+  if (!summary || findings.length === 0) return null;
+
+  const blocked = state.qa_gate_status === "blocked";
+  const panelClassName = blocked
+    ? "rounded-[10px] border border-rose-400/35 bg-rose-950/20 px-3.5 py-3"
+    : "rounded-[10px] border border-amber-400/25 bg-amber-950/15 px-3.5 py-3";
+  const iconClassName = blocked ? "h-4 w-4 text-rose-300" : "h-4 w-4 text-amber-300";
+  return (
+    <section className={panelClassName} aria-label={t("review_qa_title")}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className={iconClassName} aria-hidden="true" />
+          <span className="text-[12.5px] font-medium text-text">{t("review_qa_title")}</span>
+        </div>
+        <span className="font-mono text-[11px] text-text-4">
+          {t("review_qa_summary", {
+            block: summary.block_count,
+            warn: summary.warn_count,
+            info: summary.info_count,
+          })}
+        </span>
+      </div>
+      {blocked && <p className="mb-2 text-[11.5px] text-rose-200">{t("review_qa_blocked_hint")}</p>}
+      <ul className="flex flex-col gap-2">
+        {findings.map((finding, index) => (
+          <li key={`${finding.code}-${finding.path ?? index}`} className="rounded border border-hairline bg-bg/40 p-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
+                  finding.severity === "block"
+                    ? "bg-rose-500/20 text-rose-200"
+                    : finding.severity === "warn"
+                      ? "bg-amber-500/20 text-amber-200"
+                      : "bg-sky-500/20 text-sky-200"
+                }`}
+              >
+                {finding.severity}
+              </span>
+              <span className="font-mono text-[10.5px] text-text-4">{finding.code}</span>
+              {finding.path && <span className="font-mono text-[10.5px] text-text-5">{finding.path}</span>}
+            </div>
+            <p className="mt-1 text-[12px] text-text-2">{finding.message}</p>
+            {finding.evidence && <p className="mt-1 font-mono text-[10.5px] text-text-4">{finding.evidence}</p>}
+            {finding.recommendation && (
+              <p className="mt-1 text-[11.5px] text-text-3">
+                {t("review_qa_recommendation")}: {finding.recommendation}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function NarrationSegmentCard({
   segment,
   disabled,
@@ -314,6 +373,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   }
 
   const confirmed = status === "confirmed" && !dirty;
+  const qaBlocked = state?.qa_gate_status === "blocked";
 
   return (
     <div className="flex flex-col gap-3">
@@ -348,7 +408,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           <button
             type="button"
             onClick={voidPromise(handleConfirm)}
-            disabled={busy || confirmed}
+            disabled={busy || confirmed || qaBlocked}
+            title={qaBlocked ? t("dashboard:review_qa_blocked_hint") : undefined}
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >
@@ -361,6 +422,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           </button>
         </div>
       </header>
+
+      {state ? <QaFindingsPanel state={state} /> : null}
 
       {/* 结构化中间态卡片 */}
       <div className="flex flex-col gap-2.5">

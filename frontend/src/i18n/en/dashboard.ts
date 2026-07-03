@@ -1081,6 +1081,10 @@ export default {
   'review_confirm_failed': 'Could not confirm, please try again',
   'review_load_failed': "Couldn't load preprocessing content",
   'review_retry': 'Retry',
+  'review_qa_title': 'Short-drama QA checks',
+  'review_qa_summary': 'block {{block}} · warn {{warn}} · info {{info}}',
+  'review_qa_blocked_hint': 'Deterministic blockers must be fixed and saved before confirmation.',
+  'review_qa_recommendation': 'Recommendation',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

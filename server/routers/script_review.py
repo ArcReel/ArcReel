@@ -33,6 +33,7 @@ _ERROR_STATUS: dict[str, int] = {
     "no_step1": 409,
     "invalid_content": 422,
     "episode_not_found": 404,
+    "qa_gate_blocked": 409,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
@@ -43,6 +44,8 @@ _ERROR_I18N: dict[str, str] = {
 
 def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> None:
     status = _ERROR_STATUS.get(exc.code, 400)
+    if exc.code == "qa_gate_blocked" and exc.payload:
+        raise HTTPException(status_code=status, detail=exc.payload)
     if exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
     elif exc.code == "episode_not_found":
