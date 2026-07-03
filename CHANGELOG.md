@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.20.1](https://github.com/ArcReel/ArcReel/compare/v0.20.0...v0.20.1) (2026-07-03)
+
+
+### 🐛 Bug 修复
+
+* **archive:** 修复广告参考视频项目归档导入不再自愈，损坏骨架条目不再崩溃导入 ([#1033](https://github.com/ArcReel/ArcReel/issues/1033)) ([3b8adc2](https://github.com/ArcReel/ArcReel/commit/3b8adc2fdc3e91f3d9d78989370b172a8e05c249))
+* **config:** 供应商 base_url 收敛为 DB 配置唯一来源，移除环境变量兜底与隐式路由覆盖 ([#1017](https://github.com/ArcReel/ArcReel/issues/1017)) ([67d8924](https://github.com/ArcReel/ArcReel/commit/67d89244480ab35ca79834dd17dc21b289c0e6ac))
+* **events:** ad 与参考生视频项目恢复分镜级实时事件推送 ([#1012](https://github.com/ArcReel/ArcReel/issues/1012)) ([9e4298a](https://github.com/ArcReel/ArcReel/commit/9e4298a9961bfc06e7205d3c37e2b25a042ccfa9))
+* **events:** 参考生视频通知点击定位到对应视频单元，各骨架通知标签一致 ([#1032](https://github.com/ArcReel/ArcReel/issues/1032)) ([01cc2bb](https://github.com/ArcReel/ArcReel/commit/01cc2bbb2a6e036b5a5d97357e9b43fba6d83a81))
+* **events:** 广告参考生视频成片就绪补发视频单元通知 ([#1034](https://github.com/ArcReel/ArcReel/issues/1034)) ([9c20872](https://github.com/ArcReel/ArcReel/commit/9c208728f661ecf5eefb10eb450ccfe2e9577737))
+* **frontend:** 修复 pnpm-lock.yaml 重复 key 导致的前端依赖安装失败 ([#1030](https://github.com/ArcReel/ArcReel/issues/1030)) ([0a32e84](https://github.com/ArcReel/ArcReel/commit/0a32e847283e6b0d9f57bc99e42072951d467e27))
+* **project-events:** 页面刷新或多标签切换时项目实时更新不再漏推 ([#1027](https://github.com/ArcReel/ArcReel/issues/1027)) ([90224a0](https://github.com/ArcReel/ArcReel/commit/90224a0a7b30b0070aa13660e82d8797b3731745))
+* **script:** step1 文件名与剧本路径收敛到单一来源，杜绝审核 gate 被文件名漂移静默绕过 ([#995](https://github.com/ArcReel/ArcReel/issues/995)) ([68a6432](https://github.com/ArcReel/ArcReel/commit/68a6432d0af42749fc99827d8293fbbed7746031))
+* **text:** 修复 AI 返回格式异常导致的概述生成失败，重试不再重复计费 ([#1029](https://github.com/ArcReel/ArcReel/issues/1029)) ([291daa9](https://github.com/ArcReel/ArcReel/commit/291daa988f5c7e292e046437d98d5f4bd3fffe9f))
+* **timeline:** 修复审核面板发声列表编辑串位，加载失败区分错误态并支持重试 ([#996](https://github.com/ArcReel/ArcReel/issues/996)) ([227f83a](https://github.com/ArcReel/ArcReel/commit/227f83a0d1d327cba2c47c175cfa7c8d03bb6c9b))
+
+
+### ♻️ 重构
+
+* **agent:** SDK options 装配析出为持依赖装配器 ([#1022](https://github.com/ArcReel/ArcReel/issues/1022)) ([f433534](https://github.com/ArcReel/ArcReel/commit/f43353447c00a864b55177d5a124a8b7021283e0))
+* **agent:** 会话消息流改产语义化事件，哨兵收编进 seam ([#1020](https://github.com/ArcReel/ArcReel/issues/1020)) ([15c24cb](https://github.com/ArcReel/ArcReel/commit/15c24cb1d98bb78bbc6622e2aa22ee8e709966b5))
+* **agent:** 析出 agent 访问规则为零 I/O 单类，内核沙箱编译与 hook 裁决共用同一份规则 ([#1019](https://github.com/ArcReel/ArcReel/issues/1019)) ([369daa2](https://github.com/ArcReel/ArcReel/commit/369daa2474e8665c056c612457317bb3ade590ae))
+* **agent:** 析出 SessionManager 的 token/cost 抽取与消息序列化为纯函数模块 ([#1018](https://github.com/ArcReel/ArcReel/issues/1018)) ([36a3d17](https://github.com/ArcReel/ArcReel/commit/36a3d17d2708814f19f2a0d579ebfc7abb4f5117))
+* **script:** 剧本骨架分派深收口与消费方穷尽性断言 ([#1011](https://github.com/ArcReel/ArcReel/issues/1011)) ([3e56cd1](https://github.com/ArcReel/ArcReel/commit/3e56cd16f3635061a505488be1eda58718808feb))
+* **script:** 剧本骨架知识收归单一真相源，旧字段名分派一次迁清 ([#1010](https://github.com/ArcReel/ArcReel/issues/1010)) ([3864c9c](https://github.com/ArcReel/ArcReel/commit/3864c9cfc683c0a203649b9c782530ec8179569e))
+* **sse:** 会话流与项目事件流的订阅广播收敛为参数化 SseChannel 组件 ([#1023](https://github.com/ArcReel/ArcReel/issues/1023)) ([8fad678](https://github.com/ArcReel/ArcReel/commit/8fad67888f9bfdca6314e58f5072b4a03eab7a08))
+
+
+### 📚 文档
+
+* **adr:** 文本输出 token 上限收敛为非约束安全阀，结构化截断升为可操作硬错误 ([#1028](https://github.com/ArcReel/ArcReel/issues/1028)) ([8c70a9f](https://github.com/ArcReel/ArcReel/commit/8c70a9fb8daddd1ff84e8b2cd939f64798522086))
+* **context:** 记录 ad 模式不接入剧本审核 gate 的范围决策 ([#992](https://github.com/ArcReel/ArcReel/issues/992)) ([aee22cf](https://github.com/ArcReel/ArcReel/commit/aee22cf3fa3ae8e0debab96ec676c3ba4defa815))
+* **script:** 剧本骨架收口设计 ADR 与「骨架」领域词条 ([#1001](https://github.com/ArcReel/ArcReel/issues/1001)) ([034ffe3](https://github.com/ArcReel/ArcReel/commit/034ffe3e6c9b8ad638ee7043dd416cf4ea0d54ae))
+
 ## [0.20.0](https://github.com/ArcReel/ArcReel/compare/v0.19.1...v0.20.0) (2026-07-01)
 
 
