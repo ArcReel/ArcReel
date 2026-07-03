@@ -727,9 +727,14 @@ class ProjectArchiveService:
         content_mode = raw_content_mode
         generation_mode = effective_mode(project=project_payload, episode=script_payload)
 
-        # reference_video 模式的剧本用 video_units 组织，结构与 narration/drama 的
-        # segments/scenes 不同，单独走专用修复分支。
-        if generation_mode == "reference_video":
+        # 修复分流按规范解析的骨架种类走，而非 generation_mode：ad 项目 generation_mode
+        # 可为 reference_video 但骨架恒为 shots（不含 video_units），按 generation_mode
+        # 分流会把它错误送进 video_units 专用分支而静默 no-op。
+        kind = resolve_declared_kind(content_mode, generation_mode)
+
+        # video_units 骨架（narration/drama + 参考生视频）用 references 组织资产，结构与
+        # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
+        if kind == "video_units":
             units_changed, units_project_changed = self._repair_video_units_payload(
                 project_dir,
                 script_path_rel=script_path_rel,
@@ -744,12 +749,11 @@ class ProjectArchiveService:
             )
             return script_changed or units_changed, project_changed or units_project_changed
 
-        # 非 reference 路径：骨架种类经规范解析（未知/缺失 content_mode fail-loud）。
-        kind = resolve_declared_kind(content_mode, generation_mode)
+        # storyboard 骨架（segments/scenes/shots，含 ad 的 shots）逐条补全字段与资产回填。
         items_key = kind
         id_field = SKELETONS[kind].id_field
         chars_field = SKELETONS[kind].chars_field
-        # storyboard 骨架（segments/scenes/shots）必有 chars_field；reference 已在上分支返回。
+        # storyboard 骨架必有 chars_field；video_units 已在上分支返回。
         assert chars_field is not None
 
         raw_items = script_payload.get(items_key)
@@ -847,7 +851,52 @@ class ProjectArchiveService:
                     ):
                         script_changed = True
 
+        # ad 参考直出的派生索引 reference_units 挂在 shots 之外，storyboard 循环不触及；
+        # 就地补全各 unit 的 generated_assets 缺失字段。
+        if kind == "shots" and self._repair_ad_reference_units(
+            script_path_rel=script_path_rel,
+            script_payload=script_payload,
+            content_mode=content_mode,
+            diagnostics=diagnostics,
+        ):
+            script_changed = True
+
         return script_changed, project_changed
+
+    def _repair_ad_reference_units(
+        self,
+        *,
+        script_path_rel: str,
+        script_payload: dict[str, Any],
+        content_mode: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """回填 ad 参考直出派生索引 reference_units 各 unit 的 generated_assets（就地，缺字段才补）。
+
+        reference_units 是 shots 的派生索引，产物挂在 unit 上而非 shots。这里只对已存在的
+        unit 就地补全缺失的 generated_assets 字段——不从 shots 重派生分组：重派生需供应商时长
+        上限（归档修复时不可得），分组一旦改变会让既有产物指针错位丢失。既有资产值一律保留、
+        仅补缺失键，与派生索引 merge 的资产保留语义一致。
+        """
+        units = script_payload.get("reference_units")
+        if not isinstance(units, list):
+            return False
+
+        changed = False
+        for index, unit in enumerate(units):
+            if not isinstance(unit, dict):
+                continue
+            _, assets_changed = self._backfill_generated_assets(
+                unit,
+                content_mode=content_mode,
+                label="reference_units",
+                index=index,
+                location_prefix=f"{script_path_rel}:reference_units[{index}]",
+                diagnostics=diagnostics,
+            )
+            if assets_changed:
+                changed = True
+        return changed
 
     def _backfill_generated_assets(
         self,

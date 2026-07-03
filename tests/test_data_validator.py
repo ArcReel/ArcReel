@@ -1181,6 +1181,67 @@ class TestSourceKindValidation:
         assert result.valid, result.errors
 
 
+def _episode_for_kind(kind: str, items: object) -> tuple[dict, dict]:
+    """按骨架种类构造 (project, episode)：episode 的骨架数组键置为传入的 items（可为非法值）。"""
+    array_key, content_mode, gen_mode = {
+        "segments": ("segments", "narration", None),
+        "scenes": ("scenes", "drama", None),
+        "shots": ("shots", "ad", None),
+        "video_units": ("video_units", "narration", "reference_video"),
+    }[kind]
+    if content_mode == "ad":
+        project = _ad_project_payload()
+    else:
+        project = _project_payload(content_mode)
+    episode: dict = {"episode": 1, "title": "第一集", "content_mode": content_mode, array_key: items}
+    if gen_mode:
+        project["generation_mode"] = gen_mode
+        episode["generation_mode"] = gen_mode
+    return project, episode
+
+
+class TestSkeletonEntryTypeGuards:
+    """四种骨架的校验循环遇非 dict 条目 / 骨架字段非 list：记错误、valid=False、不抛异常。"""
+
+    def _validate(self, tmp_path, project: dict, episode: dict):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", project)
+        _write_json(project_dir / "scripts" / "episode_1.json", episode)
+        return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+    @pytest.mark.parametrize(
+        ("kind", "array_key"),
+        [
+            ("segments", "segments"),
+            ("scenes", "scenes"),
+            ("shots", "shots"),
+            ("video_units", "video_units"),
+        ],
+    )
+    def test_non_dict_entry_reported_not_crash(self, tmp_path, kind, array_key):
+        # 骨架数组含非 dict 条目（字符串）：记「条目类型错误」并继续，valid=False，不抛异常
+        project, episode = _episode_for_kind(kind, ["不是对象", {}])
+        result = self._validate(tmp_path, project, episode)
+        assert not result.valid
+        assert any(f"{array_key}[0]" in error for error in result.errors), result.errors
+
+    @pytest.mark.parametrize(
+        ("kind", "array_key"),
+        [
+            ("segments", "segments"),
+            ("scenes", "scenes"),
+            ("shots", "shots"),
+            ("video_units", "video_units"),
+        ],
+    )
+    def test_non_list_skeleton_field_reported_not_crash(self, tmp_path, kind, array_key):
+        # 骨架数组字段本身非 list（dict）：记「必须是数组」，valid=False，不抛异常
+        project, episode = _episode_for_kind(kind, {"E1S01": {}})
+        result = self._validate(tmp_path, project, episode)
+        assert not result.valid
+        assert any(array_key in error and "数组" in error for error in result.errors), result.errors
+
+
 # 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
 _KIND_TO_MODES = {
     "segments": ("narration", None),
