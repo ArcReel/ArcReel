@@ -927,14 +927,17 @@ class ProjectEventService:
         return changes
 
     @staticmethod
+    def _script_kind(script_meta: dict[str, Any]) -> str:
+        # 单一读取点，让名词/实体类型/锚点类型三者按同一 kind 归一，回退口径不会分叉。
+        return str(script_meta.get("kind") or "segments")
+
+    @staticmethod
     def _script_item_entity_type(script_meta: dict[str, Any]) -> str:
-        kind = str(script_meta.get("kind") or "segments")
-        return _SKELETON_ENTITY_TYPES.get(kind, "segment")
+        return _SKELETON_ENTITY_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
 
     @staticmethod
     def _script_item_anchor_type(script_meta: dict[str, Any]) -> str:
-        kind = str(script_meta.get("kind") or "segments")
-        return _SKELETON_ANCHOR_TYPES.get(kind, "segment")
+        return _SKELETON_ANCHOR_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
 
     @staticmethod
     def _build_script_item_focus(
@@ -950,8 +953,7 @@ class ProjectEventService:
 
     @staticmethod
     def _build_script_item_label(item_id: str, script_meta: dict[str, Any]) -> str:
-        kind = str(script_meta.get("kind") or "segments")
-        noun = _SKELETON_ITEM_NOUNS.get(kind, "分镜")
+        noun = _SKELETON_ITEM_NOUNS.get(ProjectEventService._script_kind(script_meta), "分镜")
         return f"{noun}「{item_id}」"
 
     def _build_script_item_change(
