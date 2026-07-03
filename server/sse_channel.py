@@ -164,12 +164,18 @@ class SseChannel:
 
         注册前集合为空时触发 ``on_first_subscriber``（注册完成后才调用，
         钩子内可见新订阅者——项目事件流的后台扫描以 has_subscribers 判存活）。
+        钩子抛异常时回退这个新队列再向上抛出：调用方拿不到队列、无从退订，
+        队列不能滞留集合。
         """
         was_empty = not self._subscribers
         queue: asyncio.Queue = asyncio.Queue(maxsize=self._queue_maxsize)
         self._subscribers.add(queue)
         if was_empty and self._on_first_subscriber is not None:
-            self._on_first_subscriber()
+            try:
+                self._on_first_subscriber()
+            except BaseException:
+                self._subscribers.discard(queue)
+                raise
         return queue
 
     async def unsubscribe(self, queue: asyncio.Queue) -> None:

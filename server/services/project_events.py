@@ -149,15 +149,19 @@ class ProjectEventService:
         )
 
     async def _stop_watch(self, project_name: str) -> None:
-        """末订阅者钩子：停止后台扫描任务并注销通道。"""
-        channel = self._channels.get(project_name)
+        """末订阅者钩子：停止后台扫描任务并注销通道。
+
+        先从注册表摘除通道再 await watch task 退出——摘除与取回之间无让出点，
+        摘的正是当前通道。收尾期间让出事件循环时，并发进入的新订阅者取不到这个
+        将死通道，会新建独立通道注册入表，不会被本次收尾的删除连带摘掉。
+        """
+        channel = self._channels.pop(project_name, None)
         if channel is None:
             return
         task = channel.task
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-        self._channels.pop(project_name, None)
 
     async def _subscribe(self, project_name: str) -> tuple[SseChannel, asyncio.Queue, dict[str, Any]]:
         """Register a queue for *project_name* and return it with the initial snapshot.

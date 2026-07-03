@@ -6,6 +6,8 @@
 
 import asyncio
 
+import pytest
+
 from server.sse_channel import IDLE, DropSubscriber, EvictNonCriticalAndSignal, SseChannel
 
 
@@ -223,3 +225,16 @@ class TestLifecycleHooks:
         assert channel.unsubscribe_nowait(first) is False
         assert channel.unsubscribe_nowait(second) is True
         assert events == ["first"]  # 不触发末位钩子，收尾由调用方自理
+
+    async def test_first_subscriber_hook_exception_propagates_and_unwinds_queue(self):
+        def _boom() -> None:
+            raise RuntimeError("hook failed")
+
+        channel = SseChannel(overflow=DropSubscriber(), on_first_subscriber=_boom)
+
+        with pytest.raises(RuntimeError, match="hook failed"):
+            channel.subscribe()
+
+        # 钩子抛异常时新注册的队列回退，订阅集合复原到调用前状态。
+        assert not channel.has_subscribers
+        assert channel.subscriber_count == 0

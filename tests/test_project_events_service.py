@@ -284,6 +284,76 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.asyncio
+    async def test_new_subscriber_entering_during_stop_watch_stays_registered(self, tmp_path, monkeypatch):
+        """末订阅者收尾挂起在 watch task 收尾等待点时，并发进入的新订阅者归属注册表现行通道，
+        收得到经注册表路由的 hint 广播，且旧 watch task 退役、无脱离注册表的 task。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=1.0)
+        await service.start()
+
+        entered_cancel = asyncio.Event()
+        allow_exit = asyncio.Event()
+
+        async def _controlled_watch(project_name, channel):
+            # 立即放行 _subscribe 的 ready 等待；被取消时停在收尾点，撑开竞态窗口。
+            channel.ready_event.set()
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                entered_cancel.set()
+                await allow_exit.wait()
+                raise
+
+        monkeypatch.setattr(service, "_watch_project", _controlled_watch)
+
+        # 订阅者 A 拉起旧通道与旧 watch task。
+        _sse_a, queue_a, _snap_a = await service._subscribe("demo")
+        old_channel = service._channels["demo"]
+        old_watch_task = old_channel.task
+
+        # A 退订触发末订阅者钩子；钩子停在等已取消 watch task 退出的收尾点。
+        stop_task = asyncio.create_task(service._unsubscribe("demo", queue_a))
+        await asyncio.wait_for(entered_cancel.wait(), timeout=1.0)
+
+        # 窗口内新订阅者 B 进入。
+        _sse_b, queue_b, _snap_b = await service._subscribe("demo")
+
+        # 放行旧 watch task，让末订阅者钩子跑完收尾。
+        allow_exit.set()
+        await asyncio.wait_for(stop_task, timeout=1.0)
+
+        # B 归属注册表中的现行通道，旧通道已退役。
+        assert "demo" in service._channels
+        assert service._channels["demo"] is not old_channel
+
+        # 经注册表路由的 hint 广播抵达 B。
+        service._apply_emitted_batch(
+            "demo",
+            "worker",
+            (
+                {
+                    "entity_type": "segment",
+                    "action": "storyboard_ready",
+                    "entity_id": "E1S01",
+                    "label": "分镜「E1S01」",
+                    "focus": None,
+                    "important": True,
+                },
+            ),
+        )
+        await asyncio.gather(*list(service._pending_batch_tasks), return_exceptions=True)
+        event_name, _payload = queue_b.get_nowait()
+        assert event_name == "changes"
+
+        # 旧 watch task 退役，未脱离注册表继续运行。
+        assert old_watch_task.done()
+
+        await service.shutdown()
+
     def test_projects_root_kwarg_overrides_default_subdir(self, tmp_path):
         """显式传 projects_root 时，service.pm 走该目录而非 project_root/'projects'。
 
