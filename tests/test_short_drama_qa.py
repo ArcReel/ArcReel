@@ -53,6 +53,27 @@ def test_registered_asset_without_sheet_is_warn_only() -> None:
     assert any(f["code"] == "missing_prop_sheet" and f["severity"] == "warn" for f in result["qa_findings"])
 
 
+def test_non_string_asset_refs_are_not_stringified_into_missing_assets() -> None:
+    content = _drama_content(props=["信纸", 123, None, "", " 玉佩 "])
+
+    result = evaluate_short_drama_qa(_project(), content)
+
+    blocking = [f for f in result["qa_findings"] if f["severity"] == "block"]
+    assert len(blocking) == 1
+    assert blocking[0]["code"] == "missing_prop_reference"
+    assert blocking[0].get("evidence") == "玉佩"
+    assert "123" not in blocking[0].get("evidence", "")
+
+
+def test_non_string_scene_id_falls_back_to_positional_id() -> None:
+    content = _drama_content(scene_id=123, props=["玉佩"])
+
+    result = evaluate_short_drama_qa(_project(), content)
+
+    finding = next(f for f in result["qa_findings"] if f["code"] == "missing_prop_reference")
+    assert finding["message"].startswith("#0 ")
+
+
 def test_unsupported_duration_is_block_when_capability_is_detectable() -> None:
     project = {**_project(), "_supported_durations": [4, 6, 8]}
 

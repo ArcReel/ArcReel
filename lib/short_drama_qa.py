@@ -89,7 +89,7 @@ def _asset_findings(project: dict[str, Any], items: list[Any], id_key: str) -> l
     for idx, item in enumerate(items):
         if not isinstance(item, dict):
             continue
-        item_id = str(item.get(id_key) or f"#{idx}")
+        item_id = _item_id(item, id_key, idx)
         for bucket, config in _ASSET_FIELDS.items():
             field_names = config[:-1]
             sheet_field = config[-1]
@@ -97,11 +97,13 @@ def _asset_findings(project: dict[str, Any], items: list[Any], id_key: str) -> l
             refs = item.get(field_name) or []
             if not isinstance(refs, list):
                 continue
-            missing = sorted({str(ref) for ref in refs if str(ref) and str(ref) not in registered[bucket]})
+            string_refs = _non_empty_strings(refs)
+            missing = sorted({ref for ref in string_refs if ref not in registered[bucket]})
             if not missing:
-                for ref in sorted({str(ref) for ref in refs if str(ref)}):
+                for ref in sorted(set(string_refs)):
                     asset = registered[bucket].get(ref)
-                    if isinstance(asset, dict) and not str(asset.get(sheet_field) or "").strip():
+                    sheet_value = asset.get(sheet_field) if isinstance(asset, dict) else None
+                    if isinstance(asset, dict) and (not isinstance(sheet_value, str) or not sheet_value.strip()):
                         findings.append(
                             {
                                 "code": f"missing_{bucket[:-1]}_sheet",
@@ -157,8 +159,8 @@ def _empty_drama_visual_findings(items: list[Any]) -> list[QAFinding]:
     for idx, item in enumerate(items):
         if not isinstance(item, dict):
             continue
-        if not str(item.get("scene_description") or "").strip():
-            sid = str(item.get("scene_id") or f"#{idx}")
+        if not _non_empty_string(item.get("scene_description")):
+            sid = _item_id(item, "scene_id", idx)
             findings.append(
                 {
                     "code": "empty_scene_description",
@@ -267,7 +269,21 @@ def _items_key(id_key: str) -> str:
 
 
 def _item_id(item: Any, id_key: str, idx: int) -> str:
-    return str(item.get(id_key) if isinstance(item, dict) else None or f"#{idx}")
+    if isinstance(item, dict):
+        value = item.get(id_key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return f"#{idx}"
+
+
+def _non_empty_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _non_empty_strings(values: list[Any]) -> list[str]:
+    return [value.strip() for value in values if isinstance(value, str) and value.strip()]
 
 
 def _joined_text(item: Any, keys: tuple[str, ...]) -> str:
