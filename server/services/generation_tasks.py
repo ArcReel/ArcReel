@@ -403,7 +403,7 @@ def _collect_sheet_paths(
     project_path: Path,
     items: list[dict],
     *,
-    char_field: str,
+    char_field: str | None,
     scene_field: str,
     prop_field: str,
     max_count: int = 0,
@@ -412,6 +412,9 @@ def _collect_sheet_paths(
 
     Returns (list of existing Paths, set of relative sheet strings for dedup).
     If *max_count* > 0 collection stops after that many images.
+
+    ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
+    references 条目形态存在），``item.get(None, [])`` 天然跳过角色 sheet 收集。
     """
     seen: set[str] = set()
     paths: list[Path] = []
@@ -453,7 +456,7 @@ def _collect_reference_images(
     project_path: Path,
     target_item: dict,
     *,
-    char_field: str,
+    char_field: str | None,
     scene_field: str,
     prop_field: str,
     extra_reference_images: list[str] | None = None,

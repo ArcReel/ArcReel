@@ -17,6 +17,8 @@ import logging
 from copy import deepcopy
 from typing import Any
 
+from lib.script_skeleton import SKELETONS, resolve_script_kind
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,65 +26,23 @@ class ScriptEditError(ValueError):
     """剧本编辑操作非法（id 未命中、数组越界、拆分份数不足、字段路径不存在等）。"""
 
 
-_KIND_ID_FIELD = {"video_units": "unit_id", "scenes": "scene_id", "segments": "segment_id", "shots": "shot_id"}
-
-
-def resolve_kind(script: dict[str, Any]) -> str:
-    """判别剧本当前的分镜数组种类：返回 ``"video_units"`` / ``"scenes"`` / ``"segments"`` / ``"shots"``。
-
-    **数据形状优先,``generation_mode`` 不参与路由**:配置改了 reference 但数据还在
-    ``segments`` 的 partial migration 中间态下,若让 ``generation_mode`` 单向赢,整集脚本
-    通过所有 MCP 编辑工具完全不可触达(``resolve_items`` 返回空列表、按 id 编辑都报"未找到"),
-    agent 看到错误也无法定位是配置/数据冲突。数据形状优先让 agent 能拿到真实存在的列表继续
-    编辑;``generation_mode`` 改为信息字段,具体生成路径由 caller(``enqueue_videos`` 等)按
-    它自己的 ``generation_mode`` 分流决定。
-
-    判别顺序:
-    1. ``video_units`` 在场且 ``segments`` / ``scenes`` / ``shots`` 都不在 → reference(避免
-       storyboard 脚本被误塞的游离 ``video_units`` 抢走判别)
-    2. ``content_mode`` 为权威(``drama`` → scenes,``narration`` → segments,``ad`` → shots)
-    3. ``content_mode=narration`` 但数据落 ``scenes`` 键(无 ``segments``)的历史遗留兼容
-    4. ``content_mode`` 缺失时按顶层键存在性推断
-
-    `_select_model`(结构校验)/ `resolve_items`(编辑核心)/ 写盘统一入口的 metadata 重算共用
-    本判别,三处只此一处真相、不漂移。
-    """
-    if "video_units" in script and not any(k in script for k in ("segments", "scenes", "shots")):
-        return "video_units"
-    content_mode = script.get("content_mode")
-    if content_mode == "ad":
-        return "shots"
-    if content_mode == "drama":
-        return "scenes"
-    if content_mode == "narration":
-        # 畸形脚本兼容：content_mode=narration 但数据实际落在 scenes 键下（无 segments 键）的
-        # 历史遗留状态——回退去读 scenes，而非按 content_mode 字面映射到不存在的 segments。
-        if "segments" not in script and "scenes" in script:
-            return "scenes"
-        return "segments"
-    if "scenes" in script and "segments" not in script:
-        return "scenes"
-    if "shots" in script and "segments" not in script:
-        return "shots"
-    return "segments"
-
-
 def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
     """按内容/生成模式选出当前剧本的分镜数组、其 id 字段名与种类。
 
-    返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "video_units"}，由
-    `resolve_kind` 判别。**键缺失**视为空数组；**键存在但类型非 list（含值为 null）**时
-    fail-loud 抛 `ScriptEditError`（不静默降级为 []，避免把数据损坏掩盖成「未找到 id」——
-    `"segments": null` 这类损坏会暴露而非被当成空草稿）。返回的 list 在键存在时即 script 内的
-    实际引用（就地编辑生效）。
+    返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}，
+    由 `script_skeleton.resolve_script_kind`（取证解析）判别，id 字段查 `SKELETONS`。**键缺失**
+    视为空数组；**键存在但类型非 list（含值为 null）**时 fail-loud 抛 `ScriptEditError`（不静默降级
+    为 []，避免把数据损坏掩盖成「未找到 id」——`"segments": null` 这类损坏会暴露而非被当成空草稿）。
+    返回的 list 在键存在时即 script 内的实际引用（就地编辑生效）。
     """
-    kind = resolve_kind(script)
+    kind = resolve_script_kind(script)
+    id_field = SKELETONS[kind].id_field
     if kind not in script:
-        return [], _KIND_ID_FIELD[kind], kind
+        return [], id_field, kind
     items = script[kind]
     if not isinstance(items, list):
         raise ScriptEditError(f"{kind} 必须是列表，当前为 {type(items).__name__}")
-    return items, _KIND_ID_FIELD[kind], kind
+    return items, id_field, kind
 
 
 def _find_index(items: list[dict[str, Any]], id_field: str, item_id: str) -> int:

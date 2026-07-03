@@ -18,6 +18,10 @@ from lib.episode_planner import (
 )
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
+# instructions 以「必须全部落实」的最高优先级注入规划 prompt，超长文本会失控 token 用量
+# 并稀释规划器对原文的处理，超限按参数错误提前拒绝。上限对偏好文本足够宽松，仅挡病态输入。
+_MAX_INSTRUCTIONS_LEN = 4000
+
 
 def _format_summary(result: PlanResult, *, header: str) -> str:
     """账本摘要：每集标题 + 钩子 + 体量（阅读单位）。"""
@@ -43,13 +47,35 @@ def plan_episodes_tool(ctx: ToolContext):
         "窗口内所有剧情弧完整的集（标题/钩子/原文范围；drama 另含分集大纲），在同一把项目锁内"
         "写账本、派生 source/episode_N.txt 并清理残留派生文件。返回账本摘要（每集标题+钩子+体量）。"
         "窗口字数与每批集数上限为内部默认，project.json 顶层 planning_window_chars / "
-        "planning_max_episodes 可覆盖，每集目标体量沿用 episode_target_units。",
-        {"type": "object", "properties": {}},
+        "planning_max_episodes 可覆盖，每集目标体量沿用 episode_target_units。"
+        "用户表达分集偏好（如按章节对齐切分、指定某处收尾）时经 instructions 传入原文；规划器会"
+        "以「必须全部落实」的强度对齐该偏好、优先于默认剧情弧完整性。规划按窗口分多批（长篇会多次"
+        "调用本工具），instructions 不持久化，规划全部完成前每一批调用都要重复带上同一偏好。",
+        {
+            "type": "object",
+            "properties": {
+                "instructions": {
+                    "type": "string",
+                    "description": (
+                        "用户分集偏好原文（可选，如「按章节对齐切分」）；每批调用都要重复带上，"
+                        f"缺省/空白视同未传，最长 {_MAX_INSTRUCTIONS_LEN} 字符"
+                    ),
+                }
+            },
+        },
     )
-    async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_instructions = args.get("instructions")
+        if raw_instructions is not None and not isinstance(raw_instructions, str):
+            text = f"❌ 参数错误：instructions 必须是字符串，收到 {type(raw_instructions).__name__}"
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        if isinstance(raw_instructions, str) and len(raw_instructions) > _MAX_INSTRUCTIONS_LEN:
+            text = f"❌ 参数错误：instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        instructions = raw_instructions.strip() if isinstance(raw_instructions, str) else ""
         try:
             planner = await EpisodePlanner.create(ctx.project_path)
-            result = await planner.plan()
+            result = await planner.plan(instructions=instructions or None)
             if not result.episodes and result.source_exhausted:
                 return {"content": [{"type": "text", "text": "源文已全部规划完毕，没有可规划的新内容。"}]}
             return {
@@ -77,7 +103,10 @@ def replan_episodes_tool(ctx: ToolContext):
             "type": "object",
             "properties": {
                 "from_episode": {"type": "integer", "description": "重排起点集号（意见中最早受影响的集）"},
-                "instructions": {"type": "string", "description": "用户重排意见原文（可含多处意见）"},
+                "instructions": {
+                    "type": "string",
+                    "description": f"用户重排意见原文（可含多处意见），最长 {_MAX_INSTRUCTIONS_LEN} 字符",
+                },
                 "confirm_consumed": {
                     "type": "boolean",
                     "description": "已向用户确认波及的已消费集后置 true",
@@ -87,6 +116,8 @@ def replan_episodes_tool(ctx: ToolContext):
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        # 参数校验与 planner 调用分属两个 try：校验阶段的 KeyError/ValueError 才算参数错误，
+        # planner 内部（如供应商未配置）抛出的 ValueError 走 tool_error 通用路径，不被误标。
         try:
             raw_from_episode = args["from_episode"]
             if not isinstance(raw_from_episode, int) or isinstance(raw_from_episode, bool) or raw_from_episode < 1:
@@ -98,11 +129,18 @@ def replan_episodes_tool(ctx: ToolContext):
             instructions = raw_instructions.strip()
             if not instructions:
                 raise ValueError("instructions 不能为空")
+            if len(raw_instructions) > _MAX_INSTRUCTIONS_LEN:
+                raise ValueError(
+                    f"instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
+                )
             raw_confirm = args.get("confirm_consumed", False)
             if not isinstance(raw_confirm, bool):
                 raise ValueError(f"confirm_consumed 必须是布尔值（JSON true/false），收到 {raw_confirm!r}")
             confirm_consumed = raw_confirm
+        except (KeyError, ValueError) as exc:
+            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
 
+        try:
             planner = await EpisodePlanner.create(ctx.project_path)
             result = await planner.replan(from_episode, instructions, confirm_consumed=confirm_consumed)
             if isinstance(result, ReplanConfirmationRequired):
@@ -124,8 +162,6 @@ def replan_episodes_tool(ctx: ToolContext):
                 stale = "、".join(str(num) for num in result.stale_episodes)
                 header += f"（第 {stale} 集标 stale，需重做下游产物）"
             return {"content": [{"type": "text", "text": _format_summary(result, header=header)}]}
-        except (KeyError, ValueError) as exc:
-            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
         except (EpisodePlanningError, FileNotFoundError) as exc:
             return {"content": [{"type": "text", "text": f"❌ 分集重排失败：{exc}"}], "is_error": True}
         except Exception as exc:  # noqa: BLE001

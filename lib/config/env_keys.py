@@ -24,6 +24,7 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     "VIDU_API_KEY",
     "DASHSCOPE_API_KEY",
     "MINIMAX_API_KEY",
+    "AGNES_API_KEY",
     "OPENAI_API_KEY",
     "GOOGLE_APPLICATION_CREDENTIALS",
     # OpenAI SDK 在 client 未显式传值时回落读的 env 旋钮（非密钥命名，
@@ -53,6 +54,7 @@ PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
         "VIDU_API_KEY",
         "DASHSCOPE_API_KEY",
         "MINIMAX_API_KEY",
+        "AGNES_API_KEY",
         "OPENAI_API_KEY",
         "GOOGLE_APPLICATION_CREDENTIALS",
     }

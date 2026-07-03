@@ -23,6 +23,7 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from lib.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.path_safety import safe_exists
 
 logger = logging.getLogger(__name__)
@@ -238,10 +239,12 @@ def _has_downstream(project_dir: Path, episode_num: int, entry: Mapping[str, Any
     script_file = entry.get("script_file")
     if isinstance(script_file, str) and safe_exists(project_dir, script_file):
         return True
-    if (project_dir / "scripts" / f"episode_{episode_num}.json").is_file():
+    if (project_dir / episode_script_relpath(episode_num)).is_file():
         return True
-    drafts_dir = project_dir / "drafts" / f"episode_{episode_num}"
-    return drafts_dir.is_dir() and any(drafts_dir.glob("step1_*.md"))
+    drafts_dir = episode_drafts_dir(project_dir, episode_num)
+    # step1_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
+    # 覆盖所有 content_mode 的 step1 产物：只要拆过段就算已有下游，避免被重规划覆盖。
+    return drafts_dir.is_dir() and any(drafts_dir.glob("step1_*"))
 
 
 def _derive_cursor(
@@ -303,7 +306,7 @@ def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> di
     # script_file 填规范预期路径，剧本生成时 _apply_episode_sync 按集号命中本条目回填真实值
     for num in sorted(episode_files):
         if num not in by_num:
-            entry = {"episode": num, "title": "", "script_file": f"scripts/episode_{num}.json"}
+            entry = {"episode": num, "title": "", "script_file": episode_script_relpath(num)}
             episodes.append(entry)
             by_num[num] = entry
 

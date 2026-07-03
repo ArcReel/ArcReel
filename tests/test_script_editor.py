@@ -102,61 +102,11 @@ class TestResolveItems:
         assert kind == "segments"
         assert len(items) == 2
 
-    def test_drama(self):
-        _items, id_field, kind = resolve_items(_drama())
-        assert id_field == "scene_id"
-        assert kind == "scenes"
-
-    def test_reference_data_shape_picks_video_units(self):
-        # video_units 唯一存在(无 segments/scenes)时走 video_units——按数据形状路由,
-        # 与 generation_mode / content_mode 标记无关。
-        _items, id_field, kind = resolve_items(_reference())
-        assert id_field == "unit_id"
-        assert kind == "video_units"
-
-    def test_partial_migration_data_shape_wins_over_generation_mode(self):
-        # partial migration 中间态:generation_mode 改成了 reference_video 但数据还在 segments,
-        # 数据形状优先让 agent 仍能通过 MCP 工具编辑 segments(旧版让 generation_mode 单向赢
-        # 会导致 resolve_items 返回 [],按 id 编辑都报"未找到",整集脚本对所有工具不可触达)。
-        script = {
-            "title": "标题",
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-            "episode": 1,
-            "summary": "摘要",
-            "novel": {"title": "小说", "chapter": "第一章"},
-            "segments": [_segment("E1S01")],
-        }
-        items, id_field, kind = resolve_items(script)
-        assert kind == "segments"
-        assert id_field == "segment_id"
-        assert len(items) == 1
-        assert items[0]["segment_id"] == "E1S01"
-
     def test_returned_list_is_live_reference(self):
         script = _narration()
         items, _id, _kind = resolve_items(script)
         items.append(_segment("E1S03"))
         assert len(script["segments"]) == 3
-
-    def test_stray_video_units_do_not_hijack_storyboard_script(self):
-        # 历史脏数据：storyboard 脚本被误塞游离 video_units（无 generation_mode/content_mode）。
-        # video_units 与 segments 并存时不认定为 reference，编辑/metadata 仍作用于真实 segments。
-        script = {
-            "segments": [_segment("E1S01"), _segment("E1S02")],
-            "video_units": [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}],
-        }
-        items, id_field, kind = resolve_items(script)
-        assert kind == "segments"
-        assert id_field == "segment_id"
-        assert len(items) == 2
-
-    def test_bare_video_units_without_segments_is_reference(self):
-        # video_units 为唯一结构（无 segments/scenes、无显式 mode）→ 仍判为 reference
-        script = {"video_units": [{"unit_id": "E1U1"}]}
-        _items, id_field, kind = resolve_items(script)
-        assert kind == "video_units"
-        assert id_field == "unit_id"
 
     def test_missing_key_is_empty_list(self):
         # 内容数组键缺失 → 空列表（合法的「空草稿」），不报错

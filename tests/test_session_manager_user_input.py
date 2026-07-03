@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from server.agent_runtime.message_serialization import is_duplicate_user_echo, message_to_dict
 from server.agent_runtime.session_manager import SDK_AVAILABLE
 from tests.fakes import build_managed_with_actor
 
@@ -46,10 +47,10 @@ async def _seed(session_manager, meta_store, *, messages=None, status="idle", bl
 
 def _on_actor_message_full(session_manager, managed, raw_msg):
     """Replicate SessionManager's production on_message behavior for tests."""
-    msg_dict = session_manager._message_to_dict(raw_msg)
+    msg_dict = message_to_dict(raw_msg)
     if not isinstance(msg_dict, dict):
         return
-    if session_manager._is_duplicate_user_echo(managed, msg_dict):
+    if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
         managed._inbox.put_nowait(msg_dict)
         return
     session_manager._handle_special_message(managed, msg_dict)

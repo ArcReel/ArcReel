@@ -56,9 +56,7 @@ def session_manager(tmp_path: Path) -> SessionManager:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     meta_store = SessionMetaStore()
-    sm = SessionManager(project_root, data_dir, meta_store)
-    sm._in_docker = False
-    return sm
+    return SessionManager(project_root, data_dir, meta_store)
 
 
 @pytest.mark.asyncio
@@ -67,10 +65,10 @@ async def test_build_options_forwards_stderr_callback(
 ) -> None:
     """_build_options 必须把 stderr 回调透传给 ClaudeAgentOptions。"""
 
-    async def fake_env(_self):
+    async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     captured: list[str] = []
 
@@ -91,10 +89,10 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
 ) -> None:
     """actor.start() 抛错时应收集 stderr 并包装为 AgentStartupError 抛出。"""
 
-    async def fake_env(_self):
+    async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     captured_stderr_cb: list = []
 
@@ -147,10 +145,10 @@ async def test_send_new_session_no_stderr_still_wraps(
 ) -> None:
     """即使 SDK 没产生 stderr，actor.start 失败也应包装为 AgentStartupError（保留原因链）。"""
 
-    async def fake_env(_self):
+    async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None):
@@ -185,10 +183,10 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
     """
     from tests.factories import make_session_meta
 
-    async def fake_env(_self):
+    async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     captured_stderr_cb: list = []
 
@@ -237,10 +235,10 @@ async def test_stderr_buffer_caps_to_maxlen(session_manager: SessionManager, mon
     可控；这里直接打超过上限的行数，断言 sdk_stderr 行数受限。
     """
 
-    async def fake_env(_self):
+    async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr(SessionManager, "_build_provider_env_overrides", fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     captured_stderr_cb: list = []
     overflow_count = _SDK_STDERR_BUFFER_MAX + 50

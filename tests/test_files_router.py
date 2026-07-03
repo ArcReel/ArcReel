@@ -413,6 +413,17 @@ class TestFilesRouter:
             missing_step = client.delete("/api/v1/projects/demo/drafts/2/step9")
             assert missing_step.status_code == 400
 
+            # 未登记 content_mode 回落到 drama 结构化文件名时同样触发校验（按目标文件名而非 content_mode）：
+            # 任意文本不再绕过校验被写成结构化 drama JSON，拖到生成阶段才失败
+            payload["content_mode"] = "future_unregistered_mode"
+            project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            reject_dirty_mode = client.put(
+                "/api/v1/projects/demo/drafts/3/step1",
+                content="not json at all",
+                headers={"content-type": "text/plain"},
+            )
+            assert reject_dirty_mode.status_code == 400
+
             # step2 and step3 should now be invalid
             step2_resp = client.get("/api/v1/projects/demo/drafts/1/step2")
             assert step2_resp.status_code == 400

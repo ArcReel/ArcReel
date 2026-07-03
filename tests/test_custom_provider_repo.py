@@ -168,6 +168,78 @@ class TestProviderCRUD:
         await repo.delete_provider(999)
 
 
+class TestConcurrencyColumns:
+    async def test_create_without_workers_defaults_to_null(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="P",
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+        )
+        await session.flush()
+        got = await repo.get_provider(p.id)
+        assert got is not None
+        assert got.image_max_workers is None
+        assert got.video_max_workers is None
+        assert got.audio_max_workers is None
+
+    async def test_create_with_workers_round_trip(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="P",
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+            image_max_workers=2,
+            video_max_workers=7,
+            audio_max_workers=1,
+        )
+        await session.flush()
+        got = await repo.get_provider(p.id)
+        assert got is not None
+        assert got.image_max_workers == 2
+        assert got.video_max_workers == 7
+        assert got.audio_max_workers == 1
+
+    async def test_update_workers_including_clear_to_null(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="P",
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+            image_max_workers=5,
+        )
+        await session.flush()
+
+        await repo.update_provider(p.id, image_max_workers=None, video_max_workers=4)
+        await session.flush()
+
+        got = await repo.get_provider(p.id)
+        assert got is not None
+        assert got.image_max_workers is None
+        assert got.video_max_workers == 4
+
+    @pytest.mark.parametrize("field", ["image_max_workers", "video_max_workers", "audio_max_workers"])
+    @pytest.mark.parametrize("value", [-1, 0])
+    async def test_create_non_positive_workers_rejected_by_check_constraint(
+        self, session: AsyncSession, field: str, value: int
+    ):
+        """DB 层 CHECK 约束拦截 0 与负值，repo 直写也无法绕过（create_provider 内部 flush 即触发）。"""
+        from sqlalchemy.exc import IntegrityError
+
+        repo = CustomProviderRepository(session)
+        with pytest.raises(IntegrityError):
+            await repo.create_provider(
+                display_name="P",
+                discovery_format="openai",
+                base_url="https://x",
+                api_key="k",
+                **{field: value},
+            )
+
+
 class TestModelManagement:
     async def _make_provider(self, repo: CustomProviderRepository, session: AsyncSession) -> int:
         p = await repo.create_provider(

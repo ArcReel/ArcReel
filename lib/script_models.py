@@ -6,11 +6,12 @@ script_models.py - 剧本数据模型
 2. 输出验证
 """
 
-from dataclasses import dataclass
 from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
+
+from lib.script_skeleton import resolve_declared_kind
 
 # 所有剧本模型默认禁止额外字段:agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
 # dict 上凭空创建叶子(为了让 agent 补 LLM 漏写的 optional 字段);若 Pydantic 走默认
@@ -795,40 +796,6 @@ class ReferenceVideoScript(BaseModel):
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
 
 
-# ============ content_mode → 剧本字段名分派 ============
-
-
-@dataclass(frozen=True)
-class ScriptShape:
-    """某个 content_mode 下剧本的结构形状：列表字段名 / 每项 id 字段名 / 角色字段名。"""
-
-    items_key: str
-    id_field: str
-    chars_field: str
-
-
-SCRIPT_SHAPES: dict[str, ScriptShape] = {
-    "narration": ScriptShape("segments", "segment_id", "characters_in_segment"),
-    "drama": ScriptShape("scenes", "scene_id", "characters_in_scene"),
-    "ad": ScriptShape("shots", "shot_id", "characters_in_shot"),
-}
-
-
-def script_shape(content_mode: str) -> ScriptShape:
-    """返回该 content_mode 的剧本形状。
-
-    已注册模式（narration/drama/ad）显式命中各自形状；未知值（老项目缺失或
-    手编脏值）沿用历史兜底落 drama。
-
-    reference_video 模式用 video_units/unit_id/references 组织，结构不同，不经此分派
-    （由 project_archive 的专用分支处理）。
-    """
-    shape = SCRIPT_SHAPES.get(content_mode)
-    if shape is not None:
-        return shape
-    return SCRIPT_SHAPES["drama"]
-
-
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
 
 
@@ -863,12 +830,16 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     - 在 response_schema（结构化输出）里渲染为 JSON-schema ``enum``（单值时为 ``const``）→ LLM 生成层即被卡死；
     - ``model_validate`` 时强制成员校验。
 
-    服务 narration / drama / ad 三种内容模式（与 ``script_shape`` 同口径：已注册模式显式
-    分派，未知值落 drama）。reference_video 不经此路：其 API 消费的是 ``unit.duration_seconds``
-    （各 shot 之和），与单 shot 枚举不对应，沿用静态 ``ReferenceVideoScript``。
+    服务 narration / drama / ad 三种内容模式：骨架种类经规范解析
+    （``resolve_declared_kind``，未知/缺失 content_mode fail-loud 抛 ``ValueError``，不落 drama
+    兜底），kind → 模型的映射留本地（行为不进注册表）。reference_video 不经此路：其 API 消费的是
+    ``unit.duration_seconds``（各 shot 之和），与单 shot 枚举不对应，沿用静态 ``ReferenceVideoScript``。
     """
     duration_type = _duration_literal(supported_durations)
-    if content_mode == "narration":
+    # storyboard schema 生成不涉 reference 路径，generation_mode 传 None（narration→segments、
+    # drama→scenes、ad→shots）；未知 content_mode 在此抛 ValueError。
+    kind = resolve_declared_kind(content_mode, None)
+    if kind == "segments":
         segment = _constrained_duration_item(
             NarrationSegment, duration_type, "片段时长（秒），必须取 supported_durations 中的值"
         )
@@ -877,7 +848,7 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
             __base__=NarrationEpisodeScript,
             segments=(list[segment], Field(description="片段列表")),
         )
-    if content_mode == "ad":
+    if kind == "shots":
         return _ad_episode_model(duration_type, "镜头时长（秒），必须取 supported_durations 中的值")
     scene = _constrained_duration_item(DramaScene, duration_type, "场景时长（秒），必须取 supported_durations 中的值")
     return create_model(

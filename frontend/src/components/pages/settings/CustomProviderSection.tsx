@@ -43,8 +43,11 @@ export function CustomProviderSection({ providers, selectedId, onSelect, onAdd }
               : "border-l-2 border-transparent text-text-3 hover:bg-bg-grad-a/40 hover:text-text"
           }`}
         >
+          {/* 自定义 provider 恒用字母徽章，不按 display_name 猜品牌：中转站协议无关，
+              打某品牌图标会名不副实，且自由文本名匹配对中文名割裂。将来若要品牌化，
+              走用户显式选图标，而非名字猜测。 */}
           <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-hairline-soft bg-bg-grad-b/70 font-mono text-[10px] font-bold uppercase text-text-2">
-            {p.display_name?.[0] ?? "?"}
+            {Array.from(p.display_name)[0] ?? "?"}
           </span>
           <span className="min-w-0 flex-1 truncate">{p.display_name}</span>
           <CustomStatusDot provider={p} />

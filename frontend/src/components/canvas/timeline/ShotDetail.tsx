@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ImageIcon,
@@ -18,11 +18,13 @@ import type {
   ImagePrompt,
   VideoPrompt,
   Dialogue,
+  Utterance,
 } from "@/types";
 import { AD_SECTION_VALUES } from "@/types";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
+import { UtteranceListEditor } from "./UtteranceListEditor";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { NarrationAudioCard } from "./NarrationAudioCard";
@@ -92,11 +94,28 @@ interface DraftState {
   voiceover_text?: string;
   /** 仅 ad 模式：带货框架段落标签草稿 */
   section?: string;
+  /** 仅 drama 模式：场景级有序发声序列草稿（台词 + 画外音） */
+  utterances?: Utterance[];
 }
 
 // 字段集合稳定（ImagePrompt/VideoPrompt/string），JSON.stringify 即可作等值签名：
 // 任何字段顺序差异都来自我们自己的 setter 或上游同一构造路径，键序一致。
 const stableSig = (value: unknown): string => JSON.stringify(value ?? null);
+
+// 稳定空 utterances 引用：缺省 / 非 drama 时统一指向同一常量，避免每次渲染新建 `[]`
+// 让 upstreamSig memo 依赖失效而做无谓 stringify。UtteranceListEditor 只经 map/filter/spread
+// 产出新数组、从不就地改写，故共享此常量安全。
+const EMPTY_UTTERANCES: Utterance[] = [];
+
+// voiceover 的 speaker 允许缺省或 null，两种写法语义等价（无说话人）。签名前归一：
+// voiceover speaker 统一为 null、并固定键序，避免 `{}` 与 `{ speaker: null }` 判成不同，
+// 否则上游把画外音字段规范化后 dirty 清不掉，切镜与生成会持续被禁用。
+const canonicalUtterance = (u: Utterance): Utterance =>
+  u.kind === "dialogue"
+    ? { kind: "dialogue", speaker: u.speaker, text: u.text }
+    : { kind: "voiceover", speaker: null, text: u.text };
+
+const utterancesSig = (list: Utterance[]): string => stableSig(list.map(canonicalUtterance));
 
 /** 由上游值构造干净草稿（useState 初始化 / 上游静默跟随 / 取消编辑三处共用）。 */
 function baselineDraft(
@@ -105,26 +124,25 @@ function baselineDraft(
   isAd: boolean,
   voiceover: string,
   section: string,
+  isDrama: boolean,
+  utterances: Utterance[],
 ): DraftState {
   return {
     image_prompt: ip,
     video_prompt: vp,
     ...(isAd ? { voiceover_text: voiceover, section } : {}),
+    ...(isDrama ? { utterances } : {}),
   };
 }
 
 /** 草稿等值签名：与上游基线签名同键形状（漂移会让"干净草稿静默跟随上游"失效）。 */
-function draftSig(d: DraftState, isAd: boolean): string {
-  return stableSig(
-    isAd
-      ? {
-          ip: d.image_prompt,
-          vp: d.video_prompt,
-          voiceover_text: d.voiceover_text ?? "",
-          section: d.section ?? "",
-        }
-      : { ip: d.image_prompt, vp: d.video_prompt },
-  );
+function draftSig(d: DraftState, isAd: boolean, isDrama: boolean): string {
+  return stableSig({
+    ip: d.image_prompt,
+    vp: d.video_prompt,
+    ...(isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
+    ...(isDrama ? { utterances: (d.utterances ?? EMPTY_UTTERANCES).map(canonicalUtterance) } : {}),
+  });
 }
 
 interface DurationPillProps {
@@ -354,12 +372,16 @@ export function ShotDetail({
   const adShot = isAd ? (segment as AdShot) : null;
   const upstreamVoiceover = adShot?.voiceover_text ?? "";
   const upstreamSection = adShot?.section ?? "";
+  const isDrama = contentMode === "drama";
+  const dramaScene = isDrama ? (segment as DramaScene) : null;
+  // drama 场景级发声序列（迁移后存量数据可能缺省，读到空即无发声）。
+  const upstreamUtterances = dramaScene?.utterances ?? EMPTY_UTTERANCES;
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
   // 在切镜头时硬重置整个组件，所以这里只需处理"上游同字段静默更新"的情况。
   // 备注不进入草稿，由 NotesDrawer 收起时直接落库。
   const [draft, setDraft] = useState<DraftState>(() =>
-    baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection),
+    baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
   );
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
@@ -390,25 +412,27 @@ export function ShotDetail({
   };
 
   const upstreamSig = useMemo(
-    () => draftSig(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection), isAd),
-    [isAd, ip, vp, upstreamVoiceover, upstreamSection],
+    () =>
+      draftSig(
+        baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
+        isAd,
+        isDrama,
+      ),
+    [isAd, ip, vp, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances],
   );
-  const baselineSigRef = useRef(upstreamSig);
-  const draftRef = useRef(draft);
-  // 同步 draft 到 ref，供下方 effect 读取最新草稿而无需把 draft 加入 deps
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
-
+  // 上游发声序列签名单独记忆化：dirtyPatch 随每次 keystroke 重算，
+  // 但上游极少变，避免逐键重复序列化整个 upstreamUtterances。
+  const upstreamUtterancesSig = useMemo(() => utterancesSig(upstreamUtterances), [upstreamUtterances]);
   // 上游变更（保存完成 / agent 编辑）：草稿干净时静默跟随；脏时保留用户输入。
-  // 把 draft 放到 ref 里读，避免每次 keystroke 都重跑 effect+stringify。
-  useEffect(() => {
-    if (baselineSigRef.current === upstreamSig) return;
-    if (draftSig(draftRef.current, isAd) === baselineSigRef.current) {
-      setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection));
+  // 渲染阶段状态同步（React 推荐）：本次渲染内直接比对上游签名并校正草稿，
+  // 免去 useEffect 的额外渲染周期与依赖项管理。draft 直接读当前渲染值，无需 ref 镜像。
+  const [syncedUpstreamSig, setSyncedUpstreamSig] = useState(upstreamSig);
+  if (syncedUpstreamSig !== upstreamSig) {
+    if (draftSig(draft, isAd, isDrama) === syncedUpstreamSig) {
+      setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
     }
-    baselineSigRef.current = upstreamSig;
-  }, [upstreamSig, ip, vp, isAd, upstreamVoiceover, upstreamSection]);
+    setSyncedUpstreamSig(upstreamSig);
+  }
 
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
@@ -429,8 +453,13 @@ export function ShotDetail({
       if ((draft.section ?? "") !== upstreamSection)
         patch.section = draft.section ?? "";
     }
+    if (isDrama) {
+      const draftUtterances = draft.utterances ?? EMPTY_UTTERANCES;
+      if (draftUtterances !== upstreamUtterances && utterancesSig(draftUtterances) !== upstreamUtterancesSig)
+        patch.utterances = draftUtterances;
+    }
     return patch;
-  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection]);
+  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances, upstreamUtterancesSig]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
@@ -471,6 +500,10 @@ export function ShotDetail({
     handleVidUpdate({ dialogue });
   };
 
+  const handleUtterancesChange = (utterances: Utterance[]) => {
+    setDraft((d) => ({ ...d, utterances }));
+  };
+
   const handleImgStringChange = (val: string) => {
     setDraft((d) => ({ ...d, image_prompt: val }));
   };
@@ -489,7 +522,7 @@ export function ShotDetail({
     setSaving(true);
     try {
       await onUpdatePrompt?.(segmentId, dirtyPatch);
-      // 上游会刷新 → useEffect 检测到 baselineSig 变化 → 草稿等于新基线时保持干净
+      // 上游会刷新 → 渲染阶段同步检测到上游签名变化 → 草稿等于新基线时保持干净
     } finally {
       setSaving(false);
     }
@@ -497,7 +530,7 @@ export function ShotDetail({
 
   const handleCancel = () => {
     if (saving) return;
-    setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection));
+    setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
   };
 
   const sbEstimate = segCost?.estimate?.image;
@@ -619,9 +652,27 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      {/* drama 口播已迁到 step1 审核 gate 的 utterances 富编辑：此处编辑 video_prompt.dialogue
-          仅服务 narration / ad（drama 的 video_prompt 不含 dialogue）。 */}
-      {contentMode !== "drama" && (
+      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 台词已迁到场景级
+          utterances（判别式台词 + 画外音），此处直接编辑 scene.utterances 并双向保存同步。 */}
+      {isDrama ? (
+        <div>
+          <div
+            className="mb-2 text-[10.5px] font-bold uppercase"
+            style={{
+              color: "var(--color-text-4)",
+              letterSpacing: "1px",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {t("detail_section_utterances")}
+          </div>
+          <UtteranceListEditor
+            utterances={draft.utterances ?? EMPTY_UTTERANCES}
+            onChange={handleUtterancesChange}
+            disabled={saving || refsReadOnly}
+          />
+        </div>
+      ) : (
         <div>
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"

@@ -128,6 +128,70 @@ class TestValidateDefaultsOn:
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["video_prompt"] == "坏形状"
 
 
+def _drama_scene(scene_id: str = "E1S01") -> dict:
+    return {
+        "scene_id": scene_id,
+        "duration_seconds": 8,
+        "characters_in_scene": ["角色A"],
+        "scenes": [],
+        "props": [],
+        "image_prompt": {
+            "scene": "场景描述",
+            "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+        },
+        "video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"},
+        "utterances": [{"kind": "dialogue", "speaker": "角色A", "text": "你来了。"}],
+    }
+
+
+def _valid_drama_script(scenes: list[dict] | None = None) -> dict:
+    return {
+        "episode": 1,
+        "title": "标题",
+        "content_mode": "drama",
+        "novel": {"title": "小说", "chapter": "第一章"},
+        "scenes": scenes if scenes is not None else [_drama_scene()],
+    }
+
+
+def _pm_drama(tmp_path: Path) -> ProjectManager:
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+    return pm
+
+
+class TestUtterancesEditGuard:
+    """分镜详情编辑 drama 场景级 utterances 走 locked_script → 「不更坏」guard 的写盘校验。"""
+
+    def test_valid_utterances_edit_persists(self, tmp_path: Path):
+        """合法 utterances 编辑（dialogue 带 speaker、voiceover 无 speaker）落库。"""
+        pm = _pm_drama(tmp_path)
+        pm.save_script("demo", _valid_drama_script(), "episode_1.json")
+
+        with pm.locked_script("demo", "episode_1.json") as script:
+            script["scenes"][0]["utterances"] = [
+                {"kind": "dialogue", "speaker": "角色A", "text": "改后的台词。"},
+                {"kind": "voiceover", "speaker": None, "text": "旁白。"},
+            ]
+
+        saved = pm.load_script("demo", "episode_1.json")["scenes"][0]["utterances"]
+        assert saved[0] == {"kind": "dialogue", "speaker": "角色A", "text": "改后的台词。"}
+        assert saved[1]["kind"] == "voiceover"
+
+    def test_illegal_utterance_kind_speaker_is_rejected(self, tmp_path: Path):
+        """dialogue 缺非空 speaker → guard 拒绝，旧内容保留（不写坏 project.json）。"""
+        pm = _pm_drama(tmp_path)
+        pm.save_script("demo", _valid_drama_script(), "episode_1.json")
+
+        with pytest.raises(ScriptStructureValidationError):
+            with pm.locked_script("demo", "episode_1.json") as script:
+                script["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "", "text": "无主台词"}]
+
+        saved = pm.load_script("demo", "episode_1.json")["scenes"][0]["utterances"]
+        assert saved == [{"kind": "dialogue", "speaker": "角色A", "text": "你来了。"}]
+
+
 def _unit(unit_id: str = "E1U1") -> dict:
     shots = [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
     return {

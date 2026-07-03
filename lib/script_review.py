@@ -22,17 +22,12 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
+from lib.episode_paths import STEP1_FILENAMES, episode_drafts_dir, episode_script_relpath
 from lib.project_manager import effective_mode
 
 #: 审核状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
 #: pending_review=step1 已产出但未经确认（或确认后内容又变）→ 阻塞 step2；confirmed=已确认放行。
 ReviewStatus = Literal["not_applicable", "no_step1", "pending_review", "confirmed"]
-
-#: 结构化 step1 中间态文件名（按 content_mode）。仅这两类纳入 gate。
-_STEP1_FILENAME: dict[str, str] = {
-    "drama": "step1_normalized_script.json",
-    "narration": "step1_segments.json",
-}
 
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "step1_review"
@@ -48,7 +43,7 @@ def find_episode(project: dict[str, Any], episode: int) -> dict[str, Any] | None
 
 def is_applicable(project: dict[str, Any], episode: int) -> bool:
     """gate 是否适用于该集：content_mode ∈ {drama, narration} 且 effective_mode 非 reference_video。"""
-    if project.get("content_mode") not in _STEP1_FILENAME:
+    if project.get("content_mode") not in STEP1_FILENAMES:
         return False
     return effective_mode(project=project, episode=find_episode(project, episode) or {}) != "reference_video"
 
@@ -57,8 +52,8 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
     """该集结构化 step1 中间态文件路径；不适用 gate 时返回 None。"""
     if not is_applicable(project, episode):
         return None
-    # is_applicable 为真 ⇒ content_mode ∈ _STEP1_FILENAME；索引取值（非 .get）避免 Any | None。
-    return project_path / "drafts" / f"episode_{episode}" / _STEP1_FILENAME[project["content_mode"]]
+    # is_applicable 为真 ⇒ content_mode ∈ STEP1_FILENAMES；索引取值（非 .get）避免 Any | None。
+    return episode_drafts_dir(project_path, episode) / STEP1_FILENAMES[project["content_mode"]]
 
 
 def content_fingerprint(path: Path) -> str | None:
@@ -92,7 +87,7 @@ def step2_generated(project_path: Path, project: dict[str, Any], episode: int) -
     ScriptGenerator 固定写出口径一致）。
     """
     ep = find_episode(project, episode) or {}
-    script_file = ep.get("script_file") or f"scripts/episode_{episode}.json"
+    script_file = ep.get("script_file") or episode_script_relpath(episode)
     return (project_path / script_file).exists()
 
 

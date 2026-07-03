@@ -19,6 +19,12 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.app_data_dir import app_data_dir
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    STEP1_FILENAMES,
+    episode_drafts_dir,
+    step1_read_candidates,
+)
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.project_change_hints import emit_project_change_batch, project_change_source
@@ -661,46 +667,46 @@ def _extract_step_number(filename: str) -> int:
 def _get_step_files(content_mode: str, generation_mode: str | None = None) -> dict:
     """根据 generation_mode / content_mode 获取步骤文件名映射
 
-    reference_video 走 split-reference-video-units subagent → step1_reference_units.md，
-    其他模式回落到 content_mode 的 narration/drama 分支。
+    ad 不走结构化 step1（与 _resolve_step1_path / status_calculator._draft_candidates 同口径显式
+    排除），即便带 reference_video generation_mode 也无 step1，故先于 generation_mode 判断返回空
+    映射，调用方据此给出「无此步骤」而非误落 drama / reference 文件名。reference_video 走
+    split-reference-video-units subagent → step1_reference_units.md；其他模式回落到 content_mode
+    的结构化 step1 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源
+    STEP1_FILENAMES，新增 content_mode 自动覆盖。
     """
+    if content_mode == "ad":
+        return {}
     if generation_mode == "reference_video":
-        return {1: "step1_reference_units.md"}
-    if content_mode == "narration":
-        return {1: "step1_segments.json"}
-    # drama 内容抽取前移后 step1 是结构化 JSON（见 ADR 0041）
-    return {1: "step1_normalized_script.json"}
+        return {1: REFERENCE_VIDEO_STEP1_FILENAME}
+    return {1: STEP1_FILENAMES.get(content_mode, STEP1_FILENAMES["drama"])}
 
-
-# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
-# narration 结构化中间态为 step1_segments.json、drama 为 step1_normalized_script.json；
-# 各自保留旧 .md 候选以便存量在制品仍可浏览。
-_STEP1_CANDIDATES = [
-    "step1_reference_units.md",
-    "step1_segments.json",
-    "step1_segments.md",
-    "step1_normalized_script.json",
-    "step1_normalized_script.md",
-]
 
 # 按 primary 文件名分组的优先候选（mode 感知）：先在本模式自家候选里回落，再兜底其他模式遗留文件。
+# 每模式的结构化 .json + 旧版 .md 取自单一真相源；reference_video 只认自家 md。
 # narration 优先结构化 .json、再旧版 .md，杜绝跨模式切换遗留把 narration 误选到 reference_units.md。
 _STEP1_FAMILY: dict[str, list[str]] = {
-    "step1_segments.json": ["step1_segments.json", "step1_segments.md"],
-    "step1_normalized_script.json": ["step1_normalized_script.json", "step1_normalized_script.md"],
-    "step1_reference_units.md": ["step1_reference_units.md"],
+    STEP1_FILENAMES[mode]: list(step1_read_candidates(mode)) for mode in STEP1_FILENAMES
 }
+_STEP1_FAMILY[REFERENCE_VIDEO_STEP1_FILENAME] = [REFERENCE_VIDEO_STEP1_FILENAME]
+
+# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
+# 结构化 .json 与旧 .md 候选均由单一真相源派生；各自保留旧 .md 以便存量在制品仍可浏览。
+# 跨模式遗留回落的探测优先级固定为 reference_video → narration → drama（保持历史 tie-break，
+# 避免收敛后跨模式选到的遗留文件与旧实现不一致）；未登记于此序列的未来 content_mode 附加在后。
+_STEP1_PROBE_ORDER = [REFERENCE_VIDEO_STEP1_FILENAME, STEP1_FILENAMES["narration"], STEP1_FILENAMES["drama"]]
+_STEP1_CANDIDATES = list(
+    dict.fromkeys(name for key in [*_STEP1_PROBE_ORDER, *_STEP1_FAMILY] for name in _STEP1_FAMILY[key])
+)
 
 
 def _get_step_title(filename: str, _t: Callable[..., str]) -> str:
-    """获取步骤标题"""
-    titles = {
-        "step1_normalized_script.json": _t("normalized_script"),
-        "step1_normalized_script.md": _t("normalized_script"),
-        "step1_segments.json": _t("segment_splitting"),
-        "step1_segments.md": _t("segment_splitting"),
-        "step1_reference_units.md": _t("segment_splitting"),
-    }
+    """获取步骤标题：每种 step1（含旧 .md 别名）映射到其展示名 i18n key。"""
+    titles: dict[str, str] = {}
+    for name in step1_read_candidates("drama"):
+        titles[name] = _t("normalized_script")
+    for name in step1_read_candidates("narration"):
+        titles[name] = _t("segment_splitting")
+    titles[REFERENCE_VIDEO_STEP1_FILENAME] = _t("segment_splitting")
     return titles.get(filename, filename)
 
 
@@ -751,7 +757,7 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
             if step_num not in step_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
-            drafts_dir = project_dir / "drafts" / f"episode_{episode}"
+            drafts_dir = episode_drafts_dir(project_dir, episode)
             draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
 
             if not draft_path.exists():
@@ -786,7 +792,7 @@ async def update_draft_content(
             if step_num not in step_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
-            drafts_dir = project_dir / "drafts" / f"episode_{episode}"
+            drafts_dir = episode_drafts_dir(project_dir, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)
 
             # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
@@ -797,8 +803,10 @@ async def update_draft_content(
             # drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
             # ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
             # 非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
-            # 失败）。仅约束 drama 的结构化 step1；narration / reference 的 step1 草稿不在此校验。
-            if content_mode == "drama" and draft_path.suffix == ".json":
+            # 失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
+            # 结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration /
+            # reference 的 step1 落各自文件名，不匹配此校验。
+            if draft_path.name == STEP1_FILENAMES["drama"]:
                 try:
                     parsed = json.loads(content)
                 except json.JSONDecodeError:
@@ -857,7 +865,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
             if step_num not in step_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
-            drafts_dir = project_dir / "drafts" / f"episode_{episode}"
+            drafts_dir = episode_drafts_dir(project_dir, episode)
             draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
 
             if draft_path.exists():

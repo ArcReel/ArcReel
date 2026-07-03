@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lib.text_metrics import count_reading_units, find_reading_unit_offset
+from lib.text_metrics import count_reading_units, find_reading_unit_offset, reading_unit_noun
 
 
 class TestZh:
@@ -141,3 +141,24 @@ class TestFindReadingUnitOffset:
         # ja / None / "" 走 zh 路径,英文字符不计入 → 应返回 0(没有阅读单位)
         # 但因为没找到第 N 个单位,会走到末尾分支
         assert find_reading_unit_offset("hello world", 1, "ja") == 11
+
+
+class TestReadingUnitNoun:
+    """量词名与 count_reading_units 的语言分类同源：按词计 → 词，按字计 → 字。"""
+
+    def test_word_based_languages_use_ci(self) -> None:
+        assert reading_unit_noun("en") == "词"
+        assert reading_unit_noun("vi") == "词"
+
+    def test_char_based_language_uses_zi(self) -> None:
+        assert reading_unit_noun("zh") == "字"
+
+    def test_case_insensitive(self) -> None:
+        assert reading_unit_noun("EN") == "词"
+        assert reading_unit_noun(" Vi ") == "词"
+
+    def test_fallback_to_zi_for_unknown_or_missing(self) -> None:
+        # 未知 / None / 空 language 与 count_reading_units 同走 zh 路径 → 字
+        assert reading_unit_noun(None) == "字"
+        assert reading_unit_noun("") == "字"
+        assert reading_unit_noun("ja") == "字"

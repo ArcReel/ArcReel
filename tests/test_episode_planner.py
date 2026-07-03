@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from lib.episode_planner import (
     EpisodePlanningError,
     PlanningConflictError,
     ReplanConfirmationRequired,
+    _find_all_overlapping,
 )
 from lib.text_backends.base import TextGenerationResult
 
@@ -87,6 +89,16 @@ def _load_project(project_dir: Path) -> dict:
 
 def _plan_response(episodes: list[dict]) -> str:
     return json.dumps({"episodes": episodes}, ensure_ascii=False)
+
+
+class TestFindAllOverlapping:
+    def test_collects_overlapping_starts(self):
+        assert _find_all_overlapping("aaaa", "aaa") == [0, 1]
+
+    def test_empty_needle_returns_empty_without_hanging(self):
+        # 空 needle 防御边界：直接返回 []，不进入逐位滑动（调用方 anchor 受 min_length=2 约束）
+        assert _find_all_overlapping("abcabc", "") == []
+        assert _find_all_overlapping("", "") == []
 
 
 class TestPlan:
@@ -224,6 +236,137 @@ class TestPlan:
 
         assert len(fake.requests) == 2
         assert "2 次" in fake.requests[1].prompt  # 按允许重叠的口径计数
+        assert [s.title for s in result.episodes] == ["乙"]
+
+    async def test_plan_resolves_anchor_with_halfwidth_punctuation(self, tmp_path: Path):
+        """锚点与源文仅差全/半角标点宽度（，→ , 与 。→ .）：折叠容错还原精确 NFC 偏移，一次通过不重试。"""
+        project_dir = _write_project(tmp_path)
+        half_width_anchor = "古玉,玉中藏着剑诀."  # 源文是全角 ，与 。，模型回显成半角 , 与 .
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": half_width_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        eps = _load_project(project_dir)["episodes"]
+        # 还原出的偏移与精确匹配口径逐字节一致
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == SOURCE[: _end_of(ANCHOR_EP1)]
+        assert ep1.endswith("玉中藏着剑诀。")  # 源文标点未被改写（仍是全角 。）
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+
+    async def test_plan_drama_resolves_anchor_with_punctuation_width_mismatch(self, tmp_path: Path):
+        """drama 草稿同样走折叠容错：标点宽度不匹配（。→ .）时解析到正确精确偏移。"""
+        project_dir = _write_project(tmp_path, content_mode="drama")
+        half_width_anchor = "被追杀的少女."  # 源文全角 。
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {
+                            "title": "城门遇袭",
+                            "hook": "少女为何被追杀",
+                            "end_anchor": half_width_anchor,
+                            "story_beats": ["辞别师父", "城门遇袭"],
+                            "next_episode_teaser": "风波将起",
+                        }
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP2)}
+        assert eps[0]["outline"]["story_beats"] == ["辞别师父", "城门遇袭"]
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == SOURCE[: _end_of(ANCHOR_EP2)]
+        assert [s.title for s in result.episodes] == ["城门遇袭"]
+
+    async def test_plan_resolves_anchor_with_whitespace_width_mismatch(self, tmp_path: Path):
+        """锚点空白宽度不匹配（全角空格 ↔ 半角空格）：折叠容错还原精确偏移。"""
+        source = "The hero　rose at dawn. Then darkness fell over the land."  # 含全角空格 U+3000
+        project_dir = _write_project(tmp_path, source_text=source)
+        half_width_anchor = "The hero rose at dawn."  # 模型回显成半角空格
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "Dawn", "hook": "hook", "end_anchor": half_width_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1
+        eps = _load_project(project_dir)["episodes"]
+        end = source.index("dawn.") + len("dawn.")
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == source[:end]
+        assert [s.title for s in result.episodes] == ["Dawn"]
+
+    async def test_plan_resolves_anchor_with_unicode_nfc_mismatch(self, tmp_path: Path):
+        """锚点与源文 Unicode 规范形不一致（锚为 NFD 分解形 ↔ 源文 NFC）：折叠兜底对锚副本
+        施加与 window 相同的 normalize_source_text 归一再匹配，还原精确偏移；Tier1 与源文坐标不变。"""
+        source = unicodedata.normalize("NFC", "Tôi yêu tiếng Việt. Hôm nay trời đẹp lắm.")
+        project_dir = _write_project(tmp_path, source_text=source)
+        nfc_anchor = "Tôi yêu tiếng Việt."
+        nfd_anchor = unicodedata.normalize("NFD", nfc_anchor)  # 模型回显成分解形
+        assert nfd_anchor != nfc_anchor and len(nfd_anchor) != len(nfc_anchor)
+        fake = _FakeTextGenerator([_plan_response([{"title": "Mở đầu", "hook": "hook", "end_anchor": nfd_anchor}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        eps = _load_project(project_dir)["episodes"]
+        end = source.index(nfc_anchor) + len(nfc_anchor)  # 精确 NFC 偏移
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]  # 切片取 NFC 原文，未改写源文
+        assert [s.title for s in result.episodes] == ["Mở đầu"]
+
+    async def test_plan_resolves_anchor_with_crlf_and_combining_length_change(self, tmp_path: Path):
+        """长度护栏：锚同时含 \\r\\n 与会改变长度的组合字符（NFD），两者都让锚比源文对应子串更长。
+        归一副本走 normalize_source_text（NFC + 换行统一），end 跨度按归一锚长还原，断言源文偏移/
+        切片逐字节落在归一坐标系上、不被 \\r 或组合字符撑长漂移；Tier1 仍逐字节不变。"""
+        # 源文已是存储坐标系形态（NFC + \n）；窗口与切片均在此坐标系上
+        source = "Tôi yêu tiếng Việt.\nHôm nay trời đẹp lắm. Mọi thứ thật tuyệt vời."
+        project_dir = _write_project(tmp_path, source_text=source)
+        nfc_sub = "Tôi yêu tiếng Việt.\nHôm nay"  # 源文中的精确子串（NFC + \n）
+        # 模型回显：组合字符分解（NFD，变长）+ 换行写成 \r\n（再 +1）
+        crlf_nfd_anchor = unicodedata.normalize("NFD", nfc_sub).replace("\n", "\r\n")
+        assert "\r\n" in crlf_nfd_anchor and len(crlf_nfd_anchor) > len(nfc_sub)
+
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "Mở đầu", "hook": "hook", "end_anchor": crlf_nfd_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        eps = _load_project(project_dir)["episodes"]
+        end = source.index(nfc_sub) + len(nfc_sub)  # 归一坐标系下的精确末偏移（非锚原长）
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]  # 切片逐字节落在源文坐标上，未被 \r/组合字符撑长漂移
+        assert [s.title for s in result.episodes] == ["Mở đầu"]
+
+    async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
+        """折叠后仍命中多处：维持「无法唯一定位」拒绝并重试，不静默挑第一处。"""
+        source = "他说好的。她说好的。后来他离开了。"  # 两处「说好的。」全角句号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "说好的."}]),  # 半角 .，折叠后命中两处
+                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "后来他离开了。"}]),
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 2
+        assert "无法唯一定位" in fake.requests[1].prompt
+        assert "2 次" in fake.requests[1].prompt
         assert [s.title for s in result.episodes] == ["乙"]
 
     async def test_plan_ignores_negative_cursor_offset(self, tmp_path: Path):
@@ -558,6 +701,47 @@ class TestPlan:
         assert eps[1]["ledger_status"] == "unanchored"
         assert eps[2]["ledger_status"] == "planned"
 
+    async def test_plan_forwards_instructions_into_prompt(self, tmp_path: Path):
+        """首批规划带 instructions 时，原文进「用户规划意见（必须全部落实）」分节，不用 replan 的「重排」措辞。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan(instructions="严格按章节切分，一章一集")
+
+        prompt = fake.requests[0].prompt
+        assert "# 用户规划意见（必须全部落实）" in prompt
+        assert "严格按章节切分，一章一集" in prompt
+        assert "用户重排意见" not in prompt  # 首批不是重排
+
+    async def test_plan_without_instructions_omits_section(self, tmp_path: Path):
+        """不传 instructions 时 prompt 无指令分节，与今日纯剧情弧行为逐字一致。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        prompt = fake.requests[0].prompt
+        assert "用户规划意见" not in prompt
+        assert "必须全部落实" not in prompt
+
+    async def test_plan_blank_instructions_treated_as_absent(self, tmp_path: Path):
+        """纯空白 instructions strip 后视同未传：prompt 与不传时逐字一致（无指令分节）。"""
+        blank = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+        none = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        await EpisodePlanner(_write_project(tmp_path / "b"), generator=blank).plan(instructions="   \n  ")
+        await EpisodePlanner(_write_project(tmp_path / "n"), generator=none).plan()
+
+        assert blank.requests[0].prompt == none.requests[0].prompt
+
 
 def _entry(
     num: int,
@@ -644,6 +828,7 @@ class TestReplan:
         result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾")
 
         prompt = fake.requests[0].prompt
+        assert "# 用户重排意见（必须全部落实）" in prompt  # replan 保留「重排」措辞
         assert "第2集在下山处收尾" in prompt  # 用户意见进 prompt
         assert "钩子1" in prompt  # 之前的集作为已定上下文
         assert ANCHOR_EP1 not in prompt  # 已定范围的原文不重发

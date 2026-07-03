@@ -8,7 +8,7 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 工具集（均为 in-process MCP `arcreel`，跑在 server 进程、不在 agent sandbox 内）：
 
-- `patch_episode_script` — 通用字段编辑，**按 `segment_id`/`scene_id`/`unit_id` 定位**（与 `update_scene_asset` 一致；序号仅生成时约定，运行时排序靠数组位，compose/`resolve_episode_from_script` 都不解析序号），三种内容/生成模式通用。纯 setter。
+- `patch_episode_script` — 批量字段编辑：传 `script` + `{segment_id/scene_id/unit_id/shot_id: {字段路径: 值}}` 映射，一次改多分镜 × 多字段（单条编辑写成长度 1 的 map），**按 `segment_id`/`scene_id`/`unit_id`/`shot_id` 定位**（与 `update_scene_asset` 一致；序号仅生成时约定，运行时排序靠数组位，compose/`resolve_episode_from_script` 都不解析序号），各内容/生成模式通用。纯 setter；all-or-nothing 原子——整批在同一 `locked_script` 上下文内逐条复用 `patch_field`，任一编辑非法即整批不落盘（原子性由 `locked_script` 的「正常退出才写/异常不写/写前不更坏校验」承重，无新事务管线）。
 - `insert_segment` / `remove_segment` / `split_segment` — 结构性增删拆，三模式全覆盖（reference 模式作用于 `video_units`/`shots`）。**id 稳定不重排**，插入/拆分**按模式**发新 id 并加 `_{子序号}` 后缀：narration/drama 的 segments/scenes 用 `E{集}S{序号}`、reference 的 units 用 `E{集}U{序号}`（见 `script_models.py` 的 `segment_id`/`scene_id`/`unit_id` 定义；前缀不能统一成 `S`，否则 reference 走 Pydantic 校验会失败）。
 - `patch_project` — `project.json` 加+改（按 table+name），**取代** `add_assets.py`（删除该脚本，`analyze-assets` subagent 改调本工具，顺带消灭其脆弱的单行 CLI-JSON 调用）。
 - `generate_episode_script` — 整集生成，改为**经 `_write_script_unlocked` 写盘**（替代 `ScriptGenerator` 原先的裸 `json.dump`）。
