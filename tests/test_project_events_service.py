@@ -105,6 +105,23 @@ class TestProjectEventService:
         # narration 分镜走时间线画布：锚点类型恒为 segment（回归守卫，不得漂移）。
         assert all(c["focus"]["anchor_type"] == "segment" for c in segment_updated)
 
+    def test_build_snapshot_survives_null_episodes(self, tmp_path):
+        # project.json 的 episodes 显式为 null 时快照构建不崩:load_project 直接回读磁盘
+        # JSON、不规范化 episodes,读侧按 fail-soft 用 ``or []`` 兜底而非 ``get(..., [])``。
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        project = pm.load_project("demo")
+        project["episodes"] = None
+        project_file = pm.get_project_path("demo") / ProjectManager.PROJECT_FILE
+        project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+        service = ProjectEventService(tmp_path)
+        snapshot = service._build_snapshot("demo")
+
+        assert snapshot["project"]["episodes"] == {}
+
     def test_diff_snapshots_reports_project_metadata_and_new_segments(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -725,3 +742,198 @@ class TestProjectEventService:
         assert change["entity_type"] == entity_type
         assert change["focus"]["anchor_type"] == anchor_type
         assert change["focus"]["anchor_id"] == "X1"
+
+    def test_diff_snapshots_reports_ad_reference_unit_video_ready(self, tmp_path):
+        """ad + reference_video：unit 的 video_clip 空→非空发一条 video_ready（实体类型 reference_unit）。
+
+        成片写在派生索引 reference_units 各 unit 的 generated_assets，内容骨架 shots 不承载
+        该路径产物；组合按项目声明的 generation_mode 分派（effective_mode），不嗅探剧本形状。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("ad-ref")
+        pm.create_project_metadata("ad-ref", "AdRef", "Anime", "ad", extras={"generation_mode": "reference_video"})
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "ad-ref",
+                {
+                    "episode": 1,
+                    "title": "广告",
+                    "content_mode": "ad",
+                    "shots": [
+                        {
+                            "shot_id": "E1S01",
+                            "duration_seconds": 4,
+                            "characters_in_shot": [],
+                            "scenes": [],
+                            "props": [],
+                            "image_prompt": "p",
+                            "video_prompt": "v",
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                    "reference_units": [
+                        {
+                            "unit_id": "E1U01",
+                            "shot_ids": ["E1S01"],
+                            "references": [],
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                },
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("ad-ref")
+        prev_meta = previous["scripts"]["episode_1.json"]
+        # ad 骨架恒为 shots，但组合成立时快照额外记录 reference_units 的 video_clip。
+        assert prev_meta["kind"] == "shots"
+        assert prev_meta["reference_units"]["E1U01"]["video_clip"] == ""
+
+        script = pm.load_script("ad-ref", "episode_1.json")
+        script["reference_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
+        with project_change_source("filesystem"):
+            pm.save_script("ad-ref", script, "episode_1.json", validate=False)
+        current = service._build_snapshot("ad-ref")
+
+        changes = service._diff_snapshots(previous, current)
+        unit_ready = [c for c in changes if c["action"] == "video_ready" and c["entity_id"] == "E1U01"]
+        assert len(unit_ready) == 1
+        change = unit_ready[0]
+        # 实体类型/名词/锚点复用 video_units 骨架条目，不新造平行枚举。
+        assert change["entity_type"] == "reference_unit"
+        assert change["label"].startswith("视频单元")
+        assert change["focus"]["anchor_type"] == "reference_unit"
+        assert change["focus"]["anchor_id"] == "E1U01"
+        # shots 不承载该路径产物：不发 shot 级 video_ready。
+        assert not any(c["entity_type"] == "shot" and c["action"] == "video_ready" for c in changes)
+
+    def test_ad_reference_unit_redrive_does_not_emit_unit_events(self, tmp_path):
+        """ad + reference_video：unit 增删/成员变化是 shots 编辑的派生回声，不产生 unit 级事件。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("ad-ref-redrive")
+        pm.create_project_metadata(
+            "ad-ref-redrive", "AdRef", "Anime", "ad", extras={"generation_mode": "reference_video"}
+        )
+
+        def _shot(shot_id: str) -> dict:
+            return {
+                "shot_id": shot_id,
+                "duration_seconds": 4,
+                "characters_in_shot": [],
+                "scenes": [],
+                "props": [],
+                "image_prompt": "p",
+                "video_prompt": "v",
+                "generated_assets": _pending_assets(),
+            }
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "ad-ref-redrive",
+                {
+                    "episode": 1,
+                    "title": "广告",
+                    "content_mode": "ad",
+                    "shots": [_shot("E1S01")],
+                    "reference_units": [
+                        {
+                            "unit_id": "E1U01",
+                            "shot_ids": ["E1S01"],
+                            "references": [],
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                },
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("ad-ref-redrive")
+
+        # 重派生：既有 unit 成员变化 + 新增 unit，均无 video_clip。
+        script = pm.load_script("ad-ref-redrive", "episode_1.json")
+        script["shots"].append(_shot("E1S02"))
+        script["reference_units"] = [
+            {
+                "unit_id": "E1U01",
+                "shot_ids": ["E1S01", "E1S02"],
+                "references": [],
+                "generated_assets": _pending_assets(),
+            },
+            {"unit_id": "E1U02", "shot_ids": ["E1S02"], "references": [], "generated_assets": _pending_assets()},
+        ]
+        with project_change_source("filesystem"):
+            pm.save_script("ad-ref-redrive", script, "episode_1.json", validate=False)
+        current = service._build_snapshot("ad-ref-redrive")
+
+        changes = service._diff_snapshots(previous, current)
+        # unit 增删/成员变化不发 unit 级事件（内容变更由 shots 差分承载）。
+        assert not any(c["entity_type"] == "reference_unit" for c in changes)
+
+    def test_ad_storyboard_path_ignores_residual_reference_units(self, tmp_path):
+        """generation_mode 非 reference_video 的 ad 项目：残留 reference_units 不发 unit 级事件，
+
+        shots 级行为与现状一致（shots 承载产物，video_clip 空→非空发 shot 级 video_ready）。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("ad-sb")
+        # 不设 generation_mode → effective_mode 回退默认 storyboard。
+        pm.create_project_metadata("ad-sb", "AdSb", "Anime", "ad")
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "ad-sb",
+                {
+                    "episode": 1,
+                    "title": "广告",
+                    "content_mode": "ad",
+                    "shots": [
+                        {
+                            "shot_id": "E1S01",
+                            "duration_seconds": 4,
+                            "characters_in_shot": [],
+                            "scenes": [],
+                            "props": [],
+                            "image_prompt": "p",
+                            "video_prompt": "v",
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                    # 残留派生索引：storyboard 路径不应据此发 unit 级事件。
+                    "reference_units": [
+                        {
+                            "unit_id": "E1U01",
+                            "shot_ids": ["E1S01"],
+                            "references": [],
+                            "generated_assets": _pending_assets(),
+                        }
+                    ],
+                },
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("ad-sb")
+        # 组合不成立：快照不记录残留 reference_units。
+        assert previous["scripts"]["episode_1.json"]["reference_units"] == {}
+
+        script = pm.load_script("ad-sb", "episode_1.json")
+        # shots 承载产物；残留 unit 也填上 video_clip（应被忽略）。
+        script["shots"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
+        script["reference_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
+        with project_change_source("filesystem"):
+            pm.save_script("ad-sb", script, "episode_1.json", validate=False)
+        current = service._build_snapshot("ad-sb")
+
+        changes = service._diff_snapshots(previous, current)
+        # 残留索引不发 unit 级事件。
+        assert not any(c["entity_type"] == "reference_unit" for c in changes)
+        # storyboard 路径 shots 承载产物：shot 级 video_ready 正常。
+        assert any(
+            c["entity_type"] == "shot" and c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes
+        )
