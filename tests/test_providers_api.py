@@ -517,7 +517,7 @@ class TestPatchProviderConfigMaxWorkersValidation:
         app.include_router(providers.router, prefix="/api/v1")
         return app
 
-    @pytest.mark.parametrize("bad_value", ["", "3.7", "abc", "-1"])
+    @pytest.mark.parametrize("bad_value", ["", "3.7", "abc", "-1", "0"])
     @pytest.mark.parametrize("key", ["image_max_workers", "video_max_workers", "audio_max_workers"])
     def test_invalid_value_returns_422(self, key: str, bad_value: str):
         with TestClient(self._make_db_app()) as client:
@@ -525,7 +525,7 @@ class TestPatchProviderConfigMaxWorkersValidation:
         assert resp.status_code == 422
         detail = resp.json()["detail"]
         # 消息已经过 Translator 渲染（非裸 key id），且包含 UI 同款字段 Label 便于定位
-        assert detail != "max_workers_must_be_nonnegative_integer"
+        assert detail != "max_workers_must_be_positive_integer"
         assert providers._FIELD_META[key]["label"] in detail
 
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
@@ -534,11 +534,11 @@ class TestPatchProviderConfigMaxWorkersValidation:
             resp = client.patch("/api/v1/providers/dashscope/config", json={"video_max_workers": "abc"})
         assert resp.status_code == 422
         detail = resp.json()["detail"]
-        assert detail != "max_workers_must_be_nonnegative_integer"
+        assert detail != "max_workers_must_be_positive_integer"
         assert providers._FIELD_META["video_max_workers"]["label"] in detail
         assert "abc" in detail
 
-    @pytest.mark.parametrize("good_value", ["0", "5"])
+    @pytest.mark.parametrize("good_value", ["1", "5"])
     def test_valid_value_returns_204(self, good_value: str):
         with TestClient(self._make_db_app()) as client:
             resp = client.patch("/api/v1/providers/dashscope/config", json={"audio_max_workers": good_value})

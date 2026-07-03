@@ -12,12 +12,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    STEP1_FILENAMES,
+    STEP1_LEGACY_FILENAMES,
+    episode_drafts_dir,
+    episode_script_filename,
+)
 from lib.project_manager import ProjectManager, effective_mode
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
@@ -40,8 +47,8 @@ from lib.script_models import (
     build_episode_script_model,
     build_reference_video_script_model,
     merge_drama_visual_into_scenes,
-    script_shape,
 )
+from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
@@ -61,6 +68,33 @@ _QUALITY_PROBE_SCENE_MIN_LEN = 40
 _QUALITY_PROBE_ACTION_MIN_LEN = 25
 _QUALITY_PROBE_SHOT_TEXT_MIN_LEN = 15
 
+# 骨架种类 → 响应校验模型。模型类属上层依赖、不进 SKELETONS 窄表，映射留本地。
+# 键与 SKELETONS 逐一对应；新增第五种骨架时穷尽性断言逐个报红。
+_KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
+    "segments": NarrationEpisodeScript,
+    "scenes": DramaEpisodeScript,
+    "shots": AdEpisodeScript,
+    "video_units": ReferenceVideoScript,
+}
+
+# 骨架种类 → metadata 统计的计数键名。计数键名为业务附着（video_units→total_units 非
+# f"total_{kind}"），随 kind 显式保留、不进 SKELETONS 窄表。
+_METADATA_COUNT_KEY: dict[str, str] = {
+    "segments": "total_segments",
+    "scenes": "total_scenes",
+    "shots": "total_shots",
+    "video_units": "total_units",
+}
+
+# 骨架种类 → 缺 duration_seconds 时的兜底时长（秒）。业务附着值：segments/scenes 沿用
+# 历史默认，video_units 缺失按 0 计。shots（ad）无单镜头默认时长、改走 ad_script_total_duration
+# 稳健求和，故不在此表——第五种非 ad 骨架未登记即在 _add_metadata 处 KeyError 报红。
+_METADATA_FALLBACK_DURATION: dict[str, int] = {
+    "segments": 4,
+    "scenes": 8,
+    "video_units": 0,
+}
+
 
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     """把 ID 中的 `E\\d+` 前缀强制改写为 `E{ep}`；非字符串或无 E 前缀的原样返回。
@@ -73,6 +107,25 @@ def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     if n and new_rid != rid:
         logger.warning("episode prefix rewritten: %s → %s", rid, new_rid)
     return new_rid
+
+
+def _coerce_duration(item: object, fallback: int) -> int:
+    """降级保存路径按稳健口径取单条时长:校验失败时保存的原始 dict 里数组可能含脏条目，
+    直接 ``int(item.get(...))`` 会在非 dict 或 duration_seconds 非数字时崩溃。
+
+    非 dict 条目无时长语义、记 0；dict 内 duration_seconds 缺失、非数字（None / 布尔 /
+    非数字字符串）或非正数（校验器亦按 ``duration <= 0`` 判无效）回退 ``fallback``。
+    """
+    if not isinstance(item, dict):
+        return 0
+    value = item.get("duration_seconds", fallback)
+    if isinstance(value, bool):
+        return fallback
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed > 0 else fallback
 
 
 class ScriptGenerator:
@@ -168,7 +221,7 @@ class ScriptGenerator:
         # drama（storyboard / grid）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
         # step2 仅出视觉层（image_prompt / video_prompt），后端按 scene_id 合并回 step1 内容、
         # 透传 utterances / source_text 等非视觉字段。reference_video 路径不入此分支（用 video_units）；
-        # content_mode 未知（脏值）按 drama 形状处理，与 script_shape 兜底同口径。
+        # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
         if gen_mode != "reference_video" and self.content_mode != "narration":
             return await self._generate_drama_step2(episode, output_filename)
 
@@ -256,7 +309,7 @@ class ScriptGenerator:
         script_data = {"title": content.get("title") or f"第{episode}集", "scenes": merged_scenes}
         script_data = self._add_metadata(script_data, episode)
 
-        filename = output_filename or f"episode_{episode}.json"
+        filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
         output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
 
@@ -336,7 +389,7 @@ class ScriptGenerator:
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
-        filename = output_filename or f"episode_{episode}.json"
+        filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
         output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
 
@@ -538,12 +591,14 @@ class ScriptGenerator:
         narration（storyboard/grid）走结构化两段式，单独经 ``_load_narration_step1`` 读
         ``step1_segments.json``，不进本方法。
         """
-        drafts_path = self.project_path / "drafts" / f"episode_{episode}"
+        drafts_path = episode_drafts_dir(self.project_path, episode)
         gen_mode = self._effective_generation_mode(episode)
         if gen_mode == "reference_video":
-            step1_path = drafts_path / "step1_reference_units.md"
+            step1_path = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
         else:
-            step1_path = drafts_path / "step1_normalized_script.json"
+            # 本方法只服务 drama 及未来其它走 drama 形状两段式的结构化模式（narration 另经
+            # _load_narration_step1）；按 content_mode 取登记的结构化文件名，脏值兜底 drama。
+            step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
 
         if not step1_path.exists():
             raise FileNotFoundError(
@@ -564,14 +619,15 @@ class ScriptGenerator:
         仅存在结构化前的旧 ``step1_segments.md`` 时给明确的「重跑拆分」报错——不写
         md→json 迁移器（旧 md 产于结构化中间态引入前、不含手工编辑）。
         """
-        drafts_path = self.project_path / "drafts" / f"episode_{episode}"
-        step1_json = drafts_path / "step1_segments.json"
+        drafts_path = episode_drafts_dir(self.project_path, episode)
+        narration_json = STEP1_FILENAMES["narration"]
+        step1_json = drafts_path / narration_json
         if not step1_json.exists():
-            legacy_md = drafts_path / "step1_segments.md"
+            legacy_md = drafts_path / STEP1_LEGACY_FILENAMES["narration"][0]
             if legacy_md.exists():
                 raise FileNotFoundError(
                     f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {step1_json}；"
-                    "请重跑 split-narration-segments 产出结构化 step1_segments.json"
+                    f"请重跑 split-narration-segments 产出结构化 {narration_json}"
                 )
             raise FileNotFoundError(
                 f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成片段拆分"
@@ -667,17 +723,12 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
 
-        # Pydantic 验证。ad 先于 generation_mode 判别：骨架唯一，reference 路径仍是 shots[]。
+        # 校验模型经规范解析定骨架种类（ad→shots 骨架唯一，reference→video_units），
+        # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
+        kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))
+        schema = _KIND_PARSE_SCHEMA[kind]
         try:
-            if self.content_mode == "ad":
-                validated = AdEpisodeScript.model_validate(data)
-            elif self._effective_generation_mode(episode) == "reference_video":
-                validated = ReferenceVideoScript.model_validate(data)
-            elif self.content_mode == "narration":
-                validated = NarrationEpisodeScript.model_validate(data)
-            else:
-                validated = DramaEpisodeScript.model_validate(data)
-            return validated.model_dump()
+            return schema.model_validate(data).model_dump()
         except ValidationError as e:
             logger.warning("数据验证警告: %s", e)
             # 返回原始数据，允许部分不符合 schema
@@ -757,16 +808,17 @@ class ScriptGenerator:
         # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
-        if self.content_mode != "ad" and gen_mode == "reference_video":
-            for u in script_data.get("video_units") or []:
-                if isinstance(u, dict) and "unit_id" in u:
-                    u["unit_id"] = _rewrite_episode_prefix(u.get("unit_id"), ep)
-        else:
-            # narration/drama/ad 统一按 SCRIPT_SHAPES 查表（ad 骨架唯一，不随生成路径换判别）
-            shape = script_shape(self.content_mode)
-            for s in script_data.get(shape.items_key) or []:
-                if isinstance(s, dict) and shape.id_field in s:
-                    s[shape.id_field] = _rewrite_episode_prefix(s.get(shape.id_field), ep)
+        # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + SKELETONS 查 id 字段改写
+        # （ad 骨架唯一、reference→video_units；不再手写 reference 分支）。self.content_mode
+        # 为项目级校验值，解析不会 fail-loud。kind 复用到下方 metadata 统计。
+        kind = resolve_declared_kind(self.content_mode, gen_mode)
+        id_field = SKELETONS[kind].id_field
+        # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
+        # `... or []` 只挡 falsy、挡不住真值标量，isinstance 守卫避免 `for` 迭代崩溃。
+        raw_rewrite_items = script_data.get(kind)
+        for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
+            if isinstance(s, dict) and id_field in s:
+                s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
         # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
@@ -811,26 +863,18 @@ class ScriptGenerator:
         script_data["metadata"]["updated_at"] = now
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
 
-        # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）
-        if self.content_mode == "ad":
-            # shots 无单镜头默认时长偏好，缺失按 0 计（与 StatusCalculator 口径一致）。
-            # 校验失败降级保存的原始 dict 里 shots 可能为 null / 含脏条目，求和走稳健口径。
-            raw_shots = script_data.get("shots")
-            shots = raw_shots if isinstance(raw_shots, list) else []
-            script_data["metadata"]["total_shots"] = len(shots)
-            script_data["duration_seconds"] = ad_script_total_duration(shots)
-        elif gen_mode == "reference_video":
-            units = script_data.get("video_units", [])
-            script_data["metadata"]["total_units"] = len(units)
-            script_data["duration_seconds"] = sum(int(u.get("duration_seconds", 0)) for u in units)
-        elif self.content_mode == "narration":
-            segments = script_data.get("segments", [])
-            script_data["metadata"]["total_segments"] = len(segments)
-            script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 4)) for s in segments)
+        # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
+        # 数组键经上方规范解析所得 kind 查表；计数键名与兜底时长为业务附着、随 kind 显式保留。
+        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目，isinstance 守卫走稳健口径。
+        raw_items = script_data.get(kind)
+        items = raw_items if isinstance(raw_items, list) else []
+        script_data["metadata"][_METADATA_COUNT_KEY[kind]] = len(items)
+        if kind == "shots":
+            # ad 逐镜头按 target_duration 预算规划、无单镜头默认时长，走 ad_script_total_duration。
+            script_data["duration_seconds"] = ad_script_total_duration(items)
         else:
-            scenes = script_data.get("scenes", [])
-            script_data["metadata"]["total_scenes"] = len(scenes)
-            script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 8)) for s in scenes)
+            fallback = _METADATA_FALLBACK_DURATION[kind]
+            script_data["duration_seconds"] = sum(_coerce_duration(i, fallback) for i in items)
 
         # 剥离废弃的 episode 级聚合字段（改为读时计算）
         script_data.pop("characters_in_episode", None)
@@ -850,24 +894,28 @@ class ScriptGenerator:
         try:
             short_ids: list[str] = []
 
-            gen_mode = self._effective_generation_mode(episode)
-            if self.content_mode != "ad" and gen_mode == "reference_video":
-                for u in script_data.get("video_units") or []:
+            # 骨架经规范解析统一判别、id 字段查 SKELETONS（同 _add_metadata id 改写处置）。
+            # video_units 的过短样本落在 unit 内嵌 shots.text，与 narration/drama/ad 平铺条目的
+            # image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、非骨架分派。
+            kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))
+            id_key = SKELETONS[kind].id_field
+            # 降级保存的原始 dict 里数组可能为非列表脏值；`... or []` 挡不住真值标量，
+            # isinstance 守卫避免 `for` 迭代崩溃（外层 try/except 会吞异常但会误跳过整段探针）。
+            raw_items = script_data.get(kind)
+            items = raw_items if isinstance(raw_items, list) else []
+            if kind == "video_units":
+                for u in items:
                     if not isinstance(u, dict):
                         continue
-                    uid = str(u.get("unit_id") or "?")
-                    for shot in u.get("shots") or []:
+                    uid = str(u.get(id_key) or "?")
+                    raw_shots = u.get("shots")
+                    for shot in raw_shots if isinstance(raw_shots, list) else []:
                         if not isinstance(shot, dict):
                             continue
                         text = str(shot.get("text") or "")
                         if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
                             short_ids.append(uid)
             else:
-                # narration/drama/ad 统一按 SCRIPT_SHAPES 查表；ad 骨架唯一，两条生成路径
-                # 都按 shots 探针，与 narration/drama 共用 scene/action 的过短判定。
-                shape = script_shape(self.content_mode)
-                items = script_data.get(shape.items_key) or []
-                id_key = shape.id_field
                 for item in items:
                     if not isinstance(item, dict):
                         continue

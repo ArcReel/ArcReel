@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from lib.text_backends.base import (
     ImageInput,
     TextBackend,
@@ -162,6 +164,130 @@ class TestTextBackendProtocol:
         assert backend.name == "fake"
         assert backend.model == "fake-model"
         assert TextCapability.TEXT_GENERATION in backend.capabilities
+
+
+class _Person(BaseModel):
+    name: str
+    age: int
+
+
+class TestStructuredFallbackReason:
+    """共享复验纯函数：openai/ark/gemini 复用同一实现。"""
+
+    def test_valid_json_satisfying_pydantic_returns_none(self):
+        import json
+
+        from lib.text_backends.base import structured_fallback_reason
+
+        assert structured_fallback_reason(json.dumps({"name": "A", "age": 30}), _Person) is None
+
+    def test_non_json_returns_reason(self):
+        from lib.text_backends.base import structured_fallback_reason
+
+        reason = structured_fallback_reason("## markdown not json", _Person)
+        assert reason is not None
+        assert "JSON" in reason or "schema" in reason
+
+    def test_schema_violating_json_returns_reason(self):
+        import json
+
+        from lib.text_backends.base import structured_fallback_reason
+
+        # 合法 JSON 但 age 为中文字符串、违反 int 约束
+        violating = json.dumps({"name": "A", "age": "三十"}, ensure_ascii=False)
+        assert structured_fallback_reason(violating, _Person) is not None
+
+    def test_coercible_but_non_strict_returns_reason(self):
+        import json
+
+        from lib.text_backends.base import structured_fallback_reason
+
+        # strict=True 下 "30" 不被强转为 30，判定为未强制 schema
+        assert structured_fallback_reason(json.dumps({"name": "A", "age": "30"}), _Person) is not None
+
+    def test_strict_false_tolerates_coercible_returns_none(self):
+        import json
+
+        from lib.text_backends.base import structured_fallback_reason
+
+        # strict=False（对齐未声明 strict 的后端）容忍可强转值 "30"，不触发降级
+        assert structured_fallback_reason(json.dumps({"name": "A", "age": "30"}), _Person, strict=False) is None
+
+    def test_strict_false_still_flags_genuine_violation(self):
+        import json
+
+        from lib.text_backends.base import structured_fallback_reason
+
+        # strict=False 仍对真正无法满足 schema 的输出降级：不可强转的 int + 缺必填字段
+        non_coercible = json.dumps({"name": "A", "age": "三十"}, ensure_ascii=False)
+        assert structured_fallback_reason(non_coercible, _Person, strict=False) is not None
+        assert structured_fallback_reason(json.dumps({"name": "A"}), _Person, strict=False) is not None
+
+    def test_missing_required_field_returns_reason(self):
+        import json
+
+        from lib.text_backends.base import structured_fallback_reason
+
+        assert structured_fallback_reason(json.dumps({"name": "A"}), _Person) is not None
+
+    def test_dict_schema_valid_json_returns_none(self):
+        import json
+
+        from lib.text_backends.base import structured_fallback_reason
+
+        # dict schema 仅校验是否合法 JSON，即便类型违反声明也不收紧
+        violating = json.dumps({"name": "A", "age": "thirty"})
+        schema = {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}
+        assert structured_fallback_reason(violating, schema) is None
+
+    def test_dict_schema_non_json_returns_reason(self):
+        from lib.text_backends.base import structured_fallback_reason
+
+        assert structured_fallback_reason("not json", {"type": "object"}) is not None
+
+    def test_none_schema_never_triggers_fallback(self):
+        from lib.text_backends.base import structured_fallback_reason
+
+        # response_schema 为 None（纯文本生成）时，纯文本不得被误判为需降级
+        assert structured_fallback_reason("plain text, not json", None) is None
+        assert structured_fallback_reason('{"a": 1}', None) is None
+        assert structured_fallback_reason("", None) is None
+
+
+class TestIsValidJson:
+    def test_valid(self):
+        from lib.text_backends.base import is_valid_json
+
+        assert is_valid_json('{"a": 1}') is True
+
+    def test_empty_and_whitespace(self):
+        from lib.text_backends.base import is_valid_json
+
+        assert is_valid_json("") is False
+        assert is_valid_json("   ") is False
+
+    def test_non_json(self):
+        from lib.text_backends.base import is_valid_json
+
+        assert is_valid_json("hello") is False
+
+
+class TestSummarizeValidationError:
+    def test_no_raw_input_in_summary(self):
+        import json
+
+        from pydantic import ValidationError
+
+        from lib.text_backends.base import summarize_validation_error
+
+        try:
+            _Person.model_validate_json(json.dumps({"name": "A", "age": "三十"}, ensure_ascii=False), strict=True)
+            raise AssertionError("应抛 ValidationError")
+        except ValidationError as exc:
+            summary = summarize_validation_error(exc)
+        assert "age" in summary
+        # 摘要不含模型原始输入值
+        assert "三十" not in summary
 
 
 class TestWarnIfTruncated:

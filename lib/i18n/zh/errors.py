@@ -91,7 +91,7 @@ MESSAGES = {
     "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
     # Providers
     "unknown_provider": "未知供应商: {provider_id}",
-    "max_workers_must_be_nonnegative_integer": "{field} 必须是非负整数，收到：{value}",
+    "max_workers_must_be_positive_integer": "{field} 必须是正整数，收到：{value}",
     "credentials_not_found": "凭证不存在",
     "vertex_json_read_failed": "读取上传文件失败",
     "vertex_json_too_large": "凭证文件过大",
@@ -203,7 +203,10 @@ MESSAGES = {
     "video_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
     "video_reference_images_unsupported": "模型 {model} 不支持多图主体参考；请移除参考图，或换一个支持参考生视频的模型",
     "video_reference_images_exceeded": "模型 {model} 最多支持 {limit} 张参考图，收到 {count} 张；请减少参考图数量",
+    "video_reference_images_with_frames_unsupported": "模型 {model} 的参考图不能与首帧/尾帧叠加使用；请二选一",
     "video_start_image_unreadable": "模型 {model} 的首帧图无法读取，已中止生成：{name}；请检查首帧图路径",
+    "video_end_image_unreadable": "模型 {model} 的尾帧图无法读取，已中止生成：{name}；请检查尾帧图路径",
+    "video_end_image_requires_start_image": "模型 {model} 不支持单独的尾帧；请同时提供首帧（首尾帧模式），或移除尾帧",
     # Agent credentials
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",

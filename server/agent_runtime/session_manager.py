@@ -4,45 +4,54 @@ Manages ClaudeSDKClient instances with background execution and reconnection sup
 
 import asyncio
 import contextlib
-import fnmatch
-import functools
 import json
 import logging
-import math
 import os
-import re
-import shlex
-import tempfile
 import time
-import unicodedata
 from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator, Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-from lib.agent_session_store import session_store_flush_mode
-from lib.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
-from lib.db.engine import async_session_factory as default_async_session_factory
-from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
+from lib.i18n import DEFAULT_LOCALE
 from lib.logging_config import resolve_log_dir
-from server.agent_runtime.message_utils import extract_plain_user_content
-from server.agent_runtime.models import SessionMeta, SessionStatus
-from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
+from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.message_serialization import (
+    IMAGE_ONLY_SENTINEL,
+    build_runtime_status_message,
+    build_user_echo_message,
+    is_duplicate_user_echo,
+    message_to_dict,
+    utc_now_iso,
+)
+from server.agent_runtime.models import (
+    Heartbeat,
+    LiveMessage,
+    ReplayBatch,
+    SessionMeta,
+    SessionStatus,
+    SessionStreamEvent,
+)
+from server.agent_runtime.options_assembler import OptionsAssembler
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.usage_extraction import (
+    extract_assistant_cost,
+    extract_text_token_usage,
+    resolve_assistant_model,
+    resolve_configured_assistant_model,
+)
+from server.sse_channel import IDLE, EvictNonCriticalAndSignal, SseChannel
 
 logger = logging.getLogger(__name__)
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, tag_session
+from claude_agent_sdk import ClaudeSDKClient, tag_session
 from claude_agent_sdk.types import (
-    HookMatcher,
     PermissionResultAllow,
     PermissionResultDeny,
-    SystemPromptPreset,
 )
 
 from lib.config.service import ConfigService
@@ -95,11 +104,6 @@ class AgentStartupError(RuntimeError):
         return self.message
 
 
-def _utc_now_iso() -> str:
-    """Return current UTC timestamp in ISO-8601 format."""
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
-
-
 @dataclass
 class PendingQuestion:
     """Tracks a pending AskUserQuestion request."""
@@ -107,6 +111,19 @@ class PendingQuestion:
     question_id: str
     payload: dict[str, Any]
     answer_future: asyncio.Future[dict[str, str]]
+
+
+def _make_session_channel() -> SseChannel:
+    """会话订阅广播通道：溢出策略为「逐出非关键消息 + 溢出信号」。
+
+    关键消息（result/runtime_status/user/assistant）不得静默丢弃；订阅者
+    队列彻底跟不上时其流被结束，流结束即重连信号（见 docs/adr/0046）。
+    """
+    return SseChannel(
+        overflow=EvictNonCriticalAndSignal(
+            is_critical=lambda message: message.get("type") in ManagedSession._CRITICAL_MESSAGE_TYPES,
+        ),
+    )
 
 
 @dataclass
@@ -120,7 +137,7 @@ class ManagedSession:
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
     resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
     message_buffer: list[dict[str, Any]] = field(default_factory=list)
-    subscribers: set[asyncio.Queue] = field(default_factory=set)
+    channel: SseChannel = field(default_factory=_make_session_channel)
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
@@ -144,7 +161,7 @@ class ManagedSession:
         self.message_buffer.append(message)
         if len(self.message_buffer) > self.buffer_max_size:
             self._evict_oldest_buffer_entry()
-        self._broadcast_to_subscribers(message)
+        self.channel.broadcast(message)
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -201,78 +218,6 @@ class ManagedSession:
                 self.message_buffer.pop(i)
                 return
         self.message_buffer.pop(0)
-
-    def _broadcast_to_subscribers(self, message: dict[str, Any]) -> None:
-        """Push message to all subscriber queues, evicting non-critical on overflow."""
-        is_critical = message.get("type") in self._CRITICAL_MESSAGE_TYPES
-        stale_queues: list[asyncio.Queue] = []
-        for queue in self.subscribers:
-            if not self._try_enqueue(queue, message, is_critical):
-                stale_queues.append(queue)
-        for q in stale_queues:
-            # Drain the hopelessly full queue and inject a reconnect signal so
-            # the SSE consumer loop terminates instead of blocking forever.
-            self._drain_and_signal_reconnect(q)
-            self.subscribers.discard(q)
-
-    def _drain_and_signal_reconnect(self, queue: asyncio.Queue) -> None:
-        """Empty *queue* and push a reconnect signal so the SSE loop exits.
-
-        Uses a connection-level ``_queue_overflow`` type rather than
-        ``runtime_status`` so the SSE consumer can close the stream without
-        misrepresenting the session's actual status to the client.
-        """
-        while not queue.empty():
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        try:
-            queue.put_nowait(
-                {
-                    "type": "_queue_overflow",
-                    "session_id": self.session_id,
-                }
-            )
-        except asyncio.QueueFull:
-            pass  # should never happen after drain
-
-    def _try_enqueue(self, queue: asyncio.Queue, message: dict[str, Any], is_critical: bool) -> bool:
-        """Try to put *message* into *queue*. Returns False if the queue should be discarded."""
-        try:
-            queue.put_nowait(message)
-            return True
-        except asyncio.QueueFull:
-            if not is_critical:
-                return True  # non-critical drop is acceptable
-        # Critical message on a full queue — evict one non-critical to make room.
-        self._evict_non_critical(queue)
-        try:
-            queue.put_nowait(message)
-            return True
-        except asyncio.QueueFull:
-            return False
-
-    @staticmethod
-    def _evict_non_critical(queue: asyncio.Queue) -> bool:
-        """Try to remove one non-critical message from *queue* to make room."""
-        temp: list[dict[str, Any]] = []
-        evicted = False
-        while not queue.empty():
-            try:
-                msg = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            if not evicted and msg.get("type") not in ManagedSession._CRITICAL_MESSAGE_TYPES:
-                evicted = True  # drop this one
-                continue
-            temp.append(msg)
-        for msg in temp:
-            try:
-                queue.put_nowait(msg)
-            except asyncio.QueueFull:
-                break
-        return evicted
 
     def clear_buffer(self) -> None:
         """Clear message buffer after session completes."""
@@ -333,95 +278,6 @@ class SessionManager:
     DEFAULT_SETTING_SOURCES = ["project"]
     _SDK_ID_TIMEOUT = 60.0
 
-    _BASH_TOOLS: tuple[str, ...] = ("Bash", "BashOutput", "KillBash")
-
-    # python skills 入口前缀。约定形态 ``python .claude/skills/<skill>/scripts/
-    # <script>.py <args>``：脚本路径须落在某 skill 的 scripts/ 下（_SKILL_SCRIPT_RE
-    # 校验），挡住 skills 目录里任意现有/未来文件被当作可执行入口——Windows 回退
-    # 无 sandbox denyExec 兜底，仅靠前缀放行会把整棵 skills 树暴露为可执行面。
-    _PYTHON_SKILLS_PREFIX = "python .claude/skills/"
-    _SKILL_SCRIPT_RE: "re.Pattern[str]" = re.compile(r"^\.claude/skills/[^/]+/scripts/[^/]+\.py$")
-
-    # Windows 回退（_sandbox_enabled=False）的 Bash 命令白名单：等价于 PR 沙箱化前
-    # main 分支 settings.json permissions.allow 段。也是 _can_use_tool deny hint
-    # 文案的单一真相源（_format_bash_whitelist_deny_message 从此派生）。
-    _WINDOWS_BASH_PREFIX_WHITELIST: tuple[str, ...] = (
-        _PYTHON_SKILLS_PREFIX,
-        "ffmpeg",
-        "ffprobe",
-    )
-
-    # Windows 回退白名单的 shell metachar 黑名单：``;`` ``&`` ``|`` ``<`` ``>``
-    # `` ` `` ``$`` 与换行都可能在白名单前缀后挂任意命令（链式/管道/重定向/
-    # 命令替换）。不解析引号语境，引号内出现也整串拒——宁可误拒（fail-closed），
-    # deny 文案会引导 agent 改写命令。
-    _BASH_METACHARS_RE: "re.Pattern[str]" = re.compile(r"[;&|<>`$\r\n]")
-
-    # ``..`` 路径段：``python .claude/skills/../../evil.py`` 不含 metachar 且满足
-    # ``python .claude/skills/`` 前缀，但 ``..`` 逃出 skills 目录执行任意脚本——
-    # Windows 回退无 sandbox denyWrite/denyExec 兜底，整串拒。仅匹配被分隔符/
-    # 空白/串首尾界定的 ``..`` 段，``my..name`` 这类文件名不误伤。
-    _BASH_PATH_TRAVERSAL_RE: "re.Pattern[str]" = re.compile(r"(?:^|[\s/\\])\.\.(?:[\s/\\]|$)")
-
-    # Sandbox 启用后 Bash 进入 allowed_tools；具体命令由 SDK Sandbox 自动放行
-    # (autoAllowBashIfSandboxed=True)。文件访问控制走 settings.json deny rules
-    # + PreToolUse hook 双重防线。
-    _PATH_TOOLS: dict[str, str] = {
-        "Read": "file_path",
-        "Write": "file_path",
-        "Edit": "file_path",
-        "Glob": "path",
-        "Grep": "path",
-    }
-    _WRITE_TOOLS = {"Write", "Edit"}
-    _CODE_EXTENSIONS_FORBIDDEN = {
-        ".py",
-        ".js",
-        ".ts",
-        ".tsx",
-        ".sh",
-        ".yaml",
-        ".yml",
-        ".toml",
-    }
-
-    # 敏感文件清单按"逻辑类别"声明：实际绝对路径在实例化时通过
-    # ``_compute_sensitive_paths`` 解析 ``self.projects_root`` /
-    # ``self._agent_profile_root`` / ``self._project_root_resolved`` 得到，
-    # 以正确反映 ``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 环境覆盖
-    # 后的真实位置（issue #519 / PR #528 review）。
-    # - ``.env`` / ``.env.*`` 总是相对源仓库根（dotenv 从仓库根加载）
-    # - ``.arcreel.db`` / ``.system_config.json`` / ``.arcreel.db-*`` 在
-    #   ``app_data_dir()``（即 ``self.projects_root``）下
-    # - ``vertex_keys/`` 在 ``app_data_dir().parent`` 下（与
-    #   ``server.routers.providers.upload_vertex_credential`` 写入位置一致）
-    # - ``agent_runtime_profile/.claude/settings.json`` 在
-    #   ``agent_profile_dir()`` 下（受 ``ARCREEL_PROFILE_DIR`` 控制）
-
-    # Sentinel used in pending_user_echoes for image-only messages (no text).
-    # The SDK parser drops image blocks, so the replayed UserMessage arrives
-    # with empty content; this sentinel lets _is_duplicate_user_echo match it.
-    _IMAGE_ONLY_SENTINEL = "__image_only__"
-
-    # SDK message class name to type mapping
-    _MESSAGE_TYPE_MAP = {
-        "UserMessage": "user",
-        "AssistantMessage": "assistant",
-        "ResultMessage": "result",
-        "SystemMessage": "system",
-        "StreamEvent": "stream_event",
-        "TaskStartedMessage": "system",
-        "TaskProgressMessage": "system",
-        "TaskNotificationMessage": "system",
-    }
-
-    # Typed task message subtypes for precise classification
-    _TASK_MESSAGE_SUBTYPES = {
-        "TaskStartedMessage": "task_started",
-        "TaskProgressMessage": "task_progress",
-        "TaskNotificationMessage": "task_notification",
-    }
-
     def __init__(
         self,
         project_root: Path,
@@ -448,12 +304,7 @@ class SessionManager:
         self._disconnecting: set[str] = set()
         self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
         self._connect_locks: dict[str, asyncio.Lock] = {}
-        # SandboxSettings.enableWeakerNestedSandbox 标志，由 AssistantService
-        # 从 app.state.in_docker 透传。
-        self._in_docker = in_docker
-        # False 表示 SDK 不支持当前平台（目前仅 Windows） — Bash 工具走代码白名单回退。
-        self._sandbox_enabled = sandbox_enabled
-        # 实例不变量缓存：避免每次 _build_options / hook 都重做 path resolve。
+        # 实例不变量缓存：避免每次构建 access policy 都重做 path resolve。
         self._project_root_resolved = self.project_root.resolve()
         # agent_runtime_profile 实际位置：``ARCREEL_PROFILE_DIR`` env 覆盖 >
         # ``self.project_root / "agent_runtime_profile"``（test-friendly：
@@ -463,47 +314,52 @@ class SessionManager:
             self._agent_profile_root = Path(profile_override).expanduser().resolve(strict=False)
         else:
             self._agent_profile_root = (self._project_root_resolved / "agent_runtime_profile").resolve(strict=False)
-        # 敏感路径在 __init__ 锁定一次，后续 sandbox 构建 / hook 检查都用同一份
-        files, prefixes, globs = self._compute_sensitive_paths()
-        self._sensitive_files: tuple[Path, ...] = files
-        self._sensitive_prefixes: tuple[Path, ...] = prefixes
-        self._sensitive_globs: tuple[tuple[Path, str], ...] = globs
+        # 访问规则真相源：env 解析（profile / 日志目录）在此完成，policy 只消费
+        # resolve 后的进程级根路径（零 I/O 纯构造）。用 resolve_log_dir() 拿日志
+        # 真实路径，覆盖 ``ARCREEL_LOG_DIR`` 自定义场景——无论落在 repo 内还是外
+        # 都必须 deny。
+        self.access_policy = AgentAccessPolicy(
+            project_root=self._project_root_resolved,
+            projects_root=self.projects_root,
+            agent_profile_root=self._agent_profile_root,
+            log_dir=resolve_log_dir().resolve(),
+            sandbox_enabled=sandbox_enabled,
+            in_docker=in_docker,
+        )
         self._load_config()
         self.usage_tracker = UsageTracker(session_factory=getattr(meta_store, "_session_factory", None))
+        # Options 装配器：持依赖、允许 I/O，异步 build 产出 SDK options。access_policy /
+        # max_turns / session_factory / user_id 一律用 provider 回调现取——前两者
+        # configure_sandbox_runtime / refresh_config 换新后对后续会话立即生效；后两者
+        # 保持析出前惰性读 self 属性的时点，与用量记录侧 _finalize_turn 实时读 _user_id
+        # 同源，避免 store 与用量落到不同 per-user 命名空间。_resolve_project_cwd
+        # （项目名校验/作用域）留在会话管理侧，作为依赖注入。
+        self._options_assembler = OptionsAssembler(
+            data_dir=self.data_dir,
+            projects_root=self.projects_root,
+            allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
+            setting_sources=self.DEFAULT_SETTING_SOURCES,
+            access_policy_provider=lambda: self.access_policy,
+            max_turns_provider=lambda: self.max_turns,
+            resolve_project_cwd=self._resolve_project_cwd,
+            session_factory_provider=lambda: getattr(self, "_session_factory", None),
+            user_id_provider=lambda: getattr(self, "_user_id", DEFAULT_USER_ID),
+        )
 
-    def _compute_sensitive_paths(
-        self,
-    ) -> tuple[tuple[Path, ...], tuple[Path, ...], tuple[tuple[Path, str], ...]]:
-        """Resolve sensitive file/prefix/glob locations based on env-aware roots.
+    def configure_sandbox_runtime(self, *, in_docker: bool, sandbox_enabled: bool) -> None:
+        """startup 期注入平台运行时事实（Docker 嵌套、内核沙箱可用性）。
 
-        Returns ``(files, prefixes, globs)`` where ``files`` are exact paths,
-        ``prefixes`` are subtree roots, and ``globs`` are ``(parent, pattern)``
-        pairs evaluated against ``parent``.
+        ``in_docker`` 透传 SandboxSettings.enableWeakerNestedSandbox；
+        ``sandbox_enabled=False``（Windows 回退）关闭 SDK SandboxSettings 并把
+        Bash 工具调用切到代码白名单路径。AgentAccessPolicy 不可变，整体换新
+        而非戳改字段——hook / options 构建都在调用时读 ``self.access_policy``，
+        换新即对后续所有会话与工具调用生效。
         """
-        repo = self._project_root_resolved
-        data = self.projects_root  # = app_data_dir() in production
-        profile = self._agent_profile_root
-        files: tuple[Path, ...] = (
-            repo / ".env",
-            data / ".arcreel.db",
-            data / ".system_config.json",
-            data / ".system_config.json.bak",
-            profile / ".claude" / "settings.json",
+        self.access_policy = replace(
+            self.access_policy,
+            in_docker=bool(in_docker),
+            sandbox_enabled=bool(sandbox_enabled),
         )
-        # 日志目录 —— 服务器日志含 HTTP 请求路径、provider 探测、异常栈，默认
-        # read 规则会把 PROJECT_ROOT 当成参考资料根（lib/docs/...）放行，不显式
-        # deny 会让任意项目 session 里的 agent 通过 Read/Grep 读到全局日志。
-        # 用 resolve_log_dir() 拿真实路径，覆盖 ARCREEL_LOG_DIR 自定义场景；
-        # 无论 LOG_DIR 落在 repo 内还是外（如 /var/log/arcreel）都必须 deny——
-        # 把约束反过来用 is_relative_to(repo) 限制只会让 repo 外的 LOG_DIR 漏过。
-        log_dir = resolve_log_dir().resolve()
-        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", log_dir)
-        # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
-        globs: tuple[tuple[Path, str], ...] = (
-            (repo, ".env.*"),
-            (data, ".arcreel.db-*"),
-        )
-        return files, prefixes, globs
 
     def _load_config(self) -> None:
         """Load configuration from environment (sync fallback)."""
@@ -528,115 +384,6 @@ class SessionManager:
         # Fallback to env var
         self._load_config()
 
-    _PERSONA_PROMPT = """\
-## 身份
-
-你是 ArcReel 智能体，一个专业的 AI 视频内容创作助手。你的职责是将小说转化为可发布的短视频内容。
-
-## 行为准则
-
-- 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
-- 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
-- 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
-- Write/Edit 不要写入代码文件（扩展名 .py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）；数据文件（.json/.md/.txt/.html/.csv 等）可以正常写入。代码逻辑应通过现有 skill 脚本完成
-- 你是用户的视频制作搭档，专业、友善、高效"""
-
-    def _build_append_prompt(self, project_name: str, locale: str = DEFAULT_LOCALE) -> str:
-        """Build the append portion for SystemPromptPreset.
-
-        Combines the ArcReel persona, the locale language regulation, and the
-        session-invariant project context (identity, cwd, operating rules).
-        Mutable project metadata is not included here — it lives in project.json
-        and is read on demand. The project's CLAUDE.md (mode variant projected
-        into the cwd) is auto-loaded by the SDK via setting_sources=["project"].
-        """
-        parts = [self._PERSONA_PROMPT]
-
-        lang = LOCALE_LANGUAGE_MAP.get(locale, "中文")
-        parts.append(
-            f"\n## 语言规范\n\n"
-            f"- **回答用户必须使用{lang}**：所有回复、思考过程、任务清单及计划文件，均须使用{lang}\n"
-            f"- **视频内容语言**：所有生成的视频对话、旁白、字幕均使用{lang}\n"
-            f"- **文档使用{lang}**：所有的 Markdown 文件均使用{lang}编写\n"
-            f"- **Prompt 使用{lang}**：图片生成/视频生成使用的 prompt 应使用{lang}编写"
-        )
-
-        project_context = self._build_project_context(project_name)
-        if project_context:
-            parts.append(project_context)
-
-        return "\n".join(parts)
-
-    def _build_project_context(self, project_name: str) -> str:
-        """Build session-invariant project context for the system prompt.
-
-        Holds only facts that cannot change within a session: project identity,
-        cwd, and static operating rules. Mutable metadata (title, style,
-        overview, ...) lives in project.json and is read on demand by the agent
-        and tools — never baked into the session-fixed system prompt.
-        """
-        try:
-            project_cwd = self._resolve_project_cwd(project_name)
-        except (ValueError, FileNotFoundError):
-            return ""
-
-        parts = [
-            "## 当前项目上下文",
-            "",
-            f"- 项目标识：{project_name}",
-            f"- 项目目录（即当前工作目录 cwd）：{project_cwd.as_posix()}",
-            "- 项目元数据（标题、风格、概述等）存于 project.json，需要时读取。",
-            "- Bash 命令必须写在单行，禁止使用 `\\` 换行，JSON 参数使用紧凑格式。",
-        ]
-        return "\n".join(parts)
-
-    def _build_session_store(self) -> DbSessionStore | None:
-        """Return a cached per-user DbSessionStore, or None when env disables it.
-
-        Set ARCREEL_SDK_SESSION_STORE=off to roll back to SDK's filesystem path.
-        The result is cached on first call so every session shares one instance
-        instead of allocating a fresh store per ``_build_options`` invocation.
-        """
-        cached = getattr(self, "_cached_session_store", None)
-        if cached is not None or getattr(self, "_session_store_resolved", False):
-            return cached
-        from lib.agent_session_store import (
-            is_known_session_store_mode,
-            session_store_mode,
-        )
-
-        mode = session_store_mode()
-        store: DbSessionStore | None
-        if mode == "off":
-            store = None
-        else:
-            if not is_known_session_store_mode(mode):
-                logger.warning("Unknown ARCREEL_SDK_SESSION_STORE=%r; defaulting to db", mode)
-            factory = getattr(self, "_session_factory", None) or default_async_session_factory
-            user_id = getattr(self, "_user_id", DEFAULT_USER_ID)
-            store = DbSessionStore(factory, user_id=user_id)
-        self._cached_session_store = store
-        self._session_store_resolved = True
-        return store
-
-    async def _build_provider_env_overrides(self) -> dict[str, str]:
-        """构造 options.env 注入字典。
-
-        - ANTHROPIC_* 从 DB active credential 取真值
-        - 其他 provider env 全部空值覆盖（防御性兜底）
-        """
-        from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS
-        from lib.config.service import build_anthropic_env_dict
-        from lib.db import async_session_factory
-
-        async with async_session_factory() as session:
-            anthropic_env = await build_anthropic_env_dict(session)
-
-        result = dict(anthropic_env)
-        for key in OTHER_PROVIDER_ENV_KEYS:
-            result[key] = ""
-        return result
-
     async def _build_options(
         self,
         project_name: str,
@@ -645,506 +392,20 @@ class SessionManager:
         locale: str = DEFAULT_LOCALE,
         stderr: Callable[[str], None] | None = None,
     ) -> Any:
-        """Build ClaudeAgentOptions for a session.
-
-        ``stderr`` 在 SDK 子进程退出非 0 时是唯一拿到真实错误的途径
-        （``ProcessError.stderr`` 在 SDK 内部被写死为占位符）；上层应在
-        会话启动失败时把回调累积的行包装到 ``AgentStartupError`` 透传。
-        """
-        if not SDK_AVAILABLE or ClaudeAgentOptions is None:
-            raise RuntimeError("claude_agent_sdk is not installed")
-
-        transcripts_dir = self.data_dir / "transcripts"
-        transcripts_dir.mkdir(parents=True, exist_ok=True)
-        project_cwd = self._resolve_project_cwd(project_name)
-
-        # Build PreToolUse hooks — file access control MUST use hooks because
-        # Read/Glob/Grep are matched by allow rules (step 4 in the SDK
-        # permission chain) before reaching can_use_tool (step 5).  Hooks
-        # (step 1) fire for ALL tool calls and can override allow rules.
-        hooks = None
-        if HookMatcher is not None:
-            hook_callbacks: list[Any] = [
-                self._build_file_access_hook(project_cwd),
-            ]
-            if can_use_tool is not None:
-                # Official Python SDK guidance: keep stream open when using
-                # can_use_tool.
-                hook_callbacks.insert(0, self._keep_stream_open_hook)
-
-            # Shared dict: PreToolUse saves file backup, PostToolUse restores
-            # on corruption.  Keyed by tool_use_id.
-            json_backups: dict[str, tuple[Path, str]] = {}
-
-            hooks = {
-                "PreToolUse": [
-                    HookMatcher(matcher=None, hooks=hook_callbacks),
-                    HookMatcher(
-                        matcher="Bash",
-                        hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]
-                    ),
-                    HookMatcher(
-                        matcher="Write|Edit",
-                        hooks=[
-                            self._build_json_validation_hook(project_cwd, json_backups),
-                        ],
-                    ),
-                ],
-                "PostToolUse": [
-                    HookMatcher(
-                        matcher="Write|Edit",
-                        hooks=[
-                            self._build_json_post_validation_hook(project_cwd, json_backups),
-                        ],
-                    ),
-                ],
-            }
-
-        provider_env = await self._build_provider_env_overrides()
-        sandbox_typed = self._build_sandbox_settings(project_cwd)
-
-        # Windows 回退：sandbox 关闭时把 Bash 系列从 allowed_tools 剥离，
-        # 让 _can_use_tool 接管 prefix 白名单匹配（_WINDOWS_BASH_PREFIX_WHITELIST）。
-        allowed_tools = list(self.DEFAULT_ALLOWED_TOOLS)
-        if not self._sandbox_enabled:
-            bash_tools = set(self._BASH_TOOLS)
-            allowed_tools = [t for t in allowed_tools if t not in bash_tools]
-        # 内置 ArcReel SDK MCP server — handler 跑在主进程，绕过 sandbox。
-        # 通配符让后续新增 tool 不必同步改 allowed_tools。
-        allowed_tools.append("mcp__arcreel__*")
-
-        arcreel_server = build_arcreel_mcp_server(
-            project_name=project_name,
-            projects_root=self.projects_root,
-        )
-
-        return ClaudeAgentOptions(
-            cwd=str(project_cwd),
-            setting_sources=self.DEFAULT_SETTING_SOURCES,  # type: ignore[arg-type]
-            allowed_tools=allowed_tools,
-            max_turns=self.max_turns,
-            system_prompt=SystemPromptPreset(
-                type="preset",
-                preset="claude_code",
-                append=self._build_append_prompt(project_name, locale=locale),
-            ),
-            include_partial_messages=True,
-            resume=resume_id,
+        """委派给 ``OptionsAssembler.build``——SessionManager 不再直接构建 options 与
+        hook，仅调用装配器；凭证注入、prompt 装配、hook 工厂均由装配器持有。"""
+        return await self._options_assembler.build(
+            project_name,
+            resume_id=resume_id,
             can_use_tool=can_use_tool,
-            hooks=hooks,  # type: ignore[arg-type]
-            mcp_servers={"arcreel": arcreel_server},
-            session_store=self._build_session_store(),  # type: ignore[arg-type]
-            session_store_flush=session_store_flush_mode(),
-            sandbox=sandbox_typed,  # type: ignore[arg-type]
-            env=provider_env,
+            locale=locale,
             stderr=stderr,
         )
 
-    @staticmethod
-    async def _keep_stream_open_hook(
-        _input_data: dict[str, Any], _tool_use_id: str | None, _context: Any
-    ) -> dict[str, bool]:
-        """Required keep-alive hook for Python can_use_tool callback."""
-        return {"continue_": True}
-
-    # Bash unset 时额外匹配的环境变量名模式：兜底 SDK 子进程里可能注入或宿主机
-    # 继承下来的密钥类变量（如 GEMINI_CLI_IDE_AUTH_TOKEN），名单覆盖不到时靠模式拦。
-    _SECRET_ENV_NAME_PATTERNS: tuple[str, ...] = (
-        "API_KEY",
-        "AUTH_TOKEN",
-        "ACCESS_KEY",
-        "ACCESS_TOKEN",
-        "SECRET_KEY",
-        "CREDENTIAL",
-        "CLIENT_SECRET",
-    )
-
-    @classmethod
-    @functools.cache
-    def _collect_env_keys_to_scrub(cls) -> tuple[str, ...]:
-        """汇总要从 Bash 子进程剥离的 env 变量名。
-
-        来源三路：固定清单（ANTHROPIC + OTHER provider）+ 模式匹配（扫
-        ``os.environ`` 找名字含 KEY/TOKEN/CREDENTIAL 等模式的变量）+ 去重。
-        父进程 environ 在启动后不再增减密钥类变量，结果稳定 — cache 避免每条
-        Bash 命令都重扫。测试需要切环境时调
-        ``cls._collect_env_keys_to_scrub.cache_clear()``。
-        """
-        from lib.config.env_keys import ANTHROPIC_ENV_KEYS, OTHER_PROVIDER_ENV_KEYS
-
-        keys: set[str] = set(ANTHROPIC_ENV_KEYS)
-        keys.update(OTHER_PROVIDER_ENV_KEYS)
-        for name in os.environ:
-            upper = name.upper()
-            if any(pat in upper for pat in cls._SECRET_ENV_NAME_PATTERNS):
-                keys.add(name)
-        return tuple(sorted(keys))
-
-    @classmethod
-    @functools.cache
-    def _env_scrub_wrap_prefix(cls) -> str:
-        """``env -u VAR1 -u VAR2 ... sh -c `` 前缀。命中清单由
-        ``_collect_env_keys_to_scrub`` 决定，运行期不变 — cache 复用整段字符串。
-        """
-        unset_flags = " ".join(f"-u {key}" for key in cls._collect_env_keys_to_scrub())
-        return f"env {unset_flags} sh -c "
-
-    async def _bash_env_scrub_hook(
-        self,
-        input_data: dict[str, Any],
-        _tool_use_id: str | None,
-        _context: Any,
-    ) -> dict[str, Any]:
-        """从 Bash 子进程剥离 provider 密钥变量，包括变量名本身。
-
-        SDK 子进程持有真值的 ANTHROPIC_*（认证需要），及空值 placeholder 的
-        OTHER_PROVIDER_*（options.env 空字符串覆盖），Bash sandbox 默认从父进程
-        继承全部 env，agent 跑 ``env | grep`` 能看到变量名。通过
-        ``env -u VAR ... sh -c '<cmd>'`` 把所有命中的变量名从 Bash subshell 中
-        unset，原 command 经 ``shlex.quote`` 整体作为 sh 子壳的 -c 参数。
-
-        只返回 ``updatedInput``、不返回 ``permissionDecision``：PreToolUse hook
-        是权限链第 1 步，``allow`` 会短路后续所有步骤（包括 ``_can_use_tool``）。
-        sandbox 启用时 Bash 在 allowed_tools 内，包装后的命令由 allow 规则放行；
-        权限决策始终留给链上后续步骤。
-
-        sandbox 不可用（Windows 回退）时跳过包装：``env -u``/``sh -c`` 是 POSIX
-        机制，原生 Windows 不可执行；Bash 已从 allowed_tools 剥离，原始命令落到
-        ``_can_use_tool`` 做白名单匹配——若仍包装，命令以 ``env -u`` 开头会让
-        白名单永远匹配不上。
-        """
-        tool_input = input_data.get("tool_input") or {}
-        command = tool_input.get("command")
-        if not isinstance(command, str) or not command.strip():
-            return {"continue_": True}
-        if not self._sandbox_enabled:
-            return {"continue_": True}
-
-        wrapped = f"{self._env_scrub_wrap_prefix()}{shlex.quote(command)}"
-        updated_input = {**tool_input, "command": wrapped}
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "updatedInput": updated_input,
-            },
-        }
-
-    def _build_file_access_hook(
-        self,
-        project_cwd: Path,
-    ) -> Callable[..., Any]:
-        """Build a PreToolUse hook callback that enforces file access control.
-
-        PreToolUse hooks are step 1 in the SDK permission chain and fire for
-        **every** tool call, including Read/Glob/Grep which would otherwise
-        be auto-approved by allow rules at step 4.
-        """
-
-        async def _file_access_hook(
-            input_data: dict[str, Any],
-            _tool_use_id: str | None,
-            _context: Any,
-        ) -> dict[str, Any]:
-            tool_name = input_data.get("tool_name", "")
-            if tool_name not in self._PATH_TOOLS:
-                return {"continue_": True}
-
-            tool_input = input_data.get("tool_input", {})
-            path_key = self._PATH_TOOLS[tool_name]
-            file_path = tool_input.get(path_key)
-
-            if file_path:
-                allowed, deny_reason = self._is_path_allowed(
-                    file_path,
-                    tool_name,
-                    project_cwd,
-                )
-                if not allowed:
-                    return {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": deny_reason,
-                        },
-                    }
-
-            return {"continue_": True}
-
-        return _file_access_hook
-
-    def _build_json_validation_hook(
-        self,
-        project_cwd: Path,
-        json_backups: dict[str, tuple[Path, str]] | None = None,
-    ) -> Callable[..., Any]:
-        """Build a PreToolUse hook that blocks Write/Edit when the result would
-        produce invalid JSON.
-
-        For Edit: reads the current file, simulates the string replacement, and
-        validates the result with ``json.loads()``.
-        For Write: validates the ``content`` parameter directly.
-
-        When *json_backups* is provided, the hook saves the current file
-        content before the edit so the PostToolUse hook can restore it if
-        the actual result turns out to be invalid.
-
-        Returns ``permissionDecision: "deny"`` to block the operation before it
-        executes, giving the agent a chance to fix its input and retry.
-        """
-
-        async def _json_validation_hook(
-            input_data: dict[str, Any],
-            _tool_use_id: str | None,
-            _context: Any,
-        ) -> dict[str, Any]:
-            tool_name = input_data.get("tool_name", "")
-            tool_input = input_data.get("tool_input", {})
-
-            file_path = tool_input.get("file_path", "")
-            if not file_path or not file_path.endswith(".json"):
-                return {}
-
-            # --- Reject curly/smart quotes that would corrupt JSON ---
-            _CURLY_QUOTES = "\u201c\u201d\u201e\u201f"  # ""„‟
-
-            def _has_curly_quotes(text: str) -> bool:
-                """Return True if *text* contains Unicode curly/smart quotes."""
-                return any(ch in _CURLY_QUOTES for ch in text)
-
-            # --- Simulate the result without touching the file ---
-            simulated: str | None = None
-
-            if tool_name == "Write":
-                simulated = tool_input.get("content")
-                logger.info(
-                    "JSON 校验 hook: tool=Write file=%s content_len=%s",
-                    file_path,
-                    len(simulated) if simulated else 0,
-                )
-            elif tool_name == "Edit":
-                old_string = tool_input.get("old_string", "")
-                new_string = tool_input.get("new_string", "")
-                if not old_string:
-                    logger.info(
-                        "JSON 校验 hook: tool=Edit file=%s skip=old_string为空",
-                        file_path,
-                    )
-                    return {}
-
-                # Detect curly quotes early — Claude Code may normalise
-                # old_string internally (allowing the edit to succeed) while
-                # the hook's exact-match ``old_string not in current`` check
-                # below would skip validation, letting curly quotes slip into
-                # the file and corrupt JSON.
-                if _has_curly_quotes(new_string):
-                    curly_found = [f"U+{ord(ch):04X}" for ch in new_string if ch in _CURLY_QUOTES]
-                    logger.warning(
-                        "PreToolUse JSON 校验拦截(弯引号): file=%s curly=%s",
-                        file_path,
-                        curly_found[:5],
-                    )
-                    return {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": (
-                                "操作被阻止：new_string 包含弯引号"
-                                "（\u201c 或 \u201d），"
-                                "这会破坏 JSON 格式。"
-                                "请将所有弯引号替换为标准 ASCII "
-                                "双引号 (U+0022) 后重试。"
-                            ),
-                        },
-                    }
-
-                p = Path(file_path)
-                resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
-                try:
-                    current = resolved.read_text(encoding="utf-8")
-                except OSError as read_err:
-                    logger.info(
-                        "JSON 校验 hook: tool=Edit file=%s skip=读取失败 error=%s",
-                        file_path,
-                        read_err,
-                    )
-                    return {}
-
-                # Save backup for PostToolUse restore on corruption
-                if json_backups is not None and _tool_use_id:
-                    json_backups[_tool_use_id] = (resolved, current)
-
-                if old_string not in current:
-                    # Edit tool will fail on its own; no need to intervene.
-                    logger.info(
-                        "JSON 校验 hook: tool=Edit file=%s skip=old_string未匹配 old_len=%d new_len=%d file_len=%d",
-                        file_path,
-                        len(old_string),
-                        len(new_string),
-                        len(current),
-                    )
-                    return {}
-
-                replace_all = tool_input.get("replace_all", False)
-                if replace_all:
-                    simulated = current.replace(old_string, new_string)
-                else:
-                    simulated = current.replace(old_string, new_string, 1)
-
-                logger.info(
-                    "JSON 校验 hook: tool=Edit file=%s matched=True "
-                    "old_len=%d new_len=%d simulated_len=%d replace_all=%s",
-                    file_path,
-                    len(old_string),
-                    len(new_string),
-                    len(simulated),
-                    replace_all,
-                )
-
-            if simulated is None:
-                return {}
-
-            try:
-                json.loads(simulated)
-                logger.info(
-                    "JSON 校验 hook: tool=%s file=%s result=valid",
-                    tool_name,
-                    file_path,
-                )
-                return {}
-            except json.JSONDecodeError as exc:
-                logger.warning(
-                    "PreToolUse JSON 校验拦截: file=%s tool=%s error=%s",
-                    file_path,
-                    tool_name,
-                    exc,
-                )
-                return {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": (
-                            f"操作被阻止：此次 {tool_name} 会导致 {file_path} "
-                            f"变成无效 JSON。错误：{exc}。"
-                            "请检查你的输入内容中是否包含未转义的双引号或其他"
-                            "JSON 语法问题，修正后重试。"
-                        ),
-                    },
-                }
-
-        return _json_validation_hook
-
-    def _build_json_post_validation_hook(
-        self,
-        project_cwd: Path,
-        json_backups: dict[str, tuple[Path, str]],
-    ) -> Callable[..., Any]:
-        """Build a PostToolUse hook that validates JSON files after Write/Edit.
-
-        This is a safety net for cases where the PreToolUse simulation fails
-        to catch invalid edits (e.g. due to old_string mismatch or escaping
-        differences between the hook simulation and the actual Edit tool).
-
-        If the file is invalid JSON after the edit, the hook:
-        1. Restores the file from the backup saved by the PreToolUse hook
-        2. Returns ``additionalContext`` telling the agent what went wrong
-        """
-
-        async def _json_post_validation_hook(
-            input_data: dict[str, Any],
-            tool_use_id: str | None,
-            _context: Any,
-        ) -> dict[str, Any]:
-            # Top-level guard: unhandled exceptions in hooks interrupt the
-            # agent (per SDK docs), so we catch everything and log.
-            try:
-                return await _json_post_validation_impl(
-                    input_data,
-                    tool_use_id,
-                )
-            except Exception:
-                logger.exception("PostToolUse JSON 校验 hook 异常")
-                return {}
-
-        async def _json_post_validation_impl(
-            input_data: dict[str, Any],
-            tool_use_id: str | None,
-        ) -> dict[str, Any]:
-            tool_name = input_data.get("tool_name", "")
-            tool_input = input_data.get("tool_input", {})
-
-            file_path = tool_input.get("file_path", "")
-            if not file_path or not file_path.endswith(".json"):
-                return {}
-
-            # Pop the backup regardless of outcome to avoid memory leaks
-            backup = json_backups.pop(tool_use_id, None) if tool_use_id else None
-
-            p = Path(file_path)
-            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
-
-            try:
-                actual = resolved.read_text(encoding="utf-8")
-            except OSError:
-                return {}
-
-            try:
-                json.loads(actual)
-                logger.info(
-                    "PostToolUse JSON 校验: tool=%s file=%s result=valid",
-                    tool_name,
-                    file_path,
-                )
-                return {}
-            except json.JSONDecodeError as exc:
-                # File is corrupt — restore from backup if available
-                restored = False
-                if backup:
-                    backup_path, backup_content = backup
-                    try:
-                        backup_path.write_text(backup_content, encoding="utf-8")
-                        restored = True
-                        logger.warning(
-                            "PostToolUse JSON 校验拦截并恢复: file=%s tool=%s error=%s backup_restored=True",
-                            file_path,
-                            tool_name,
-                            exc,
-                        )
-                    except OSError as write_err:
-                        logger.error(
-                            "PostToolUse JSON 备份恢复失败: file=%s error=%s",
-                            file_path,
-                            write_err,
-                        )
-                else:
-                    logger.warning(
-                        "PostToolUse JSON 校验拦截(无备份): file=%s tool=%s error=%s",
-                        file_path,
-                        tool_name,
-                        exc,
-                    )
-
-                if restored:
-                    ctx = (
-                        f"⚠ JSON 损坏已检测并回滚：{tool_name} 导致 "
-                        f"{file_path} 变成无效 JSON（{exc}）。"
-                        "文件已恢复到编辑前状态，请修正后重试。"
-                    )
-                else:
-                    ctx = (
-                        f"⚠ JSON 损坏已检测但无法恢复：{tool_name} 导致 "
-                        f"{file_path} 变成无效 JSON（{exc}）。"
-                        "文件当前仍为损坏状态（无可用备份或恢复写入失败），"
-                        "请先读取文件确认内容，再手动修正为合法 JSON。"
-                    )
-
-                return {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PostToolUse",
-                        "additionalContext": ctx,
-                    },
-                }
-
-        return _json_post_validation_hook
+    def _build_session_store(self):
+        """委派给装配器的 session store 单例。AssistantService 经此拿到与 SDK options
+        同一份 store 实例（同一 per-user 命名空间），读写共享缓存。"""
+        return self._options_assembler.build_session_store()
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
@@ -1176,10 +437,10 @@ class SessionManager:
             managed = managed_ref[0]
             if managed is None:
                 return
-            msg_dict = self._message_to_dict(raw_msg)
+            msg_dict = message_to_dict(raw_msg)
             if not isinstance(msg_dict, dict):
                 return
-            if self._is_duplicate_user_echo(managed, msg_dict):
+            if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
                 managed._inbox.put_nowait(msg_dict)
                 return
             self._handle_special_message(managed, msg_dict)
@@ -1217,7 +478,7 @@ class SessionManager:
             )
             managed.status = "error"
             try:
-                managed.add_message(self._build_runtime_status_message("error", managed.session_id))
+                managed.add_message(build_runtime_status_message("error", managed.session_id))
             except Exception:
                 logger.debug("broadcast runtime_status after actor failure failed", exc_info=True)
             # Persist error state so DB doesn't stay at "running" after a crash.
@@ -1265,7 +526,7 @@ class SessionManager:
             locale=locale,
             stderr=_collect_stderr,
         )
-        assistant_model = self._resolve_configured_assistant_model(getattr(options, "env", None))
+        assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
 
         actor = SessionActor(
             client_factory=lambda: ClaudeSDKClient(options=options),
@@ -1323,11 +584,11 @@ class SessionManager:
 
         # Echo user message
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
-        dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
+        dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
             managed.pending_user_echoes.append(dedup_key)
         managed.last_user_prompt = display_text
-        managed.add_message(self._build_user_echo_message(display_text, echo_content))
+        managed.add_message(build_user_echo_message(display_text, echo_content))
 
         try:
             await managed.send_query(prompt)
@@ -1441,7 +702,7 @@ class SessionManager:
             raise
 
     async def get_or_connect(
-        self, session_id: str, *, meta: Optional["SessionMeta"] = None, locale: str = DEFAULT_LOCALE
+        self, session_id: str, *, meta: SessionMeta | None = None, locale: str = DEFAULT_LOCALE
     ) -> ManagedSession:
         """Get existing managed session or spin up an actor for resumed session.
 
@@ -1489,7 +750,7 @@ class SessionManager:
                 locale=locale,
                 stderr=_collect_stderr,
             )
-            assistant_model = self._resolve_configured_assistant_model(getattr(options, "env", None))
+            assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
 
             actor = SessionActor(
                 client_factory=lambda: ClaudeSDKClient(options=options),
@@ -1537,7 +798,7 @@ class SessionManager:
         *,
         echo_text: str | None = None,
         echo_content: list[dict[str, Any]] | None = None,
-        meta: Optional["SessionMeta"] = None,
+        meta: SessionMeta | None = None,
         locale: str = DEFAULT_LOCALE,
     ) -> None:
         """Send a message via the session actor.
@@ -1562,7 +823,7 @@ class SessionManager:
         # For image-only messages display_text is empty; use a sentinel so the
         # SDK-replayed empty-content user message can still be deduplicated.
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
-        dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
+        dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
 
         # Echo user input immediately so live SSE shows it even when the SDK
         # stream doesn't replay user messages in real time. Don't set status to
@@ -1572,7 +833,7 @@ class SessionManager:
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
         managed.last_user_prompt = display_text
-        managed.add_message(self._build_user_echo_message(display_text, echo_content))
+        managed.add_message(build_user_echo_message(display_text, echo_content))
 
         # Persist status asynchronously — don't block the echo broadcast
         await self.meta_store.update_status(session_id, "running")
@@ -1663,15 +924,15 @@ class SessionManager:
         result_msg: dict[str, Any],
         final_status: SessionStatus,
     ) -> None:
-        input_tokens, output_tokens, usage_tokens = self._extract_text_token_usage(result_msg)
-        total_cost_usd = self._extract_assistant_cost(result_msg)
+        input_tokens, output_tokens, usage_tokens = extract_text_token_usage(result_msg)
+        total_cost_usd = extract_assistant_cost(result_msg)
         if input_tokens is None and output_tokens is None and total_cost_usd is None:
             return
 
         call_id = await self.usage_tracker.start_call(
             project_name=managed.project_name,
             call_type="text",
-            model=self._resolve_assistant_model(result_msg, managed.assistant_model),
+            model=resolve_assistant_model(result_msg, managed.assistant_model),
             prompt=managed.last_user_prompt[:500] if managed.last_user_prompt else None,
             provider=PROVIDER_ANTHROPIC,
             user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
@@ -1685,153 +946,6 @@ class SessionManager:
             cost_amount=total_cost_usd,
             currency="USD" if total_cost_usd is not None else None,
         )
-
-    @classmethod
-    def _extract_text_token_usage(cls, result_msg: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
-        usage = result_msg.get("usage")
-        usage_dict = usage if isinstance(usage, dict) else {}
-        raw_input_tokens = cls._first_int(usage_dict, "input_tokens", "prompt_tokens")
-        output_tokens = cls._first_int(usage_dict, "output_tokens", "completion_tokens")
-        cache_creation_tokens = cls._first_int(usage_dict, "cache_creation_input_tokens")
-        cache_read_tokens = cls._first_int(usage_dict, "cache_read_input_tokens")
-        if (
-            raw_input_tokens is None
-            and output_tokens is None
-            and cache_creation_tokens is None
-            and cache_read_tokens is None
-        ):
-            return cls._extract_model_usage_tokens(result_msg)
-
-        # Claude Agent SDK reports prompt cache tokens separately. Store them in
-        # input_tokens as well so aggregate usage includes the full prompt-side token volume.
-        input_parts = (raw_input_tokens, cache_creation_tokens, cache_read_tokens)
-        input_tokens = sum(part or 0 for part in input_parts) if any(part is not None for part in input_parts) else None
-        token_parts = (raw_input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
-        usage_tokens = sum(part or 0 for part in token_parts) if any(part is not None for part in token_parts) else None
-        return input_tokens, output_tokens, usage_tokens
-
-    @classmethod
-    def _extract_model_usage_tokens(cls, result_msg: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
-        model_usage = result_msg.get("model_usage")
-        if not isinstance(model_usage, dict):
-            return None, None, None
-
-        raw_input_total = 0
-        output_total = 0
-        cache_creation_total = 0
-        cache_read_total = 0
-        has_tokens = False
-        has_input_tokens = False
-        has_output_tokens = False
-        for usage in model_usage.values():
-            if not isinstance(usage, dict):
-                continue
-            raw_input = cls._first_int(usage, "inputTokens")
-            output = cls._first_int(usage, "outputTokens")
-            cache_creation = cls._first_int(usage, "cacheCreationInputTokens")
-            cache_read = cls._first_int(usage, "cacheReadInputTokens")
-            if any(part is not None for part in (raw_input, output, cache_creation, cache_read)):
-                has_tokens = True
-            if any(part is not None for part in (raw_input, cache_creation, cache_read)):
-                has_input_tokens = True
-            if output is not None:
-                has_output_tokens = True
-            raw_input_total += raw_input or 0
-            output_total += output or 0
-            cache_creation_total += cache_creation or 0
-            cache_read_total += cache_read or 0
-
-        if not has_tokens:
-            return None, None, None
-        input_tokens = raw_input_total + cache_creation_total + cache_read_total if has_input_tokens else None
-        output_tokens = output_total if has_output_tokens else None
-        usage_tokens = raw_input_total + output_total + cache_creation_total + cache_read_total
-        return input_tokens, output_tokens, usage_tokens
-
-    @classmethod
-    def _extract_assistant_cost(cls, result_msg: dict[str, Any]) -> float | None:
-        total_cost = cls._extract_float(result_msg.get("total_cost_usd"))
-        if total_cost is not None:
-            return total_cost
-
-        model_usage = result_msg.get("model_usage")
-        if not isinstance(model_usage, dict):
-            return None
-
-        model_cost_total = 0.0
-        has_model_cost = False
-        for usage in model_usage.values():
-            if not isinstance(usage, dict):
-                continue
-            cost = cls._extract_float(usage.get("costUSD"))
-            if cost is None:
-                continue
-            model_cost_total += cost
-            has_model_cost = True
-        return model_cost_total if has_model_cost else None
-
-    @classmethod
-    def _first_int(cls, source: dict[str, Any], *keys: str) -> int | None:
-        for key in keys:
-            value = cls._extract_int(source.get(key))
-            if value is not None:
-                return value
-        return None
-
-    @staticmethod
-    def _extract_int(value: Any) -> int | None:
-        if isinstance(value, bool) or value is None:
-            return None
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value) if math.isfinite(value) and value >= 0 and value.is_integer() else None
-        if isinstance(value, str):
-            value_str = value.strip()
-            if not value_str:
-                return None
-            try:
-                numeric_value = float(value_str)
-            except ValueError:
-                return None
-            if not math.isfinite(numeric_value) or numeric_value < 0 or not numeric_value.is_integer():
-                return None
-            return int(numeric_value)
-        return None
-
-    @staticmethod
-    def _extract_float(value: Any) -> float | None:
-        if isinstance(value, bool) or value is None:
-            return None
-        try:
-            numeric_value = float(value)
-        except (TypeError, ValueError):
-            return None
-        return numeric_value if math.isfinite(numeric_value) and numeric_value >= 0 else None
-
-    @staticmethod
-    def _resolve_assistant_model(result_msg: dict[str, Any], configured_model: str = "") -> str:
-        model = result_msg.get("model") or result_msg.get("model_name")
-        if isinstance(model, str) and model.strip():
-            return model.strip()
-        if configured_model.strip():
-            return configured_model.strip()
-        model_usage = result_msg.get("model_usage")
-        if isinstance(model_usage, dict) and len(model_usage) == 1:
-            model_name = next(iter(model_usage))
-            if isinstance(model_name, str) and model_name.strip():
-                return model_name.strip()
-        return os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-4"
-
-    @staticmethod
-    def _resolve_configured_assistant_model(env: Any) -> str:
-        if not isinstance(env, dict):
-            return ""
-        for key in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL"):
-            value = env.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return ""
 
     async def _mark_session_terminal(self, managed: ManagedSession, status: SessionStatus, reason: str) -> None:
         """Set terminal status on abnormal consumer exit."""
@@ -1850,18 +964,18 @@ class SessionManager:
         # The consumer task is already cancelled at this point so the SDK's own
         # echo will never arrive through the normal message pipeline.
         if status == "interrupted":
-            managed._broadcast_to_subscribers(
+            managed.channel.broadcast(
                 {
                     "type": "user",
                     "content": "[Request interrupted by user]",
                     "uuid": f"interrupt-echo-{uuid4().hex}",
-                    "timestamp": _utc_now_iso(),
+                    "timestamp": utc_now_iso(),
                 }
             )
 
         # Broadcast terminal status so SSE subscribers unblock immediately
         # instead of waiting for the heartbeat timeout.
-        managed._broadcast_to_subscribers(
+        managed.channel.broadcast(
             {
                 "type": "runtime_status",
                 "status": status,
@@ -2073,362 +1187,6 @@ class SessionManager:
             return "error"
         return "completed"
 
-    # Base directory where the SDK stores per-project session data.
-    _CLAUDE_PROJECTS_DIR: Path = Path.home() / ".claude" / "projects"
-
-    @staticmethod
-    def _encode_sdk_project_path(project_cwd: Path) -> str:
-        """Encode a project cwd the same way the SDK does for session storage.
-
-        Uses the same scheme as transcript_reader.py and the SDK itself:
-        replace ``/`` and ``.`` with ``-``.
-        """
-        return project_cwd.as_posix().replace("/", "-").replace(".", "-")
-
-    # 沙箱网络默认允许的域名。所有 provider HTTP 调用已迁到 in-process MCP tool
-    # （server/agent_runtime/sdk_tools/，主进程跑不经 sandbox，issue #519），所以
-    # sandbox 内只需要保留 Anthropic SDK 自身 + 通用 dev 域名（docs / 包仓库等）。
-    # 自定义 provider 不再需要手动 ALLOWED_DOMAINS 放行。
-    _DEFAULT_SANDBOX_ALLOWED_DOMAINS: tuple[str, ...] = (
-        # Anthropic
-        "anthropic.com",
-        "*.anthropic.com",
-        # dev: docs / 包仓库 / acceptance 用例
-        "code.claude.com",
-        "github.com",
-        "*.github.com",
-        "*.githubusercontent.com",
-        "pypi.org",
-        "*.pypi.org",
-        "*.npmjs.org",
-        "registry.yarnpkg.com",
-        "example.com",
-    )
-
-    def _build_sandbox_settings(self, project_cwd: Path) -> dict[str, Any]:
-        """构造 SandboxSettings dict（SDK 0.1.80 Python TypedDict 未声明
-        filesystem 子结构，但 CLI 运行时透传 JSON 接受）。
-
-        - ``_sandbox_enabled=False``（Windows 回退）：仅返回 ``{"enabled": False}``，
-          Bash 工具改走 ``_WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
-        - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
-          bwrap profile），对 sandbox 内所有子进程生效。
-        - ``filesystem.denyWrite``：内核级文件写拒绝，覆盖 ``scripts/`` 目录与
-          ``project.json``——这两类项目 JSON 的写入只能走 in-process MCP 工具
-          （``patch_episode_script`` / ``patch_project`` 等，跑在主进程不受 sandbox 约束），
-          堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对 sandbox 内所有
-          子进程生效。删除 ``add_assets.py`` 后 sandbox 内已无合法 Bash 写这两类文件
-          （compose 写视频输出、split 写 ``source/``，均不碰），故不误伤。
-        - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
-          请求"重试 unsandboxed"，对红线场景不可接受。
-        """
-        if not self._sandbox_enabled:
-            return {"enabled": False}
-        return {
-            "enabled": True,
-            "autoAllowBashIfSandboxed": True,
-            "allowUnsandboxedCommands": False,
-            "network": {"allowedDomains": list(self._DEFAULT_SANDBOX_ALLOWED_DOMAINS)},
-            "enableWeakerNestedSandbox": bool(self._in_docker),
-            "filesystem": {
-                "denyRead": self._build_sensitive_abs_paths(),
-                "denyWrite": self._build_protected_json_abs_paths(project_cwd),
-            },
-        }
-
-    @classmethod
-    def _build_protected_json_abs_paths(cls, project_cwd: Path) -> list[str]:
-        """项目 JSON 写禁清单（绝对路径）：``scripts/`` 目录子树 + ``project.json``。
-
-        与 ``_check_write_access`` 的内置 Write/Edit 拒绝同源（同两类路径），二者构成双层：
-        sandbox denyWrite 管 Bash 子进程（内核级），``_check_write_access`` hook 管内置
-        Write/Edit（权限系统，全平台）。
-
-        base 经 ``_enumerate_cwd_bases`` 同时枚举 raw + resolved 两种形式（与
-        ``_check_write_access`` 同口径）：sandbox 实现若按字符串路径比对而非 inode，
-        仅注册 raw 形式会在 Bash 子进程经 symlink 解析（macOS ``/var↔/private/var``、
-        Linux symlinked 项目根）后写 resolved 路径时失配。
-        """
-        paths: list[str] = []
-        for base in cls._enumerate_cwd_bases(project_cwd):
-            for target in (base / "scripts", base / "project.json"):
-                target_s = str(target)
-                if target_s not in paths:
-                    paths.append(target_s)
-        return paths
-
-    def _build_sensitive_abs_paths(self) -> list[str]:
-        """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
-
-        SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
-        所以这里枚举当前真实存在的固定清单 + glob 命中项 + prefix 目录
-        （vertex_keys 整目录交给 sandbox profile 递归 deny）。
-
-        每次会话启动重新枚举，避免后建敏感文件（.env / .env.local）绕过
-        sandbox profile — sandbox profile 在 ClaudeSDKClient 启动时一次性生效，
-        run-time 新增的文件若已落入命名约定就要立刻进入 denyRead。
-        """
-        candidates: list[Path] = list(self._sensitive_files)
-        candidates.extend(self._sensitive_prefixes)
-        for parent, pattern in self._sensitive_globs:
-            if parent.exists():
-                candidates.extend(parent.glob(pattern))
-        return [str(p) for p in candidates if p.exists()]
-
-    def _is_sensitive_path(self, resolved: Path) -> bool:
-        """判断已 resolve 的路径是否命中敏感文件清单。
-
-        基于 ``_compute_sensitive_paths`` 解析出的绝对路径匹配，覆盖
-        ``.env`` / ``.env.*`` / ``vertex_keys/`` 子树 / ``.system_config.json*`` /
-        ``.arcreel.db*`` / ``agent_runtime_profile/.claude/settings.json`` —
-        即使 ``ARCREEL_DATA_DIR`` / ``ARCREEL_PROFILE_DIR`` 把这些目录移出
-        ``project_root`` 也仍然受保护。
-        """
-        for sensitive_file in self._sensitive_files:
-            if resolved == sensitive_file:
-                return True
-        for prefix in self._sensitive_prefixes:
-            try:
-                if resolved == prefix or resolved.is_relative_to(prefix):
-                    return True
-            except ValueError:
-                continue
-        for parent, pattern in self._sensitive_globs:
-            try:
-                rel = resolved.relative_to(parent)
-            except ValueError:
-                continue
-            rel_posix = rel.as_posix()
-            # 仅匹配 ``parent`` 直系子项，避免 ``.env.local`` 模式吃掉
-            # ``project_root/sub/.env.local``（不是同一文件）。
-            if "/" in rel_posix:
-                continue
-            if fnmatch.fnmatchcase(rel_posix, pattern):
-                return True
-        return False
-
-    def _is_path_allowed(
-        self,
-        file_path: str,
-        tool_name: str,
-        project_cwd: Path,
-    ) -> tuple[bool, str | None]:
-        """检查 file_path 是否允许给定工具访问。
-
-        三步 dispatch：
-        - 规则 0：敏感文件（.env / vertex_keys / settings.json 等）一律拒
-        - 写工具（Write/Edit）→ ``_check_write_access``
-        - 读工具（Read/Glob/Grep）→ ``_check_read_access``
-        """
-        try:
-            p = Path(file_path)
-            logical = p if p.is_absolute() else project_cwd / p
-            # normpath 收敛 `.`/`..` 但不展开 symlink——保留「逻辑目标」与「resolve 后的真实
-            # 目标」两个视角，用来识别 symlink 起点（逻辑在 protected 区、resolve 跳到外面）
-            # 与 symlink 终点（逻辑在外、resolve 落入 protected 区）两类绕过。
-            logical_norm = Path(os.path.normpath(str(logical)))
-            resolved = logical.resolve()
-        except (ValueError, OSError):
-            return False, "访问被拒绝：无效的文件路径"
-
-        # 规则 0: 敏感文件强制拒绝
-        if self._is_sensitive_path(resolved):
-            return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
-
-        if tool_name in self._WRITE_TOOLS:
-            return self._check_write_access(resolved, project_cwd, logical_norm=logical_norm)
-        return self._check_read_access(resolved, project_cwd)
-
-    @functools.cached_property
-    def _sdk_tmp_prefixes(self) -> tuple[str, ...]:
-        """SDK 后台任务输出（``<tmp>/claude-*/tasks``）的 tmp 根前缀。
-
-        ``tempfile.gettempdir()`` 与 ``.resolve()`` 的结果在进程生命周期内稳定，
-        但 ``_check_read_access`` 是 per-tool-use 钩子，每次重算会做无谓的
-        ``.resolve()`` 系统调用（lstat/readlink）。这里计算一次并缓存到实例。
-
-        覆盖跨平台 tmp 根（Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、
-        Windows ``%TEMP%``）。``resolved`` 已 ``.resolve()`` 过：macOS 上 ``/var``
-        是 ``/private/var`` 的 symlink、``/tmp`` 是 ``/private/tmp``，原始 + resolve
-        两种形态都列出，避免 startswith 因别名失配。
-        """
-        _tempdir = Path(tempfile.gettempdir())
-        return (
-            str(_tempdir / "claude-"),
-            str(_tempdir.resolve() / "claude-"),
-            "/tmp/claude-",
-            "/private/tmp/claude-",
-        )
-
-    @functools.cached_property
-    def _claude_projects_dir_resolved(self) -> Path | None:
-        """已 resolve 的 ``~/.claude/projects`` 基准目录（进程内算一次缓存）。
-
-        ``~/.claude`` 可能被用户软链到 dotfiles / 云同步目录，而被比较的
-        ``resolved`` 已 ``.resolve()`` 过，两侧不一致会让 is_relative_to 失配、
-        误拒合法的 SDK tool-results 读取——故基准也 resolve（与 tmp / project_root
-        比较保持同一口径）。只有这段稳定前缀需要 resolve；每会话变化的 ``encoded``
-        子目录是 SDK 创建的真实目录、纯字符串拼接即可，无需 per-call resolve
-        （``_check_read_access`` 是 per-tool-use 钩子，避免重复 lstat/readlink）。
-
-        resolve 在符号链接环（RuntimeError）/ 无权限父目录（OSError）下会抛——
-        权限钩子必须 fail-closed，解析失败返回 None，调用方据此跳过 tool-results
-        例外、落到更严格的拒绝分支，不让异常冒泡中断工具调用。
-        """
-        try:
-            return self._CLAUDE_PROJECTS_DIR.resolve(strict=False)
-        except (OSError, RuntimeError):
-            return None
-
-    def _check_read_access(self, resolved: Path, project_cwd: Path) -> tuple[bool, str | None]:
-        """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
-
-        cwd 内放行；SDK tool-results / /tmp/claude-*/tasks 例外放行；
-        projects_root 下其他项目子目录拒、根直放文件放行；仓库根内参考资料
-        （lib/docs 等）放行；其余（host 文件系统：~/.ssh、/etc 等）默认拒。
-        """
-        if resolved.is_relative_to(project_cwd):
-            return True, None
-        # SDK tool-results 例外（已 resolve 的基准见 _claude_projects_dir_resolved）。
-        claude_projects_dir = self._claude_projects_dir_resolved
-        if claude_projects_dir is not None:
-            sdk_project_dir = claude_projects_dir / self._encode_sdk_project_path(project_cwd)
-            if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
-                return True, None
-        # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，进程内缓存一次）。
-        if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
-            return True, None
-        # projects_root 下：当前项目以外的子目录拒，根直放文件放行
-        projects_root = self.projects_root
-        if resolved.is_relative_to(projects_root):
-            rel_to_projects = resolved.relative_to(projects_root)
-            if rel_to_projects.parts:
-                first_entry = projects_root / rel_to_projects.parts[0]
-                if first_entry.is_dir() and first_entry.name != project_cwd.name:
-                    return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
-            return True, None
-        # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
-        if resolved.is_relative_to(self._project_root_resolved):
-            return True, None
-        # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
-        return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
-
-    def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
-        """Write/Edit 的写入约束：cwd 外一律拒，cwd 内代码扩展名拒（agent 不写代码），
-        且 ``scripts/*.json`` 与 ``project.json`` 一律拒——只能走收归后的 MCP 工具。
-
-        所有 cwd-relative 判定（cwd 内外、protected 区命中）都按 **base 同时枚举 raw + resolved**
-        两种形式与 target 比对：caller 传入的 ``resolved`` 已展开 symlink，但 ``project_cwd`` 可能
-        是 symlink 入口（macOS ``/var↔/private/var``、Linux symlinked 项目根）。仅用 raw base 拼
-        protected 路径与 resolved target 字符串比对会失配 → bypass；同时枚举两种 base 保证同口径。
-        """
-        # raw + resolved 两种形式的 base 由 _enumerate_cwd_bases 一次性枚举，避免 symlinked
-        # project_cwd 下 is_relative_to / 受保护谓词因 base↔target 形式不一致漏判。bases 复用
-        # 给下游 `_is_protected_project_json`,后者直接消费列表不再做第二次 resolve（消除冗余 lstat）。
-        bases = self._enumerate_cwd_bases(project_cwd)
-
-        if not any(resolved.is_relative_to(base) for base in bases):
-            return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
-
-        if any(self._is_protected_project_json(target, bases) for target in (resolved, logical_norm)):
-            return False, (
-                "访问被拒绝：scripts/*.json 与 project.json 不可用 Write/Edit 直改，"
-                "请改用 MCP 工具——剧本编辑走 mcp__arcreel__patch_episode_script / "
-                "mcp__arcreel__insert_segment / mcp__arcreel__remove_segment / mcp__arcreel__split_segment，"
-                "角色/场景/道具走 mcp__arcreel__patch_project。"
-            )
-
-        ext = resolved.suffix.lower()
-        if ext in self._CODE_EXTENSIONS_FORBIDDEN:
-            return False, (
-                f"不允许在项目内创建/编辑 {ext} 类型的代码文件。"
-                "Write/Edit 应用于数据文件 (.json/.md/.txt 等)；"
-                "代码逻辑请通过现有 skill 脚本完成。"
-            )
-
-        return True, None
-
-    @staticmethod
-    def _enumerate_cwd_bases(project_cwd: Path) -> list[Path]:
-        """raw + resolved 两种形式的 project_cwd base 列表。
-
-        ``project_cwd`` 可能是 symlink 入口（macOS ``/var↔/private/var``、Linux
-        symlinked 项目根），仅用 raw 形式拼路径与已 resolve 的 target 比对会失配。
-        ``_check_write_access``（hook 层）与 ``_build_protected_json_abs_paths``
-        （sandbox denyWrite）共用此枚举，保证两层路径基同口径。
-
-        resolve 失败时 fail-closed：bases 仅含 raw（hook 层 target 不在 raw 下时
-        拒绝写入仍安全），加 warning 保留诊断信号而非静默吞掉。
-        """
-        bases: list[Path] = [project_cwd]
-        try:
-            resolved_cwd = project_cwd.resolve(strict=False)
-            if resolved_cwd != project_cwd:
-                bases.append(resolved_cwd)
-        except (OSError, RuntimeError) as exc:
-            logger.warning("project_cwd 解析失败,路径围栏降级为仅 raw base: %s (%s)", project_cwd, exc)
-        return bases
-
-    @classmethod
-    def _normalize_path_for_protected_compare(cls, path: Path | str) -> str:
-        """把路径字符串归一化为受保护区比对用的统一键。
-
-        三步处理，覆盖三类形态漂移：
-
-        - Windows ``\\\\?\\`` 扩展长度前缀：``Path.resolve`` 在路径接近 MAX_PATH 或
-          UNC 共享时返回 ``\\\\?\\C:\\...`` / ``\\\\?\\UNC\\server\\...`` 形式，与常规
-          形式混入 bases 时 startswith 失配——剥成常规形式再比；
-        - ``unicodedata.normalize("NFC", ...)``：macOS HFS+ 按 NFD 存储文件名，
-          resolve 返回的 NFD 形式与 NFC 输入即使 casefold 后仍是不同字符串；
-        - ``os.path.normcase`` + ``casefold``：normcase 统一 Windows 分隔符
-          （``/``→``\\``，POSIX 上恒等）；casefold 承担大小写不敏感比较——
-          Windows NTFS / macOS APFS 默认卷大小写不敏感，``PROJECT.JSON`` 与
-          ``project.json`` 指向同一物理文件。Linux case-sensitive 卷上 agent
-          实际不会用大小写变体，偶尔 over-match 不破坏 fail-loud 语义。
-        """
-        s = str(path)
-        if s.startswith("\\\\?\\"):
-            rest = s[4:]
-            # \\?\UNC\server\share → \\server\share；\\?\C:\... → C:\...
-            s = "\\\\" + rest[4:] if rest[:4].casefold() == "unc\\" else rest
-        s = unicodedata.normalize("NFC", s)
-        return os.path.normcase(s).casefold()
-
-    @classmethod
-    def _is_protected_project_json(cls, target: Path, bases: list[Path]) -> bool:
-        """命中受保护的项目 JSON（``scripts/`` 下任意 .json，或根 ``project.json``）。
-
-        caller 应分别对「逻辑目标」（normpath 收敛 `.`/`..` 但不展开 symlink）和「resolve
-        后的真实目标」各调一次：任一落入 protected 区都判定命中——覆盖项目内 symlink 起点
-        指 protected 路径（resolved 跳到外）与终点指 protected 路径（逻辑在外、resolved 跳入）
-        两类绕过。
-
-        ``bases`` 由 caller(`_check_write_access`)一次性传入 raw + resolved 两种形式的
-        project_cwd 列表（同口径 raw/resolved 与 target 比对，避免 macOS ``/var↔/private/var``、
-        Linux symlinked 项目根下漏判），本谓词消费现成 list 不再自行 resolve（消除冗余 lstat）。
-
-        比对两侧都经 ``_normalize_path_for_protected_compare`` 归一化（NFC + normcase +
-        casefold + 剥 ``\\\\?\\`` 前缀），处理大小写、Unicode 归一化形式与 Windows
-        扩展长度前缀三类形态漂移。
-
-        与 sandbox ``denyWrite`` 同源；此谓词覆盖内置 Write/Edit（权限系统，全平台），
-        与 denyWrite（Bash 子进程，内核级）构成双层。
-        """
-        target_s = cls._normalize_path_for_protected_compare(target)
-
-        for base in bases:
-            if target_s == cls._normalize_path_for_protected_compare(base / "project.json"):
-                return True
-            scripts_dir = cls._normalize_path_for_protected_compare(base / "scripts")
-            # 拒绝 scripts/ 子树（含目录本身）：sandbox denyWrite 把整个 scripts/ 列入内核级 deny，
-            # hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp / .md 会污染剧本
-            # 目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
-            # 同时显式覆盖目录路径本身（target == scripts_dir）：agent 把目录名当文件路径 Write 时
-            # 文件系统会拒，但 hook 层 fail-fast 优先，不依赖 OS 兜底。
-            if target_s == scripts_dir or target_s.startswith(scripts_dir + os.sep):
-                return True
-        return False
-
     async def _handle_ask_user_question(
         self,
         managed: Optional["ManagedSession"],
@@ -2446,7 +1204,7 @@ class SessionManager:
             "question_id": f"aq_{uuid4().hex}",
             "tool_name": tool_name,
             "questions": questions,
-            "timestamp": _utc_now_iso(),
+            "timestamp": utc_now_iso(),
         }
         pending = managed.add_pending_question(payload)
         managed.add_message(payload)
@@ -2509,17 +1267,17 @@ class SessionManager:
                 )
 
             # Windows 回退：sandbox 关闭时 Bash 系列不在 allowed_tools，
-            # 落到这里走 _WINDOWS_BASH_PREFIX_WHITELIST 代码白名单。
-            if not self._sandbox_enabled and tool_name == "Bash":
+            # 落到这里走 AgentAccessPolicy 的前缀白名单。
+            if not self.access_policy.sandbox_enabled and tool_name == "Bash":
                 cmd = str((input_data or {}).get("command") or "").strip()
-                if self._is_bash_command_whitelisted(cmd):
+                if self.access_policy.is_bash_command_whitelisted(cmd):
                     return PermissionResultAllow(updated_input=input_data)
                 if PermissionResultDeny is not None:
                     return PermissionResultDeny(
-                        message=self._format_bash_whitelist_deny_message(cmd),
+                        message=self.access_policy.format_bash_whitelist_deny_message(cmd),
                     )
             # BashOutput / KillBash 是 Bash 管理类工具，回退模式直接放行。
-            if not self._sandbox_enabled and tool_name in ("BashOutput", "KillBash"):
+            if not self.access_policy.sandbox_enabled and tool_name in ("BashOutput", "KillBash"):
                 return PermissionResultAllow(updated_input=input_data)
 
             # Whitelist fallback: deny any tool that was not pre-approved
@@ -2538,118 +1296,6 @@ class SessionManager:
             return PermissionResultAllow(updated_input=input_data)
 
         return _can_use_tool
-
-    @classmethod
-    def _is_bash_command_whitelisted(cls, command: str) -> bool:
-        """Windows 回退（sandbox 不可用）的 Bash 命令白名单判定。
-
-        纯 startswith 前缀匹配有三类绕过：metachar 链（``ffmpeg ...; evil`` 整串
-        满足前缀，尾部命令照常执行，且 Windows 上无 sandbox denyWrite 兜底）、
-        命令名前缀碰撞（``ffmpegX`` 也以 ``ffmpeg`` 开头）、路径穿越（``..`` 逃出
-        skills 目录）。判定分四步：
-
-        1. 整串拒 shell metachar（``_BASH_METACHARS_RE``），挡链式/管道/重定向/
-           命令替换；
-        2. 拒 ``..`` 路径段（``_BASH_PATH_TRAVERSAL_RE``）：原串之外，再剥引号、
-           按 Windows 分隔符（``\\``→``/``）与 POSIX 转义（去 ``\\``）两解后各查一遍
-           ——shell 会把 ``".."`` / ``.\\.`` 还原成 ``..``，只查原串会被这类混淆
-           绕过逃出 skills 目录；
-        3. 按 token 边界匹配 ``_WINDOWS_BASH_PREFIX_WHITELIST``：不含空格的前缀
-           （ffmpeg/ffprobe）要求命令名完全相等或后跟空格；
-        4. python skills 入口额外要求首个参数是 ``<skill>/scripts/<script>.py``
-           （``_is_allowed_python_skill_command``），不放行 skills 目录下任意文件。
-
-        白名单匹配在剥引号 + 反斜杠转正斜杠的归一化串上做：容忍 Windows agent 发出
-        的 ``\\`` 分隔符路径与带引号的脚本路径，避免合法命令被误拒（matching 不改写
-        实际执行的命令，放行时仍透传原始 input）。metachar 与 ``..`` 已先对原串及
-        各归一化变体拒过，归一化只用于「是否命中白名单」的判定，不会放宽安全边界。
-        """
-        cmd = command.strip()
-        if not cmd or cls._BASH_METACHARS_RE.search(cmd):
-            return False
-        unquoted = cmd.replace('"', "").replace("'", "")
-        for variant in (cmd, unquoted.replace("\\", "/"), unquoted.replace("\\", "")):
-            if cls._BASH_PATH_TRAVERSAL_RE.search(variant):
-                return False
-        normalized = unquoted.replace("\\", "/")
-        for prefix in cls._WINDOWS_BASH_PREFIX_WHITELIST:
-            if prefix == cls._PYTHON_SKILLS_PREFIX:
-                if normalized.startswith(prefix) and cls._is_allowed_python_skill_command(normalized):
-                    return True
-            elif " " in prefix:
-                if normalized.startswith(prefix):
-                    return True
-            elif normalized == prefix or normalized.startswith(prefix + " "):
-                return True
-        return False
-
-    @classmethod
-    def _is_allowed_python_skill_command(cls, normalized_cmd: str) -> bool:
-        """``python .claude/skills/...`` 的脚本入口校验：取首个参数（脚本路径），
-        要求匹配 ``.claude/skills/<skill>/scripts/<script>.py``。约束到显式 scripts
-        入口，避免 skills 目录下任意文件在 Windows 回退（无 sandbox 兜底）下可执行。
-
-        入参须为 ``_is_bash_command_whitelisted`` 归一化后的串（已剥引号、反斜杠转
-        正斜杠），故按空白切分取首参即可，无需 shell 级 tokenize。
-        """
-        parts = normalized_cmd.split(maxsplit=2)
-        if len(parts) < 2:
-            return False
-        return cls._SKILL_SCRIPT_RE.match(parts[1]) is not None
-
-    @classmethod
-    def _format_bash_whitelist_deny_message(cls, command: str) -> str:
-        """Windows 回退 Bash 白名单拒绝文案。从 _WINDOWS_BASH_PREFIX_WHITELIST
-        派生 allowed 列表，避免常量与文案双份漂移。"""
-        allowed_lines = "\n".join(f"  - {prefix}" for prefix in cls._WINDOWS_BASH_PREFIX_WHITELIST)
-        return (
-            f"未授权的 Bash 命令: {command[:200]}\n"
-            "当前 Bash 白名单仅允许以下前缀:\n"
-            f"{allowed_lines}\n"
-            "且命令不得包含 shell 元字符（; & | < > ` $ 或换行）或 .. 路径穿越——"
-            "复合命令请拆成多次独立调用，脚本路径不要用 .. 逃出目录。\n"
-            "python 仅允许跑 .claude/skills/<skill>/scripts/<script>.py 入口脚本。\n"
-            "其他 Bash 命令在 Windows 回退模式下不可用。"
-        )
-
-    def _message_to_dict(self, message: Any) -> dict[str, Any]:
-        """Convert SDK message to dict for JSON serialization."""
-        msg_dict = self._serialize_value(message)
-
-        # Infer and add message type if not present
-        if isinstance(msg_dict, dict) and "type" not in msg_dict:
-            msg_type = self._infer_message_type(message)
-            if msg_type:
-                msg_dict["type"] = msg_type
-
-        # Inject precise subtype for typed task messages
-        if isinstance(msg_dict, dict):
-            class_name = type(message).__name__
-            subtype = self._TASK_MESSAGE_SUBTYPES.get(class_name)
-            if subtype:
-                msg_dict["subtype"] = subtype
-
-        return msg_dict
-
-    @staticmethod
-    def _build_user_echo_message(
-        text: str,
-        content_blocks: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        """Build a synthetic user message for real-time UI echo.
-
-        When content_blocks is provided (e.g. image + text blocks), the echo
-        content is a list of blocks so the UI can render image thumbnails in
-        the bubble.  If no blocks are provided, content is the plain text string.
-        """
-        content: Any = content_blocks if content_blocks is not None else text
-        return {
-            "type": "user",
-            "content": content,
-            "uuid": f"local-user-{uuid4().hex}",
-            "timestamp": _utc_now_iso(),
-            "local_echo": True,
-        }
 
     @staticmethod
     def _prune_transient_buffer(managed: ManagedSession) -> None:
@@ -2676,49 +1322,6 @@ class SessionManager:
                 "result",
             }
         ]
-
-    @staticmethod
-    def _build_runtime_status_message(
-        status: SessionStatus,
-        session_id: str,
-    ) -> dict[str, Any]:
-        """Build runtime-only status message for SSE wake-up."""
-        return {
-            "type": "runtime_status",
-            "status": status,
-            "subtype": status,
-            "stop_reason": None,
-            "is_error": status == "error",
-            "session_id": session_id,
-            "uuid": f"runtime-status-{uuid4().hex}",
-            "timestamp": _utc_now_iso(),
-        }
-
-    _extract_plain_user_content = staticmethod(extract_plain_user_content)
-
-    def _is_duplicate_user_echo(
-        self,
-        managed: ManagedSession,
-        message: dict[str, Any],
-    ) -> bool:
-        """Skip SDK-replayed user message if it matches local echo queue."""
-        if not managed.pending_user_echoes:
-            return False
-        incoming = self._extract_plain_user_content(message)
-        expected = managed.pending_user_echoes[0].strip()
-
-        # Image-only sentinel: the SDK parser drops image blocks, so the
-        # replayed UserMessage arrives with empty content (incoming is None).
-        if not incoming:
-            if message.get("type") != "user" or expected != self._IMAGE_ONLY_SENTINEL:
-                return False
-            managed.pending_user_echoes.pop(0)
-            return True
-
-        if incoming != expected:
-            return False
-        managed.pending_user_echoes.pop(0)
-        return True
 
     async def _on_sdk_session_id_received(
         self,
@@ -2777,33 +1380,6 @@ class SessionManager:
             return str(raw_sdk_id)
         return None
 
-    def _infer_message_type(self, message: Any) -> str | None:
-        """Infer message type from SDK message class name."""
-        class_name = type(message).__name__
-        return self._MESSAGE_TYPE_MAP.get(class_name)
-
-    def _serialize_value(self, value: Any) -> Any:
-        """Recursively serialize a value to JSON-safe types."""
-        if value is None or isinstance(value, (bool, int, float, str)):
-            return value
-
-        if isinstance(value, dict):
-            return {k: self._serialize_value(v) for k, v in value.items()}
-
-        if isinstance(value, (list, tuple)):
-            return [self._serialize_value(item) for item in value]
-
-        # Pydantic models — mode="json" 一次产出 JSON 安全结构，避免再次递归
-        if hasattr(value, "model_dump"):
-            return value.model_dump(mode="json")
-
-        # Dataclasses or objects with __dict__
-        if hasattr(value, "__dict__"):
-            return {k: self._serialize_value(v) for k, v in value.__dict__.items() if not k.startswith("_")}
-
-        # Fallback: convert to string
-        return str(value)
-
     async def get_message_buffer_snapshot(self, session_id: str) -> list[dict[str, Any]]:
         """Get current message buffer without creating a new SDK connection."""
         managed = self.sessions.get(session_id)
@@ -2842,13 +1418,15 @@ class SessionManager:
 
     async def _subscribe(
         self, session_id: str, *, replay: bool = True, locale: str = DEFAULT_LOCALE
-    ) -> tuple[asyncio.Queue, list[dict[str, Any]]]:
+    ) -> tuple[SseChannel, asyncio.Queue, list[dict[str, Any]]]:
         """Register a live-message queue and capture the replay snapshot atomically.
 
-        Returns the (live-only) queue plus a snapshot of the buffered messages.
-        The buffer snapshot and queue registration happen with no ``await`` in
-        between, so no synchronous live broadcast can interleave between the two
-        and be lost — the replay/live split has no race.
+        Returns the session channel, the (live-only) queue, plus a snapshot of
+        the buffered messages. The buffer snapshot and queue registration happen
+        with no ``await`` in between, so no synchronous live broadcast can
+        interleave between the two and be lost — the replay/live split has no
+        race. The replay snapshot (开场白) stays outside :class:`SseChannel`;
+        this synchronous critical section is what guarantees the atomic hand-off.
 
         ``locale`` is forwarded to ``get_or_connect`` so reviving a cold session
         through the stream path rebuilds its language regulation from the current
@@ -2860,57 +1438,50 @@ class SessionManager:
         managed = await self.get_or_connect(session_id, locale=locale)
         # Synchronous critical section — no ``await`` until registration completes.
         replay_snapshot = list(managed.message_buffer) if replay else []
-        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-        managed.subscribers.add(queue)
-        return queue, replay_snapshot
+        queue = managed.channel.subscribe()
+        return managed.channel, queue, replay_snapshot
 
     async def _unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
-        """Remove a queue from a session's subscriber set."""
+        """Remove a queue from a session's subscriber channel."""
         if session_id in self.sessions:
-            self.sessions[session_id].subscribers.discard(queue)
+            await self.sessions[session_id].channel.unsubscribe(queue)
 
     @contextlib.asynccontextmanager
     async def stream_messages(
         self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
-    ) -> AsyncIterator[AsyncIterator[dict[str, Any]]]:
+    ) -> AsyncIterator[AsyncIterator[SessionStreamEvent]]:
         """Subscribe to a session's messages as a self-cleaning async iterator.
 
-        Yields an async iterator producing, in order:
+        Yields an async iterator producing semantic events, in order:
 
-        - the replayed buffer messages (when *replay*),
-        - a ``{"type": "_replay_done"}`` sentinel marking the live boundary,
-        - live messages as they are broadcast,
-        - a ``{"type": "_idle"}`` sentinel whenever *idle_timeout* elapses with no
-          message (consumers poll liveness / disconnect on it),
-        - a ``{"type": "_queue_overflow"}`` sentinel if the subscriber queue is
-          dropped under backpressure, after which iteration ends.
+        - a :class:`ReplayBatch` delivering the buffered history in one piece
+          (always the first event; empty when *replay* is off),
+        - a :class:`LiveMessage` per broadcast message,
+        - a :class:`Heartbeat` whenever *idle_timeout* elapses with no message
+          (consumers run liveness / disconnect self-checks on it).
 
-        Subscription, replay, queue draining and unsubscribe all live behind this
-        seam; cleanup is carried deterministically by ``__aexit__`` (see ADR-0005).
-        Consume as ``async with stream_messages(...) as stream: async for msg in stream``.
+        The stream ends when the subscriber queue is dropped under backpressure —
+        stream end is the reconnect signal; no overflow event reaches consumers
+        (the overflow sentinel is internal to :class:`SseChannel`).
+
+        Subscription, replay/live atomic hand-off, queue draining and unsubscribe
+        all live behind this seam; cleanup is carried deterministically by
+        ``__aexit__`` (see ADR-0005). Consume as
+        ``async with stream_messages(...) as stream: async for event in stream``.
 
         ``locale`` only matters when this subscription revives a cold session; an
         already-resident session ignores it (session-fixed system prompt).
         """
-        queue, replay_msgs = await self._subscribe(session_id, replay=replay, locale=locale)
+        channel, queue, replay_msgs = await self._subscribe(session_id, replay=replay, locale=locale)
 
-        async def _iter() -> AsyncIterator[dict[str, Any]]:
+        async def _iter() -> AsyncIterator[SessionStreamEvent]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
             # by the enclosing context manager's __aexit__ (ADR-0005): a bare async
             # generator's finally only runs at GC on break/disconnect, which is the
             # exact leak this design avoids. Do not add a finally to this inner gen.
-            for msg in replay_msgs:
-                yield msg
-            yield {"type": "_replay_done"}
-            while True:
-                try:
-                    msg = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
-                except TimeoutError:
-                    yield {"type": "_idle"}
-                    continue
-                yield msg
-                if msg.get("type") == "_queue_overflow":
-                    return
+            yield ReplayBatch(messages=replay_msgs)
+            async for item in channel.iterate(queue, idle_timeout=idle_timeout):
+                yield Heartbeat() if item is IDLE else LiveMessage(message=item)
 
         try:
             yield _iter()

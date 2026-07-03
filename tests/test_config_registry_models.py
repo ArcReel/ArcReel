@@ -1,5 +1,7 @@
 """Test ProviderMeta with ModelInfo structure."""
 
+import pytest
+
 from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
 
 
@@ -63,6 +65,47 @@ class TestProviderMeta:
         )
         assert meta.media_types == []
         assert meta.capabilities == []
+
+    def test_default_concurrency_valid_declaration(self):
+        meta = ProviderMeta(
+            display_name="T",
+            description="T",
+            required_keys=[],
+            default_concurrency={"video": 1, "image": 5},
+        )
+        assert meta.default_concurrency == {"video": 1, "image": 5}
+
+    def test_default_concurrency_for_unsupported_lane_is_allowed(self):
+        # 声明合法 lane 名即便该 provider 不支持该 media_type 也无害（投影期再归零），不报错
+        meta = ProviderMeta(
+            display_name="T",
+            description="T",
+            required_keys=[],
+            models={"vid": ModelInfo("V", "video", [])},
+            default_concurrency={"image": 2},
+        )
+        assert meta.default_concurrency == {"image": 2}
+
+    def test_default_concurrency_unknown_lane_raises(self):
+        with pytest.raises(ValueError, match="未知 lane"):
+            ProviderMeta(
+                display_name="T",
+                description="T",
+                required_keys=[],
+                default_concurrency={"vidoe": 1},
+            )
+
+    # True 是 int 子类、值等于 1，须显式拦截，否则配置笔误 default_concurrency={"video": True}
+    # 会被静默当成并发 1。
+    @pytest.mark.parametrize("bad_limit", [0, -1, "1", 3.0, True])
+    def test_default_concurrency_non_positive_int_raises(self, bad_limit):
+        with pytest.raises(ValueError, match=">=1 的整数"):
+            ProviderMeta(
+                display_name="T",
+                description="T",
+                required_keys=[],
+                default_concurrency={"video": bad_limit},
+            )
 
 
 class TestProviderRegistry:

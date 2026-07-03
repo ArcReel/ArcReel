@@ -37,7 +37,7 @@ from lib.i18n import DEFAULT_LOCALE, get_locale
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
 from server.agent_runtime.message_utils import extract_plain_user_content
-from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.models import Heartbeat, LiveMessage, ReplayBatch, SessionMeta, SessionStatus
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
@@ -77,8 +77,8 @@ class AssistantService:
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
         """Run async initialization (must be called from event loop).
 
-        ``sandbox_enabled=False`` 时 SessionManager 关闭 SDK SandboxSettings 并
-        把 Bash 工具调用切到代码白名单路径（详见 SessionManager 同名属性）。
+        ``sandbox_enabled=False`` 时关闭 SDK SandboxSettings 并把 Bash 工具调用
+        切到代码白名单路径（详见 ``SessionManager.configure_sandbox_runtime``）。
         默认 ``True`` 保持 macOS / Linux 现状不变。
         """
         if self._startup_done:
@@ -86,8 +86,10 @@ class AssistantService:
         async with self._startup_lock:
             if self._startup_done:
                 return
-            self.session_manager._in_docker = bool(in_docker)
-            self.session_manager._sandbox_enabled = bool(sandbox_enabled)
+            self.session_manager.configure_sandbox_runtime(
+                in_docker=bool(in_docker),
+                sandbox_enabled=bool(sandbox_enabled),
+            )
             await self._interrupt_stale_running_sessions()
             self._startup_done = True
 
@@ -350,12 +352,15 @@ class AssistantService:
     ) -> AsyncIterator[ServerSentEvent]:
         """Stream SSE events for a session.
 
-        Consumes the session's messages through ``SessionManager.stream_messages``
-        (an async context manager): replay messages are accumulated until the
-        ``_replay_done`` boundary, where the projector is built and the snapshot
-        emitted; live messages then drive patch/delta/question/status events. On
-        the ``_idle`` sentinel we poll ``request.is_disconnected()`` so a dropped
-        client triggers deterministic unsubscribe via ``__aexit__`` (see ADR-0005).
+        Consumes the session's semantic event stream through
+        ``SessionManager.stream_messages`` (an async context manager): the
+        leading ``ReplayBatch`` carries the history from which the projector is
+        built and the snapshot emitted; ``LiveMessage`` events then drive
+        patch/delta/question/status events, with ``Heartbeat`` guaranteeing
+        wake-ups during idle so ``request.is_disconnected()`` polling triggers
+        deterministic unsubscribe via ``__aexit__`` (see ADR-0005). The stream
+        ending without a terminal event signals subscriber overflow — ending the
+        SSE response is the reconnect signal.
         """
         if meta is None:
             meta = await self.meta_store.get(session_id)
@@ -374,33 +379,25 @@ class AssistantService:
         async with self.session_manager.stream_messages(
             session_id, replay=True, idle_timeout=self.stream_heartbeat_seconds, locale=locale
         ) as stream:
-            replayed: list[dict[str, Any]] = []
-            projector: AssistantStreamProjector | None = None
-            status: SessionStatus = initial_status
-            async for message in stream:
-                # 直播阶段每轮顶部检查断线;不依赖 _idle 作为唤醒条件,持续高频消息
-                # 流下断线一样能立刻发现。回放阶段尚未对客户端 yield 过,不查。
-                if projector is not None and request is not None and await request.is_disconnected():
+            replay = await anext(stream, None)
+            if not isinstance(replay, ReplayBatch):
+                # 协议保证首个事件为回放批次；流在此之前终止即重连信号。
+                return
+            status: SessionStatus = await self.session_manager.get_status(session_id) or initial_status
+            projector = await self._build_projector(meta, session_id, replay.messages)
+            for event in await self._emit_running_snapshot(session_id, status, projector):
+                yield event
+            if status != "running":
+                return
+
+            async for stream_event in stream:
+                # 直播阶段每轮顶部检查断线;不依赖心跳作为唤醒条件,持续高频消息
+                # 流下断线一样能立刻发现。回放批次尚未对客户端 yield 过,不查。
+                if request is not None and await request.is_disconnected():
                     break
 
-                msg_type = message.get("type", "")
-
-                if projector is None:
-                    # Replay phase: accumulate buffer messages until the boundary.
-                    if msg_type == "_replay_done":
-                        status = await self.session_manager.get_status(session_id) or initial_status
-                        projector = await self._build_projector(meta, session_id, replayed)
-                        for event in await self._emit_running_snapshot(session_id, status, projector):
-                            yield event
-                        if status != "running":
-                            return
-                        continue
-                    replayed.append(message)
-                    continue
-
-                # Live phase.
-                if msg_type == "_idle":
-                    # 断线已在循环顶部判过;_idle 仅作为「无消息也要醒来」的 backstop,
+                if isinstance(stream_event, Heartbeat):
+                    # 断线已在循环顶部判过;心跳仅作为「无消息也要醒来」的 backstop,
                     # 用来兜底「会话状态转换没带消息广播」这种异常路径。
                     event = await self._handle_heartbeat_timeout(session_id, status, projector)
                     if event is not None:
@@ -408,10 +405,10 @@ class AssistantService:
                         break
                     continue
 
-                if msg_type == "_queue_overflow":
-                    break
+                if not isinstance(stream_event, LiveMessage):
+                    continue
 
-                events, should_break = await self._dispatch_live_message(message, projector, session_id)
+                events, should_break = await self._dispatch_live_message(stream_event.message, projector, session_id)
                 for event in events:
                     yield event
                 if should_break:
@@ -518,9 +515,6 @@ class AssistantService:
             )
 
         msg_type = message.get("type", "")
-
-        if msg_type == "_queue_overflow":
-            return events, True
 
         if msg_type == "system" and message.get("subtype") == "compact_boundary":
             events.append(

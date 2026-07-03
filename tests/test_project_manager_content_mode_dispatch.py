@@ -4,7 +4,7 @@
 的畸形脚本，PM 必须沿键存在性守卫回退去读 `scenes`，而非因 content_mode 字面映射到
 `segments` 就读到空列表。
 
-收敛字段名分派（→ lib.script_models.script_shape）时若天真改为
+收敛字段名分派（→ lib.script_skeleton 取证解析）时若天真改为
 `items = script.get(<content_mode 对应 items_key>, [])`、丢掉 `"segments" in script`
 守卫，这些断言会变红——这正是它们要守的回归。只断言外部行为，不 patch 私有方法。
 """

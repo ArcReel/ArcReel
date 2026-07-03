@@ -246,10 +246,11 @@ class TestAdScripts:
         assert validate_script_structure(script).valid
 
     def test_resolve_kind_and_items_for_ad(self):
-        from lib.script_editor import resolve_items, resolve_kind
+        from lib.script_editor import resolve_items
+        from lib.script_skeleton import resolve_script_kind
 
         script = _ad()
-        assert resolve_kind(script) == "shots"
+        assert resolve_script_kind(script) == "shots"
         items, id_field, kind = resolve_items(script)
         assert (id_field, kind) == ("shot_id", "shots")
         assert items[0]["shot_id"] == "E1S01"

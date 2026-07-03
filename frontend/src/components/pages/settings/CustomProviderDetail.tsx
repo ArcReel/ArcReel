@@ -134,6 +134,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
         <div className="max-w-2xl space-y-6">
           {/* Header */}
           <div className="flex items-start gap-3">
+            {/* 自定义 provider 恒用字母徽章，不按名字猜品牌（理由见 CustomProviderSection） */}
             <span
               className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-[6px] font-mono text-[11px] font-bold uppercase text-text-2"
               style={{
@@ -141,7 +142,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
                 border: "1px solid var(--color-hairline-strong)",
               }}
             >
-              {provider.display_name?.[0] ?? "?"}
+              {Array.from(provider.display_name)[0] ?? "?"}
             </span>
             <div className="min-w-0">
               <div className="flex items-center gap-2.5">

@@ -11,6 +11,8 @@
 
 from lib.prompt_rules import is_v2_enabled
 from lib.prompt_rules.episode_pacing import render_pacing_section
+from lib.speech_rate import speech_rate_units_per_second
+from lib.text_metrics import reading_unit_noun
 
 
 def _format_names(items: dict) -> str:
@@ -467,6 +469,7 @@ def build_normalize_prompt(
     episode: int,
     source_kind: str = "novel",
     target_language: str = "中文",
+    source_language: str | None = None,
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
@@ -479,6 +482,9 @@ def build_normalize_prompt(
     ``source_kind="screenplay"`` 翻为「提取/逐字保留」：台词与画外音逐字落 utterances、视觉转写为
     scene_description；默认 ``"novel"`` 维持「改编」语义、画外音由语境判断放开。``episode_outline`` /
     ``next_episode_outline`` 来自分集账本，驱动内容覆盖故事节点、末场落地集尾钩子。
+
+    ``source_language`` 供时长指引的「台词口播时长」单向下界软指引取语速（阅读单位 / 秒，来自
+    ``lib.speech_rate`` 单一真相源，与保存期上界 warning、字幕派生同口径）；缺省 / 未登记回退默认语速。
     """
     char_list = _format_names(characters)
     scene_list = _format_names(scenes)
@@ -526,15 +532,31 @@ def build_normalize_prompt(
     durations_str = ", ".join(str(d) for d in normalized_durations)
     max_dur = normalized_durations[-1]
     if default_duration is not None:
-        duration_rule = (
+        base_duration_rule = (
             f"只能取 {durations_str} 中的值（该视频模型支持的秒数集合）；默认 {default_duration} 秒，"
             f"打斗 / 大场面 / 情绪铺陈等画面可取更长值至上限 {max_dur} 秒，不要默认挑最短值"
         )
     else:
-        duration_rule = (
+        base_duration_rule = (
             f"只能取 {durations_str} 中的值（该视频模型支持的秒数集合）；"
             f"按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
         )
+    # 台词口播时长单向下界软指引：模型为某场选 duration 时，不应选到装不下该场 utterances 口播的短档。
+    # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源按 source_language 注入、不写死，与保存期上界
+    # warning、字幕派生同口径。纯软约束：只在 prompt 里下发靠模型遵守，不加生成后机械改写、不加硬阻塞。
+    # source_language 来自 project.json，可能是非字符串脏数据；非字符串回退 None，避免下游
+    # speech_rate / reading_unit_noun 的 .strip() 触发 AttributeError（与保存期上界 warning 同口径守卫）。
+    source_language = source_language if isinstance(source_language, str) else None
+    speech_rate = speech_rate_units_per_second(source_language)
+    unit_label = reading_unit_noun(source_language)
+    duration_lower_bound_rule = (
+        "再按台词口播长度设下界：先估算该场 utterances（台词 + 画外音）念完约需的秒数"
+        f"（口播语速约 {speech_rate:g} {unit_label}/秒），在上述可选值里取**不低于**这个秒数的最接近档位；"
+        "这是单向下界——画面 / 情绪留白可继续把时长往上撑，但台词永不把时长压到念不完的短档，"
+        "utterances 为空（纯画面、无口播）的场景没有此下界、按画面自行取值；"
+        f"若口播估算已超过最长 {max_dur} 秒，取最长档即可（不裁台词、不硬塞），保存时会另有提示"
+    )
+    duration_rule = f"{base_duration_rule}。{duration_lower_bound_rule}"
     pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
 
     return f"""{task_line}

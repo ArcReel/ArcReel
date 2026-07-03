@@ -46,6 +46,16 @@ def count_reading_units(text: str, language: str | None) -> int:
     return len(_pattern_for(language).findall(text))
 
 
+def reading_unit_noun(language: str | None) -> str:
+    """该语言『阅读单位』的中文量词：词（按词计的 en / vi 等）/ 字（zh 及未知语言按字计）。
+
+    量词名直接由 ``_pattern_for`` 的分类派生，与 ``count_reading_units`` 天然同源——
+    新增按词计的语言只在 ``_pattern_for`` 加分支，本函数自动跟随，避免各调用点各写一套
+    「词 / 字」映射而与实际计数口径漂移（prompt 里「N 词 / 秒」「N 字一集」等描述据此取名）。
+    """
+    return "词" if _pattern_for(language) is _LATIN_WORD_PATTERN else "字"
+
+
 def find_reading_unit_offset(text: str, target_units: int, language: str | None) -> int:
     """返回第 ``target_units`` 个阅读单位末尾的字符偏移（含尾）。
 

@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from lib.agent_profile import agent_profile_dir
 from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
+from lib.episode_paths import episode_script_relpath
 from lib.json_io import atomic_write_json, load_json, load_json_or_none
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
@@ -1509,7 +1510,7 @@ class ProjectManager:
             project.pop("video_model_settings", None)
 
     # 广告/短片项目恒单集：episodes 恒为第 1 集单条，剧本即第 1 集脚本文件
-    AD_SINGLE_EPISODE = {"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}
+    AD_SINGLE_EPISODE = {"episode": 1, "title": "", "script_file": episode_script_relpath(1)}
     # 创建入口未传 target_duration 时的数据层兜底（与创建向导默认档位同值）
     AD_DEFAULT_TARGET_DURATION = 60
 

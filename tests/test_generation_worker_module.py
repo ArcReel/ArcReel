@@ -242,11 +242,19 @@ class TestCapacityTable:
 
         monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
         monkeypatch.delenv("VIDEO_MAX_WORKERS", raising=False)
+        monkeypatch.delenv("AUDIO_MAX_WORKERS", raising=False)
         table = CapacityTable.from_env()
         for pid, meta in PROVIDER_REGISTRY.items():
             assert pid in table._limits
-            assert table.get(pid, "image") == (5 if "image" in meta.media_types else 0)
-            assert table.get(pid, "video") == (3 if "video" in meta.media_types else 0)
+            for lane, global_default in (("image", 5), ("video", 3), ("audio", 10)):
+                if lane not in meta.media_types:
+                    assert table.get(pid, lane) == 0  # 不支持的 lane → 投影为 0
+                elif lane not in meta.default_concurrency:
+                    # 未声明出厂默认的 lane 必须落到硬编码全局默认。这条断言不读
+                    # meta.default_concurrency，故非重言——能抓住装载回退漂移。声明了默认的
+                    # lane（如 agnes video）由该 provider 的专项测试钉死字面值；此处不用 meta
+                    # 反推，否则对任何声明值都恒真，等于不设防。
+                    assert table.get(pid, lane) == global_default
 
     def test_from_env_reads_env(self, monkeypatch):
         monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
@@ -273,8 +281,12 @@ class TestCapacityTable:
                 assert table.get(pid, "video") == 0
 
     @staticmethod
-    def _stub_from_db_sources(monkeypatch, configs: dict[str, dict[str, str]]) -> None:
-        """把 from_db 的两个数据源（provider config / 自定义供应商）替换为内存数据。"""
+    def _stub_from_db_sources(monkeypatch, configs: dict[str, dict[str, str]], custom_providers=None) -> None:
+        """把 from_db 的两个数据源（provider config / 自定义供应商）替换为内存数据。
+
+        custom_providers：``list_providers_with_models`` 的返回值，形如
+        ``[(provider, models), ...]``；默认空。
+        """
         from unittest.mock import AsyncMock, MagicMock
 
         for env in ("IMAGE_MAX_WORKERS", "VIDEO_MAX_WORKERS", "AUDIO_MAX_WORKERS"):
@@ -294,8 +306,65 @@ class TestCapacityTable:
         )
         monkeypatch.setattr(
             "lib.db.repositories.custom_provider_repo.CustomProviderRepository.list_providers_with_models",
-            AsyncMock(return_value=[]),
+            AsyncMock(return_value=custom_providers or []),
         )
+
+    @staticmethod
+    def _fake_custom_provider(pid: str, *, image=None, video=None, audio=None, endpoints=("openai-images",)):
+        """构造 ``(provider, models)`` 元组，供 list_providers_with_models 返回。"""
+        from types import SimpleNamespace
+
+        provider = SimpleNamespace(
+            provider_id=pid,
+            image_max_workers=image,
+            video_max_workers=video,
+            audio_max_workers=audio,
+        )
+        models = [SimpleNamespace(endpoint=ep, is_enabled=True) for ep in endpoints]
+        return provider, models
+
+    async def test_from_db_custom_provider_columns_used(self, monkeypatch):
+        """自定义供应商：列有值 → 取列值（投影到其支持的 lane）。"""
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[
+                self._fake_custom_provider(
+                    "custom-1",
+                    image=2,
+                    video=7,
+                    endpoints=("openai-images", "newapi-video"),
+                )
+            ],
+        )
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("custom-1", "image") == 2
+        assert table.get("custom-1", "video") == 7
+        # 不支持的 lane（无 audio 模型）投影为 0
+        assert table.get("custom-1", "audio") == 0
+
+    async def test_from_db_custom_provider_null_falls_back_to_global_default(self, monkeypatch):
+        """自定义供应商：列为 None → 回退全局默认（两层回退，无声明默认层）。"""
+        self._stub_from_db_sources(
+            monkeypatch,
+            {},
+            custom_providers=[
+                self._fake_custom_provider(
+                    "custom-9",
+                    image=None,
+                    video=None,
+                    endpoints=("openai-images", "newapi-video"),
+                )
+            ],
+        )
+
+        table = await CapacityTable.from_db()
+
+        # 全局默认 image=5 / video=3（env 已在 _stub 中清除）
+        assert table.get("custom-9", "image") == 5
+        assert table.get("custom-9", "video") == 3
 
     @pytest.mark.parametrize("dirty", ["", "3.7", "abc"])
     async def test_from_db_dirty_value_falls_back_per_key(self, monkeypatch, caplog, dirty):
@@ -331,6 +400,122 @@ class TestCapacityTable:
 
         assert table.get("ark", "video") == 0
         assert "video_max_workers" in caplog.text
+
+    @staticmethod
+    def _registry_with_declared_defaults(monkeypatch) -> None:
+        """注入带 per-lane 默认并发声明的合成注册表，避免耦合任何真实供应商真值。
+
+        - ``declared-video``：支持 image+video，声明 video 默认 1（声明默认 < 全局默认 3）。
+        - ``declared-audio``：支持 audio，声明 audio 默认 12（声明默认 > 全局默认 10），覆盖
+          audio lane 的正向回退（声明默认胜过全局默认）。
+        - ``plain-video``：支持 video，无声明 → 走全局默认。
+        - ``declared-unsupported``：仅支持 video，却声明 image 默认 → 该 lane 仍投影为 0。
+        """
+        from lib.config.registry import ModelInfo, ProviderMeta
+
+        def _model(media_type: str) -> ModelInfo:
+            return ModelInfo(display_name="M", media_type=media_type, capabilities=[])
+
+        registry = {
+            "declared-video": ProviderMeta(
+                display_name="t",
+                description="",
+                required_keys=[],
+                models={"img": _model("image"), "vid": _model("video")},
+                default_concurrency={"video": 1},
+            ),
+            "declared-audio": ProviderMeta(
+                display_name="t",
+                description="",
+                required_keys=[],
+                models={"aud": _model("audio")},
+                default_concurrency={"audio": 12},
+            ),
+            "plain-video": ProviderMeta(
+                display_name="t",
+                description="",
+                required_keys=[],
+                models={"vid": _model("video")},
+            ),
+            "declared-unsupported": ProviderMeta(
+                display_name="t",
+                description="",
+                required_keys=[],
+                models={"vid": _model("video")},
+                default_concurrency={"image": 2},
+            ),
+        }
+        monkeypatch.setattr("lib.config.registry.PROVIDER_REGISTRY", registry)
+
+    def test_from_env_uses_registry_declared_default(self, monkeypatch):
+        self._registry_with_declared_defaults(monkeypatch)
+        monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
+        monkeypatch.delenv("VIDEO_MAX_WORKERS", raising=False)
+        monkeypatch.delenv("AUDIO_MAX_WORKERS", raising=False)
+
+        table = CapacityTable.from_env()
+
+        # 声明了 video=1 → 取声明默认，而非全局默认 3
+        assert table.get("declared-video", "video") == 1
+        # 同 provider 未声明的 image lane → 全局默认 5
+        assert table.get("declared-video", "image") == 5
+        # 支持 audio 且声明 audio=12 → 取声明默认（高于全局默认 10），audio lane 正向回退
+        assert table.get("declared-audio", "audio") == 12
+        # 未声明默认的 provider → 全局默认
+        assert table.get("plain-video", "video") == 3
+        # 声明了 image 默认但该 provider 不支持 image → 投影为 0（_lane_limits 不回归）
+        assert table.get("declared-unsupported", "image") == 0
+
+    async def test_from_db_declared_default_when_user_unconfigured(self, monkeypatch):
+        """用户未配 → 取注册表声明默认（而非全局默认）；未声明 provider 仍走全局默认。"""
+        self._registry_with_declared_defaults(monkeypatch)
+        self._stub_from_db_sources(monkeypatch, {})
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("declared-video", "video") == 1
+        assert table.get("declared-video", "image") == 5
+        assert table.get("declared-audio", "audio") == 12
+        assert table.get("plain-video", "video") == 3
+        assert table.get("declared-unsupported", "image") == 0
+
+    async def test_from_db_user_value_overrides_declared_default(self, monkeypatch):
+        """用户配了值 → 覆盖注册表声明默认。"""
+        self._registry_with_declared_defaults(monkeypatch)
+        self._stub_from_db_sources(monkeypatch, {"declared-video": {"video_max_workers": "4"}})
+
+        table = await CapacityTable.from_db()
+
+        assert table.get("declared-video", "video") == 4
+
+    async def test_from_db_and_from_env_consistent_fallback(self, monkeypatch):
+        """两条装载路径对同一回退语义（用户未配）逐 lane 结果一致。"""
+        self._registry_with_declared_defaults(monkeypatch)
+        self._stub_from_db_sources(monkeypatch, {})
+
+        db_table = await CapacityTable.from_db()
+        env_table = CapacityTable.from_env()
+
+        for pid in ("declared-video", "declared-audio", "plain-video", "declared-unsupported"):
+            for lane in ("image", "video", "audio"):
+                assert db_table.get(pid, lane) == env_table.get(pid, lane)
+
+    def test_agnes_video_default_one_outranks_active_global_env(self, monkeypatch):
+        """真实注册表：Agnes 视频 lane 出厂钉死 1，即便部署把全局 VIDEO_MAX_WORKERS 调高也不解除。
+
+        这是本切片要的 503 规避保证——声明默认压过「活跃的」全局 env（而非仅压过缺省值）。
+        顺带验证两条隔离性质：声明只作用于 video lane（image 仍随全局默认）；钉死是 Agnes 专属，
+        未声明默认的视频供应商（ark）仍跟随全局 env。机制本身（声明默认 > 全局、用户值 > 声明默认、
+        跨 from_env/from_db 一致）已由上面的合成 declared-* 测试覆盖，此处只钉真实条目的接线。
+        """
+        monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
+        monkeypatch.setenv("VIDEO_MAX_WORKERS", "5")
+
+        table = CapacityTable.from_env()
+
+        assert table.get("agnes", "video") == 1  # 声明默认压过活跃的全局 5
+        assert table.get("agnes", "image") == 5  # 声明不外溢到未声明的 image lane
+        assert table.get("ark", "video") == 5  # 未声明默认的视频供应商仍跟随全局 env
 
 
 class TestGenerationWorker:

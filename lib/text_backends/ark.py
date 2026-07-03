@@ -93,7 +93,7 @@ class ArkTextBackend:
         messages = self._build_messages(request)
 
         if TextCapability.STRUCTURED_OUTPUT in self._capabilities:
-            from lib.text_backends.base import resolve_schema
+            from lib.text_backends.base import resolve_schema, structured_fallback_reason
 
             if request.response_schema is None:
                 raise ValueError("structured 模式要求 response_schema 非空")
@@ -111,9 +111,30 @@ class ArkTextBackend:
             logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
             try:
                 response = await asyncio.to_thread(self._client.chat.completions.create, **kwargs)
-                return self._parse_chat_response(response)
+                native = self._parse_chat_response(response)
             except Exception as exc:
-                logger.warning("原生 response_format 失败 (%s)，降级到 Instructor/json_object 路径", exc)
+                logger.warning("原生 response_format 调用或解析失败 (%s)，降级到 Instructor/json_object 路径", exc)
+                return await self._structured_fallback(request, messages)
+
+            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema，违例（非 JSON / 违反 schema）则降级。
+            # 不严格强制 schema 的模型/中转会返回违例 JSON，若直接放行会一路漏到下游校验才报错。
+            # ark 原生 response_format 未声明 strict，复验同样用 strict=False，避免对可强转值误判违例。
+            fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
+            if fallback_reason:
+                logger.warning("原生 response_format %s，降级到带校验的 Instructor 路径", fallback_reason)
+                result = await self._structured_fallback(request, messages)
+                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，否则会系统性漏记。
+                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
+                if result.input_tokens is not None or native.input_tokens is not None:
+                    result.input_tokens = (result.input_tokens if result.input_tokens is not None else 0) + (
+                        native.input_tokens if native.input_tokens is not None else 0
+                    )
+                if result.output_tokens is not None or native.output_tokens is not None:
+                    result.output_tokens = (result.output_tokens if result.output_tokens is not None else 0) + (
+                        native.output_tokens if native.output_tokens is not None else 0
+                    )
+                return result
+            return native
 
         return await self._structured_fallback(request, messages)
 

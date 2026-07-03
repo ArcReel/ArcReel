@@ -476,8 +476,7 @@ class TestInstructorFallback:
 class TestMaxOutputTokens:
     """官方端点用 max_completion_tokens，兼容端点保守沿用 max_tokens。"""
 
-    async def test_official_plain_passes_max_completion_tokens(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    async def test_official_plain_passes_max_completion_tokens(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
@@ -490,8 +489,7 @@ class TestMaxOutputTokens:
         assert call_kwargs["max_completion_tokens"] == 32000
         assert "max_tokens" not in call_kwargs
 
-    async def test_official_structured_passes_max_completion_tokens(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    async def test_official_structured_passes_max_completion_tokens(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(json.dumps({"name": "x"})))
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
@@ -507,8 +505,7 @@ class TestMaxOutputTokens:
         assert call_kwargs["max_completion_tokens"] == 24000
         assert "max_tokens" not in call_kwargs
 
-    async def test_no_max_tokens_means_key_absent(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    async def test_no_max_tokens_means_key_absent(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
@@ -547,9 +544,8 @@ class TestMaxOutputTokens:
         assert call_kwargs["max_completion_tokens"] == 32000
         assert "max_tokens" not in call_kwargs
 
-    async def test_official_dict_schema_fallback_uses_max_completion_tokens(self, monkeypatch):
+    async def test_official_dict_schema_fallback_uses_max_completion_tokens(self):
         """dict-schema 降级路径（json_object 模式）也按端点选参数。"""
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
         mock_client = AsyncMock()
         fallback_json = json.dumps({"name": "x"})
         mock_client.chat.completions.create = AsyncMock(
@@ -593,9 +589,8 @@ class TestMaxOutputTokens:
         assert second_call_kwargs["max_tokens"] == 8000
         assert "max_completion_tokens" not in second_call_kwargs
 
-    async def test_official_instructor_fallback_uses_max_completion_tokens(self, monkeypatch):
+    async def test_official_instructor_fallback_uses_max_completion_tokens(self):
         """Pydantic instructor 降级路径端到端穿透到 create_with_completion。"""
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
 

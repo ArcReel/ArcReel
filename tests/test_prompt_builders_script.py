@@ -1,3 +1,4 @@
+from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_script import (
     _format_names,
     build_drama_prompt,
@@ -6,6 +7,7 @@ from lib.prompt_builders_script import (
     build_overview_prompt,
     render_drama_content_for_step2,
 )
+from lib.speech_rate import speech_rate_units_per_second
 
 
 class TestPromptBuildersScript:
@@ -335,3 +337,126 @@ class TestOverviewPrompt:
     def test_default_source_kind_is_novel(self):
         content = "源文本"
         assert build_overview_prompt(content) == build_overview_prompt(content, source_kind="novel")
+
+
+class TestDramaDurationSpeechLowerBound:
+    """drama step1 时长指引的「台词口播时长」单向下界软指引（生成期，纯 prompt 软约束）。
+
+    语速从 lib.speech_rate 单一真相源按项目 source_language 注入；drama prompt 内不写死语速数字。
+    单向：画面 / 留白可把时长撑长，台词永不把时长压短；空 utterances 无下界、行为同今日。
+    narration / ad / step2 视觉层不受影响。只断言语义关键词与注入值，不锁逐字措辞。
+    """
+
+    _SPEECH_MARKER = "口播语速约"
+
+    def _normalize(self, **overrides) -> str:
+        kwargs = dict(
+            novel_text="【第1集】角色甲：「你好」",
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            characters={"角色甲": {}},
+            scenes={},
+            props={},
+            default_duration=8,
+            supported_durations=[4, 6, 8],
+            episode=1,
+        )
+        kwargs.update(overrides)
+        return build_normalize_prompt(**kwargs)
+
+    def test_speech_rate_injected_from_single_source(self):
+        # 语速数字来自 lib.speech_rate 单一真相源，按 source_language 取；zh 计字、en / vi 计词
+        for lang in ("zh", "en", "vi"):
+            rate = speech_rate_units_per_second(lang)
+            assert f"{rate:g}" in self._normalize(source_language=lang)
+        assert "字/秒" in self._normalize(source_language="zh")
+        assert "词/秒" in self._normalize(source_language="en")
+        assert "词/秒" in self._normalize(source_language="vi")
+
+    def test_no_hardcoded_speech_rate_number(self):
+        # 语速随语言变化 → 证明是注入而非写死；zh（字/秒）与 en（词/秒）语速不同则两处数字不同
+        zh_rate = speech_rate_units_per_second("zh")
+        en_rate = speech_rate_units_per_second("en")
+        assert zh_rate != en_rate  # 前置：两语言语速确实不同
+        assert f"{zh_rate:g} 字/秒" in self._normalize(source_language="zh")
+        assert f"{en_rate:g} 词/秒" in self._normalize(source_language="en")
+
+    def test_lower_bound_is_single_directional_soft_guidance(self):
+        prompt = self._normalize(source_language="zh")
+        # 下界软指引在场：按口播估算取不低于的档位
+        assert self._SPEECH_MARKER in prompt
+        assert "下界" in prompt
+        assert "不低于" in prompt
+        assert "口播" in prompt
+        # 单向：画面可撑长、台词不压短
+        assert "单向" in prompt
+
+    def test_empty_utterances_have_no_lower_bound(self):
+        # 空 utterances（纯画面）场景明确无下界，行为同今日逐字一致
+        prompt = self._normalize(source_language="zh")
+        assert "utterances 为空" in prompt
+        assert "没有此下界" in prompt
+
+    def test_exceeds_max_takes_longest_tier(self):
+        # 口播超过最长档时取最长档、不裁台词，保存期 warning 兜底
+        prompt = self._normalize(source_language="zh", supported_durations=[4, 6, 8], default_duration=8)
+        assert "取最长档" in prompt
+
+    def test_lower_bound_present_without_default_duration(self):
+        # default_duration 为 null 的分支同样带下界软指引
+        prompt = self._normalize(source_language="zh", default_duration=None)
+        assert self._SPEECH_MARKER in prompt
+        assert "不低于" in prompt
+
+    def test_missing_source_language_falls_back_to_default_rate(self):
+        # source_language 缺省 → 回退默认语速（speech_rate 单一真相源同口径），向后兼容
+        default_rate = speech_rate_units_per_second(None)
+        assert f"{default_rate:g}" in self._normalize()
+
+    def test_non_string_source_language_falls_back_to_default_rate(self):
+        # source_language 为非字符串脏数据（project.json 类型未强校验）→ 回退默认语速不崩溃，
+        # 与保存期上界 warning 同口径守卫；回退 None 走 zh 计字口径
+        default_rate = speech_rate_units_per_second(None)
+        for dirty in (5, ["zh"]):
+            assert f"{default_rate:g} 字/秒" in self._normalize(source_language=dirty)
+
+    def test_narration_and_step2_drama_have_no_speech_lower_bound(self):
+        # 生成期时长下界只在 drama step1（normalize）；narration step2 与 drama step2 视觉层不含
+        narration = build_narration_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="古风",
+            style_description="cinematic",
+            characters={"角色甲": {}},
+            scenes={},
+            props={},
+            step1_segments=[
+                {"segment_id": "E1S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}
+            ],
+            episode=1,
+        )
+        assert self._SPEECH_MARKER not in narration
+        drama_step2 = build_drama_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            style_description="cinematic",
+            scenes_content="### E1S01（时长 4 秒）",
+            episode=1,
+        )
+        assert self._SPEECH_MARKER not in drama_step2
+
+    def test_ad_prompt_unaffected(self):
+        # ad step1 时长指引不受本 issue 改动（ad 的字数→时长折算既存漂移不在范围内）
+        ad = build_ad_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            style_description="cinematic",
+            characters={"角色甲": {}},
+            scenes={},
+            props={},
+            products={},
+            brief="卖点",
+            target_duration=30,
+            generation_mode="image",
+            supported_durations=[4, 6, 8],
+        )
+        assert self._SPEECH_MARKER not in ad

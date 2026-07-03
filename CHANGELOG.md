@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.20.0](https://github.com/ArcReel/ArcReel/compare/v0.19.1...v0.20.0) (2026-07-01)
+
+
+### ✨ 新功能
+
+* **agent:** 剧本编辑支持一次批量修改多个分镜的多个字段 ([#989](https://github.com/ArcReel/ArcReel/issues/989)) ([870fb7a](https://github.com/ArcReel/ArcReel/commit/870fb7aa6083fe37b27bc1b959dacb8456dac4c9))
+* **agnes:** 接入 Agnes 文本后端 agnes-2.0-flash（结构化输出） ([#966](https://github.com/ArcReel/ArcReel/issues/966)) ([ff3e3e8](https://github.com/ArcReel/ArcReel/commit/ff3e3e8f44921ee21fc2501c08e52ee3d458f20e)), closes [#942](https://github.com/ArcReel/ArcReel/issues/942)
+* **agnes:** 视频出厂默认并发 1，避免主动触发上游 503 ([#973](https://github.com/ArcReel/ArcReel/issues/973)) ([0942eac](https://github.com/ArcReel/ArcReel/commit/0942eac248c970e7b98758a6951df8f3fa0eb800)), closes [#944](https://github.com/ArcReel/ArcReel/issues/944)
+* **ark:** 接入 Seedance 2.0 Mini 并设为默认视频模型 ([#934](https://github.com/ArcReel/ArcReel/issues/934)) ([7d4ed1e](https://github.com/ArcReel/ArcReel/commit/7d4ed1e702284ee70184e9c71bdda1c3d751bc73))
+* **jianying:** drama 成片导出对话/旁白字幕轨 ([#930](https://github.com/ArcReel/ArcReel/issues/930)) ([db353ce](https://github.com/ArcReel/ArcReel/commit/db353ce9fd68a8fa4a9c86a934bdc63d5b556e1d))
+* **planner:** 首批分集规划支持透传用户分集偏好 ([#988](https://github.com/ArcReel/ArcReel/issues/988)) ([2e2750b](https://github.com/ArcReel/ArcReel/commit/2e2750baf48408804f893da1d381bf28e7667dc7))
+* **providers:** 自定义供应商可单独配置图片/视频/音频并发上限 ([#965](https://github.com/ArcReel/ArcReel/issues/965)) ([54ea3ad](https://github.com/ArcReel/ArcReel/commit/54ea3ad5be3e6e73fd2251e201e562c54da6088f))
+* **provider:** 接入 Agnes 内置供应商与图像生成 ([#963](https://github.com/ArcReel/ArcReel/issues/963)) ([048582b](https://github.com/ArcReel/ArcReel/commit/048582b84959728487caec6160c1515d349e044f)), closes [#941](https://github.com/ArcReel/ArcReel/issues/941)
+* **provider:** 接入 Agnes 视频生成并修复参考视频生成失败 ([#967](https://github.com/ArcReel/ArcReel/issues/967)) ([f87a8d6](https://github.com/ArcReel/ArcReel/commit/f87a8d667e9ae1a7fa1369eb08a8b90d408b43ca)), closes [#943](https://github.com/ArcReel/ArcReel/issues/943)
+* **script:** drama 口播与原文逐字保真，新增场景级原文锚并放开 novel 画外音 ([#932](https://github.com/ArcReel/ArcReel/issues/932)) ([18dada2](https://github.com/ArcReel/ArcReel/commit/18dada2b941556a60e4e6fc2970b4bd649a58633))
+* **script:** drama 口播统一为场景级有序发声序列 utterances ([#927](https://github.com/ArcReel/ArcReel/issues/927)) ([cd18e80](https://github.com/ArcReel/ArcReel/commit/cd18e80f237529e64dac8f75cb753faad8bf72f9))
+* **script:** drama 生成分镜时长兼顾台词口播长度，减少台词说不完 ([#990](https://github.com/ArcReel/ArcReel/issues/990)) ([e75e9e5](https://github.com/ArcReel/ArcReel/commit/e75e9e5af3dd3d3eb9bbf89444f09339bb1588cd))
+* **script:** drama 说话量超场景时长上界时提示可能说不完 ([#931](https://github.com/ArcReel/ArcReel/issues/931)) ([2c85d2d](https://github.com/ArcReel/ArcReel/commit/2c85d2dd7c784bbb8e8601df05510338a3e81c8c))
+* **script:** 剧本内容新增 web 审阅确认，确认后再生成画面 ([#945](https://github.com/ArcReel/ArcReel/issues/945)) ([40d631f](https://github.com/ArcReel/ArcReel/commit/40d631f5cdada0fc33e69f79b5663cc29fb81e88))
+* 供应商可声明出厂默认并发，未配置时按供应商回退 ([#961](https://github.com/ArcReel/ArcReel/issues/961)) ([f417172](https://github.com/ArcReel/ArcReel/commit/f4171722558f23d949fca2ac2e03bf2e2c27fbc4))
+
+
+### 🐛 Bug 修复
+
+* **custom-providers:** 获取模型合并默认互斥，避免编辑保存报错 ([#980](https://github.com/ArcReel/ArcReel/issues/980)) ([0cb7fbd](https://github.com/ArcReel/ArcReel/commit/0cb7fbdbd307deeed7cefb8f50ccb8f819b8515c))
+* **providers:** 可灵 Kling 设置页补齐图片与视频并发上限配置 ([#960](https://github.com/ArcReel/ArcReel/issues/960)) ([be9c2c5](https://github.com/ArcReel/ArcReel/commit/be9c2c594e230bab19d3c54cb528cfba2f804e6d))
+* **providers:** 并发上限禁止填 0，要求 ≥1 或留空回退默认 ([#977](https://github.com/ArcReel/ArcReel/issues/977)) ([222ca35](https://github.com/ArcReel/ArcReel/commit/222ca35e29d39b7c9cef593bc82e665be9c7a413))
+* **provider:** 可灵 Kling 在供应商设置显示品牌图标 ([#978](https://github.com/ArcReel/ArcReel/issues/978)) ([fab13c8](https://github.com/ArcReel/ArcReel/commit/fab13c8a882940c35334c886c3dc4240dcb1dc74))
+* **script:** 分集规划容忍原文与回显的标点全/半角及空白宽度差异，避免规划失败 ([cf56e12](https://github.com/ArcReel/ArcReel/commit/cf56e12552c64143277d5eb56b3fe648c9d04d59))
+* **script:** 说书剧本 step2 不再重写小说原文，消除口播扩写漂移 ([#928](https://github.com/ArcReel/ArcReel/issues/928)) ([a436b84](https://github.com/ArcReel/ArcReel/commit/a436b84336db5839edfdb967a95e0df819453822))
+* **settings:** 修复火山方舟 Agent Plan 供应商图标显示 ([#935](https://github.com/ArcReel/ArcReel/issues/935)) ([7fefeb0](https://github.com/ArcReel/ArcReel/commit/7fefeb0a688a85ce9844ebca4397859b99164795))
+* **storyboard:** 对话台词改用自适应多行输入，长台词不再被截断 ([c1f0faa](https://github.com/ArcReel/ArcReel/commit/c1f0faaac8fe1023b9e958e6b86c62fba4591873))
+* **text:** 火山方舟结构化生成对违例 JSON 自动降级到带校验路径 ([5bfa147](https://github.com/ArcReel/ArcReel/commit/5bfa1474eda553c86febd82d9318b34247ae5216))
+* **timeline:** 剧集分镜详情可编辑角色对白 ([70f4c6c](https://github.com/ArcReel/ArcReel/commit/70f4c6c1e80ba53a341b6c732c9959906212b4a8))
+
+
+### 📚 文档
+
+* drama 口播 utterances 与剧本流水线两段式的领域术语与 ADR ([#921](https://github.com/ArcReel/ArcReel/issues/921)) ([f4c6db5](https://github.com/ArcReel/ArcReel/commit/f4c6db56fd6d57399f39f36a2ef401eb0b4d7a5a))
+* **triage:** 记录产品强制限制创作维度为 out-of-scope ([#979](https://github.com/ArcReel/ArcReel/issues/979)) ([8da7a18](https://github.com/ArcReel/ArcReel/commit/8da7a18b5ef0e4c00659b60e2ea0ce95479ae89a))
+
 ## [0.19.1](https://github.com/ArcReel/ArcReel/compare/v0.19.0...v0.19.1) (2026-06-24)
 
 

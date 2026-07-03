@@ -26,15 +26,15 @@ class _FakePM:
 
 
 class TestStatusCalculator:
-    def test_select_content_mode_and_items(self):
-        mode, items = StatusCalculator._select_content_mode_and_items(
+    def test_select_kind_and_items(self):
+        kind, items = StatusCalculator._select_kind_and_items(
             {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}
         )
-        assert mode == "narration"
+        assert kind == "segments"
         assert len(items) == 1
 
-        mode2, items2 = StatusCalculator._select_content_mode_and_items({"scenes": [{"scene_id": "E1S01"}]})
-        assert mode2 == "drama"
+        kind2, items2 = StatusCalculator._select_kind_and_items({"scenes": [{"scene_id": "E1S01"}]})
+        assert kind2 == "scenes"
         assert len(items2) == 1
 
     def test_calculate_episode_stats_statuses(self, tmp_path):
@@ -482,29 +482,11 @@ class TestStatusCalculator:
 class TestAdStatusCalculation:
     """广告/短片模式（平铺 shots[]）的状态与统计计算。"""
 
-    def test_select_ad_mode_and_items(self):
-        mode, items = StatusCalculator._select_content_mode_and_items(
-            {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]}
-        )
-        assert mode == "ad"
-        assert len(items) == 1
-
     def test_select_ad_by_duck_typing_when_content_mode_absent(self):
-        mode, items = StatusCalculator._select_content_mode_and_items({"shots": [{"shot_id": "E1S01"}]})
-        assert mode == "ad"
+        # 本地 legacy 容忍：缺 content_mode 的存量 ad 剧本按 shots 键鸭子推断（矩阵不覆盖本地阶梯）。
+        kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]})
+        assert kind == "shots"
         assert len(items) == 1
-
-    def test_ad_with_reference_generation_mode_still_dispatches_shots(self):
-        """ad 剧本骨架唯一：残留 generation_mode 戳也按 shots 分派，不找 video_units。"""
-        mode, items = StatusCalculator._select_content_mode_and_items(
-            {
-                "content_mode": "ad",
-                "generation_mode": "reference_video",
-                "shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}],
-            }
-        )
-        assert mode == "ad"
-        assert len(items) == 2
 
     def test_calculate_episode_stats_for_ad(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -645,8 +627,44 @@ class TestAdStatusCalculation:
 
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
-        segments > scenes > shots（依赖 SCRIPT_SHAPES 注册顺序，本测试钉住该顺序）。"""
-        mode, _ = StatusCalculator._select_content_mode_and_items({"segments": [{}], "scenes": [{}], "shots": [{}]})
-        assert mode == "narration"
-        mode, _ = StatusCalculator._select_content_mode_and_items({"scenes": [{}], "shots": [{}]})
-        assert mode == "drama"
+        segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""
+        kind, _ = StatusCalculator._select_kind_and_items({"segments": [{}], "scenes": [{}], "shots": [{}]})
+        assert kind == "segments"
+        kind, _ = StatusCalculator._select_kind_and_items({"scenes": [{}], "shots": [{}]})
+        assert kind == "scenes"
+
+
+# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+_KIND_TO_MODES = {
+    "segments": ("narration", None),
+    "scenes": ("drama", None),
+    "shots": ("ad", None),
+    "video_units": ("narration", "reference_video"),
+}
+
+
+class TestStatusCalculatorSkeletonExhaustiveness:
+    """穷尽性断言：calculate_episode_stats 的按 kind 分派覆盖 SKELETONS 全部键。
+
+    第五种骨架加入 SKELETONS（+ 规范解析映射）时，_FALLBACK_ITEM_DURATIONS 查表 KeyError，逐个报红。
+    """
+
+    @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
+    def test_calculate_episode_stats_covers_every_skeleton_kind(self, kind, tmp_path):
+        from lib.script_skeleton import SKELETONS
+
+        # 遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
+        assert set(_KIND_TO_MODES) == set(SKELETONS)
+
+        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        id_field = SKELETONS[kind].id_field
+        script = {"content_mode": content_mode, kind: [{id_field: "E1S01"}]}
+        if gen_mode:
+            script["generation_mode"] = gen_mode
+
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        stats = calc.calculate_episode_stats("demo", script, generation_mode=gen_mode)
+
+        assert isinstance(stats, dict)
+        assert "status" in stats
+        assert stats["scenes_count"] == 1

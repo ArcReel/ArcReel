@@ -782,6 +782,13 @@ export default {
   'fill_api_key': 'Please fill in API Key',
   'enable_one_model': 'At least one model must be enabled',
   'enabled_model_needs_id': 'Enabled models must have a model_id',
+  'cp_concurrency_label': 'Concurrency Limits',
+  'cp_concurrency_help': 'Max concurrent tasks per media lane (image / video / audio). Leave blank for the global default; minimum 1.',
+  'cp_image_max_workers_label': 'Image Concurrency',
+  'cp_video_max_workers_label': 'Video Concurrency',
+  'cp_audio_max_workers_label': 'Audio Concurrency',
+  'cp_max_workers_placeholder': 'Default',
+  'max_workers_invalid': 'Concurrency limits must be positive integers. Check the image / video / audio inputs.',
 
   // CustomProviderDetail
   'discovery_format_label': 'Model Discovery Protocol',
@@ -1072,6 +1079,8 @@ export default {
   'review_saved': 'Step 1 content saved',
   'review_confirmed': 'Confirmed — visual generation unlocked',
   'review_confirm_failed': 'Could not confirm, please try again',
+  'review_load_failed': "Couldn't load preprocessing content",
+  'review_retry': 'Retry',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 
@@ -1219,6 +1228,7 @@ export default {
   'shot_notes_close': 'Close notes',
   'shot_notes_title': 'NOTES',
   'detail_section_dialogue': 'DIALOGUE',
+  'detail_section_utterances': 'UTTERANCES',
   'detail_section_novel': 'ORIGINAL TEXT',
   'detail_section_voiceover': 'VOICEOVER',
   'detail_voiceover_placeholder': 'Voiceover line for this shot, ready to record; leave empty for visual-only shots…',

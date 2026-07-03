@@ -759,6 +759,13 @@ export default {
   'fill_api_key': 'Vui lòng điền khóa API',
   'enable_one_model': 'Phải bật ít nhất một mô hình',
   'enabled_model_needs_id': 'Mô hình đã bật phải có model_id',
+  'cp_concurrency_label': 'Giới hạn đồng thời',
+  'cp_concurrency_help': 'Số tác vụ đồng thời tối đa cho mỗi luồng phương tiện (ảnh / video / âm thanh). Để trống = mặc định toàn cục; tối thiểu 1.',
+  'cp_image_max_workers_label': 'Đồng thời ảnh',
+  'cp_video_max_workers_label': 'Đồng thời video',
+  'cp_audio_max_workers_label': 'Đồng thời âm thanh',
+  'cp_max_workers_placeholder': 'Mặc định',
+  'max_workers_invalid': 'Giới hạn đồng thời phải là số nguyên dương. Kiểm tra ô nhập hình ảnh / video / âm thanh.',
 
   // CustomProviderDetail
   'discovery_format_label': 'Giao thức phát hiện mô hình',
@@ -1038,6 +1045,8 @@ export default {
   'review_saved': 'Đã lưu nội dung Step 1',
   'review_confirmed': 'Đã xác nhận — đã mở khoá tạo hình ảnh',
   'review_confirm_failed': 'Không thể xác nhận, vui lòng thử lại',
+  'review_load_failed': 'Không thể tải nội dung tiền xử lý',
+  'review_retry': 'Thử lại',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 
@@ -1110,6 +1119,7 @@ export default {
   'detail_image_prompt_placeholder': 'Mô tả khung hình: bối cảnh, nhân vật, hành động, bố cục…',
   'detail_image_prompt_title': 'Image Prompt · Phân cảnh',
   'detail_section_dialogue': 'DIALOGUE',
+  'detail_section_utterances': 'LỜI NÓI',
   'detail_section_novel': 'ORIGINAL TEXT',
   'detail_section_voiceover': 'LỜI THOẠI QUẢNG CÁO',
   'detail_voiceover_placeholder': 'Lời thoại của cảnh này, sẵn sàng để thu âm; để trống nếu cảnh chỉ có hình ảnh…',

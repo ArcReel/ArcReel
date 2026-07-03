@@ -648,6 +648,39 @@ class TestProjectsRouter:
             assert update_overview.status_code == 200
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
+    def test_update_scene_accepts_utterances(self, tmp_path, monkeypatch):
+        # drama 分镜详情编辑场景级发声序列：utterances 在白名单内，PATCH 写回并持久化
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "001",
+                    "duration_seconds": 8,
+                    "characters_in_scene": ["Alice"],
+                    "scenes": [],
+                    "props": [],
+                    "utterances": [],
+                }
+            ],
+        }
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        utterances = [
+            {"kind": "dialogue", "speaker": "Alice", "text": "你来了。"},
+            {"kind": "voiceover", "speaker": None, "text": "命运就此转向。"},
+        ]
+
+        with client:
+            patched = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={"script_file": "episode_1.json", "updates": {"utterances": utterances}},
+            )
+            assert patched.status_code == 200
+            assert patched.json()["scene"]["utterances"] == utterances
+            # 落库持久化（不被白名单静默丢弃）
+            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == utterances
+
     @staticmethod
     def _ad_script(shot_ids: list[str]) -> dict:
         return {

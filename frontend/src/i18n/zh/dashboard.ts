@@ -783,6 +783,13 @@ export default {
   'fill_api_key': '请填写 API Key',
   'enable_one_model': '至少启用一个模型',
   'enabled_model_needs_id': '已启用的模型必须填写 model_id',
+  'cp_concurrency_label': '并发上限',
+  'cp_concurrency_help': '各媒体通道（图片 / 视频 / 音频）的最大并发任务数。留空 = 全局默认，最小 1。',
+  'cp_image_max_workers_label': '图片并发',
+  'cp_video_max_workers_label': '视频并发',
+  'cp_audio_max_workers_label': '音频并发',
+  'cp_max_workers_placeholder': '默认',
+  'max_workers_invalid': '并发上限必须为正整数，请检查图片 / 视频 / 音频并发输入。',
 
   // CustomProviderDetail
   'discovery_format_label': '模型发现协议',
@@ -1073,6 +1080,8 @@ export default {
   'review_saved': 'step1 内容已保存',
   'review_confirmed': '已确认 — 视觉生成已放行',
   'review_confirm_failed': '确认失败，请重试',
+  'review_load_failed': '无法加载预处理内容',
+  'review_retry': '重试',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 
@@ -1220,6 +1229,7 @@ export default {
   'shot_notes_close': '关闭备注',
   'shot_notes_title': '备注',
   'detail_section_dialogue': '对话',
+  'detail_section_utterances': '发声序列',
   'detail_section_novel': '原文',
   'detail_section_voiceover': '口播文案',
   'detail_voiceover_placeholder': '这一镜的口播台词，照稿可配音；纯画面镜头留空…',

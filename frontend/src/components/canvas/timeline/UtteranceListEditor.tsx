@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
@@ -20,6 +21,14 @@ function makeUtterance(kind: UtteranceKind): Utterance {
   return kind === "dialogue"
     ? { kind: "dialogue", speaker: "", text: "" }
     : { kind: "voiceover", speaker: null, text: "" };
+}
+
+/** 下一个稳定 key：取现有 key 数字后缀最大值 +1；空序列从 u0 起，与初始化命名对齐。
+ *  纯函数，StrictMode 双调用幂等。 */
+function nextKey(keys: string[]): string {
+  if (keys.length === 0) return "u0";
+  const max = keys.reduce((m, k) => Math.max(m, Number(k.slice(1)) || 0), 0);
+  return `u${max + 1}`;
 }
 
 /** Flip an utterance's kind, preserving text. dialogue→voiceover drops the
@@ -168,12 +177,26 @@ function UtteranceRow({
 export function UtteranceListEditor({ utterances, onChange, disabled = false }: UtteranceListEditorProps) {
   const { t } = useTranslation("dashboard");
 
+  // 数据模型无 id：在编辑态派生与条目一一绑定的稳定 key，增删移动时同步搬运，
+  // 使受控输入节点按条目（而非按位置）复用，避免删除中间项 / 移动后焦点跳行、编辑内容串到相邻行。
+  const [keys, setKeys] = useState<string[]>(() => utterances.map((_, i) => `u${i}`));
+
+  // 外部整体替换（挂载后 adopt / revision 静默刷新）导致条目数与 key 数漂移时对齐：按位复用已有 key、
+  // 尾部补新 key、裁掉多余。本地增删移动已同步搬运 key，长度恒等，不触发此分支。
+  let renderKeys = keys;
+  if (keys.length !== utterances.length) {
+    renderKeys = keys.slice(0, utterances.length);
+    while (renderKeys.length < utterances.length) renderKeys.push(nextKey(renderKeys));
+    setKeys(renderKeys);
+  }
+
   const updateAt = (index: number, next: Utterance) => {
     onChange(utterances.map((u, i) => (i === index ? next : u)));
   };
 
   const removeAt = (index: number) => {
     onChange(utterances.filter((_, i) => i !== index));
+    setKeys((prev) => prev.filter((_, i) => i !== index));
   };
 
   const moveAt = (index: number, delta: -1 | 1) => {
@@ -182,10 +205,16 @@ export function UtteranceListEditor({ utterances, onChange, disabled = false }: 
     const next = [...utterances];
     [next[index], next[target]] = [next[target], next[index]];
     onChange(next);
+    setKeys((prev) => {
+      const swapped = [...prev];
+      [swapped[index], swapped[target]] = [swapped[target], swapped[index]];
+      return swapped;
+    });
   };
 
   const add = (kind: UtteranceKind) => {
     onChange([...utterances, makeUtterance(kind)]);
+    setKeys((prev) => [...prev, nextKey(prev)]);
   };
 
   return (
@@ -196,7 +225,7 @@ export function UtteranceListEditor({ utterances, onChange, disabled = false }: 
         <div role="list">
           {utterances.map((u, i) => (
             <UtteranceRow
-              key={i}
+              key={renderKeys[i]}
               value={u}
               index={i}
               total={utterances.length}

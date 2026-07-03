@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime import session_manager as sm_mod
+from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.message_utils import extract_plain_user_content
+from server.agent_runtime.models import Heartbeat, LiveMessage, ReplayBatch
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
@@ -71,10 +75,10 @@ async def _cold_revival_clients(session_manager, monkeypatch):
     ``options.kwargs["system_prompt"]["append"]`` carries the rebuilt prompt, so
     tests can assert which locale the language regulation was rendered with."""
 
-    async def _fake_env(_self):
+    async def _fake_env():
         return {}
 
-    monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
 
     created_clients: list[_FakeClaudeClient] = []
 
@@ -85,9 +89,10 @@ async def _cold_revival_clients(session_manager, monkeypatch):
 
     with monkeypatch.context() as m:
         m.setattr(sm_mod, "SDK_AVAILABLE", True)
-        m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
+        m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
+        m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
         m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
-        m.setattr(sm_mod, "HookMatcher", None)
+        m.setattr("server.agent_runtime.options_assembler.HookMatcher", None)
         yield created_clients
 
 
@@ -113,19 +118,15 @@ class TestSessionManagerMore:
         assert len(managed.message_buffer) == 2
         assert all(msg["id"] != "a" for msg in managed.message_buffer)
 
-        queue = asyncio.Queue(maxsize=1)
-        queue.put_nowait({"type": "stream_event"})
-        managed.subscribers = {queue}
+        # add_message 经会话通道广播给订阅者。
+        queue = managed.channel.subscribe()
         managed.add_message({"type": "result", "uuid": "r1"})
         assert queue.get_nowait()["type"] == "result"
 
-        # queue has only critical message; next critical should overflow and drop subscriber
-        stale_queue = asyncio.Queue(maxsize=1)
-        stale_queue.put_nowait({"type": "result"})
-        managed.subscribers = {stale_queue}
-        managed.add_message({"type": "assistant"})
-        assert stale_queue.get_nowait()["type"] == "_queue_overflow"
-        assert stale_queue not in managed.subscribers
+        # 订阅者彻底跟不上（队列填满关键消息、无可逐出）→ 按会话流溢出策略移除。
+        for i in range(120):
+            managed.add_message({"type": "assistant", "uuid": f"m{i}"})
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
     async def test_pending_question_lifecycle(self):
@@ -144,13 +145,13 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_build_options_and_connect_paths(self, session_manager, meta_store, tmp_path, monkeypatch):
-        async def _fake_env(_self):
+        async def _fake_env():
             return {}
 
-        monkeypatch.setattr(sm_mod.SessionManager, "_build_provider_env_overrides", _fake_env)
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
 
         with monkeypatch.context() as m:
-            m.setattr(sm_mod, "SDK_AVAILABLE", False)
+            m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", False)
             with pytest.raises(RuntimeError):
                 await session_manager._build_options("demo")
 
@@ -167,9 +168,10 @@ class TestSessionManagerMore:
 
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", True)
-            m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
+            m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
+            m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
             m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
-            m.setattr(sm_mod, "HookMatcher", None)
+            m.setattr("server.agent_runtime.options_assembler.HookMatcher", None)
             managed = await session_manager.get_or_connect(meta.id)
             # Let the actor enter the async-context (connect).
             await asyncio.sleep(0)
@@ -178,7 +180,7 @@ class TestSessionManagerMore:
             # Graceful teardown so the actor task doesn't leak.
             await session_manager.close_session(meta.id)
 
-        assert await session_manager._keep_stream_open_hook({}, None, None) == {"continue_": True}
+        assert await session_manager._options_assembler._keep_stream_open_hook({}, None, None) == {"continue_": True}
 
     @pytest.mark.asyncio
     async def test_get_or_connect_threads_locale_into_system_prompt(
@@ -341,23 +343,14 @@ class TestSessionManagerMore:
         assert "user interrupted" in deny.message
 
     def test_misc_helpers_and_serialization(self, session_manager):
-        assert sm_mod.SessionManager._extract_plain_user_content({"type": "user", "content": " hi "}) == "hi"
-        assert (
-            sm_mod.SessionManager._extract_plain_user_content(
-                {"type": "user", "content": [{"type": "text", "text": " hello "}]}
-            )
-            == "hello"
-        )
-        assert sm_mod.SessionManager._extract_plain_user_content({"type": "assistant"}) is None
+        assert extract_plain_user_content({"type": "user", "content": " hi "}) == "hi"
+        assert extract_plain_user_content({"type": "user", "content": [{"type": "text", "text": " hello "}]}) == "hello"
+        assert extract_plain_user_content({"type": "assistant"}) is None
 
         msg = {}
         raw = SimpleNamespace(session_id="sdk-1")
         assert session_manager._extract_sdk_session_id(raw, msg) == "sdk-1"
         assert session_manager._extract_sdk_session_id(raw, {"sessionId": "sdk-2"}) == "sdk-2"
-
-        status = session_manager._build_runtime_status_message("error", "s1")
-        assert status["type"] == "runtime_status"
-        assert status["is_error"] is True
 
         managed = ManagedSession(
             session_id="s1",
@@ -397,19 +390,20 @@ class TestSessionManagerMore:
         managed.message_buffer.append({"type": "assistant", "uuid": "a1"})
         session_manager.sessions[meta.id] = managed
 
-        queue, replay = await session_manager._subscribe(meta.id, replay=True)
+        _channel, queue, replay = await session_manager._subscribe(meta.id, replay=True)
         # 回放作为快照单独返回，不再塞进直播队列。
         assert replay[0]["uuid"] == "a1"
         assert queue.empty()
         await session_manager._unsubscribe(meta.id, queue)
-        assert queue not in managed.subscribers
+        assert not managed.channel.has_subscribers
 
         await session_manager.shutdown_gracefully(timeout=0.01)
         assert client.disconnected is True
         assert session_manager.sessions == {}
 
     @pytest.mark.asyncio
-    async def test_stream_messages_replay_boundary_live_and_idle(self, session_manager, meta_store):
+    async def test_stream_messages_event_sequence(self, session_manager, meta_store):
+        """事件序列：回放批次 → 逐条直播 → 心跳 → 溢出以流结束表达。"""
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-stream-seq")
@@ -422,17 +416,26 @@ class TestSessionManagerMore:
         session_manager.sessions[meta.id] = managed
 
         async with session_manager.stream_messages(meta.id, replay=True, idle_timeout=0.05) as stream:
-            assert (await anext(stream))["uuid"] == "replay-1"
-            assert (await anext(stream))["type"] == "_replay_done"
+            first = await anext(stream)
+            assert isinstance(first, ReplayBatch)
+            assert [m["uuid"] for m in first.messages] == ["replay-1"]
             managed.add_message({"type": "assistant", "uuid": "live-1"})
-            assert (await anext(stream))["uuid"] == "live-1"
-            # idle_timeout 内无消息 → _idle 哨兵
-            assert (await anext(stream))["type"] == "_idle"
+            live = await anext(stream)
+            assert isinstance(live, LiveMessage)
+            assert live.message["uuid"] == "live-1"
+            # idle_timeout 内无消息 → 心跳事件
+            assert isinstance(await anext(stream), Heartbeat)
+            # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 队列被清空，流结束。
+            for i in range(120):
+                managed.add_message({"type": "assistant", "uuid": f"m{i}"})
+            tail = [event async for event in stream]
+            assert tail == []
         # 正常退出后订阅者被移除
-        assert managed.subscribers == set()
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
-    async def test_stream_messages_overflow_ends_iteration(self, session_manager, meta_store):
+    async def test_stream_messages_no_replay_yields_empty_batch(self, session_manager, meta_store):
+        """replay=False 首个事件仍是回放批次（空），协议形态对消费方保持统一。"""
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-stream-overflow")
@@ -441,20 +444,18 @@ class TestSessionManagerMore:
             project_name="demo",
             status="running",
         )
+        managed.message_buffer.append({"type": "assistant", "uuid": "buffered-1"})
         session_manager.sessions[meta.id] = managed
 
         async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=5.0) as stream:
-            assert (await anext(stream))["type"] == "_replay_done"
-            # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 注入 _queue_overflow。
+            first = await anext(stream)
+            assert isinstance(first, ReplayBatch)
+            assert first.messages == []
             for i in range(120):
                 managed.add_message({"type": "assistant", "uuid": f"m{i}"})
-            saw_overflow = False
-            async for msg in stream:
-                if msg.get("type") == "_queue_overflow":
-                    saw_overflow = True
-                    break
-            assert saw_overflow
-        assert managed.subscribers == set()
+            # 溢出无专门事件泄漏给消费方：队列被清空后流直接结束。
+            assert [event async for event in stream] == []
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("exit_mode", ["break", "exception"])
@@ -471,9 +472,9 @@ class TestSessionManagerMore:
 
         async def consume():
             async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=0.02) as stream:
-                assert len(managed.subscribers) == 1
-                async for msg in stream:
-                    if msg.get("type") == "_replay_done":
+                assert managed.channel.subscriber_count == 1
+                async for event in stream:
+                    if isinstance(event, ReplayBatch):
                         continue
                     if exit_mode == "exception":
                         raise RuntimeError("boom")
@@ -485,7 +486,7 @@ class TestSessionManagerMore:
         else:
             await consume()
         # break / 异常退出路径同样确定性移除订阅者
-        assert managed.subscribers == set()
+        assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_within_project_root(self, tmp_path):
@@ -510,7 +511,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Read own project file — allowed (within project_cwd)
         result = await hook(
@@ -558,7 +559,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Write own project file — allowed
         result = await hook(
@@ -580,7 +581,7 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_bash_without_path_check(self, tmp_path):
-        """Hook skips Bash (not in _PATH_TOOLS)."""
+        """Hook skips Bash (not in PATH_TOOLS)."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
 
@@ -596,7 +597,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Bash — not a path tool, hook continues
         result = await hook(
@@ -630,7 +631,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Write .py in project dir — denied (code extension)
         result = await hook(
@@ -722,7 +723,7 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
 
         # Read agent_runtime_profile/CLAUDE.md — allowed (readonly dir)
         result = await hook(
@@ -734,7 +735,7 @@ class TestSessionManagerMore:
 
         await engine.dispose()
 
-    async def _make_sdk_hook_env(self, tmp_path, monkeypatch):
+    async def _make_sdk_hook_env(self, tmp_path):
         """Create a SessionManager + hook with SDK dir outside project_root."""
         app_root = tmp_path / "app"
         own_project = app_root / "projects" / "alpha"
@@ -754,24 +755,22 @@ class TestSessionManagerMore:
             data_dir=app_root,
             meta_store=meta_store,
         )
-        monkeypatch.setattr(sm_mod.SessionManager, "_CLAUDE_PROJECTS_DIR", claude_home)
+        # SDK 会话数据基准目录是 policy 的构造参数：换新 policy 即注入测试位置
+        mgr.access_policy = replace(mgr.access_policy, claude_projects_dir=claude_home)
 
-        hook = mgr._build_file_access_hook(own_project)
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
         return hook, own_project, claude_home, engine
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path):
         """Hook allows Read for SDK tool-results of the CURRENT project.
 
         New policy: cwd-external non-projects paths (含 SDK 目录) 默认放行；
         Write 仍受 cwd 内限制约束。
         """
-        hook, own_project, claude_home, engine = await self._make_sdk_hook_env(
-            tmp_path,
-            monkeypatch,
-        )
+        hook, own_project, claude_home, engine = await self._make_sdk_hook_env(tmp_path)
 
-        encoded = sm_mod.SessionManager._encode_sdk_project_path(own_project)
+        encoded = AgentAccessPolicy.encode_sdk_project_path(own_project)
         tool_results_dir = claude_home / encoded / "abc-session" / "tool-results"
         tool_results_dir.mkdir(parents=True)
         result_file = tool_results_dir / "toolu_01Abc.txt"
@@ -796,16 +795,13 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path):
         """Hook denies Read for ANOTHER project's directory under projects/.
 
         New policy: 跨项目隔离基于 project_root/projects/<other>/ 的物理位置，
         而非 SDK 编码路径。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(
-            tmp_path,
-            monkeypatch,
-        )
+        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
 
         other_project = tmp_path / "app" / "projects" / "beta"
         other_project.mkdir(parents=True)
@@ -823,12 +819,12 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path):
         """Hook denies Write to any path outside project_cwd.
 
         New policy: 写工具一律拒绝 cwd 外路径；Read 已放宽至 cwd 外非 projects/ 路径。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path, monkeypatch)
+        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
 
         # Write outside cwd — denied
         result = await hook(
@@ -841,13 +837,13 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path, monkeypatch):
+    async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path):
         """Hook allows Read for SDK task output files under /tmp/claude-*.
 
         New policy: cwd-external non-projects 路径默认放行（含 SDK 后台任务输出），
         写工具仍受 cwd 内限制约束。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path, monkeypatch)
+        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
 
         # SDK task output path pattern: /tmp/claude-{N}/{encoded}/tasks/{id}.output
         task_output = "/tmp/claude-0/-app-projects-alpha-abc123/tasks/bdgaof0ba.output"
@@ -893,7 +889,7 @@ class TestJsonValidationHook:
         """Helper: invoke the JSON validation hook callback directly."""
         from pathlib import Path
 
-        hook_fn = manager._build_json_validation_hook(
+        hook_fn = manager._options_assembler._build_json_validation_hook(
             Path(project_cwd) if project_cwd else Path("/tmp"),
         )
         input_data = {
@@ -1137,7 +1133,7 @@ class TestJsonPostValidationHook:
     ):
         from pathlib import Path
 
-        hook_fn = manager._build_json_post_validation_hook(
+        hook_fn = manager._options_assembler._build_json_post_validation_hook(
             Path(project_cwd) if project_cwd else Path("/tmp"),
             json_backups if json_backups is not None else {},
         )

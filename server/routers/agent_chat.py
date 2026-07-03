@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from lib.i18n import Translator, get_locale
+from server.agent_runtime.models import Heartbeat, ReplayBatch
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import CurrentUser
@@ -53,6 +54,31 @@ def _extract_text_from_assistant_message(msg: dict) -> str:
 TERMINAL_RUNTIME_STATUSES = {"idle", "completed", "error", "interrupted"}
 
 
+def _consume_message(message: dict, reply_parts: list[str]) -> str | None:
+    """处理一条消息：收集 assistant 文本；命中终结条件时返回终态 status，否则返回 None。
+
+    回放批次内的消息与直播消息走同一套规则。
+    """
+    msg_type = message.get("type", "")
+
+    if msg_type == "assistant":
+        text = _extract_text_from_assistant_message(message)
+        if text:
+            reply_parts.append(text)
+
+    elif msg_type == "result":
+        subtype = str(message.get("subtype") or "").lower()
+        is_error = bool(message.get("is_error"))
+        return "error" if is_error or subtype.startswith("error") else "completed"
+
+    elif msg_type == "runtime_status":
+        runtime_status = str(message.get("status") or "").strip()
+        if runtime_status in TERMINAL_RUNTIME_STATUSES and runtime_status != "running":
+            return "completed" if runtime_status in {"idle", "completed"} else runtime_status
+
+    return None
+
+
 async def _collect_reply(
     service: AssistantService,
     session_id: str,
@@ -61,8 +87,8 @@ async def _collect_reply(
     """消费会话消息流，收集 assistant 回复直到完成或超时。
 
     通过 ``stream_messages`` 上下文管理器消费（非 SSE、无 ``request`` 对象）：
-    deadline 与会话状态判断挂在 ``_idle`` 哨兵上，超时检测粒度因此变为 idle_timeout
-    （≤5s）。退出注销由 ``__aexit__`` 确定性承载（见 ADR-0005）。
+    会话状态判断挂在心跳事件上，超时检测粒度因此变为 idle_timeout（≤5s）。
+    退出注销由 ``__aexit__`` 确定性承载（见 ADR-0005）。
 
     Returns:
         (reply_text, status) — status 为 "completed" / "timeout" / "error"
@@ -73,48 +99,33 @@ async def _collect_reply(
     status = "timeout"
 
     async with service.session_manager.stream_messages(session_id, replay=True, idle_timeout=5.0) as stream:
-        async for message in stream:
-            # deadline 必须每轮都查：持续 <idle_timeout 间隔的消息流会让 _idle 永不触发，
-            # 若只在 _idle 上判超时，跑飞/刷屏的会话会让本同步请求无界挂起。
+        async for event in stream:
+            # deadline 必须每轮都查：持续 <idle_timeout 间隔的消息流会让心跳永不触发，
+            # 若只在心跳上判超时，跑飞/刷屏的会话会让本同步请求无界挂起。
             if loop.time() >= deadline:
                 status = "timeout"
                 break
 
-            msg_type = message.get("type", "")
-
-            if msg_type == "_replay_done":
-                continue
-
-            if msg_type == "_idle":
-                # 无 request 对象：在空闲哨兵上判会话状态（deadline 已在循环顶部统一判）。
+            if isinstance(event, Heartbeat):
+                # 无 request 对象：在心跳事件上判会话状态（deadline 已在循环顶部统一判）。
                 live_status = await service.session_manager.get_status(session_id)
                 if live_status and live_status != "running":
                     status = "completed" if live_status in {"idle", "completed"} else live_status
                     break
                 continue
 
-            if msg_type == "assistant":
-                text = _extract_text_from_assistant_message(message)
-                if text:
-                    reply_parts.append(text)
-
-            elif msg_type == "result":
-                # 终结消息：提取最后一条 assistant 回复（如果还没有从队列里收到）
-                subtype = str(message.get("subtype") or "").lower()
-                is_error = bool(message.get("is_error"))
-                status = "error" if is_error or subtype.startswith("error") else "completed"
-                break
-
-            elif msg_type == "runtime_status":
-                runtime_status = str(message.get("status") or "").strip()
-                if runtime_status in TERMINAL_RUNTIME_STATUSES and runtime_status != "running":
-                    status = "completed" if runtime_status in {"idle", "completed"} else runtime_status
+            messages = event.messages if isinstance(event, ReplayBatch) else [event.message]
+            terminal = None
+            for message in messages:
+                terminal = _consume_message(message, reply_parts)
+                if terminal is not None:
                     break
-
-            elif msg_type == "_queue_overflow":
-                # 队列溢出：显式收尾（不再忽略后傻等到超时）。
-                status = "error"
+            if terminal is not None:
+                status = terminal
                 break
+        else:
+            # 订阅队列溢出以流结束表达：显式收尾（不再傻等到超时）。
+            status = "error"
 
     return "".join(reply_parts), status
 

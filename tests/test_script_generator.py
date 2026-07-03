@@ -820,6 +820,110 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     return sg
 
 
+# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+_KIND_TO_MODES: dict[str, tuple[str, str | None]] = {
+    "segments": ("narration", None),
+    "scenes": ("drama", None),
+    "shots": ("ad", None),
+    "video_units": ("narration", "reference_video"),
+}
+
+
+class TestScriptGeneratorSkeletonExhaustiveness:
+    """穷尽性断言：script_generator 的骨架分派覆盖 SKELETONS 全部键。
+
+    第五种骨架加入 SKELETONS（+ 规范解析映射）时，未登记的本地映射与未处置的分派逐个报红。
+    """
+
+    def test_parse_schema_covers_every_skeleton_kind(self):
+        from lib.script_generator import _KIND_PARSE_SCHEMA
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_KIND_PARSE_SCHEMA) == set(SKELETONS)
+
+    def test_metadata_count_key_covers_every_skeleton_kind(self):
+        from lib.script_generator import _METADATA_COUNT_KEY
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_METADATA_COUNT_KEY) == set(SKELETONS)
+
+    def test_metadata_fallback_duration_covers_non_shots_kinds(self):
+        # shots（ad）走 ad_script_total_duration、不进兜底时长表；其余骨架均须登记。
+        from lib.script_generator import _METADATA_FALLBACK_DURATION
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_METADATA_FALLBACK_DURATION) == set(SKELETONS) - {"shots"}
+
+    @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
+    def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
+        from lib.script_generator import _METADATA_COUNT_KEY
+        from lib.script_skeleton import SKELETONS
+
+        # 参数化遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
+        assert set(_KIND_TO_MODES) == set(SKELETONS)
+
+        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        extra: dict = {"content_mode": content_mode}
+        if gen_mode:
+            extra["generation_mode"] = gen_mode
+        sg = _bare_generator(tmp_path, extra)
+
+        id_field = SKELETONS[kind].id_field
+        out = sg._add_metadata({kind: [{id_field: "E1S01"}]}, episode=2)
+
+        # 数组键 + id 字段经查表：前缀改写为当前集号
+        assert out[kind][0][id_field] == "E2S01"
+        # 计数键随 kind 显式落位
+        assert out["metadata"][_METADATA_COUNT_KEY[kind]] == 1
+
+    def test_add_metadata_survives_dirty_degraded_items(self, tmp_path: Path):
+        # 校验失败降级保存的原始 dict 里 segments 可能含非 dict / duration_seconds 非数字的脏条目；
+        # 前缀改写与时长求和都不得崩溃，时长按稳健口径逐条兜底。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        out = sg._add_metadata(
+            {
+                "segments": [
+                    {"segment_id": "E1S01", "duration_seconds": 5},
+                    "junk_not_a_dict",
+                    {"segment_id": "E1S02"},
+                    {"segment_id": "E1S03", "duration_seconds": None},
+                    {"segment_id": "E1S04", "duration_seconds": -5},
+                ]
+            },
+            episode=2,
+        )
+
+        # dict 条目前缀改写；非 dict 条目原样保留、不参与改写
+        assert out["segments"][0]["segment_id"] == "E2S01"
+        assert out["segments"][1] == "junk_not_a_dict"
+        assert out["segments"][2]["segment_id"] == "E2S02"
+        assert out["segments"][4]["segment_id"] == "E2S04"
+        # 计数取列表长度（含脏条目），与既有口径一致
+        assert out["metadata"]["total_segments"] == 5
+        # 时长：5(有效) + 0(非 dict) + 4(缺失→兜底) + 4(None→兜底) + 4(非正数→兜底) = 17
+        assert out["duration_seconds"] == 17
+
+    def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
+        # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代/求和崩溃。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        out = sg._add_metadata({"segments": 123}, episode=1)
+
+        assert out["metadata"]["total_segments"] == 0
+        assert out["duration_seconds"] == 0
+
+    def test_quality_probe_survives_non_list_array(self, tmp_path: Path, caplog):
+        # 数组键为真值标量时,_quality_probe 应被 isinstance 守卫收敛为空;外层 try/except 虽会
+        # 吞异常,但不得走 “quality probe skipped” 兜底(那意味着守卫失效、整段探针被误跳过)。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe({"segments": 123}, episode=1)
+
+        assert not any("quality probe skipped" in r.message for r in caplog.records)
+
+
 def _step1_seg(
     segment_id: str,
     novel_text: str,
