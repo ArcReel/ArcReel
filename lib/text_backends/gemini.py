@@ -192,9 +192,37 @@ class GeminiTextBackend:
         contents.append(request.prompt)
         return contents
 
-    @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """异步生成文本，支持结构化输出和 vision。"""
+        """异步生成文本，支持结构化输出和 vision。
+
+        本方法不带重试装饰器：瞬态错误重试在 :meth:`_generate_native` 层完成。若把复验/
+        降级也包进重试范围，降级尝试的失败会连带重放已成功的原生调用（重试叠乘），且降级
+        穷尽的 ValueError 消息含模型侧动态文本，可能误中重试判定的字符串模式。
+        """
+        native = await self._generate_native(request)
+
+        if request.response_schema:
+            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema。中转/代理可能静默忽略
+            # response_json_schema 返回散文或违例 JSON，直接放行会一路漏到下游 Pydantic
+            # 校验才抛裸 ValidationError。Gemini 原生请求无 strict 声明，复验用 strict=False，
+            # 容忍可强转值，避免对供应商已接受的合法响应触发多余的计费降级调用。
+            fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
+            if fallback_reason:
+                logger.warning("原生 response_json_schema %s，降级到 prompt 注入路径", fallback_reason)
+                result = await self._prompt_json_fallback(request)
+                # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
+                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
+                if result.input_tokens is not None or native.input_tokens is not None:
+                    result.input_tokens = (result.input_tokens or 0) + (native.input_tokens or 0)
+                if result.output_tokens is not None or native.output_tokens is not None:
+                    result.output_tokens = (result.output_tokens or 0) + (native.output_tokens or 0)
+                return result
+
+        return native
+
+    @with_retry_async()
+    async def _generate_native(self, request: TextGenerationRequest) -> TextGenerationResult:
+        """单次原生 SDK 调用：构造 config/contents、发请求、截断告警与瞬态错误重试。"""
         config = self._build_config(
             request.response_schema,
             request.system_prompt,
@@ -232,23 +260,6 @@ class GeminiTextBackend:
                 output_tokens=output_tokens,
             )
 
-        if request.response_schema:
-            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema。中转/代理可能静默忽略
-            # response_json_schema 返回散文或违例 JSON，直接放行会一路漏到下游 Pydantic
-            # 校验才抛裸 ValidationError。Gemini 原生请求无 strict 声明，复验用 strict=False，
-            # 容忍可强转值，避免对供应商已接受的合法响应触发多余的计费降级调用。
-            fallback_reason = structured_fallback_reason(text, request.response_schema, strict=False)
-            if fallback_reason:
-                logger.warning("原生 response_json_schema %s，降级到 prompt 注入路径", fallback_reason)
-                result = await self._prompt_json_fallback(request)
-                # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
-                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
-                if result.input_tokens is not None or input_tokens is not None:
-                    result.input_tokens = (result.input_tokens or 0) + (input_tokens or 0)
-                if result.output_tokens is not None or output_tokens is not None:
-                    result.output_tokens = (result.output_tokens or 0) + (output_tokens or 0)
-                return result
-
         return TextGenerationResult(
             text=text,
             provider=PROVIDER_GEMINI,
@@ -281,9 +292,9 @@ class GeminiTextBackend:
         last_reason = ""
         for _attempt in range(_FALLBACK_MAX_ATTEMPTS):
             fb_request = replace(request, prompt=base_prompt + feedback, response_schema=None)
-            # response_schema=None 的递归调用走纯文本路径，不会再进降级分支；
-            # 日志、截断告警与瞬态错误重试悉数复用 generate 本体。
-            fb_result = await self.generate(fb_request)
+            # 直调 _generate_native 复用日志、截断告警与瞬态错误重试；不经 generate 的
+            # 复验分支，每次降级尝试只产生自己这一层的重试，不与外层调用叠乘。
+            fb_result = await self._generate_native(fb_request)
             if fb_result.input_tokens is not None or total_input is not None:
                 total_input = (total_input or 0) + (fb_result.input_tokens or 0)
             if fb_result.output_tokens is not None or total_output is not None:
