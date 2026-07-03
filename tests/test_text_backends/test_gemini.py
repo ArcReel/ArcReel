@@ -332,3 +332,16 @@ class TestStructuredFallback:
         result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=schema))
 
         assert result.text == '{"k": "v"}'
+
+    async def test_fallback_transient_error_does_not_replay_native_call(self, backend):
+        """降级路径瞬态错误只在降级层重试，不重放已成功（已计费）的原生调用。"""
+        transient = ConnectionError("503 service unavailable")
+        gc = AsyncMock(side_effect=[_resp(_PROSE), transient, transient, transient])
+        backend._test_client.aio.models.generate_content = gc
+
+        with patch("lib.retry.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(ConnectionError):
+                await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
+
+        # 1 次原生成功 + 降级层自身 3 次重试穷尽；原生调用未被重放
+        assert gc.call_count == 4

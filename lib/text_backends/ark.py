@@ -71,23 +71,33 @@ class ArkTextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
-    @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+        """生成文本回复。
+
+        本方法不带重试装饰器：瞬态错误重试在单次调用层（:meth:`_call_chat_completions`
+        与 :meth:`_structured_fallback`）完成。若把复验/降级也包进重试范围，降级尝试的
+        失败会连带重放已成功的原生调用（重试叠乘）。
+        """
         if request.response_schema:
             return await self._generate_structured(request)
         return await self._generate_plain(request)
 
-    async def _generate_plain(self, request: TextGenerationRequest) -> TextGenerationResult:
-        messages = self._build_messages(request)
-        kwargs: dict = {"model": self._model, "messages": messages}
-        if request.max_output_tokens is not None:
-            kwargs["max_tokens"] = request.max_output_tokens
+    @with_retry_async()
+    async def _call_chat_completions(self, kwargs: dict) -> TextGenerationResult:
+        """单次 chat.completions 调用：日志、发请求、解析与截断告警，瞬态错误重试。"""
         logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await asyncio.to_thread(
             self._client.chat.completions.create,
             **kwargs,
         )
         return self._parse_chat_response(response)
+
+    async def _generate_plain(self, request: TextGenerationRequest) -> TextGenerationResult:
+        messages = self._build_messages(request)
+        kwargs: dict = {"model": self._model, "messages": messages}
+        if request.max_output_tokens is not None:
+            kwargs["max_tokens"] = request.max_output_tokens
+        return await self._call_chat_completions(kwargs)
 
     async def _generate_structured(self, request: TextGenerationRequest) -> TextGenerationResult:
         messages = self._build_messages(request)
@@ -108,10 +118,8 @@ class ArkTextBackend:
             }
             if request.max_output_tokens is not None:
                 kwargs["max_tokens"] = request.max_output_tokens
-            logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
             try:
-                response = await asyncio.to_thread(self._client.chat.completions.create, **kwargs)
-                native = self._parse_chat_response(response)
+                native = await self._call_chat_completions(kwargs)
             except Exception as exc:
                 logger.warning("原生 response_format 调用或解析失败 (%s)，降级到 Instructor/json_object 路径", exc)
                 return await self._structured_fallback(request, messages)
@@ -138,8 +146,13 @@ class ArkTextBackend:
 
         return await self._structured_fallback(request, messages)
 
+    @with_retry_async()
     async def _structured_fallback(self, request: TextGenerationRequest, messages: list[dict]) -> TextGenerationResult:
-        """Instructor / json_object 降级路径。"""
+        """Instructor / json_object 降级路径。
+
+        instructor_fallback_sync 自身不做瞬态重试，这里补一层重试；范围仅覆盖降级自身，
+        失败不会重放已成功的原生调用。
+        """
         from lib.text_backends.instructor_support import instructor_fallback_sync
 
         return await asyncio.to_thread(

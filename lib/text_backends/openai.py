@@ -66,18 +66,63 @@ class OpenAITextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         """生成文本回复。
 
-        单一重试循环包裹整个流程：
-        1. 尝试原生 response_format 调用
-        2. 若遇 schema 不兼容错误 → 本次 attempt 内降级到 Instructor
-        3. 若遇瞬态错误（429/500/503/网络）→ 由装饰器自动重试整个流程
-
-        这样无论是原生调用还是降级路径遇到瞬态错误，都统一由外层重试处理。
+        本方法不带重试装饰器：瞬态错误重试分别在 :meth:`_generate_native` 与
+        :func:`_instructor_fallback` 层完成。若把复验/降级也包进重试范围，降级尝试的
+        失败会连带重放已成功的原生调用（重试叠乘），且降级异常消息含模型侧动态文本，
+        可能误中重试判定的字符串模式。
         """
         messages = _build_messages(request)
+        native = await self._generate_native(request, messages)
+        if native is None:
+            # 原生 response_format 通道不兼容（schema 错误），结构化输出整体降级
+            return await _instructor_fallback(
+                self._client,
+                self._model,
+                request,
+                messages,
+                provider=self._provider_name,
+                token_param=self._max_tokens_param,
+            )
+
+        if request.response_schema:
+            fallback_reason = structured_fallback_reason(native.text, request.response_schema)
+            if fallback_reason:
+                logger.warning(
+                    "原生 response_format %s，降级到带校验的 Instructor 路径",
+                    fallback_reason,
+                )
+                result = await _instructor_fallback(
+                    self._client,
+                    self._model,
+                    request,
+                    messages,
+                    provider=self._provider_name,
+                    token_param=self._max_tokens_param,
+                )
+                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，否则
+                # UsageTracker 会系统性漏记。仅在至少一侧有计量时相加；两侧皆 None
+                # （未追踪）保持 None，不塌成字面 0 token。
+                if result.input_tokens is not None or native.input_tokens is not None:
+                    result.input_tokens = (result.input_tokens or 0) + (native.input_tokens or 0)
+                if result.output_tokens is not None or native.output_tokens is not None:
+                    result.output_tokens = (result.output_tokens or 0) + (native.output_tokens or 0)
+                return result
+
+        return native
+
+    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    async def _generate_native(
+        self, request: TextGenerationRequest, messages: list[dict]
+    ) -> TextGenerationResult | None:
+        """单次原生调用：构造 kwargs、发请求、解析与截断告警，瞬态错误重试。
+
+        schema 不兼容时返回 ``None``（降级信号）而不抛异常：代理可能把上游 schema 错误
+        包装成 429 等状态码，若以异常形式穿过重试装饰器，会被字符串模式误判为瞬态错误
+        白白重试。
+        """
         kwargs: dict = {"model": self._model, "messages": messages}
         if request.max_output_tokens is not None:
             kwargs[self._max_tokens_param] = request.max_output_tokens
@@ -102,42 +147,13 @@ class OpenAITextBackend:
                     "原生 response_format 失败 (%s)，降级到 Instructor 路径",
                     exc,
                 )
-                return await _instructor_fallback(
-                    self._client,
-                    self._model,
-                    request,
-                    messages,
-                    provider=self._provider_name,
-                    token_param=self._max_tokens_param,
-                )
+                return None
             raise
 
         usage = response.usage
         choice = response.choices[0]
         output_tokens = usage.completion_tokens if usage else None
         text = choice.message.content or ""
-
-        if request.response_schema:
-            fallback_reason = structured_fallback_reason(text, request.response_schema)
-            if fallback_reason:
-                logger.warning(
-                    "原生 response_format %s，降级到带校验的 Instructor 路径",
-                    fallback_reason,
-                )
-                result = await _instructor_fallback(
-                    self._client,
-                    self._model,
-                    request,
-                    messages,
-                    provider=self._provider_name,
-                    token_param=self._max_tokens_param,
-                )
-                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，
-                # 否则 UsageTracker 会系统性漏记这部分真实消耗。
-                if usage:
-                    result.input_tokens = (result.input_tokens or 0) + (usage.prompt_tokens or 0)
-                    result.output_tokens = (result.output_tokens or 0) + (usage.completion_tokens or 0)
-                return result
 
         warn_if_truncated(
             getattr(choice, "finish_reason", None),
@@ -203,6 +219,7 @@ def _is_schema_error(exc: BaseException) -> bool:
     return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
 
+@with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
 async def _instructor_fallback(
     client: AsyncOpenAI,
     model: str,
@@ -212,7 +229,11 @@ async def _instructor_fallback(
     provider: str = PROVIDER_OPENAI,
     token_param: TokenParam = "max_tokens",
 ) -> TextGenerationResult:
-    """Instructor 降级：当原生 response_format 不可用时的备选路径。"""
+    """Instructor 降级：当原生 response_format 不可用时的备选路径。
+
+    instructor_fallback_async 自身不做瞬态重试，这里补一层与原生调用同配置的重试；
+    范围仅覆盖降级自身，失败不会重放已成功的原生调用。
+    """
     from lib.text_backends.instructor_support import instructor_fallback_async
 
     return await instructor_fallback_async(

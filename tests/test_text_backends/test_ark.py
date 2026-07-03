@@ -1,7 +1,7 @@
 """ArkTextBackend tests."""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -526,6 +526,34 @@ class TestSuccessPathReverify:
         assert result.text == instructor_result.model_dump_json()
         assert result.input_tokens == 80
         assert result.output_tokens == 30
+
+    async def test_fallback_transient_error_does_not_replay_native_call(self, backend, sync_to_thread):
+        """降级路径瞬态错误只在降级层重试，不重放已成功（已计费）的原生调用。"""
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="非 JSON 散文"))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        with (
+            patch(
+                "lib.text_backends.instructor_support.instructor_fallback_sync",
+                side_effect=ConnectionError("503 service unavailable"),
+            ) as mock_instructor,
+            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+        ):
+            with pytest.raises(ConnectionError):
+                await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
+
+        # 原生 200 调用只发生一次；降级层自身重试 3 次穷尽
+        backend._test_client.chat.completions.create.assert_called_once()
+        assert mock_instructor.call_count == 3
 
 
 class TestBaseUrl:

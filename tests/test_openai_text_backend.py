@@ -472,6 +472,32 @@ class TestInstructorFallback:
         assert _is_schema_error(ValueError("other")) is False
         assert _is_schema_error(RuntimeError("test")) is False
 
+    async def test_fallback_transient_error_does_not_replay_native_call(self):
+        """降级路径瞬态错误只在降级层重试，不重放已成功（已计费）的原生调用。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("非 JSON 散文"))
+
+        import pytest
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch(
+                "lib.text_backends.instructor_support.instructor_fallback_async",
+                new=AsyncMock(side_effect=ConnectionError("503 service unavailable")),
+            ) as mock_instructor,
+            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema)
+            with pytest.raises(ConnectionError):
+                await backend.generate(request)
+
+        # 原生 200 调用只发生一次；降级层自身重试 4 次穷尽
+        mock_client.chat.completions.create.assert_awaited_once()
+        assert mock_instructor.await_count == 4
+
 
 class TestMaxOutputTokens:
     """官方端点用 max_completion_tokens，兼容端点保守沿用 max_tokens。"""
