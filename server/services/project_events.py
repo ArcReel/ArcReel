@@ -24,7 +24,7 @@ from lib.project_change_hints import (
     register_project_change_batch_listener,
     register_project_change_listener,
 )
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, effective_mode
 from lib.script_skeleton import SKELETONS, resolve_script_kind
 from server.sse_channel import IDLE, DropSubscriber, SseChannel
 
@@ -556,6 +556,15 @@ class ProjectEventService:
             )
         }
 
+        # 集级 generation_mode 解析（episode → project → 默认 storyboard，见 ``effective_mode``）：
+        # ad+参考路径的成片挂在派生索引 ``reference_units`` 而非内容骨架 ``shots``，快照需按项目
+        # 声明的生成路径分派才能读到该产物——与 ``StatusCalculator`` / 剪映导出同口径，不嗅探数据形状。
+        episodes_by_file = {
+            ep["script_file"]: ep
+            for ep in project.get("episodes", [])
+            if isinstance(ep, dict) and isinstance(ep.get("script_file"), str)
+        }
+
         scripts: dict[str, Any] = {}
         if scripts_dir.exists():
             for script_path in sorted(scripts_dir.glob("*.json")):
@@ -564,7 +573,9 @@ class ProjectEventService:
                 except Exception:
                     logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
                     continue
-                scripts[script_path.name] = self._normalize_script_snapshot(script)
+                episode = episodes_by_file.get(f"scripts/{script_path.name}", {})
+                generation_mode = effective_mode(project=project, episode=episode)
+                scripts[script_path.name] = self._normalize_script_snapshot(script, generation_mode=generation_mode)
 
         return {
             "project": {
@@ -578,7 +589,9 @@ class ProjectEventService:
             "scripts": scripts,
         }
 
-    def _normalize_script_snapshot(self, script: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_script_snapshot(
+        self, script: dict[str, Any], *, generation_mode: str | None = None
+    ) -> dict[str, Any]:
         # 取证解析：由剧本数据形状判别骨架种类（narration/drama 走 reference 时 content_mode 仍是
         # narration/drama，二值兜底会把 ad 的 shots 与 reference 的 video_units 全部漏读——差分恒空、
         # 分镜级事件从不发出，正是本次修复的 bug 根因）。键即条目数组键。
@@ -628,7 +641,40 @@ class ProjectEventService:
             "content_mode": content_mode,
             "kind": kind,
             "items": items,
+            "reference_units": self._reference_unit_assets(script, kind=kind, generation_mode=generation_mode),
         }
+
+    @staticmethod
+    def _reference_unit_assets(
+        script: dict[str, Any],
+        *,
+        kind: str,
+        generation_mode: str | None,
+    ) -> dict[str, dict[str, str]]:
+        """ad+参考路径下按 ``unit_id`` 记录派生索引 ``reference_units`` 的 ``video_clip``。
+
+        组合按项目声明的 ``generation_mode`` 分派（``kind == "shots"`` 即 ad 骨架，配
+        ``generation_mode == "reference_video"``），与 ``StatusCalculator`` 同口径、不嗅探数据
+        形状——storyboard 路径的残留索引不进快照，不参与差分。仅记 ``video_clip``：成片就绪的
+        唯一信号；unit 的增删/成员变化是 shots 编辑的派生回声，内容变更由 shots 差分承载。
+        """
+        if not (kind == "shots" and generation_mode == "reference_video"):
+            return {}
+        raw_units = script.get("reference_units")
+        if not isinstance(raw_units, list):
+            return {}
+        units: dict[str, dict[str, str]] = {}
+        for unit in raw_units:
+            if not isinstance(unit, dict):
+                continue
+            unit_id = str(unit.get("unit_id") or "")
+            if not unit_id:
+                continue
+            assets = unit.get("generated_assets")
+            if not isinstance(assets, dict):
+                assets = {}
+            units[unit_id] = {"video_clip": str(assets.get("video_clip") or "")}
+        return units
 
     @staticmethod
     def _item_entities(item: dict[str, Any], chars_field: str | None) -> tuple[list[str], list[str], list[str]]:
@@ -924,6 +970,50 @@ class ProjectEventService:
                             important=True,
                         )
                     )
+            changes.extend(
+                self._diff_reference_units(
+                    previous_meta.get("reference_units", {}),
+                    current_meta.get("reference_units", {}),
+                    script_file=script_file,
+                    episode=current_meta.get("episode"),
+                )
+            )
+        return changes
+
+    def _diff_reference_units(
+        self,
+        previous_units: dict[str, Any],
+        current_units: dict[str, Any],
+        *,
+        script_file: str,
+        episode: Any,
+    ) -> list[dict[str, Any]]:
+        """ad+参考路径的 unit 级成片就绪差分（``video_clip`` 空→非空，每 unit 一条 video_ready）。
+
+        仅比对两侧共有的 unit：unit 的增删是 shots 编辑的派生回声，内容变更由 shots 差分承载，
+        此处不发。实体类型/名词/锚点复用 ``video_units`` 骨架条目（reference_unit /「视频单元」/
+        参考画布锚点），不新造平行枚举——前端据锚点切到 units tab 并选中对应单元。
+        """
+        # 快照仅在 ad+参考组合成立时填充 ``reference_units``，storyboard 路径恒为空 → 无差分。
+        unit_meta = {"kind": "video_units", "episode": episode}
+        changes: list[dict[str, Any]] = []
+        for unit_id in sorted(set(previous_units) & set(current_units)):
+            if self._became_truthy(
+                previous_units[unit_id].get("video_clip"),
+                current_units[unit_id].get("video_clip"),
+            ):
+                changes.append(
+                    self._build_entity_change(
+                        entity_type=self._script_item_entity_type(unit_meta),
+                        action="video_ready",
+                        entity_id=unit_id,
+                        label=self._build_script_item_label(unit_id, unit_meta),
+                        script_file=script_file,
+                        episode=episode if isinstance(episode, int) else None,
+                        focus=self._build_script_item_focus(unit_id, unit_meta),
+                        important=True,
+                    )
+                )
         return changes
 
     @staticmethod
