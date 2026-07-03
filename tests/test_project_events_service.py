@@ -297,62 +297,70 @@ class TestProjectEventService:
 
         entered_cancel = asyncio.Event()
         allow_exit = asyncio.Event()
+        stop_task: asyncio.Task | None = None
 
-        async def _controlled_watch(project_name, channel):
-            # 立即放行 _subscribe 的 ready 等待；被取消时停在收尾点，撑开竞态窗口。
-            channel.ready_event.set()
-            try:
-                await asyncio.sleep(3600)
-            except asyncio.CancelledError:
-                entered_cancel.set()
-                await allow_exit.wait()
-                raise
+        try:
 
-        monkeypatch.setattr(service, "_watch_project", _controlled_watch)
+            async def _controlled_watch(project_name, channel):
+                # 立即放行 _subscribe 的 ready 等待；被取消时停在收尾点，撑开竞态窗口。
+                channel.ready_event.set()
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    entered_cancel.set()
+                    await allow_exit.wait()
+                    raise
 
-        # 订阅者 A 拉起旧通道与旧 watch task。
-        _sse_a, queue_a, _snap_a = await service._subscribe("demo")
-        old_channel = service._channels["demo"]
-        old_watch_task = old_channel.task
+            monkeypatch.setattr(service, "_watch_project", _controlled_watch)
 
-        # A 退订触发末订阅者钩子；钩子停在等已取消 watch task 退出的收尾点。
-        stop_task = asyncio.create_task(service._unsubscribe("demo", queue_a))
-        await asyncio.wait_for(entered_cancel.wait(), timeout=1.0)
+            # 订阅者 A 拉起旧通道与旧 watch task。
+            _sse_a, queue_a, _snap_a = await service._subscribe("demo")
+            old_channel = service._channels["demo"]
+            old_watch_task = old_channel.task
 
-        # 窗口内新订阅者 B 进入。
-        _sse_b, queue_b, _snap_b = await service._subscribe("demo")
+            # A 退订触发末订阅者钩子；钩子停在等已取消 watch task 退出的收尾点。
+            stop_task = asyncio.create_task(service._unsubscribe("demo", queue_a))
+            await asyncio.wait_for(entered_cancel.wait(), timeout=1.0)
 
-        # 放行旧 watch task，让末订阅者钩子跑完收尾。
-        allow_exit.set()
-        await asyncio.wait_for(stop_task, timeout=1.0)
+            # 窗口内新订阅者 B 进入。
+            _sse_b, queue_b, _snap_b = await service._subscribe("demo")
 
-        # B 归属注册表中的现行通道，旧通道已退役。
-        assert "demo" in service._channels
-        assert service._channels["demo"] is not old_channel
+            # 放行旧 watch task，让末订阅者钩子跑完收尾。
+            allow_exit.set()
+            await asyncio.wait_for(stop_task, timeout=1.0)
 
-        # 经注册表路由的 hint 广播抵达 B。
-        service._apply_emitted_batch(
-            "demo",
-            "worker",
-            (
-                {
-                    "entity_type": "segment",
-                    "action": "storyboard_ready",
-                    "entity_id": "E1S01",
-                    "label": "分镜「E1S01」",
-                    "focus": None,
-                    "important": True,
-                },
-            ),
-        )
-        await asyncio.gather(*list(service._pending_batch_tasks), return_exceptions=True)
-        event_name, _payload = queue_b.get_nowait()
-        assert event_name == "changes"
+            # B 归属注册表中的现行通道，旧通道已退役。
+            assert "demo" in service._channels
+            assert service._channels["demo"] is not old_channel
 
-        # 旧 watch task 退役，未脱离注册表继续运行。
-        assert old_watch_task.done()
+            # 经注册表路由的 hint 广播抵达 B。
+            service._apply_emitted_batch(
+                "demo",
+                "worker",
+                (
+                    {
+                        "entity_type": "segment",
+                        "action": "storyboard_ready",
+                        "entity_id": "E1S01",
+                        "label": "分镜「E1S01」",
+                        "focus": None,
+                        "important": True,
+                    },
+                ),
+            )
+            await asyncio.gather(*list(service._pending_batch_tasks), return_exceptions=True)
+            event_name, _payload = queue_b.get_nowait()
+            assert event_name == "changes"
 
-        await service.shutdown()
+            # 旧 watch task 退役，未脱离注册表继续运行。
+            assert old_watch_task.done()
+        finally:
+            # 断言或 wait_for 提前失败时，被刻意挂起的 watch/stop task 仍需释放，
+            # 否则会跨用例泄漏后台任务与 project_change_hints 的全局监听注册。
+            allow_exit.set()
+            if stop_task is not None and not stop_task.done():
+                await asyncio.gather(stop_task, return_exceptions=True)
+            await service.shutdown()
 
     def test_projects_root_kwarg_overrides_default_subdir(self, tmp_path):
         """显式传 projects_root 时，service.pm 走该目录而非 project_root/'projects'。
