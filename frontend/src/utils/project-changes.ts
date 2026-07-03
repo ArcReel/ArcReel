@@ -8,6 +8,9 @@ const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
   scene: "场景",
   prop: "道具",
   segment: "分镜",
+  drama_scene: "场景",
+  shot: "镜头",
+  reference_unit: "视频单元",
   episode: "剧集",
   overview: "项目概览",
   draft: "预处理",
@@ -85,7 +88,10 @@ function getChangeListLabel(change: ProjectChange): string {
     change.entity_type === "character" ||
     change.entity_type === "scene" ||
     change.entity_type === "prop" ||
-    change.entity_type === "segment"
+    change.entity_type === "segment" ||
+    change.entity_type === "drama_scene" ||
+    change.entity_type === "shot" ||
+    change.entity_type === "reference_unit"
   ) {
     return change.entity_id;
   }

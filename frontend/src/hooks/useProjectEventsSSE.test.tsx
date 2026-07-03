@@ -113,6 +113,66 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().assistantToolActivitySuppressed).toBe(true);
   });
 
+  it("navigates reference video units to the reference canvas via reference_unit target", async () => {
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: vi.fn() } as unknown as EventSource;
+    });
+
+    renderHarness("/episodes/1");
+
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-ref",
+          fingerprint: "fp-ref",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "worker",
+          changes: [
+            {
+              entity_type: "reference_unit",
+              action: "created",
+              entity_id: "E1U01",
+              label: "视频单元「E1U01」",
+              episode: 1,
+              focus: {
+                pane: "episode",
+                episode: 1,
+                anchor_type: "reference_unit",
+                anchor_id: "E1U01",
+              },
+              important: true,
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(useAppStore.getState().scrollTarget).toEqual(
+        expect.objectContaining({
+          type: "reference_unit",
+          id: "E1U01",
+          route: "/episodes/1",
+        }),
+      );
+    });
+    expect(useAppStore.getState().workspaceNotifications[0]).toEqual(
+      expect.objectContaining({
+        text: "AI 刚新增了 视频单元「E1U01」，点击查看",
+        target: expect.objectContaining({
+          type: "reference_unit",
+          id: "E1U01",
+          route: "/episodes/1",
+        }),
+      }),
+    );
+  });
+
   it("defers focus when the user is editing", async () => {
     let capturedOptions: ProjectEventStreamOptions | undefined;
     vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {

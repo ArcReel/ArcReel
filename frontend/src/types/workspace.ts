@@ -3,13 +3,29 @@ export type ProjectEventSource = "webui" | "worker" | "filesystem";
 export interface ProjectChangeFocus {
   pane: "characters" | "scenes" | "props" | "episode";
   episode?: number;
-  anchor_type?: "character" | "scene" | "prop" | "segment";
+  // segment/drama_scene/shot 三种骨架条目走时间线画布，锚点类型统一为 segment；video_units 走参考
+  // 生视频画布，锚点类型为 reference_unit（与 WorkspaceFocusTarget["type"] 及画布守卫对齐）。
+  anchor_type?: "character" | "scene" | "prop" | "segment" | "reference_unit";
   anchor_id?: string;
   tab?: string;
 }
 
 export interface ProjectChange {
-  entity_type: "project" | "character" | "scene" | "prop" | "segment" | "episode" | "overview" | "draft" | "grid";
+  // segment/drama_scene/shot/reference_unit 为四种剧本骨架条目类型（narration/drama/ad/参考生视频），
+  // 驱动分组标签映射；drama 用 drama_scene 避免与命名实体 scene 撞组。
+  entity_type:
+    | "project"
+    | "character"
+    | "scene"
+    | "prop"
+    | "segment"
+    | "drama_scene"
+    | "shot"
+    | "reference_unit"
+    | "episode"
+    | "overview"
+    | "draft"
+    | "grid";
   action:
     | "created"
     | "updated"

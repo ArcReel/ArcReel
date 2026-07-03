@@ -7,6 +7,8 @@ from lib.project_change_hints import emit_project_change_batch, project_change_s
 from lib.project_manager import ProjectManager
 from lib.script_skeleton import SKELETONS
 from server.services.project_events import (
+    _SKELETON_ANCHOR_TYPES,
+    _SKELETON_ENTITY_TYPES,
     _SKELETON_ITEM_NOUNS,
     ProjectEventService,
 )
@@ -98,7 +100,10 @@ class TestProjectEventService:
 
         assert any(change["entity_type"] == "character" and change["action"] == "created" for change in changes)
         assert any(change["action"] == "storyboard_ready" for change in changes)
-        assert any(change["entity_type"] == "segment" and change["action"] == "updated" for change in changes)
+        segment_updated = [c for c in changes if c["entity_type"] == "segment" and c["action"] == "updated"]
+        assert segment_updated
+        # narration 分镜走时间线画布：锚点类型恒为 segment（回归守卫，不得漂移）。
+        assert all(c["focus"]["anchor_type"] == "segment" for c in segment_updated)
 
     def test_diff_snapshots_reports_project_metadata_and_new_segments(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -435,7 +440,10 @@ class TestProjectEventService:
         assert any(c["action"] == "created" and c["entity_id"] == "E1S02" for c in changes)
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1S01" for c in changes)
-        assert all(c["label"].startswith("镜头") for c in changes if c["entity_type"] == "segment")
+        shot_changes = [c for c in changes if c["entity_type"] == "shot"]
+        assert shot_changes and all(c["label"].startswith("镜头") for c in shot_changes)
+        # ad 镜头走时间线画布：可导航事件的锚点类型为 segment（ShotSplitView 守卫）。
+        assert all(c["focus"]["anchor_type"] == "segment" for c in shot_changes if c["focus"] is not None)
 
         script = pm.load_script("ad-demo", "episode_1.json")
         script["shots"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
@@ -503,7 +511,10 @@ class TestProjectEventService:
         assert any(c["action"] == "created" and c["entity_id"] == "E1S02" for c in changes)
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes)
-        assert all(c["label"].startswith("场景") for c in changes if c["entity_type"] == "segment")
+        scene_changes = [c for c in changes if c["entity_type"] == "drama_scene"]
+        assert scene_changes and all(c["label"].startswith("场景") for c in scene_changes)
+        # drama 场景走时间线画布：可导航事件的锚点类型为 segment。
+        assert all(c["focus"]["anchor_type"] == "segment" for c in scene_changes if c["focus"] is not None)
 
     def test_diff_snapshots_reports_reference_video_unit_lifecycle_events(self, tmp_path):
         """reference_video(video_units) 项目的分镜级事件全周期，且 characters 从 references 派生。"""
@@ -565,7 +576,12 @@ class TestProjectEventService:
         assert any(c["action"] == "created" and c["entity_id"] == "E1U02" for c in changes)
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1U01" for c in changes)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in changes)
-        assert all(c["label"].startswith("视频单元") for c in changes if c["entity_type"] == "segment")
+        unit_changes = [c for c in changes if c["entity_type"] == "reference_unit"]
+        assert unit_changes and all(c["label"].startswith("视频单元") for c in unit_changes)
+        # 参考生视频单元走参考画布：可导航事件（created/updated）的锚点类型为 reference_unit，
+        # 前端据此切到 units tab 并选中对应单元——本 issue 的核心修复。
+        navigable = [c for c in unit_changes if c["action"] in ("created", "updated")]
+        assert navigable and all(c["focus"]["anchor_type"] == "reference_unit" for c in navigable)
 
         script = pm.load_script("ref-demo", "episode_1.json")
         script["video_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
@@ -666,3 +682,46 @@ class TestProjectEventService:
     def test_every_skeleton_kind_has_label_noun(self):
         """标签名词表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出名词补全。"""
         assert set(_SKELETON_ITEM_NOUNS) == set(SKELETONS)
+
+    def test_every_skeleton_kind_has_entity_and_anchor_type(self):
+        """实体/锚点类型表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出补全。"""
+        assert set(_SKELETON_ENTITY_TYPES) == set(SKELETONS)
+        assert set(_SKELETON_ANCHOR_TYPES) == set(SKELETONS)
+
+    @pytest.mark.parametrize(
+        ("kind", "content_mode", "generation_mode", "entity_type", "anchor_type"),
+        [
+            ("segments", "narration", None, "segment", "segment"),
+            ("scenes", "drama", None, "drama_scene", "segment"),
+            ("shots", "ad", None, "shot", "segment"),
+            ("video_units", "narration", "reference_video", "reference_unit", "reference_unit"),
+        ],
+    )
+    def test_script_item_change_carries_kind_specific_types(
+        self, tmp_path, kind, content_mode, generation_mode, entity_type, anchor_type
+    ):
+        """分镜级事件的 entity_type（分组标签）与 focus.anchor_type（画布滚动目标）按骨架种类推导。"""
+        skeleton = SKELETONS[kind]
+        item: dict = {skeleton.id_field: "X1"}
+        if skeleton.chars_field is not None:
+            item[skeleton.chars_field] = ["Hero"]
+        else:
+            item["references"] = [{"type": "character", "name": "Hero"}]
+        script: dict = {"episode": 1, "content_mode": content_mode, kind: [item]}
+        if generation_mode is not None:
+            script["generation_mode"] = generation_mode
+
+        service = ProjectEventService(tmp_path)
+        meta = service._normalize_script_snapshot(script)
+        assert meta["kind"] == kind
+
+        change = service._build_script_item_change(
+            action="created",
+            item_id="X1",
+            script_file="episode_1.json",
+            script_meta=meta,
+            important=True,
+        )
+        assert change["entity_type"] == entity_type
+        assert change["focus"]["anchor_type"] == anchor_type
+        assert change["focus"]["anchor_id"] == "X1"

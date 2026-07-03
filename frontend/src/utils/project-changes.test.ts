@@ -67,4 +67,38 @@ describe("project-changes utils", () => {
       "AI 刚新增了 6 个角色：张三、李四、王五、赵六、钱七…等，点击查看",
     );
   });
+
+  it("labels each skeleton kind's group title and item nouns consistently", () => {
+    // 四种骨架 created 分组的标题名词须与条目名词一致：分镜/场景/镜头/视频单元。
+    const cases: Array<{
+      entityType: ProjectChange["entity_type"];
+      noun: string;
+    }> = [
+      { entityType: "segment", noun: "分镜" },
+      { entityType: "drama_scene", noun: "场景" },
+      { entityType: "shot", noun: "镜头" },
+      { entityType: "reference_unit", noun: "视频单元" },
+    ];
+
+    for (const { entityType, noun } of cases) {
+      const [group] = groupChangesByType([
+        makeChange({
+          entity_type: entityType,
+          action: "created",
+          entity_id: "E1X01",
+          label: `${noun}「E1X01」`,
+        }),
+        makeChange({
+          entity_type: entityType,
+          action: "created",
+          entity_id: "E1X02",
+          label: `${noun}「E1X02」`,
+        }),
+      ]);
+      // 分组标题用 entity_type 名词，条目名单用裸 id（与既有 segment 行为一致）。
+      expect(formatGroupedNotificationText(group)).toBe(
+        `新增了 2 个${noun}：E1X01、E1X02`,
+      );
+    }
+  });
 });

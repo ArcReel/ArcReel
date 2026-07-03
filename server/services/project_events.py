@@ -41,6 +41,26 @@ _SKELETON_ITEM_NOUNS: dict[str, str] = {
     "video_units": "视频单元",
 }
 
+# 分镜级事件的实体类型按骨架种类推导，与 ``_SKELETON_ITEM_NOUNS`` 同源。驱动前端分组标签映射
+# （``ENTITY_LABELS``），使四种骨架各显分镜/场景/镜头/视频单元，而非恒为「分镜」。取值与既有
+# ``entity_type`` 枚举不冲突（drama 用 ``drama_scene`` 避免与命名实体 ``scene`` 撞组）。
+_SKELETON_ENTITY_TYPES: dict[str, str] = {
+    "segments": "segment",
+    "scenes": "drama_scene",
+    "shots": "shot",
+    "video_units": "reference_unit",
+}
+
+# 分镜级事件的锚点类型按骨架种类推导，取值与前端各画布的滚动目标类型守卫对齐：video_units 归
+# ``reference_unit``（参考生视频画布按此选中并高亮对应视频单元），其余归 ``segment``
+# （narration/drama/ad 共用时间线镜头拆分视图，按 id 选中条目）。
+_SKELETON_ANCHOR_TYPES: dict[str, str] = {
+    "segments": "segment",
+    "scenes": "segment",
+    "shots": "segment",
+    "video_units": "reference_unit",
+}
+
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -850,6 +870,7 @@ class ProjectEventService:
                         important=False,
                     )
                 )
+            entity_type = self._script_item_entity_type(current_meta)
             for item_id in sorted(set(previous_items) & set(current_items)):
                 previous_item = previous_items[item_id]
                 current_item = current_items[item_id]
@@ -861,7 +882,7 @@ class ProjectEventService:
                 ):
                     changes.append(
                         self._build_entity_change(
-                            entity_type="segment",
+                            entity_type=entity_type,
                             action="storyboard_ready",
                             entity_id=item_id,
                             label=label,
@@ -877,7 +898,7 @@ class ProjectEventService:
                 ):
                     changes.append(
                         self._build_entity_change(
-                            entity_type="segment",
+                            entity_type=entity_type,
                             action="video_ready",
                             entity_id=item_id,
                             label=label,
@@ -893,7 +914,7 @@ class ProjectEventService:
                 if previous_body != current_body:
                     changes.append(
                         self._build_entity_change(
-                            entity_type="segment",
+                            entity_type=entity_type,
                             action="updated",
                             entity_id=item_id,
                             label=label,
@@ -906,6 +927,16 @@ class ProjectEventService:
         return changes
 
     @staticmethod
+    def _script_item_entity_type(script_meta: dict[str, Any]) -> str:
+        kind = str(script_meta.get("kind") or "segments")
+        return _SKELETON_ENTITY_TYPES.get(kind, "segment")
+
+    @staticmethod
+    def _script_item_anchor_type(script_meta: dict[str, Any]) -> str:
+        kind = str(script_meta.get("kind") or "segments")
+        return _SKELETON_ANCHOR_TYPES.get(kind, "segment")
+
+    @staticmethod
     def _build_script_item_focus(
         item_id: str,
         script_meta: dict[str, Any],
@@ -913,7 +944,7 @@ class ProjectEventService:
         return {
             "pane": "episode",
             "episode": script_meta.get("episode"),
-            "anchor_type": "segment",
+            "anchor_type": ProjectEventService._script_item_anchor_type(script_meta),
             "anchor_id": item_id,
         }
 
@@ -934,7 +965,7 @@ class ProjectEventService:
     ) -> dict[str, Any]:
         focus = self._build_script_item_focus(item_id, script_meta) if action != "deleted" else None
         return self._build_entity_change(
-            entity_type="segment",
+            entity_type=self._script_item_entity_type(script_meta),
             action=action,
             entity_id=item_id,
             label=self._build_script_item_label(item_id, script_meta),

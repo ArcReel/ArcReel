@@ -21,6 +21,10 @@ import {
 
 const CHANGE_PRIORITY: Record<string, number> = {
   "segment:updated": 0,
+  // drama/ad/参考生视频骨架条目的 updated 与 narration 分镜同优先级，四种骨架通知排序一致。
+  "drama_scene:updated": 0,
+  "shot:updated": 0,
+  "reference_unit:updated": 0,
   "character:created": 1,
   "character:updated": 2,
   "scene:created": 3,
