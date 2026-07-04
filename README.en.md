@@ -317,9 +317,16 @@ python -m pytest
 cd frontend && pnpm check
 ```
 
-## License
+## 📜 License
 
-[AGPL-3.0](LICENSE)
+This project is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE),
+with additional terms in [NOTICE](./NOTICE).
+
+Copyright © 2026 Pollo3470 and ArcReel contributors
+
+If your organization's policy does not allow the use of AGPL-3.0 licensed software,
+or you wish to use this project commercially without the AGPL-3.0 open-source
+obligations, please contact: [support@arc-reel.com](mailto:support@arc-reel.com)
 
 ---
 

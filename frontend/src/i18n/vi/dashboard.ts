@@ -97,6 +97,7 @@ export default {
   'about_load_failed': 'Tải thông tin phiên bản thất bại',
   'about_published_at': 'Phát hành: {{date}}',
   'about_checked_at': 'Kiểm tra lần cuối: {{date}}',
+  'about_legal_title': 'Bản quyền & ghi công',
   'diagnostics_section_title': 'Nhật ký chẩn đoán',
   'diagnostics_section_desc': 'Đóng gói nhật ký 7 ngày gần nhất và thông tin hệ thống (API key đã ẩn) để báo lỗi.',
   'diagnostics_download': 'Tải nhật ký chẩn đoán',

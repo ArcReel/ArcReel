@@ -97,6 +97,7 @@ export default {
   'about_load_failed': '加载版本信息失败',
   'about_published_at': '发布时间：{{date}}',
   'about_checked_at': '最近检查：{{date}}',
+  'about_legal_title': '版权与署名',
   'diagnostics_section_title': '诊断日志',
   'diagnostics_section_desc': '打包最近 7 天的日志与系统信息（已脱敏 API 密钥），用于反馈 bug。',
   'diagnostics_download': '下载诊断日志',

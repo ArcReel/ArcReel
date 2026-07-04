@@ -299,9 +299,15 @@ uv run pre-commit install
 
 安装 pre-commit 钩子（ruff check + format、frontend eslint、workflow tripwire），避免把可被自动修复的问题推到 CI。
 
-## 许可证
+## 📜 许可证
 
-[AGPL-3.0](LICENSE)
+本项目采用 [GNU Affero 通用公共许可证 v3.0 (AGPL-3.0)](./LICENSE) 授权，
+附加条款见 [NOTICE](./NOTICE)。
+
+Copyright © 2026 Pollo3470 and ArcReel contributors
+
+如果您所在组织的政策不允许使用 AGPL-3.0 许可的软件，或您希望在不承担
+AGPL-3.0 开源义务的前提下商用本项目，请联系：[support@arc-reel.com](mailto:support@arc-reel.com)
 
 ---
 
