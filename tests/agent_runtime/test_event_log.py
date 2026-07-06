@@ -12,6 +12,7 @@ from server.agent_runtime.event_log import (
     REPLAYED_USER_ECHO_KEY,
     EventLogService,
     EventLogStore,
+    SdkMessageNormalizer,
     build_user_entry,
     normalize_sdk_message_to_entries,
 )
@@ -172,6 +173,155 @@ class TestNormalize:
 
 
 # ---------------------------------------------------------------------------
+# SdkMessageNormalizer — skill 调用定型（跨消息状态）
+# ---------------------------------------------------------------------------
+
+
+_SKILL_INJECTION_TEXT = (
+    "Base directory for this skill: /proj/.claude/skills/generate-storyboard\n\n# 生成分镜图\n\n完整注入正文……"
+)
+
+
+class TestSkillInvocationTyping:
+    def test_injection_becomes_typed_entry_with_name_and_args_from_tool_use(self):
+        normalizer = SdkMessageNormalizer()
+        normalizer.normalize(
+            {
+                "type": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tu-skill",
+                        "name": "Skill",
+                        "input": {"skill": "generate-storyboard", "args": "第一集所有场景"},
+                    }
+                ],
+            }
+        )
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "uuid": "u-inject",
+                "content": [{"type": "text", "text": _SKILL_INJECTION_TEXT}],
+            }
+        )
+
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["type"] == "system"
+        assert entry["subtype"] == "skill_invocation"
+        assert entry["skill_name"] == "generate-storyboard"
+        assert entry["skill_args"] == "第一集所有场景"
+        assert entry["tool_use_id"] == "tu-skill"
+        # 注入全文不进日志：条目任何字段都不携带正文
+        import json
+
+        assert "完整注入正文" not in json.dumps(entries, ensure_ascii=False)
+
+    def test_injection_without_prior_tool_use_parses_name_from_path(self):
+        normalizer = SdkMessageNormalizer()
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Base directory for this skill: /tmp/.claude/skills/commit/SKILL.md\n\n正文",
+                    }
+                ],
+            }
+        )
+        assert len(entries) == 1
+        assert entries[0]["subtype"] == "skill_invocation"
+        assert entries[0]["skill_name"] == "commit"
+        assert entries[0]["skill_args"] is None
+        assert entries[0]["tool_use_id"] is None
+
+    def test_skill_content_prefix_also_recognized(self):
+        normalizer = SdkMessageNormalizer()
+        entries = normalizer.normalize({"type": "user", "content": [{"type": "text", "text": "Skill content: 正文"}]})
+        assert len(entries) == 1
+        assert entries[0]["subtype"] == "skill_invocation"
+        assert entries[0]["skill_name"] is None
+
+    def test_pending_skill_consumed_once(self):
+        normalizer = SdkMessageNormalizer()
+        normalizer.normalize(
+            {
+                "type": "assistant",
+                "content": [{"type": "tool_use", "id": "tu-1", "name": "Skill", "input": {"skill": "commit"}}],
+            }
+        )
+        first = normalizer.normalize({"type": "user", "content": [{"type": "text", "text": "Skill content: A"}]})
+        second = normalizer.normalize({"type": "user", "content": [{"type": "text", "text": "Skill content: B"}]})
+        assert first[0]["tool_use_id"] == "tu-1"
+        assert second[0]["tool_use_id"] is None
+
+    def test_skill_state_keyed_by_parent_context(self):
+        """主线与 subagent 消息在 live 流中交错：skill 关联互不串扰。"""
+        normalizer = SdkMessageNormalizer()
+        normalizer.normalize(
+            {
+                "type": "assistant",
+                "content": [{"type": "tool_use", "id": "tu-main", "name": "Skill", "input": {"skill": "main-skill"}}],
+            }
+        )
+        normalizer.normalize(
+            {
+                "type": "assistant",
+                "parent_tool_use_id": "tu-agent",
+                "content": [{"type": "tool_use", "id": "tu-sub", "name": "Skill", "input": {"skill": "sub-skill"}}],
+            }
+        )
+        sub_entries = normalizer.normalize(
+            {
+                "type": "user",
+                "parent_tool_use_id": "tu-agent",
+                "content": [{"type": "text", "text": "Skill content: sub"}],
+            }
+        )
+        main_entries = normalizer.normalize(
+            {"type": "user", "content": [{"type": "text", "text": "Skill content: main"}]}
+        )
+        assert sub_entries[0]["skill_name"] == "sub-skill"
+        assert sub_entries[0]["tool_use_id"] == "tu-sub"
+        assert sub_entries[0]["parent_tool_use_id"] == "tu-agent"
+        assert main_entries[0]["skill_name"] == "main-skill"
+        assert main_entries[0]["tool_use_id"] == "tu-main"
+
+    def test_mixed_user_message_splits_tool_result_skill_and_text(self):
+        normalizer = SdkMessageNormalizer()
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "uuid": "u-mixed",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "tu-r", "content": "Launching skill: commit"},
+                    {"type": "text", "text": "Skill content: 正文"},
+                    {"type": "text", "text": "普通文本"},
+                ],
+            }
+        )
+        assert [e["type"] for e in entries] == ["tool_result", "system", "user"]
+        assert entries[1]["subtype"] == "skill_invocation"
+        assert entries[2]["content"] == [{"type": "text", "text": "普通文本"}]
+
+    def test_camel_case_parent_variants_normalized_at_write_point(self):
+        """三种大小写 key 变体在写入点归一化为 parent_tool_use_id。"""
+        for key in ("parent_tool_use_id", "parentToolUseID", "parentToolUseId"):
+            entries = normalize_sdk_message_to_entries(
+                {"type": "assistant", key: "tu-p", "content": [{"type": "text", "text": "x"}]}
+            )
+            assert entries[0]["parent_tool_use_id"] == "tu-p", key
+            assert "parentToolUseID" not in entries[0]
+            assert "parentToolUseId" not in entries[0]
+
+    def test_one_shot_wrapper_still_types_plain_messages(self):
+        entries = normalize_sdk_message_to_entries({"type": "user", "content": "你好"})
+        assert entries[0]["type"] == "user"
+
+
+# ---------------------------------------------------------------------------
 # EventLogStore — seq 单调 / 幂等键 / 游标
 # ---------------------------------------------------------------------------
 
@@ -276,13 +426,17 @@ class TestEventLogStore:
 
 
 class _FakeAdapter:
-    def __init__(self, messages):
+    def __init__(self, messages, subagent_timelines=None):
         self._messages = messages
+        self._subagent_timelines = subagent_timelines or {}
         self.read_count = 0
 
     async def read_raw_messages(self, sdk_session_id, project_cwd=None):
         self.read_count += 1
         return list(self._messages)
+
+    async def read_subagent_timelines(self, sdk_session_id, project_cwd=None):
+        return {k: list(v) for k, v in self._subagent_timelines.items()}
 
 
 class TestLazyBackfill:
@@ -365,12 +519,104 @@ class TestLazyBackfill:
         )
         service = EventLogService(log_store, adapter)
 
-        def _boom_on_poison(message):
+        original_normalize = SdkMessageNormalizer.normalize
+
+        def _boom_on_poison(self, message):
             if message.get("uuid") == "poison":
                 raise ValueError("boom")
-            return normalize_sdk_message_to_entries(message)
+            return original_normalize(self, message)
 
-        monkeypatch.setattr("server.agent_runtime.event_log.normalize_sdk_message_to_entries", _boom_on_poison)
+        monkeypatch.setattr(SdkMessageNormalizer, "normalize", _boom_on_poison)
 
         entries = await service.list_entries("session-with-poison", None)
         assert [e["uuid"] for e in entries] == ["u1", "u2"]
+
+
+# ---------------------------------------------------------------------------
+# 懒生成 — subagent subpath 合并
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentBackfillMerge:
+    @staticmethod
+    def _main_messages():
+        return [
+            {"type": "user", "content": "调研一下", "uuid": "u1", "timestamp": "2026-01-01T00:00:00Z"},
+            {
+                "type": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tu-agent",
+                        "name": "Agent",
+                        "input": {"description": "探索代码", "prompt": "..."},
+                    }
+                ],
+                "uuid": "a1",
+            },
+            {
+                "type": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "tu-agent", "content": "报告全文"}],
+                "uuid": "u2",
+            },
+            {"type": "assistant", "content": [{"type": "text", "text": "总结"}], "uuid": "a2"},
+        ]
+
+    @staticmethod
+    def _sub_messages():
+        return [
+            {"type": "user", "content": "内部 prompt", "uuid": "s-u1"},
+            {
+                "type": "assistant",
+                "content": [{"type": "tool_use", "id": "tu-read", "name": "Read", "input": {"file_path": "/x"}}],
+                "uuid": "s-a1",
+            },
+            {
+                "type": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "tu-read", "content": "内容"}],
+                "uuid": "s-u2",
+            },
+        ]
+
+    async def test_subagent_entries_spliced_at_task_tool_use_position(self, log_store: EventLogStore):
+        adapter = _FakeAdapter(self._main_messages(), {"tu-agent": self._sub_messages()})
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", None)
+
+        # 子条目紧跟携带 Task tool_use 的主线条目之后，先于后续主线条目
+        uuids = [e["uuid"] for e in entries]
+        assert uuids == ["u1", "a1", "s-u1", "s-a1", "s-u2-tr0", "u2-tr0", "a2"]
+        # 子条目全部带 parent_tool_use_id，主线条目不带
+        sub = [e for e in entries if e.get("parent_tool_use_id")]
+        assert {e["parent_tool_use_id"] for e in sub} == {"tu-agent"}
+        assert [e["uuid"] for e in sub] == ["s-u1", "s-a1", "s-u2-tr0"]
+
+    async def test_unanchored_subagent_group_appended_at_end(self, log_store: EventLogStore):
+        adapter = _FakeAdapter(
+            [{"type": "user", "content": "hi", "uuid": "u1"}],
+            {"tu-ghost": [{"type": "assistant", "content": [{"type": "text", "text": "孤儿"}], "uuid": "g1"}]},
+        )
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", None)
+        assert [e["uuid"] for e in entries] == ["u1", "g1"]
+        assert entries[1]["parent_tool_use_id"] == "tu-ghost"
+
+    async def test_skill_injection_inside_subagent_typed_with_parent(self, log_store: EventLogStore):
+        sub = [
+            {
+                "type": "assistant",
+                "content": [{"type": "tool_use", "id": "tu-s", "name": "Skill", "input": {"skill": "commit"}}],
+                "uuid": "s-a1",
+            },
+            {"type": "user", "content": [{"type": "text", "text": "Skill content: 正文"}], "uuid": "s-u1"},
+        ]
+        adapter = _FakeAdapter(self._main_messages(), {"tu-agent": sub})
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", None)
+        skill_entries = [e for e in entries if e.get("subtype") == "skill_invocation"]
+        assert len(skill_entries) == 1
+        assert skill_entries[0]["skill_name"] == "commit"
+        assert skill_entries[0]["parent_tool_use_id"] == "tu-agent"

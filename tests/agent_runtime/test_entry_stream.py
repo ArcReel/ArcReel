@@ -39,6 +39,9 @@ class _FakeAdapter:
     async def read_raw_messages(self, sdk_session_id=None, project_cwd=None):
         return list(self._messages)
 
+    async def read_subagent_timelines(self, sdk_session_id=None, project_cwd=None):
+        return {}
+
 
 class _FakeEntrySessionManager:
     def __init__(self, status="running", draft_state=None, pending=None):

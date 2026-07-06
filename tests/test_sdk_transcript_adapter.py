@@ -202,3 +202,101 @@ class TestSdkTranscriptAdapterStorePath:
             result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
 
         assert result[0]["timestamp"] is None
+
+
+class TestSubagentTimelines:
+    """read_subagent_timelines — subagent subpath 读取与 Task tool_use 锚定。"""
+
+    @staticmethod
+    def _main_payloads():
+        """主线原始载荷：Task tool_result 携带 toolUseResult.agentId 锚定元数据。"""
+        return [
+            {
+                "type": "user",
+                "uuid": "uuid-anchor",
+                "timestamp": "2026-05-01T00:00:10Z",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "toolu_agent", "content": "报告"}],
+                },
+                "toolUseResult": {"status": "completed", "agentId": "abc123", "agentType": "Explore"},
+            },
+        ]
+
+    @staticmethod
+    def _sub_message():
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "assistant"
+        mock_msg.message = {"content": [{"type": "text", "text": "sub reply"}]}
+        mock_msg.uuid = "sub-uuid-1"
+        mock_msg.parent_tool_use_id = None
+        return mock_msg
+
+    async def test_store_path_groups_messages_by_anchored_tool_use_id(self):
+        fake_store = MagicMock()
+
+        async def _load(key):
+            if key.get("subpath"):
+                return [{"type": "assistant", "uuid": "sub-uuid-1", "timestamp": "2026-05-01T00:00:05Z"}]
+            return self._main_payloads()
+
+        fake_store.load = AsyncMock(side_effect=_load)
+
+        with (
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.list_subagents_from_store",
+                new=AsyncMock(return_value=["abc123"]),
+            ),
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.get_subagent_messages_from_store",
+                new=AsyncMock(return_value=[self._sub_message()]),
+            ),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_subagent_timelines("sdk-session", project_cwd="/tmp/proj")
+
+        assert set(result.keys()) == {"toolu_agent"}
+        assert result["toolu_agent"][0]["type"] == "assistant"
+        assert result["toolu_agent"][0]["uuid"] == "sub-uuid-1"
+        # 子时间线时间戳从 subpath 载荷回填
+        assert result["toolu_agent"][0]["timestamp"] == "2026-05-01T00:00:05Z"
+
+    async def test_agent_without_anchor_is_skipped(self):
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(return_value=self._main_payloads())
+
+        with (
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.list_subagents_from_store",
+                new=AsyncMock(return_value=["ghost"]),
+            ),
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.get_subagent_messages_from_store",
+                new=AsyncMock(return_value=[self._sub_message()]),
+            ),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_subagent_timelines("sdk-session", project_cwd="/tmp/proj")
+
+        assert result == {}
+
+    async def test_legacy_filesystem_path_degrades_to_empty(self):
+        """文件系统回退（无 store）：公开读取接口不携带锚定元数据，降级为不合并。"""
+        adapter = SdkTranscriptAdapter()
+        assert await adapter.read_subagent_timelines("sdk-session") == {}
+
+    async def test_empty_session_id_returns_empty(self):
+        adapter = SdkTranscriptAdapter(store=MagicMock())
+        assert await adapter.read_subagent_timelines("") == {}
+        assert await adapter.read_subagent_timelines(None) == {}
+
+    async def test_list_subagents_error_returns_empty(self):
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(return_value=self._main_payloads())
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.list_subagents_from_store",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            assert await adapter.read_subagent_timelines("sdk-session", project_cwd="/tmp/proj") == {}

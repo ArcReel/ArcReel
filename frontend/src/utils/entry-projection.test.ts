@@ -114,31 +114,51 @@ describe("projectEntriesToTurns", () => {
     expect(taskBlocks[0].task_status).toBe("completed");
   });
 
-  it("attaches skill content text to the latest Skill tool_use", () => {
+  it("skips skill_invocation entries anchored to a Skill tool_use in the current turn", () => {
     const turns = projectEntriesToTurns([
       entry({
         type: "assistant",
-        content: [{ type: "tool_use", id: "tu-s", name: "Skill", input: { command: "manage-project" } }],
+        content: [{ type: "tool_use", id: "tu-s", name: "Skill", input: { skill: "manage-project", args: "x" } }],
         uuid: "a-1",
       }),
-      userEntry("Base directory for this skill: /skills/manage-project"),
+      entry({
+        type: "system",
+        subtype: "skill_invocation",
+        skill_name: "manage-project",
+        skill_args: "x",
+        tool_use_id: "tu-s",
+        uuid: "s-1",
+      }),
     ]);
     expect(turns).toHaveLength(1);
-    expect(turns[0].content[0].skill_content).toContain("Base directory");
+    // 芯片渲染锚点是 Skill tool_use 块本身，条目不产生第二个块
+    expect(turns[0].content).toHaveLength(1);
+    expect(turns[0].content[0].type).toBe("tool_use");
   });
 
-  it("renders skill content as skill_content block when no Skill tool_use exists", () => {
+  it("renders unanchored skill_invocation entries as standalone chip blocks", () => {
     const turns = projectEntriesToTurns([
-      userEntry("Skill content: 这里是技能正文"),
+      entry({
+        type: "system",
+        subtype: "skill_invocation",
+        skill_name: "commit",
+        skill_args: null,
+        tool_use_id: null,
+        uuid: "s-1",
+      }),
     ]);
     expect(turns).toHaveLength(1);
     expect(turns[0].type).toBe("system");
-    expect(turns[0].content[0].type).toBe("skill_content");
+    expect(turns[0].content[0]).toMatchObject({ type: "skill_invocation", skill_name: "commit" });
   });
 
-  it("suppresses subagent-injected plain text but merges subagent assistant entries", () => {
+  it("groups subagent entries into sub_turns on the anchoring tool_use instead of the main timeline", () => {
     const turns = projectEntriesToTurns([
-      entry({ type: "assistant", content: [{ type: "text", text: "主线" }], uuid: "a-1" }),
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-agent", name: "Agent", input: { description: "探索" } }],
+        uuid: "a-1",
+      }),
       userEntry("subagent 内部 prompt", { parent_tool_use_id: "tu-agent" }),
       entry({
         type: "assistant",
@@ -146,9 +166,67 @@ describe("projectEntriesToTurns", () => {
         uuid: "a-2",
         parent_tool_use_id: "tu-agent",
       }),
+      entry({ type: "tool_result", tool_use_id: "tu-agent", content: "报告", is_error: false, uuid: "tr-1" }),
+      entry({ type: "assistant", content: [{ type: "text", text: "主线总结" }], uuid: "a-3" }),
+    ]);
+    // 主时间线：单一 assistant turn（卡片锚点 + 主线文本），无平铺的 subagent 消息
+    expect(turns).toHaveLength(1);
+    const [anchor, summary] = turns[0].content;
+    expect(anchor.type).toBe("tool_use");
+    expect(anchor.result).toBe("报告");
+    expect(summary.text).toBe("主线总结");
+    // 子时间线完整、内部按序
+    expect(anchor.sub_turns?.map((t) => t.type)).toEqual(["user", "assistant"]);
+    expect(anchor.sub_turns?.[1].content[0].text).toBe("subagent 回复");
+  });
+
+  it("renders unanchored subagent groups as a synthetic standalone card", () => {
+    const turns = projectEntriesToTurns([
+      userEntry("主线消息"),
+      entry({
+        type: "assistant",
+        content: [{ type: "text", text: "孤儿子时间线" }],
+        uuid: "a-1",
+        parent_tool_use_id: "tu-ghost",
+      }),
+    ]);
+    expect(turns).toHaveLength(2);
+    const card = turns[1].content[0];
+    expect(card.type).toBe("tool_use");
+    expect(card.id).toBe("tu-ghost");
+    expect(card.sub_turns?.[0].content[0].text).toBe("孤儿子时间线");
+  });
+
+  it("folds task_progress blocks into the anchoring tool_use as task_info", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-a", name: "Agent", input: { description: "分析" } }],
+        uuid: "a-1",
+      }),
+      entry({
+        type: "system",
+        subtype: "task_started",
+        task_id: "t1",
+        tool_use_id: "tu-a",
+        description: "分析",
+        uuid: "s-1",
+      }),
+      entry({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "t1",
+        tool_use_id: "tu-a",
+        usage: { total_tokens: 42 },
+        uuid: "s-2",
+      }),
     ]);
     expect(turns).toHaveLength(1);
-    expect(turns[0].content.map((b) => b.text)).toEqual(["主线", "subagent 回复"]);
+    // 进度不再渲染独立行，折叠进卡片锚点
+    expect(turns[0].content.filter((b) => b.type === "task_progress")).toHaveLength(0);
+    const anchor = turns[0].content[0];
+    expect(anchor.task_info?.status).toBe("task_progress");
+    expect(anchor.task_info?.usage?.total_tokens).toBe(42);
   });
 
   it("auto-completes stale task_started blocks whose Agent tool_use has a result", () => {
@@ -161,9 +239,9 @@ describe("projectEntriesToTurns", () => {
       entry({ type: "system", subtype: "task_started", task_id: "t2", tool_use_id: "tu-a", uuid: "s-1" }),
       entry({ type: "tool_result", tool_use_id: "tu-a", content: "done", is_error: false, uuid: "tr-1" }),
     ]);
-    const taskBlock = turns[0].content.find((b) => b.type === "task_progress");
-    expect(taskBlock?.status).toBe("task_notification");
-    expect(taskBlock?.task_status).toBe("completed");
+    const anchor = turns[0].content.find((b) => b.type === "tool_use");
+    expect(anchor?.task_info?.status).toBe("task_notification");
+    expect(anchor?.task_info?.task_status).toBe("completed");
   });
 
   it("does not mutate input entries", () => {
@@ -206,6 +284,10 @@ describe("projectDraftToTurn", () => {
   it("returns null for null or empty drafts", () => {
     expect(projectDraftToTurn(null, [])).toBeNull();
     expect(projectDraftToTurn({ ...draft, content: [] }, [])).toBeNull();
+  });
+
+  it("returns null for subagent drafts (main timeline shows only the collapsed card)", () => {
+    expect(projectDraftToTurn({ ...draft, parent_tool_use_id: "tu-agent" }, [])).toBeNull();
   });
 });
 

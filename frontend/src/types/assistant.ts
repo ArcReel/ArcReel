@@ -20,7 +20,7 @@ export interface SessionMeta {
 }
 
 export interface ContentBlock {
-  type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_content" | "task_progress" | "interrupt_notice" | "image";
+  type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_invocation" | "task_progress" | "interrupt_notice" | "image";
   text?: string;
   thinking?: string;
   id?: string;
@@ -28,9 +28,15 @@ export interface ContentBlock {
   input?: Record<string, unknown>;
   result?: string;
   is_error?: boolean;
-  skill_content?: string;
   tool_use_id?: string;
   content?: string;
+  // skill_invocation 块字段（写入点定型，只有名与入参，无注入全文）
+  skill_name?: string;
+  skill_args?: string;
+  // subagent 子时间线：投影按 parent_tool_use_id 归组后挂在锚点 tool_use 块
+  sub_turns?: Turn[];
+  // 关联到锚点 tool_use 的子任务状态/进度（由 task_progress 块折叠而来）
+  task_info?: ContentBlock;
   // image block fields
   source?: { type: "base64"; media_type: string; data: string };
   // task_progress fields
@@ -69,18 +75,21 @@ export interface TimelineEntry {
   timestamp?: string;
   /** assistant 条目携带，供 draft 按身份精确替换。 */
   message_id?: string | null;
-  /** subagent 消息标记（归组渲染后置，当前仅用于抑制内部注入文本）。 */
+  /** subagent 消息标记：投影按 parent 归组为主时间线单一折叠卡片。 */
   parent_tool_use_id?: string;
   // tool_result 条目字段
   tool_use_id?: string | null;
   is_error?: boolean;
-  // system 条目字段（task_* 子类型）
+  // system 条目字段（task_* / skill_invocation 子类型）
   subtype?: string;
   task_id?: string | null;
   description?: string;
   summary?: string | null;
   task_status?: string | null;
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
+  // system 条目字段（skill_invocation 子类型：只记名与入参）
+  skill_name?: string | null;
+  skill_args?: string | null;
 }
 
 /** 服务端流式预览态快照（身份为 message_id，不入日志）。 */

@@ -33,7 +33,17 @@ ENTRY_TYPE_ASSISTANT = "assistant"
 ENTRY_TYPE_TOOL_RESULT = "tool_result"
 ENTRY_TYPE_SYSTEM = "system"
 
+SYSTEM_SUBTYPE_SKILL_INVOCATION = "skill_invocation"
+
 _TASK_SUBTYPES = {"task_started", "task_progress", "task_notification"}
+
+# skill 注入用户消息的识别前缀。语义嗅探只允许发生在写入点这一处：
+# 定型后日志只存 skill 名与入参，读取端与渲染端不再接触注入文本。
+_SKILL_INJECTION_PREFIXES = ("Base directory for this skill:", "Skill content:")
+
+# SDK 消息与 transcript 载荷对 subagent 归属键的大小写变体，
+# 写入点统一归一化为 parent_tool_use_id。
+_PARENT_KEY_VARIANTS = ("parent_tool_use_id", "parentToolUseID", "parentToolUseId")
 
 # 与 DbSessionStore.append 相同的 seq 竞争重试参数。
 _MAX_APPEND_RETRY = 16
@@ -44,10 +54,36 @@ _APPEND_BACKOFF_CAP_S = 0.05
 REPLAYED_USER_ECHO_KEY = "_replayed_user_echo"
 
 
+def _extract_parent(message: dict[str, Any]) -> str | None:
+    """写入点归一化 subagent 归属键（大小写变体只在此处识别）。"""
+    for key in _PARENT_KEY_VARIANTS:
+        parent = message.get(key)
+        if isinstance(parent, str) and parent.strip():
+            return parent
+    return None
+
+
 def _copy_parent(message: dict[str, Any], entry: dict[str, Any]) -> None:
-    parent = message.get("parent_tool_use_id")
-    if isinstance(parent, str) and parent.strip():
+    parent = _extract_parent(message)
+    if parent:
         entry["parent_tool_use_id"] = parent
+
+
+def _is_skill_injection_text(text: str) -> bool:
+    return text.startswith(_SKILL_INJECTION_PREFIXES)
+
+
+def _parse_skill_name_from_injection(text: str) -> str | None:
+    """从注入首行的 skill 基目录路径提取名称（无先行 Skill tool_use 时的兜底）。"""
+    first_line = text.split("\n", 1)[0].strip()
+    prefix = "Base directory for this skill:"
+    if not first_line.startswith(prefix):
+        return None
+    path = first_line[len(prefix) :].strip().replace("\\", "/").rstrip("/")
+    segments = [segment for segment in path.split("/") if segment]
+    if segments and segments[-1].upper() == "SKILL.MD":
+        segments = segments[:-1]
+    return segments[-1] if segments else None
 
 
 def build_user_entry(
@@ -64,51 +100,96 @@ def build_user_entry(
     }
 
 
-def normalize_sdk_message_to_entries(message: Any) -> list[dict[str, Any]]:
-    """写入点定型：把一条 SDK 消息 dict 规范化为零或多个日志条目。
+class SdkMessageNormalizer:
+    """写入点定型器：把 SDK 消息 dict 规范化为零或多个日志条目。
 
     - assistant → 单条 assistant 条目（携带 message_id，供 draft 精确替换）
-    - user → tool_result 块定型为独立条目（引用 tool_use_id）；其余内容
-      （含过渡期的 interrupt 回显、task 通知 XML、skill 注入、subagent 消息）
-      以通用 user 条目收录；local_echo 与 SDK 回放副本不入日志
+    - user → tool_result 块定型为独立条目（引用 tool_use_id）；skill 注入
+      文本定型为 skill_invocation 系统条目（只记 skill 名与入参，注入全文
+      不进日志）；其余内容以通用 user 条目收录；local_echo 与 SDK 回放
+      副本不入日志
     - system(task_*) → 通用 system 条目（专属定型由后续片承接）
     - stream_event / result / 其它 → 不进日志
+
+    实例维护跨消息关联状态：Skill tool_use → 随后到达的注入用户消息。
+    状态按归属上下文（parent_tool_use_id，主线为 None）分槽——live 流中
+    主线与各 subagent 的消息交错到达，各自独立关联。live 管道与懒生成
+    重放共用本类，保证两条路径产出相同的 typed 条目。
     """
-    if not isinstance(message, dict):
+
+    def __init__(self) -> None:
+        # 上下文 → 最近一次未被注入消息消费的 Skill tool_use 元数据
+        self._pending_skills: dict[str | None, dict[str, Any]] = {}
+
+    def normalize(self, message: Any) -> list[dict[str, Any]]:
+        if not isinstance(message, dict):
+            return []
+        msg_type = message.get("type")
+
+        if msg_type == "assistant":
+            entry: dict[str, Any] = {
+                "type": ENTRY_TYPE_ASSISTANT,
+                "content": normalize_content(message.get("content", [])),
+                "message_id": message.get("message_id"),
+                "uuid": message.get("uuid") or f"entry-{uuid4().hex}",
+                "timestamp": message.get("timestamp") or utc_now_iso(),
+            }
+            _copy_parent(message, entry)
+            self._track_skill_tool_use(message, entry)
+            return [entry]
+
+        if msg_type == "user":
+            return self._normalize_user(message)
+
+        if msg_type == "system" and message.get("subtype") in _TASK_SUBTYPES:
+            sys_entry: dict[str, Any] = {
+                "type": ENTRY_TYPE_SYSTEM,
+                "subtype": message.get("subtype"),
+                "task_id": message.get("task_id"),
+                "description": message.get("description", ""),
+                "summary": message.get("summary"),
+                "task_status": message.get("status"),
+                "usage": message.get("usage"),
+                "tool_use_id": message.get("tool_use_id"),
+                "uuid": message.get("uuid") or f"entry-{uuid4().hex}",
+                "timestamp": message.get("timestamp") or utc_now_iso(),
+            }
+            _copy_parent(message, sys_entry)
+            return [sys_entry]
+
         return []
-    msg_type = message.get("type")
 
-    if msg_type == "assistant":
-        entry: dict[str, Any] = {
-            "type": ENTRY_TYPE_ASSISTANT,
-            "content": normalize_content(message.get("content", [])),
-            "message_id": message.get("message_id"),
-            "uuid": message.get("uuid") or f"entry-{uuid4().hex}",
-            "timestamp": message.get("timestamp") or utc_now_iso(),
-        }
-        _copy_parent(message, entry)
-        return [entry]
-
-    if msg_type == "user":
+    def _normalize_user(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         if message.get("local_echo") or message.get(REPLAYED_USER_ECHO_KEY):
             return []
         blocks = normalize_content(message.get("content", ""))
-        tool_results = [b for b in blocks if b.get("type") == "tool_result"]
-        others = [b for b in blocks if b.get("type") != "tool_result"]
         timestamp = message.get("timestamp") or utc_now_iso()
         base_uuid = message.get("uuid")
+        parent = _extract_parent(message)
         entries: list[dict[str, Any]] = []
-        for i, block in enumerate(tool_results):
-            tr_entry: dict[str, Any] = {
-                "type": ENTRY_TYPE_TOOL_RESULT,
-                "tool_use_id": block.get("tool_use_id"),
-                "content": block.get("content", ""),
-                "is_error": bool(block.get("is_error", False)),
-                "uuid": f"{base_uuid}-tr{i}" if base_uuid else f"entry-{uuid4().hex}",
-                "timestamp": timestamp,
-            }
-            _copy_parent(message, tr_entry)
-            entries.append(tr_entry)
+        others: list[dict[str, Any]] = []
+        tool_result_index = 0
+        skill_index = 0
+        for block in blocks:
+            if block.get("type") == "tool_result":
+                tr_entry: dict[str, Any] = {
+                    "type": ENTRY_TYPE_TOOL_RESULT,
+                    "tool_use_id": block.get("tool_use_id"),
+                    "content": block.get("content", ""),
+                    "is_error": bool(block.get("is_error", False)),
+                    "uuid": f"{base_uuid}-tr{tool_result_index}" if base_uuid else f"entry-{uuid4().hex}",
+                    "timestamp": timestamp,
+                }
+                _copy_parent(message, tr_entry)
+                entries.append(tr_entry)
+                tool_result_index += 1
+                continue
+            text = block.get("text") if block.get("type") == "text" else None
+            if isinstance(text, str) and _is_skill_injection_text(text.strip()):
+                entries.append(self._build_skill_entry(text.strip(), timestamp, base_uuid, skill_index, parent))
+                skill_index += 1
+                continue
+            others.append(block)
         if others:
             user_entry: dict[str, Any] = {
                 "type": ENTRY_TYPE_USER,
@@ -120,23 +201,63 @@ def normalize_sdk_message_to_entries(message: Any) -> list[dict[str, Any]]:
             entries.append(user_entry)
         return entries
 
-    if msg_type == "system" and message.get("subtype") in _TASK_SUBTYPES:
-        sys_entry: dict[str, Any] = {
+    def _build_skill_entry(
+        self,
+        text: str,
+        timestamp: str,
+        base_uuid: Any,
+        index: int,
+        parent: str | None,
+    ) -> dict[str, Any]:
+        pending = self._pending_skills.pop(parent, None) or {}
+        entry: dict[str, Any] = {
             "type": ENTRY_TYPE_SYSTEM,
-            "subtype": message.get("subtype"),
-            "task_id": message.get("task_id"),
-            "description": message.get("description", ""),
-            "summary": message.get("summary"),
-            "task_status": message.get("status"),
-            "usage": message.get("usage"),
-            "tool_use_id": message.get("tool_use_id"),
-            "uuid": message.get("uuid") or f"entry-{uuid4().hex}",
-            "timestamp": message.get("timestamp") or utc_now_iso(),
+            "subtype": SYSTEM_SUBTYPE_SKILL_INVOCATION,
+            "skill_name": pending.get("name") or _parse_skill_name_from_injection(text),
+            "skill_args": pending.get("args"),
+            "tool_use_id": pending.get("tool_use_id"),
+            "uuid": f"{base_uuid}-skill{index}" if base_uuid else f"entry-{uuid4().hex}",
+            "timestamp": timestamp,
         }
-        _copy_parent(message, sys_entry)
-        return [sys_entry]
+        if parent:
+            entry["parent_tool_use_id"] = parent
+        return entry
 
-    return []
+    def _track_skill_tool_use(self, message: dict[str, Any], entry: dict[str, Any]) -> None:
+        parent = _extract_parent(message)
+        for block in entry.get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use" or block.get("name") != "Skill":
+                continue
+            raw_input = block.get("input")
+            input_data: dict[str, Any] = raw_input if isinstance(raw_input, dict) else {}
+            name = input_data.get("skill") or input_data.get("name")
+            args = input_data.get("args")
+            self._pending_skills[parent] = {
+                "tool_use_id": block.get("id"),
+                "name": name if isinstance(name, str) and name else None,
+                "args": args if isinstance(args, str) and args else None,
+            }
+
+
+def normalize_sdk_message_to_entries(message: Any) -> list[dict[str, Any]]:
+    """一次性定型单条消息（skill 注入与 tool_use 的跨消息关联需持有 SdkMessageNormalizer 实例）。"""
+    return SdkMessageNormalizer().normalize(message)
+
+
+def _assistant_tool_use_ids(message: Any) -> list[str]:
+    """assistant 消息内 tool_use 块的 id 列表（subagent 子时间线的锚定候选）。"""
+    if not isinstance(message, dict) or message.get("type") != "assistant":
+        return []
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    ids: list[str] = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            block_id = block.get("id")
+            if isinstance(block_id, str) and block_id:
+                ids.append(block_id)
+    return ids
 
 
 class EventLogStore:
@@ -297,6 +418,12 @@ class TranscriptReader(Protocol):
         project_cwd: Path | str | None = None,
     ) -> list[dict[str, Any]]: ...
 
+    async def read_subagent_timelines(
+        self,
+        sdk_session_id: str | None,
+        project_cwd: Path | str | None = None,
+    ) -> dict[str, list[dict[str, Any]]]: ...
+
 
 class EventLogService:
     """事件日志读取入口：懒生成 + 游标列举。"""
@@ -312,9 +439,11 @@ class EventLogService:
         return self._store
 
     async def ensure_backfilled(self, session_id: str, project_cwd: Path | str | None) -> None:
-        """仅有 transcript 的旧会话首次访问时重放重建日志（主时间线）。
+        """仅有 transcript 的旧会话首次访问时重放重建日志。
 
-        subagent subpath 的归组重建由后续片承接；此处只回放主时间线。
+        合并 transcript 的 subagent subpath：子时间线条目带 parent_tool_use_id
+        标记，插在携带对应 Task tool_use 的主线条目之后，子组内部按自身顺序，
+        无需全局排序。
         """
         if await self._store.has_entries(session_id):
             return
@@ -323,14 +452,34 @@ class EventLogService:
             if await self._store.has_entries(session_id):
                 return
             raw_messages = await self._adapter.read_raw_messages(session_id, project_cwd)
+            try:
+                subagent_groups = await self._adapter.read_subagent_timelines(session_id, project_cwd)
+            except Exception:
+                logger.exception("subagent 子时间线读取失败，跳过合并 session_id=%s", session_id)
+                subagent_groups = {}
+            normalizer = SdkMessageNormalizer()
             entries: list[dict[str, Any]] = []
-            for message in raw_messages:
+
+            def _consume(message: dict[str, Any], parent_tool_use_id: str | None = None) -> None:
+                if parent_tool_use_id:
+                    message = {**message, "parent_tool_use_id": parent_tool_use_id}
                 try:
-                    entries.extend(normalize_sdk_message_to_entries(message))
+                    entries.extend(normalizer.normalize(message))
                 except Exception:
                     # 容错：历史 transcript 跨版本演进，单条脏数据不应让整个旧
                     # 会话的历史记录懒生成失败。
                     logger.exception("历史消息规范化失败，跳过该条 session_id=%s", session_id)
+
+            for message in raw_messages:
+                _consume(message)
+                for tool_use_id in _assistant_tool_use_ids(message):
+                    for sub_message in subagent_groups.pop(tool_use_id, []):
+                        _consume(sub_message, tool_use_id)
+            # 主线缺失锚点 tool_use 的残余组仍全量入日志：前端按 parent
+            # 归组，无锚时呈现为独立卡片，不丢子时间线数据。
+            for tool_use_id, group in subagent_groups.items():
+                for sub_message in group:
+                    _consume(sub_message, tool_use_id)
             if entries:
                 await self._store.append(session_id, entries)
                 # 仅在写入成功后清锁引用：此后 has_entries 恒真，旧锁等待者与

@@ -1,5 +1,12 @@
+import { useTranslation } from "react-i18next";
 import type { ContentBlock } from "@/types";
 import { useAssistantStore } from "@/stores/assistant-store";
+
+// ---------------------------------------------------------------------------
+// TaskProgressBlock – 无锚点 tool_use 的后台任务进度行。
+//
+// 有锚点的 task 块由投影折叠进 SubagentCard（task_info），不经过本组件。
+// ---------------------------------------------------------------------------
 
 interface TaskProgressBlockProps {
   block: ContentBlock;
@@ -8,6 +15,7 @@ interface TaskProgressBlockProps {
 const TERMINAL_SESSION = new Set(["completed", "error", "interrupted"]);
 
 export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
+  const { t } = useTranslation("dashboard");
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
   const sessionDone = sessionStatus != null && TERMINAL_SESSION.has(sessionStatus);
 
@@ -25,7 +33,7 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
           style={{ color: "var(--color-text-4)" }}
         >
           <span>–</span>
-          <span>{description} (已取消)</span>
+          <span>{t("task_progress_cancelled", { description })}</span>
         </div>
       );
     }
@@ -45,8 +53,8 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
           }}
         />
         <span>
-          {status === "task_started" ? `子任务开始: ${description}` : description}
-          {tokens != null && ` (tokens: ${tokens})`}
+          {status === "task_started" ? t("task_progress_started", { description }) : description}
+          {tokens != null && ` ${t("subagent_tokens", { count: tokens })}`}
         </span>
       </div>
     );
@@ -60,6 +68,11 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
       : isCompleted
         ? "var(--color-good)"
         : "var(--color-text-3)";
+    const label = isCompleted
+      ? t("task_progress_completed")
+      : isFailed
+        ? t("task_progress_failed")
+        : t("task_progress_ended");
     return (
       <div
         className="my-1 flex items-center gap-1.5 text-[11.5px]"
@@ -67,7 +80,7 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
       >
         <span>{isCompleted ? "✓" : isFailed ? "✗" : "–"}</span>
         <span>
-          子任务{isCompleted ? "完成" : isFailed ? "失败" : "结束"}: {summary || description}
+          {label}: {summary || description}
         </span>
       </div>
     );

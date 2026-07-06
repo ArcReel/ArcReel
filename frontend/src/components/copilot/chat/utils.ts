@@ -44,8 +44,6 @@ export function getRoleLabel(role: string): string {
       return "工具";
     case "tool_result":
       return "工具结果";
-    case "skill_content":
-      return "Skill";
     case "result":
       return "完成";
     case "system":

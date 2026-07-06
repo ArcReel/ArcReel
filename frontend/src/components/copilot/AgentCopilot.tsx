@@ -486,7 +486,7 @@ export function AgentCopilot() {
           </div>
         )}
         {allTurns.map((turn, i) => (
-          <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} />
+          <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} streaming={turn === draftTurn} />
         ))}
       </div>
 

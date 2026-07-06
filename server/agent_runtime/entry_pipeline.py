@@ -19,7 +19,7 @@ from typing import Any
 from server.agent_runtime.event_log import (
     ENTRY_TYPE_ASSISTANT,
     EventLogStore,
-    normalize_sdk_message_to_entries,
+    SdkMessageNormalizer,
 )
 from server.agent_runtime.turn_schema import normalize_block
 
@@ -231,6 +231,8 @@ class SessionEntryPipeline:
         self._store = store
         self._session_id_provider = session_id_provider
         self._broadcast = broadcast
+        # 每会话一个定型器：跨消息关联（Skill tool_use → 注入消息）随会话存续
+        self._normalizer = SdkMessageNormalizer()
         self.draft = DraftAccumulator()
 
     async def handle_message(self, msg_dict: dict[str, Any]) -> None:
@@ -266,7 +268,7 @@ class SessionEntryPipeline:
             self._broadcast({"type": "log_turn_complete", "session_id": session_id})
             return
 
-        entries = normalize_sdk_message_to_entries(msg_dict)
+        entries = self._normalizer.normalize(msg_dict)
         if not entries:
             return
         appended = await self._append_with_retry(session_id, entries)

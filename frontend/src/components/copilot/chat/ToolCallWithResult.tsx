@@ -1,6 +1,5 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StreamMarkdown } from "../StreamMarkdown";
 import type { ContentBlock, TodoItem } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -38,20 +37,6 @@ function getToolSummary(name: string, input: Record<string, unknown> | undefined
   }
 }
 
-/**
- * Extract the skill name and arguments from a Skill tool_use input.
- */
-function extractSkillInfo(input: Record<string, unknown> | undefined): {
-  skillName: string;
-  args: string;
-} {
-  if (!input) return { skillName: "unknown", args: "" };
-  return {
-    skillName: (input.skill as string) || (input.name as string) || "unknown",
-    args: (input.args as string) || "",
-  };
-}
-
 // ---------------------------------------------------------------------------
 // ToolCallWithResult
 // ---------------------------------------------------------------------------
@@ -62,12 +47,11 @@ interface ToolCallWithResultProps {
 
 /**
  * ToolCallWithResult -- unified display of a tool_use block with its
- * optional result and skill_content.
+ * optional result: collapsible header showing tool name + summary,
+ * expandable input / result sections.
  *
- * Regular tools:  collapsible header showing tool name + summary, expandable
- *                 input / result sections.
- * Skill tool:     purple-accented header with `/skill-name`, optional skill
- *                 content rendered as markdown.
+ * Skill 与 Agent/Task tool_use 不经过本组件（分别由 SkillChip 与
+ * SubagentCard 渲染，见 ContentBlockRenderer 分发）。
  */
 export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
   const { t } = useTranslation("dashboard");
@@ -75,7 +59,6 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
   const detailsId = useId();
 
   const toolName = block.name || "Tool";
-  const isSkill = toolName === "Skill";
   const isTodoWrite = toolName === "TodoWrite";
 
   // ArcReel in-process MCP tool 显示名：从 mcp__arcreel__<id> 中提取 id，
@@ -86,7 +69,6 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
     ? t(`tool_name_${mcpMatch[1]}`, { defaultValue: toolName })
     : toolName;
   const hasResult = block.result !== undefined;
-  const hasSkillContent = !!block.skill_content;
   const isError = block.is_error;
 
   // -- TodoWrite compact display -----------------------------------------------
@@ -100,21 +82,12 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
         border: "1px solid oklch(0.70 0.18 25 / 0.3)",
         background: "oklch(0.70 0.18 25 / 0.06)",
       }
-    : isSkill
-      ? {
-          border: "1px solid var(--color-accent-soft)",
-          background: "var(--color-accent-dim)",
-        }
-      : {
-          border: "1px solid var(--color-hairline-soft)",
-          background: "oklch(0.21 0.012 265 / 0.5)",
-        };
+    : {
+        border: "1px solid var(--color-hairline-soft)",
+        background: "oklch(0.21 0.012 265 / 0.5)",
+      };
 
-  const labelColor = isError
-    ? "var(--color-danger)"
-    : isSkill
-      ? "var(--color-accent-2)"
-      : "var(--color-warn)";
+  const labelColor = isError ? "var(--color-danger)" : "var(--color-warn)";
 
   // -- status indicator ------------------------------------------------------
   const statusIcon = hasResult ? (isError ? "\u2717" : "\u2713") : "\u2026";
@@ -126,9 +99,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
     : "var(--color-text-4)";
 
   // -- summary text ----------------------------------------------------------
-  const summary = isSkill
-    ? `/${extractSkillInfo(block.input).skillName}`
-    : getToolSummary(toolName, block.input);
+  const summary = getToolSummary(toolName, block.input);
 
   return (
     <div
@@ -203,27 +174,6 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
               {JSON.stringify(block.input, null, 2)}
             </pre>
           </div>
-
-          {/* Skill Content (only for Skill tool) */}
-          {hasSkillContent && (
-            <div
-              className="px-2.5 py-2"
-              style={{
-                borderTop: "1px solid var(--color-accent-soft)",
-                background: "var(--color-accent-dim)",
-              }}
-            >
-              <div
-                className="mb-1 text-[10px] uppercase tracking-wide"
-                style={{ color: "var(--color-accent-2)" }}
-              >
-                {t("tool_call_skill_content_label")}
-              </div>
-              <div className="max-h-48 overflow-hidden overflow-y-auto text-xs">
-                <StreamMarkdown content={block.skill_content!} />
-              </div>
-            </div>
-          )}
 
           {/* Tool Result */}
           {hasResult && (
