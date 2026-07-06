@@ -21,7 +21,7 @@ class _FakeService:
             "bad": make_session_meta(id="bad", project_name=PROJECT),
         }
 
-    async def send_or_create(self, project_name, content, session_id=None, images=None, locale=None):
+    async def send_or_create(self, project_name, content, session_id=None, images=None, locale=None, client_key=None):
         if project_name == "missing":
             raise FileNotFoundError(project_name)
         if not content.strip() and not images:
@@ -186,7 +186,9 @@ class TestAssistantRouterFull:
         """TimeoutError 应返回 504。"""
         fake = _FakeService()
 
-        async def _timeout_send_or_create(project_name, content, session_id=None, images=None, locale=None):
+        async def _timeout_send_or_create(
+            project_name, content, session_id=None, images=None, locale=None, client_key=None
+        ):
             raise TimeoutError("timeout")
 
         fake.send_or_create = _timeout_send_or_create

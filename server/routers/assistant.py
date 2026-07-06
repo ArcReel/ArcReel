@@ -59,6 +59,8 @@ class SendRequest(BaseModel):
     content: str = ""
     images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
     session_id: str | None = None
+    # 请求侧幂等键：同键重试返回既有权威条目，不产生重复。
+    client_key: str | None = Field(default=None, max_length=128)
 
 
 class AnswerQuestionRequest(BaseModel):
@@ -81,6 +83,7 @@ async def send_message(
             session_id=req.session_id,
             images=req.images,
             locale=get_locale(request),
+            client_key=req.client_key,
         )
         return result
     except SessionCapacityError as exc:
@@ -170,6 +173,61 @@ async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _
         raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.get("/sessions/{session_id}/entries")
+async def list_entries(
+    project_name: str,
+    session_id: str,
+    _user: CurrentUser,
+    _t: Translator,
+    after: int = Query(default=-1, ge=-1),
+):
+    """冷读会话事件日志（历史回放；``after`` 为 seq 游标）。"""
+    try:
+        service = get_assistant_service()
+        meta = await _validate_session_ownership(service, session_id, project_name, _t)
+        return await service.list_session_entries(session_id, meta=meta, after_seq=after)
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.get("/sessions/{session_id}/entries/stream", response_class=EventSourceResponse)
+async def stream_entries(
+    project_name: str,
+    session_id: str,
+    request: Request,
+    _user: CurrentUserFlexible,
+    _t: Translator,
+    after: int = Query(default=-1, ge=-1),
+    deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
+) -> AsyncIterator[ServerSentEvent]:
+    """SSE entry 流：事件 id 即 seq。
+
+    游标优先级：EventSource 自动重连携带的 ``Last-Event-ID`` > ``?after=<seq>``
+    （冷订阅）。
+    """
+    service, meta = deps
+    cursor = after
+    last_event_id = request.headers.get("last-event-id", "").strip()
+    if last_event_id:
+        try:
+            cursor = int(last_event_id)
+        except ValueError:
+            pass
+    try:
+        async for event in service.stream_entry_events(session_id, meta=meta, request=request, after_seq=cursor):
+            yield event
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

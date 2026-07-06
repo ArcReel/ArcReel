@@ -36,6 +36,7 @@ from lib.app_data_dir import app_data_dir
 from lib.i18n import DEFAULT_LOCALE, get_locale
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
+from server.agent_runtime.event_log import EventLogService, EventLogStore, build_user_entry
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import Heartbeat, LiveMessage, ReplayBatch, SessionMeta, SessionStatus
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
@@ -57,17 +58,22 @@ class AssistantService:
 
         self.pm = ProjectManager(self.projects_root)
         self.meta_store = SessionMetaStore()
+        # 会话事件日志：UI 时间线唯一读源。store 与 SessionManager 共享同一实例，
+        # live 写入点（entry pipeline）与读取端（REST / SSE / 懒生成）落同一张表。
+        self.event_log_store = EventLogStore()
         self.session_manager = SessionManager(
             project_root=self.project_root,
             data_dir=self.data_dir,
             meta_store=self.meta_store,
             projects_root=self.projects_root,
+            event_log_store=self.event_log_store,
         )
         # Shared with SessionManager (lazy-cached there) so reads via the
         # adapter and writes via SDK options use the same per-user namespace.
         # None when ARCREEL_SDK_SESSION_STORE=off.
         self._session_store = self.session_manager._build_session_store()
         self.transcript_adapter = SdkTranscriptAdapter(store=self._session_store)
+        self.event_log = EventLogService(self.event_log_store, self.transcript_adapter)
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
         self._snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -179,6 +185,11 @@ class AssistantService:
             except Exception:
                 logger.warning("sdk delete_session failed for %s", session_id, exc_info=True)
 
+        try:
+            await self.event_log_store.delete_session(session_id)
+        except Exception:
+            logger.warning("删除会话事件日志失败 session_id=%s", session_id, exc_info=True)
+
         self._snapshot_cache.pop(session_id, None)
         return await self.meta_store.delete(session_id)
 
@@ -238,6 +249,12 @@ class AssistantService:
             return text, sdk_prompt, echo_blocks
         return text, None, None
 
+    @staticmethod
+    def _build_user_log_entry(text: str, echo_blocks: list[dict[str, Any]] | None) -> dict[str, Any]:
+        """构造用户消息的受理条目（写入点定型；POST 先写日志分配身份再回显）。"""
+        blocks = echo_blocks if echo_blocks is not None else [{"type": "text", "text": text}]
+        return build_user_entry(blocks)
+
     async def send_or_create(
         self,
         project_name: str,
@@ -246,8 +263,14 @@ class AssistantService:
         session_id: str | None = None,
         images: list["ImageAttachment"] | None = None,
         locale: str = DEFAULT_LOCALE,
+        client_key: str | None = None,
     ) -> dict[str, Any]:
-        """Unified send: create new session or send to existing one."""
+        """Unified send: create new session or send to existing one.
+
+        响应携带权威日志条目（``entry``）：服务端先写日志分配身份，前端
+        直接以该条目回显，不渲染任何本地合成消息；``client_key`` 为请求侧
+        幂等键，重试不产生重复条目。
+        """
         self.pm.get_project_path(project_name)  # Validate project
 
         if session_id:
@@ -260,25 +283,37 @@ class AssistantService:
             self._snapshot_cache.pop(session_id, None)
             # Build prompt
             text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
-            if sdk_prompt is not None:
-                await self.session_manager.send_message(
-                    session_id, sdk_prompt, echo_text=text, echo_content=echo_blocks, meta=meta, locale=locale
-                )
-            else:
-                await self.session_manager.send_message(session_id, text, meta=meta, locale=locale)
-            return {"status": "accepted", "session_id": session_id}
+            # 旧会话懒生成先行：保证受理条目排在重放重建的历史之后。
+            await self.event_log.ensure_backfilled(session_id, self._resolve_project_cwd_safe(meta.project_name))
+            user_entry = self._build_user_log_entry(text, echo_blocks)
+            entry = await self.session_manager.send_message(
+                session_id,
+                sdk_prompt if sdk_prompt is not None else text,
+                echo_text=text,
+                echo_content=echo_blocks,
+                meta=meta,
+                locale=locale,
+                user_entry=user_entry,
+                client_key=client_key,
+            )
+            return {"status": "accepted", "session_id": session_id, "entry": entry}
         else:
             # New session
             text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
             prompt = sdk_prompt if sdk_prompt is not None else text
+            user_entry = self._build_user_log_entry(text, echo_blocks)
             new_sdk_session_id = await self.session_manager.send_new_session(
                 project_name,
                 prompt,
                 echo_text=text,
                 echo_content=echo_blocks,
                 locale=locale,
+                user_entry=user_entry,
+                client_key=client_key,
             )
-            return {"status": "accepted", "session_id": new_sdk_session_id}
+            managed = self.session_manager.sessions.get(new_sdk_session_id)
+            entry = managed.initial_user_log_entry if managed is not None else None
+            return {"status": "accepted", "session_id": new_sdk_session_id, "entry": entry}
 
     @staticmethod
     def _image_block(img: "ImageAttachment") -> dict[str, Any]:
@@ -413,6 +448,162 @@ class AssistantService:
                     yield event
                 if should_break:
                     break
+
+    # ==================== 会话事件日志（UI 时间线唯一读源） ====================
+
+    async def list_session_entries(
+        self,
+        session_id: str,
+        *,
+        meta: SessionMeta | None = None,
+        after_seq: int = -1,
+    ) -> dict[str, Any]:
+        """冷读事件日志（历史回放 / 非 running 会话初始加载）。"""
+        if meta is None:
+            meta = await self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
+        status = await self.session_manager.get_status(session_id) or meta.status
+        project_cwd = self._resolve_project_cwd_safe(meta.project_name)
+        entries = await self.event_log.list_entries(session_id, project_cwd, after_seq=after_seq)
+        draft_state = (
+            self.session_manager.get_draft_state(session_id) if status == "running" else {"draft": None, "rev": 0}
+        )
+        return {
+            "session_id": session_id,
+            "status": status,
+            "entries": entries,
+            "draft": draft_state["draft"],
+            "draft_rev": draft_state["rev"],
+        }
+
+    async def stream_entry_events(
+        self,
+        session_id: str,
+        *,
+        meta: SessionMeta | None = None,
+        request: Request | None = None,
+        after_seq: int = -1,
+    ) -> AsyncIterator[ServerSentEvent]:
+        """SSE entry 流：事件 ``id`` 即 seq，断线重连按 cursor 续传、不整帧重算。
+
+        序列协议：``entry``×N（cursor 之后的存量）→ ``draft``（首帧快照携带
+        流式累积态 + rev 过滤门槛）→ ``question``×N（未决问题）→ 直播
+        （entry / delta / question / status）。非 running 会话产出存量 entry
+        与终态 status 后即结束。
+        """
+        if meta is None:
+            meta = await self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
+
+        initial_status = await self.session_manager.get_status(session_id) or meta.status
+        project_cwd = self._resolve_project_cwd_safe(meta.project_name)
+
+        if initial_status != "running":
+            for entry in await self.event_log.list_entries(session_id, project_cwd, after_seq=after_seq):
+                yield self._entry_sse_event(entry)
+            yield self._sse_event(
+                "status",
+                self._build_status_event_payload(status=initial_status, session_id=session_id),
+            )
+            return
+
+        locale = get_locale(request) if request is not None else DEFAULT_LOCALE
+        last_seq = after_seq
+        async with self.session_manager.stream_messages(
+            session_id, replay=False, idle_timeout=self.stream_heartbeat_seconds, locale=locale
+        ) as stream:
+            replay = await anext(stream, None)
+            if not isinstance(replay, ReplayBatch):
+                return
+            # 订阅已先行建立（无缝隙）；订阅与库读之间重复投递的条目由 seq
+            # 门槛过滤——身份比对，非内容比对。
+            for entry in await self.event_log.list_entries(session_id, project_cwd, after_seq=last_seq):
+                last_seq = max(last_seq, self._entry_seq(entry))
+                yield self._entry_sse_event(entry)
+
+            draft_state = self.session_manager.get_draft_state(session_id)
+            yield self._sse_event("draft", {"session_id": session_id, **draft_state})
+
+            for question in await self.session_manager.get_pending_questions_snapshot(session_id):
+                yield self._sse_event("question", {**question, "session_id": session_id})
+
+            status: SessionStatus = await self.session_manager.get_status(session_id) or initial_status
+            if status != "running":
+                yield self._sse_event(
+                    "status",
+                    self._build_status_event_payload(status=status, session_id=session_id),
+                )
+                return
+
+            async for stream_event in stream:
+                if request is not None and await request.is_disconnected():
+                    break
+
+                if isinstance(stream_event, Heartbeat):
+                    live_status = await self.session_manager.get_status(session_id) or status
+                    if live_status != "running":
+                        yield self._sse_event(
+                            "status",
+                            self._build_status_event_payload(status=live_status, session_id=session_id),
+                        )
+                        break
+                    continue
+
+                if not isinstance(stream_event, LiveMessage):
+                    continue
+
+                message = stream_event.message
+                msg_type = message.get("type", "")
+
+                if msg_type == "log_entry":
+                    entry = message.get("entry")
+                    if isinstance(entry, dict):
+                        seq = self._entry_seq(entry)
+                        if seq > last_seq:
+                            last_seq = seq
+                            yield self._entry_sse_event(entry)
+                    continue
+
+                if msg_type == "log_delta":
+                    yield self._sse_event("delta", {k: v for k, v in message.items() if k != "type"})
+                    continue
+
+                if msg_type == "ask_user_question":
+                    yield self._sse_event(
+                        "question",
+                        await self._with_session_metadata(copy.deepcopy(message), session_id=session_id),
+                    )
+                    continue
+
+                if msg_type == "runtime_status":
+                    terminal = self._check_runtime_status_terminal(message, session_id)
+                    if terminal is not None:
+                        yield terminal
+                        break
+                    continue
+
+                if msg_type == "result":
+                    yield self._sse_event(
+                        "status",
+                        self._build_status_event_payload(
+                            status=self._resolve_result_status(message),
+                            session_id=session_id,
+                            result_message=message,
+                        ),
+                    )
+                    break
+
+    @staticmethod
+    def _entry_seq(entry: dict[str, Any]) -> int:
+        seq = entry.get("seq")
+        return seq if isinstance(seq, int) else -1
+
+    @staticmethod
+    def _entry_sse_event(entry: dict[str, Any]) -> ServerSentEvent:
+        """entry 事件：SSE ``id`` 字段即 seq，EventSource 原生 Last-Event-ID 续传。"""
+        return ServerSentEvent(event="entry", data=entry, id=str(entry.get("seq")))
 
     async def _emit_completed_snapshot(
         self, meta: SessionMeta, session_id: str, status: SessionStatus

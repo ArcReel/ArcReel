@@ -2,9 +2,10 @@
  * Assistant / agent runtime type definitions.
  *
  * Maps to backend models in:
- * - webui/server/agent_runtime/models.py (SessionMeta, SessionStatus, AssistantSnapshotV2)
- * - webui/server/agent_runtime/turn_grouper.py (Turn, ContentBlock structure)
- * - webui/server/agent_runtime/service.py (SkillInfo, stream events)
+ * - server/agent_runtime/models.py (SessionMeta, SessionStatus)
+ * - server/agent_runtime/event_log.py (TimelineEntry payload structure)
+ * - server/agent_runtime/entry_pipeline.py (DraftState / DraftDeltaPayload)
+ * - server/agent_runtime/service.py (SkillInfo, entry stream events)
  */
 
 export type SessionStatus = "idle" | "running" | "completed" | "error" | "interrupted";
@@ -59,12 +60,57 @@ export interface PendingQuestion {
   }>;
 }
 
-export interface AssistantSnapshot {
+/** 会话事件日志条目（UI 时间线唯一读源；seq 为会话内单调序号）。 */
+export interface TimelineEntry {
+  seq: number;
+  type: "user" | "assistant" | "tool_result" | "system";
+  content?: ContentBlock[] | string;
+  uuid?: string;
+  timestamp?: string;
+  /** assistant 条目携带，供 draft 按身份精确替换。 */
+  message_id?: string | null;
+  /** subagent 消息标记（归组渲染后置，当前仅用于抑制内部注入文本）。 */
+  parent_tool_use_id?: string;
+  // tool_result 条目字段
+  tool_use_id?: string | null;
+  is_error?: boolean;
+  // system 条目字段（task_* 子类型）
+  subtype?: string;
+  task_id?: string | null;
+  description?: string;
+  summary?: string | null;
+  task_status?: string | null;
+  usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
+}
+
+/** 服务端流式预览态快照（身份为 message_id，不入日志）。 */
+export interface DraftState {
+  message_id: string;
+  parent_tool_use_id?: string | null;
+  content: ContentBlock[];
+  rev?: number;
+}
+
+/** delta SSE 事件载荷（引用 message_id + block index，rev 单调用于重连过滤）。 */
+export interface DraftDeltaPayload {
+  message_id: string;
+  parent_tool_use_id?: string | null;
+  delta_type: "block_start" | "text_delta" | "thinking_delta" | "input_json_delta";
+  block_index: number;
+  rev: number;
+  block?: ContentBlock;
+  text?: string;
+  thinking?: string;
+  partial_json?: string;
+}
+
+/** GET /sessions/{id}/entries 响应。 */
+export interface EntriesResponse {
   session_id: string;
   status: SessionStatus;
-  turns: Turn[];
-  draft_turn: Turn | null;
-  pending_questions: PendingQuestion[];
+  entries: TimelineEntry[];
+  draft: DraftState | null;
+  draft_rev: number;
 }
 
 export interface SkillInfo {

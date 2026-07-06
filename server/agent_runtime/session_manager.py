@@ -19,6 +19,12 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.logging_config import resolve_log_dir
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.entry_pipeline import SessionEntryPipeline
+from server.agent_runtime.event_log import (
+    REPLAYED_USER_ECHO_KEY,
+    EventLogStore,
+    build_user_entry,
+)
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
     build_runtime_status_message,
@@ -141,6 +147,12 @@ class ManagedSession:
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
+    # 事件日志写入点管道（UI 时间线唯一读源的 live 写侧）。
+    entry_pipeline: SessionEntryPipeline | None = None
+    # 新会话首条用户消息：sdk_session_id 就绪后由 inbox 任务写入日志（seq 0），
+    # 保证用户条目先于任何 assistant 条目分配身份。
+    pending_initial_user_entry: dict[str, Any] | None = None
+    initial_user_log_entry: dict[str, Any] | None = None
     last_user_prompt: str = ""
     assistant_model: str = ""
     interrupt_requested: bool = False
@@ -152,7 +164,7 @@ class ManagedSession:
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
     # Message types that must never be silently dropped from subscriber queues.
-    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
+    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant", "log_entry"}
     # Transient types that are evicted first when buffer is full.
     _TRANSIENT_BUFFER_TYPES = {"stream_event"}
 
@@ -286,7 +298,9 @@ class SessionManager:
         projects_root: Path | None = None,
         in_docker: bool = False,
         sandbox_enabled: bool = True,
+        event_log_store: EventLogStore | None = None,
     ):
+        self.event_log_store = event_log_store or EventLogStore()
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
         # Tests construct SessionManager directly without going through
@@ -419,6 +433,18 @@ class SessionManager:
             raise FileNotFoundError(f"project not found: {project_name}")
         return project_cwd
 
+    def _build_entry_pipeline(self, managed: "ManagedSession") -> SessionEntryPipeline:
+        """构建会话的事件日志写入点管道。
+
+        session_id 用 provider 现取：新会话在 sdk_session_id 就绪前为 None，
+        管道自动跳过（该窗口内只有 init 系统消息，本就不入日志）。
+        """
+        return SessionEntryPipeline(
+            self.event_log_store,
+            session_id_provider=lambda: managed.resolved_sdk_id,
+            broadcast=managed.channel.broadcast,
+        )
+
     def _make_actor_message_callback(
         self,
         managed_ref: list["ManagedSession | None"],
@@ -441,6 +467,9 @@ class SessionManager:
             if not isinstance(msg_dict, dict):
                 return
             if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
+                # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
+                # 打标让事件日志写入点跳过，不产生重复条目。
+                msg_dict[REPLAYED_USER_ECHO_KEY] = True
                 managed._inbox.put_nowait(msg_dict)
                 return
             self._handle_special_message(managed, msg_dict)
@@ -500,8 +529,15 @@ class SessionManager:
         echo_text: str | None = None,
         echo_content: list[dict[str, Any]] | None = None,
         locale: str = DEFAULT_LOCALE,
+        user_entry: dict[str, Any] | None = None,
+        client_key: str | None = None,
     ) -> str:
-        """Create a new session via send-first: start actor, send query, wait for sdk_session_id."""
+        """Create a new session via send-first: start actor, send query, wait for sdk_session_id.
+
+        ``user_entry`` 是本条用户消息的事件日志条目（写入点定型后的形态）；
+        sdk_session_id 就绪后由 inbox 任务先写日志（seq 0）再放行等待，权威
+        条目落在 ``managed.initial_user_log_entry`` 供受理响应回传。
+        """
         if not SDK_AVAILABLE or ClaudeSDKClient is None:
             raise RuntimeError("claude_agent_sdk is not installed")
 
@@ -540,6 +576,9 @@ class SessionManager:
             project_name=project_name,
             assistant_model=assistant_model,
         )
+        if user_entry is not None:
+            managed.pending_initial_user_entry = {"entry": user_entry, "client_key": client_key}
+        managed.entry_pipeline = self._build_entry_pipeline(managed)
         managed_ref[0] = managed
         managed.last_activity = time.monotonic()
         self.sessions[temp_id] = managed
@@ -667,6 +706,10 @@ class SessionManager:
                             "sdk_session_id 处理失败 session_id=%s",
                             managed.session_id,
                         )
+                # 事件日志写入点：sdk_session_id 就绪后逐条定型入日志。
+                # handle_message 内部吞异常，不会打断会话消费。
+                if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
+                    await managed.entry_pipeline.handle_message(msg_dict)
                 if msg_dict.get("type") == "result":
                     try:
                         await self._finalize_turn(managed, msg_dict)
@@ -769,6 +812,7 @@ class SessionManager:
                 resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
             )
             managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
+            managed.entry_pipeline = self._build_entry_pipeline(managed)
             managed_ref[0] = managed
             managed.last_activity = time.monotonic()
             self.sessions[session_id] = managed
@@ -800,12 +844,18 @@ class SessionManager:
         echo_content: list[dict[str, Any]] | None = None,
         meta: SessionMeta | None = None,
         locale: str = DEFAULT_LOCALE,
-    ) -> None:
+        user_entry: dict[str, Any] | None = None,
+        client_key: str | None = None,
+    ) -> dict[str, Any] | None:
         """Send a message via the session actor.
 
         ``locale`` is forwarded to ``get_or_connect`` so a cold-recovered
         session rebuilds its language regulation from the current request's
         locale rather than the default.
+
+        ``user_entry`` 是本条用户消息的事件日志条目：先写日志分配身份（并发
+        与容量校验之后、送入 SDK 之前），返回权威条目供受理响应回传；同一
+        ``client_key`` 重试命中既有条目时不再重复送 SDK。
         """
         managed = await self.get_or_connect(session_id, meta=meta, locale=locale)
         managed.last_activity = time.monotonic()
@@ -818,6 +868,19 @@ class SessionManager:
             raise ValueError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
         self._prune_transient_buffer(managed)
+
+        log_entry: dict[str, Any] | None = None
+        if user_entry is not None:
+            log_entry, created = await self.event_log_store.append_user_entry(
+                session_id,
+                user_entry,
+                client_key=client_key,
+            )
+            if not created:
+                # 幂等重试：条目已存在说明上一次受理已（或正在）送入 SDK，
+                # 直接返回权威条目，不重复投递。
+                return log_entry
+            managed.channel.broadcast({"type": "log_entry", "session_id": session_id, "entry": log_entry})
 
         # Determine the display text for echo dedup (pending_user_echoes).
         # For image-only messages display_text is empty; use a sentinel so the
@@ -850,6 +913,7 @@ class SessionManager:
             except Exception:
                 logger.exception("持久化 error 状态失败 session_id=%s", session_id)
             raise
+        return log_entry
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:
         """Interrupt a running session via the actor."""
@@ -972,6 +1036,18 @@ class SessionManager:
                     "timestamp": utc_now_iso(),
                 }
             )
+            # 事件日志侧同步收录中断回显（过渡期通用条目形态）：此路径下
+            # inbox 处理已终止，SDK 自己的回显不会再经写入点入日志。
+            if managed.resolved_sdk_id is not None:
+                try:
+                    interrupt_entry = build_user_entry([{"type": "text", "text": "[Request interrupted by user]"}])
+                    appended = await self.event_log_store.append(managed.resolved_sdk_id, [interrupt_entry])
+                    for entry in appended:
+                        managed.channel.broadcast(
+                            {"type": "log_entry", "session_id": managed.resolved_sdk_id, "entry": entry}
+                        )
+                except Exception:
+                    logger.exception("中断条目写入事件日志失败 session_id=%s", managed.resolved_sdk_id)
 
         # Broadcast terminal status so SSE subscribers unblock immediately
         # instead of waiting for the heartbeat timeout.
@@ -1356,6 +1432,22 @@ class SessionManager:
                 *([] if tag_coro is None else [tag_coro]),
             )
             await self.meta_store.update_status(sdk_id, "running")
+            # 新会话首条用户消息先写日志分配身份（seq 0）：本方法在 inbox 任务
+            # 内串行执行于任何 assistant 条目定型之前，保证时间线顺序；写入
+            # 完成后才 set sdk_id_event，send_new_session 醒来即可拿到权威条目。
+            pending_user = managed.pending_initial_user_entry
+            if pending_user is not None:
+                managed.pending_initial_user_entry = None
+                try:
+                    authoritative, _created = await self.event_log_store.append_user_entry(
+                        sdk_id,
+                        pending_user["entry"],
+                        client_key=pending_user.get("client_key"),
+                    )
+                    managed.initial_user_log_entry = authoritative
+                    managed.channel.broadcast({"type": "log_entry", "session_id": sdk_id, "entry": authoritative})
+                except Exception:
+                    logger.exception("新会话用户条目写入事件日志失败 session_id=%s", sdk_id)
             # Key swap: replace temp_id with real sdk_id in sessions dict
             # BEFORE signaling the event. This prevents _finalize_turn from
             # using the stale temp_id if it runs before send_new_session
@@ -1393,6 +1485,18 @@ class SessionManager:
         if not managed:
             return []
         return list(managed.message_buffer)
+
+    def get_draft_state(self, session_id: str) -> dict[str, Any]:
+        """流式预览态（draft）重连首帧快照：当前累积态 + rev 过滤门槛。
+
+        ``rev`` 在无活跃 draft 时也返回：订阅与快照之间已入队的旧 delta
+        （rev <= 门槛）由客户端按 rev 丢弃，不做内容比对。
+        """
+        managed = self.sessions.get(session_id)
+        if managed is None or managed.entry_pipeline is None:
+            return {"draft": None, "rev": 0}
+        draft = managed.entry_pipeline.draft
+        return {"draft": draft.snapshot(), "rev": draft.rev}
 
     async def get_pending_questions_snapshot(self, session_id: str) -> list[dict[str, Any]]:
         """Get unresolved AskUserQuestion payloads for reconnect."""

@@ -265,15 +265,22 @@ export function AgentCopilot() {
   const handleSend = useCallback(() => {
     if (inputDisabled || (!localInput.trim() && attachedImages.length === 0)) return;
     imageGenRef.current += 1; // invalidate pending FileReader callbacks
-    voidCall(sendMessage(localInput.trim(), attachedImages.length > 0 ? attachedImages : undefined));
-    setLocalInput("");
-    setAttachedImages([]);
-    setAttachError(null);
     setShowSlashMenu(false);
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
+    // 发送期间输入锁定（sending 置位）；受理成功才清空，失败保留内容供重试
+    voidCall(
+      sendMessage(localInput.trim(), attachedImages.length > 0 ? attachedImages : undefined).then(
+        (accepted) => {
+          if (!accepted) return;
+          setLocalInput("");
+          setAttachedImages([]);
+          setAttachError(null);
+          // Reset textarea height
+          if (textareaRef.current) {
+            textareaRef.current.style.height = "auto";
+          }
+        },
+      ),
+    );
   }, [inputDisabled, localInput, attachedImages, sendMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -402,7 +409,7 @@ export function AgentCopilot() {
           >
             <Bot className="h-3.5 w-3.5" />
           </div>
-          {isRunning ? (
+          {isRunning || sending ? (
             <span
               className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px]"
               style={{ color: "var(--color-accent-2)" }}

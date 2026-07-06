@@ -209,8 +209,7 @@ describe("stores", () => {
     ]);
     assistant.setCurrentSessionId("s1");
     assistant.setSessionsLoading(true);
-    assistant.setTurns([{ type: "user", content: [{ type: "text", text: "hi" }] }]);
-    assistant.setDraftTurn({ type: "assistant", content: [{ type: "text", text: "draft" }] });
+    assistant.setEntries([{ seq: 0, type: "user", content: [{ type: "text", text: "hi" }] }]);
     assistant.setMessagesLoading(true);
     assistant.setInput("hello");
     assistant.setSending(true);

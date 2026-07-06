@@ -36,6 +36,16 @@ class _FakeMetaStore:
         return self.metas.pop(session_id, None) is not None
 
 
+class _FakeEventLogService:
+    """No-op 事件日志：单测聚焦 service 编排，不触达真实 DB。"""
+
+    def __init__(self):
+        self.backfilled = []
+
+    async def ensure_backfilled(self, session_id, project_cwd):
+        self.backfilled.append(session_id)
+
+
 class _FakeSessionManager:
     def __init__(self):
         self.sessions = {}
@@ -169,6 +179,7 @@ class TestAssistantServiceMore:
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = sm
         service.meta_store = _FakeMetaStore([meta])
+        service.event_log = _FakeEventLogService()
 
         listed = await service.list_sessions()
         assert len(listed) == 1
@@ -181,13 +192,13 @@ class TestAssistantServiceMore:
 
         # send_or_create — new session (no session_id)
         new_result = await service.send_or_create("demo", "hello")
-        assert new_result == {"status": "accepted", "session_id": "sdk-new-id"}
+        assert new_result == {"status": "accepted", "session_id": "sdk-new-id", "entry": None}
         assert len(sm.new_sessions) == 1
         assert sm.new_sessions[0][0] == "demo"
 
         # send_or_create — existing session
         existing_result = await service.send_or_create("demo", "world", session_id="s1")
-        assert existing_result == {"status": "accepted", "session_id": "s1"}
+        assert existing_result == {"status": "accepted", "session_id": "s1", "entry": None}
         assert sm.sent == [("s1", "world")]
 
         # send_or_create — empty message raises ValueError
@@ -223,6 +234,7 @@ class TestAssistantServiceMore:
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = sm
         service.meta_store = _FakeMetaStore([meta])
+        service.event_log = _FakeEventLogService()
 
         await service.send_or_create("demo", "world", session_id="s1", locale="en")
 
@@ -240,6 +252,7 @@ class TestAssistantServiceMore:
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = sm
         service.meta_store = _FakeMetaStore([meta])
+        service.event_log = _FakeEventLogService()
 
         image = SimpleNamespace(data="ZmFrZQ==", media_type="image/png")
         await service.send_or_create("demo", "hello", session_id="s1", images=[image], locale="vi")
