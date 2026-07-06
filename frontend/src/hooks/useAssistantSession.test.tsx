@@ -493,4 +493,51 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
     expect(useAssistantStore.getState().turns).toHaveLength(1);
   });
+
+  it("resolves false for a send invalidated by switching sessions mid-flight", async () => {
+    // 版本失配分支必须与失败路径一致返回 false：调用方（AgentCopilot.handleSend）
+    // 依据返回值清空输入框，误返回 true 会清空用户已切换到的新会话里刚输入的内容。
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [
+        makeSession("session-1", "idle"),
+        makeSession("session-2", "idle"),
+      ],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    let sendResult: boolean | undefined;
+    act(() => {
+      void result.current.sendMessage("hello").then((accepted) => {
+        sendResult = accepted;
+      });
+    });
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+
+    await act(async () => {
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      await deferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(sendResult).toBe(false);
+    });
+  });
 });

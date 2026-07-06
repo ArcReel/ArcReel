@@ -331,7 +331,7 @@ export function useAssistantSession(projectName: string | null) {
           clientKey,
         );
 
-        if (pendingSendVersionRef.current !== sendVersion) return true;
+        if (pendingSendVersionRef.current !== sendVersion) return false;
         failedSendRef.current = null;
 
         const returnedSessionId = result.session_id;

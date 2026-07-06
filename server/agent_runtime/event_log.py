@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import weakref
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
@@ -300,7 +301,8 @@ class EventLogService:
     def __init__(self, store: EventLogStore, transcript_adapter: TranscriptReader):
         self._store = store
         self._adapter = transcript_adapter
-        self._backfill_locks: dict[str, asyncio.Lock] = {}
+        # 弱引用：无协程持有/等待时锁对象自动回收，避免空会话锁永久残留内存
+        self._backfill_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
     @property
     def store(self) -> EventLogStore:

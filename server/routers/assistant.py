@@ -222,7 +222,7 @@ async def stream_entries(
         try:
             cursor = int(last_event_id)
         except ValueError:
-            pass
+            logger.debug("忽略无效的 Last-Event-ID: %r，回退到游标 %s", last_event_id, cursor)
     try:
         async for event in service.stream_entry_events(session_id, meta=meta, request=request, after_seq=cursor):
             yield event

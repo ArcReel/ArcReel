@@ -6,6 +6,7 @@ import asyncio
 import copy
 import logging
 import os
+import weakref
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import UTC, datetime
@@ -83,6 +84,9 @@ class AssistantService:
         # 新会话分支会重复建会话、重复执行同一 prompt。进程内 LRU 兜底。
         self._new_session_client_keys: OrderedDict[str, str] = OrderedDict()
         self._new_session_client_keys_max = 256
+        # 同一 client_key 的并发新建请求在此串行化，避免在途窗口内重复建会话；
+        # 无协程持有/等待时锁对象自动回收
+        self._new_session_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
@@ -304,31 +308,54 @@ class AssistantService:
             return {"status": "accepted", "session_id": session_id, "entry": entry}
         else:
             # New session
-            if client_key:
+            if not client_key:
+                return await self._create_new_session(project_name, content, images, locale, client_key)
+
+            mapped_session_id = self._new_session_client_keys.get(client_key)
+            if mapped_session_id is not None:
+                # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
+                entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
+                return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
+
+            # 同一 client_key 的并发请求在此串行化：send_new_session 在途期间
+            # 后来者等锁而非各自建会话，避免重复执行同一 prompt。
+            lock = self._new_session_locks.setdefault(client_key, asyncio.Lock())
+            async with lock:
+                # 双重检查：等锁期间先行者可能已完成同一 client_key 的建会话。
                 mapped_session_id = self._new_session_client_keys.get(client_key)
                 if mapped_session_id is not None:
-                    # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
                     entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
                     return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
-            text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
-            prompt = sdk_prompt if sdk_prompt is not None else text
-            user_entry = self._build_user_log_entry(text, echo_blocks)
-            new_sdk_session_id = await self.session_manager.send_new_session(
-                project_name,
-                prompt,
-                echo_text=text,
-                echo_content=echo_blocks,
-                locale=locale,
-                user_entry=user_entry,
-                client_key=client_key,
-            )
-            if client_key:
-                self._new_session_client_keys[client_key] = new_sdk_session_id
+                result = await self._create_new_session(project_name, content, images, locale, client_key)
+                self._new_session_client_keys[client_key] = result["session_id"]
                 while len(self._new_session_client_keys) > self._new_session_client_keys_max:
                     self._new_session_client_keys.popitem(last=False)
-            managed = self.session_manager.sessions.get(new_sdk_session_id)
-            entry = managed.initial_user_log_entry if managed is not None else None
-            return {"status": "accepted", "session_id": new_sdk_session_id, "entry": entry}
+                return result
+
+    async def _create_new_session(
+        self,
+        project_name: str,
+        content: str,
+        images: list["ImageAttachment"] | None,
+        locale: str,
+        client_key: str | None,
+    ) -> dict[str, Any]:
+        """实际创建新会话并投递首条消息，不涉及 client_key 幂等映射记账。"""
+        text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
+        prompt = sdk_prompt if sdk_prompt is not None else text
+        user_entry = self._build_user_log_entry(text, echo_blocks)
+        new_sdk_session_id = await self.session_manager.send_new_session(
+            project_name,
+            prompt,
+            echo_text=text,
+            echo_content=echo_blocks,
+            locale=locale,
+            user_entry=user_entry,
+            client_key=client_key,
+        )
+        managed = self.session_manager.sessions.get(new_sdk_session_id)
+        entry = managed.initial_user_log_entry if managed is not None else None
+        return {"status": "accepted", "session_id": new_sdk_session_id, "entry": entry}
 
     @staticmethod
     def _image_block(img: "ImageAttachment") -> dict[str, Any]:

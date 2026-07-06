@@ -888,7 +888,6 @@ class SessionManager:
                 # 幂等重试：条目存在即上一次受理已（或正在）送入 SDK——投递
                 # 失败的条目会被补偿删除，不会残留到这里。直接返回权威条目。
                 return log_entry
-            managed.channel.broadcast({"type": "log_entry", "session_id": session_id, "entry": log_entry})
 
         # Determine the display text for echo dedup (pending_user_echoes).
         # For image-only messages display_text is empty; use a sentinel so the
@@ -928,6 +927,10 @@ class SessionManager:
             except Exception:
                 logger.exception("持久化 error 状态失败 session_id=%s", session_id)
             raise
+        if log_entry is not None:
+            # send_query 确认投递成功后再广播：避免失败回滚已删条目后，
+            # 在线 SSE 订阅者仍残留一条已撤销的用户消息。
+            managed.channel.broadcast({"type": "log_entry", "session_id": session_id, "entry": log_entry})
         return log_entry
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:

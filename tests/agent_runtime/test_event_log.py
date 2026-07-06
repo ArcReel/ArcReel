@@ -308,14 +308,16 @@ class TestLazyBackfill:
         entries = await service.list_entries("s1", None, after_seq=0)
         assert [e["uuid"] for e in entries] == ["b"]
 
-    async def test_backfill_lock_retained_when_transcript_empty(self, log_store: EventLogStore):
-        """空 transcript 不写入也不清锁：后来者与旧锁等待者保持互斥，
-        transcript 出现内容后并发首访不会重复灌入。"""
+    async def test_backfill_lock_not_leaked_when_transcript_empty(self, log_store: EventLogStore):
+        """空 transcript 不写入：无协程持有/等待时锁对象随弱引用字典自动回收，
+        不会为每个空/无效会话永久驻留内存；转为有内容后并发首访仍只灌入一次
+        （互斥性质不受回收影响——同一 session_id 的并发等待者共享同一锁对象）。"""
         adapter = _FakeAdapter([])
         service = EventLogService(log_store, adapter)
 
-        await service.ensure_backfilled("old", None)
-        assert "old" in service._backfill_locks  # pyright: ignore[reportPrivateUsage]
+        for i in range(50):
+            await service.ensure_backfilled(f"empty-{i}", None)
+        assert len(service._backfill_locks) == 0  # pyright: ignore[reportPrivateUsage]
 
         # transcript 补齐内容后，并发访问只灌入一次
         adapter._messages = [{"type": "user", "content": "hi", "uuid": "u1"}]  # pyright: ignore[reportPrivateUsage]

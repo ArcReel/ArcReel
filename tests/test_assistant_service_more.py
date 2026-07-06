@@ -261,6 +261,45 @@ class TestAssistantServiceMore:
         assert sm.sent_kwargs[0]["echo_content"] is not None
 
     @pytest.mark.asyncio
+    async def test_send_or_create_concurrent_same_client_key_creates_one_session(self, tmp_path):
+        """同一 client_key 的并发新建请求应在 send_new_session 完成前互斥等待，
+        不因在途窗口各自建会话、重复执行同一 prompt。"""
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_send_new_session(project_name, prompt, **kwargs):
+            entered.set()
+            await release.wait()
+            sm.new_sessions.append((project_name, prompt))
+            return "sdk-new-id"
+
+        sm.send_new_session = slow_send_new_session
+
+        async def fake_find_by_client_key(session_id, client_key):
+            return {"seq": 0, "type": "user", "content": []}
+
+        service.event_log_store.find_by_client_key = fake_find_by_client_key
+
+        task1 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
+        await asyncio.wait_for(entered.wait(), timeout=0.2)
+        task2 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
+        await asyncio.sleep(0)  # 让 task2 跑到锁等待处挂起
+        release.set()
+
+        result1 = await task1
+        result2 = await task2
+
+        assert len(sm.new_sessions) == 1  # 只建了一个会话，未因在途窗口重复投递
+        assert result1["session_id"] == result2["session_id"] == "sdk-new-id"
+
+    @pytest.mark.asyncio
     async def test_delete_session_closes_active_session_before_delete(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta(id="s1")
