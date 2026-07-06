@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import weakref
 from pathlib import Path
 from typing import Any, Protocol
@@ -24,7 +25,7 @@ from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.session_event import AgentSessionEventLogEntry
 from server.agent_runtime.message_serialization import utc_now_iso
-from server.agent_runtime.turn_schema import normalize_content
+from server.agent_runtime.turn_schema import _stringify_content, normalize_content
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,10 @@ ENTRY_TYPE_USER = "user"
 ENTRY_TYPE_ASSISTANT = "assistant"
 ENTRY_TYPE_TOOL_RESULT = "tool_result"
 ENTRY_TYPE_SYSTEM = "system"
+
+ENTRY_SUBTYPE_INTERRUPT = "interrupt"
+ENTRY_SUBTYPE_TASK_NOTIFICATION = "task_notification"
+ENTRY_SUBTYPE_QUESTION_ANSWER = "question_answer"
 
 SYSTEM_SUBTYPE_SKILL_INVOCATION = "skill_invocation"
 
@@ -44,6 +49,15 @@ _SKILL_INJECTION_PREFIXES = ("Base directory for this skill:", "Skill content:")
 # SDK 消息与 transcript 载荷对 subagent 归属键的大小写变体，
 # 写入点统一归一化为 parent_tool_use_id。
 _PARENT_KEY_VARIANTS = ("parent_tool_use_id", "parentToolUseID", "parentToolUseId")
+
+# CLI 注入的中断回显前缀。具体措辞是 CLI 内部实现细节（非稳定 API），
+# 只在写入点做一次前缀识别，定型后读取端不再嗅探。
+_INTERRUPT_ECHO_PREFIX = "[Request interrupted"
+
+# SDK 以用户消息形态注入的后台任务通知 XML。
+_TASK_NOTIFICATION_RE = re.compile(r"<task-notification>\s*.*?</task-notification>", re.DOTALL)
+
+_ASK_USER_QUESTION_TOOL = "askuserquestion"
 
 # 与 DbSessionStore.append 相同的 seq 竞争重试参数。
 _MAX_APPEND_RETRY = 16
@@ -86,6 +100,65 @@ def _parse_skill_name_from_injection(text: str) -> str | None:
     return segments[-1] if segments else None
 
 
+def build_interrupt_entry(
+    *,
+    uuid: str | None = None,
+    timestamp: str | None = None,
+) -> dict[str, Any]:
+    """构造中断的 typed 条目（时间线事件，进日志）。"""
+    return {
+        "type": ENTRY_TYPE_SYSTEM,
+        "subtype": ENTRY_SUBTYPE_INTERRUPT,
+        "uuid": uuid or f"interrupt-{uuid4().hex}",
+        "timestamp": timestamp or utc_now_iso(),
+    }
+
+
+def is_interrupt_entry(entry: dict[str, Any]) -> bool:
+    return entry.get("type") == ENTRY_TYPE_SYSTEM and entry.get("subtype") == ENTRY_SUBTYPE_INTERRUPT
+
+
+def _blocks_text(blocks: list[dict[str, Any]]) -> str:
+    return "\n".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+
+
+def _is_interrupt_echo(blocks: list[dict[str, Any]]) -> bool:
+    """整条内容即单个中断回显文本块时才判定，正文中途出现同字样不误判。"""
+    if len(blocks) != 1 or blocks[0].get("type") != "text":
+        return False
+    return str(blocks[0].get("text") or "").strip().startswith(_INTERRUPT_ECHO_PREFIX)
+
+
+def _extract_task_notifications(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """提取消息文本中的全部 task-notification XML（同一 tick 可能批了多条）。"""
+    text = _blocks_text(blocks)
+
+    def _tag(xml: str, name: str) -> str:
+        m = re.search(rf"<{name}>(.*?)</{name}>", xml, re.DOTALL)
+        return m.group(1).strip() if m else ""
+
+    return [
+        {
+            "task_id": _tag(match.group(0), "task-id"),
+            "tool_use_id": _tag(match.group(0), "tool-use-id"),
+            "status": _tag(match.group(0), "status"),
+            "summary": _tag(match.group(0), "summary"),
+        }
+        for match in _TASK_NOTIFICATION_RE.finditer(text)
+    ]
+
+
+def _extract_structured_answers(message: dict[str, Any]) -> dict[str, str] | None:
+    """从消息级 tool_use_result（CLI 的结构化工具结果）提取答案映射。"""
+    tool_use_result = message.get("tool_use_result")
+    if not isinstance(tool_use_result, dict):
+        return None
+    answers = tool_use_result.get("answers")
+    if not isinstance(answers, dict) or not answers:
+        return None
+    return {str(k): str(v) for k, v in answers.items()}
+
+
 def build_user_entry(
     content_blocks: list[dict[str, Any]],
     *,
@@ -103,18 +176,25 @@ def build_user_entry(
 class SdkMessageNormalizer:
     """写入点定型器：把 SDK 消息 dict 规范化为零或多个日志条目。
 
-    - assistant → 单条 assistant 条目（携带 message_id，供 draft 精确替换）
-    - user → tool_result 块定型为独立条目（引用 tool_use_id）；skill 注入
-      文本定型为 skill_invocation 系统条目（只记 skill 名与入参，注入全文
-      不进日志）；其余内容以通用 user 条目收录；local_echo 与 SDK 回放
-      副本不入日志
-    - system(task_*) → 通用 system 条目（专属定型由后续片承接）
+    - assistant → 单条 assistant 条目（携带 message_id，供 draft 精确替换）；
+      AskUserQuestion 的 tool_use_id 登记进实例状态，供答复定型；Skill
+      tool_use 登记进实例状态，供随后到达的注入消息定型为 skill_invocation
+      系统条目
+    - user → interrupt 回显定型为 system/interrupt 条目；task 通知 XML
+      （同一 tick 可能批多条）定型为 system/task_notification 条目；
+      AskUserQuestion 的 tool_result 定型为 user/question_answer 条目
+      （结构化答案取自消息级 tool_use_result）；skill 注入文本定型为
+      skill_invocation 系统条目（只记 skill 名与入参，注入全文不进日志）；
+      其余 tool_result 块定型为独立条目（引用 tool_use_id）；剩余内容以
+      通用 user 条目收录；local_echo 与 SDK 回放副本不入日志
+    - system(task_*) → typed system 条目
     - stream_event / result / 其它 → 不进日志
 
-    实例维护跨消息关联状态：Skill tool_use → 随后到达的注入用户消息。
-    状态按归属上下文（parent_tool_use_id，主线为 None）分槽——live 流中
-    主线与各 subagent 的消息交错到达，各自独立关联。live 管道与懒生成
-    重放共用本类，保证两条路径产出相同的 typed 条目。
+    实例维护跨消息关联状态：Skill tool_use → 随后到达的注入用户消息；
+    AskUserQuestion tool_use → 随后到达的答复 tool_result。Skill 状态按
+    归属上下文（parent_tool_use_id，主线为 None）分槽——live 流中主线与各
+    subagent 的消息交错到达，各自独立关联。live 管道与懒生成重放共用本类，
+    保证两条路径产出相同的 typed 条目。
     """
 
     def __init__(self) -> None:
@@ -122,6 +202,8 @@ class SdkMessageNormalizer:
         # 同一上下文可能并发发起多个 Skill 调用（同一 assistant 消息内多个
         # tool_use 块），按调用顺序逐一消费，避免后一个覆盖前一个。
         self._pending_skills: dict[str | None, list[dict[str, Any]]] = {}
+        # 已登记但尚未收到答复的 AskUserQuestion tool_use_id。
+        self.question_tool_use_ids: set[str] = set()
 
     def normalize(self, message: Any) -> list[dict[str, Any]]:
         if not isinstance(message, dict):
@@ -129,9 +211,17 @@ class SdkMessageNormalizer:
         msg_type = message.get("type")
 
         if msg_type == "assistant":
+            content = normalize_content(message.get("content", []))
+            for block in content:
+                if (
+                    block.get("type") == "tool_use"
+                    and str(block.get("name") or "").strip().lower() == _ASK_USER_QUESTION_TOOL
+                    and block.get("id")
+                ):
+                    self.question_tool_use_ids.add(str(block["id"]))
             entry: dict[str, Any] = {
                 "type": ENTRY_TYPE_ASSISTANT,
-                "content": normalize_content(message.get("content", [])),
+                "content": content,
                 "message_id": message.get("message_id"),
                 "uuid": message.get("uuid") or f"entry-{uuid4().hex}",
                 "timestamp": message.get("timestamp") or utc_now_iso(),
@@ -165,18 +255,76 @@ class SdkMessageNormalizer:
         if message.get("local_echo") or message.get(REPLAYED_USER_ECHO_KEY):
             return []
         blocks = normalize_content(message.get("content", ""))
+        tool_results = [b for b in blocks if b.get("type") == "tool_result"]
         timestamp = message.get("timestamp") or utc_now_iso()
         base_uuid = message.get("uuid")
         parent = _extract_parent(message)
+
+        if not tool_results:
+            if _is_interrupt_echo(blocks):
+                return [
+                    build_interrupt_entry(
+                        uuid=base_uuid,
+                        timestamp=message.get("timestamp"),
+                    )
+                ]
+            task_infos = _extract_task_notifications(blocks)
+            if task_infos:
+                # 单条通知（绝大多数场景）保留原 uuid 不变；同一消息批了多条时才
+                # 加序号后缀区分，避免同 uuid 的多条系统条目在前端归并/查找时互相覆盖。
+                multiple = len(task_infos) > 1
+                return [
+                    {
+                        "type": ENTRY_TYPE_SYSTEM,
+                        "subtype": ENTRY_SUBTYPE_TASK_NOTIFICATION,
+                        "task_id": task_info["task_id"] or None,
+                        "description": "",
+                        "summary": task_info["summary"] or None,
+                        "task_status": task_info["status"] or None,
+                        "tool_use_id": task_info["tool_use_id"] or None,
+                        "uuid": (
+                            f"{base_uuid}-tn{i}" if multiple and base_uuid else (base_uuid or f"entry-{uuid4().hex}")
+                        ),
+                        "timestamp": timestamp,
+                    }
+                    for i, task_info in enumerate(task_infos)
+                ]
+
+        # tool_use_result 是消息级字段（CLI 单条 toolUseResult，非按 tool_use_id
+        # 分片）：仅当本消息只批了一个待答复的 tool_result 时，才能确定该结构化
+        # 答案属于它；同一消息里批了多个提问的 tool_result 时无法判定各自归属，
+        # 宁可回退到原始文本也不要把同一份答案错配给多个问题。
+        question_result_count = sum(
+            1
+            for block in tool_results
+            if block.get("tool_use_id") and str(block["tool_use_id"]) in self.question_tool_use_ids
+        )
+
         entries: list[dict[str, Any]] = []
         others: list[dict[str, Any]] = []
         tool_result_index = 0
         skill_index = 0
         for block in blocks:
             if block.get("type") == "tool_result":
+                tool_use_id = block.get("tool_use_id")
+                if tool_use_id and str(tool_use_id) in self.question_tool_use_ids:
+                    qa_entry: dict[str, Any] = {
+                        "type": ENTRY_TYPE_USER,
+                        "subtype": ENTRY_SUBTYPE_QUESTION_ANSWER,
+                        "tool_use_id": tool_use_id,
+                        "content": _stringify_content(block.get("content", "")),
+                        "is_error": bool(block.get("is_error", False)),
+                        "answers": _extract_structured_answers(message) if question_result_count == 1 else None,
+                        "uuid": f"{base_uuid}-tr{tool_result_index}" if base_uuid else f"entry-{uuid4().hex}",
+                        "timestamp": timestamp,
+                    }
+                    _copy_parent(message, qa_entry)
+                    entries.append(qa_entry)
+                    tool_result_index += 1
+                    continue
                 tr_entry: dict[str, Any] = {
                     "type": ENTRY_TYPE_TOOL_RESULT,
-                    "tool_use_id": block.get("tool_use_id"),
+                    "tool_use_id": tool_use_id,
                     "content": block.get("content", ""),
                     "is_error": bool(block.get("is_error", False)),
                     "uuid": f"{base_uuid}-tr{tool_result_index}" if base_uuid else f"entry-{uuid4().hex}",
@@ -247,7 +395,8 @@ class SdkMessageNormalizer:
 
 
 def normalize_sdk_message_to_entries(message: Any) -> list[dict[str, Any]]:
-    """一次性定型单条消息（skill 注入与 tool_use 的跨消息关联需持有 SdkMessageNormalizer 实例）。"""
+    """一次性定型单条消息（skill 注入/AskUserQuestion 的跨消息关联需持有
+    SdkMessageNormalizer 实例）。"""
     return SdkMessageNormalizer().normalize(message)
 
 
@@ -415,6 +564,20 @@ class EventLogStore:
             result = await session.execute(select(exists().where(AgentSessionEventLogEntry.session_id == session_id)))
             return bool(result.scalar())
 
+    async def last_entry(self, session_id: str) -> dict[str, Any] | None:
+        """尾条条目（interrupt 相邻去重的写入点检查用）。"""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(AgentSessionEventLogEntry.seq, AgentSessionEventLogEntry.payload)
+                .where(AgentSessionEventLogEntry.session_id == session_id)
+                .order_by(AgentSessionEventLogEntry.seq.desc())
+                .limit(1)
+            )
+            row = result.first()
+        if row is None:
+            return None
+        return {"seq": int(row.seq), **row.payload}
+
 
 class TranscriptReader(Protocol):
     """懒生成读取 transcript 的最小接口（SdkTranscriptAdapter 满足）。"""
@@ -471,7 +634,12 @@ class EventLogService:
                 if parent_tool_use_id:
                     message = {**message, "parent_tool_use_id": parent_tool_use_id}
                 try:
-                    entries.extend(normalizer.normalize(message))
+                    for entry in normalizer.normalize(message):
+                        # 相邻 interrupt 回显（SDK 回显 + 竞态副本）收敛为一条，
+                        # 与 live 写入点的尾检去重语义一致。
+                        if is_interrupt_entry(entry) and entries and is_interrupt_entry(entries[-1]):
+                            continue
+                        entries.append(entry)
                 except Exception:
                     # 容错：历史 transcript 跨版本演进，单条脏数据不应让整个旧
                     # 会话的历史记录懒生成失败。

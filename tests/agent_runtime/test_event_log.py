@@ -13,7 +13,9 @@ from server.agent_runtime.event_log import (
     EventLogService,
     EventLogStore,
     SdkMessageNormalizer,
+    build_interrupt_entry,
     build_user_entry,
+    is_interrupt_entry,
     normalize_sdk_message_to_entries,
 )
 
@@ -166,10 +168,244 @@ class TestNormalize:
         assert normalize_sdk_message_to_entries({"type": "system", "subtype": "compact_boundary"}) == []
 
     def test_plain_string_user_content(self):
-        entries = normalize_sdk_message_to_entries({"type": "user", "content": "[Request interrupted by user]"})
+        entries = normalize_sdk_message_to_entries({"type": "user", "content": "继续下一章"})
         assert len(entries) == 1
         assert entries[0]["type"] == "user"
-        assert entries[0]["content"] == [{"type": "text", "text": "[Request interrupted by user]"}]
+        assert entries[0]["content"] == [{"type": "text", "text": "继续下一章"}]
+
+
+# ---------------------------------------------------------------------------
+# 写入点定型 — interrupt / task 通知 XML / AskUserQuestion 答复
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeInterrupt:
+    def test_interrupt_echo_string_content_becomes_typed_entry(self):
+        entries = normalize_sdk_message_to_entries(
+            {
+                "type": "user",
+                "content": "[Request interrupted by user]",
+                "uuid": "i-1",
+                "timestamp": "2026-01-01T00:00:00Z",
+            }
+        )
+        assert entries == [
+            {"type": "system", "subtype": "interrupt", "uuid": "i-1", "timestamp": "2026-01-01T00:00:00Z"}
+        ]
+
+    def test_interrupt_echo_block_content_and_tool_use_variant(self):
+        entries = normalize_sdk_message_to_entries(
+            {
+                "type": "user",
+                "content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}],
+                "uuid": "i-2",
+            }
+        )
+        assert len(entries) == 1
+        assert entries[0]["type"] == "system"
+        assert entries[0]["subtype"] == "interrupt"
+        assert is_interrupt_entry(entries[0])
+
+    def test_interrupt_prefix_midway_is_not_interrupt(self):
+        """只有整条内容即中断回显才定型；正文中途出现同字样不误判。"""
+        entries = normalize_sdk_message_to_entries(
+            {"type": "user", "content": "日志里出现 [Request interrupted by user] 是什么意思"}
+        )
+        assert entries[0]["type"] == "user"
+
+    def test_build_interrupt_entry_shape(self):
+        entry = build_interrupt_entry()
+        assert entry["type"] == "system"
+        assert entry["subtype"] == "interrupt"
+        assert entry["uuid"]
+        assert entry["timestamp"]
+        assert is_interrupt_entry(entry)
+
+
+class TestNormalizeTaskNotificationXml:
+    XML = (
+        "<task-notification>\n<task-id>t9</task-id>\n<tool-use-id>tu-9</tool-use-id>\n"
+        "<output-file>/tmp/t9.output</output-file>\n<status>completed</status>\n"
+        "<summary>子任务完成</summary>\n</task-notification>"
+    )
+
+    def test_xml_user_message_becomes_typed_task_entry(self):
+        entries = normalize_sdk_message_to_entries(
+            {"type": "user", "content": self.XML, "uuid": "n-1", "timestamp": "2026-01-01T00:00:00Z"}
+        )
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["type"] == "system"
+        assert entry["subtype"] == "task_notification"
+        assert entry["task_id"] == "t9"
+        assert entry["tool_use_id"] == "tu-9"
+        assert entry["task_status"] == "completed"
+        assert entry["summary"] == "子任务完成"
+        assert entry["uuid"] == "n-1"
+
+    def test_xml_in_block_content_also_typed(self):
+        entries = normalize_sdk_message_to_entries(
+            {"type": "user", "content": [{"type": "text", "text": self.XML}], "uuid": "n-2"}
+        )
+        assert entries[0]["subtype"] == "task_notification"
+
+    def test_plain_user_text_not_misdetected(self):
+        entries = normalize_sdk_message_to_entries({"type": "user", "content": "帮我看看 task-notification 机制"})
+        assert entries[0]["type"] == "user"
+
+    def test_two_notifications_batched_in_one_message_both_typed(self):
+        """同一 tick 内两个后台任务的通知被批到一条消息时，两条都要保留成条目。"""
+        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子任务完成", "另一子任务完成")
+        entries = normalize_sdk_message_to_entries(
+            {"type": "user", "content": self.XML + "\n" + xml2, "uuid": "n-multi"}
+        )
+        assert len(entries) == 2
+        assert [e["task_id"] for e in entries] == ["t9", "t10"]
+        assert [e["subtype"] for e in entries] == ["task_notification", "task_notification"]
+        # 多条时 uuid 加序号后缀，避免与单条场景的 uuid 撞车
+        assert entries[0]["uuid"] == "n-multi-tn0"
+        assert entries[1]["uuid"] == "n-multi-tn1"
+
+    def test_two_notifications_without_base_uuid_get_distinct_uuids(self):
+        """消息本身没有 uuid 时，批量通知不能都退化成同一个 "None-tn{i}"——否则
+        与单条场景一样会在前端归并/查找时互相覆盖。"""
+        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子任务完成", "另一子任务完成")
+        entries = normalize_sdk_message_to_entries({"type": "user", "content": self.XML + "\n" + xml2})
+        assert len(entries) == 2
+        assert entries[0]["uuid"] != entries[1]["uuid"]
+        assert all(e["uuid"] for e in entries)
+
+
+class TestNormalizeQuestionAnswer:
+    def _ask_assistant(self, normalizer: SdkMessageNormalizer) -> None:
+        normalizer.normalize(
+            {
+                "type": "assistant",
+                "uuid": "a-q",
+                "content": [
+                    {"type": "text", "text": "先确认一下"},
+                    {
+                        "type": "tool_use",
+                        "id": "tu-q",
+                        "name": "AskUserQuestion",
+                        "input": {"questions": [{"question": "继续吗?", "options": [{"label": "继续"}]}]},
+                    },
+                ],
+            }
+        )
+
+    def test_question_tool_result_becomes_answer_entry_with_structured_answers(self):
+        normalizer = SdkMessageNormalizer()
+        self._ask_assistant(normalizer)
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "uuid": "u-ans",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu-q",
+                        "content": 'Your questions have been answered: "继续吗?"="继续".',
+                    }
+                ],
+                "tool_use_result": {"questions": [], "answers": {"继续吗?": "继续"}, "annotations": {}},
+            }
+        )
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["type"] == "user"
+        assert entry["subtype"] == "question_answer"
+        assert entry["tool_use_id"] == "tu-q"
+        assert entry["answers"] == {"继续吗?": "继续"}
+        assert entry["content"] == 'Your questions have been answered: "继续吗?"="继续".'
+        assert entry["is_error"] is False
+
+    def test_answer_without_structured_result_keeps_raw_content(self):
+        """旧 transcript 无 toolUseResult 时仍定型为答复条目，内容原样保留。"""
+        normalizer = SdkMessageNormalizer()
+        self._ask_assistant(normalizer)
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"}],
+            }
+        )
+        assert entries[0]["subtype"] == "question_answer"
+        assert entries[0].get("answers") is None
+        assert entries[0]["content"] == "answered"
+
+    def test_denied_question_marks_is_error(self):
+        normalizer = SdkMessageNormalizer()
+        self._ask_assistant(normalizer)
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tu-q",
+                        "content": "session interrupted by user",
+                        "is_error": True,
+                    }
+                ],
+            }
+        )
+        assert entries[0]["subtype"] == "question_answer"
+        assert entries[0]["is_error"] is True
+
+    def test_tool_result_without_registered_question_stays_generic(self):
+        normalizer = SdkMessageNormalizer()
+        entries = normalizer.normalize(
+            {"type": "user", "content": [{"type": "tool_result", "tool_use_id": "tu-x", "content": "ok"}]}
+        )
+        assert entries[0]["type"] == "tool_result"
+        assert "subtype" not in entries[0]
+
+    def test_mixed_tool_results_only_question_one_typed(self):
+        normalizer = SdkMessageNormalizer()
+        self._ask_assistant(normalizer)
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "tu-other", "content": "file.txt"},
+                    {"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"},
+                ],
+            }
+        )
+        assert [e["type"] for e in entries] == ["tool_result", "user"]
+        assert entries[1]["subtype"] == "question_answer"
+
+    def test_two_questions_batched_in_one_message_do_not_share_answers(self):
+        """并行两个 AskUserQuestion 的 tool_result 批进同一条消息时，消息级
+        tool_use_result 无法按 tool_use_id 拆分——宁可都回退原始文本，也不能把
+        同一份 answers 错配给两个问题。"""
+        normalizer = SdkMessageNormalizer()
+        normalizer.normalize(
+            {
+                "type": "assistant",
+                "uuid": "a-q2",
+                "content": [
+                    {"type": "tool_use", "id": "tu-q1", "name": "AskUserQuestion", "input": {"questions": []}},
+                    {"type": "tool_use", "id": "tu-q2", "name": "AskUserQuestion", "input": {"questions": []}},
+                ],
+            }
+        )
+        entries = normalizer.normalize(
+            {
+                "type": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "tu-q1", "content": "answered 1"},
+                    {"type": "tool_result", "tool_use_id": "tu-q2", "content": "answered 2"},
+                ],
+                "tool_use_result": {"questions": [], "answers": {"Q1?": "A"}, "annotations": {}},
+            }
+        )
+        assert [e["subtype"] for e in entries] == ["question_answer", "question_answer"]
+        assert entries[0]["answers"] is None
+        assert entries[1]["answers"] is None
+        assert entries[0]["content"] == "answered 1"
+        assert entries[1]["content"] == "answered 2"
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +660,14 @@ class TestEventLogStore:
         await log_store.append("s1", [{"type": "user", "uuid": "a"}])
         assert await log_store.has_entries("s1") is True
 
+    async def test_last_entry(self, log_store: EventLogStore):
+        assert await log_store.last_entry("s1") is None
+        await log_store.append("s1", [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
+        tail = await log_store.last_entry("s1")
+        assert tail is not None
+        assert tail["seq"] == 1
+        assert tail["uuid"] == "b"
+
     async def test_delete_entry_rolls_back_accepted_user_entry(self, log_store: EventLogStore):
         """受理失败补偿删除：条目连同幂等键一起消失，重试可重新受理。"""
         entry = build_user_entry([{"type": "text", "text": "hi"}])
@@ -549,6 +793,67 @@ class TestLazyBackfill:
 
         entries = await service.list_entries("session-with-poison", None)
         assert [e["uuid"] for e in entries] == ["u1", "u2"]
+
+    async def test_backfill_produces_typed_entries_for_interrupt_question_and_task(self, log_store: EventLogStore):
+        """懒生成重放与 live 写入点共用定型逻辑：三族事件产出同样的 typed 条目。"""
+        xml = (
+            "<task-notification>\n<task-id>t1</task-id>\n<tool-use-id>tu-t</tool-use-id>\n"
+            "<status>completed</status>\n<summary>done</summary>\n</task-notification>"
+        )
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "开始", "uuid": "u1"},
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tu-q",
+                            "name": "AskUserQuestion",
+                            "input": {"questions": [{"question": "继续吗?"}]},
+                        }
+                    ],
+                },
+                {
+                    "type": "user",
+                    "uuid": "u-ans",
+                    "content": [{"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"}],
+                    "tool_use_result": {"answers": {"继续吗?": "继续"}},
+                },
+                {"type": "user", "content": xml, "uuid": "n1"},
+                {"type": "user", "content": "[Request interrupted by user]", "uuid": "i1"},
+                {"type": "result", "subtype": "error_during_execution", "uuid": "r1"},
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", None)
+        assert [e["type"] for e in entries] == ["user", "assistant", "user", "system", "system"]
+        assert entries[2]["subtype"] == "question_answer"
+        assert entries[2]["answers"] == {"继续吗?": "继续"}
+        assert entries[3]["subtype"] == "task_notification"
+        assert entries[3]["task_id"] == "t1"
+        assert entries[4]["subtype"] == "interrupt"
+
+    async def test_backfill_collapses_adjacent_interrupt_echoes(self, log_store: EventLogStore):
+        """相邻 interrupt echo（SDK 回显 + 竞态副本）在写入点去重，只产出一条。"""
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "开始", "uuid": "u1"},
+                {"type": "user", "content": "[Request interrupted by user]", "uuid": "i1"},
+                {"type": "user", "content": "[Request interrupted by user for tool use]", "uuid": "i2"},
+                {"type": "user", "content": "再来一轮", "uuid": "u2"},
+                {"type": "user", "content": "[Request interrupted by user]", "uuid": "i3"},
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", None)
+        assert [e["type"] for e in entries] == ["user", "system", "user", "system"]
+        # 相邻两条回显收敛为一条；隔轮的新中断仍独立成条
+        assert entries[1]["subtype"] == "interrupt"
+        assert entries[3]["subtype"] == "interrupt"
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,16 @@ export interface SessionMeta {
 }
 
 export interface ContentBlock {
-  type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_invocation" | "task_progress" | "interrupt_notice" | "image";
+  type:
+    | "text"
+    | "thinking"
+    | "tool_use"
+    | "tool_result"
+    | "skill_invocation"
+    | "task_progress"
+    | "interrupt_notice"
+    | "question_answer"
+    | "image";
   text?: string;
   thinking?: string;
   id?: string;
@@ -46,6 +55,8 @@ export interface ContentBlock {
   summary?: string;
   task_status?: string;
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number };
+  // question_answer fields（AskUserQuestion 答复：问题 → 所选选项）
+  answers?: Record<string, string>;
 }
 
 export interface Turn {
@@ -77,10 +88,11 @@ export interface TimelineEntry {
   message_id?: string | null;
   /** subagent 消息标记：投影按 parent 归组为主时间线单一折叠卡片。 */
   parent_tool_use_id?: string;
-  // tool_result 条目字段
+  // tool_result / question_answer 条目字段
   tool_use_id?: string | null;
   is_error?: boolean;
-  // system 条目字段（task_* / skill_invocation 子类型）
+  // 写入点定型的子类型：system 条目为 task_* / interrupt / skill_invocation；
+  // user 条目为 question_answer
   subtype?: string;
   task_id?: string | null;
   description?: string;
@@ -90,6 +102,8 @@ export interface TimelineEntry {
   // system 条目字段（skill_invocation 子类型：只记名与入参）
   skill_name?: string | null;
   skill_args?: string | null;
+  // question_answer 条目字段（AskUserQuestion 答复的结构化答案）
+  answers?: Record<string, string> | null;
 }
 
 /** 服务端流式预览态快照（身份为 message_id，不入日志）。 */

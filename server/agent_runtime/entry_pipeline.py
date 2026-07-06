@@ -20,6 +20,8 @@ from server.agent_runtime.event_log import (
     ENTRY_TYPE_ASSISTANT,
     EventLogStore,
     SdkMessageNormalizer,
+    build_interrupt_entry,
+    is_interrupt_entry,
 )
 from server.agent_runtime.turn_schema import normalize_block
 
@@ -231,9 +233,13 @@ class SessionEntryPipeline:
         self._store = store
         self._session_id_provider = session_id_provider
         self._broadcast = broadcast
-        # 每会话一个定型器：跨消息关联（Skill tool_use → 注入消息）随会话存续
+        # 每会话一个定型器：跨消息关联（Skill tool_use → 注入消息；
+        # AskUserQuestion 提问登记 → 答复定型）随会话存续
         self._normalizer = SdkMessageNormalizer()
         self.draft = DraftAccumulator()
+        # interrupt 尾检去重的临界区：SDK 回显（inbox 任务）与终态路径的
+        # 合成中断（actor done 回调）可能并发写入，检查+插入必须互斥。
+        self._interrupt_lock = asyncio.Lock()
 
     async def handle_message(self, msg_dict: dict[str, Any]) -> None:
         """写入点入口。失败只记日志不打断会话——时间线的修复手段是重放重建。"""
@@ -263,6 +269,13 @@ class SessionEntryPipeline:
         if msg_type == "result":
             # 轮次终结：未被权威条目替换的 draft（中断/错误）随内存丢弃。
             self.draft.clear()
+            # 中断的结果是时间线事件：SDK 回显缺席时由 result 兜底定型，
+            # 尾检去重保证与已入日志的回显只留一条。须先于 log_turn_complete
+            # 广播，否则 entry 流在终态处断开、live 订阅者丢失中断条目。
+            if str(msg_dict.get("session_status") or "") == "interrupted":
+                appended = await self._append_interrupt_deduped(session_id, build_interrupt_entry())
+                for entry in appended:
+                    self._broadcast({"type": "log_entry", "session_id": session_id, "entry": entry})
             # 本轮全部条目已（按 inbox 串行序）落库并广播完毕的标记：entry 流
             # 以此产出终态，避免原始 result 广播抢在末条 log_entry 之前送达。
             self._broadcast({"type": "log_turn_complete", "session_id": session_id})
@@ -271,12 +284,35 @@ class SessionEntryPipeline:
         entries = self._normalizer.normalize(msg_dict)
         if not entries:
             return
-        appended = await self._append_with_retry(session_id, entries)
+        if len(entries) == 1 and is_interrupt_entry(entries[0]):
+            appended = await self._append_interrupt_deduped(session_id, entries[0])
+        else:
+            appended = await self._append_with_retry(session_id, entries)
         for entry in appended:
             self._broadcast({"type": "log_entry", "session_id": session_id, "entry": entry})
         for entry in appended:
             if entry.get("type") == ENTRY_TYPE_ASSISTANT and self.draft.clear_for_message(entry.get("message_id")):
                 break
+
+    async def append_interrupt(self) -> list[dict[str, Any]]:
+        """中断动作的直接写入点（终态路径：SDK 回显不再经 inbox 到达时补写）。
+
+        与 SDK 回显共用尾检去重——相邻 interrupt 竞态只产出一条条目。
+        """
+        session_id = self._session_id_provider()
+        if not session_id:
+            return []
+        appended = await self._append_interrupt_deduped(session_id, build_interrupt_entry())
+        for entry in appended:
+            self._broadcast({"type": "log_entry", "session_id": session_id, "entry": entry})
+        return appended
+
+    async def _append_interrupt_deduped(self, session_id: str, entry: dict[str, Any]) -> list[dict[str, Any]]:
+        async with self._interrupt_lock:
+            tail = await self._store.last_entry(session_id)
+            if tail is not None and is_interrupt_entry(tail):
+                return []
+            return await self._append_with_retry(session_id, [entry])
 
     async def _append_with_retry(self, session_id: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """有界重试落库：瞬时 DB 错误不至于在 append-only 日志上留下永久空洞。"""

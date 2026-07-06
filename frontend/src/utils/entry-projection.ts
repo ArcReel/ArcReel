@@ -1,10 +1,11 @@
 /**
  * 会话事件日志投影 — entries → Turn[] 纯函数。
  *
- * 日志条目已在服务端写入点定型（tool_result 独立条目、subagent 条目带
- * parent_tool_use_id、stream_event 不入日志），本模块只做渲染归组：
- * 连续 assistant 条目合并、tool_result 按 tool_use_id 回填、task/skill/
- * 中断等过渡期通用条目映射为既有渲染块。不做内容比对去重、不合成消息。
+ * 日志条目已在服务端写入点定型（tool_result 独立条目、interrupt / task 通知 /
+ * AskUserQuestion 答复为 typed 条目、subagent 条目带 parent_tool_use_id、
+ * stream_event 不入日志），本模块只做渲染归组：连续 assistant 条目合并、
+ * tool_result 按 tool_use_id 回填、task 按 task_id 就地更新。
+ * 不做内容嗅探、不做内容比对去重、不合成消息。
  */
 
 import type {
@@ -14,13 +15,6 @@ import type {
   TimelineEntry,
   Turn,
 } from "@/types";
-
-// ---------------------------------------------------------------------------
-// 过渡期通用条目识别（与后端 turn_grouper 同口径）
-// ---------------------------------------------------------------------------
-
-const INTERRUPT_ECHO_PREFIX = "[Request interrupted";
-const TASK_NOTIFICATION_RE = /<task-notification>\s*[\s\S]*?<\/task-notification>/;
 
 function entryBlocks(entry: TimelineEntry): ContentBlock[] {
   const content = entry.content;
@@ -34,35 +28,6 @@ function blocksText(blocks: ContentBlock[]): string {
     .filter((b) => b.type === "text")
     .map((b) => b.text ?? "")
     .join("\n");
-}
-
-function isInterruptEcho(blocks: ContentBlock[]): boolean {
-  if (blocks.length !== 1 || blocks[0].type !== "text") return false;
-  return (blocks[0].text ?? "").trim().startsWith(INTERRUPT_ECHO_PREFIX);
-}
-
-interface TaskNotificationInfo {
-  task_id: string;
-  tool_use_id: string;
-  status: string;
-  summary: string;
-}
-
-function extractTaskNotification(blocks: ContentBlock[]): TaskNotificationInfo | null {
-  const text = blocksText(blocks);
-  const match = TASK_NOTIFICATION_RE.exec(text);
-  if (!match) return null;
-  const xml = match[0];
-  const tag = (name: string): string => {
-    const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(xml);
-    return m ? m[1].trim() : "";
-  };
-  return {
-    task_id: tag("task-id"),
-    tool_use_id: tag("tool-use-id"),
-    status: tag("status"),
-    summary: tag("summary"),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -97,10 +62,13 @@ function findTaskBlock(turn: Turn | null, taskId: string): ContentBlock | null {
   return null;
 }
 
-function lastTurnIsInterruptNotice(turn: Turn | null): boolean {
-  if (!turn || turn.type !== "system") return false;
-  const blocks = turn.content;
-  return blocks.length > 0 && blocks[blocks.length - 1].type === "interrupt_notice";
+/** 在当前 assistant turn 中按 tool_use_id 定位 tool_use 块。 */
+function findToolUseBlockInTurn(turn: Turn | null, toolUseId: string): ContentBlock | null {
+  if (!turn || turn.type !== "assistant") return null;
+  for (const block of turn.content) {
+    if (block.type === "tool_use" && block.id === toolUseId) return block;
+  }
+  return null;
 }
 
 /** task_started 块对应的 Agent tool_use 已有 result 时推导为已完成。 */
@@ -335,6 +303,15 @@ function projectFlatEntries(entries: TimelineEntry[]): Turn[] {
         }
         continue;
       }
+      if (entry.subtype === "interrupt") {
+        startTurn({
+          type: "system",
+          content: [{ type: "interrupt_notice" }],
+          uuid: entry.uuid,
+          timestamp: entry.timestamp,
+        });
+        continue;
+      }
       if (entry.subtype !== "task_started" && entry.subtype !== "task_progress" && entry.subtype !== "task_notification") {
         continue;
       }
@@ -356,36 +333,38 @@ function projectFlatEntries(entries: TimelineEntry[]): Turn[] {
     }
 
     // entry.type === "user"
-    const blocks = entryBlocks(entry).map(cloneBlock);
-
-    if (isInterruptEcho(blocks)) {
-      if (lastTurnIsInterruptNotice(cursor.current)) continue;
+    if (entry.subtype === "question_answer") {
+      const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
+      const answers = entry.answers ?? undefined;
+      // 回填提问的 AskUserQuestion tool_use 块：结果状态不悬挂，问题卡可标记所选
+      const toolUse = entry.tool_use_id ? findToolUseBlockInTurn(cursor.current, entry.tool_use_id) : null;
+      if (toolUse) {
+        toolUse.result = resultText;
+        toolUse.is_error = Boolean(entry.is_error);
+        if (answers) toolUse.answers = { ...answers };
+      }
+      if (entry.is_error) {
+        // 被拒/中断的提问没有用户答复；无处回填时保留孤立结果块
+        if (!toolUse) {
+          attachSystemBlock(entry, {
+            type: "tool_result",
+            tool_use_id: entry.tool_use_id ?? undefined,
+            content: resultText,
+            is_error: true,
+          });
+        }
+        continue;
+      }
       startTurn({
-        type: "system",
-        content: [{ type: "interrupt_notice" }],
+        type: "user",
+        content: [{ type: "question_answer", answers, text: resultText }],
         uuid: entry.uuid,
         timestamp: entry.timestamp,
       });
       continue;
     }
 
-    const taskInfo = extractTaskNotification(blocks);
-    if (taskInfo) {
-      applyTaskBlock(
-        entry,
-        {
-          type: "task_progress",
-          task_id: taskInfo.task_id || undefined,
-          status: "task_notification",
-          description: "",
-          summary: taskInfo.summary || undefined,
-          task_status: taskInfo.status || undefined,
-          tool_use_id: taskInfo.tool_use_id || undefined,
-        },
-        Boolean(taskInfo.task_id),
-      );
-      continue;
-    }
+    const blocks = entryBlocks(entry).map(cloneBlock);
 
     startTurn({ type: "user", content: blocks, uuid: entry.uuid, timestamp: entry.timestamp });
   }

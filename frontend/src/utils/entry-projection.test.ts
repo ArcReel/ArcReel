@@ -67,14 +67,20 @@ describe("projectEntriesToTurns", () => {
     expect(block.is_error).toBe(true);
   });
 
-  it("converts interrupt echo into interrupt_notice system turn and dedups adjacent echoes", () => {
+  it("renders typed interrupt entries as interrupt_notice system turns", () => {
     const turns = projectEntriesToTurns([
       userEntry("做点什么"),
-      userEntry("[Request interrupted by user]"),
-      userEntry("[Request interrupted by user for tool use]"),
+      entry({ type: "system", subtype: "interrupt", uuid: "i-1", timestamp: "2026-01-01T00:00:00Z" }),
     ]);
     expect(turns.map((t) => t.type)).toEqual(["user", "system"]);
     expect(turns[1].content).toEqual([{ type: "interrupt_notice" }]);
+    expect(turns[1].uuid).toBe("i-1");
+  });
+
+  it("does not sniff interrupt echo text in user entries (typing happens at the write point)", () => {
+    const turns = projectEntriesToTurns([userEntry("[Request interrupted by user]")]);
+    expect(turns.map((t) => t.type)).toEqual(["user"]);
+    expect(turns[0].content[0].type).toBe("text");
   });
 
   it("maps system task entries to task_progress blocks and updates by task_id", () => {
@@ -98,20 +104,114 @@ describe("projectEntriesToTurns", () => {
     expect(taskBlocks[0].task_status).toBe("completed");
   });
 
-  it("parses task-notification XML user entries and updates the existing task block", () => {
-    const xml =
-      "<task-notification><task-id>t9</task-id><tool-use-id>tu-9</tool-use-id>" +
-      "<status>completed</status><summary>子任务完成</summary></task-notification>";
+  it("updates the existing task block in place from a typed task_notification entry (no duplicate bubble)", () => {
+    // 写入点已把 task 通知 XML 定型为 system 条目——SDK 双通道（typed 系统
+    // 消息 + 注入用户消息）产生的两条 typed 条目按 task_id 就地合并。
     const turns = projectEntriesToTurns([
       entry({ type: "assistant", content: [{ type: "text", text: "spawn" }], uuid: "a-1" }),
       entry({ type: "system", subtype: "task_started", task_id: "t9", description: "d", uuid: "s-1" }),
-      userEntry(xml),
+      entry({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "t9",
+        summary: "子任务完成",
+        task_status: "completed",
+        tool_use_id: "tu-9",
+        uuid: "s-2",
+      }),
+      entry({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "t9",
+        summary: "子任务完成",
+        task_status: "completed",
+        tool_use_id: "tu-9",
+        uuid: "n-1",
+      }),
     ]);
     expect(turns).toHaveLength(1);
     const taskBlocks = turns[0].content.filter((b) => b.type === "task_progress");
     expect(taskBlocks).toHaveLength(1);
     expect(taskBlocks[0].summary).toBe("子任务完成");
     expect(taskBlocks[0].task_status).toBe("completed");
+  });
+
+  it("does not sniff task-notification XML in user entries (typing happens at the write point)", () => {
+    const xml =
+      "<task-notification><task-id>t9</task-id><tool-use-id>tu-9</tool-use-id>" +
+      "<status>completed</status><summary>done</summary></task-notification>";
+    const turns = projectEntriesToTurns([userEntry(xml)]);
+    expect(turns.map((t) => t.type)).toEqual(["user"]);
+  });
+
+  it("backfills question_answer into the AskUserQuestion tool_use and emits a user answer turn", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-q", name: "AskUserQuestion", input: { questions: [] } }],
+        uuid: "a-1",
+      }),
+      entry({
+        type: "user",
+        subtype: "question_answer",
+        tool_use_id: "tu-q",
+        content: 'Your questions have been answered: "继续吗?"="继续".',
+        is_error: false,
+        answers: { "继续吗?": "继续" },
+        uuid: "qa-1",
+      }),
+      entry({ type: "assistant", content: [{ type: "text", text: "好的，继续" }], uuid: "a-2" }),
+    ]);
+    expect(turns.map((t) => t.type)).toEqual(["assistant", "user", "assistant"]);
+    // 提问的 tool_use 块获得结果回填（状态不再悬挂）
+    const toolUse = turns[0].content[0];
+    expect(toolUse.result).toContain("answered");
+    expect(toolUse.is_error).toBe(false);
+    expect(toolUse.answers).toEqual({ "继续吗?": "继续" });
+    // 答复自成用户侧条目
+    expect(turns[1].content[0].type).toBe("question_answer");
+    expect(turns[1].content[0].answers).toEqual({ "继续吗?": "继续" });
+  });
+
+  it("question_answer without structured answers still emits an answer turn with raw text", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-q", name: "AskUserQuestion", input: {} }],
+        uuid: "a-1",
+      }),
+      entry({
+        type: "user",
+        subtype: "question_answer",
+        tool_use_id: "tu-q",
+        content: "answered",
+        is_error: false,
+        uuid: "qa-1",
+      }),
+    ]);
+    expect(turns.map((t) => t.type)).toEqual(["assistant", "user"]);
+    expect(turns[1].content[0].type).toBe("question_answer");
+    expect(turns[1].content[0].text).toBe("answered");
+  });
+
+  it("denied question_answer backfills the tool_use as error without an answer turn", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-q", name: "AskUserQuestion", input: {} }],
+        uuid: "a-1",
+      }),
+      entry({
+        type: "user",
+        subtype: "question_answer",
+        tool_use_id: "tu-q",
+        content: "session interrupted by user",
+        is_error: true,
+        uuid: "qa-1",
+      }),
+    ]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].content[0].is_error).toBe(true);
   });
 
   it("skips skill_invocation entries anchored to a Skill tool_use in the current turn", () => {
