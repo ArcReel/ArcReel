@@ -118,6 +118,7 @@ async def _wait_for_status(manager: SessionManager, session_id: str, status: str
         if managed is not None and managed.status == status:
             return
         await asyncio.sleep(0.02)
+    raise AssertionError(f"session {session_id} did not reach status {status!r} within {timeout}s")
 
 
 class _InterruptingClient(FakeSDKClient):
@@ -214,7 +215,7 @@ class TestNewSessionEventLogFlow:
                 user_entry=build_user_entry([{"type": "text", "text": "写分镜"}]),
                 client_key="ck-int",
             )
-            await asyncio.sleep(0.05)  # 让 query 进入 drain
+            await _wait_for_status(manager, SDK_ID, "running")  # 让 query 进入 drain
             await manager.interrupt_session(SDK_ID)
 
         try:
@@ -247,7 +248,7 @@ class TestNewSessionEventLogFlow:
                 user_entry=build_user_entry([{"type": "text", "text": "写分镜"}]),
                 client_key="ck-int2",
             )
-            await asyncio.sleep(0.05)
+            await _wait_for_status(manager, SDK_ID, "running")
             await manager.interrupt_session(SDK_ID)
 
         try:
