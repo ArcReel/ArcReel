@@ -214,6 +214,33 @@ describe("projectEntriesToTurns", () => {
     expect(turns[0].content[0].is_error).toBe(true);
   });
 
+  it("backfills question_answer onto the AskUserQuestion tool_use even when an interrupt entry flushed the turn first", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-q", name: "AskUserQuestion", input: { questions: [] } }],
+        uuid: "a-1",
+      }),
+      entry({ type: "system", subtype: "interrupt", uuid: "i-1" }),
+      entry({
+        type: "user",
+        subtype: "question_answer",
+        tool_use_id: "tu-q",
+        content: 'Your questions have been answered: "继续吗?"="继续".',
+        is_error: false,
+        answers: { "继续吗?": "继续" },
+        uuid: "qa-1",
+      }),
+    ]);
+    expect(turns.map((t) => t.type)).toEqual(["assistant", "system", "user"]);
+    // 锚点 tool_use 已被 interrupt 提前 flush 到前一个 turn，回填仍要跨 turn 找到它
+    const toolUse = turns[0].content[0];
+    expect(toolUse.result).toContain("answered");
+    expect(toolUse.is_error).toBe(false);
+    expect(toolUse.answers).toEqual({ "继续吗?": "继续" });
+    expect(turns[2].content[0].type).toBe("question_answer");
+  });
+
   it("skips skill_invocation entries anchored to a Skill tool_use in the current turn", () => {
     const turns = projectEntriesToTurns([
       entry({

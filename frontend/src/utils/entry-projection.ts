@@ -336,8 +336,12 @@ function projectFlatEntries(entries: TimelineEntry[]): Turn[] {
     if (entry.subtype === "question_answer") {
       const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
       const answers = entry.answers ?? undefined;
-      // 回填提问的 AskUserQuestion tool_use 块：结果状态不悬挂，问题卡可标记所选
-      const toolUse = entry.tool_use_id ? findToolUseBlockInTurn(cursor.current, entry.tool_use_id) : null;
+      // 回填提问的 AskUserQuestion tool_use 块：结果状态不悬挂，问题卡可标记所选。
+      // 先查当前 turn（常见路径），未命中时退回已 flush 的 turns——pending 提问期间
+      // 若有 interrupt 之类的条目提前把该 turn flush 出去，锚点仍要能跨 turn 找回。
+      const toolUse = entry.tool_use_id
+        ? (findToolUseBlockInTurn(cursor.current, entry.tool_use_id) ?? findToolUseBlock(turns, entry.tool_use_id))
+        : null;
       if (toolUse) {
         toolUse.result = resultText;
         toolUse.is_error = Boolean(entry.is_error);
