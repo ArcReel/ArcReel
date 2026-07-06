@@ -328,8 +328,6 @@ class TestLazyBackfill:
 
     async def test_backfill_skips_message_that_fails_normalization(self, log_store: EventLogStore, monkeypatch):
         """历史消息规范化单条抛异常时容错跳过，不让整个懒生成因一条脏数据失败。"""
-        import server.agent_runtime.event_log as event_log_module
-
         adapter = _FakeAdapter(
             [
                 {"type": "user", "content": "ok-1", "uuid": "u1", "timestamp": "2026-01-01T00:00:00Z"},
@@ -339,14 +337,12 @@ class TestLazyBackfill:
         )
         service = EventLogService(log_store, adapter)
 
-        original = event_log_module.normalize_sdk_message_to_entries
-
         def _boom_on_poison(message):
             if message.get("uuid") == "poison":
                 raise ValueError("boom")
-            return original(message)
+            return normalize_sdk_message_to_entries(message)
 
-        monkeypatch.setattr(event_log_module, "normalize_sdk_message_to_entries", _boom_on_poison)
+        monkeypatch.setattr("server.agent_runtime.event_log.normalize_sdk_message_to_entries", _boom_on_poison)
 
         entries = await service.list_entries("session-with-poison", None)
         assert [e["uuid"] for e in entries] == ["u1", "u2"]
