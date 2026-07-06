@@ -171,36 +171,50 @@ class SdkTranscriptAdapter:
                 exc_info=True,
             )
             return {}
-        timelines: dict[str, list[dict[str, Any]]] = {}
-        for agent_id in agent_ids:
-            tool_use_id = anchors.get(agent_id)
-            if not tool_use_id:
-                logger.debug("Subagent %s has no Task tool_use anchor; skipped", agent_id)
-                continue
-            try:
-                messages = await get_subagent_messages_from_store(
-                    self._store,
-                    sdk_session_id,
-                    agent_id,
-                    directory=self._coerce_cwd(project_cwd),
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to read subagent %s messages for session %s",
-                    agent_id,
-                    sdk_session_id,
-                    exc_info=True,
-                )
-                continue
-            if not messages:
-                continue
-            ts_map = await self._load_timestamps_from_store(
-                sdk_session_id,
-                project_cwd,
-                subpath=f"subagents/agent-{agent_id}",
+        # 各 subagent 的 store 读取相互独立，并发拉取避免 N 个 subagent 时
+        # 冷读路径按 N 次网络/磁盘往返的延迟串行叠加。
+        results = await asyncio.gather(
+            *(
+                self._read_one_subagent_timeline(sdk_session_id, project_cwd, agent_id, anchors.get(agent_id))
+                for agent_id in agent_ids
             )
-            timelines[tool_use_id] = [self._adapt(msg, ts_map) for msg in messages]
-        return timelines
+        )
+        return {tool_use_id: messages for tool_use_id, messages in results if tool_use_id and messages}
+
+    async def _read_one_subagent_timeline(
+        self,
+        sdk_session_id: str,
+        project_cwd: Path | str | None,
+        agent_id: str,
+        tool_use_id: str | None,
+    ) -> tuple[str | None, list[dict[str, Any]] | None]:
+        """读取单个 subagent 的子时间线；无锚点或读取失败时返回 (None, None)。"""
+        if not tool_use_id:
+            logger.debug("Subagent %s has no Task tool_use anchor; skipped", agent_id)
+            return None, None
+        try:
+            messages = await get_subagent_messages_from_store(
+                self._store,
+                sdk_session_id,
+                agent_id,
+                directory=self._coerce_cwd(project_cwd),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to read subagent %s messages for session %s",
+                agent_id,
+                sdk_session_id,
+                exc_info=True,
+            )
+            return None, None
+        if not messages:
+            return None, None
+        ts_map = await self._load_timestamps_from_store(
+            sdk_session_id,
+            project_cwd,
+            subpath=f"subagents/agent-{agent_id}",
+        )
+        return tool_use_id, [self._adapt(msg, ts_map) for msg in messages]
 
     async def _load_agent_anchors(
         self,

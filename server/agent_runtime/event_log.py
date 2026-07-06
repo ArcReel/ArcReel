@@ -118,8 +118,10 @@ class SdkMessageNormalizer:
     """
 
     def __init__(self) -> None:
-        # 上下文 → 最近一次未被注入消息消费的 Skill tool_use 元数据
-        self._pending_skills: dict[str | None, dict[str, Any]] = {}
+        # 上下文 → 未被注入消息消费的 Skill tool_use 元数据队列（FIFO）。
+        # 同一上下文可能并发发起多个 Skill 调用（同一 assistant 消息内多个
+        # tool_use 块），按调用顺序逐一消费，避免后一个覆盖前一个。
+        self._pending_skills: dict[str | None, list[dict[str, Any]]] = {}
 
     def normalize(self, message: Any) -> list[dict[str, Any]]:
         if not isinstance(message, dict):
@@ -209,7 +211,10 @@ class SdkMessageNormalizer:
         index: int,
         parent: str | None,
     ) -> dict[str, Any]:
-        pending = self._pending_skills.pop(parent, None) or {}
+        queue = self._pending_skills.get(parent)
+        pending = queue.pop(0) if queue else {}
+        if queue is not None and not queue:
+            self._pending_skills.pop(parent, None)
         entry: dict[str, Any] = {
             "type": ENTRY_TYPE_SYSTEM,
             "subtype": SYSTEM_SUBTYPE_SKILL_INVOCATION,
@@ -232,11 +237,13 @@ class SdkMessageNormalizer:
             input_data: dict[str, Any] = raw_input if isinstance(raw_input, dict) else {}
             name = input_data.get("skill") or input_data.get("name")
             args = input_data.get("args")
-            self._pending_skills[parent] = {
-                "tool_use_id": block.get("id"),
-                "name": name if isinstance(name, str) and name else None,
-                "args": args if isinstance(args, str) and args else None,
-            }
+            self._pending_skills.setdefault(parent, []).append(
+                {
+                    "tool_use_id": block.get("id"),
+                    "name": name if isinstance(name, str) and name else None,
+                    "args": args if isinstance(args, str) and args else None,
+                }
+            )
 
 
 def normalize_sdk_message_to_entries(message: Any) -> list[dict[str, Any]]:

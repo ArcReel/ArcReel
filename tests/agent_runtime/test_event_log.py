@@ -257,6 +257,25 @@ class TestSkillInvocationTyping:
         assert first[0]["tool_use_id"] == "tu-1"
         assert second[0]["tool_use_id"] is None
 
+    def test_concurrent_skill_calls_in_one_message_consumed_in_order(self):
+        """同一 assistant 消息内并发发起两个 Skill 调用：按调用顺序逐一消费，不覆盖。"""
+        normalizer = SdkMessageNormalizer()
+        normalizer.normalize(
+            {
+                "type": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "tu-a", "name": "Skill", "input": {"skill": "skill-a"}},
+                    {"type": "tool_use", "id": "tu-b", "name": "Skill", "input": {"skill": "skill-b"}},
+                ],
+            }
+        )
+        first = normalizer.normalize({"type": "user", "content": [{"type": "text", "text": "Skill content: A"}]})
+        second = normalizer.normalize({"type": "user", "content": [{"type": "text", "text": "Skill content: B"}]})
+        assert first[0]["skill_name"] == "skill-a"
+        assert first[0]["tool_use_id"] == "tu-a"
+        assert second[0]["skill_name"] == "skill-b"
+        assert second[0]["tool_use_id"] == "tu-b"
+
     def test_skill_state_keyed_by_parent_context(self):
         """主线与 subagent 消息在 live 流中交错：skill 关联互不串扰。"""
         normalizer = SdkMessageNormalizer()

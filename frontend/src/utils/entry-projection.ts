@@ -187,8 +187,13 @@ export function mergeEntriesBySeq(
 
 /**
  * 按 parent_tool_use_id 归组 subagent 条目并投影为子时间线：
- * 子组递归投影为 Turn[]，挂到主时间线锚点 tool_use 块的 sub_turns；
+ * 子组递归投影为 Turn[]，挂到锚点 tool_use 块的 sub_turns；
  * 主时间线只保留单一卡片锚点，不平铺 subagent 内部消息。
+ *
+ * 锚点可能落在主时间线，也可能落在另一子组自己的子时间线内——subagent
+ * 自身再起 subagent 时，内层子组的锚点 tool_use 只存在于外层子组的
+ * 子时间线中。因此锚点定位在“主时间线 ∪ 全部子组”范围内查找，不限于
+ * 主时间线；子组各自独立投影、互不依赖顺序，任意嵌套深度一次收敛。
  */
 export function projectEntriesToTurns(entries: TimelineEntry[]): Turn[] {
   const subgroups = new Map<string, TimelineEntry[]>();
@@ -208,13 +213,23 @@ export function projectEntriesToTurns(entries: TimelineEntry[]): Turn[] {
 
   const turns = projectFlatEntries(mainEntries);
 
+  // 先独立投影并折叠每个子组自身的 task 进度，再统一定位锚点：折叠结果
+  // 与锚点搜索空间的构建互不依赖，任意处理顺序都收敛到同一结果。
+  const subTurnsByParent = new Map<string, Turn[]>();
   for (const [parentId, group] of subgroups) {
     const subTurns = projectFlatEntries(group.map(({ parent_tool_use_id: _omit, ...rest }) => rest));
-    const anchor = findToolUseBlock(turns, parentId);
+    resolveStaleTaskBlocks(subTurns);
+    foldTaskBlocksIntoAnchors(subTurns);
+    subTurnsByParent.set(parentId, subTurns);
+  }
+
+  const searchSpace = [turns, ...subTurnsByParent.values()];
+  for (const [parentId, subTurns] of subTurnsByParent) {
+    const anchor = findAnchorAcross(searchSpace, parentId);
     if (anchor) {
       anchor.sub_turns = subTurns;
     } else {
-      // 主线缺失锚点 tool_use（如懒生成残余组）：以合成锚点独立成卡，不丢子时间线
+      // 全局仍无锚点（如懒生成残余组）：以合成锚点独立成卡，不丢子时间线
       turns.push({
         type: "system",
         content: [{ type: "tool_use", id: parentId, name: "Agent", input: {}, sub_turns: subTurns }],
@@ -226,6 +241,14 @@ export function projectEntriesToTurns(entries: TimelineEntry[]): Turn[] {
   resolveStaleTaskBlocks(turns);
   foldTaskBlocksIntoAnchors(turns);
   return turns;
+}
+
+function findAnchorAcross(turnsList: Turn[][], toolUseId: string): ContentBlock | null {
+  for (const turns of turnsList) {
+    const found = findToolUseBlock(turns, toolUseId);
+    if (found) return found;
+  }
+  return null;
 }
 
 function projectFlatEntries(entries: TimelineEntry[]): Turn[] {

@@ -197,6 +197,77 @@ describe("projectEntriesToTurns", () => {
     expect(card.sub_turns?.[0].content[0].text).toBe("孤儿子时间线");
   });
 
+  it("anchors a nested subagent (subagent launching its own subagent) inside the outer sub-timeline, not as a duplicate top-level card", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-outer", name: "Agent", input: { description: "外层任务" } }],
+        uuid: "a-1",
+      }),
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-inner", name: "Agent", input: { description: "内层任务" } }],
+        uuid: "a-2",
+        parent_tool_use_id: "tu-outer",
+      }),
+      entry({
+        type: "assistant",
+        content: [{ type: "text", text: "内层子任务回复" }],
+        uuid: "a-3",
+        parent_tool_use_id: "tu-inner",
+      }),
+    ]);
+    // 主时间线只有外层卡片，内层锚点在外层的子时间线内部，不重复出现在顶层
+    expect(turns).toHaveLength(1);
+    const outerAnchor = turns[0].content[0];
+    expect(outerAnchor.id).toBe("tu-outer");
+    expect(outerAnchor.sub_turns).toHaveLength(1);
+    const innerAnchor = outerAnchor.sub_turns?.[0].content[0];
+    expect(innerAnchor?.type).toBe("tool_use");
+    expect(innerAnchor?.id).toBe("tu-inner");
+    expect(innerAnchor?.sub_turns?.[0].content[0].text).toBe("内层子任务回复");
+  });
+
+  it("folds task_progress blocks scoped inside a subagent's own sub-timeline into its nested anchor", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-agent", name: "Agent", input: { description: "外层任务" } }],
+        uuid: "a-1",
+      }),
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-nested", name: "Agent", input: { description: "内层任务" } }],
+        uuid: "a-2",
+        parent_tool_use_id: "tu-agent",
+      }),
+      entry({
+        type: "system",
+        subtype: "task_started",
+        task_id: "t1",
+        tool_use_id: "tu-nested",
+        description: "内层任务",
+        uuid: "s-1",
+        parent_tool_use_id: "tu-agent",
+      }),
+      entry({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "t1",
+        tool_use_id: "tu-nested",
+        usage: { total_tokens: 7 },
+        uuid: "s-2",
+        parent_tool_use_id: "tu-agent",
+      }),
+    ]);
+    const outerAnchor = turns[0].content[0];
+    const subTimeline = outerAnchor.sub_turns?.[0];
+    // 子时间线内部的进度同样折叠进锚点，不留下独立 task_progress 行
+    expect(subTimeline?.content.filter((b) => b.type === "task_progress")).toHaveLength(0);
+    const nestedAnchor = subTimeline?.content[0];
+    expect(nestedAnchor?.task_info?.usage?.total_tokens).toBe(7);
+  });
+
   it("folds task_progress blocks into the anchoring tool_use as task_info", () => {
     const turns = projectEntriesToTurns([
       entry({

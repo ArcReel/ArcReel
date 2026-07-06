@@ -280,6 +280,62 @@ class TestSubagentTimelines:
 
         assert result == {}
 
+    async def test_concurrent_agents_resolved_independently_one_failure_does_not_drop_others(self):
+        """多个 subagent 并发读取：各自独立解析，一个读取失败不影响其余结果。"""
+        payloads = [
+            {
+                "type": "user",
+                "uuid": "uuid-anchor-1",
+                "timestamp": "2026-05-01T00:00:10Z",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "报告1"}],
+                },
+                "toolUseResult": {"status": "completed", "agentId": "agent-1"},
+            },
+            {
+                "type": "user",
+                "uuid": "uuid-anchor-2",
+                "timestamp": "2026-05-01T00:00:20Z",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "toolu_2", "content": "报告2"}],
+                },
+                "toolUseResult": {"status": "completed", "agentId": "agent-2"},
+            },
+        ]
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(return_value=payloads)
+
+        def _sub_msg(uuid: str) -> MagicMock:
+            mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+            mock_msg.type = "assistant"
+            mock_msg.message = {"content": [{"type": "text", "text": uuid}]}
+            mock_msg.uuid = uuid
+            mock_msg.parent_tool_use_id = None
+            return mock_msg
+
+        async def _get_subagent_messages(store, session_id, agent_id, directory=None):
+            if agent_id == "agent-1":
+                return [_sub_msg("sub-1")]
+            raise RuntimeError("boom")
+
+        with (
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.list_subagents_from_store",
+                new=AsyncMock(return_value=["agent-1", "agent-2"]),
+            ),
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.get_subagent_messages_from_store",
+                new=_get_subagent_messages,
+            ),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_subagent_timelines("sdk-session", project_cwd="/tmp/proj")
+
+        assert set(result.keys()) == {"toolu_1"}
+        assert result["toolu_1"][0]["uuid"] == "sub-1"
+
     async def test_legacy_filesystem_path_degrades_to_empty(self):
         """文件系统回退（无 store）：公开读取接口不携带锚定元数据，降级为不合并。"""
         adapter = SdkTranscriptAdapter()
