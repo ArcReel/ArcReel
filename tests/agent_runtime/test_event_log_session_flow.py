@@ -204,3 +204,91 @@ class TestNewSessionEventLogFlow:
             assert len(entries) == 1
         finally:
             await manager.close_session(SDK_ID)
+
+    async def test_retry_while_running_returns_idempotent_success(self, manager: SessionManager):
+        """受理成功但响应丢失、轮次仍在运行时，同幂等键重试得到条目而非 400。"""
+        meta = await manager.meta_store.create("demo", SDK_ID)
+        client = FakeSDKClient(messages=[{"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"}])
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            first = await manager.send_message(
+                SDK_ID,
+                "继续",
+                meta=meta,
+                user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
+                client_key="ck-run",
+            )
+            try:
+                assert first is not None
+                manager.sessions[SDK_ID].status = "running"  # 模拟轮次仍在执行
+
+                retry = await manager.send_message(
+                    SDK_ID,
+                    "继续",
+                    meta=meta,
+                    user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
+                    client_key="ck-run",
+                )
+                assert retry is not None
+                assert retry["seq"] == first["seq"]
+                assert client.sent_queries == ["继续"]  # 未重复投递
+            finally:
+                await manager.close_session(SDK_ID)
+
+    async def test_send_query_failure_rolls_back_entry_and_retry_delivers(self, manager: SessionManager):
+        """投递失败即受理失败：条目补偿删除，同幂等键重试重新受理并送达 SDK。"""
+        meta = await manager.meta_store.create("demo", SDK_ID)
+
+        class _FlakyQueryClient(FakeSDKClient):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.fail_next_query = True
+
+            async def query(self, prompt, session_id: str = "default") -> None:
+                if self.fail_next_query:
+                    self.fail_next_query = False
+                    raise RuntimeError("transport down")
+                await super().query(prompt, session_id)
+
+        client = _FlakyQueryClient(
+            messages=[{"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"}]
+        )
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            with pytest.raises(RuntimeError):
+                await manager.send_message(
+                    SDK_ID,
+                    "继续",
+                    meta=meta,
+                    user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
+                    client_key="ck-fail",
+                )
+            try:
+                # 受理条目已回滚，日志无残留
+                assert await manager.event_log_store.list_after(SDK_ID) == []
+
+                # actor 已随失败退出；关闭会话模拟冷恢复后重试
+                await manager.close_session(SDK_ID)
+                retry = await manager.send_message(
+                    SDK_ID,
+                    "继续",
+                    meta=meta,
+                    user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
+                    client_key="ck-fail",
+                )
+                # 重试重新受理（seq 重新分配）且真正送达 SDK
+                assert retry is not None
+                assert retry["seq"] == 0
+                assert client.sent_queries == ["继续"]
+            finally:
+                await manager.close_session(SDK_ID)

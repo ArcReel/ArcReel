@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import json
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -19,10 +21,34 @@ from server.agent_runtime.event_log import (
     EventLogStore,
     normalize_sdk_message_to_entries,
 )
-from server.agent_runtime.stream_projector import _coerce_index, _safe_json_parse
 from server.agent_runtime.turn_schema import normalize_block
 
 logger = logging.getLogger(__name__)
+
+# 落库瞬时失败（SQLite busy / 连接抖动）的有界重试；重试耗尽才放弃该条目。
+_APPEND_ATTEMPTS = 3
+_APPEND_RETRY_BASE_S = 0.05
+
+
+def _coerce_index(value: Any) -> int | None:
+    """Normalize stream event block index."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit():
+            return int(stripped)
+    return None
+
+
+def _safe_json_parse(value: str) -> Any | None:
+    """Parse JSON string and return None when incomplete/invalid."""
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
 
 
 class DraftAccumulator:
@@ -56,12 +82,18 @@ class DraftAccumulator:
             message_id = raw_message.get("id") if isinstance(raw_message, dict) else None
             self._reset_blocks()
             self._message_id = str(message_id) if message_id else None
-            self._parent_tool_use_id = message.get("parent_tool_use_id")
+            self._parent_tool_use_id = message.get("parent_tool_use_id") or None
             return None
 
         if self._message_id is None:
             # 无身份的孤儿事件（message_start 缺失）：draft 契约以 message_id
             # 为身份，无法归属的增量不进入预览态。
+            return None
+
+        if (message.get("parent_tool_use_id") or None) != self._parent_tool_use_id:
+            # 并行流式（多 subagent）交错：预览态是单槽结构，取最近一次
+            # message_start 的消息；其它流的增量按 parent 归属过滤丢弃，
+            # 避免拼进错误消息的草稿。被丢弃流的完整内容随权威条目落库。
             return None
 
         if event_type == "content_block_start":
@@ -133,7 +165,11 @@ class DraftAccumulator:
         self._parent_tool_use_id = None
 
     def snapshot(self) -> dict[str, Any] | None:
-        """重连首帧快照：当前累积态（无活跃 draft 时为 None）。"""
+        """重连首帧快照：当前累积态（无活跃 draft 时为 None）。
+
+        ``tool_json`` 携带各 tool_use 块已累积的原始 partial JSON——重连客户端
+        以此为前缀继续拼接后续 input_json_delta，否则纯后缀永远解析失败。
+        """
         if self._message_id is None or not self._blocks:
             return None
         ordered = [copy.deepcopy(self._blocks[index]) for index in sorted(self._blocks)]
@@ -142,6 +178,7 @@ class DraftAccumulator:
             "parent_tool_use_id": self._parent_tool_use_id,
             "content": ordered,
             "rev": self._rev,
+            "tool_json": dict(self._tool_input_json),
         }
 
     def _reset_blocks(self) -> None:
@@ -224,14 +261,28 @@ class SessionEntryPipeline:
         if msg_type == "result":
             # 轮次终结：未被权威条目替换的 draft（中断/错误）随内存丢弃。
             self.draft.clear()
+            # 本轮全部条目已（按 inbox 串行序）落库并广播完毕的标记：entry 流
+            # 以此产出终态，避免原始 result 广播抢在末条 log_entry 之前送达。
+            self._broadcast({"type": "log_turn_complete", "session_id": session_id})
             return
 
         entries = normalize_sdk_message_to_entries(msg_dict)
         if not entries:
             return
-        appended = await self._store.append(session_id, entries)
+        appended = await self._append_with_retry(session_id, entries)
         for entry in appended:
             self._broadcast({"type": "log_entry", "session_id": session_id, "entry": entry})
         for entry in appended:
             if entry.get("type") == ENTRY_TYPE_ASSISTANT and self.draft.clear_for_message(entry.get("message_id")):
                 break
+
+    async def _append_with_retry(self, session_id: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """有界重试落库：瞬时 DB 错误不至于在 append-only 日志上留下永久空洞。"""
+        for attempt in range(_APPEND_ATTEMPTS):
+            try:
+                return await self._store.append(session_id, entries)
+            except Exception:
+                if attempt == _APPEND_ATTEMPTS - 1:
+                    raise
+                await asyncio.sleep(_APPEND_RETRY_BASE_S * (attempt + 1))
+        raise RuntimeError("unreachable")  # pragma: no cover

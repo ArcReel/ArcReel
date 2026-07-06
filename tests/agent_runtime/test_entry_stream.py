@@ -145,6 +145,7 @@ class TestStreamEntryEvents:
             }
         )
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
+        manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID, after_seq=-1)]
 
@@ -172,11 +173,36 @@ class TestStreamEntryEvents:
             [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}, {"type": "tool_result", "uuid": "c"}],
         )
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
+        manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID, after_seq=1)]
 
         entry_events = [e for e in events if e[0] == "entry"]
         assert [e[2] for e in entry_events] == ["2"]
+
+    async def test_final_entry_after_raw_result_still_delivered(self, entry_service):
+        """末条 log_entry 晚于原始 result 广播到达（inbox 落库延迟）时仍须送达。
+
+        终态由 log_turn_complete 触发，不在原始 result 处提前终结。
+        """
+        service, store = entry_service
+        manager = _FakeEntrySessionManager(status="running")
+        service.session_manager = manager
+        await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}])
+
+        # actor 回调先广播原始 result，末条 assistant 的 log_entry 随后才到
+        manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
+        manager.queue.put_nowait(
+            {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
+        )
+        manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+
+        events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
+
+        names = [name for name, _, _ in events]
+        assert names[-2:] == ["entry", "status"]
+        assert [e[2] for e in events if e[0] == "entry"] == ["0", "1"]
+        assert events[-1][1]["status"] == "completed"
 
     async def test_pending_questions_replayed_on_subscribe(self, entry_service):
         service, store = entry_service
@@ -184,6 +210,7 @@ class TestStreamEntryEvents:
         manager = _FakeEntrySessionManager(status="running", pending=[question])
         service.session_manager = manager
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
+        manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 

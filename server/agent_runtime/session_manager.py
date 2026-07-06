@@ -164,7 +164,7 @@ class ManagedSession:
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
     # Message types that must never be silently dropped from subscriber queues.
-    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant", "log_entry"}
+    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant", "log_entry", "log_turn_complete"}
     # Transient types that are evicted first when buffer is full.
     _TRANSIENT_BUFFER_TYPES = {"stream_event"}
 
@@ -859,6 +859,14 @@ class SessionManager:
         """
         managed = await self.get_or_connect(session_id, meta=meta, locale=locale)
         managed.last_activity = time.monotonic()
+
+        # 幂等预检先于 running 拦截：受理已成功（响应在网络层丢失）的重试
+        # 应得到幂等成功响应，而非"会话正在处理中"的 400。
+        if user_entry is not None and client_key is not None:
+            existing = await self.event_log_store.find_by_client_key(session_id, client_key)
+            if existing is not None:
+                return existing
+
         # 取消待执行的 cleanup（会话恢复活跃）
         if managed._cleanup_task and not managed._cleanup_task.done():
             managed._cleanup_task.cancel()
@@ -877,8 +885,8 @@ class SessionManager:
                 client_key=client_key,
             )
             if not created:
-                # 幂等重试：条目已存在说明上一次受理已（或正在）送入 SDK，
-                # 直接返回权威条目，不重复投递。
+                # 幂等重试：条目存在即上一次受理已（或正在）送入 SDK——投递
+                # 失败的条目会被补偿删除，不会残留到这里。直接返回权威条目。
                 return log_entry
             managed.channel.broadcast({"type": "log_entry", "session_id": session_id, "entry": log_entry})
 
@@ -908,6 +916,13 @@ class SessionManager:
         except Exception:
             logger.exception("会话消息处理失败")
             managed.pending_user_echoes.clear()
+            if log_entry is not None:
+                # 补偿删除受理条目：投递失败即受理失败，条目残留会让同幂等键
+                # 重试在预检处短路，prompt 永远不会送入 SDK。
+                try:
+                    await self.event_log_store.delete_entry(session_id, int(log_entry["seq"]))
+                except Exception:
+                    logger.exception("回滚受理条目失败 session_id=%s seq=%s", session_id, log_entry.get("seq"))
             try:
                 await self.meta_store.update_status(session_id, "error")
             except Exception:
@@ -931,7 +946,10 @@ class SessionManager:
         if managed.status != "running":
             return managed.status
 
-        managed.pending_user_echoes.clear()
+        # 不清 pending_user_echoes：SDK 可能尚未回放刚受理的用户消息副本，
+        # 清空会让回放副本失去 REPLAYED_USER_ECHO 标记、被写入点当作新用户
+        # 消息二次落库（append-only 日志无法自愈）。残留由 _finalize_turn /
+        # _mark_session_terminal 在轮次终结时清理。
         managed.interrupt_requested = True
         managed.cancel_pending_questions("session interrupted by user")
 

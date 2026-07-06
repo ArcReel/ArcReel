@@ -259,6 +259,18 @@ class EventLogStore:
             rows = result.all()
         return [{"seq": int(row.seq), **row.payload} for row in rows]
 
+    async def delete_entry(self, session_id: str, seq: int) -> None:
+        """补偿删除单条条目（仅限受理失败回滚：SDK 投递失败时撤销刚写入的
+        用户条目，否则同幂等键重试会短路而永不投递）。"""
+        async with self._session_factory() as session:
+            await session.execute(
+                sa_delete(AgentSessionEventLogEntry).where(
+                    AgentSessionEventLogEntry.session_id == session_id,
+                    AgentSessionEventLogEntry.seq == seq,
+                )
+            )
+            await session.commit()
+
     async def delete_session(self, session_id: str) -> None:
         async with self._session_factory() as session:
             await session.execute(
@@ -309,8 +321,10 @@ class EventLogService:
             entries = [entry for message in raw_messages for entry in normalize_sdk_message_to_entries(message)]
             if entries:
                 await self._store.append(session_id, entries)
-        # 无并发等待者时清引用；等待者持有锁对象引用，二次检查保证正确性。
-        self._backfill_locks.pop(session_id, None)
+                # 仅在写入成功后清锁引用：此后 has_entries 恒真，旧锁等待者与
+                # 新造锁的后来者都会在二次检查处短路。空 transcript 时保留锁，
+                # 否则后来者 setdefault 出新锁，与旧锁等待者并发重放、重复灌入。
+                self._backfill_locks.pop(session_id, None)
 
     async def list_entries(
         self,

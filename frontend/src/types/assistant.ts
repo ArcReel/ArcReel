@@ -89,6 +89,8 @@ export interface DraftState {
   parent_tool_use_id?: string | null;
   content: ContentBlock[];
   rev?: number;
+  /** 各 tool_use 块已累积的原始 partial JSON（重连后续拼 input_json_delta 的前缀）。 */
+  tool_json?: Record<number, string>;
 }
 
 /** delta SSE 事件载荷（引用 message_id + block index，rev 单调用于重连过滤）。 */

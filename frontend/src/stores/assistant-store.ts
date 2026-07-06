@@ -11,6 +11,7 @@ import type {
 } from "@/types";
 import {
   applyDraftDelta,
+  mergeEntriesBySeq,
   projectDraftToTurn,
   projectEntriesToTurns,
   type DraftMirror,
@@ -113,11 +114,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   setSessionsLoading: (loading) => set({ sessionsLoading: loading }),
 
   setEntries: (entries) => {
+    // 并集合并而非整帧覆盖：慢网络下冷读响应可能晚于发送响应/SSE 条目到达，
+    // 整帧覆盖会抹掉更新的条目；append-only 日志按 seq 并集恒安全。
+    const merged = mergeEntriesBySeq(get().entries, entries);
     const draft = get().draft;
     set({
-      entries,
-      turns: projectEntriesToTurns(entries),
-      draftTurn: projectDraftToTurn(draft, entries),
+      entries: merged,
+      turns: projectEntriesToTurns(merged),
+      draftTurn: projectDraftToTurn(draft, merged),
     });
   },
   appendEntry: (entry) => {
@@ -141,8 +145,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   },
   setDraftSnapshot: (draft, rev) => {
     const entries = get().entries;
+    // tool_json 是服务端已累积的原始 partial JSON——以此为前缀继续拼接
+    // 后续 input_json_delta，否则纯后缀永远解析失败、参数预览冻结。
     const mirror: DraftMirror | null = draft
-      ? { ...draft, content: [...draft.content], toolJson: {} }
+      ? { ...draft, content: [...draft.content], toolJson: { ...(draft.tool_json ?? {}) } }
       : null;
     set({
       draft: mirror,

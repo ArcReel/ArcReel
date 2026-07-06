@@ -236,6 +236,41 @@ describe("stores", () => {
     expect(state.isDraftSession).toBe(true);
   });
 
+  it("setEntries merges by seq instead of overwriting newer local entries", () => {
+    const assistant = useAssistantStore.getState();
+    assistant.resetTimeline();
+    // 发送响应先落 seq 2；迟到的冷读整帧只有 seq 0-1
+    assistant.appendEntry({ seq: 2, type: "user", uuid: "sent", content: [{ type: "text", text: "新" }] });
+    assistant.setEntries([
+      { seq: 0, type: "user", uuid: "a", content: [{ type: "text", text: "旧1" }] },
+      { seq: 1, type: "assistant", uuid: "b", content: [{ type: "text", text: "旧2" }] },
+    ]);
+    expect(useAssistantStore.getState().entries.map((e) => e.seq)).toEqual([0, 1, 2]);
+  });
+
+  it("setDraftSnapshot restores accumulated tool JSON so later suffix deltas parse", () => {
+    const assistant = useAssistantStore.getState();
+    assistant.resetTimeline();
+    assistant.setDraftSnapshot(
+      {
+        message_id: "msg_1",
+        content: [{ type: "tool_use", id: "tu-1", name: "Write", input: {} }],
+        rev: 5,
+        tool_json: { 0: '{"path": "a' },
+      },
+      5,
+    );
+    assistant.applyDelta({
+      message_id: "msg_1",
+      delta_type: "input_json_delta",
+      block_index: 0,
+      rev: 6,
+      partial_json: '.txt"}',
+    });
+    const draft = useAssistantStore.getState().draft;
+    expect(draft?.content[0].input).toEqual({ path: "a.txt" });
+  });
+
   describe("ProjectsStore fingerprints", () => {
     it("should store and retrieve asset fingerprints", () => {
       const { updateAssetFingerprints, getAssetFingerprint } = useProjectsStore.getState();

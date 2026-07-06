@@ -227,6 +227,20 @@ class TestEventLogStore:
         await log_store.append("s1", [{"type": "user", "uuid": "a"}])
         assert await log_store.has_entries("s1") is True
 
+    async def test_delete_entry_rolls_back_accepted_user_entry(self, log_store: EventLogStore):
+        """受理失败补偿删除：条目连同幂等键一起消失，重试可重新受理。"""
+        entry = build_user_entry([{"type": "text", "text": "hi"}])
+        appended, _created = await log_store.append_user_entry("s1", entry, client_key="ck-1")
+
+        await log_store.delete_entry("s1", appended["seq"])
+
+        assert await log_store.list_after("s1") == []
+        assert await log_store.find_by_client_key("s1", "ck-1") is None
+        retry = build_user_entry([{"type": "text", "text": "hi"}])
+        again, created = await log_store.append_user_entry("s1", retry, client_key="ck-1")
+        assert created is True
+        assert again["seq"] == 0
+
 
 # ---------------------------------------------------------------------------
 # EventLogService — 懒生成
@@ -293,3 +307,19 @@ class TestLazyBackfill:
 
         entries = await service.list_entries("s1", None, after_seq=0)
         assert [e["uuid"] for e in entries] == ["b"]
+
+    async def test_backfill_lock_retained_when_transcript_empty(self, log_store: EventLogStore):
+        """空 transcript 不写入也不清锁：后来者与旧锁等待者保持互斥，
+        transcript 出现内容后并发首访不会重复灌入。"""
+        adapter = _FakeAdapter([])
+        service = EventLogService(log_store, adapter)
+
+        await service.ensure_backfilled("old", None)
+        assert "old" in service._backfill_locks  # pyright: ignore[reportPrivateUsage]
+
+        # transcript 补齐内容后，并发访问只灌入一次
+        adapter._messages = [{"type": "user", "content": "hi", "uuid": "u1"}]  # pyright: ignore[reportPrivateUsage]
+        await asyncio.gather(*[service.ensure_backfilled("old", None) for _ in range(5)])
+        assert len(await log_store.list_after("old")) == 1
+        # 写入成功后锁引用被清理
+        assert "old" not in service._backfill_locks  # pyright: ignore[reportPrivateUsage]

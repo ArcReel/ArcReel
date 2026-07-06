@@ -118,6 +118,46 @@ class TestDraftAccumulator:
         assert snapshot is not None
         assert snapshot["content"][0]["input"] == {"command": "ls"}
 
+    def test_snapshot_carries_accumulated_tool_json(self):
+        """快照携带原始 partial JSON，重连客户端以此为前缀续拼后续 delta。"""
+        draft = DraftAccumulator()
+        draft.apply_stream_event(_message_start())
+        draft.apply_stream_event(
+            _stream_event(
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "input_json_delta", "partial_json": '{"file": "a'},
+                }
+            )
+        )
+        snapshot = draft.snapshot()
+        assert snapshot is not None
+        assert snapshot["tool_json"] == {0: '{"file": "a'}
+
+    def test_cross_parent_delta_filtered(self):
+        """并行 subagent 流交错：非当前 parent 的增量被丢弃，不污染单槽草稿。"""
+        draft = DraftAccumulator()
+        draft.apply_stream_event(_stream_event({"type": "message_start", "message": {"id": "msg_b"}}, parent="tu-b"))
+        draft.apply_stream_event(
+            _stream_event(
+                {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "B文本"}},
+                parent="tu-b",
+            )
+        )
+        # 另一条并行流（parent 不同）的增量不得拼入当前草稿
+        stolen = draft.apply_stream_event(
+            _stream_event(
+                {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "A文本"}},
+                parent="tu-a",
+            )
+        )
+        assert stolen is None
+        snapshot = draft.snapshot()
+        assert snapshot is not None
+        assert snapshot["content"] == [{"type": "text", "text": "B文本"}]
+        assert snapshot["parent_tool_use_id"] == "tu-b"
+
     def test_orphan_delta_without_message_start_ignored(self):
         draft = DraftAccumulator()
         assert draft.apply_stream_event(_text_delta("x")) is None
@@ -179,7 +219,7 @@ class TestSessionEntryPipeline:
         assert pipeline.draft.snapshot() is not None
 
     async def test_result_clears_draft_without_logging(self):
-        pipeline, store, _broadcasts = _make_pipeline()
+        pipeline, store, broadcasts = _make_pipeline()
         await pipeline.handle_message(_message_start("msg_01"))
         await pipeline.handle_message(_text_delta("部分内容"))
 
@@ -187,6 +227,8 @@ class TestSessionEntryPipeline:
 
         assert store.entries == []
         assert pipeline.draft.snapshot() is None
+        # 轮次终结标记：entry 流以此产出终态，保证末条 log_entry 先送达
+        assert broadcasts[-1] == {"type": "log_turn_complete", "session_id": "s1"}
 
     async def test_tool_result_user_message_becomes_independent_entries(self):
         pipeline, store, broadcasts = _make_pipeline()
@@ -219,6 +261,32 @@ class TestSessionEntryPipeline:
             session_id_provider=lambda: "s1",
             broadcast=broadcasts.append,
         )
-        # 不抛出——时间线修复手段是重放重建，不打断会话
+        # 重试耗尽后不抛出——不打断会话消费
         await pipeline.handle_message({"type": "assistant", "content": [{"type": "text", "text": "x"}]})
         assert broadcasts == []
+
+    async def test_transient_store_failure_retried(self):
+        """瞬时落库失败（SQLite busy 等）有界重试，避免时间线永久空洞。"""
+
+        class _FlakyStore(_RecordingStore):
+            def __init__(self):
+                super().__init__()
+                self.attempts = 0
+
+            async def append(self, session_id, entries, *, client_key=None):
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise RuntimeError("db busy")
+                return await super().append(session_id, entries, client_key=client_key)
+
+        store = _FlakyStore()
+        broadcasts: list[dict] = []
+        pipeline = SessionEntryPipeline(
+            store,  # type: ignore[arg-type]
+            session_id_provider=lambda: "s1",
+            broadcast=broadcasts.append,
+        )
+        await pipeline.handle_message({"type": "assistant", "uuid": "a-1", "content": [{"type": "text", "text": "x"}]})
+        assert store.attempts == 2
+        assert len(store.entries) == 1
+        assert [b["type"] for b in broadcasts] == ["log_entry"]

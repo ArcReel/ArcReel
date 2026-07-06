@@ -145,7 +145,26 @@ function resolveStaleTaskBlocks(turns: Turn[]): void {
 }
 
 function cloneBlock(block: ContentBlock): ContentBlock {
-  return JSON.parse(JSON.stringify(block)) as ContentBlock;
+  return structuredClone(block);
+}
+
+/**
+ * 按 seq 合并两组日志条目（并集、升序、seq 去重）。日志 append-only 且条目
+ * 按 seq 不可变，任一来源（冷读整帧 / SSE 直播 / 发送响应）先到后到均可安全
+ * 并集，不存在覆盖语义。
+ */
+export function mergeEntriesBySeq(
+  existing: TimelineEntry[],
+  incoming: TimelineEntry[],
+): TimelineEntry[] {
+  if (existing.length === 0) return [...incoming].sort((a, b) => a.seq - b.seq);
+  if (incoming.length === 0) return existing;
+  const bySeq = new Map<number, TimelineEntry>();
+  for (const entry of existing) bySeq.set(entry.seq, entry);
+  for (const entry of incoming) {
+    if (!bySeq.has(entry.seq)) bySeq.set(entry.seq, entry);
+  }
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
 }
 
 // ---------------------------------------------------------------------------

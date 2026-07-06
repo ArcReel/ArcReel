@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DraftDeltaPayload, TimelineEntry } from "@/types";
 import {
   applyDraftDelta,
+  mergeEntriesBySeq,
   projectDraftToTurn,
   projectEntriesToTurns,
   type DraftMirror,
@@ -259,5 +260,30 @@ describe("applyDraftDelta", () => {
     const before = JSON.parse(JSON.stringify(first)) as DraftMirror;
     applyDraftDelta(first, delta({ text: "好", rev: 2 }));
     expect(first).toEqual(before);
+  });
+});
+
+describe("mergeEntriesBySeq", () => {
+  function e(seq: number, uuid: string): TimelineEntry {
+    return { seq, type: "user", uuid };
+  }
+
+  it("unions two entry lists sorted by seq without duplicates", () => {
+    const merged = mergeEntriesBySeq([e(0, "a"), e(2, "c")], [e(1, "b"), e(2, "c-dup"), e(3, "d")]);
+    expect(merged.map((x) => x.seq)).toEqual([0, 1, 2, 3]);
+    // 同 seq 条目不可变，保留既有引用
+    expect(merged[2].uuid).toBe("c");
+  });
+
+  it("keeps newer local entries when a stale cold read arrives late", () => {
+    // 冷读整帧只到 seq 1，本地已有发送响应的 seq 2 —— 并集不丢新条目
+    const merged = mergeEntriesBySeq([e(2, "sent")], [e(0, "a"), e(1, "b")]);
+    expect(merged.map((x) => x.seq)).toEqual([0, 1, 2]);
+  });
+
+  it("handles empty sides", () => {
+    expect(mergeEntriesBySeq([], [e(1, "b"), e(0, "a")]).map((x) => x.seq)).toEqual([0, 1]);
+    const existing = [e(0, "a")];
+    expect(mergeEntriesBySeq(existing, [])).toBe(existing);
   });
 });

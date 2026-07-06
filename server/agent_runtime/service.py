@@ -78,6 +78,11 @@ class AssistantService:
         self._startup_done = False
         self._snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._snapshot_cache_max = 128
+        # 新会话幂等映射：client_key 唯一索引按 (session_id, client_key) 分区，
+        # 覆盖不到 session_id 尚不存在的新会话受理——响应丢失后的重试若再走
+        # 新会话分支会重复建会话、重复执行同一 prompt。进程内 LRU 兜底。
+        self._new_session_client_keys: OrderedDict[str, str] = OrderedDict()
+        self._new_session_client_keys_max = 256
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
@@ -299,6 +304,12 @@ class AssistantService:
             return {"status": "accepted", "session_id": session_id, "entry": entry}
         else:
             # New session
+            if client_key:
+                mapped_session_id = self._new_session_client_keys.get(client_key)
+                if mapped_session_id is not None:
+                    # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
+                    entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
+                    return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
             text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
             prompt = sdk_prompt if sdk_prompt is not None else text
             user_entry = self._build_user_log_entry(text, echo_blocks)
@@ -311,6 +322,10 @@ class AssistantService:
                 user_entry=user_entry,
                 client_key=client_key,
             )
+            if client_key:
+                self._new_session_client_keys[client_key] = new_sdk_session_id
+                while len(self._new_session_client_keys) > self._new_session_client_keys_max:
+                    self._new_session_client_keys.popitem(last=False)
             managed = self.session_manager.sessions.get(new_sdk_session_id)
             entry = managed.initial_user_log_entry if managed is not None else None
             return {"status": "accepted", "session_id": new_sdk_session_id, "entry": entry}
@@ -537,11 +552,23 @@ class AssistantService:
                 )
                 return
 
+            # 原始 result 由 actor 回调同步广播，而末条 log_entry 由 inbox 任务
+            # 落库后才广播——在 result 处直接终结会丢末条条目。改为暂存 result，
+            # 等 inbox 串行序上的 log_turn_complete（此时本轮条目已全部广播）
+            # 再产出终态；心跳兜底防 inbox 停摆时悬挂。
+            pending_result: dict[str, Any] | None = None
+            drain_beats = 0
             async for stream_event in stream:
                 if request is not None and await request.is_disconnected():
                     break
 
                 if isinstance(stream_event, Heartbeat):
+                    if pending_result is not None:
+                        drain_beats += 1
+                        if drain_beats >= 2:
+                            yield self._result_status_event(pending_result, session_id)
+                            break
+                        continue
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status != "running":
                         yield self._sse_event(
@@ -570,6 +597,12 @@ class AssistantService:
                     yield self._sse_event("delta", {k: v for k, v in message.items() if k != "type"})
                     continue
 
+                if msg_type == "log_turn_complete":
+                    if pending_result is not None:
+                        yield self._result_status_event(pending_result, session_id)
+                        break
+                    continue
+
                 if msg_type == "ask_user_question":
                     yield self._sse_event(
                         "question",
@@ -585,15 +618,18 @@ class AssistantService:
                     continue
 
                 if msg_type == "result":
-                    yield self._sse_event(
-                        "status",
-                        self._build_status_event_payload(
-                            status=self._resolve_result_status(message),
-                            session_id=session_id,
-                            result_message=message,
-                        ),
-                    )
-                    break
+                    pending_result = message
+                    continue
+
+    def _result_status_event(self, result_message: dict[str, Any], session_id: str) -> ServerSentEvent:
+        return self._sse_event(
+            "status",
+            self._build_status_event_payload(
+                status=self._resolve_result_status(result_message),
+                session_id=session_id,
+                result_message=result_message,
+            ),
+        )
 
     @staticmethod
     def _entry_seq(entry: dict[str, Any]) -> int:

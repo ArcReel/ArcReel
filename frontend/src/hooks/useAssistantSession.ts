@@ -224,6 +224,9 @@ export function useAssistantSession(projectName: string | null) {
     const status = (sessionObj.status as string) ?? "idle";
     statusRef.current = status;
     store.getState().setSessionStatus(status as "idle");
+    // 清掉跨挂载残留的过期问题（zustand 全局 store 在组件卸载后仍保留）；
+    // running 会话的未决问题由 entry 流的 question 事件重新投递。
+    clearPendingQuestion();
 
     if (status === "running") {
       connectStream(sessionId);
@@ -233,7 +236,7 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setEntries(data.entries ?? []);
       store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
     }
-  }, [projectName, connectStream, store]);
+  }, [projectName, clearPendingQuestion, connectStream, store]);
 
   // 加载会话
   useEffect(() => {
@@ -354,6 +357,18 @@ export function useAssistantSession(projectName: string | null) {
 
         // 响应携带的权威条目（服务端已写日志分配身份），seq 门槛去重
         if (result.entry) {
+          const lastSeq = lastEntrySeq(store.getState().entries);
+          if (result.entry.seq > lastSeq + 1) {
+            // seq 跳档：其他客户端在本地未订阅期间产生了轮次，先冷读补齐缺口，
+            // 否则订阅游标越过缺口后中间条目永远不会被拉取
+            try {
+              const gap = await API.listAssistantEntries(projectName!, sessionId, lastSeq);
+              if (store.getState().currentSessionId !== sessionId) return true;
+              store.getState().setEntries(gap.entries ?? []);
+            } catch {
+              // 静默失败：缺口留待刷新兜底
+            }
+          }
           store.getState().appendEntry(result.entry);
         }
         statusRef.current = "running";
