@@ -320,7 +320,14 @@ class EventLogService:
             if await self._store.has_entries(session_id):
                 return
             raw_messages = await self._adapter.read_raw_messages(session_id, project_cwd)
-            entries = [entry for message in raw_messages for entry in normalize_sdk_message_to_entries(message)]
+            entries: list[dict[str, Any]] = []
+            for message in raw_messages:
+                try:
+                    entries.extend(normalize_sdk_message_to_entries(message))
+                except Exception:
+                    # 容错：历史 transcript 跨版本演进，单条脏数据不应让整个旧
+                    # 会话的历史记录懒生成失败。
+                    logger.exception("历史消息规范化失败，跳过该条 session_id=%s", session_id)
             if entries:
                 await self._store.append(session_id, entries)
                 # 仅在写入成功后清锁引用：此后 has_entries 恒真，旧锁等待者与

@@ -325,3 +325,28 @@ class TestLazyBackfill:
         assert len(await log_store.list_after("old")) == 1
         # 写入成功后锁引用被清理
         assert "old" not in service._backfill_locks  # pyright: ignore[reportPrivateUsage]
+
+    async def test_backfill_skips_message_that_fails_normalization(self, log_store: EventLogStore, monkeypatch):
+        """历史消息规范化单条抛异常时容错跳过，不让整个懒生成因一条脏数据失败。"""
+        import server.agent_runtime.event_log as event_log_module
+
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "ok-1", "uuid": "u1", "timestamp": "2026-01-01T00:00:00Z"},
+                {"type": "assistant", "content": [{"type": "text", "text": "poison"}], "uuid": "poison"},
+                {"type": "user", "content": "ok-2", "uuid": "u2", "timestamp": "2026-01-01T00:00:02Z"},
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        original = event_log_module.normalize_sdk_message_to_entries
+
+        def _boom_on_poison(message):
+            if message.get("uuid") == "poison":
+                raise ValueError("boom")
+            return original(message)
+
+        monkeypatch.setattr(event_log_module, "normalize_sdk_message_to_entries", _boom_on_poison)
+
+        entries = await service.list_entries("session-with-poison", None)
+        assert [e["uuid"] for e in entries] == ["u1", "u2"]
