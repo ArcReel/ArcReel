@@ -111,6 +111,42 @@ async def _wait_for_entries(store: EventLogStore, session_id: str, count: int, t
         await asyncio.sleep(0.02)
 
 
+async def _wait_for_status(manager: SessionManager, session_id: str, status: str, timeout: float = 5.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        managed = manager.sessions.get(session_id)
+        if managed is not None and managed.status == status:
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"session {session_id} did not reach status {status!r} within {timeout}s")
+
+
+class _InterruptingClient(FakeSDKClient):
+    """interrupt() 时按真实 CLI 行为注入中断回显（可选）与 result 消息。"""
+
+    def __init__(self, *, echo: bool = True):
+        super().__init__(messages=[], block_forever=True)
+        self._echo = echo
+
+    async def interrupt(self) -> None:
+        self._record("interrupt")
+        self.interrupted = True
+        if self._echo:
+            await self._pending_messages.put(
+                {"type": "user", "content": "[Request interrupted by user]", "uuid": "sdk-echo-1", "session_id": SDK_ID}
+            )
+        await self._pending_messages.put(
+            {
+                "type": "result",
+                "subtype": "error_during_execution",
+                "is_error": True,
+                "uuid": "r-int",
+                "session_id": SDK_ID,
+            }
+        )
+        await self._pending_messages.put(None)
+
+
 class TestNewSessionEventLogFlow:
     async def test_full_round_produces_typed_monotonic_entries(self, manager: SessionManager):
         client = FakeSDKClient(messages=_new_session_messages())
@@ -158,6 +194,178 @@ class TestNewSessionEventLogFlow:
 
             # 一轮结束后 draft 已随 result 丢弃
             assert manager.get_draft_state(SDK_ID)["draft"] is None
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_interrupt_flow_produces_single_typed_entry(self, manager: SessionManager):
+        """中断动作与结果是时间线事件：SDK 回显 + result 兜底（竞态双写）只产出一条 typed 条目。"""
+        meta = await manager.meta_store.create("demo", SDK_ID)
+        client = _InterruptingClient(echo=True)
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_message(
+                SDK_ID,
+                "写分镜",
+                meta=meta,
+                user_entry=build_user_entry([{"type": "text", "text": "写分镜"}]),
+                client_key="ck-int",
+            )
+            await _wait_for_status(manager, SDK_ID, "running")  # 让 query 进入 drain
+            await manager.interrupt_session(SDK_ID)
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 2)
+            await _wait_for_status(manager, SDK_ID, "interrupted")
+            assert [e["type"] for e in entries] == ["user", "system"]
+            assert entries[1]["subtype"] == "interrupt"
+            assert manager.sessions[SDK_ID].status == "interrupted"
+            # result 兜底与回显竞态不产生第二条中断条目
+            final_entries = await manager.event_log_store.list_after(SDK_ID)
+            assert [e["type"] for e in final_entries] == ["user", "system"]
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_interrupt_without_sdk_echo_still_produces_typed_entry(self, manager: SessionManager):
+        """回显缺席的中断：result(session_status=interrupted) 兜底定型，时间线仍有稳定条目。"""
+        meta = await manager.meta_store.create("demo", SDK_ID)
+        client = _InterruptingClient(echo=False)
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_message(
+                SDK_ID,
+                "写分镜",
+                meta=meta,
+                user_entry=build_user_entry([{"type": "text", "text": "写分镜"}]),
+                client_key="ck-int2",
+            )
+            await _wait_for_status(manager, SDK_ID, "running")
+            await manager.interrupt_session(SDK_ID)
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 2)
+            assert [e["type"] for e in entries] == ["user", "system"]
+            assert entries[1]["subtype"] == "interrupt"
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_ask_user_question_flow_produces_question_and_answer_entries(self, manager: SessionManager):
+        """AskUserQuestion 提问（assistant tool_use）与答复（typed 答复条目）都出现在日志。"""
+        meta = await manager.meta_store.create("demo", SDK_ID)
+        client = FakeSDKClient(
+            messages=[
+                {
+                    "type": "assistant",
+                    "message_id": "msg_q",
+                    "uuid": "a-q",
+                    "session_id": SDK_ID,
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tu-q",
+                            "name": "AskUserQuestion",
+                            "input": {"questions": [{"question": "继续吗?", "options": [{"label": "继续"}]}]},
+                        }
+                    ],
+                },
+                {
+                    "type": "user",
+                    "uuid": "u-ans",
+                    "session_id": SDK_ID,
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tu-q",
+                            "content": 'Your questions have been answered: "继续吗?"="继续".',
+                        }
+                    ],
+                    "tool_use_result": {"questions": [], "answers": {"继续吗?": "继续"}, "annotations": {}},
+                },
+                {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
+            ]
+        )
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_message(
+                SDK_ID,
+                "开始",
+                meta=meta,
+                user_entry=build_user_entry([{"type": "text", "text": "开始"}]),
+                client_key="ck-q",
+            )
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 3)
+            assert [e["type"] for e in entries] == ["user", "assistant", "user"]
+            # 提问条目：assistant 条目内的 AskUserQuestion tool_use（结构化 questions）
+            assert entries[1]["content"][0]["name"] == "AskUserQuestion"
+            # 答复条目：typed、携带结构化答案与 tool_use_id 关联
+            assert entries[2]["subtype"] == "question_answer"
+            assert entries[2]["tool_use_id"] == "tu-q"
+            assert entries[2]["answers"] == {"继续吗?": "继续"}
+            assert entries[2]["is_error"] is False
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_task_notification_flow_produces_typed_entries(self, manager: SessionManager):
+        """task 通知双通道（typed 系统消息 + 注入 XML 用户消息）都定型为 system 条目，无通用 user 条目。"""
+        xml = (
+            "<task-notification>\n<task-id>t1</task-id>\n<tool-use-id>tu-a</tool-use-id>\n"
+            "<status>completed</status>\n<summary>分析完成</summary>\n</task-notification>"
+        )
+        meta = await manager.meta_store.create("demo", SDK_ID)
+        client = FakeSDKClient(
+            messages=[
+                {
+                    "type": "system",
+                    "subtype": "task_started",
+                    "task_id": "t1",
+                    "description": "分析",
+                    "tool_use_id": "tu-a",
+                    "uuid": "s-1",
+                    "session_id": SDK_ID,
+                },
+                {"type": "user", "content": xml, "uuid": "n-1", "session_id": SDK_ID},
+                {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
+            ]
+        )
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_message(
+                SDK_ID,
+                "跑子任务",
+                meta=meta,
+                user_entry=build_user_entry([{"type": "text", "text": "跑子任务"}]),
+                client_key="ck-t",
+            )
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 3)
+            assert [e["type"] for e in entries] == ["user", "system", "system"]
+            assert entries[1]["subtype"] == "task_started"
+            assert entries[2]["subtype"] == "task_notification"
+            assert entries[2]["task_id"] == "t1"
+            assert entries[2]["task_status"] == "completed"
+            assert entries[2]["summary"] == "分析完成"
         finally:
             await manager.close_session(SDK_ID)
 

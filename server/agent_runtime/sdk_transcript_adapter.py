@@ -80,8 +80,10 @@ class SdkTranscriptAdapter:
         # SDK 0.1.71 SessionMessage has no timestamp field — backfill from the
         # store payload we wrote in append() (preserves SDK's payload.timestamp
         # verbatim). This keeps optimistic-turn dedup stable across rounds.
-        timestamp_by_uuid = await self._load_timestamps_from_store(sdk_session_id, project_cwd)
-        return [self._adapt(msg, timestamp_by_uuid) for msg in (messages or [])]
+        # toolUseResult（CLI 的结构化工具结果，如 AskUserQuestion 的答案）
+        # 同样只存在于 payload，一并按 uuid 回填。
+        payload_by_uuid = await self._load_payload_index_from_store(sdk_session_id, project_cwd)
+        return [self._adapt(msg, payload_by_uuid) for msg in (messages or [])]
 
     async def _load_raw_payloads(
         self,
@@ -117,27 +119,29 @@ class SdkTranscriptAdapter:
             return []
         return [entry for entry in payloads or [] if isinstance(entry, dict)]
 
-    async def _load_timestamps_from_store(
+    async def _load_payload_index_from_store(
         self,
         sdk_session_id: str,
         project_cwd: Path | str | None,
         subpath: str = "",
-    ) -> dict[str, str]:
-        """Build uuid -> timestamp index by reading store payloads.
+    ) -> dict[str, dict[str, Any]]:
+        """Build uuid -> raw payload index by reading store payloads.
 
-        SDK's get_session_messages_from_store reconstructs SessionMessage objects
-        that lack the per-entry timestamp field. We re-fetch raw payloads via
-        store.load() and join on uuid so downstream consumers keep getting
-        stable timestamps without touching SDK private APIs.
+        SDK's get_session_messages_from_store / get_subagent_messages_from_store
+        reconstruct SessionMessage objects that lack the per-entry timestamp /
+        toolUseResult fields. We re-fetch raw payloads via store.load() and join
+        on uuid so downstream consumers keep getting stable timestamps and
+        structured tool results (e.g. AskUserQuestion 的 answers) without
+        touching SDK private APIs. Works for both the main transcript
+        (subpath="") and subagent subpaths.
         """
         payloads = await self._load_raw_payloads(sdk_session_id, project_cwd, subpath)
-        ts_map: dict[str, str] = {}
+        index: dict[str, dict[str, Any]] = {}
         for entry in payloads:
             uuid = entry.get("uuid")
-            ts = entry.get("timestamp")
-            if isinstance(uuid, str) and uuid and isinstance(ts, str) and ts.strip():
-                ts_map[uuid] = ts.strip()
-        return ts_map
+            if isinstance(uuid, str) and uuid:
+                index[uuid] = entry
+        return index
 
     async def read_subagent_timelines(
         self,
@@ -214,12 +218,12 @@ class SdkTranscriptAdapter:
             return None, None
         if not messages:
             return None, None
-        ts_map = await self._load_timestamps_from_store(
+        payload_by_uuid = await self._load_payload_index_from_store(
             sdk_session_id,
             project_cwd,
             subpath=f"subagents/agent-{agent_id}",
         )
-        return tool_use_id, [self._adapt(msg, ts_map) for msg in messages]
+        return tool_use_id, [self._adapt(msg, payload_by_uuid) for msg in messages]
 
     async def _load_agent_anchors(
         self,
@@ -269,7 +273,7 @@ class SdkTranscriptAdapter:
     def _adapt(
         self,
         msg: Any,
-        timestamp_by_uuid: dict[str, str] | None = None,
+        payload_by_uuid: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Convert SDK SessionMessage to internal dict format."""
         message_data = getattr(msg, "message", {}) or {}
@@ -279,9 +283,13 @@ class SdkTranscriptAdapter:
             content = ""
 
         uuid = getattr(msg, "uuid", None)
+        payload = payload_by_uuid.get(uuid) if payload_by_uuid and isinstance(uuid, str) else None
+
         timestamp = getattr(msg, "timestamp", None)
-        if timestamp is None and isinstance(uuid, str) and timestamp_by_uuid:
-            timestamp = timestamp_by_uuid.get(uuid)
+        if timestamp is None and payload is not None:
+            payload_ts = payload.get("timestamp")
+            if isinstance(payload_ts, str) and payload_ts.strip():
+                timestamp = payload_ts.strip()
 
         result: dict[str, Any] = {
             "type": getattr(msg, "type", ""),
@@ -289,6 +297,12 @@ class SdkTranscriptAdapter:
             "uuid": uuid,
             "timestamp": timestamp,
         }
+
+        tool_use_result = getattr(msg, "tool_use_result", None)
+        if tool_use_result is None and payload is not None:
+            tool_use_result = payload.get("toolUseResult")
+        if isinstance(tool_use_result, dict):
+            result["tool_use_result"] = tool_use_result
 
         parent_tool_use_id = getattr(msg, "parent_tool_use_id", None)
         if parent_tool_use_id:

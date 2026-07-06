@@ -20,6 +20,9 @@ import { TaskProgressBlock } from "./TaskProgressBlock";
 //   tool_result      -> inline fallback (standalone results are rare)
 //   thinking         -> ThinkingBlock (single line; streaming or summary)
 //   skill_invocation -> SkillChip (standalone, no anchoring tool_use)
+//   task_progress    -> TaskProgressBlock (in-place updated task state)
+//   interrupt_notice -> inline interrupt indicator
+//   question_answer  -> QuestionAnswerBlock (AskUserQuestion answer)
 // ---------------------------------------------------------------------------
 
 interface ContentBlockRendererProps {
@@ -96,16 +99,10 @@ export function ContentBlockRenderer({ block, index, streaming }: ContentBlockRe
       );
 
     case "interrupt_notice":
-      return (
-        <div
-          key={block.id ?? `block-${index}`}
-          className="my-1 flex items-center gap-1.5 text-[11.5px]"
-          style={{ color: "var(--color-warn)" }}
-        >
-          <span>{"■"}</span>
-          <span>用户中断了会话</span>
-        </div>
-      );
+      return <InterruptNoticeBlock key={block.id ?? `block-${index}`} />;
+
+    case "question_answer":
+      return <QuestionAnswerBlock key={block.id ?? `block-${index}`} block={block} />;
 
     case "image":
       if (block.source?.data && block.source?.media_type) {
@@ -154,6 +151,56 @@ function StandaloneToolResult({ block }: Readonly<{ block: ContentBlock }>) {
             ? JSON.stringify(block.content, null, 2)
             : ""}
       </pre>
+    </div>
+  );
+}
+
+function InterruptNoticeBlock() {
+  const { t } = useTranslation("dashboard");
+  return (
+    <div
+      className="my-1 flex items-center gap-1.5 text-[11.5px]"
+      style={{ color: "var(--color-warn)" }}
+    >
+      <span>{"■"}</span>
+      <span>{t("chat_interrupt_notice")}</span>
+    </div>
+  );
+}
+
+// AskUserQuestion 答复：结构化答案逐条呈现（问题 → 所选选项），
+// 无结构化答案时回退展示原始结果文本。
+function QuestionAnswerBlock({ block }: Readonly<{ block: ContentBlock }>) {
+  const { t } = useTranslation("dashboard");
+  const answers =
+    block.answers && Object.keys(block.answers).length > 0 ? block.answers : null;
+  return (
+    <div className="my-0.5">
+      <div
+        className="text-[10px] font-semibold uppercase tracking-wide"
+        style={{ color: "var(--color-text-4)" }}
+      >
+        {t("chat_question_answer_label")}
+      </div>
+      {answers ? (
+        <div className="mt-1 flex flex-col gap-1">
+          {Object.entries(answers).map(([question, label]) => (
+            <div key={question} className="text-[12.5px] leading-[1.5]">
+              <span style={{ color: "var(--color-text-3)" }}>{question}</span>
+              <span className="mx-1" style={{ color: "var(--color-text-4)" }}>
+                {"→"}
+              </span>
+              <span className="font-medium" style={{ color: "var(--color-text)" }}>
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-1 text-[12px]" style={{ color: "var(--color-text-2)" }}>
+          {block.text}
+        </div>
+      )}
     </div>
   );
 }

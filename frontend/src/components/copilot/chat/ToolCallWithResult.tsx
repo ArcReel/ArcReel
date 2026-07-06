@@ -30,6 +30,14 @@ function getToolSummary(name: string, input: Record<string, unknown> | undefined
       return (input.query as string) || "";
     case "WebFetch":
       return (input.url as string) || "";
+    case "AskUserQuestion": {
+      const questions = Array.isArray(input.questions) ? (input.questions as Array<Record<string, unknown>>) : [];
+      const text = questions
+        .map((q) => (typeof q.question === "string" ? q.question : ""))
+        .filter(Boolean)
+        .join(" / ");
+      return text.length > 60 ? text.slice(0, 60) + "..." : text;
+    }
     default: {
       const str = JSON.stringify(input);
       return str.length > 50 ? str.slice(0, 50) + "..." : str;
@@ -63,11 +71,14 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
 
   // ArcReel in-process MCP tool 显示名：从 mcp__arcreel__<id> 中提取 id，
   // 查 dashboard:tool_name_<id>（单一真相源 = backend ARCREEL_MCP_TOOL_IDS）。
-  // 非 mcp__arcreel__ 工具（Bash / TodoWrite / Skill / ...）保留原名。
+  // AskUserQuestion 显示为本地化「提问」标签；其余工具（Bash / TodoWrite /
+  // Skill / ...）保留原名。
   const mcpMatch = /^mcp__arcreel__([a-z0-9_]+)$/.exec(toolName);
   const displayName = mcpMatch
     ? t(`tool_name_${mcpMatch[1]}`, { defaultValue: toolName })
-    : toolName;
+    : toolName === "AskUserQuestion"
+      ? t("tool_call_question_label")
+      : toolName;
   const hasResult = block.result !== undefined;
   const isError = block.is_error;
 

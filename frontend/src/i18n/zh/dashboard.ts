@@ -1181,6 +1181,10 @@ export default {
   'tool_call_error_label': '执行失败',
   'tool_call_todo_summary': '任务清单 {{completed}}/{{total}} 完成',
   'tool_call_todo_updated': '任务清单已更新',
+  'tool_call_question_label': '提问',
+  // 时间线 typed 条目（interrupt / AskUserQuestion 答复）
+  'chat_interrupt_notice': '用户中断了会话',
+  'chat_question_answer_label': '已答复',
   // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
   // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
   // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)

@@ -20,6 +20,9 @@ class _RecordingStore:
             self.entries.append(appended[-1])
         return appended
 
+    async def last_entry(self, session_id: str) -> dict | None:
+        return self.entries[-1] if self.entries else None
+
 
 def _make_pipeline(session_id: str | None = "s1"):
     store = _RecordingStore()
@@ -264,6 +267,98 @@ class TestSessionEntryPipeline:
         # 重试耗尽后不抛出——不打断会话消费
         await pipeline.handle_message({"type": "assistant", "content": [{"type": "text", "text": "x"}]})
         assert broadcasts == []
+
+    async def test_interrupt_echo_message_appends_typed_entry(self):
+        pipeline, store, broadcasts = _make_pipeline()
+        await pipeline.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-1"})
+
+        assert len(store.entries) == 1
+        assert store.entries[0]["type"] == "system"
+        assert store.entries[0]["subtype"] == "interrupt"
+        assert broadcasts[0]["type"] == "log_entry"
+
+    async def test_adjacent_interrupt_echo_race_produces_single_entry(self):
+        """SDK 回显与终态路径的合成中断（竞态双写）在写入点尾检去重。"""
+        pipeline, store, _broadcasts = _make_pipeline()
+        # SDK 回显先落库
+        await pipeline.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-1"})
+        # 终态路径补写合成中断：尾条已是 interrupt，跳过
+        appended = await pipeline.append_interrupt()
+        assert appended == []
+        assert len(store.entries) == 1
+
+        # 反向顺序：合成先写、SDK 回显后到，同样只留一条
+        pipeline2, store2, _b2 = _make_pipeline()
+        appended2 = await pipeline2.append_interrupt()
+        assert len(appended2) == 1
+        await pipeline2.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-2"})
+        assert len(store2.entries) == 1
+        assert store2.entries[0]["subtype"] == "interrupt"
+
+    async def test_interrupted_result_without_echo_appends_typed_entry_before_turn_complete(self):
+        """回显缺席的中断：result(session_status=interrupted) 兜底产出 typed 条目，
+        且先于 log_turn_complete 广播——entry 流终态不丢中断条目。"""
+        pipeline, store, broadcasts = _make_pipeline()
+        await pipeline.handle_message(
+            {"type": "result", "subtype": "error_during_execution", "session_status": "interrupted"}
+        )
+
+        assert len(store.entries) == 1
+        assert store.entries[0]["subtype"] == "interrupt"
+        assert [b["type"] for b in broadcasts] == ["log_entry", "log_turn_complete"]
+
+    async def test_interrupted_result_after_echo_does_not_duplicate(self):
+        pipeline, store, _broadcasts = _make_pipeline()
+        await pipeline.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-1"})
+        await pipeline.handle_message(
+            {"type": "result", "subtype": "error_during_execution", "session_status": "interrupted"}
+        )
+        assert len(store.entries) == 1
+
+    async def test_successful_result_does_not_append_interrupt(self):
+        pipeline, store, _broadcasts = _make_pipeline()
+        await pipeline.handle_message({"type": "result", "subtype": "success", "session_status": "completed"})
+        assert store.entries == []
+
+    async def test_append_interrupt_broadcasts_entry(self):
+        pipeline, _store, broadcasts = _make_pipeline()
+        appended = await pipeline.append_interrupt()
+        assert len(appended) == 1
+        assert broadcasts == [{"type": "log_entry", "session_id": "s1", "entry": appended[0]}]
+
+    async def test_append_interrupt_without_session_id_is_noop(self):
+        pipeline, store, broadcasts = _make_pipeline(session_id=None)
+        assert await pipeline.append_interrupt() == []
+        assert store.entries == []
+        assert broadcasts == []
+
+    async def test_interrupt_after_other_entries_still_appends(self):
+        pipeline, store, _broadcasts = _make_pipeline()
+        await pipeline.handle_message({"type": "assistant", "uuid": "a-1", "content": [{"type": "text", "text": "x"}]})
+        await pipeline.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-1"})
+        assert [e["type"] for e in store.entries] == ["assistant", "system"]
+
+    async def test_question_answer_typed_across_messages(self):
+        """管道持有跨消息定型上下文：提问注册后，答复 tool_result 定型为答复条目。"""
+        pipeline, store, _broadcasts = _make_pipeline()
+        await pipeline.handle_message(
+            {
+                "type": "assistant",
+                "uuid": "a-q",
+                "content": [{"type": "tool_use", "id": "tu-q", "name": "AskUserQuestion", "input": {"questions": []}}],
+            }
+        )
+        await pipeline.handle_message(
+            {
+                "type": "user",
+                "uuid": "u-ans",
+                "content": [{"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"}],
+                "tool_use_result": {"answers": {"继续吗?": "继续"}},
+            }
+        )
+        assert [e["type"] for e in store.entries] == ["assistant", "user"]
+        assert store.entries[1]["subtype"] == "question_answer"
+        assert store.entries[1]["answers"] == {"继续吗?": "继续"}
 
     async def test_transient_store_failure_retried(self):
         """瞬时落库失败（SQLite busy 等）有界重试，避免时间线永久空洞。"""

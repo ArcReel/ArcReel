@@ -23,7 +23,6 @@ from server.agent_runtime.entry_pipeline import SessionEntryPipeline
 from server.agent_runtime.event_log import (
     REPLAYED_USER_ECHO_KEY,
     EventLogStore,
-    build_user_entry,
 )
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
@@ -1057,16 +1056,12 @@ class SessionManager:
                     "timestamp": utc_now_iso(),
                 }
             )
-            # 事件日志侧同步收录中断回显（过渡期通用条目形态）：此路径下
-            # inbox 处理已终止，SDK 自己的回显不会再经写入点入日志。
-            if managed.resolved_sdk_id is not None:
+            # 事件日志侧补写 typed 中断条目：此路径下 inbox 处理已终止，
+            # SDK 自己的回显不会再经写入点入日志。尾检去重保证与已入日志的
+            # 回显（竞态双写）只留一条。
+            if managed.entry_pipeline is not None:
                 try:
-                    interrupt_entry = build_user_entry([{"type": "text", "text": "[Request interrupted by user]"}])
-                    appended = await self.event_log_store.append(managed.resolved_sdk_id, [interrupt_entry])
-                    for entry in appended:
-                        managed.channel.broadcast(
-                            {"type": "log_entry", "session_id": managed.resolved_sdk_id, "entry": entry}
-                        )
+                    await managed.entry_pipeline.append_interrupt()
                 except Exception:
                     logger.exception("中断条目写入事件日志失败 session_id=%s", managed.resolved_sdk_id)
 

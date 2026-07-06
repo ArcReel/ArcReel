@@ -179,6 +179,58 @@ class TestSdkTranscriptAdapterStorePath:
         fake_store.load.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_read_via_store_backfills_tool_use_result_from_store_payload(self):
+        """AskUserQuestion 等工具的结构化结果（toolUseResult）从 store payload 回填，
+        懒生成重放据此产出与 live 相同的 typed 答复条目。"""
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "user"
+        mock_msg.message = {"content": [{"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"}]}
+        mock_msg.uuid = "uuid-ans"
+        mock_msg.parent_tool_use_id = None
+
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(
+            return_value=[
+                {
+                    "type": "user",
+                    "uuid": "uuid-ans",
+                    "timestamp": "2026-05-01T01:00:00Z",
+                    "message": {"content": []},
+                    "toolUseResult": {"questions": [], "answers": {"继续吗?": "继续"}, "annotations": {}},
+                },
+            ]
+        )
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
+            new=AsyncMock(return_value=[mock_msg]),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+
+        assert result[0]["tool_use_result"] == {"questions": [], "answers": {"继续吗?": "继续"}, "annotations": {}}
+
+    @pytest.mark.asyncio
+    async def test_read_via_store_omits_tool_use_result_when_absent(self):
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "user"
+        mock_msg.message = {"content": "x"}
+        mock_msg.uuid = "uuid-plain"
+        mock_msg.parent_tool_use_id = None
+
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(return_value=[{"type": "user", "uuid": "uuid-plain", "message": {"content": "x"}}])
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
+            new=AsyncMock(return_value=[mock_msg]),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+
+        assert "tool_use_result" not in result[0]
+
+    @pytest.mark.asyncio
     async def test_read_via_store_handles_missing_payload_timestamp(self):
         """When the store entry has no timestamp, output stays None — no crash."""
         mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
