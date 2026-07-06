@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ContentBlock, Turn } from "@/types";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { ContentBlockRenderer } from "./ContentBlockRenderer";
-import { getRoleLabel } from "./utils";
+import { getRoleLabel, TERMINAL_SESSION_STATUSES } from "./utils";
 
 // ---------------------------------------------------------------------------
 // SubagentCard – single collapsible card for a subagent (Task tool_use).
@@ -18,8 +18,6 @@ interface SubagentCardProps {
 }
 
 type CardStatus = "running" | "completed" | "failed" | "stopped";
-
-const TERMINAL_SESSION = new Set(["completed", "error", "interrupted"]);
 
 function deriveStatus(block: ContentBlock, sessionDone: boolean): CardStatus {
   const task = block.task_info;
@@ -42,7 +40,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
-  const sessionDone = sessionStatus != null && TERMINAL_SESSION.has(sessionStatus);
+  const sessionDone = sessionStatus != null && TERMINAL_SESSION_STATUSES.has(sessionStatus);
 
   const status = deriveStatus(block, sessionDone);
   const description = deriveDescription(block);

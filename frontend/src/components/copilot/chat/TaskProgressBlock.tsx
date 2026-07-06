@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { ContentBlock } from "@/types";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { TERMINAL_SESSION_STATUSES } from "./utils";
 
 // ---------------------------------------------------------------------------
 // TaskProgressBlock – 无锚点 tool_use 的后台任务进度行。
@@ -12,12 +13,10 @@ interface TaskProgressBlockProps {
   block: ContentBlock;
 }
 
-const TERMINAL_SESSION = new Set(["completed", "error", "interrupted"]);
-
 export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
   const { t } = useTranslation("dashboard");
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
-  const sessionDone = sessionStatus != null && TERMINAL_SESSION.has(sessionStatus);
+  const sessionDone = sessionStatus != null && TERMINAL_SESSION_STATUSES.has(sessionStatus);
 
   const status = block.status;
   const description = block.description || "";

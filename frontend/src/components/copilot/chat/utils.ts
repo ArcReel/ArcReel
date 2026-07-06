@@ -10,6 +10,13 @@ export function cn(...classes: (string | false | null | undefined)[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// TERMINAL_SESSION_STATUSES – session statuses treated as "done" for the
+// purpose of freezing running/pending indicators (subagent cards, task rows).
+// ---------------------------------------------------------------------------
+
+export const TERMINAL_SESSION_STATUSES = new Set(["completed", "error", "interrupted"]);
+
+// ---------------------------------------------------------------------------
 // composeAllTurns – merge live draft into committed turn list for rendering.
 //
 // 当用户中断时，被中断的 assistant 流式内容仍存在 draftTurn 中（SDK 不会把

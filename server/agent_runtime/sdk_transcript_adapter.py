@@ -91,6 +91,11 @@ class SdkTranscriptAdapter:
     ) -> list[dict[str, Any]]:
         """Load raw transcript payload dicts via store.load() (empty on failure)."""
         if project_cwd is None:
+            logger.debug(
+                "Skip raw payload load for session %s subpath=%s: project_cwd is None",
+                sdk_session_id,
+                subpath or "<main>",
+            )
             return []
         try:
             from lib.agent_session_store import make_project_key
