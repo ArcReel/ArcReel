@@ -353,7 +353,7 @@ export function useAssistantSession(projectName: string | null) {
           sessionId = returnedSessionId;
         }
 
-        if (store.getState().currentSessionId !== sessionId) return true;
+        if (store.getState().currentSessionId !== sessionId) return false;
 
         // 响应携带的权威条目（服务端已写日志分配身份），seq 门槛去重
         if (result.entry) {
@@ -363,7 +363,7 @@ export function useAssistantSession(projectName: string | null) {
             // 否则订阅游标越过缺口后中间条目永远不会被拉取
             try {
               const gap = await API.listAssistantEntries(projectName!, sessionId, lastSeq);
-              if (store.getState().currentSessionId !== sessionId) return true;
+              if (store.getState().currentSessionId !== sessionId) return false;
               store.getState().setEntries(gap.entries ?? []);
             } catch {
               // 静默失败：缺口留待刷新兜底

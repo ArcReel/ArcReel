@@ -540,4 +540,43 @@ describe("useAssistantSession", () => {
       expect(sendResult).toBe(false);
     });
   });
+
+  it("resolves false when currentSessionId changes without going through invalidatePendingSend", async () => {
+    // 独立于版本号的第二道防线：currentSessionId 是跨 hook 实例共享的全局 store 字段，
+    // 可能被本实例之外的路径直接改写（不经过 invalidatePendingSend）。即便版本号未失配，
+    // 只要响应回来时 currentSessionId 已不是发送时的会话，也不能返回 true 清空新会话输入框。
+    mockIdleSession();
+    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    let sendResult: boolean | undefined;
+    act(() => {
+      void result.current.sendMessage("hello").then((accepted) => {
+        sendResult = accepted;
+      });
+    });
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    act(() => {
+      useAssistantStore.getState().setCurrentSessionId("session-2");
+    });
+
+    await act(async () => {
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      await deferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(sendResult).toBe(false);
+    });
+  });
 });

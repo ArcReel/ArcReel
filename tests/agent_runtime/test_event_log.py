@@ -222,6 +222,34 @@ class TestEventLogStore:
         assert [e["seq"] for e in entries] == list(range(8))
         assert {e["uuid"] for e in entries} == {f"u{i}" for i in range(8)}
 
+    async def test_append_retries_pk_conflict_even_without_literal_seq_in_message(
+        self, log_store: EventLogStore, monkeypatch
+    ):
+        """seq 竞争判定不依赖错误信息字面包含 "seq"：驱动/配置不同,主键冲突的
+        DETAIL 文案未必带这个词,只要不是 client_key 冲突就该按 seq 竞争重试
+        （该表仅有 (session_id, seq) 主键与 client_key 唯一索引两个约束）。"""
+        from sqlalchemy.exc import IntegrityError
+
+        calls = {"n": 0}
+        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+
+        async def _flaky_append_once(session_id, entries, client_key):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise IntegrityError(
+                    "INSERT INTO agent_session_event_log ...",
+                    {},
+                    Exception('duplicate key value violates unique constraint "agent_session_event_log_pkey"'),
+                )
+            return await original_append_once(session_id, entries, client_key)
+
+        monkeypatch.setattr(log_store, "_append_once", _flaky_append_once)
+
+        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
+
+        assert calls["n"] == 2  # 首次撞主键冲突后重试一次即成功
+        assert result[0]["uuid"] == "u1"
+
     async def test_has_entries(self, log_store: EventLogStore):
         assert await log_store.has_entries("s1") is False
         await log_store.append("s1", [{"type": "user", "uuid": "a"}])

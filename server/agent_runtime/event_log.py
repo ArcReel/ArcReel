@@ -172,7 +172,10 @@ class EventLogStore:
                     if existing is not None:
                         return [existing]
                     raise
-                is_seq_race = unique_violation and "seq" in msg
+                # 表上只有两个唯一约束（(session_id, seq) 主键 + client_key 唯一索引）；
+                # 排除 client_key 冲突即可确定是 seq 竞争，不依赖驱动/配置相关的
+                # 错误信息措辞（不同驱动对主键冲突的 DETAIL 文案不一定含 "seq"）。
+                is_seq_race = unique_violation and "client_key" not in msg
                 if not is_seq_race or attempt == _MAX_APPEND_RETRY - 1:
                     raise
                 delay = random.uniform(0, min(_APPEND_BACKOFF_CAP_S, 0.001 * (2**attempt)))
