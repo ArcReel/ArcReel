@@ -505,6 +505,7 @@ class TestNewSessionEventLogFlow:
         """新会话首条用户消息落库失败：受理显式失败，会话进入可观察的 error 态。"""
         client = FakeSDKClient(messages=_new_session_messages())
         fake_options = SimpleNamespace(env=None)
+        update_status_spy = AsyncMock(wraps=manager.meta_store.update_status)
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -515,6 +516,7 @@ class TestNewSessionEventLogFlow:
                 "append_user_entry",
                 new=AsyncMock(side_effect=RuntimeError("db down")),
             ),
+            patch.object(manager.meta_store, "update_status", new=update_status_spy),
         ):
             with pytest.raises(RuntimeError):
                 await manager.send_new_session(
@@ -531,6 +533,11 @@ class TestNewSessionEventLogFlow:
         # 会话已随失败清理：不残留内存态、SDK 连接已断开
         assert SDK_ID not in manager.sessions
         assert client.disconnected is True
+        # 内存态提前置 error：cleanup 取消 _process_task 时不应再走 interrupted
+        # 分支多写一次终态（否则 DB 会先落 interrupted 再落 error）
+        statuses_written = [call.args[1] for call in update_status_spy.call_args_list]
+        assert "interrupted" not in statuses_written
+        assert statuses_written.count("error") == 1
 
     async def test_initial_user_entry_retry_after_failure_delivers(self, manager: SessionManager):
         """落库失败后同幂等键重试：条目无残留短路，重试重新受理并分配 seq 0。"""

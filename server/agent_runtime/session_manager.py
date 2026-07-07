@@ -656,6 +656,11 @@ class SessionManager:
             # 会写终态，清理完成后写入的 error 才不会被并发覆盖。
             managed.pending_user_echoes.clear()
             managed.cancel_pending_questions("initial user entry persist failed")
+            # 提前置内存态为 error：_cleanup_on_error 取消 _process_task 时，
+            # _process_inbox 的 CancelledError 分支会依据 status == "running"
+            # 判断是否需要走 interrupted 终态；提前置位避免多写一次 interrupted
+            # 并广播一次多余的状态跳变，DB 落库仍留到 cleanup 完成之后。
+            managed.status = "error"
             await _cleanup_on_error()
             try:
                 await self.meta_store.update_status(sdk_id, "error")
