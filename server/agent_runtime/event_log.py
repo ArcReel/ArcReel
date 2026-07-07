@@ -425,10 +425,12 @@ def _assistant_tool_use_ids(message: Any) -> list[str]:
 
 
 def _first_driver_attr(exc: IntegrityError, *attr_names: str) -> Any:
-    """沿 ``exc.orig`` 的 ``__cause__`` 链查找首个非 None 的驱动侧属性值。
+    """沿 ``exc.orig`` 的 ``__cause__``/``__context__`` 链查找首个非 None 的驱动侧属性值。
 
     SQLAlchemy 的 asyncpg 适配把原始驱动异常挂在翻译后异常的 cause 上，
     唯一约束判定与 client_key 冲突判定都需要沿此链探测驱动暴露的属性。
+    优先取显式 ``__cause__``（``raise ... from ...``）；驱动或中间层改为隐式
+    包装（裸 ``raise``）时回退 ``__context__``，避免链路断裂导致探测落空。
     """
     err: BaseException | None = exc.orig
     while err is not None:
@@ -436,7 +438,7 @@ def _first_driver_attr(exc: IntegrityError, *attr_names: str) -> Any:
             value = getattr(err, name, None)
             if value is not None:
                 return value
-        err = err.__cause__
+        err = err.__cause__ or err.__context__
     return None
 
 

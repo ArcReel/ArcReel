@@ -729,6 +729,33 @@ class TestEventLogStore:
 
         assert result == [existing]
 
+    async def test_append_client_key_conflict_detected_via_context_without_explicit_cause(
+        self, log_store: EventLogStore, monkeypatch
+    ):
+        """约束名探测优先走 ``__cause__``，驱动异常仅隐式关联（无显式
+        ``raise ... from``）时回退 ``__context__``：不因链路断裂漏判 client_key
+        冲突，误当作普通 seq 竞争重试到耗尽。"""
+        from sqlalchemy.exc import IntegrityError
+
+        entry = build_user_entry([{"type": "text", "text": "hi"}])
+        existing = (await log_store.append("s1", [entry], client_key="ck-1"))[0]
+
+        driver_error = _FakeDriverError("duplicate key value violates unique constraint", sqlstate="23505")
+        driver_error.__context__ = _FakeDriverError(
+            "original pg error", constraint_name="uq_agent_event_log_client_key"
+        )
+        assert driver_error.__cause__ is None  # 隐式关联，未显式 raise ... from
+
+        async def _conflicting_append_once(session_id, entries, client_key):
+            raise IntegrityError("INSERT INTO agent_session_event_log ...", {}, driver_error)
+
+        monkeypatch.setattr(log_store, "_append_once", _conflicting_append_once)
+
+        retry = build_user_entry([{"type": "text", "text": "hi"}])
+        result = await log_store.append("s1", [retry], client_key="ck-1")
+
+        assert result == [existing]
+
     async def test_append_raises_non_unique_integrity_error_without_retry(self, log_store: EventLogStore, monkeypatch):
         """非唯一约束的 IntegrityError（如外键冲突 SQLSTATE 23503）不属于
         seq 竞争，应立即抛出而非重试。"""

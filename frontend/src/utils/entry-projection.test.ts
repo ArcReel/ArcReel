@@ -89,6 +89,31 @@ describe("projectEntriesToTurns", () => {
     expect(turns.flatMap((t) => t.content).filter((b) => b.type === "tool_result")).toHaveLength(0);
   });
 
+  it("backfills question_answer into its tool_use across a turn boundary", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "ask-1", name: "AskUserQuestion", input: {} }],
+        uuid: "a-1",
+      }),
+      entry({ type: "system", subtype: "interrupt", uuid: "i-1" }),
+      entry({
+        type: "user",
+        subtype: "question_answer",
+        tool_use_id: "ask-1",
+        content: "选择 A",
+        answers: { question: "A" },
+        uuid: "u-1",
+      }),
+    ]);
+
+    const toolUse = turns[0].content[0];
+    expect(toolUse.result).toBe("选择 A");
+    expect(toolUse.is_error).toBe(false);
+    expect(toolUse.answers).toEqual({ question: "A" });
+    expect(turns.some((t) => t.type === "user")).toBe(true);
+  });
+
   it("updates a task block in place across a turn boundary instead of duplicating it", () => {
     const turns = projectEntriesToTurns([
       entry({ type: "assistant", content: [{ type: "text", text: "启动后台任务" }], uuid: "a-1" }),

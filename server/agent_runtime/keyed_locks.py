@@ -19,7 +19,11 @@ class KeyedLocks:
 
     def lock_for(self, key: str) -> asyncio.Lock:
         """取该键的锁，不存在时创建；并发调用者拿到同一实例。"""
-        return self._locks.setdefault(key, asyncio.Lock())
+        lock = self._locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[key] = lock
+        return lock
 
     def discard(self, key: str) -> None:
         """主动清除键的锁引用；已持有锁对象的等待者不受影响。"""
