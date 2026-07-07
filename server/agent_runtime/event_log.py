@@ -464,11 +464,18 @@ def _is_unique_violation(exc: IntegrityError) -> bool:
 
 def _is_client_key_violation(exc: IntegrityError) -> bool:
     """判定冲突是否落在 client_key 唯一索引：约束名优先（不随 locale 翻译），
-    驱动未暴露约束名时回退错误文本——两个后端的文案都会带索引/列名。"""
+    驱动未暴露约束名时回退错误文本——两个后端的文案都会带索引/列名。
+
+    ``exc.orig`` 为 None 时的兜底不能直接用 ``str(exc)`` 全文匹配：
+    SQLAlchemy 的 ``StatementError`` 文本里带 ``[SQL: INSERT INTO ...
+    client_key ...]``，INSERT 语句本身的列名就含 "client_key"，会让任何
+    （包括与 client_key 无关的 seq 主键竞争）异常都误判为 client_key 冲突，
+    需先剥离 ``[SQL: ...]`` 之后的部分再匹配。
+    """
     constraint = _first_driver_attr(exc, "constraint_name")
     if constraint:
         return "client_key" in str(constraint)
-    msg = str(exc.orig) if exc.orig else str(exc)
+    msg = str(exc.orig) if exc.orig else str(exc).split("[SQL:", 1)[0]
     return "client_key" in msg
 
 
@@ -498,7 +505,11 @@ class EventLogStore:
                 return await self._append_once(session_id, entries, client_key)
             except IntegrityError as exc:
                 unique_violation = _is_unique_violation(exc)
-                client_key_conflict = unique_violation and _is_client_key_violation(exc)
+                # client_key 为 None 时本次写入根本没有 client_key 值，不可能
+                # 是 client_key 唯一约束冲突——即便 _is_client_key_violation
+                # 因兜底文本匹配误判，也在此结构性排除，不让它把普通 seq
+                # 竞争的重试关掉。
+                client_key_conflict = unique_violation and client_key is not None and _is_client_key_violation(exc)
                 if client_key_conflict and client_key is not None:
                     # 幂等键并发冲突：另一请求已写入同键条目，返回其权威条目。
                     existing = await self.find_by_client_key(session_id, client_key)

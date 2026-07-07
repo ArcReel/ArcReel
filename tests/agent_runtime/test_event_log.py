@@ -774,6 +774,56 @@ class TestEventLogStore:
 
         assert result is None
 
+    async def test_is_client_key_violation_ignores_sql_statement_text_when_orig_is_none(self):
+        """``exc.orig`` 为 None 时的兜底不能对 ``str(exc)`` 全文匹配：
+        SQLAlchemy 把 INSERT 语句（含 client_key 列名）拼进异常文本，任何
+        与 client_key 无关的异常（如 seq 主键竞争）都会被误判为 client_key
+        冲突；需先剥离 ``[SQL: ...]`` 之后的部分再匹配。"""
+        from sqlalchemy.exc import IntegrityError
+
+        from server.agent_runtime.event_log import _is_client_key_violation  # pyright: ignore[reportPrivateUsage]
+
+        exc = IntegrityError(
+            "INSERT INTO agent_session_event_log (session_id, seq, client_key, payload) VALUES (?, ?, ?, ?)",
+            {"session_id": "s1", "seq": 0, "client_key": None, "payload": "{}"},
+            None,
+        )
+
+        assert _is_client_key_violation(exc) is False
+
+    async def test_append_seq_race_retries_when_client_key_absent_despite_false_positive_violation_check(
+        self, log_store: EventLogStore, monkeypatch
+    ):
+        """本次调用未传 client_key 时，即便 ``_is_client_key_violation``
+        误判为 True（无论因何种原因），也应结构性排除 client_key 冲突分类
+        ——未传 client_key 的写入根本不可能撞上 client_key 唯一约束，不能
+        让误判把普通 seq 竞争的重试关掉。"""
+        from sqlalchemy.exc import IntegrityError
+
+        import server.agent_runtime.event_log as event_log_module
+
+        monkeypatch.setattr(event_log_module, "_is_client_key_violation", lambda exc: True)
+
+        calls = {"n": 0}
+        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+
+        async def _flaky_append_once(session_id, entries, client_key):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise IntegrityError(
+                    "INSERT INTO agent_session_event_log ...",
+                    {},
+                    _FakeDriverError("constraint failed", sqlite_errorname="SQLITE_CONSTRAINT_PRIMARYKEY"),
+                )
+            return await original_append_once(session_id, entries, client_key)
+
+        monkeypatch.setattr(log_store, "_append_once", _flaky_append_once)
+
+        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])  # client_key 默认 None
+
+        assert calls["n"] == 2
+        assert result[0]["uuid"] == "u1"
+
     async def test_append_raises_non_unique_integrity_error_without_retry(self, log_store: EventLogStore, monkeypatch):
         """非唯一约束的 IntegrityError（如外键冲突 SQLSTATE 23503）不属于
         seq 竞争，应立即抛出而非重试。"""
