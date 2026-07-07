@@ -57,7 +57,7 @@ TERMINAL_RUNTIME_STATUSES = {"idle", "completed", "error", "interrupted"}
 def _consume_message(message: dict, reply_parts: list[str]) -> str | None:
     """处理一条消息：收集 assistant 文本；命中终结条件时返回终态 status，否则返回 None。
 
-    回放批次内的消息与直播消息走同一套规则。
+    直播消息与历史事件日志条目走同一套文本收集规则。
     """
     msg_type = message.get("type", "")
 
@@ -210,7 +210,7 @@ async def agent_chat(
         try:
             user_entry = result.get("entry")
             user_seq = user_entry.get("seq", -1) if isinstance(user_entry, dict) else -1
-            payload = await service.list_session_entries(session_id)
+            payload = await service.list_session_entries(session_id, after_seq=user_seq)
             reply = _extract_reply_from_entries(payload.get("entries", []), user_seq)
         except Exception as exc:
             logger.warning("从事件日志提取回复失败 session_id=%s: %s", session_id, exc)
