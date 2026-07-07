@@ -317,12 +317,14 @@ export function createTimelineProjector(): TimelineProjector {
 
     if (entry.type === "system") {
       if (entry.subtype === "skill_invocation") {
-        // 芯片渲染锚点是 Skill tool_use 块（input 即名与入参）；条目已在
-        // 当前 turn 有锚点时不再追加，避免同一调用出现两枚芯片
-        const anchored =
-          entry.tool_use_id != null &&
-          fold.cursor !== null &&
-          fold.cursor.content.some((b) => b.type === "tool_use" && b.id === entry.tool_use_id);
+        // 芯片渲染锚点是 Skill tool_use 块（input 即名与入参）；tool_use 块
+        // 已登记时不再追加，避免同一调用出现两枚芯片。按 toolUseSites 查找
+        // 而非只看 fold.cursor——登记发生在 tool_use 块本身追加时，比
+        // cursor 更持久，该 turn 若被 interrupt 等条目提前 flush 出当前
+        // turn，仍能正确判定为已锚定（限定同一时间线，与 question_answer
+        // 回填口径一致）。
+        const site = entry.tool_use_id != null ? toolUseSites.get(entry.tool_use_id) : null;
+        const anchored = site != null && site.fold === fold;
         if (!anchored) {
           attachSystemBlock(fold, entry, {
             type: "skill_invocation",

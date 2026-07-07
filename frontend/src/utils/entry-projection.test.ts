@@ -267,6 +267,31 @@ describe("projectEntriesToTurns", () => {
     expect(turns[0].content[0].type).toBe("tool_use");
   });
 
+  it("still recognizes the Skill tool_use anchor after it's flushed to an earlier turn by an interrupt", () => {
+    // anchored 判定若只看 fold.cursor，Skill 的 tool_use 块所在 turn 一旦被
+    // interrupt 等条目提前 flush 出当前 turn，后到的 skill_invocation 就会
+    // 误判为"未锚定"，重复渲染一个独立芯片。toolUseSites 登记在 tool_use
+    // 块本身追加时发生，比 cursor 更持久，应据此判定而非只看当前 turn。
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-s", name: "Skill", input: { skill: "manage-project", args: "x" } }],
+        uuid: "a-1",
+      }),
+      entry({ type: "system", subtype: "interrupt", uuid: "i-1" }),
+      entry({
+        type: "system",
+        subtype: "skill_invocation",
+        skill_name: "manage-project",
+        skill_args: "x",
+        tool_use_id: "tu-s",
+        uuid: "s-1",
+      }),
+    ]);
+    expect(turns).toHaveLength(2);
+    expect(turns.some((t) => t.content.some((b) => b.type === "skill_invocation"))).toBe(false);
+  });
+
   it("renders unanchored skill_invocation entries as standalone chip blocks", () => {
     const turns = projectEntriesToTurns([
       entry({
