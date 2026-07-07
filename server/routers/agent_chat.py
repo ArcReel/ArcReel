@@ -218,9 +218,12 @@ async def agent_chat(
             user_seq = user_entry.get("seq", -1) if isinstance(user_entry, dict) else -1
             payload = await service.list_session_entries(session_id, after_seq=user_seq)
             log_reply = _extract_reply_from_entries(payload.get("entries", []), user_seq)
+            session_running = payload.get("status") == "running"
             if not reply:
-                # 直播收集为空：按既有兜底语义采用日志内容（日志同样为空则维持空回复）。
+                # 直播收集为空：按既有兜底语义采用日志内容（日志同样为空则维持空回复）；
+                # 但异常收尾且会话仍在 running 时，日志内容同样未收全，不能当作已确认完整。
                 reply = log_reply
+                truncated = stream_aborted and session_running and bool(log_reply)
             else:
                 # 流异常收尾但直播已收到非空文本：会话运行态标志本身存在竞态——
                 # 中断/取消路径会丢弃已广播但未及落库的尾部消息，异步落库也可能滞后
@@ -228,7 +231,6 @@ async def agent_chat(
                 # 仅当会话已转终态、且日志文本不短于直播已收文本时才视为确认完整，
                 # 可放心整体替换；否则保留直播文本，标记截断态，避免被更短、更旧
                 # 的日志内容静默覆盖。
-                session_running = payload.get("status") == "running"
                 if not session_running and len(log_reply) >= len(reply):
                     reply = log_reply
                 else:
