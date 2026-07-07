@@ -800,7 +800,7 @@ class TestEventLogStore:
         让误判把普通 seq 竞争的重试关掉。"""
         from sqlalchemy.exc import IntegrityError
 
-        import server.agent_runtime.event_log as event_log_module
+        from server.agent_runtime import event_log as event_log_module
 
         monkeypatch.setattr(event_log_module, "_is_client_key_violation", lambda exc: True)
 
