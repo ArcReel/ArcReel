@@ -408,6 +408,56 @@ class TestAssistantServiceMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
+    async def test_send_or_create_hit_survives_concurrent_eviction_during_db_lookup(self, tmp_path, monkeypatch):
+        """命中路径在 `await find_by_client_key(...)` 期间，该 key 被其他并发
+        请求的淘汰逻辑移除：刷新 LRU 位置的收尾步骤须安全处理键已不存在的
+        情形（不能直接 move_to_end 抛 KeyError 把幂等命中打成未处理异常）。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+
+        async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
+            sid = f"sdk-{len(sm.new_sessions)}"
+            sm.new_sessions.append((project_name, prompt))
+            if user_entry is not None:
+                await store.append_user_entry(sid, user_entry, client_key=client_key)
+            return sid
+
+        sm.send_new_session = send_new_session
+
+        first = await service.send_or_create("demo", "hello", client_key="ck-a")
+        assert "ck-a" in service._new_session_client_keys
+
+        original_find_by_client_key = store.find_by_client_key
+
+        async def find_by_client_key_with_concurrent_eviction(session_id, client_key):
+            # 模拟另一并发请求在本次 DB 查询期间把该 key 挤出缓存。
+            service._new_session_client_keys.pop(client_key, None)
+            return await original_find_by_client_key(session_id, client_key)
+
+        monkeypatch.setattr(store, "find_by_client_key", find_by_client_key_with_concurrent_eviction)
+
+        retry = await service.send_or_create("demo", "hello", client_key="ck-a")
+
+        assert retry["session_id"] == first["session_id"] == "sdk-0"
+        assert len(sm.new_sessions) == 1  # 未因异常或键缺失而重复建会话
+        assert service._new_session_client_keys["ck-a"] == "sdk-0"  # 命中后已安全重新记入
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
     async def test_send_or_create_falls_back_when_cached_mapping_points_to_deleted_session(self, tmp_path):
         """进程内映射指向的会话条目已不存在（如会话被删除后映射未清）时，
         不应把幽灵 "accepted" 响应（entry=None）返回给调用方——应清掉失效

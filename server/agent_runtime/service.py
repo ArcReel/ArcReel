@@ -290,8 +290,12 @@ class AssistantService:
             entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
             if entry is not None:
                 # 命中即刷新 LRU 位置：否则被频繁重试命中的 key 仍按插入
-                # 顺序（而非访问顺序）淘汰，退化成 FIFO。
-                self._new_session_client_keys.move_to_end(client_key)
+                # 顺序（而非访问顺序）淘汰，退化成 FIFO。上一行 await 期间
+                # 该 key 可能已被其他并发请求的淘汰逻辑移除，直接
+                # move_to_end 对不存在的键会抛 KeyError；复用
+                # _record_new_session_client_key 的赋值语义（不存在则插入，
+                # 存在则原地更新）再显式挪到最近使用端，两种情形都安全。
+                self._record_new_session_client_key(client_key, mapped_session_id)
                 return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
             # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
             # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
