@@ -1,11 +1,21 @@
 /**
- * 会话事件日志投影 — entries → Turn[] 纯函数。
+ * 会话事件日志投影 — entries → Turn[]。
  *
  * 日志条目已在服务端写入点定型（tool_result 独立条目、interrupt / task 通知 /
  * AskUserQuestion 答复为 typed 条目、subagent 条目带 parent_tool_use_id、
  * stream_event 不入日志），本模块只做渲染归组：连续 assistant 条目合并、
  * tool_result 按 tool_use_id 回填、task 按 task_id 就地更新。
  * 不做内容嗅探、不做内容比对去重、不合成消息。
+ *
+ * 投影分两层：
+ * - 内部累积态（fold）：逐条消费条目，只做追加与按 id 回填，永不回溯重放；
+ *   条目块在此层做唯一一次深拷贝。
+ * - 展示视图（display）：由累积态按 turn 派生——task 折叠、滞留子任务推导
+ *   完成、subagent 子时间线挂载都在这层重算；按 turn 版本缓存，只有被新
+ *   条目触达的 turn 重建视图，未触达的 turn 保持引用稳定。
+ *
+ * `projectEntriesToTurns` 是纯函数入口（空投影器全量重放）；
+ * `createTimelineProjector` 是同一实现的增量入口，二者结果恒等。
  */
 
 import type {
@@ -28,102 +38,6 @@ function blocksText(blocks: ContentBlock[]): string {
     .filter((b) => b.type === "text")
     .map((b) => b.text ?? "")
     .join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// 归组辅助
-// ---------------------------------------------------------------------------
-
-function attachToolResult(turnContent: ContentBlock[], entry: TimelineEntry): void {
-  const toolUseId = entry.tool_use_id;
-  const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
-  if (toolUseId) {
-    for (const block of turnContent) {
-      if (block.type === "tool_use" && block.id === toolUseId) {
-        block.result = resultText;
-        block.is_error = Boolean(entry.is_error);
-        return;
-      }
-    }
-  }
-  turnContent.push({
-    type: "tool_result",
-    tool_use_id: toolUseId ?? undefined,
-    content: resultText,
-    is_error: Boolean(entry.is_error),
-  });
-}
-
-function findTaskBlock(turn: Turn | null, taskId: string): ContentBlock | null {
-  if (!turn) return null;
-  for (const block of turn.content) {
-    if (block.type === "task_progress" && block.task_id === taskId) return block;
-  }
-  return null;
-}
-
-/** 在当前 assistant turn 中按 tool_use_id 定位 tool_use 块。 */
-function findToolUseBlockInTurn(turn: Turn | null, toolUseId: string): ContentBlock | null {
-  if (!turn || turn.type !== "assistant") return null;
-  for (const block of turn.content) {
-    if (block.type === "tool_use" && block.id === toolUseId) return block;
-  }
-  return null;
-}
-
-/** task_started 块对应的 Agent tool_use 已有 result 时推导为已完成。 */
-function resolveStaleTaskBlocks(turns: Turn[]): void {
-  for (const turn of turns) {
-    const completedToolIds = new Set<string>();
-    for (const block of turn.content) {
-      if (block.type === "tool_use" && block.name === "Agent" && block.result !== undefined && block.id) {
-        completedToolIds.add(block.id);
-      }
-    }
-    if (completedToolIds.size === 0) continue;
-    for (const block of turn.content) {
-      if (
-        block.type === "task_progress" &&
-        block.status === "task_started" &&
-        block.tool_use_id &&
-        completedToolIds.has(block.tool_use_id)
-      ) {
-        block.status = "task_notification";
-        block.task_status = "completed";
-      }
-    }
-  }
-}
-
-/**
- * task_progress 块折叠进同 turn 的锚点 tool_use：子任务卡片就地显示
- * 状态与进度，不再渲染独立进度行。无锚点的 task 块保持原样。
- */
-function foldTaskBlocksIntoAnchors(turns: Turn[]): void {
-  for (const turn of turns) {
-    const toolUseById = new Map<string, ContentBlock>();
-    for (const block of turn.content) {
-      if (block.type === "tool_use" && block.id) toolUseById.set(block.id, block);
-    }
-    if (toolUseById.size === 0) continue;
-    turn.content = turn.content.filter((block) => {
-      if (block.type !== "task_progress" || !block.tool_use_id) return true;
-      const anchor = toolUseById.get(block.tool_use_id);
-      if (!anchor) return true;
-      anchor.task_info = block;
-      return false;
-    });
-  }
-}
-
-/** 在既有 turns 中查找指定 id 的 tool_use 块（subagent 卡片锚点）。 */
-function findToolUseBlock(turns: Turn[], toolUseId: string): ContentBlock | null {
-  for (const turn of turns) {
-    for (const block of turn.content) {
-      if (block.type === "tool_use" && block.id === toolUseId) return block;
-    }
-  }
-  return null;
 }
 
 function cloneBlock(block: ContentBlock): ContentBlock {
@@ -150,139 +64,227 @@ export function mergeEntriesBySeq(
 }
 
 // ---------------------------------------------------------------------------
-// projectEntriesToTurns — 主投影
+// 增量投影器
 // ---------------------------------------------------------------------------
 
-/**
- * 按 parent_tool_use_id 归组 subagent 条目并投影为子时间线：
- * 子组递归投影为 Turn[]，挂到锚点 tool_use 块的 sub_turns；
- * 主时间线只保留单一卡片锚点，不平铺 subagent 内部消息。
- *
- * 锚点可能落在主时间线，也可能落在另一子组自己的子时间线内——subagent
- * 自身再起 subagent 时，内层子组的锚点 tool_use 只存在于外层子组的
- * 子时间线中。因此锚点定位在“主时间线 ∪ 全部子组”范围内查找，不限于
- * 主时间线；子组各自独立投影、互不依赖顺序，任意嵌套深度一次收敛。
- */
-export function projectEntriesToTurns(entries: TimelineEntry[]): Turn[] {
-  const subgroups = new Map<string, TimelineEntry[]>();
-  const mainEntries: TimelineEntry[] = [];
-  for (const entry of entries) {
-    if (entry.parent_tool_use_id) {
-      const group = subgroups.get(entry.parent_tool_use_id);
-      if (group) {
-        group.push(entry);
-      } else {
-        subgroups.set(entry.parent_tool_use_id, [entry]);
-      }
-    } else {
-      mainEntries.push(entry);
-    }
-  }
-
-  const turns = projectFlatEntries(mainEntries);
-
-  // 先独立投影并折叠每个子组自身的 task 进度，再统一定位锚点：折叠结果
-  // 与锚点搜索空间的构建互不依赖，任意处理顺序都收敛到同一结果。
-  const subTurnsByParent = new Map<string, Turn[]>();
-  for (const [parentId, group] of subgroups) {
-    const subTurns = projectFlatEntries(group.map(({ parent_tool_use_id: _omit, ...rest }) => rest));
-    resolveStaleTaskBlocks(subTurns);
-    foldTaskBlocksIntoAnchors(subTurns);
-    subTurnsByParent.set(parentId, subTurns);
-  }
-
-  const searchSpace = [turns, ...subTurnsByParent.values()];
-  for (const [parentId, subTurns] of subTurnsByParent) {
-    const anchor = findAnchorAcross(searchSpace, parentId);
-    if (anchor) {
-      anchor.sub_turns = subTurns;
-    } else {
-      // 全局仍无锚点（如懒生成残余组）：以合成锚点独立成卡，不丢子时间线
-      turns.push({
-        type: "system",
-        content: [{ type: "tool_use", id: parentId, name: "Agent", input: {}, sub_turns: subTurns }],
-        uuid: `subagent-${parentId}`,
-      });
-    }
-  }
-
-  resolveStaleTaskBlocks(turns);
-  foldTaskBlocksIntoAnchors(turns);
-  return turns;
+/** 内部累积态的 turn：content 为可就地回填的内部块，version 是展示缓存键。 */
+interface InternalTurn {
+  type: Turn["type"];
+  content: ContentBlock[];
+  uuid?: string;
+  timestamp?: string;
+  version: number;
 }
 
-function findAnchorAcross(turnsList: Turn[][], toolUseId: string): ContentBlock | null {
-  for (const turns of turnsList) {
-    const found = findToolUseBlock(turns, toolUseId);
-    if (found) return found;
-  }
-  return null;
+/** tool_use 块的登记位置：跨 turn 回填与 subagent 锚定都按此 O(1) 定位。 */
+interface ToolUseSite {
+  fold: Fold;
+  turn: InternalTurn;
+  block: ContentBlock;
 }
 
-function projectFlatEntries(entries: TimelineEntry[]): Turn[] {
-  const turns: Turn[] = [];
-  // 用持有器承载当前 turn：闭包内赋值会让 TS 把裸 let 收窄成 never
-  const cursor: { current: Turn | null } = { current: null };
+/** 一条平铺时间线（主时间线或某个 subagent 组）的折叠状态。 */
+interface Fold {
+  committed: InternalTurn[];
+  cursor: InternalTurn | null;
+  /** 所属 subagent 组（主时间线为 null），脏标记沿锚链向上传播用。 */
+  group: SubagentGroup | null;
+  version: number;
+  displayVersion: number;
+  display: Turn[];
+}
 
-  const flush = (): void => {
-    if (cursor.current) {
-      turns.push(cursor.current);
-      cursor.current = null;
+interface SubagentGroup {
+  id: string;
+  fold: Fold;
+  /** 锚点 tool_use 的位置；null 表示尚未锚定（顶层渲染合成卡片）。 */
+  anchor: ToolUseSite | null;
+}
+
+export interface TimelineProjector {
+  /**
+   * 投影 entries → Turn[]，结果与 `projectEntriesToTurns(entries)` 逐值相等。
+   * entries 须遵循事件日志契约：按 seq 升序、同 seq 条目不可变、相邻两次
+   * 调用之间集合只增不减（append-only 并集）。前缀未变时只折叠新增后缀，
+   * 否则整体重放。
+   */
+  project(entries: TimelineEntry[]): Turn[];
+  /** 已增量消费的条目数（缓存规模观测，测试用）。 */
+  readonly size: number;
+}
+
+export function createTimelineProjector(): TimelineProjector {
+  // 前缀指纹：source 为上次 project 的 entries 引用，count 为已折叠条目数
+  let source: TimelineEntry[] = [];
+  let count = 0;
+
+  let versionCounter = 0;
+  let main: Fold = newFold();
+  let groups = new Map<string, SubagentGroup>();
+  let toolUseSites = new Map<string, ToolUseSite>();
+  let turnViewCache = new WeakMap<InternalTurn, { version: number; turn: Turn }>();
+  let composed: Turn[] = [];
+  let composedDirty = true;
+
+  function newFold(): Fold {
+    return { committed: [], cursor: null, group: null, version: 0, displayVersion: -1, display: [] };
+  }
+
+  function reset(): void {
+    versionCounter = 0;
+    main = newFold();
+    groups = new Map();
+    toolUseSites = new Map();
+    turnViewCache = new WeakMap();
+    composed = [];
+    composedDirty = true;
+    count = 0;
+  }
+
+  /** 条目触达 turn 后：失效其展示缓存，并沿 subagent 锚链逐层失效祖先 turn。 */
+  function touch(fold: Fold, turn: InternalTurn): void {
+    composedDirty = true;
+    turn.version = ++versionCounter;
+    const seen = new Set<Fold>();
+    let current: Fold | null = fold;
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      current.version = ++versionCounter;
+      const anchor: ToolUseSite | null = current.group?.anchor ?? null;
+      if (!anchor) break;
+      anchor.turn.version = ++versionCounter;
+      current = anchor.fold;
     }
-  };
+  }
 
-  const startTurn = (turn: Turn): void => {
-    flush();
-    cursor.current = turn;
-  };
+  function startTurn(fold: Fold, type: Turn["type"], content: ContentBlock[], entry: TimelineEntry): InternalTurn {
+    if (fold.cursor) fold.committed.push(fold.cursor);
+    const turn: InternalTurn = { type, content, uuid: entry.uuid, timestamp: entry.timestamp, version: 0 };
+    fold.cursor = turn;
+    touch(fold, turn);
+    return turn;
+  }
 
   /** 追加系统注入块：优先并入当前 assistant turn，否则开 system turn。 */
-  const attachSystemBlock = (entry: TimelineEntry, block: ContentBlock): void => {
-    if (cursor.current && cursor.current.type === "assistant") {
-      cursor.current.content.push(block);
+  function attachSystemBlock(fold: Fold, entry: TimelineEntry, block: ContentBlock): void {
+    if (fold.cursor && fold.cursor.type === "assistant") {
+      fold.cursor.content.push(block);
+      touch(fold, fold.cursor);
       return;
     }
-    startTurn({ type: "system", content: [block], uuid: entry.uuid, timestamp: entry.timestamp });
-  };
+    startTurn(fold, "system", [block], entry);
+  }
 
-  const applyTaskBlock = (entry: TimelineEntry, taskBlock: ContentBlock, updateOnly: boolean): void => {
+  function findTaskBlock(content: ContentBlock[], taskId: string): ContentBlock | null {
+    for (const block of content) {
+      if (block.type === "task_progress" && block.task_id === taskId) return block;
+    }
+    return null;
+  }
+
+  function applyTaskBlock(fold: Fold, entry: TimelineEntry, taskBlock: ContentBlock, updateOnly: boolean): void {
     const taskId = taskBlock.task_id;
-    if (taskId && updateOnly) {
-      const existing = findTaskBlock(cursor.current, taskId);
+    if (taskId && updateOnly && fold.cursor) {
+      const existing = findTaskBlock(fold.cursor.content, taskId);
       if (existing) {
         existing.status = taskBlock.status;
         if (taskBlock.summary) existing.summary = taskBlock.summary;
         if (taskBlock.task_status) existing.task_status = taskBlock.task_status;
         if (taskBlock.usage) existing.usage = taskBlock.usage;
+        touch(fold, fold.cursor);
         return;
       }
     }
-    attachSystemBlock(entry, taskBlock);
-  };
+    attachSystemBlock(fold, entry, taskBlock);
+  }
 
-  for (const entry of entries) {
+  /** tool_result 回填当前 turn 内的发起 tool_use；无匹配时追加独立结果块。 */
+  function attachToolResult(turnContent: ContentBlock[], entry: TimelineEntry): void {
+    const toolUseId = entry.tool_use_id;
+    const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
+    if (toolUseId) {
+      for (const block of turnContent) {
+        if (block.type === "tool_use" && block.id === toolUseId) {
+          block.result = resultText;
+          block.is_error = Boolean(entry.is_error);
+          return;
+        }
+      }
+    }
+    turnContent.push({
+      type: "tool_result",
+      tool_use_id: toolUseId ?? undefined,
+      content: resultText,
+      is_error: Boolean(entry.is_error),
+    });
+  }
+
+  /** 登记 tool_use 块位置（同 id 首次登记生效），并锚定等待中的 subagent 组。 */
+  function registerToolUse(fold: Fold, turn: InternalTurn, block: ContentBlock): void {
+    const id = block.id;
+    if (!id) return;
+    if (!toolUseSites.has(id)) toolUseSites.set(id, { fold, turn, block });
+    const group = groups.get(id);
+    if (group && !group.anchor) {
+      const site = toolUseSites.get(id);
+      if (site) {
+        group.anchor = site;
+        // 合成卡片并回锚点：锚点 turn 展示需重建，顶层合成卡片消失
+        touch(site.fold, site.turn);
+      }
+    }
+  }
+
+  /** 取 parent_tool_use_id 对应的子时间线折叠状态，组首现时尝试锚定。 */
+  function groupFoldFor(parentId: string): Fold {
+    let group = groups.get(parentId);
+    if (!group) {
+      const fold = newFold();
+      group = { id: parentId, fold, anchor: null };
+      fold.group = group;
+      groups.set(parentId, group);
+      const site = toolUseSites.get(parentId);
+      if (site) {
+        group.anchor = site;
+        touch(site.fold, site.turn);
+      }
+      composedDirty = true;
+    }
+    return group.fold;
+  }
+
+  function appendOne(entry: TimelineEntry): void {
+    const fold = entry.parent_tool_use_id ? groupFoldFor(entry.parent_tool_use_id) : main;
+
     if (entry.type === "assistant") {
       const blocks = entryBlocks(entry).map(cloneBlock);
-      if (cursor.current && cursor.current.type === "assistant") {
-        cursor.current.content.push(...blocks);
+      let turn: InternalTurn;
+      if (fold.cursor && fold.cursor.type === "assistant") {
+        fold.cursor.content.push(...blocks);
+        turn = fold.cursor;
+        touch(fold, turn);
       } else {
-        startTurn({ type: "assistant", content: blocks, uuid: entry.uuid, timestamp: entry.timestamp });
+        turn = startTurn(fold, "assistant", blocks, entry);
       }
-      continue;
+      for (const block of blocks) {
+        if (block.type === "tool_use") registerToolUse(fold, turn, block);
+      }
+      return;
     }
 
     if (entry.type === "tool_result") {
-      if (cursor.current && cursor.current.type === "assistant") {
-        attachToolResult(cursor.current.content, entry);
+      if (fold.cursor && fold.cursor.type === "assistant") {
+        attachToolResult(fold.cursor.content, entry);
+        touch(fold, fold.cursor);
       } else {
-        attachSystemBlock(entry, {
+        attachSystemBlock(fold, entry, {
           type: "tool_result",
           tool_use_id: entry.tool_use_id ?? undefined,
           content: typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry)),
           is_error: Boolean(entry.is_error),
         });
       }
-      continue;
+      return;
     }
 
     if (entry.type === "system") {
@@ -291,31 +293,27 @@ function projectFlatEntries(entries: TimelineEntry[]): Turn[] {
         // 当前 turn 有锚点时不再追加，避免同一调用出现两枚芯片
         const anchored =
           entry.tool_use_id != null &&
-          cursor.current !== null &&
-          cursor.current.content.some((b) => b.type === "tool_use" && b.id === entry.tool_use_id);
+          fold.cursor !== null &&
+          fold.cursor.content.some((b) => b.type === "tool_use" && b.id === entry.tool_use_id);
         if (!anchored) {
-          attachSystemBlock(entry, {
+          attachSystemBlock(fold, entry, {
             type: "skill_invocation",
             skill_name: entry.skill_name ?? undefined,
             skill_args: entry.skill_args ?? undefined,
             tool_use_id: entry.tool_use_id ?? undefined,
           });
         }
-        continue;
+        return;
       }
       if (entry.subtype === "interrupt") {
-        startTurn({
-          type: "system",
-          content: [{ type: "interrupt_notice" }],
-          uuid: entry.uuid,
-          timestamp: entry.timestamp,
-        });
-        continue;
+        startTurn(fold, "system", [{ type: "interrupt_notice" }], entry);
+        return;
       }
       if (entry.subtype !== "task_started" && entry.subtype !== "task_progress" && entry.subtype !== "task_notification") {
-        continue;
+        return;
       }
       applyTaskBlock(
+        fold,
         entry,
         {
           type: "task_progress",
@@ -329,7 +327,7 @@ function projectFlatEntries(entries: TimelineEntry[]): Turn[] {
         },
         entry.subtype !== "task_started",
       );
-      continue;
+      return;
     }
 
     // entry.type === "user"
@@ -337,65 +335,191 @@ function projectFlatEntries(entries: TimelineEntry[]): Turn[] {
       const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
       const answers = entry.answers ?? undefined;
       // 回填提问的 AskUserQuestion tool_use 块：结果状态不悬挂，问题卡可标记所选。
-      // 先查当前 turn（常见路径），未命中时退回已 flush 的 turns——pending 提问期间
-      // 若有 interrupt 之类的条目提前把该 turn flush 出去，锚点仍要能跨 turn 找回。
-      const toolUse = entry.tool_use_id
-        ? (findToolUseBlockInTurn(cursor.current, entry.tool_use_id) ?? findToolUseBlock(turns, entry.tool_use_id))
-        : null;
-      if (toolUse) {
-        toolUse.result = resultText;
-        toolUse.is_error = Boolean(entry.is_error);
-        if (answers) toolUse.answers = { ...answers };
+      // 按登记索引 O(1) 定位，限定同一时间线（pending 提问期间若有 interrupt 之类
+      // 的条目提前把该 turn flush 出去，锚点仍要能跨 turn 找回）。
+      let site: ToolUseSite | null = null;
+      if (entry.tool_use_id) {
+        const hit = toolUseSites.get(entry.tool_use_id);
+        if (hit && hit.fold === fold) site = hit;
+      }
+      if (site) {
+        site.block.result = resultText;
+        site.block.is_error = Boolean(entry.is_error);
+        if (answers) site.block.answers = { ...answers };
+        touch(site.fold, site.turn);
       }
       if (entry.is_error) {
         // 被拒/中断的提问没有用户答复；无处回填时保留孤立结果块
-        if (!toolUse) {
-          attachSystemBlock(entry, {
+        if (!site) {
+          attachSystemBlock(fold, entry, {
             type: "tool_result",
             tool_use_id: entry.tool_use_id ?? undefined,
             content: resultText,
             is_error: true,
           });
         }
-        continue;
+        return;
       }
-      startTurn({
-        type: "user",
-        content: [{ type: "question_answer", answers, text: resultText }],
-        uuid: entry.uuid,
-        timestamp: entry.timestamp,
-      });
-      continue;
+      startTurn(fold, "user", [{ type: "question_answer", answers, text: resultText }], entry);
+      return;
     }
 
-    const blocks = entryBlocks(entry).map(cloneBlock);
-
-    startTurn({ type: "user", content: blocks, uuid: entry.uuid, timestamp: entry.timestamp });
+    startTurn(fold, "user", entryBlocks(entry).map(cloneBlock), entry);
   }
 
-  flush();
-  return turns;
+  // -------------------------------------------------------------------------
+  // 展示视图 — 由累积态派生，按 turn 版本缓存
+  // -------------------------------------------------------------------------
+
+  function foldDisplay(fold: Fold): Turn[] {
+    if (fold.displayVersion === fold.version) return fold.display;
+    const internal = fold.cursor ? [...fold.committed, fold.cursor] : [...fold.committed];
+    fold.display = internal.map(turnView);
+    fold.displayVersion = fold.version;
+    return fold.display;
+  }
+
+  function turnView(turn: InternalTurn): Turn {
+    const cached = turnViewCache.get(turn);
+    if (cached && cached.version === turn.version) return cached.turn;
+    const built = buildTurnView(turn);
+    turnViewCache.set(turn, { version: turn.version, turn: built });
+    return built;
+  }
+
+  /**
+   * 构建单个 turn 的展示视图：挂载 subagent 子时间线、把已完成 Agent 调用
+   * 的滞留 task_started 推导为完成、将 task 进度折叠进锚点 tool_use（子任务
+   * 卡片就地显示状态与进度，不渲染独立进度行；无锚点的 task 块保持原样）。
+   * 可变块（tool_use / task_progress）逐次浅拷，累积态不被展示层污染，
+   * 同一版本重复构建收敛到同一结果。
+   */
+  function buildTurnView(turn: InternalTurn): Turn {
+    const content: ContentBlock[] = [];
+    let toolUseById: Map<string, ContentBlock> | null = null;
+    let completedAgentIds: Set<string> | null = null;
+    for (const block of turn.content) {
+      if (block.type === "tool_use") {
+        const view = { ...block };
+        if (block.id) {
+          const group = groups.get(block.id);
+          if (group && group.anchor?.block === block) view.sub_turns = foldDisplay(group.fold);
+          (toolUseById ??= new Map()).set(block.id, view);
+          if (view.name === "Agent" && view.result !== undefined) (completedAgentIds ??= new Set()).add(block.id);
+        }
+        content.push(view);
+      } else if (block.type === "task_progress") {
+        content.push({ ...block });
+      } else {
+        content.push(block);
+      }
+    }
+    // task_started 块对应的 Agent tool_use 已有 result 时推导为已完成
+    if (completedAgentIds) {
+      const completed = completedAgentIds;
+      for (const block of content) {
+        if (
+          block.type === "task_progress" &&
+          block.status === "task_started" &&
+          block.tool_use_id &&
+          completed.has(block.tool_use_id)
+        ) {
+          block.status = "task_notification";
+          block.task_status = "completed";
+        }
+      }
+    }
+    let finalContent = content;
+    if (toolUseById) {
+      const anchors = toolUseById;
+      finalContent = content.filter((block) => {
+        if (block.type !== "task_progress" || !block.tool_use_id) return true;
+        const anchor = anchors.get(block.tool_use_id);
+        if (!anchor) return true;
+        anchor.task_info = block;
+        return false;
+      });
+    }
+    return { type: turn.type, content: finalContent, uuid: turn.uuid, timestamp: turn.timestamp };
+  }
+
+  function compose(): Turn[] {
+    if (!composedDirty) return composed;
+    const out = [...foldDisplay(main)];
+    // 仍无锚点的组（如懒生成残余组）：以合成锚点独立成卡，不丢子时间线
+    for (const group of groups.values()) {
+      if (group.anchor) continue;
+      out.push({
+        type: "system",
+        content: [{ type: "tool_use", id: group.id, name: "Agent", input: {}, sub_turns: foldDisplay(group.fold) }],
+        uuid: `subagent-${group.id}`,
+      });
+    }
+    composed = out;
+    composedDirty = false;
+    return out;
+  }
+
+  return {
+    project(entries: TimelineEntry[]): Turn[] {
+      // 前缀不变性按端点引用判定：日志契约保证条目按 seq 不可变、集合只增
+      // 不减，端点同引用即前缀逐元素同引用（中部插入必然移动端点索引）。
+      const extendsPrefix =
+        entries.length >= count &&
+        (count === 0 || (entries[0] === source[0] && entries[count - 1] === source[count - 1]));
+      if (!extendsPrefix) reset();
+      for (let i = count; i < entries.length; i++) appendOne(entries[i]);
+      source = entries;
+      count = entries.length;
+      return compose();
+    },
+    get size(): number {
+      return count;
+    },
+  };
+}
+
+/**
+ * 全量投影纯函数入口（entries → Turn[]）：空投影器一次性重放。
+ * 增量路径 `createTimelineProjector` 与本函数结果恒等。
+ */
+export function projectEntriesToTurns(entries: TimelineEntry[]): Turn[] {
+  return createTimelineProjector().project(entries);
 }
 
 // ---------------------------------------------------------------------------
 // draft 投影与增量应用
 // ---------------------------------------------------------------------------
 
+/** 收集已落权威 assistant 条目的 message_id 集合（draft 替换判定的派生索引）。 */
+export function collectCommittedMessageIds(entries: TimelineEntry[]): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type === "assistant" && entry.message_id != null) ids.add(entry.message_id);
+  }
+  return ids;
+}
+
 /**
- * draft → Turn。完成替换按身份比对：日志中已有同 message_id 的 assistant
- * 条目时 draft 视为已被权威条目替换，返回 null。不做内容比对。
+ * draft 是否已被权威条目替换：按身份比对（同 message_id 的 assistant 条目
+ * 已落库即视为替换），不做内容比对。集合由调用方增量维护，判定 O(1)。
  */
-export function projectDraftToTurn(
+export function isDraftReplaced(
   draft: DraftState | null,
-  entries: TimelineEntry[],
-): Turn | null {
+  committedMessageIds: ReadonlySet<string>,
+): boolean {
+  if (!draft || !draft.message_id) return false;
+  return committedMessageIds.has(draft.message_id);
+}
+
+/**
+ * draft → Turn。replaced 为真（已被权威条目替换）时返回 null；
+ * subagent 的流式草稿不进主时间线：主线只显示折叠卡片，
+ * 卡片内容随权威条目（近实时）更新。
+ */
+export function buildDraftTurn(draft: DraftState | null, replaced: boolean): Turn | null {
   if (!draft || !draft.message_id) return null;
-  // subagent 的流式草稿不进主时间线：主线只显示折叠卡片，
-  // 卡片内容随权威条目（近实时）更新
   if (draft.parent_tool_use_id) return null;
-  const replaced = entries.some(
-    (e) => e.type === "assistant" && e.message_id != null && e.message_id === draft.message_id,
-  );
   if (replaced) return null;
   const content = draft.content.filter(Boolean);
   if (content.length === 0) return null;
@@ -404,6 +528,14 @@ export function projectDraftToTurn(
     content,
     uuid: `draft-${draft.message_id}`,
   };
+}
+
+/** draft → Turn 全量入口：从 entries 派生替换判定（热路径请用 buildDraftTurn）。 */
+export function projectDraftToTurn(
+  draft: DraftState | null,
+  entries: TimelineEntry[],
+): Turn | null {
+  return buildDraftTurn(draft, isDraftReplaced(draft, collectCommittedMessageIds(entries)));
 }
 
 /** 客户端 draft 镜像：content 以 block_index 为数组下标，toolJson 累积未闭合 JSON。 */

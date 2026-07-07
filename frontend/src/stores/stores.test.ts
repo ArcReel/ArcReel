@@ -271,6 +271,28 @@ describe("stores", () => {
     expect(draft?.content[0].input).toEqual({ path: "a.txt" });
   });
 
+  it("does not treat a fresh draft as replaced by a stale committed message_id after a full setState reset", () => {
+    const assistant = useAssistantStore.getState();
+    // 先提交一条权威 assistant 条目（message_id 进入替换索引）
+    assistant.resetTimeline();
+    assistant.appendEntry({
+      seq: 0,
+      type: "assistant",
+      message_id: "msg_1",
+      uuid: "a-1",
+      content: [{ type: "text", text: "上一会话" }],
+    });
+    // 整帧 setState 重置（绕过 store action，等价于测试 harness 的 reset）
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    // 新会话复用同一 message_id 的 draft：替换索引应按新（空）entries 自愈，
+    // draftTurn 不被上一会话的陈旧 message_id 误判为已替换
+    useAssistantStore.getState().setDraftSnapshot(
+      { message_id: "msg_1", content: [{ type: "text", text: "新会话草稿" }], rev: 1 },
+      1,
+    );
+    expect(useAssistantStore.getState().draftTurn?.content[0].text).toBe("新会话草稿");
+  });
+
   describe("ProjectsStore fingerprints", () => {
     it("should store and retrieve asset fingerprints", () => {
       const { updateAssetFingerprints, getAssetFingerprint } = useProjectsStore.getState();

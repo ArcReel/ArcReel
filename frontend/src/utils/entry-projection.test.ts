@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { DraftDeltaPayload, TimelineEntry } from "@/types";
 import {
   applyDraftDelta,
+  buildDraftTurn,
+  collectCommittedMessageIds,
+  createTimelineProjector,
+  isDraftReplaced,
   mergeEntriesBySeq,
   projectDraftToTurn,
   projectEntriesToTurns,
@@ -542,6 +546,364 @@ describe("applyDraftDelta", () => {
     expect(first).toEqual(before);
   });
 });
+
+describe("collectCommittedMessageIds", () => {
+  it("collects message_id of assistant entries only", () => {
+    const ids = collectCommittedMessageIds([
+      { seq: 0, type: "user", content: [{ type: "text", text: "hi" }] },
+      { seq: 1, type: "assistant", message_id: "m1", content: [{ type: "text", text: "a" }] },
+      { seq: 2, type: "assistant", message_id: "m2", content: [{ type: "text", text: "b" }] },
+      { seq: 3, type: "tool_result", tool_use_id: "tu", content: "r" },
+      // assistant 条目缺 message_id 时不计入
+      { seq: 4, type: "assistant", content: [{ type: "text", text: "c" }] },
+    ]);
+    expect(ids).toBeInstanceOf(Set);
+    expect([...ids].sort()).toEqual(["m1", "m2"]);
+  });
+
+  it("returns an empty set for no committed assistant messages", () => {
+    expect(collectCommittedMessageIds([]).size).toBe(0);
+  });
+});
+
+describe("isDraftReplaced", () => {
+  const draft: DraftMirror = {
+    message_id: "m1",
+    parent_tool_use_id: null,
+    content: [{ type: "text", text: "x" }],
+    toolJson: {},
+  };
+
+  it("is true when the committed set contains the draft message_id", () => {
+    expect(isDraftReplaced(draft, new Set(["m0", "m1"]))).toBe(true);
+  });
+
+  it("is false when the committed set lacks the draft message_id", () => {
+    expect(isDraftReplaced(draft, new Set(["m0"]))).toBe(false);
+  });
+
+  it("is false for null or message_id-less drafts", () => {
+    expect(isDraftReplaced(null, new Set(["m1"]))).toBe(false);
+    expect(isDraftReplaced({ ...draft, message_id: "" }, new Set(["m1"]))).toBe(false);
+  });
+});
+
+describe("buildDraftTurn", () => {
+  const draft: DraftMirror = {
+    message_id: "msg_1",
+    parent_tool_use_id: null,
+    content: [{ type: "text", text: "流式中" }],
+    toolJson: {},
+  };
+
+  it("builds an assistant turn from an unreplaced main-timeline draft", () => {
+    const turn = buildDraftTurn(draft, false);
+    expect(turn?.type).toBe("assistant");
+    expect(turn?.uuid).toBe("draft-msg_1");
+    expect(turn?.content[0].text).toBe("流式中");
+  });
+
+  it("returns null once the draft is marked replaced (O(1) — no entries scan)", () => {
+    expect(buildDraftTurn(draft, true)).toBeNull();
+  });
+
+  it("returns null for null / empty / subagent drafts", () => {
+    expect(buildDraftTurn(null, false)).toBeNull();
+    expect(buildDraftTurn({ ...draft, content: [] }, false)).toBeNull();
+    expect(buildDraftTurn({ ...draft, parent_tool_use_id: "tu-agent" }, false)).toBeNull();
+  });
+
+  it("agrees with projectDraftToTurn across the committed-set derivation", () => {
+    const entries: TimelineEntry[] = [
+      { seq: 0, type: "assistant", message_id: "msg_1", content: [{ type: "text", text: "已提交" }] },
+    ];
+    const ids = collectCommittedMessageIds(entries);
+    expect(buildDraftTurn(draft, isDraftReplaced(draft, ids))).toEqual(projectDraftToTurn(draft, entries));
+  });
+});
+
+describe("createTimelineProjector", () => {
+  let seq = 0;
+  function e(partial: Omit<TimelineEntry, "seq">): TimelineEntry {
+    return { seq: seq++, ...partial };
+  }
+
+  function bigImageEntry(): TimelineEntry {
+    return e({
+      type: "user",
+      content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "A".repeat(2048) } }],
+      uuid: `img-${seq}`,
+    });
+  }
+
+  it("produces output value-equal to the pure projectEntriesToTurns", () => {
+    const entries: TimelineEntry[] = [
+      e({ type: "user", content: [{ type: "text", text: "你好" }], uuid: "u-1" }),
+      e({ type: "assistant", content: [{ type: "tool_use", id: "tu-1", name: "Read", input: {} }], uuid: "a-1" }),
+      e({ type: "tool_result", tool_use_id: "tu-1", content: "内容", is_error: false, uuid: "tr-1" }),
+      e({ type: "assistant", content: [{ type: "text", text: "读完了" }], uuid: "a-2" }),
+    ];
+    const projector = createTimelineProjector();
+    expect(projector.project(entries)).toEqual(projectEntriesToTurns(entries));
+  });
+
+  it("stays value-equal to the pure function across incremental appends", () => {
+    const projector = createTimelineProjector();
+    const entries: TimelineEntry[] = [];
+    const push = (entry: TimelineEntry) => {
+      entries.push(entry);
+      expect(projector.project(entries)).toEqual(projectEntriesToTurns(entries));
+    };
+    push(e({ type: "user", content: [{ type: "text", text: "q" }], uuid: "u-1" }));
+    push(e({ type: "assistant", content: [{ type: "tool_use", id: "tu-a", name: "Agent", input: {} }], uuid: "a-1" }));
+    push(e({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "tu-a", uuid: "s-1" }));
+    push(e({ type: "tool_result", tool_use_id: "tu-a", content: "done", is_error: false, uuid: "tr-1" }));
+    push(e({ type: "assistant", content: [{ type: "text", text: "总结" }], uuid: "a-2" }));
+  });
+
+  it("does not mutate input entries even when reusing cached clones", () => {
+    const entries = [
+      e({ type: "assistant", content: [{ type: "tool_use", id: "tu-1", name: "Read", input: {} }], uuid: "a-1" }),
+      e({ type: "tool_result", tool_use_id: "tu-1", content: "r", is_error: false, uuid: "tr-1" }),
+    ];
+    const snapshot = JSON.parse(JSON.stringify(entries)) as TimelineEntry[];
+    const projector = createTimelineProjector();
+    projector.project(entries);
+    projector.project([...entries, e({ type: "assistant", content: [{ type: "text", text: "x" }], uuid: "a-2" })]);
+    expect(entries).toEqual(snapshot);
+  });
+
+  it("returns fresh turn objects each call so mutation folds never corrupt cached blocks", () => {
+    // 每次 project 折叠 tool_result/task 会就地改写 turn 内的块——若复用了上次
+    // 产出的块引用，第二次折叠会叠加在已折叠结果上。断言两次产出的块互不共享引用。
+    const entries: TimelineEntry[] = [
+      e({ type: "assistant", content: [{ type: "tool_use", id: "tu-1", name: "Read", input: {} }], uuid: "a-1" }),
+    ];
+    const projector = createTimelineProjector();
+    const first = projector.project(entries);
+    const withResult = [
+      ...entries,
+      e({ type: "tool_result", tool_use_id: "tu-1", content: "回填", is_error: false, uuid: "tr-1" }),
+    ];
+    const second = projector.project(withResult);
+    // 第一次产出的 tool_use 块不应被第二次折叠回填污染
+    expect(first[0].content[0].result).toBeUndefined();
+    expect(second[0].content[0].result).toBe("回填");
+    expect(first[0].content[0]).not.toBe(second[0].content[0]);
+  });
+
+  it("reuses the same deep-cloned block across projections instead of re-cloning (perf contract)", () => {
+    // 大 base64 image block：投影器应缓存首帧深拷贝，稳定条目重投影不再触发深拷贝。
+    // 通过桩化 structuredClone 计数验证：同一 entries 引用第二次 project 深拷贝次数为 0。
+    const img = bigImageEntry();
+    const entries: TimelineEntry[] = [img];
+    const projector = createTimelineProjector();
+
+    const original = globalThis.structuredClone;
+    let cloneCalls = 0;
+    globalThis.structuredClone = ((v: unknown) => {
+      cloneCalls++;
+      return original(v);
+    }) as typeof structuredClone;
+    try {
+      projector.project(entries);
+      expect(cloneCalls).toBeGreaterThan(0);
+      // 稳定重投影：老条目的块已缓存 → 不再深拷贝
+      cloneCalls = 0;
+      projector.project(entries);
+      expect(cloneCalls).toBe(0);
+      // 追加新条目重投影：老 image 块仍复用缓存，深拷贝只作用于新条目而非 2KB 图像
+      const next = [...entries, e({ type: "assistant", content: [{ type: "text", text: "hi" }], uuid: "a-1" })];
+      cloneCalls = 0;
+      projector.project(next);
+      // 新增的是纯文本块（浅结构，无 base64），旧 image 块 0 次重拷 → 总深拷贝 ≤ 1
+      expect(cloneCalls).toBeLessThanOrEqual(1);
+    } finally {
+      globalThis.structuredClone = original;
+    }
+  });
+
+  it("evicts cache entries for seqs no longer present (bounded memory on reset)", () => {
+    const projector = createTimelineProjector();
+    const first = [e({ type: "user", content: [{ type: "text", text: "旧会话" }], uuid: "u-1" })];
+    projector.project(first);
+    // 切换会话：全新 entries，旧 seq 不再出现
+    const second = [e({ type: "assistant", content: [{ type: "text", text: "新会话" }], uuid: "a-9" })];
+    const out = projector.project(second);
+    expect(out).toEqual(projectEntriesToTurns(second));
+    expect(projector.size).toBe(1);
+  });
+
+  it("returns the same array reference for a repeated stable projection", () => {
+    const projector = createTimelineProjector();
+    const entries = [e({ type: "user", content: [{ type: "text", text: "hi" }], uuid: "u-1" })];
+    const first = projector.project(entries);
+    expect(projector.project(entries)).toBe(first);
+  });
+
+  it("stays equivalent to fresh replay through incremental subagent anchoring", () => {
+    // 覆盖增量路径最复杂的分支：锚点先于子条目、子条目先于锚点（合成卡片→回收）、
+    // 嵌套 subagent、task 折叠、跨 turn question_answer 回填。
+    const stream: TimelineEntry[] = [
+      e({ type: "user", content: [{ type: "text", text: "开始" }], uuid: "u-1" }),
+      // 孤儿子时间线：锚点尚不存在 → 合成卡片
+      e({ type: "assistant", content: [{ type: "text", text: "孤儿" }], uuid: "sa-1", parent_tool_use_id: "tu-late" }),
+      // 锚点补到 → 合成卡片应并回主时间线
+      e({ type: "assistant", content: [{ type: "tool_use", id: "tu-late", name: "Agent", input: {} }], uuid: "a-1" }),
+      e({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "tu-late", description: "外层", uuid: "s-1" }),
+      // 嵌套 subagent：内层锚点在外层子时间线内
+      e({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-inner", name: "Agent", input: {} }],
+        uuid: "sa-2",
+        parent_tool_use_id: "tu-late",
+      }),
+      e({ type: "assistant", content: [{ type: "text", text: "内层回复" }], uuid: "sa-3", parent_tool_use_id: "tu-inner" }),
+      // 提问 → 中断把 turn 提前 flush → 答复跨 turn 回填
+      e({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-q", name: "AskUserQuestion", input: {} }],
+        uuid: "a-2",
+      }),
+      e({ type: "system", subtype: "interrupt", uuid: "i-1" }),
+      e({
+        type: "user",
+        subtype: "question_answer",
+        tool_use_id: "tu-q",
+        content: "answered",
+        is_error: false,
+        answers: { q: "yes" },
+        uuid: "qa-1",
+      }),
+      e({ type: "tool_result", tool_use_id: "tu-late", content: "外层完成", is_error: false, uuid: "tr-1" }),
+      e({ type: "assistant", content: [{ type: "text", text: "总结" }], uuid: "a-3" }),
+    ];
+    const projector = createTimelineProjector();
+    for (let i = 1; i <= stream.length; i++) {
+      const prefix = stream.slice(0, i);
+      expect(projector.project(prefix), `前缀长度 ${i} 应与全量重放一致`).toEqual(projectEntriesToTurns(prefix));
+    }
+  });
+
+  it("matches fresh replay at every prefix of seeded random entry streams", () => {
+    for (const seed of [7, 42, 1058]) {
+      const stream = generateEntryStream(seed, 80);
+      const projector = createTimelineProjector();
+      for (let i = 1; i <= stream.length; i++) {
+        const prefix = stream.slice(0, i);
+        expect(projector.project(prefix), `seed=${seed} 前缀长度 ${i} 应与全量重放一致`).toEqual(
+          projectEntriesToTurns(prefix),
+        );
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 随机条目流生成器 — 线性同余伪随机（种子可复现），覆盖各条目类型组合。
+// ---------------------------------------------------------------------------
+
+function generateEntryStream(seed: number, length: number): TimelineEntry[] {
+  let state = seed >>> 0;
+  const rng = (): number => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  const pick = <T,>(items: T[]): T => items[Math.floor(rng() * items.length)];
+  const chance = (p: number): boolean => rng() < p;
+
+  const entries: TimelineEntry[] = [];
+  const toolIds: string[] = [];
+  const taskIds: string[] = [];
+  let toolCounter = 0;
+  let taskCounter = 0;
+
+  for (let seq = 0; seq < length; seq++) {
+    let entry: TimelineEntry;
+    const roll = rng();
+    if (roll < 0.35) {
+      if (chance(0.5)) {
+        entry = {
+          seq,
+          type: "assistant",
+          uuid: `a-${seq}`,
+          message_id: chance(0.5) ? `msg-${seq}` : undefined,
+          content: [{ type: "text", text: `文本${seq}` }],
+        };
+      } else {
+        const id = `tu-${toolCounter++}`;
+        toolIds.push(id);
+        entry = {
+          seq,
+          type: "assistant",
+          uuid: `a-${seq}`,
+          content: [{ type: "tool_use", id, name: pick(["Read", "Agent", "Skill", "AskUserQuestion"]), input: { n: seq } }],
+        };
+      }
+    } else if (roll < 0.5) {
+      entry = {
+        seq,
+        type: "tool_result",
+        uuid: `tr-${seq}`,
+        tool_use_id: toolIds.length > 0 && chance(0.8) ? pick(toolIds) : `tu-ghost-${seq}`,
+        content: `结果${seq}`,
+        is_error: chance(0.2),
+      };
+    } else if (roll < 0.72) {
+      const sub = rng();
+      if (sub < 0.15) {
+        entry = { seq, type: "system", subtype: "interrupt", uuid: `i-${seq}` };
+      } else if (sub < 0.3) {
+        entry = {
+          seq,
+          type: "system",
+          subtype: "skill_invocation",
+          skill_name: "demo",
+          skill_args: `s${seq}`,
+          tool_use_id: toolIds.length > 0 && chance(0.5) ? pick(toolIds) : null,
+          uuid: `sk-${seq}`,
+        };
+      } else if (sub < 0.4) {
+        // 未知子类型：投影应忽略
+        entry = { seq, type: "system", subtype: "noise", uuid: `n-${seq}` };
+      } else {
+        const started = taskIds.length === 0 || chance(0.4);
+        const taskId = started ? `t-${taskCounter++}` : pick(taskIds);
+        if (started) taskIds.push(taskId);
+        entry = {
+          seq,
+          type: "system",
+          subtype: started ? "task_started" : pick(["task_progress", "task_notification"]),
+          task_id: taskId,
+          tool_use_id: toolIds.length > 0 && chance(0.6) ? pick(toolIds) : undefined,
+          description: `任务${taskId}`,
+          summary: chance(0.5) ? `进展${seq}` : undefined,
+          task_status: chance(0.3) ? "completed" : undefined,
+          usage: chance(0.5) ? { total_tokens: seq } : undefined,
+          uuid: `t-${seq}`,
+        };
+      }
+    } else if (roll < 0.85) {
+      entry = {
+        seq,
+        type: "user",
+        subtype: "question_answer",
+        tool_use_id: toolIds.length > 0 && chance(0.7) ? pick(toolIds) : `tu-ghost-${seq}`,
+        content: `答复${seq}`,
+        is_error: chance(0.3),
+        answers: chance(0.5) ? { [`q${seq}`]: "选项" } : undefined,
+        uuid: `qa-${seq}`,
+      };
+    } else {
+      entry = { seq, type: "user", uuid: `u-${seq}`, content: [{ type: "text", text: `用户${seq}` }] };
+    }
+    // 30% 概率归入某已存在锚点的子时间线，偶发 ghost 组
+    if (toolIds.length > 0 && chance(0.3)) entry.parent_tool_use_id = pick(toolIds);
+    else if (chance(0.05)) entry.parent_tool_use_id = `ghost-${Math.floor(rng() * 3)}`;
+    entries.push(entry);
+  }
+  return entries;
+}
 
 describe("mergeEntriesBySeq", () => {
   function e(seq: number, uuid: string): TimelineEntry {

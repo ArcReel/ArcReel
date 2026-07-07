@@ -11,9 +11,11 @@ import type {
 } from "@/types";
 import {
   applyDraftDelta,
+  buildDraftTurn,
+  collectCommittedMessageIds,
+  createTimelineProjector,
+  isDraftReplaced,
   mergeEntriesBySeq,
-  projectDraftToTurn,
-  projectEntriesToTurns,
   type DraftMirror,
 } from "@/utils/entry-projection";
 
@@ -86,101 +88,129 @@ interface AssistantState {
   setIsDraftSession: (draft: boolean) => void;
 }
 
-export const useAssistantStore = create<AssistantState>((set, get) => ({
-  sessions: [],
-  currentSessionId: null,
-  sessionsLoading: false,
-  entries: [],
-  draft: null,
-  draftRev: 0,
-  turns: [],
-  draftTurn: null,
-  messagesLoading: false,
-  input: "",
-  sending: false,
-  interrupting: false,
-  error: null,
-  sessionStatus: null,
-  sessionStatusDetail: null,
-  pendingQuestion: null,
-  answeringQuestion: false,
-  skills: [],
-  skillsLoading: false,
-  currentProject: null,
-  isDraftSession: false,
+export const useAssistantStore = create<AssistantState>((set, get) => {
+  // 投影派生缓存（非响应式状态）：projector 增量折叠 entries→turns，
+  // committedIds 是 draft 替换判定的 O(1) 索引。索引按 entries 引用自愈——
+  // 外部整帧 setState（如测试 reset）替换 entries 却不经本 store 的 action
+  // 时，下次读取按引用不符重建，避免用陈旧 message_id 误判 draft 已替换。
+  let projector = createTimelineProjector();
+  let committedIds = new Set<string>();
+  let committedSource: TimelineEntry[] | null = null;
 
-  setSessions: (sessions) => set({ sessions }),
-  setCurrentSessionId: (id) => set({ currentSessionId: id }),
-  setSessionsLoading: (loading) => set({ sessionsLoading: loading }),
+  const projectEntries = (entries: TimelineEntry[]): Turn[] => projector.project(entries);
 
-  setEntries: (entries) => {
-    // 并集合并而非整帧覆盖：慢网络下冷读响应可能晚于发送响应/SSE 条目到达，
-    // 整帧覆盖会抹掉更新的条目；append-only 日志按 seq 并集恒安全。
-    const merged = mergeEntriesBySeq(get().entries, entries);
-    const draft = get().draft;
-    set({
-      entries: merged,
-      turns: projectEntriesToTurns(merged),
-      draftTurn: projectDraftToTurn(draft, merged),
-    });
-  },
-  appendEntry: (entry) => {
-    const { entries, draft } = get();
-    const lastSeq = entries.length > 0 ? entries[entries.length - 1].seq : -1;
-    if (entry.seq <= lastSeq) return;
-    const next = [...entries, entry];
-    // 权威条目落库即按同 message_id 精确替换 draft（身份比对）
-    const draftReplaced =
-      draft !== null &&
-      entry.type === "assistant" &&
-      entry.message_id != null &&
-      entry.message_id === draft.message_id;
-    const nextDraft = draftReplaced ? null : draft;
-    set({
-      entries: next,
-      draft: nextDraft,
-      turns: projectEntriesToTurns(next),
-      draftTurn: projectDraftToTurn(nextDraft, next),
-    });
-  },
-  setDraftSnapshot: (draft, rev) => {
-    const entries = get().entries;
-    // tool_json 是服务端已累积的原始 partial JSON——以此为前缀继续拼接
-    // 后续 input_json_delta，否则纯后缀永远解析失败、参数预览冻结。
-    const mirror: DraftMirror | null = draft
-      ? { ...draft, content: [...draft.content], toolJson: { ...(draft.tool_json ?? {}) } }
-      : null;
-    set({
-      draft: mirror,
-      draftRev: rev,
-      draftTurn: projectDraftToTurn(mirror, entries),
-    });
-  },
-  applyDelta: (payload) => {
-    const { draft, draftRev, entries } = get();
-    if (typeof payload.rev !== "number" || payload.rev <= draftRev) return;
-    const next = applyDraftDelta(draft, payload);
-    set({
-      draft: next,
-      draftRev: payload.rev,
-      draftTurn: projectDraftToTurn(next, entries),
-    });
-  },
-  clearDraft: () => set({ draft: null, draftTurn: null }),
-  resetTimeline: () =>
-    set({ entries: [], draft: null, draftRev: 0, turns: [], draftTurn: null }),
+  const committedFor = (entries: TimelineEntry[]): Set<string> => {
+    if (committedSource !== entries) {
+      committedIds = collectCommittedMessageIds(entries);
+      committedSource = entries;
+    }
+    return committedIds;
+  };
 
-  setMessagesLoading: (loading) => set({ messagesLoading: loading }),
-  setInput: (input) => set({ input }),
-  setSending: (sending) => set({ sending }),
-  setInterrupting: (interrupting) => set({ interrupting }),
-  setError: (error) => set({ error }),
-  setSessionStatus: (status) => set({ sessionStatus: status }),
-  setSessionStatusDetail: (detail) => set({ sessionStatusDetail: detail }),
-  setPendingQuestion: (question) => set({ pendingQuestion: question }),
-  setAnsweringQuestion: (answering) => set({ answeringQuestion: answering }),
-  setSkills: (skills) => set({ skills }),
-  setSkillsLoading: (loading) => set({ skillsLoading: loading }),
-  setCurrentProject: (project) => set({ currentProject: project }),
-  setIsDraftSession: (draft) => set({ isDraftSession: draft }),
-}));
+  return {
+    sessions: [],
+    currentSessionId: null,
+    sessionsLoading: false,
+    entries: [],
+    draft: null,
+    draftRev: 0,
+    turns: [],
+    draftTurn: null,
+    messagesLoading: false,
+    input: "",
+    sending: false,
+    interrupting: false,
+    error: null,
+    sessionStatus: null,
+    sessionStatusDetail: null,
+    pendingQuestion: null,
+    answeringQuestion: false,
+    skills: [],
+    skillsLoading: false,
+    currentProject: null,
+    isDraftSession: false,
+
+    setSessions: (sessions) => set({ sessions }),
+    setCurrentSessionId: (id) => set({ currentSessionId: id }),
+    setSessionsLoading: (loading) => set({ sessionsLoading: loading }),
+
+    setEntries: (entries) => {
+      // 并集合并而非整帧覆盖：慢网络下冷读响应可能晚于发送响应/SSE 条目到达，
+      // 整帧覆盖会抹掉更新的条目；append-only 日志按 seq 并集恒安全。
+      const merged = mergeEntriesBySeq(get().entries, entries);
+      const draft = get().draft;
+      committedIds = collectCommittedMessageIds(merged);
+      committedSource = merged;
+      set({
+        entries: merged,
+        turns: projectEntries(merged),
+        draftTurn: buildDraftTurn(draft, isDraftReplaced(draft, committedIds)),
+      });
+    },
+    appendEntry: (entry) => {
+      const { entries, draft } = get();
+      const lastSeq = entries.length > 0 ? entries[entries.length - 1].seq : -1;
+      if (entry.seq <= lastSeq) return;
+      const next = [...entries, entry];
+      const ids = committedFor(entries);
+      if (entry.type === "assistant" && entry.message_id != null) ids.add(entry.message_id);
+      committedSource = next;
+      // 权威条目落库即按同 message_id 精确替换 draft（身份比对）
+      const draftReplaced =
+        draft !== null &&
+        entry.type === "assistant" &&
+        entry.message_id != null &&
+        entry.message_id === draft.message_id;
+      const nextDraft = draftReplaced ? null : draft;
+      set({
+        entries: next,
+        draft: nextDraft,
+        turns: projectEntries(next),
+        draftTurn: buildDraftTurn(nextDraft, isDraftReplaced(nextDraft, ids)),
+      });
+    },
+    setDraftSnapshot: (draft, rev) => {
+      // tool_json 是服务端已累积的原始 partial JSON——以此为前缀继续拼接
+      // 后续 input_json_delta，否则纯后缀永远解析失败、参数预览冻结。
+      const mirror: DraftMirror | null = draft
+        ? { ...draft, content: [...draft.content], toolJson: { ...(draft.tool_json ?? {}) } }
+        : null;
+      set({
+        draft: mirror,
+        draftRev: rev,
+        draftTurn: buildDraftTurn(mirror, isDraftReplaced(mirror, committedFor(get().entries))),
+      });
+    },
+    applyDelta: (payload) => {
+      const { draft, draftRev } = get();
+      if (typeof payload.rev !== "number" || payload.rev <= draftRev) return;
+      const next = applyDraftDelta(draft, payload);
+      set({
+        draft: next,
+        draftRev: payload.rev,
+        draftTurn: buildDraftTurn(next, isDraftReplaced(next, committedFor(get().entries))),
+      });
+    },
+    clearDraft: () => set({ draft: null, draftTurn: null }),
+    resetTimeline: () => {
+      projector = createTimelineProjector();
+      committedIds = new Set<string>();
+      committedSource = null;
+      set({ entries: [], draft: null, draftRev: 0, turns: [], draftTurn: null });
+    },
+
+    setMessagesLoading: (loading) => set({ messagesLoading: loading }),
+    setInput: (input) => set({ input }),
+    setSending: (sending) => set({ sending }),
+    setInterrupting: (interrupting) => set({ interrupting }),
+    setError: (error) => set({ error }),
+    setSessionStatus: (status) => set({ sessionStatus: status }),
+    setSessionStatusDetail: (detail) => set({ sessionStatusDetail: detail }),
+    setPendingQuestion: (question) => set({ pendingQuestion: question }),
+    setAnsweringQuestion: (answering) => set({ answeringQuestion: answering }),
+    setSkills: (skills) => set({ skills }),
+    setSkillsLoading: (loading) => set({ skillsLoading: loading }),
+    setCurrentProject: (project) => set({ currentProject: project }),
+    setIsDraftSession: (draft) => set({ isDraftSession: draft }),
+  };
+});
