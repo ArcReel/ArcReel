@@ -299,13 +299,22 @@ class AssistantService:
                 return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
             # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
             # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
-            # 响应——调用方会据此连接一个不存在的会话，消息静默丢失。
-            self._new_session_client_keys.pop(client_key, None)
+            # 响应——调用方会据此连接一个不存在的会话，消息静默丢失。上一行
+            # await 期间该 key 可能已被其他并发请求写入更新的映射；仅当当前
+            # 值仍是本次读到的旧值时才清，避免清掉并发写入的新映射（DB 兜底
+            # 查询本身按 client_key 定位一定命中同一权威会话，误删只是白跑
+            # 一次查询，但仍以精确条件避免这层不必要的抖动）。
+            if self._new_session_client_keys.get(client_key) == mapped_session_id:
+                self._new_session_client_keys.pop(client_key, None)
         recovered = await self.event_log_store.find_new_session_by_client_key(client_key)
         if recovered is None:
             return None
         session_id, entry = recovered
-        self._record_new_session_client_key(client_key, session_id)
+        # 上一行 await 期间该 key 可能已被其他并发请求记入新映射；仅当当前
+        # 无映射或已是同一 session_id 时才写入，避免用本次查到的（较旧）
+        # session_id 覆盖并发写入的映射。
+        if self._new_session_client_keys.get(client_key) in (None, session_id):
+            self._record_new_session_client_key(client_key, session_id)
         return {"status": "accepted", "session_id": session_id, "entry": entry}
 
     def _record_new_session_client_key(self, client_key: str, session_id: str) -> None:

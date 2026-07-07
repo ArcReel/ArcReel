@@ -491,6 +491,68 @@ class TestAssistantServiceMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
+    async def test_ghost_mapping_cleanup_does_not_clobber_concurrent_fresh_mapping(self, tmp_path):
+        """幽灵映射清理在 `await find_by_client_key(...)` 期间该 key 被其他
+        并发请求写入了新的有效映射：清理不应无条件 pop，否则会误删并发
+        写入的新映射（即便 DB 兜底之后仍能查回正确会话，也不应制造这层
+        可避免的抖动窗口）。"""
+        service = AssistantService(project_root=tmp_path)
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = _FakeSessionManager()
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+
+        async def find_by_client_key(session_id, client_key):
+            # 模拟另一并发请求在本次查询期间把该 key 更新为新的有效映射。
+            service._new_session_client_keys[client_key] = "sdk-fresh"
+            return None  # 旧会话（sdk-deleted）条目已不存在
+
+        async def find_new_session_by_client_key(client_key):
+            return None  # 本测试只关心清理分支，不需要真的兜底恢复
+
+        service.event_log_store = SimpleNamespace(
+            find_by_client_key=find_by_client_key,
+            find_new_session_by_client_key=find_new_session_by_client_key,
+        )
+        service._new_session_client_keys["ck-a"] = "sdk-deleted"
+
+        result = await service._find_accepted_new_session("ck-a")  # pyright: ignore[reportPrivateUsage]
+
+        assert result is None  # 本测试的兜底查询返回 None，不影响本次断言重点
+        assert service._new_session_client_keys["ck-a"] == "sdk-fresh"  # 未被误删
+
+    @pytest.mark.asyncio
+    async def test_recovered_mapping_does_not_overwrite_concurrent_fresher_mapping(self, tmp_path):
+        """DB 兜底恢复在 `await find_new_session_by_client_key(...)` 期间该 key
+        已被其他并发请求记入更新的映射：不应用本次查到的（较旧）session_id
+        覆盖并发写入的映射。"""
+        service = AssistantService(project_root=tmp_path)
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = _FakeSessionManager()
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+
+        async def find_by_client_key(session_id, client_key):
+            return None
+
+        async def find_new_session_by_client_key(client_key):
+            # 模拟另一并发请求在本次查询期间已经建好新会话并记入映射。
+            service._new_session_client_keys[client_key] = "sdk-fresh"
+            return "sdk-old", {"seq": 0, "type": "user"}
+
+        service.event_log_store = SimpleNamespace(
+            find_by_client_key=find_by_client_key,
+            find_new_session_by_client_key=find_new_session_by_client_key,
+        )
+
+        result = await service._find_accepted_new_session("ck-b")  # pyright: ignore[reportPrivateUsage]
+
+        assert result is not None
+        assert result["session_id"] == "sdk-old"  # 本次调用仍返回自己查到的权威条目
+        # 但不应覆盖并发写入的更新映射
+        assert service._new_session_client_keys["ck-b"] == "sdk-fresh"
+
+    @pytest.mark.asyncio
     async def test_delete_session_closes_active_session_before_delete(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta(id="s1")
