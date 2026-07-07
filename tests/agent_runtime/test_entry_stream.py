@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from lib.i18n import DEFAULT_LOCALE, get_translator
 from server.agent_runtime.event_log import EventLogService, EventLogStore
-from server.agent_runtime.models import LiveMessage, ReplayBatch
+from server.agent_runtime.models import LiveMessage, SubscriptionReady
 from server.agent_runtime.service import AssistantService
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
@@ -60,9 +60,9 @@ class _FakeEntrySessionManager:
         return list(self.pending)
 
     @contextlib.asynccontextmanager
-    async def stream_messages(self, session_id, *, replay=True, idle_timeout=20.0, locale=DEFAULT_LOCALE):
+    async def stream_messages(self, session_id, *, idle_timeout=20.0, locale=DEFAULT_LOCALE):
         async def _iter():
-            yield ReplayBatch(messages=[])
+            yield SubscriptionReady()
             while True:
                 message = await self.queue.get()
                 if message is None:

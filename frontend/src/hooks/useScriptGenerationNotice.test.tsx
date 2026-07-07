@@ -14,8 +14,8 @@ function toolUse(name: string, id: string): ContentBlock {
   return { type: "tool_use", name, id, input: {} };
 }
 
-// 后端 turn_grouper 把 tool_result 合并进发起调用的 tool_use 块的 result/is_error
-// 字段（同一 turn 内配对），完成的调用没有独立 tool_result 块。这是 UI 真实收到的形状。
+// 前端投影层（entry-projection）把配对的 tool_result 条目回填进发起调用的 tool_use 块的
+// result/is_error 字段，完成的调用没有独立 tool_result 块。这是 UI 真实渲染的形状。
 function completedToolUse(name: string, id: string): ContentBlock {
   return { type: "tool_use", name, id, input: {}, result: "✅ done", is_error: false };
 }

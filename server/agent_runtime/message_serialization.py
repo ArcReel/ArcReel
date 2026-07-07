@@ -1,8 +1,9 @@
-"""Pure functions serializing SDK messages into broadcastable/bufferable dicts.
+"""Pure functions serializing SDK messages into broadcastable dicts.
 
-These cover the SDK-message → dict conversion, synthetic user-echo and
-runtime-status message construction, and duplicate-echo detection. They hold no
-session state, so they can be unit-tested by feeding message data directly.
+These cover the SDK-message → dict conversion, runtime-status message
+construction, and replayed-user-echo detection (the write point marks SDK
+replay copies so they are not logged twice). They hold no session state, so
+they can be unit-tested by feeding message data directly.
 """
 
 from datetime import UTC, datetime
@@ -89,26 +90,6 @@ def message_to_dict(message: Any) -> dict[str, Any]:
             msg_dict["subtype"] = subtype
 
     return msg_dict
-
-
-def build_user_echo_message(
-    text: str,
-    content_blocks: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """Build a synthetic user message for real-time UI echo.
-
-    When content_blocks is provided (e.g. image + text blocks), the echo
-    content is a list of blocks so the UI can render image thumbnails in
-    the bubble.  If no blocks are provided, content is the plain text string.
-    """
-    content: Any = content_blocks if content_blocks is not None else text
-    return {
-        "type": "user",
-        "content": content,
-        "uuid": f"local-user-{uuid4().hex}",
-        "timestamp": utc_now_iso(),
-        "local_echo": True,
-    }
 
 
 def build_runtime_status_message(

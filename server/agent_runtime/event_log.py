@@ -186,7 +186,7 @@ class SdkMessageNormalizer:
       （结构化答案取自消息级 tool_use_result）；skill 注入文本定型为
       skill_invocation 系统条目（只记 skill 名与入参，注入全文不进日志）；
       其余 tool_result 块定型为独立条目（引用 tool_use_id）；剩余内容以
-      通用 user 条目收录；local_echo 与 SDK 回放副本不入日志
+      通用 user 条目收录；SDK 回放副本（已打标）不入日志
     - system(task_*) → typed system 条目
     - stream_event / result / 其它 → 不进日志
 
@@ -252,7 +252,7 @@ class SdkMessageNormalizer:
         return []
 
     def _normalize_user(self, message: dict[str, Any]) -> list[dict[str, Any]]:
-        if message.get("local_echo") or message.get(REPLAYED_USER_ECHO_KEY):
+        if message.get(REPLAYED_USER_ECHO_KEY):
             return []
         blocks = normalize_content(message.get("content", ""))
         tool_results = [b for b in blocks if b.get("type") == "tool_result"]

@@ -49,10 +49,10 @@ export function useScriptGenerationNotice(): void {
 
     const blocks = collectBlocks(turns, draftTurn);
 
-    // 完成判定的主信号是 tool_use 块自身带 result/is_error：后端 turn_grouper 把同一 turn 内
-    // 配对的 tool_result 合并进发起调用的 tool_use 块（与 ToolCallWithResult 的渲染口径一致），
-    // 已完成调用不会再有独立 tool_result 块。仅扫描 tool_result 块会把回放的历史完成调用误判为
-    // 进行中，导致重载停在 AskUserQuestion（status 仍为 running）的会话时重复弹「耗时」提示。
+    // 完成判定的主信号是 tool_use 块自身带 result/is_error：前端投影层（entry-projection）
+    // 把配对的 tool_result 条目回填进发起调用的 tool_use 块（与 ToolCallWithResult 的渲染口径
+    // 一致），已完成调用不会再有独立 tool_result 块。仅扫描 tool_result 块会把回放的历史完成调用
+    // 误判为进行中，导致重载停在 AskUserQuestion（status 仍为 running）的会话时重复弹「耗时」提示。
     const completedToolUseIds = new Set<string>();
     for (const block of blocks) {
       if (block.type === "tool_result" && block.tool_use_id) {

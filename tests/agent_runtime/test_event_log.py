@@ -137,8 +137,7 @@ class TestNormalize:
         )
         assert entries[0]["parent_tool_use_id"] == "tu-parent"
 
-    def test_local_echo_and_replayed_echo_are_skipped(self):
-        assert normalize_sdk_message_to_entries({"type": "user", "content": "hi", "local_echo": True}) == []
+    def test_replayed_echo_is_skipped(self):
         assert normalize_sdk_message_to_entries({"type": "user", "content": "hi", REPLAYED_USER_ECHO_KEY: True}) == []
 
     def test_stream_event_and_result_are_not_logged(self):

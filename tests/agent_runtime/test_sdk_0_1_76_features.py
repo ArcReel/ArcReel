@@ -64,19 +64,17 @@ class TestApiErrorStatusInStatusPayload:
 
 
 class TestResultErrorLogging:
-    """result 消息错误路径写结构化 logger.warning，含 api_error_status。"""
+    """result 错误终态在 _finalize_turn 写结构化 logger.warning，含 api_error_status。"""
 
     @pytest.mark.asyncio
     async def test_logger_warning_emitted_on_error_with_api_status(
         self,
         caplog: pytest.LogCaptureFixture,
-        tmp_path,
+        session_manager,
     ):
-        from unittest.mock import MagicMock
+        from server.agent_runtime.session_manager import ManagedSession
 
-        service = AssistantService(project_root=tmp_path)
-        projector = MagicMock()
-        projector.apply_message.return_value = {}  # 无 patch/delta/question
+        managed = ManagedSession(session_id="sess-err", actor=None, status="running", project_name="demo")
 
         result_message: dict[str, Any] = {
             "type": "result",
@@ -85,13 +83,9 @@ class TestResultErrorLogging:
             "api_error_status": 429,
             "stop_reason": "api_error",
         }
-        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.service"):
-            events, terminal = await service._dispatch_live_message(
-                message=result_message,
-                projector=projector,
-                session_id="sess-err",
-            )
-        assert terminal is True
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            await session_manager._finalize_turn(managed, result_message)
+        assert managed.status == "error"
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any(getattr(r, "api_error_status", None) == 429 for r in warnings), (
             f"expected a warning with api_error_status=429, got {[r.__dict__ for r in warnings]}"
@@ -101,25 +95,20 @@ class TestResultErrorLogging:
     async def test_no_warning_on_completed_result(
         self,
         caplog: pytest.LogCaptureFixture,
-        tmp_path,
+        session_manager,
     ):
-        from unittest.mock import MagicMock
+        from server.agent_runtime.session_manager import ManagedSession
 
-        service = AssistantService(project_root=tmp_path)
-        projector = MagicMock()
-        projector.apply_message.return_value = {}
+        managed = ManagedSession(session_id="sess-ok", actor=None, status="running", project_name="demo")
 
         result_message: dict[str, Any] = {
             "type": "result",
             "subtype": "success",
             "is_error": False,
         }
-        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.service"):
-            await service._dispatch_live_message(
-                message=result_message,
-                projector=projector,
-                session_id="sess-ok",
-            )
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            await session_manager._finalize_turn(managed, result_message)
+        assert managed.status == "completed"
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert not warnings, f"unexpected warnings on completed result: {warnings}"
 

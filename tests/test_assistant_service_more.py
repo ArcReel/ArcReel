@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_store import SessionMetaStore
-from server.agent_runtime.stream_projector import AssistantStreamProjector
 from tests.factories import make_session_meta
 
 
@@ -68,9 +67,6 @@ class _FakeSessionManager:
     async def get_status(self, session_id):
         return self.status
 
-    def get_buffered_messages(self, session_id):
-        return list(self.buffer)
-
     async def get_pending_questions_snapshot(self, session_id):
         return list(self.pending)
 
@@ -85,15 +81,6 @@ class _FakeSessionManager:
         self.interrupted.append(session_id)
         return "interrupted"
 
-    async def subscribe(self, session_id, replay_buffer=True):
-        q = asyncio.Queue()
-        for m in self.buffer:
-            q.put_nowait(m)
-        return q
-
-    async def unsubscribe(self, session_id, queue):
-        self.unsubscribed.append(session_id)
-
     async def close_session(self, session_id, *, reason="session closed"):
         self.closed.append((session_id, reason))
         if self.close_error is not None:
@@ -102,14 +89,6 @@ class _FakeSessionManager:
 
     async def shutdown_gracefully(self):
         return None
-
-
-class _FakeTranscriptAdapter:
-    def __init__(self, history=None):
-        self.history = history or []
-
-    async def read_raw_messages(self, sdk_session_id=None, project_cwd=None):
-        return list(self.history)
 
 
 class TestAssistantServiceMore:
@@ -331,129 +310,17 @@ class TestAssistantServiceMore:
 
         assert "s1" in sm.sessions
 
-    @pytest.mark.asyncio
-    async def test_snapshot_and_stream_helpers(self, tmp_path):
+    def test_status_event_helpers(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
-        meta = make_session_meta(id="s1", status="running")
-        service.meta_store = _FakeMetaStore([meta])
-        sm = _FakeSessionManager()
-        sm.status = "running"
-        sm.buffer = [{"type": "runtime_status", "status": "running"}]
-        sm.pending = [{"type": "ask_user_question", "question_id": "aq-1"}]
-        service.session_manager = sm
-        service.transcript_adapter = _FakeTranscriptAdapter(history=[])
-
-        with pytest.raises(FileNotFoundError):
-            await service.get_snapshot("missing")
-
-        snapshot = await service.get_snapshot("s1")
-        assert snapshot["status"] == "running"
-        assert snapshot["pending_questions"][0]["question_id"] == "aq-1"
-
-        projector = AssistantStreamProjector(initial_messages=[])
-        events2, stop2 = await service._dispatch_live_message(
-            {"type": "system", "subtype": "compact_boundary"},
-            projector,
-            "s1",
-        )
-        assert stop2 is False
-        assert any(event.event == "compact" for event in events2)
-
-        events3, stop3 = await service._dispatch_live_message(
-            {"type": "runtime_status", "status": "interrupted"},
-            projector,
-            "s1",
-        )
-        assert stop3 is True
-        assert any(event.event == "status" for event in events3)
-
-        events4, stop4 = await service._dispatch_live_message(
-            {"type": "result", "subtype": "success", "is_error": False},
-            projector,
-            "s1",
-        )
-        assert stop4 is True
-        assert any(event.event == "status" for event in events4)
 
         assert service._check_runtime_status_terminal({"status": "???."}, "s1") is None
-        assert await service._handle_heartbeat_timeout("s1", "running", projector) is None
-        sm.status = "completed"
-        status_event = await service._handle_heartbeat_timeout("s1", "running", projector)
-        assert status_event is not None
-        assert status_event.event == "status"
-        patch_event = service._sse_event("patch", {"x": 1})
-        assert patch_event.event == "patch"
-        assert patch_event.data == {"x": 1}
+        terminal_event = service._check_runtime_status_terminal({"status": "interrupted"}, "s1")
+        assert terminal_event is not None
+        assert terminal_event.event == "status"
 
-    def test_merge_and_dedup_helpers(self, tmp_path):
-        service = AssistantService(project_root=tmp_path)
-
-        # _fingerprint tests
-        assert service._fingerprint({"type": "assistant", "content": [{"text": "A"}]}) == "fp:assistant:t:A"
-        result_fp = service._fingerprint(
-            {
-                "type": "result",
-                "subtype": "success",
-                "is_error": False,
-            }
-        )
-        assert result_fp == "fp:result:success:False"
-        assert service._fingerprint({"type": "user", "content": "x"}) is None
-
-        # _fingerprint_tail tests
-        tail_fps = service._fingerprint_tail(
-            [
-                {"type": "user", "content": "hello", "uuid": "u1"},
-                {"type": "assistant", "content": [{"text": "A"}], "uuid": "a1"},
-            ]
-        )
-        assert "fp:assistant:t:A" in tail_fps
-
-        # _is_buffer_duplicate tests
-        assert service._is_buffer_duplicate({"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []) is True
-        assert (
-            service._is_buffer_duplicate(
-                {"type": "assistant", "content": [{"text": "A"}]},
-                "assistant",
-                set(),
-                {"fp:assistant:t:A"},
-                [],
-            )
-            is True
-        )
-
-        assert service._parse_iso_datetime(None) is None
-        assert service._parse_iso_datetime("bad") is None
-        naive = service._parse_iso_datetime("2026-02-01T00:00:00")
-        assert naive.tzinfo is not None
-        assert service._parse_iso_datetime("2026-02-01T00:00:00Z") is not None
-
-        # _echo_in_transcript tests — round-aware dedup
-        # Case 1: in-progress round (user only, no result after) → dedup
-        history_in_progress = [{"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}]
-        local_echo = {
-            "type": "user",
-            "content": "hello",
-            "local_echo": True,
-            "timestamp": "2026-02-01T00:00:00Z",
-        }
-        assert service._echo_in_transcript(local_echo, history_in_progress) is True
-
-        # Case 2: same text from an older round → do NOT dedup
-        history_complete = [
-            {"type": "user", "content": "hello", "timestamp": "2026-01-31T23:59:59Z"},
-            {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        ]
-        assert service._echo_in_transcript(local_echo, history_complete) is False
-
-        # Case 3: non-user message → False
-        assert service._echo_in_transcript({"type": "assistant"}, history_in_progress) is False
-
-        assert service._extract_plain_user_content({"type": "assistant"}) is None
-        assert (
-            service._extract_plain_user_content({"type": "user", "content": [{"type": "text", "text": " ok "}]}) == "ok"
-        )
-        assert service._is_groupable_message("bad") is False  # type: ignore[arg-type]
+        sse_event = service._sse_event("status", {"x": 1})
+        assert sse_event.event == "status"
+        assert sse_event.data == {"x": 1}
 
         assert service._resolve_result_status({"session_status": "interrupted"}) == "interrupted"
         assert service._resolve_result_status({"subtype": "error_x", "is_error": True}) == "error"

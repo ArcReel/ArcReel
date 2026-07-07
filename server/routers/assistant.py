@@ -164,18 +164,10 @@ async def list_messages(project_name: str, session_id: str, _user: CurrentUser, 
 
 @router.get("/sessions/{session_id}/snapshot")
 async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
-    try:
-        service = get_assistant_service()
-        meta = await _validate_session_ownership(service, session_id, project_name, _t)
-        snapshot = await service.get_snapshot(session_id, meta=meta)
-        return snapshot
-    except HTTPException:
-        raise
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
-    except Exception:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+    raise HTTPException(
+        status_code=410,
+        detail=_t("interface_offline"),
+    )
 
 
 @router.get("/sessions/{session_id}/entries")
@@ -283,24 +275,12 @@ async def answer_question(
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
-@router.get("/sessions/{session_id}/stream", response_class=EventSourceResponse)
-async def stream_events(
-    project_name: str,
-    session_id: str,
-    request: Request,
-    _user: CurrentUserFlexible,
-    _t: Translator,
-    deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
-) -> AsyncIterator[ServerSentEvent]:
-    service, meta = deps
-    try:
-        async for event in service.stream_events(session_id, meta=meta, request=request):
-            yield event
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+@router.get("/sessions/{session_id}/stream")
+async def stream_events(project_name: str, session_id: str, _user: CurrentUserFlexible, _t: Translator):
+    raise HTTPException(
+        status_code=410,
+        detail=_t("interface_offline"),
+    )
 
 
 @router.get("/skills")

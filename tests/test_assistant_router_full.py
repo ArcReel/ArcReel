@@ -1,7 +1,4 @@
-import asyncio
-
 from fastapi import FastAPI
-from fastapi.sse import ServerSentEvent
 from fastapi.testclient import TestClient
 
 from lib.i18n import get_translator
@@ -40,11 +37,6 @@ class _FakeService:
     async def delete_session(self, session_id):
         return session_id in self.sessions
 
-    async def get_snapshot(self, session_id, **kwargs):
-        if session_id == "missing":
-            raise FileNotFoundError(session_id)
-        return {"session_id": session_id, "status": "running", "turns": [], "pending_questions": []}
-
     async def interrupt_session(self, session_id, **kwargs):
         if session_id == "missing":
             raise FileNotFoundError(session_id)
@@ -58,10 +50,6 @@ class _FakeService:
         if question_id == "bad":
             raise ValueError("bad question")
         return {"status": "accepted", "session_id": session_id, "question_id": question_id, "answers": answers}
-
-    async def stream_events(self, session_id, **kwargs):
-        yield ServerSentEvent(event="snapshot", data={})
-        await asyncio.sleep(0)
 
     def list_available_skills(self, project_name=None):
         if project_name == "missing":
@@ -129,11 +117,8 @@ class TestAssistantRouterFull:
             messages = client.get(f"{PREFIX}/sessions/session-1/messages")
             assert messages.status_code == 410
 
-            snapshot_ok = client.get(f"{PREFIX}/sessions/session-1/snapshot")
-            assert snapshot_ok.status_code == 200
-
-            snapshot_missing = client.get(f"{PREFIX}/sessions/missing/snapshot")
-            assert snapshot_missing.status_code == 404
+            snapshot_gone = client.get(f"{PREFIX}/sessions/session-1/snapshot")
+            assert snapshot_gone.status_code == 410
 
             interrupt_ok = client.post(f"{PREFIX}/sessions/session-1/interrupt")
             assert interrupt_ok.status_code == 200
@@ -168,12 +153,8 @@ class TestAssistantRouterFull:
             )
             assert answer_bad.status_code == 400
 
-            stream_missing = client.get(f"{PREFIX}/sessions/no/stream")
-            assert stream_missing.status_code == 404
-
-            stream_ok = client.get(f"{PREFIX}/sessions/session-1/stream")
-            assert stream_ok.status_code == 200
-            assert "text/event-stream" in stream_ok.headers["content-type"]
+            stream_gone = client.get(f"{PREFIX}/sessions/session-1/stream")
+            assert stream_gone.status_code == 410
 
             skills_ok = client.get(f"{PREFIX}/skills")
             assert skills_ok.status_code == 200
@@ -211,9 +192,6 @@ class TestAssistantRouterFull:
             delete_wrong = client.delete("/api/v1/projects/other/assistant/sessions/session-1")
             assert delete_wrong.status_code == 404
 
-            snapshot_wrong = client.get("/api/v1/projects/other/assistant/sessions/session-1/snapshot")
-            assert snapshot_wrong.status_code == 404
-
             interrupt_wrong = client.post("/api/v1/projects/other/assistant/sessions/session-1/interrupt")
             assert interrupt_wrong.status_code == 404
 
@@ -222,6 +200,3 @@ class TestAssistantRouterFull:
                 json={"answers": {"Q": "A"}},
             )
             assert answer_wrong.status_code == 404
-
-            stream_wrong = client.get("/api/v1/projects/other/assistant/sessions/session-1/stream")
-            assert stream_wrong.status_code == 404
