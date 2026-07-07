@@ -319,6 +319,42 @@ describe("stores", () => {
     expect(turns.map((t) => t.content[0].text)).toEqual(["开头", "会话二中段", "结尾"]);
   });
 
+  it("keeps the incremental projector instance alive across appendEntry calls instead of rebuilding it every time", () => {
+    // store 层的 projectorSource 自愈检查若拿"即将写入的新数组"和"上一次
+    // 记录值"比对，二者引用恒不相等（每次 append 都会重新构造数组），会
+    // 导致每次追加都重建 projector、对全部历史条目重新深拷贝——退化为
+    // O(n²) 全量重放，正是本 PR 要消除的问题。
+    const assistant = useAssistantStore.getState();
+    assistant.resetTimeline();
+    const original = globalThis.structuredClone;
+    let cloneCalls = 0;
+    globalThis.structuredClone = ((v: unknown) => {
+      cloneCalls++;
+      return original(v);
+    }) as typeof structuredClone;
+    try {
+      for (let i = 0; i < 5; i++) {
+        assistant.appendEntry({
+          seq: i,
+          type: "assistant",
+          uuid: `a-${i}`,
+          content: [{ type: "text", text: `消息${i}` }],
+        });
+      }
+      cloneCalls = 0;
+      assistant.appendEntry({
+        seq: 5,
+        type: "assistant",
+        uuid: "a-5",
+        content: [{ type: "text", text: "消息5" }],
+      });
+      // 只深拷贝新追加的这一条；若 projector 被重建，前 5 条也会被重新克隆。
+      expect(cloneCalls).toBe(1);
+    } finally {
+      globalThis.structuredClone = original;
+    }
+  });
+
   describe("ProjectsStore fingerprints", () => {
     it("should store and retrieve asset fingerprints", () => {
       const { updateAssetFingerprints, getAssetFingerprint } = useProjectsStore.getState();

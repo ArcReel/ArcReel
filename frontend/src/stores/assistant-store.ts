@@ -104,12 +104,20 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
   let committedIds = new Set<string>();
   let committedSource: TimelineEntry[] | null = null;
 
-  const projectEntries = (entries: TimelineEntry[]): Turn[] => {
-    if (projectorSource !== entries) {
+  // base 是本次 mutation 之前 get().entries 持有的引用，next 是即将写入 state
+  // 的新引用（二者恒不相等——每次 mutation 都会构造新数组）。自愈检查必须
+  // 拿 base 去比对上一次记录的 projectorSource，而不是拿 next 比对：next
+  // 由定义就是全新引用，若拿它做比对，每次合法调用都会判定"变了"从而重建
+  // projector、对全部历史条目重新深拷贝，退化为 O(n²) 全量重放——这正是
+  // 增量投影要消除的问题。只有外部绕过 action 的整帧替换（如测试
+  // useAssistantStore.setState(..., true)）才会让 base 与上次记录的
+  // projectorSource 不一致，进而正确触发重建。
+  const projectEntries = (base: TimelineEntry[], next: TimelineEntry[]): Turn[] => {
+    if (projectorSource !== base) {
       projector = createTimelineProjector();
     }
-    const turns = projector.project(entries);
-    projectorSource = entries;
+    const turns = projector.project(next);
+    projectorSource = next;
     return turns;
   };
 
@@ -151,13 +159,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     setEntries: (entries) => {
       // 并集合并而非整帧覆盖：慢网络下冷读响应可能晚于发送响应/SSE 条目到达，
       // 整帧覆盖会抹掉更新的条目；append-only 日志按 seq 并集恒安全。
-      const merged = mergeEntriesBySeq(get().entries, entries);
+      const prevEntries = get().entries;
+      const merged = mergeEntriesBySeq(prevEntries, entries);
       const draft = get().draft;
       committedIds = collectCommittedMessageIds(merged);
       committedSource = merged;
       set({
         entries: merged,
-        turns: projectEntries(merged),
+        turns: projectEntries(prevEntries, merged),
         draftTurn: buildDraftTurn(draft, isDraftReplaced(draft, committedIds)),
       });
     },
@@ -179,7 +188,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
       set({
         entries: next,
         draft: nextDraft,
-        turns: projectEntries(next),
+        turns: projectEntries(entries, next),
         draftTurn: buildDraftTurn(nextDraft, isDraftReplaced(nextDraft, ids)),
       });
     },
