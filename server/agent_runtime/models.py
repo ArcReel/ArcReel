@@ -4,24 +4,23 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 SessionStatus = Literal["idle", "running", "completed", "error", "interrupted", "closed"]
 
 
 @dataclass(frozen=True, slots=True)
-class ReplayBatch:
-    """会话消息流的首个事件：订阅瞬间缓冲区内的历史消息，一次性交付。
+class SubscriptionReady:
+    """会话消息流的首个事件：订阅已原子建立的屏障标记。
 
-    replay 关闭时仍作为首个事件产出（messages 为空），协议形态对消费方保持统一。
+    消费方消费到该事件后，可确信其后的直播广播无缝隙——entry 流以此为界
+    先补库读存量条目，再消费直播消息，重复由 seq 门槛过滤（身份比对）。
     """
-
-    messages: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)
 class LiveMessage:
-    """会话消息流的直播事件：回放边界之后逐条广播的消息。"""
+    """会话消息流的直播事件：订阅屏障之后逐条广播的消息。"""
 
     message: dict[str, Any]
 
@@ -35,10 +34,10 @@ class Heartbeat:
     """
 
 
-SessionStreamEvent = ReplayBatch | LiveMessage | Heartbeat
+SessionStreamEvent = SubscriptionReady | LiveMessage | Heartbeat
 """``SessionManager.stream_messages`` 产出的语义化事件。
 
-序列协议：ReplayBatch（恰好一次、必为首个）→ LiveMessage / Heartbeat 交错；
+序列协议：SubscriptionReady（恰好一次、必为首个）→ LiveMessage / Heartbeat 交错；
 订阅队列溢出以流结束表达，流结束即重连信号，无专门事件。
 """
 
@@ -52,13 +51,3 @@ class SessionMeta(BaseModel):
     status: SessionStatus = "idle"
     created_at: datetime
     updated_at: datetime
-
-
-class AssistantSnapshotV2(BaseModel):
-    """Unified assistant snapshot for history and reconnect."""
-
-    session_id: str
-    status: SessionStatus
-    turns: list[dict[str, Any]]
-    draft_turn: dict[str, Any] | None = None
-    pending_questions: list[dict[str, Any]] = Field(default_factory=list)

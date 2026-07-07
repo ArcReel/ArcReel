@@ -105,8 +105,7 @@ function StudioWorkspace() {
     const assistantState = useAssistantStore.getState();
     assistantState.setSessions([]);
     assistantState.setCurrentSessionId(null);
-    assistantState.setTurns([]);
-    assistantState.setDraftTurn(null);
+    assistantState.resetTimeline();
     assistantState.setSessionStatus(null);
     assistantState.setIsDraftSession(false);
 

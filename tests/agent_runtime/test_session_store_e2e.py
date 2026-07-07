@@ -69,7 +69,8 @@ async def test_append_then_list_then_load_via_sdk_helpers(session_factory, tmp_p
     # Now exercise the production adapter path to verify timestamp backfill
     # works: the SDK SessionMessage lacks ``timestamp``, but
     # SdkTranscriptAdapter joins it back from store.load() on uuid so
-    # downstream consumers (turn_grouper) keep getting stable timestamps.
+    # downstream consumers (event log lazy backfill) keep getting stable
+    # timestamps.
     from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 
     adapter = SdkTranscriptAdapter(store=store)
@@ -137,8 +138,7 @@ async def test_eager_multi_append_round_trip(session_factory, tmp_path: Path):
     """多次 eager-style append 后，DB 应能还原完整 user/assistant 序列。
 
     本测试只覆盖 DbSessionStore 的多次 append/load 回环，不覆盖
-    ManagedSession.message_buffer 驱逐或 reload 恢复路径 —— 那些回归
-    属于 service / session_manager 层。
+    session_manager 层的会话恢复路径。
     """
     store = DbSessionStore(session_factory, user_id="long-turn")
     project_cwd = tmp_path / "projects" / "long_demo"

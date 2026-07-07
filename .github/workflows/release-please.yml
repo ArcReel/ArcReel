@@ -42,7 +42,7 @@ jobs:
 
       - name: Set up uv
         if: ${{ steps.release.outputs.pr }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8.2.0
         with:
           enable-cache: true
 

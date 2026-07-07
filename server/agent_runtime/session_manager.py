@@ -19,10 +19,14 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.logging_config import resolve_log_dir
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.entry_pipeline import SessionEntryPipeline
+from server.agent_runtime.event_log import (
+    REPLAYED_USER_ECHO_KEY,
+    EventLogStore,
+)
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
     build_runtime_status_message,
-    build_user_echo_message,
     is_duplicate_user_echo,
     message_to_dict,
     utc_now_iso,
@@ -30,10 +34,10 @@ from server.agent_runtime.message_serialization import (
 from server.agent_runtime.models import (
     Heartbeat,
     LiveMessage,
-    ReplayBatch,
     SessionMeta,
     SessionStatus,
     SessionStreamEvent,
+    SubscriptionReady,
 )
 from server.agent_runtime.options_assembler import OptionsAssembler
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
@@ -136,11 +140,15 @@ class ManagedSession:
     project_name: str = ""  # 用于 _register_new_session
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
     resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
-    message_buffer: list[dict[str, Any]] = field(default_factory=list)
     channel: SseChannel = field(default_factory=_make_session_channel)
-    buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
+    # 事件日志写入点管道（UI 时间线唯一读源的 live 写侧）。
+    entry_pipeline: SessionEntryPipeline | None = None
+    # 新会话首条用户消息：sdk_session_id 就绪后由 inbox 任务写入日志（seq 0），
+    # 保证用户条目先于任何 assistant 条目分配身份。
+    pending_initial_user_entry: dict[str, Any] | None = None
+    initial_user_log_entry: dict[str, Any] | None = None
     last_user_prompt: str = ""
     assistant_model: str = ""
     interrupt_requested: bool = False
@@ -152,21 +160,13 @@ class ManagedSession:
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
     # Message types that must never be silently dropped from subscriber queues.
-    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
-    # Transient types that are evicted first when buffer is full.
-    _TRANSIENT_BUFFER_TYPES = {"stream_event"}
-
-    def add_message(self, message: dict[str, Any]) -> None:
-        """Add message to buffer and notify subscribers."""
-        self.message_buffer.append(message)
-        if len(self.message_buffer) > self.buffer_max_size:
-            self._evict_oldest_buffer_entry()
-        self.channel.broadcast(message)
+    # 原始 assistant/result 仍是关键类型：同步 agent 对话端点直接消费它们收集回复。
+    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "assistant", "log_entry", "log_turn_complete"}
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
 
-        职责：add_message 进行 buffer + broadcast。
+        职责：向订阅者广播消息。
 
         **状态转换不在此处做**——managed.status 由 _finalize_turn 在异步路径中
         统一设置。若在此提前切换为 idle/completed，`send_message` 的并发保护
@@ -175,7 +175,7 @@ class ManagedSession:
 
         pending_questions 注册由 SessionManager._handle_special_message 处理。
         """
-        self.add_message(msg)
+        self.channel.broadcast(msg)
 
     async def send_query(self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default") -> None:
         """将 prompt 送入 SDK 后立即返回；整轮 receive_response 由 actor 后台 drain。
@@ -210,18 +210,6 @@ class ManagedSession:
         await cmd.done.wait()
         await self.actor.wait()
         self.status = "closed"
-
-    def _evict_oldest_buffer_entry(self) -> None:
-        """Evict one entry from buffer, preferring transient stream_events."""
-        for i, m in enumerate(self.message_buffer[:-1]):
-            if m.get("type") in self._TRANSIENT_BUFFER_TYPES:
-                self.message_buffer.pop(i)
-                return
-        self.message_buffer.pop(0)
-
-    def clear_buffer(self) -> None:
-        """Clear message buffer after session completes."""
-        self.message_buffer.clear()
 
     def add_pending_question(self, payload: dict[str, Any]) -> PendingQuestion:
         """Register a pending AskUserQuestion payload."""
@@ -286,7 +274,9 @@ class SessionManager:
         projects_root: Path | None = None,
         in_docker: bool = False,
         sandbox_enabled: bool = True,
+        event_log_store: EventLogStore | None = None,
     ):
+        self.event_log_store = event_log_store or EventLogStore()
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
         # Tests construct SessionManager directly without going through
@@ -419,6 +409,18 @@ class SessionManager:
             raise FileNotFoundError(f"project not found: {project_name}")
         return project_cwd
 
+    def _build_entry_pipeline(self, managed: "ManagedSession") -> SessionEntryPipeline:
+        """构建会话的事件日志写入点管道。
+
+        session_id 用 provider 现取：新会话在 sdk_session_id 就绪前为 None，
+        管道自动跳过（该窗口内只有 init 系统消息，本就不入日志）。
+        """
+        return SessionEntryPipeline(
+            self.event_log_store,
+            session_id_provider=lambda: managed.resolved_sdk_id,
+            broadcast=managed.channel.broadcast,
+        )
+
     def _make_actor_message_callback(
         self,
         managed_ref: list["ManagedSession | None"],
@@ -426,10 +428,10 @@ class SessionManager:
         """Sync on_message callback shared by send_new_session and get_or_connect.
 
         Runs inside the actor task. Order is load-bearing:
-        duplicate-echo detection skips buffer-add but still queues the message
+        duplicate-echo detection skips broadcast but still queues the message
         for async sdk_session_id capture; _handle_special_message must mutate
         result messages with `session_status` before subscribers see them via
-        add_message; _inbox hand-off last so async post-processing never
+        broadcast; _inbox hand-off last so async post-processing never
         observes a message that hasn't been broadcast yet.
         """
 
@@ -441,6 +443,9 @@ class SessionManager:
             if not isinstance(msg_dict, dict):
                 return
             if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
+                # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
+                # 打标让事件日志写入点跳过，不产生重复条目。
+                msg_dict[REPLAYED_USER_ECHO_KEY] = True
                 managed._inbox.put_nowait(msg_dict)
                 return
             self._handle_special_message(managed, msg_dict)
@@ -478,7 +483,7 @@ class SessionManager:
             )
             managed.status = "error"
             try:
-                managed.add_message(build_runtime_status_message("error", managed.session_id))
+                managed.channel.broadcast(build_runtime_status_message("error", managed.session_id))
             except Exception:
                 logger.debug("broadcast runtime_status after actor failure failed", exc_info=True)
             # Persist error state so DB doesn't stay at "running" after a crash.
@@ -500,8 +505,15 @@ class SessionManager:
         echo_text: str | None = None,
         echo_content: list[dict[str, Any]] | None = None,
         locale: str = DEFAULT_LOCALE,
+        user_entry: dict[str, Any] | None = None,
+        client_key: str | None = None,
     ) -> str:
-        """Create a new session via send-first: start actor, send query, wait for sdk_session_id."""
+        """Create a new session via send-first: start actor, send query, wait for sdk_session_id.
+
+        ``user_entry`` 是本条用户消息的事件日志条目（写入点定型后的形态）；
+        sdk_session_id 就绪后由 inbox 任务先写日志（seq 0）再放行等待，权威
+        条目落在 ``managed.initial_user_log_entry`` 供受理响应回传。
+        """
         if not SDK_AVAILABLE or ClaudeSDKClient is None:
             raise RuntimeError("claude_agent_sdk is not installed")
 
@@ -540,6 +552,9 @@ class SessionManager:
             project_name=project_name,
             assistant_model=assistant_model,
         )
+        if user_entry is not None:
+            managed.pending_initial_user_entry = {"entry": user_entry, "client_key": client_key}
+        managed.entry_pipeline = self._build_entry_pipeline(managed)
         managed_ref[0] = managed
         managed.last_activity = time.monotonic()
         self.sessions[temp_id] = managed
@@ -582,13 +597,13 @@ class SessionManager:
                 managed._process_task.cancel()
                 await asyncio.gather(managed._process_task, return_exceptions=True)
 
-        # Echo user message
+        # 登记待回放的用户消息标识：SDK 会回放刚发送消息的副本，写入点凭此
+        # 打标跳过（POST 受理时已写日志分配身份，回放副本不得二次落库）。
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
         dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
             managed.pending_user_echoes.append(dedup_key)
         managed.last_user_prompt = display_text
-        managed.add_message(build_user_echo_message(display_text, echo_content))
 
         try:
             await managed.send_query(prompt)
@@ -667,6 +682,10 @@ class SessionManager:
                             "sdk_session_id 处理失败 session_id=%s",
                             managed.session_id,
                         )
+                # 事件日志写入点：sdk_session_id 就绪后逐条定型入日志。
+                # handle_message 内部吞异常，不会打断会话消费。
+                if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
+                    await managed.entry_pipeline.handle_message(msg_dict)
                 if msg_dict.get("type") == "result":
                     try:
                         await self._finalize_turn(managed, msg_dict)
@@ -769,6 +788,7 @@ class SessionManager:
                 resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
             )
             managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
+            managed.entry_pipeline = self._build_entry_pipeline(managed)
             managed_ref[0] = managed
             managed.last_activity = time.monotonic()
             self.sessions[session_id] = managed
@@ -800,15 +820,29 @@ class SessionManager:
         echo_content: list[dict[str, Any]] | None = None,
         meta: SessionMeta | None = None,
         locale: str = DEFAULT_LOCALE,
-    ) -> None:
+        user_entry: dict[str, Any] | None = None,
+        client_key: str | None = None,
+    ) -> dict[str, Any] | None:
         """Send a message via the session actor.
 
         ``locale`` is forwarded to ``get_or_connect`` so a cold-recovered
         session rebuilds its language regulation from the current request's
         locale rather than the default.
+
+        ``user_entry`` 是本条用户消息的事件日志条目：先写日志分配身份（并发
+        与容量校验之后、送入 SDK 之前），返回权威条目供受理响应回传；同一
+        ``client_key`` 重试命中既有条目时不再重复送 SDK。
         """
         managed = await self.get_or_connect(session_id, meta=meta, locale=locale)
         managed.last_activity = time.monotonic()
+
+        # 幂等预检先于 running 拦截：受理已成功（响应在网络层丢失）的重试
+        # 应得到幂等成功响应，而非"会话正在处理中"的 400。
+        if user_entry is not None and client_key is not None:
+            existing = await self.event_log_store.find_by_client_key(session_id, client_key)
+            if existing is not None:
+                return existing
+
         # 取消待执行的 cleanup（会话恢复活跃）
         if managed._cleanup_task and not managed._cleanup_task.done():
             managed._cleanup_task.cancel()
@@ -817,25 +851,29 @@ class SessionManager:
         if managed.status == "running":
             raise ValueError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
-        self._prune_transient_buffer(managed)
+        log_entry: dict[str, Any] | None = None
+        if user_entry is not None:
+            log_entry, created = await self.event_log_store.append_user_entry(
+                session_id,
+                user_entry,
+                client_key=client_key,
+            )
+            if not created:
+                # 幂等重试：条目存在即上一次受理已（或正在）送入 SDK——投递
+                # 失败的条目会被补偿删除，不会残留到这里。直接返回权威条目。
+                return log_entry
 
-        # Determine the display text for echo dedup (pending_user_echoes).
-        # For image-only messages display_text is empty; use a sentinel so the
-        # SDK-replayed empty-content user message can still be deduplicated.
+        # 登记待回放的用户消息标识（写入点凭此给 SDK 回放副本打标跳过）。
+        # 纯图片消息 display_text 为空：SDK 解析会丢弃 image 块，回放的
+        # UserMessage 内容为空，用哨兵值让打标仍能匹配。
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
         dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
-
-        # Echo user input immediately so live SSE shows it even when the SDK
-        # stream doesn't replay user messages in real time. Don't set status to
-        # "running" manually — send_query does it inside the actor.
         if dedup_key:
             managed.pending_user_echoes.append(dedup_key)
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
         managed.last_user_prompt = display_text
-        managed.add_message(build_user_echo_message(display_text, echo_content))
 
-        # Persist status asynchronously — don't block the echo broadcast
         await self.meta_store.update_status(session_id, "running")
 
         # Send the query via the actor. send_query flips status to error on
@@ -845,11 +883,23 @@ class SessionManager:
         except Exception:
             logger.exception("会话消息处理失败")
             managed.pending_user_echoes.clear()
+            if log_entry is not None:
+                # 补偿删除受理条目：投递失败即受理失败，条目残留会让同幂等键
+                # 重试在预检处短路，prompt 永远不会送入 SDK。
+                try:
+                    await self.event_log_store.delete_entry(session_id, int(log_entry["seq"]))
+                except Exception:
+                    logger.exception("回滚受理条目失败 session_id=%s seq=%s", session_id, log_entry.get("seq"))
             try:
                 await self.meta_store.update_status(session_id, "error")
             except Exception:
                 logger.exception("持久化 error 状态失败 session_id=%s", session_id)
             raise
+        if log_entry is not None:
+            # send_query 确认投递成功后再广播：避免失败回滚已删条目后，
+            # 在线 SSE 订阅者仍残留一条已撤销的用户消息。
+            managed.channel.broadcast({"type": "log_entry", "session_id": session_id, "entry": log_entry})
+        return log_entry
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:
         """Interrupt a running session via the actor."""
@@ -867,7 +917,10 @@ class SessionManager:
         if managed.status != "running":
             return managed.status
 
-        managed.pending_user_echoes.clear()
+        # 不清 pending_user_echoes：SDK 可能尚未回放刚受理的用户消息副本，
+        # 清空会让回放副本失去 REPLAYED_USER_ECHO 标记、被写入点当作新用户
+        # 消息二次落库（append-only 日志无法自愈）。残留由 _finalize_turn /
+        # _mark_session_terminal 在轮次终结时清理。
         managed.interrupt_requested = True
         managed.cancel_pending_questions("session interrupted by user")
 
@@ -883,10 +936,7 @@ class SessionManager:
         return managed.status
 
     def _handle_special_message(self, managed: ManagedSession, msg_dict: dict[str, Any]) -> None:
-        """Handle compact_boundary and result messages before broadcast."""
-        if msg_dict.get("type") == "system" and msg_dict.get("subtype") == "compact_boundary":
-            self._prune_transient_buffer(managed)
-
+        """Handle result messages before broadcast."""
         if msg_dict.get("type") == "result":
             msg_dict["session_status"] = self._resolve_result_status(
                 msg_dict,
@@ -908,13 +958,23 @@ class SessionManager:
         )
         managed.status = final_status
         managed.last_activity = time.monotonic()
+        if final_status == "error":
+            logger.warning(
+                "assistant session result error",
+                extra={
+                    "session_id": managed.session_id,
+                    "subtype": result_msg.get("subtype"),
+                    "is_error": result_msg.get("is_error"),
+                    "api_error_status": result_msg.get("api_error_status"),  # SDK 0.1.76+
+                    "stop_reason": result_msg.get("stop_reason"),
+                },
+            )
         try:
             await self._record_assistant_usage(managed, result_msg, final_status)
         except Exception:
             logger.exception("记录 assistant usage 失败 session_id=%s", managed.session_id)
         await self.meta_store.update_status(managed.session_id, final_status)
         managed.interrupt_requested = False
-        self._prune_transient_buffer(managed)
         if final_status != "running":
             self._schedule_cleanup(managed.session_id)
 
@@ -955,23 +1015,15 @@ class SessionManager:
         managed.last_activity = time.monotonic()
         await self.meta_store.update_status(managed.session_id, status)
         managed.interrupt_requested = False
-        self._prune_transient_buffer(managed)
 
-        # For interrupted sessions, broadcast a synthetic interrupt echo so the
-        # SSE projector generates an interrupt_notice turn.  This keeps the live
-        # path consistent with the historical path where the SDK transcript
-        # contains the CLI-injected interrupt echo that the turn_grouper converts.
-        # The consumer task is already cancelled at this point so the SDK's own
-        # echo will never arrive through the normal message pipeline.
-        if status == "interrupted":
-            managed.channel.broadcast(
-                {
-                    "type": "user",
-                    "content": "[Request interrupted by user]",
-                    "uuid": f"interrupt-echo-{uuid4().hex}",
-                    "timestamp": utc_now_iso(),
-                }
-            )
+        # 事件日志侧补写 typed 中断条目：此路径下 inbox 处理已终止，
+        # SDK 自己的回显不会再经写入点入日志。尾检去重保证与已入日志的
+        # 回显（竞态双写）只留一条。
+        if status == "interrupted" and managed.entry_pipeline is not None:
+            try:
+                await managed.entry_pipeline.append_interrupt()
+            except Exception:
+                logger.exception("中断条目写入事件日志失败 session_id=%s", managed.resolved_sdk_id)
 
         # Broadcast terminal status so SSE subscribers unblock immediately
         # instead of waiting for the heartbeat timeout.
@@ -1207,7 +1259,7 @@ class SessionManager:
             "timestamp": utc_now_iso(),
         }
         pending = managed.add_pending_question(payload)
-        managed.add_message(payload)
+        managed.channel.broadcast(payload)
 
         try:
             answers = await pending.answer_future
@@ -1297,32 +1349,6 @@ class SessionManager:
 
         return _can_use_tool
 
-    @staticmethod
-    def _prune_transient_buffer(managed: ManagedSession) -> None:
-        """Drop stale messages that should not leak into next round snapshots.
-
-        Removes:
-        - stream_event / runtime_status: transient streaming artifacts
-        - user / assistant / result: already persisted in SDK transcript;
-          keeping them causes duplicate turns because buffer messages lack
-          the uuid that transcript messages carry, so _merge_raw_messages
-          cannot deduplicate them.
-        """
-        if not managed.message_buffer:
-            return
-        managed.message_buffer = [
-            message
-            for message in managed.message_buffer
-            if message.get("type")
-            not in {
-                "stream_event",
-                "runtime_status",
-                "user",
-                "assistant",
-                "result",
-            }
-        ]
-
     async def _on_sdk_session_id_received(
         self,
         managed: ManagedSession,
@@ -1356,6 +1382,22 @@ class SessionManager:
                 *([] if tag_coro is None else [tag_coro]),
             )
             await self.meta_store.update_status(sdk_id, "running")
+            # 新会话首条用户消息先写日志分配身份（seq 0）：本方法在 inbox 任务
+            # 内串行执行于任何 assistant 条目定型之前，保证时间线顺序；写入
+            # 完成后才 set sdk_id_event，send_new_session 醒来即可拿到权威条目。
+            pending_user = managed.pending_initial_user_entry
+            if pending_user is not None:
+                managed.pending_initial_user_entry = None
+                try:
+                    authoritative, _created = await self.event_log_store.append_user_entry(
+                        sdk_id,
+                        pending_user["entry"],
+                        client_key=pending_user.get("client_key"),
+                    )
+                    managed.initial_user_log_entry = authoritative
+                    managed.channel.broadcast({"type": "log_entry", "session_id": sdk_id, "entry": authoritative})
+                except Exception:
+                    logger.exception("新会话用户条目写入事件日志失败 session_id=%s", sdk_id)
             # Key swap: replace temp_id with real sdk_id in sessions dict
             # BEFORE signaling the event. This prevents _finalize_turn from
             # using the stale temp_id if it runs before send_new_session
@@ -1380,19 +1422,17 @@ class SessionManager:
             return str(raw_sdk_id)
         return None
 
-    async def get_message_buffer_snapshot(self, session_id: str) -> list[dict[str, Any]]:
-        """Get current message buffer without creating a new SDK connection."""
-        managed = self.sessions.get(session_id)
-        if not managed:
-            return []
-        return list(managed.message_buffer)
+    def get_draft_state(self, session_id: str) -> dict[str, Any]:
+        """流式预览态（draft）重连首帧快照：当前累积态 + rev 过滤门槛。
 
-    def get_buffered_messages(self, session_id: str) -> list[dict[str, Any]]:
-        """Sync helper for consumers that only need in-memory buffer state."""
+        ``rev`` 在无活跃 draft 时也返回：订阅与快照之间已入队的旧 delta
+        （rev <= 门槛）由客户端按 rev 丢弃，不做内容比对。
+        """
         managed = self.sessions.get(session_id)
-        if not managed:
-            return []
-        return list(managed.message_buffer)
+        if managed is None or managed.entry_pipeline is None:
+            return {"draft": None, "rev": 0}
+        draft = managed.entry_pipeline.draft
+        return {"draft": draft.snapshot(), "rev": draft.rev}
 
     async def get_pending_questions_snapshot(self, session_id: str) -> list[dict[str, Any]]:
         """Get unresolved AskUserQuestion payloads for reconnect."""
@@ -1416,17 +1456,8 @@ class SessionManager:
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")
 
-    async def _subscribe(
-        self, session_id: str, *, replay: bool = True, locale: str = DEFAULT_LOCALE
-    ) -> tuple[SseChannel, asyncio.Queue, list[dict[str, Any]]]:
-        """Register a live-message queue and capture the replay snapshot atomically.
-
-        Returns the session channel, the (live-only) queue, plus a snapshot of
-        the buffered messages. The buffer snapshot and queue registration happen
-        with no ``await`` in between, so no synchronous live broadcast can
-        interleave between the two and be lost — the replay/live split has no
-        race. The replay snapshot (开场白) stays outside :class:`SseChannel`;
-        this synchronous critical section is what guarantees the atomic hand-off.
+    async def _subscribe(self, session_id: str, *, locale: str = DEFAULT_LOCALE) -> tuple[SseChannel, asyncio.Queue]:
+        """Register a live-message queue for a session.
 
         ``locale`` is forwarded to ``get_or_connect`` so reviving a cold session
         through the stream path rebuilds its language regulation from the current
@@ -1436,10 +1467,8 @@ class SessionManager:
         deterministic unsubscribe via its context-manager ``__aexit__``.
         """
         managed = await self.get_or_connect(session_id, locale=locale)
-        # Synchronous critical section — no ``await`` until registration completes.
-        replay_snapshot = list(managed.message_buffer) if replay else []
         queue = managed.channel.subscribe()
-        return managed.channel, queue, replay_snapshot
+        return managed.channel, queue
 
     async def _unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
         """Remove a queue from a session's subscriber channel."""
@@ -1448,14 +1477,14 @@ class SessionManager:
 
     @contextlib.asynccontextmanager
     async def stream_messages(
-        self, session_id: str, *, replay: bool = True, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
+        self, session_id: str, *, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
     ) -> AsyncIterator[AsyncIterator[SessionStreamEvent]]:
         """Subscribe to a session's messages as a self-cleaning async iterator.
 
         Yields an async iterator producing semantic events, in order:
 
-        - a :class:`ReplayBatch` delivering the buffered history in one piece
-          (always the first event; empty when *replay* is off),
+        - a :class:`SubscriptionReady` barrier (always the first event) marking
+          that the subscription is established — broadcasts after it are gap-free,
         - a :class:`LiveMessage` per broadcast message,
         - a :class:`Heartbeat` whenever *idle_timeout* elapses with no message
           (consumers run liveness / disconnect self-checks on it).
@@ -1464,22 +1493,22 @@ class SessionManager:
         stream end is the reconnect signal; no overflow event reaches consumers
         (the overflow sentinel is internal to :class:`SseChannel`).
 
-        Subscription, replay/live atomic hand-off, queue draining and unsubscribe
-        all live behind this seam; cleanup is carried deterministically by
-        ``__aexit__`` (see ADR-0005). Consume as
-        ``async with stream_messages(...) as stream: async for event in stream``.
+        Subscription, queue draining and unsubscribe all live behind this seam;
+        cleanup is carried deterministically by ``__aexit__`` (see ADR-0005).
+        Consume as ``async with stream_messages(...) as stream: async for event
+        in stream``.
 
         ``locale`` only matters when this subscription revives a cold session; an
         already-resident session ignores it (session-fixed system prompt).
         """
-        channel, queue, replay_msgs = await self._subscribe(session_id, replay=replay, locale=locale)
+        channel, queue = await self._subscribe(session_id, locale=locale)
 
         async def _iter() -> AsyncIterator[SessionStreamEvent]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
             # by the enclosing context manager's __aexit__ (ADR-0005): a bare async
             # generator's finally only runs at GC on break/disconnect, which is the
             # exact leak this design avoids. Do not add a finally to this inner gen.
-            yield ReplayBatch(messages=replay_msgs)
+            yield SubscriptionReady()
             async for item in channel.iterate(queue, idle_timeout=idle_timeout):
                 yield Heartbeat() if item is IDLE else LiveMessage(message=item)
 

@@ -1,17 +1,9 @@
 """
-Shared Turn normalization contract.
+Shared content-block normalization contract.
 
-All code paths that produce Turn payloads (turn_grouper, stream_projector,
-service) MUST go through these functions to guarantee a consistent shape
-for the frontend.
-
-Turn Contract:
-    Turn = {
-        "type": "user" | "assistant" | "system" | "result",
-        "content": list[ContentBlock],   # always list, never string
-        "uuid": str | None,
-        "timestamp": str | None,
-    }
+All code paths that persist or broadcast content blocks (event log write
+point, entry pipeline draft) MUST go through these functions to guarantee a
+consistent shape for the frontend.
 
     ContentBlock = {
         "type": str,                     # always present
@@ -22,7 +14,6 @@ Turn Contract:
         "input": dict,                   # Optional, always dict when present
         "result": str,                   # Optional
         "is_error": bool,                # Optional
-        "skill_content": str,            # Optional
         "tool_use_id": str,              # Optional
         "content": str,                  # Optional
     }
@@ -57,11 +48,7 @@ def _stringify_content(content: Any) -> str:
 
 
 def infer_block_type(block: dict[str, Any]) -> str:
-    """Infer content block type when SDK omits explicit ``type``.
-
-    Ported from turn_grouper._infer_block_type() with added ``thinking``
-    detection for stream_projector compatibility.
-    """
+    """Infer content block type when SDK omits explicit ``type``."""
     explicit_type = block.get("type")
     if isinstance(explicit_type, str) and explicit_type:
         return explicit_type
@@ -82,12 +69,7 @@ def infer_block_type(block: dict[str, Any]) -> str:
 
 
 def normalize_block(block: Any) -> dict[str, Any]:
-    """Normalize a single content block.
-
-    Combines the logic from:
-    - turn_grouper._normalize_block()  (type inference)
-    - stream_projector._normalize_block() (default values)
-    """
+    """Normalize a single content block (type inference + default values)."""
     if not isinstance(block, dict):
         if isinstance(block, str):
             return {"type": "text", "text": block}
@@ -120,10 +102,7 @@ def normalize_block(block: Any) -> dict[str, Any]:
 
 
 def normalize_content(content: Any) -> list[dict[str, Any]]:
-    """Normalize message content to always be ``list[dict]``.
-
-    Ported from turn_grouper._normalize_content().
-    """
+    """Normalize message content to always be ``list[dict]``."""
     if isinstance(content, str):
         if not content.strip():
             return []
@@ -136,29 +115,3 @@ def normalize_content(content: Any) -> list[dict[str, Any]]:
                 normalized_blocks.append(normalized)
         return normalized_blocks
     return []
-
-
-def normalize_turn(turn: dict[str, Any]) -> dict[str, Any]:
-    """Ensure a Turn satisfies the Turn Contract.
-
-    - ``content`` is always ``list[dict]``
-    - every block has a ``type`` field
-    - ``tool_use.input`` is always ``dict``
-    - ``uuid`` and ``timestamp`` keys always exist (may be ``None``)
-    """
-    # Shallow copy at turn level; normalize_block handles block-level copies.
-    result = dict(turn)
-
-    # Ensure content is list[dict] (normalize_block deepcopies each block)
-    result["content"] = normalize_content(result.get("content", []))
-
-    # Ensure uuid and timestamp keys exist
-    result.setdefault("uuid", None)
-    result.setdefault("timestamp", None)
-
-    return result
-
-
-def normalize_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Batch-normalize a list of turns. Used as final gate before API output."""
-    return [normalize_turn(turn) for turn in turns]
