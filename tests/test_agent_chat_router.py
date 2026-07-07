@@ -272,6 +272,9 @@ class TestTruncatedReplyBackfill:
     """非空但被截断的直播回复不得当作完整回复静默返回：或从事件日志补齐、或标记截断。"""
 
     def _patch_truncated_service(self, monkeypatch, *, live_reply, live_status, entries_payload=None, entries_exc=None):
+        assert entries_payload is not None or entries_exc is not None, (
+            "必须显式提供 entries_payload 或 entries_exc 之一，避免误配置的 mock 悄悄落入异常分支"
+        )
         mock_service = AsyncMock()
         pm = MagicMock()
         pm.get_project_path = MagicMock(return_value="/fake/path")
@@ -316,6 +319,53 @@ class TestTruncatedReplyBackfill:
         assert body["reply"] == "被截断的部分与完整后续"
         assert body["status"] == "error"
         assert body["truncated"] is False
+
+    def test_terminal_session_but_log_shorter_than_live_keeps_live_marks_truncated(self, monkeypatch):
+        """会话已转终态但日志比直播已收文本更短（如取消路径丢弃了已广播未落库的尾部消息）：
+        不得用更短的日志内容覆盖直播回复，且不能当作已确认完整。"""
+        self._patch_truncated_service(
+            monkeypatch,
+            live_reply="第一部分第二部分",
+            live_status="interrupted",
+            entries_payload={
+                "session_id": "sess-1",
+                "status": "interrupted",
+                "entries": [
+                    {"seq": 4, "type": "user", "content": [{"type": "text", "text": "问题"}]},
+                    {"seq": 5, "type": "assistant", "content": [{"type": "text", "text": "第一部分"}]},
+                ],
+                "draft": None,
+                "draft_rev": 0,
+            },
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "第一部分第二部分"
+        assert body["truncated"] is True
+
+    def test_terminal_session_but_empty_log_keeps_live_marks_truncated(self, monkeypatch):
+        """会话已转终态但日志本轮无主线回复条目（未给出任何佐证）：
+        保留直播部分文本，且不能仅凭终态就当作已确认完整。"""
+        self._patch_truncated_service(
+            monkeypatch,
+            live_reply="被截断的部分",
+            live_status="error",
+            entries_payload={
+                "session_id": "sess-1",
+                "status": "completed",
+                "entries": [{"seq": 4, "type": "user", "content": [{"type": "text", "text": "问题"}]}],
+                "draft": None,
+                "draft_rev": 0,
+            },
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "被截断的部分"
+        assert body["truncated"] is True
 
     def test_session_still_running_marks_truncated(self, monkeypatch):
         """回读时会话仍在 running：日志同样未收全，保留直播部分文本并标记截断态。"""
