@@ -11,9 +11,11 @@ import { ContentBlockRenderer } from "./ContentBlockRenderer";
 
 interface ChatMessageProps {
   message: Turn;
+  /** 该 turn 是流式草稿（draft）——末尾块处于生成中。 */
+  streaming?: boolean;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, streaming }: ChatMessageProps) {
   if (!message) return null;
 
   const messageType = typeof message.type === "string" ? message.type : "";
@@ -78,6 +80,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
             key={block.id ?? index}
             block={block}
             index={index}
+            streaming={Boolean(streaming) && index === blocks.length - 1}
           />
         ))}
       </div>

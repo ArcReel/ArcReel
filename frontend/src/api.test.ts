@@ -368,7 +368,7 @@ describe("API", () => {
 
       await API.listAssistantSessions("demo", "running");
       await API.getAssistantSession("demo", "session-1");
-      await API.getAssistantSnapshot("demo", "session-1");
+      await API.listAssistantEntries("demo", "session-1", 5);
       await API.sendAssistantMessage("demo", "hello", "session-1");
       await API.interruptAssistantSession("demo", "session-1");
       await API.answerAssistantQuestion("demo", "session-1", "q-1", { key: "a" });
@@ -402,6 +402,9 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/assistant/sessions?status=running",
       );
+      expect(requestSpy).toHaveBeenCalledWith(
+        "/projects/demo/assistant/sessions/session-1/entries?after=5",
+      );
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/assistant/skills");
       expect(requestSpy).toHaveBeenCalledWith(
         "/usage/stats?project_name=demo&start_date=2026-01-01&end_date=2026-02-01",
@@ -419,8 +422,11 @@ describe("API", () => {
       expect(API.getFileUrl("my project", "source/a.txt", 3)).toBe(
         "/api/v1/files/my%20project/source/a.txt?v=3",
       );
-      expect(API.getAssistantStreamUrl("demo", "session-1")).toBe(
-        "/api/v1/projects/demo/assistant/sessions/session-1/stream",
+      expect(API.getAssistantEntriesStreamUrl("demo", "session-1")).toBe(
+        "/api/v1/projects/demo/assistant/sessions/session-1/entries/stream",
+      );
+      expect(API.getAssistantEntriesStreamUrl("demo", "session-1", 7)).toBe(
+        "/api/v1/projects/demo/assistant/sessions/session-1/entries/stream?after=7",
       );
     });
 

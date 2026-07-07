@@ -5,8 +5,6 @@ from server.agent_runtime.turn_schema import (
     infer_block_type,
     normalize_block,
     normalize_content,
-    normalize_turn,
-    normalize_turns,
 )
 
 
@@ -117,82 +115,6 @@ class TestNormalizeContent:
         assert normalize_content(42) == []
 
 
-class TestNormalizeTurn:
-    def test_string_content_normalized(self):
-        turn = {"type": "user", "content": "hello"}
-        result = normalize_turn(turn)
-        assert isinstance(result["content"], list)
-        assert result["content"][0]["type"] == "text"
-        assert result["content"][0]["text"] == "hello"
-
-    def test_uuid_and_timestamp_defaults(self):
-        turn = {"type": "assistant", "content": []}
-        result = normalize_turn(turn)
-        assert "uuid" in result
-        assert result["uuid"] is None
-        assert "timestamp" in result
-        assert result["timestamp"] is None
-
-    def test_existing_uuid_preserved(self):
-        turn = {"type": "user", "content": [], "uuid": "u1", "timestamp": "2026-01-01T00:00:00Z"}
-        result = normalize_turn(turn)
-        assert result["uuid"] == "u1"
-        assert result["timestamp"] == "2026-01-01T00:00:00Z"
-
-    def test_result_turn_gets_empty_content(self):
-        turn = {"type": "result", "subtype": "success"}
-        result = normalize_turn(turn)
-        assert result["type"] == "result"
-        assert result["content"] == []
-        assert result["subtype"] == "success"
-
-    def test_extra_fields_preserved(self):
-        turn = {"type": "assistant", "content": [], "custom_field": "value"}
-        result = normalize_turn(turn)
-        assert result["custom_field"] == "value"
-
-    def test_deep_copy_isolation(self):
-        original_block = {"type": "text", "text": "hi"}
-        turn = {"type": "assistant", "content": [original_block]}
-        result = normalize_turn(turn)
-        result["content"][0]["text"] = "changed"
-        assert original_block["text"] == "hi"
-
-    def test_draft_turn_shape(self):
-        """Draft turns from stream_projector have uuid but no timestamp."""
-        turn = {"type": "assistant", "content": [{"type": "text", "text": "thinking..."}], "uuid": "draft-abc"}
-        result = normalize_turn(turn)
-        assert result["uuid"] == "draft-abc"
-        assert result["timestamp"] is None
-
-    def test_tool_use_blocks_normalized(self):
-        turn = {
-            "type": "assistant",
-            "content": [
-                {"type": "tool_use", "id": "t1", "name": "Bash", "input": "invalid"},
-            ],
-        }
-        result = normalize_turn(turn)
-        assert result["content"][0]["input"] == {}
-
-
-class TestNormalizeTurns:
-    def test_batch(self):
-        turns = [
-            {"type": "user", "content": "hello"},
-            {"type": "assistant", "content": [{"text": "world"}]},
-        ]
-        result = normalize_turns(turns)
-        assert len(result) == 2
-        assert isinstance(result[0]["content"], list)
-        assert result[1]["content"][0]["type"] == "text"
-        assert result[0]["uuid"] is None
-        assert result[1]["uuid"] is None
-
-    def test_empty_list(self):
-        assert normalize_turns([]) == []
-
-
 class TestStringifyContent:
     def test_string_passthrough(self):
         assert _stringify_content("hello") == "hello"
@@ -247,18 +169,15 @@ class TestToolResultContentNormalization:
         result = normalize_block(block)
         assert result["content"] == "already string"
 
-    def test_normalize_turn_with_tool_result_list_content(self):
-        """End-to-end: turn containing tool_result with array content."""
-        turn = {
-            "type": "assistant",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": "t1",
-                    "content": [{"type": "text", "text": "ok"}],
-                }
-            ],
-        }
-        result = normalize_turn(turn)
-        assert isinstance(result["content"][0]["content"], str)
-        assert result["content"][0]["content"] == "ok"
+    def test_normalize_content_with_tool_result_list_content(self):
+        """End-to-end: message content containing tool_result with array content."""
+        content = [
+            {
+                "type": "tool_result",
+                "tool_use_id": "t1",
+                "content": [{"type": "text", "text": "ok"}],
+            }
+        ]
+        result = normalize_content(content)
+        assert isinstance(result[0]["content"], str)
+        assert result[0]["content"] == "ok"

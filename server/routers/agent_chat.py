@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from lib.i18n import Translator, get_locale
-from server.agent_runtime.models import Heartbeat, ReplayBatch
+from server.agent_runtime.models import Heartbeat, LiveMessage
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import CurrentUser
@@ -57,7 +57,7 @@ TERMINAL_RUNTIME_STATUSES = {"idle", "completed", "error", "interrupted"}
 def _consume_message(message: dict, reply_parts: list[str]) -> str | None:
     """处理一条消息：收集 assistant 文本；命中终结条件时返回终态 status，否则返回 None。
 
-    回放批次内的消息与直播消息走同一套规则。
+    直播消息与历史事件日志条目走同一套文本收集规则。
     """
     msg_type = message.get("type", "")
 
@@ -88,7 +88,8 @@ async def _collect_reply(
 
     通过 ``stream_messages`` 上下文管理器消费（非 SSE、无 ``request`` 对象）：
     会话状态判断挂在心跳事件上，超时检测粒度因此变为 idle_timeout（≤5s）。
-    退出注销由 ``__aexit__`` 确定性承载（见 ADR-0005）。
+    退出注销由 ``__aexit__`` 确定性承载（见 ADR-0005）。订阅建立前已广播的
+    消息不会重放——漏收的回复由调用方从事件日志兜底提取。
 
     Returns:
         (reply_text, status) — status 为 "completed" / "timeout" / "error"
@@ -98,7 +99,7 @@ async def _collect_reply(
     deadline = loop.time() + timeout
     status = "timeout"
 
-    async with service.session_manager.stream_messages(session_id, replay=True, idle_timeout=5.0) as stream:
+    async with service.session_manager.stream_messages(session_id, idle_timeout=5.0) as stream:
         async for event in stream:
             # deadline 必须每轮都查：持续 <idle_timeout 间隔的消息流会让心跳永不触发，
             # 若只在心跳上判超时，跑飞/刷屏的会话会让本同步请求无界挂起。
@@ -114,12 +115,10 @@ async def _collect_reply(
                     break
                 continue
 
-            messages = event.messages if isinstance(event, ReplayBatch) else [event.message]
-            terminal = None
-            for message in messages:
-                terminal = _consume_message(message, reply_parts)
-                if terminal is not None:
-                    break
+            if not isinstance(event, LiveMessage):
+                continue
+
+            terminal = _consume_message(event.message, reply_parts)
             if terminal is not None:
                 status = terminal
                 break
@@ -128,6 +127,24 @@ async def _collect_reply(
             status = "error"
 
     return "".join(reply_parts), status
+
+
+def _extract_reply_from_entries(entries: list[dict], after_seq: int) -> str:
+    """从事件日志条目提取主线 assistant 回复文本（本轮用户条目之后）。"""
+    parts: list[str] = []
+    for entry in entries:
+        if entry.get("type") != "assistant" or entry.get("parent_tool_use_id"):
+            continue
+        seq = entry.get("seq")
+        if isinstance(seq, int) and seq <= after_seq:
+            continue
+        content = entry.get("content")
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+    return "".join(parts)
 
 
 @router.post("/agent/chat")
@@ -169,7 +186,6 @@ async def agent_chat(
             )
 
     # 统一通过 send_or_create 创建或复用会话并发送消息。
-    # 依赖 replay_buffer=True 缓冲已发送的消息，不会产生竞争条件。
     try:
         result = await service.send_or_create(
             body.project_name,
@@ -188,20 +204,16 @@ async def agent_chat(
     # 收集回复（带超时）
     reply, status = await _collect_reply(service, session_id, SYNC_CHAT_TIMEOUT)
 
-    # 若未收到文本但有快照，从 snapshot 提取最新助手回复
+    # 订阅建立前回复已完成（或部分广播已错过）时，直播收集为空；
+    # 事件日志是唯一读源，从本轮用户条目之后的主线 assistant 条目兜底提取。
     if not reply:
         try:
-            snapshot = await service.get_snapshot(session_id)
-            turns = snapshot.get("turns", [])
-            for turn in reversed(turns):
-                if turn.get("role") == "assistant":
-                    blocks = turn.get("content", [])
-                    text_parts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
-                    reply = "".join(text_parts)
-                    if reply:
-                        break
+            user_entry = result.get("entry")
+            user_seq = user_entry.get("seq", -1) if isinstance(user_entry, dict) else -1
+            payload = await service.list_session_entries(session_id, after_seq=user_seq)
+            reply = _extract_reply_from_entries(payload.get("entries", []), user_seq)
         except Exception as exc:
-            logger.warning("获取快照失败 session_id=%s: %s", session_id, exc)
+            logger.warning("从事件日志提取回复失败 session_id=%s: %s", session_id, exc)
 
     return AgentChatResponse(
         session_id=session_id,

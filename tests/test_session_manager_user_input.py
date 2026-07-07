@@ -76,64 +76,24 @@ async def _finish(managed):
 
 
 class TestSessionManagerUserInput:
-    async def test_send_message_adds_user_echo_to_buffer(self, session_manager, meta_store):
+    async def test_send_message_registers_pending_echo_and_sends_query(self, session_manager, meta_store):
         # Result message so the actor exits cleanly after query.
         messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
         meta, managed, client = await _seed(session_manager, meta_store, messages=messages)
         try:
+            queue = managed.channel.subscribe()
             await session_manager.send_message(meta.id, "hello realtime")
             assert client.sent_queries == ["hello realtime"]
-            assert len(managed.message_buffer) >= 1
-            echo = managed.message_buffer[0]
-            assert echo.get("type") == "user"
-            assert echo.get("content") == "hello realtime"
-            assert echo.get("local_echo")
+            # 不再广播本地合成 echo：受理回显由权威日志条目承担，
+            # pending_user_echoes 仅用于给 SDK 回放副本打标（写入点跳过）。
+            broadcasted = []
+            while not queue.empty():
+                broadcasted.append(queue.get_nowait())
+            assert not any(isinstance(item, dict) and item.get("local_echo") for item in broadcasted)
         finally:
             await _finish(managed)
 
-    async def test_send_message_prunes_previous_stream_events(self, session_manager, meta_store):
-        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
-        meta, managed, client = await _seed(session_manager, meta_store, messages=messages)
-        managed.message_buffer.extend(
-            [
-                {
-                    "type": "assistant",
-                    "content": [{"type": "text", "text": "上一轮回复"}],
-                    "uuid": "assistant-old-1",
-                },
-                {
-                    "type": "stream_event",
-                    "event": {
-                        "type": "content_block_delta",
-                        "delta": {"type": "text_delta", "text": "旧增量"},
-                    },
-                    "uuid": "stream-old-1",
-                },
-                {
-                    "type": "result",
-                    "subtype": "success",
-                    "is_error": False,
-                    "uuid": "result-old-1",
-                },
-            ]
-        )
-        try:
-            await session_manager.send_message(meta.id, "新问题")
-
-            # Wait briefly for inbox processor to drain the result message.
-            for _ in range(100):
-                await asyncio.sleep(0)
-                if managed._inbox.empty() and not any(msg.get("type") == "result" for msg in managed.message_buffer):
-                    break
-                await asyncio.sleep(0.01)
-
-            assert not any(msg.get("type") == "stream_event" for msg in managed.message_buffer)
-            assert not any(msg.get("type") == "assistant" for msg in managed.message_buffer)
-            assert not any(msg.get("type") == "result" for msg in managed.message_buffer)
-        finally:
-            await _finish(managed)
-
-    async def test_consume_result_prunes_stream_events_after_completion(self, session_manager, meta_store):
+    async def test_consume_result_finalizes_status(self, session_manager, meta_store):
         messages = [
             {
                 "type": "stream_event",
@@ -162,18 +122,11 @@ class TestSessionManagerUserInput:
             # send_message 在 prompt 送入 SDK 即返回；等 actor 后台 drain 与 inbox 处理完成。
             for _ in range(200):
                 await asyncio.sleep(0)
-                if (
-                    managed.status != "running"
-                    and managed._inbox.empty()
-                    and not any(msg.get("type") == "result" for msg in managed.message_buffer)
-                ):
+                if managed.status != "running" and managed._inbox.empty():
                     break
                 await asyncio.sleep(0.01)
 
             assert managed.status == "completed"
-            assert not any(msg.get("type") == "stream_event" for msg in managed.message_buffer)
-            assert not any(msg.get("type") == "assistant" for msg in managed.message_buffer)
-            assert not any(msg.get("type") == "result" for msg in managed.message_buffer)
         finally:
             await _finish(managed)
 
@@ -200,14 +153,15 @@ class TestSessionManagerUserInput:
                 "answers": None,
             }
 
+            queue = managed.channel.subscribe()
             task = asyncio.create_task(callback("AskUserQuestion", question_input, None))
             await asyncio.sleep(0)
 
-            assert len(managed.message_buffer) >= 1
-            ask_message = managed.message_buffer[-1]
+            ask_message = queue.get_nowait()
             assert ask_message.get("type") == "ask_user_question"
             question_id = ask_message.get("question_id")
             assert question_id
+            assert managed.get_pending_question_payloads()[0]["question_id"] == question_id
 
             await session_manager.answer_user_question(
                 session_id=meta.id,
