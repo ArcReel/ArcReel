@@ -149,6 +149,9 @@ class ManagedSession:
     # 保证用户条目先于任何 assistant 条目分配身份。
     pending_initial_user_entry: dict[str, Any] | None = None
     initial_user_log_entry: dict[str, Any] | None = None
+    # 首条用户消息落库失败的异常：inbox 任务记录，send_new_session 醒来后
+    # 据此显式回报失败（事件日志是时间线唯一读源，seq 0 缺失不可接受）。
+    initial_user_entry_error: Exception | None = None
     last_user_prompt: str = ""
     assistant_model: str = ""
     interrupt_requested: bool = False
@@ -586,6 +589,8 @@ class SessionManager:
             in case it is stuck elsewhere.
             """
             self.sessions.pop(temp_id, None)
+            # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
+            self.sessions.pop(managed.session_id, None)
             try:
                 await managed.send_disconnect()
             except Exception:
@@ -642,6 +647,21 @@ class SessionManager:
         assert sdk_id is not None
         # Key swap already done in _on_sdk_session_id_received
         assert managed.session_id == sdk_id
+
+        if managed.initial_user_entry_error is not None:
+            # 首条用户消息落库失败即受理失败：事件日志是时间线唯一读源，
+            # seq 0 缺失的会话开头永远无法呈现。与常规受理路径同语义——
+            # 失败显式回报（调用方收到异常）、状态回写 error、会话不再后台
+            # 续跑。先清理再回写状态：inbox 处理 result 时 _finalize_turn
+            # 会写终态，清理完成后写入的 error 才不会被并发覆盖。
+            managed.pending_user_echoes.clear()
+            managed.cancel_pending_questions("initial user entry persist failed")
+            await _cleanup_on_error()
+            try:
+                await self.meta_store.update_status(sdk_id, "error")
+            except Exception:
+                logger.exception("持久化 error 状态失败 session_id=%s", sdk_id)
+            raise RuntimeError("新会话首条用户消息写入事件日志失败") from managed.initial_user_entry_error
 
         return sdk_id
 
@@ -1396,7 +1416,10 @@ class SessionManager:
                     )
                     managed.initial_user_log_entry = authoritative
                     managed.channel.broadcast({"type": "log_entry", "session_id": sdk_id, "entry": authoritative})
-                except Exception:
+                except Exception as exc:
+                    # 不静默吞掉：记录异常供 send_new_session 醒来后显式回报
+                    # 失败（清理会话 + 状态回写 error + 向调用方抛出）。
+                    managed.initial_user_entry_error = exc
                     logger.exception("新会话用户条目写入事件日志失败 session_id=%s", sdk_id)
             # Key swap: replace temp_id with real sdk_id in sessions dict
             # BEFORE signaling the event. This prevents _finalize_turn from

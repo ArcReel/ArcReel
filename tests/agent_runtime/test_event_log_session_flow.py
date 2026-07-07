@@ -500,3 +500,83 @@ class TestNewSessionEventLogFlow:
                 assert client.sent_queries == ["继续"]
             finally:
                 await manager.close_session(SDK_ID)
+
+    async def test_initial_user_entry_write_failure_reports_error(self, manager: SessionManager):
+        """新会话首条用户消息落库失败：受理显式失败，会话进入可观察的 error 态。"""
+        client = FakeSDKClient(messages=_new_session_messages())
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+            patch.object(
+                manager.event_log_store,
+                "append_user_entry",
+                new=AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+        ):
+            with pytest.raises(RuntimeError):
+                await manager.send_new_session(
+                    "demo",
+                    "帮我写分镜",
+                    user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
+                    client_key="ck-fail-new",
+                )
+
+        # 状态回写：会话进入可观察的 error 态而非静默成功
+        meta = await manager.meta_store.get(SDK_ID)
+        assert meta is not None
+        assert meta.status == "error"
+        # 会话已随失败清理：不残留内存态、SDK 连接已断开
+        assert SDK_ID not in manager.sessions
+        assert client.disconnected is True
+
+    async def test_initial_user_entry_retry_after_failure_delivers(self, manager: SessionManager):
+        """落库失败后同幂等键重试：条目无残留短路，重试重新受理并分配 seq 0。"""
+        retry_sdk_id = "sdk-e2e-retry"
+        failing_client = FakeSDKClient(messages=_new_session_messages())
+        retry_client = FakeSDKClient(
+            messages=[
+                {"type": "system", "subtype": "init", "session_id": retry_sdk_id, "uuid": "init-2"},
+                {"type": "result", "subtype": "success", "is_error": False, "session_id": retry_sdk_id, "uuid": "r-2"},
+            ]
+        )
+        clients = iter([failing_client, retry_client])
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: next(clients)),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            with patch.object(
+                manager.event_log_store,
+                "append_user_entry",
+                new=AsyncMock(side_effect=RuntimeError("db down")),
+            ):
+                with pytest.raises(RuntimeError):
+                    await manager.send_new_session(
+                        "demo",
+                        "帮我写分镜",
+                        user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
+                        client_key="ck-retry-new",
+                    )
+
+            # 失败会话无用户条目残留，重试不会被幂等键短路
+            assert await manager.event_log_store.find_by_client_key(SDK_ID, "ck-retry-new") is None
+
+            sdk_id = await manager.send_new_session(
+                "demo",
+                "帮我写分镜",
+                user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
+                client_key="ck-retry-new",
+            )
+        try:
+            assert sdk_id == retry_sdk_id
+            managed = manager.sessions[retry_sdk_id]
+            assert managed.initial_user_log_entry is not None
+            assert managed.initial_user_log_entry["seq"] == 0
+            assert managed.initial_user_entry_error is None
+        finally:
+            await manager.close_session(retry_sdk_id)
