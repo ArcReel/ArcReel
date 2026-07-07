@@ -268,6 +268,157 @@ class TestEntryLogFallback:
         assert resp.json()["reply"] == "日志兜底回复"
 
 
+class TestTruncatedReplyBackfill:
+    """非空但被截断的直播回复不得当作完整回复静默返回：或从事件日志补齐、或标记截断。"""
+
+    def _patch_truncated_service(self, monkeypatch, *, live_reply, live_status, entries_payload=None, entries_exc=None):
+        mock_service = AsyncMock()
+        pm = MagicMock()
+        pm.get_project_path = MagicMock(return_value="/fake/path")
+        mock_service.pm = pm
+        mock_service.get_session = AsyncMock(return_value=_fake_session())
+        mock_service.send_or_create = AsyncMock(
+            return_value={
+                "status": "accepted",
+                "session_id": "sess-1",
+                "entry": {"seq": 4, "type": "user", "content": [{"type": "text", "text": "问题"}]},
+            }
+        )
+        if entries_exc is not None:
+            mock_service.list_session_entries = AsyncMock(side_effect=entries_exc)
+        else:
+            mock_service.list_session_entries = AsyncMock(return_value=entries_payload)
+        monkeypatch.setattr(agent_chat, "get_assistant_service", lambda: mock_service)
+        monkeypatch.setattr(agent_chat, "_collect_reply", AsyncMock(return_value=(live_reply, live_status)))
+        return mock_service
+
+    def test_error_status_backfills_nonempty_truncated_reply(self, monkeypatch):
+        """error 收尾（如订阅队列溢出）时，非空的部分回复也从事件日志补齐为完整回复。"""
+        self._patch_truncated_service(
+            monkeypatch,
+            live_reply="被截断的部分",
+            live_status="error",
+            entries_payload={
+                "session_id": "sess-1",
+                "status": "completed",
+                "entries": [
+                    {"seq": 4, "type": "user", "content": [{"type": "text", "text": "问题"}]},
+                    {"seq": 5, "type": "assistant", "content": [{"type": "text", "text": "被截断的部分与完整后续"}]},
+                ],
+                "draft": None,
+                "draft_rev": 0,
+            },
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "被截断的部分与完整后续"
+        assert body["status"] == "error"
+        assert body["truncated"] is False
+
+    def test_session_still_running_marks_truncated(self, monkeypatch):
+        """回读时会话仍在 running：日志同样未收全，保留直播部分文本并标记截断态。"""
+        self._patch_truncated_service(
+            monkeypatch,
+            live_reply="被截断的部分",
+            live_status="error",
+            entries_payload={
+                "session_id": "sess-1",
+                "status": "running",
+                "entries": [
+                    {"seq": 4, "type": "user", "content": [{"type": "text", "text": "问题"}]},
+                    {"seq": 5, "type": "assistant", "content": [{"type": "text", "text": "日志滞后文本"}]},
+                ],
+                "draft": None,
+                "draft_rev": 0,
+            },
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "被截断的部分"
+        assert body["truncated"] is True
+
+    def test_backfill_failure_keeps_partial_reply_marked_truncated(self, monkeypatch):
+        """事件日志回读失败时，保留部分回复但显式标记截断态，不静默放行。"""
+        self._patch_truncated_service(
+            monkeypatch,
+            live_reply="被截断的部分",
+            live_status="error",
+            entries_exc=RuntimeError("db unavailable"),
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "被截断的部分"
+        assert body["status"] == "error"
+        assert body["truncated"] is True
+
+    def test_empty_log_extraction_keeps_live_reply(self, monkeypatch):
+        """日志暂无主线回复条目时保留直播部分文本；会话仍 running 则标记截断。"""
+        self._patch_truncated_service(
+            monkeypatch,
+            live_reply="被截断的部分",
+            live_status="error",
+            entries_payload={
+                "session_id": "sess-1",
+                "status": "running",
+                "entries": [{"seq": 4, "type": "user", "content": [{"type": "text", "text": "问题"}]}],
+                "draft": None,
+                "draft_rev": 0,
+            },
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "被截断的部分"
+        assert body["truncated"] is True
+
+    def test_interrupted_status_also_backfills(self, monkeypatch):
+        """interrupted 收尾同属流异常路径：非空部分回复同样从终态日志补齐。"""
+        self._patch_truncated_service(
+            monkeypatch,
+            live_reply="被截断的部分",
+            live_status="interrupted",
+            entries_payload={
+                "session_id": "sess-1",
+                "status": "interrupted",
+                "entries": [
+                    {"seq": 4, "type": "user", "content": [{"type": "text", "text": "问题"}]},
+                    {"seq": 5, "type": "assistant", "content": [{"type": "text", "text": "中断前完整文本"}]},
+                ],
+                "draft": None,
+                "draft_rev": 0,
+            },
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "中断前完整文本"
+        assert body["truncated"] is False
+
+    def test_completed_nonempty_reply_skips_backfill(self, monkeypatch):
+        """正常完成的非空回复不触发日志回读，truncated 恒为 False。"""
+        mock_service = self._patch_truncated_service(
+            monkeypatch,
+            live_reply="完整回复",
+            live_status="completed",
+            entries_payload={"session_id": "sess-1", "status": "completed", "entries": []},
+        )
+        with _make_client() as client:
+            resp = client.post("/api/v1/agent/chat", json={"project_name": "demo", "message": "问题"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reply"] == "完整回复"
+        assert body["truncated"] is False
+        mock_service.list_session_entries.assert_not_awaited()
+
+
 class TestExtractTextFromAssistantMessage:
     def test_list_content(self):
         msg = {"type": "assistant", "content": [{"type": "text", "text": "你好"}]}
