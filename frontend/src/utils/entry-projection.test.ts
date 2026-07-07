@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DraftDeltaPayload, TimelineEntry } from "@/types";
+import type { DraftDeltaPayload, DraftState, TimelineEntry } from "@/types";
 import {
   applyDraftDelta,
   buildDraftTurn,
@@ -611,6 +611,11 @@ describe("buildDraftTurn", () => {
     expect(buildDraftTurn(null, false)).toBeNull();
     expect(buildDraftTurn({ ...draft, content: [] }, false)).toBeNull();
     expect(buildDraftTurn({ ...draft, parent_tool_use_id: "tu-agent" }, false)).toBeNull();
+  });
+
+  it("does not throw when a malformed payload omits content (network boundary, `as DraftState` skips runtime validation)", () => {
+    const malformed = { message_id: "msg_1", parent_tool_use_id: null } as unknown as DraftState;
+    expect(buildDraftTurn(malformed, false)).toBeNull();
   });
 
   it("agrees with projectDraftToTurn across the committed-set derivation", () => {

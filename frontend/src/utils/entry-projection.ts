@@ -550,7 +550,7 @@ export function buildDraftTurn(draft: DraftState | null, replaced: boolean): Tur
   if (!draft || !draft.message_id) return null;
   if (draft.parent_tool_use_id) return null;
   if (replaced) return null;
-  const content = draft.content.filter(Boolean);
+  const content = (draft.content ?? []).filter(Boolean);
   if (content.length === 0) return null;
   return {
     type: "assistant",

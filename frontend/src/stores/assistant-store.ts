@@ -196,7 +196,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
       // tool_json 是服务端已累积的原始 partial JSON——以此为前缀继续拼接
       // 后续 input_json_delta，否则纯后缀永远解析失败、参数预览冻结。
       const mirror: DraftMirror | null = draft
-        ? { ...draft, content: [...draft.content], toolJson: { ...(draft.tool_json ?? {}) } }
+        ? { ...draft, content: [...(draft.content ?? [])], toolJson: { ...(draft.tool_json ?? {}) } }
         : null;
       set({
         draft: mirror,

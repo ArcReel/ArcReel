@@ -6,7 +6,7 @@ import {
   useTasksStore,
   useUsageStore,
 } from "@/stores";
-import type { TaskItem, TimelineEntry } from "@/types";
+import type { DraftState, TaskItem, TimelineEntry } from "@/types";
 
 function resetAllStores(): void {
   useAppStore.setState(useAppStore.getInitialState(), true);
@@ -269,6 +269,17 @@ describe("stores", () => {
     });
     const draft = useAssistantStore.getState().draft;
     expect(draft?.content[0].input).toEqual({ path: "a.txt" });
+  });
+
+  it("does not throw when a draft payload from the network omits content (SSE boundary is cast, not validated)", () => {
+    // useAssistantSession 对 SSE draft 事件做的是 `as DraftState` 类型断言，
+    // 无运行时校验；后端载荷若缺 content 字段，这里应兜底为空数组而非崩溃。
+    const assistant = useAssistantStore.getState();
+    assistant.resetTimeline();
+    const malformed = { message_id: "msg_1", rev: 1 } as unknown as DraftState;
+    expect(() => assistant.setDraftSnapshot(malformed, 1)).not.toThrow();
+    expect(useAssistantStore.getState().draft?.content).toEqual([]);
+    expect(useAssistantStore.getState().draftTurn).toBeNull();
   });
 
   it("does not treat a fresh draft as replaced by a stale committed message_id after a full setState reset", () => {
