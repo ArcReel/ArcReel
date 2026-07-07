@@ -288,7 +288,12 @@ class AssistantService:
         if mapped_session_id is not None:
             # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
             entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
-            return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
+            if entry is not None:
+                return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
+            # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
+            # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
+            # 响应——调用方会据此连接一个不存在的会话，消息静默丢失。
+            self._new_session_client_keys.pop(client_key, None)
         recovered = await self.event_log_store.find_new_session_by_client_key(client_key)
         if recovered is None:
             return None

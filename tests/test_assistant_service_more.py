@@ -360,6 +360,39 @@ class TestAssistantServiceMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
+    async def test_send_or_create_falls_back_when_cached_mapping_points_to_deleted_session(self, tmp_path):
+        """进程内映射指向的会话条目已不存在（如会话被删除后映射未清）时，
+        不应把幽灵 "accepted" 响应（entry=None）返回给调用方——应清掉失效
+        映射并按正常路径新建会话，而不是让调用方连接一个不存在的会话。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+        # 模拟会话已被删除但进程内映射未清（delete_session 不感知该映射）。
+        service._new_session_client_keys["ck-stale"] = "sdk-deleted"
+
+        result = await service.send_or_create("demo", "hello", client_key="ck-stale")
+
+        assert len(sm.new_sessions) == 1  # 未拿到幽灵响应，走了正常新建路径
+        assert result["session_id"] == "sdk-new-id"
+        assert result["session_id"] != "sdk-deleted"
+        # 映射已刷新为新会话，不再指向已删除的会话
+        assert service._new_session_client_keys["ck-stale"] == "sdk-new-id"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
     async def test_delete_session_closes_active_session_before_delete(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta(id="s1")

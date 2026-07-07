@@ -424,24 +424,35 @@ def _assistant_tool_use_ids(message: Any) -> list[str]:
     return ids
 
 
+def _first_driver_attr(exc: IntegrityError, *attr_names: str) -> Any:
+    """沿 ``exc.orig`` 的 ``__cause__`` 链查找首个非 None 的驱动侧属性值。
+
+    SQLAlchemy 的 asyncpg 适配把原始驱动异常挂在翻译后异常的 cause 上，
+    唯一约束判定与 client_key 冲突判定都需要沿此链探测驱动暴露的属性。
+    """
+    err: BaseException | None = exc.orig
+    while err is not None:
+        for name in attr_names:
+            value = getattr(err, name, None)
+            if value is not None:
+                return value
+        err = err.__cause__
+    return None
+
+
 def _is_unique_violation(exc: IntegrityError) -> bool:
     """判定唯一约束冲突：错误码优先（PostgreSQL SQLSTATE / SQLite errorname），
     文案子串仅作兜底。
 
     PostgreSQL 错误文案随服务端 lc_messages 本地化，非英文环境下不含
-    "duplicate key" 字样，子串匹配会把可重试的竞态误判为真实错误。错误码
-    沿 ``__cause__`` 链查找——SQLAlchemy 的 asyncpg 适配把原始驱动异常挂在
-    翻译后异常的 cause 上。
+    "duplicate key" 字样，子串匹配会把可重试的竞态误判为真实错误。
     """
-    err: BaseException | None = exc.orig
-    while err is not None:
-        sqlstate = getattr(err, "sqlstate", None) or getattr(err, "pgcode", None)
-        if sqlstate is not None:
-            return str(sqlstate) == _PG_UNIQUE_VIOLATION_SQLSTATE
-        errorname = getattr(err, "sqlite_errorname", None)
-        if errorname is not None:
-            return errorname in _SQLITE_UNIQUE_ERRORNAMES
-        err = err.__cause__
+    sqlstate = _first_driver_attr(exc, "sqlstate", "pgcode")
+    if sqlstate is not None:
+        return str(sqlstate) == _PG_UNIQUE_VIOLATION_SQLSTATE
+    errorname = _first_driver_attr(exc, "sqlite_errorname")
+    if errorname is not None:
+        return errorname in _SQLITE_UNIQUE_ERRORNAMES
     msg = str(exc.orig) if exc.orig else str(exc)
     return "UNIQUE" in msg or "duplicate key" in msg
 
@@ -449,12 +460,9 @@ def _is_unique_violation(exc: IntegrityError) -> bool:
 def _is_client_key_violation(exc: IntegrityError) -> bool:
     """判定冲突是否落在 client_key 唯一索引：约束名优先（不随 locale 翻译），
     驱动未暴露约束名时回退错误文本——两个后端的文案都会带索引/列名。"""
-    err: BaseException | None = exc.orig
-    while err is not None:
-        constraint = getattr(err, "constraint_name", None)
-        if constraint:
-            return "client_key" in str(constraint)
-        err = err.__cause__
+    constraint = _first_driver_attr(exc, "constraint_name")
+    if constraint:
+        return "client_key" in str(constraint)
     msg = str(exc.orig) if exc.orig else str(exc)
     return "client_key" in msg
 
