@@ -6,7 +6,7 @@ import {
   useTasksStore,
   useUsageStore,
 } from "@/stores";
-import type { TaskItem } from "@/types";
+import type { TaskItem, TimelineEntry } from "@/types";
 
 function resetAllStores(): void {
   useAppStore.setState(useAppStore.getInitialState(), true);
@@ -291,6 +291,32 @@ describe("stores", () => {
       1,
     );
     expect(useAssistantStore.getState().draftTurn?.content[0].text).toBe("新会话草稿");
+  });
+
+  it("self-heals the incremental projector after a full setState reset even when the next cohort reuses stale head/tail entry object references", () => {
+    // 增量投影器自身的前缀延续判定只比对 entries 首尾元素引用（O(1) 设计，
+    // 不逐一比对中间元素）。若 store 层没有额外按整个 entries 容器引用自愈，
+    // 绕过 resetTimeline 的整帧重置后，只要"新"cohort 复用了上一会话的
+    // 首尾条目对象引用（例如测试间共享的 fixture 常量），投影器会误判为
+    // "前缀延续"，永远不会折叠中段条目的新内容，turns 停留在上一会话的陈旧值。
+    const entryX: TimelineEntry = { seq: 0, type: "user", uuid: "x", content: [{ type: "text", text: "开头" }] };
+    const entryA: TimelineEntry = { seq: 2, type: "user", uuid: "a", content: [{ type: "text", text: "结尾" }] };
+    const entryMid1: TimelineEntry = { seq: 1, type: "user", uuid: "m1", content: [{ type: "text", text: "会话一中段" }] };
+    const entryMid2: TimelineEntry = { seq: 1, type: "user", uuid: "m2", content: [{ type: "text", text: "会话二中段" }] };
+
+    const assistant = useAssistantStore.getState();
+    assistant.resetTimeline();
+    assistant.setEntries([entryX, entryMid1, entryA]);
+    expect(useAssistantStore.getState().turns).toHaveLength(3);
+
+    // 整帧 setState 重置（绕过 resetTimeline action）
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+
+    // "新会话"首尾复用同一对条目对象引用，仅中段条目是新对象
+    useAssistantStore.getState().setEntries([entryX, entryMid2, entryA]);
+    const turns = useAssistantStore.getState().turns;
+    expect(turns).toHaveLength(3);
+    expect(turns.map((t) => t.content[0].text)).toEqual(["开头", "会话二中段", "结尾"]);
   });
 
   describe("ProjectsStore fingerprints", () => {

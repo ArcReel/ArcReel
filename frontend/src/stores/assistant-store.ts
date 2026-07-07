@@ -90,14 +90,28 @@ interface AssistantState {
 
 export const useAssistantStore = create<AssistantState>((set, get) => {
   // 投影派生缓存（非响应式状态）：projector 增量折叠 entries→turns，
-  // committedIds 是 draft 替换判定的 O(1) 索引。索引按 entries 引用自愈——
+  // committedIds 是 draft 替换判定的 O(1) 索引。两者都按 entries 引用自愈——
   // 外部整帧 setState（如测试 reset）替换 entries 却不经本 store 的 action
-  // 时，下次读取按引用不符重建，避免用陈旧 message_id 误判 draft 已替换。
+  // 时，下次读取按引用不符重建，避免用陈旧 message_id 误判 draft 已替换，
+  // 或用陈旧 projector 内部状态误判增量前缀延续。projector 自身的前缀判定
+  // 只比对 entries 首尾元素引用（O(1)，不能整数组比对，否则每次追加都会
+  // 判定为"变了"而失去增量的意义），这里额外按容器引用做一层更粗但更可靠
+  // 的自愈防线——与 committedSource 完全同构，legitimate 的每次 mutation
+  // 都把 xxxSource 同步更新为下一次 get().entries 会拿到的引用，只有外部
+  // 绕过 action 的整帧替换才会触发。
   let projector = createTimelineProjector();
+  let projectorSource: TimelineEntry[] | null = null;
   let committedIds = new Set<string>();
   let committedSource: TimelineEntry[] | null = null;
 
-  const projectEntries = (entries: TimelineEntry[]): Turn[] => projector.project(entries);
+  const projectEntries = (entries: TimelineEntry[]): Turn[] => {
+    if (projectorSource !== entries) {
+      projector = createTimelineProjector();
+    }
+    const turns = projector.project(entries);
+    projectorSource = entries;
+    return turns;
+  };
 
   const committedFor = (entries: TimelineEntry[]): Set<string> => {
     if (committedSource !== entries) {
@@ -194,6 +208,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     clearDraft: () => set({ draft: null, draftTurn: null }),
     resetTimeline: () => {
       projector = createTimelineProjector();
+      projectorSource = null;
       committedIds = new Set<string>();
       committedSource = null;
       set({ entries: [], draft: null, draftRev: 0, turns: [], draftTurn: null });

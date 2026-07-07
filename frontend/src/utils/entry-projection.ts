@@ -121,6 +121,10 @@ export function createTimelineProjector(): TimelineProjector {
   let versionCounter = 0;
   let main: Fold = newFold();
   let groups = new Map<string, SubagentGroup>();
+  // 尚未锚定的组：compose() 只需扫这个集合而非全部历史 groups，避免长会话
+  // 里已锚定完成的 subagent 组随会话增长把每条新消息的合成卡片扫描拖成
+  // O(历史 subagent 总数)。
+  let pendingGroups = new Set<SubagentGroup>();
   let toolUseSites = new Map<string, ToolUseSite>();
   let turnViewCache = new WeakMap<InternalTurn, { version: number; turn: Turn }>();
   let composed: Turn[] = [];
@@ -134,11 +138,32 @@ export function createTimelineProjector(): TimelineProjector {
     versionCounter = 0;
     main = newFold();
     groups = new Map();
+    pendingGroups = new Set();
     toolUseSites = new Map();
     turnViewCache = new WeakMap();
     composed = [];
     composedDirty = true;
     count = 0;
+  }
+
+  /**
+   * site 所在时间线的锚链（沿既有 anchor 归属向上走）是否会绕回 targetFold。
+   * 用于锚定前判定：真实数据里 subagent 嵌套是无环 DAG（parent_tool_use_id
+   * 恒指向更早、仍开放的祖先调用），环只可能来自畸形/自指条目
+   * （如 parent_tool_use_id 等于自身 tool_use id）。一旦锚定成环，该组的
+   * 展示视图会互相依赖、永远无法从主时间线触达，导致整段时间线被
+   * compose() 静默丢空——不锚定、退回既有的"合成卡片"兜底比丢空更安全。
+   */
+  function anchorCreatesCycle(anchorFold: Fold, targetFold: Fold): boolean {
+    const seen = new Set<Fold>();
+    let current: Fold | null = anchorFold;
+    while (current) {
+      if (current === targetFold) return true;
+      if (seen.has(current)) return false;
+      seen.add(current);
+      current = current.group?.anchor?.fold ?? null;
+    }
+    return false;
   }
 
   /** 条目触达 turn 后：失效其展示缓存，并沿 subagent 锚链逐层失效祖先 turn。 */
@@ -227,8 +252,9 @@ export function createTimelineProjector(): TimelineProjector {
     const group = groups.get(id);
     if (group && !group.anchor) {
       const site = toolUseSites.get(id);
-      if (site) {
+      if (site && !anchorCreatesCycle(site.fold, group.fold)) {
         group.anchor = site;
+        pendingGroups.delete(group);
         // 合成卡片并回锚点：锚点 turn 展示需重建，顶层合成卡片消失
         touch(site.fold, site.turn);
       }
@@ -244,9 +270,11 @@ export function createTimelineProjector(): TimelineProjector {
       fold.group = group;
       groups.set(parentId, group);
       const site = toolUseSites.get(parentId);
-      if (site) {
+      if (site && !anchorCreatesCycle(site.fold, fold)) {
         group.anchor = site;
         touch(site.fold, site.turn);
+      } else {
+        pendingGroups.add(group);
       }
       composedDirty = true;
     }
@@ -446,9 +474,10 @@ export function createTimelineProjector(): TimelineProjector {
   function compose(): Turn[] {
     if (!composedDirty) return composed;
     const out = [...foldDisplay(main)];
-    // 仍无锚点的组（如懒生成残余组）：以合成锚点独立成卡，不丢子时间线
-    for (const group of groups.values()) {
-      if (group.anchor) continue;
+    // 仍无锚点的组（如懒生成残余组、成环被拒锚的组）：以合成锚点独立成卡，
+    // 不丢子时间线。只扫 pendingGroups（当前仍未锚定的组），不扫全部历史
+    // groups——已锚定的组不会再变回待锚定，扫描量不随会话内 subagent 总数增长。
+    for (const group of pendingGroups) {
       out.push({
         type: "system",
         content: [{ type: "tool_use", id: group.id, name: "Agent", input: {}, sub_turns: foldDisplay(group.fold) }],

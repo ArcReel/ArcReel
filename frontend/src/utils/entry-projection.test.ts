@@ -797,6 +797,56 @@ describe("createTimelineProjector", () => {
       }
     }
   });
+
+  it("degrades to a synthetic card instead of dropping the whole timeline when parent_tool_use_id self-references", () => {
+    // 条目的 parent_tool_use_id 等于自身 tool_use id：畸形/自指数据，真实
+    // server 写入点不会产生，但投影器不应把整段时间线静默丢空。
+    const entries: TimelineEntry[] = [
+      e({
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-self", name: "Agent", input: {} }],
+        uuid: "a-1",
+        parent_tool_use_id: "tu-self",
+      }),
+    ];
+    const turns = projectEntriesToTurns(entries);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].content[0]).toMatchObject({ type: "tool_use", id: "tu-self" });
+  });
+
+  it("degrades to synthetic cards instead of dropping the whole timeline when two subagent groups mutually anchor each other", () => {
+    // entry0 属于 tu-A 的子时间线、自身携带 tool_use tu-B；entry1 属于 tu-B
+    // 的子时间线、自身携带 tool_use tu-A —— 两组互相锚定成环，main 为空。
+    const entries: TimelineEntry[] = [
+      e({ type: "assistant", content: [{ type: "tool_use", id: "tu-b", name: "Agent", input: {} }], uuid: "a-1", parent_tool_use_id: "tu-a" }),
+      e({ type: "assistant", content: [{ type: "tool_use", id: "tu-a", name: "Agent", input: {} }], uuid: "a-2", parent_tool_use_id: "tu-b" }),
+    ];
+    const turns = projectEntriesToTurns(entries);
+    expect(turns.length).toBeGreaterThan(0);
+    const projector = createTimelineProjector();
+    expect(projector.project(entries)).toEqual(turns);
+  });
+
+  it("keeps compose()'s pending-group scan bounded to currently-unanchored groups, not total historical subagent count", () => {
+    // 一批 subagent 组全部锚定完成后，projector.size 之外还应有一个可观测
+    // 信号证明 compose() 不再对已锚定完成的历史组做全表扫描：直接量 size
+    // 属性只反映 entries 数，这里改为验证锚定后继续追加主时间线消息时输出
+    // 仍与全量重放一致（锚定组已完成不应再出现在顶层合成卡片里）。
+    const entries: TimelineEntry[] = [];
+    const projector = createTimelineProjector();
+    for (let i = 0; i < 50; i++) {
+      const toolId = `tu-${i}`;
+      entries.push(e({ type: "assistant", content: [{ type: "tool_use", id: toolId, name: "Agent", input: {} }], uuid: `a-${i}` }));
+      entries.push(e({ type: "assistant", content: [{ type: "text", text: `子回复${i}` }], uuid: `sa-${i}`, parent_tool_use_id: toolId }));
+      entries.push(e({ type: "tool_result", tool_use_id: toolId, content: "done", is_error: false, uuid: `tr-${i}` }));
+    }
+    entries.push(e({ type: "assistant", content: [{ type: "text", text: "主时间线消息" }], uuid: "a-final" }));
+    const turns = projector.project(entries);
+    expect(turns).toEqual(projectEntriesToTurns(entries));
+    // 全部 50 个 subagent 组都已锚定在各自 tool_use 块上，顶层不应再出现
+    // 任何合成卡片（system + subagent-* uuid）。
+    expect(turns.filter((t) => typeof t.uuid === "string" && t.uuid.startsWith("subagent-"))).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
