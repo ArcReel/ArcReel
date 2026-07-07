@@ -430,10 +430,13 @@ def _first_driver_attr(exc: IntegrityError, *attr_names: str) -> Any:
     SQLAlchemy 的 asyncpg 适配把原始驱动异常挂在翻译后异常的 cause 上，
     唯一约束判定与 client_key 冲突判定都需要沿此链探测驱动暴露的属性。
     优先取显式 ``__cause__``（``raise ... from ...``）；驱动或中间层改为隐式
-    包装（裸 ``raise``）时回退 ``__context__``，避免链路断裂导致探测落空。
+    包装（裸 ``raise``）时回退 ``__context__``。按 ``id()`` 记录已访问异常，
+    防御性异常链本身出现环（正常传播不会产生，但不排除病态构造）导致死循环。
     """
     err: BaseException | None = exc.orig
-    while err is not None:
+    seen: set[int] = set()
+    while err is not None and id(err) not in seen:
+        seen.add(id(err))
         for name in attr_names:
             value = getattr(err, name, None)
             if value is not None:

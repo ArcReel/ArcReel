@@ -360,6 +360,54 @@ class TestAssistantServiceMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
+    async def test_send_or_create_hit_refreshes_lru_position(self, tmp_path):
+        """命中进程内映射时刷新 LRU 位置：被频繁重试命中的 key 不因插入顺序
+        在先，被之后新到达但只访问一次的 key 挤出缓存（退化为 FIFO）。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+        service._new_session_client_keys_max = 2
+
+        async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
+            sid = f"sdk-{len(sm.new_sessions)}"
+            sm.new_sessions.append((project_name, prompt))
+            if user_entry is not None:
+                await store.append_user_entry(sid, user_entry, client_key=client_key)
+            return sid
+
+        sm.send_new_session = send_new_session
+
+        await service.send_or_create("demo", "hello-a", client_key="ck-a")
+        await service.send_or_create("demo", "hello-b", client_key="ck-b")
+        assert list(service._new_session_client_keys) == ["ck-a", "ck-b"]
+
+        # 命中 ck-a（幂等重试，不新建会话）：应把 ck-a 刷新到最近使用端
+        hit = await service.send_or_create("demo", "hello-a", client_key="ck-a")
+        assert hit["session_id"] == "sdk-0"
+        assert list(service._new_session_client_keys) == ["ck-b", "ck-a"]
+
+        # 第三个 key 到达挤出缓存：应淘汰最久未使用的 ck-b，而非刚被命中的 ck-a
+        await service.send_or_create("demo", "hello-c", client_key="ck-c")
+
+        assert "ck-a" in service._new_session_client_keys
+        assert "ck-b" not in service._new_session_client_keys
+        assert len(sm.new_sessions) == 3  # a/b/c 三次真正新建，命中未重复建会话
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
     async def test_send_or_create_falls_back_when_cached_mapping_points_to_deleted_session(self, tmp_path):
         """进程内映射指向的会话条目已不存在（如会话被删除后映射未清）时，
         不应把幽灵 "accepted" 响应（entry=None）返回给调用方——应清掉失效

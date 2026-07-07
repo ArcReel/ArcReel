@@ -756,6 +756,24 @@ class TestEventLogStore:
 
         assert result == [existing]
 
+    async def test_first_driver_attr_terminates_on_cyclic_exception_chain(self):
+        """``__cause__``/``__context__`` 链人为构造成环（正常异常传播不会产生,
+        但不排除病态构造）时按 id() 去重仍能终止,不陷入死循环。"""
+        from sqlalchemy.exc import IntegrityError
+
+        from server.agent_runtime.event_log import _first_driver_attr  # pyright: ignore[reportPrivateUsage]
+
+        err_a = _FakeDriverError("a")
+        err_b = _FakeDriverError("b")
+        err_a.__context__ = err_b
+        err_b.__context__ = err_a  # 环：a -> b -> a -> ...
+
+        exc = IntegrityError("INSERT INTO agent_session_event_log ...", {}, err_a)
+
+        result = _first_driver_attr(exc, "sqlstate", "constraint_name")
+
+        assert result is None
+
     async def test_append_raises_non_unique_integrity_error_without_retry(self, log_store: EventLogStore, monkeypatch):
         """非唯一约束的 IntegrityError（如外键冲突 SQLSTATE 23503）不属于
         seq 竞争，应立即抛出而非重试。"""

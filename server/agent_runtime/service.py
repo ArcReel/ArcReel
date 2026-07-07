@@ -289,6 +289,9 @@ class AssistantService:
             # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
             entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
             if entry is not None:
+                # 命中即刷新 LRU 位置：否则被频繁重试命中的 key 仍按插入
+                # 顺序（而非访问顺序）淘汰，退化成 FIFO。
+                self._new_session_client_keys.move_to_end(client_key)
                 return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
             # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
             # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
@@ -303,6 +306,7 @@ class AssistantService:
 
     def _record_new_session_client_key(self, client_key: str, session_id: str) -> None:
         self._new_session_client_keys[client_key] = session_id
+        self._new_session_client_keys.move_to_end(client_key)
         while len(self._new_session_client_keys) > self._new_session_client_keys_max:
             self._new_session_client_keys.popitem(last=False)
 
