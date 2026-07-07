@@ -539,6 +539,46 @@ class TestNewSessionEventLogFlow:
         assert "interrupted" not in statuses_written
         assert statuses_written.count("error") == 1
 
+    async def test_initial_user_entry_failure_skips_finalize_for_early_result(self, manager: SessionManager):
+        """首条用户消息落库失败后，同一轮内紧跟到达的 result 不应被 finalize：
+        否则会先广播/落库非 error 终态（如 completed），随后又被错误清理路径改写为
+        error，造成状态短暂跳变。"""
+        client = FakeSDKClient(
+            messages=[
+                {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-1"},
+                {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
+            ]
+        )
+        fake_options = SimpleNamespace(env=None)
+        update_status_spy = AsyncMock(wraps=manager.meta_store.update_status)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+            patch.object(
+                manager.event_log_store,
+                "append_user_entry",
+                new=AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch.object(manager.meta_store, "update_status", new=update_status_spy),
+        ):
+            with pytest.raises(RuntimeError):
+                await manager.send_new_session(
+                    "demo",
+                    "帮我写分镜",
+                    user_entry=build_user_entry([{"type": "text", "text": "帮我写分镜"}]),
+                    client_key="ck-fail-early-result",
+                )
+
+        meta = await manager.meta_store.get(SDK_ID)
+        assert meta is not None
+        assert meta.status == "error"
+        # "running" 是新会话建立时的常规写入；result 被短路未 finalize，
+        # 不应出现 finalize 才会写入的 completed/idle 等中间终态
+        statuses_written = [call.args[1] for call in update_status_spy.call_args_list]
+        assert statuses_written == ["running", "error"]
+
     async def test_initial_user_entry_retry_after_failure_delivers(self, manager: SessionManager):
         """落库失败后同幂等键重试：条目无残留短路，重试重新受理并分配 seq 0。"""
         retry_sdk_id = "sdk-e2e-retry"

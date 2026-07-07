@@ -712,6 +712,11 @@ class SessionManager:
                 if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
                     await managed.entry_pipeline.handle_message(msg_dict)
                 if msg_dict.get("type") == "result":
+                    if managed.initial_user_entry_error is not None:
+                        # 首条用户消息落库已失败，send_new_session 的错误清理路径
+                        # 即将取消本任务；此处短路不再 finalize，避免先广播/落库
+                        # 非 error 终态（如 completed），随后又被改写为 error。
+                        continue
                     try:
                         await self._finalize_turn(managed, msg_dict)
                     except Exception:
