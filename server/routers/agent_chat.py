@@ -200,6 +200,9 @@ async def agent_chat(
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
     # 收集回复（带超时）
     reply, status = await _collect_reply(service, session_id, SYNC_CHAT_TIMEOUT)

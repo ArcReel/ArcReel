@@ -102,6 +102,22 @@ class TestAgentChatEndpoint:
             )
         assert resp.status_code == 404
 
+    def test_unexpected_error_returns_500(self, monkeypatch):
+        """send_or_create 抛出未被专门捕获的异常（如事件日志写入失败）时，
+        端点须显式回报 500 而非让异常穿透——与 /sessions/send 的兜底语义一致。
+        """
+        mock_service = self._patch_service(monkeypatch)
+        mock_service.send_or_create = AsyncMock(side_effect=RuntimeError("新会话首条用户消息写入事件日志失败"))
+        with _make_client() as client:
+            resp = client.post(
+                "/api/v1/agent/chat",
+                json={
+                    "project_name": "demo",
+                    "message": "帮我写剧本",
+                },
+            )
+        assert resp.status_code == 500
+
     def test_timeout_status_propagated(self, monkeypatch):
         self._patch_service(monkeypatch, reply_text="部分响应", status="timeout")
         with _make_client() as client:

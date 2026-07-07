@@ -563,8 +563,8 @@ class TestNewSessionEventLogFlow:
                         client_key="ck-retry-new",
                     )
 
-            # 失败会话无用户条目残留，重试不会被幂等键短路
-            assert await manager.event_log_store.find_by_client_key(SDK_ID, "ck-retry-new") is None
+            # 失败会话（SDK_ID）本身无任何条目残留：append 写入真失败，非部分写入
+            assert not await manager.event_log_store.has_entries(SDK_ID)
 
             sdk_id = await manager.send_new_session(
                 "demo",
@@ -578,5 +578,8 @@ class TestNewSessionEventLogFlow:
             assert managed.initial_user_log_entry is not None
             assert managed.initial_user_log_entry["seq"] == 0
             assert managed.initial_user_entry_error is None
+            # 同幂等键在重试会话下正确解析到新写入的条目，未短路到失败会话
+            resolved = await manager.event_log_store.find_by_client_key(retry_sdk_id, "ck-retry-new")
+            assert resolved == managed.initial_user_log_entry
         finally:
             await manager.close_session(retry_sdk_id)
