@@ -53,6 +53,27 @@ async def file_log_store(tmp_path):
     await engine.dispose()
 
 
+class _FakeDriverError(Exception):
+    """带驱动侧属性的伪 DBAPI 错误（asyncpg 的 sqlstate/constraint_name、
+    sqlite3 的 sqlite_errorname），用于构造本地化文案下的 IntegrityError。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        sqlstate: str | None = None,
+        constraint_name: str | None = None,
+        sqlite_errorname: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        if sqlstate is not None:
+            self.sqlstate = sqlstate
+        if constraint_name is not None:
+            self.constraint_name = constraint_name
+        if sqlite_errorname is not None:
+            self.sqlite_errorname = sqlite_errorname
+
+
 # ---------------------------------------------------------------------------
 # normalize_sdk_message_to_entries — 写入点定型纯函数
 # ---------------------------------------------------------------------------
@@ -653,6 +674,123 @@ class TestEventLogStore:
 
         assert calls["n"] == 2  # 首次撞主键冲突后重试一次即成功
         assert result[0]["uuid"] == "u1"
+
+    async def test_append_retries_seq_race_with_localized_pg_error_via_sqlstate(
+        self, log_store: EventLogStore, monkeypatch
+    ):
+        """唯一约束冲突判定以 SQLSTATE 为准：PostgreSQL 错误文案随 lc_messages
+        本地化，非英文环境下不含 "duplicate key"/"UNIQUE" 字样，子串匹配会把
+        可重试的 seq 竞争误判为真实错误抛成 500。"""
+        from sqlalchemy.exc import IntegrityError
+
+        localized = _FakeDriverError(
+            "doppelter Schlüsselwert verletzt Unique-Constraint »agent_session_event_log_pkey«",
+            sqlstate="23505",
+        )
+        calls = {"n": 0}
+        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+
+        async def _flaky_append_once(session_id, entries, client_key):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise IntegrityError("INSERT INTO agent_session_event_log ...", {}, localized)
+            return await original_append_once(session_id, entries, client_key)
+
+        monkeypatch.setattr(log_store, "_append_once", _flaky_append_once)
+
+        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
+
+        assert calls["n"] == 2
+        assert result[0]["uuid"] == "u1"
+
+    async def test_append_client_key_conflict_detected_by_constraint_name_when_localized(
+        self, log_store: EventLogStore, monkeypatch
+    ):
+        """client_key 冲突判定优先用驱动暴露的约束名（不随 locale 翻译）：
+        本地化文案下仍能走幂等短路，返回既有条目而非抛出。"""
+        from sqlalchemy.exc import IntegrityError
+
+        entry = build_user_entry([{"type": "text", "text": "hi"}])
+        existing = (await log_store.append("s1", [entry], client_key="ck-1"))[0]
+
+        localized = _FakeDriverError(
+            "doppelter Schlüsselwert verletzt Unique-Constraint »uq_agent_event_log_client_key«",
+            sqlstate="23505",
+            constraint_name="uq_agent_event_log_client_key",
+        )
+
+        async def _conflicting_append_once(session_id, entries, client_key):
+            raise IntegrityError("INSERT INTO agent_session_event_log ...", {}, localized)
+
+        monkeypatch.setattr(log_store, "_append_once", _conflicting_append_once)
+
+        retry = build_user_entry([{"type": "text", "text": "hi"}])
+        result = await log_store.append("s1", [retry], client_key="ck-1")
+
+        assert result == [existing]
+
+    async def test_append_raises_non_unique_integrity_error_without_retry(self, log_store: EventLogStore, monkeypatch):
+        """非唯一约束的 IntegrityError（如外键冲突 SQLSTATE 23503）不属于
+        seq 竞争，应立即抛出而非重试。"""
+        from sqlalchemy.exc import IntegrityError
+
+        calls = {"n": 0}
+
+        async def _failing_append_once(session_id, entries, client_key):
+            calls["n"] += 1
+            raise IntegrityError(
+                "INSERT INTO agent_session_event_log ...",
+                {},
+                _FakeDriverError("verletzt Fremdschlüssel-Constraint", sqlstate="23503"),
+            )
+
+        monkeypatch.setattr(log_store, "_append_once", _failing_append_once)
+
+        with pytest.raises(IntegrityError):
+            await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
+        assert calls["n"] == 1
+
+    async def test_append_retries_seq_race_via_sqlite_errorname(self, log_store: EventLogStore, monkeypatch):
+        """SQLite 侧用 sqlite_errorname 判定（PRIMARYKEY/UNIQUE 两个扩展码都算），
+        不依赖错误文案。"""
+        from sqlalchemy.exc import IntegrityError
+
+        driver_error = _FakeDriverError("constraint failed", sqlite_errorname="SQLITE_CONSTRAINT_PRIMARYKEY")
+        calls = {"n": 0}
+        original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+
+        async def _flaky_append_once(session_id, entries, client_key):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise IntegrityError("INSERT INTO agent_session_event_log ...", {}, driver_error)
+            return await original_append_once(session_id, entries, client_key)
+
+        monkeypatch.setattr(log_store, "_append_once", _flaky_append_once)
+
+        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
+
+        assert calls["n"] == 2
+        assert result[0]["uuid"] == "u1"
+
+    async def test_find_new_session_by_client_key_scans_across_sessions(self, log_store: EventLogStore):
+        """跨会话按幂等键定位新会话受理条目（seq 0）：进程内映射重启/淘汰
+        丢失后，重试凭此命中既有会话而非重复建会话。"""
+        first = build_user_entry([{"type": "text", "text": "hi"}])
+        await log_store.append("sdk-a", [first], client_key="ck-new")
+        await log_store.append("sdk-b", [build_user_entry([{"type": "text", "text": "other"}])])
+        # 非首条（seq>0）的常规消息幂等键不属于新会话受理，不参与匹配
+        mid = build_user_entry([{"type": "text", "text": "mid"}])
+        await log_store.append("sdk-b", [mid], client_key="ck-mid")
+
+        found = await log_store.find_new_session_by_client_key("ck-new")
+        assert found is not None
+        session_id, entry = found
+        assert session_id == "sdk-a"
+        assert entry["seq"] == 0
+        assert entry["uuid"] == first["uuid"]
+
+        assert await log_store.find_new_session_by_client_key("ck-mid") is None
+        assert await log_store.find_new_session_by_client_key("ck-unknown") is None
 
     async def test_has_entries(self, log_store: EventLogStore):
         assert await log_store.has_entries("s1") is False

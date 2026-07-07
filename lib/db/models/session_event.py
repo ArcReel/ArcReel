@@ -34,4 +34,12 @@ class AgentSessionEventLogEntry(TimestampMixin, UserOwnedMixin, Base):
             postgresql_where=text("client_key IS NOT NULL"),
             sqlite_where=text("client_key IS NOT NULL"),
         ),
+        # 跨会话幂等兜底查询（find_new_session_by_client_key）的检索索引：
+        # 唯一索引以 session_id 打头，服务不了仅按 client_key 的查找。
+        Index(
+            "ix_agent_event_log_client_key",
+            "client_key",
+            postgresql_where=text("client_key IS NOT NULL"),
+            sqlite_where=text("client_key IS NOT NULL"),
+        ),
     )

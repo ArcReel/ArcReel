@@ -6,7 +6,6 @@ import asyncio
 import copy
 import logging
 import os
-import weakref
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
@@ -37,6 +36,7 @@ from lib.i18n import DEFAULT_LOCALE, get_locale
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
 from server.agent_runtime.event_log import EventLogService, EventLogStore, build_user_entry
+from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_manager import SessionManager
@@ -72,12 +72,12 @@ class AssistantService:
         self._startup_done = False
         # 新会话幂等映射：client_key 唯一索引按 (session_id, client_key) 分区，
         # 覆盖不到 session_id 尚不存在的新会话受理——响应丢失后的重试若再走
-        # 新会话分支会重复建会话、重复执行同一 prompt。进程内 LRU 兜底。
+        # 新会话分支会重复建会话、重复执行同一 prompt。进程内 LRU 为快路径，
+        # 重启 / 淘汰后由事件日志的跨会话查询兜底（_find_accepted_new_session）。
         self._new_session_client_keys: OrderedDict[str, str] = OrderedDict()
         self._new_session_client_keys_max = 256
-        # 同一 client_key 的并发新建请求在此串行化，避免在途窗口内重复建会话；
-        # 无协程持有/等待时锁对象自动回收
-        self._new_session_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+        # 同一 client_key 的并发新建请求在此串行化，避免在途窗口内重复建会话
+        self._new_session_locks = KeyedLocks()
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
@@ -264,26 +264,42 @@ class AssistantService:
             if not client_key:
                 return await self._create_new_session(project_name, content, images, locale, client_key)
 
-            mapped_session_id = self._new_session_client_keys.get(client_key)
-            if mapped_session_id is not None:
-                # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
-                entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
-                return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
+            existing = await self._find_accepted_new_session(client_key)
+            if existing is not None:
+                return existing
 
             # 同一 client_key 的并发请求在此串行化：send_new_session 在途期间
             # 后来者等锁而非各自建会话，避免重复执行同一 prompt。
-            lock = self._new_session_locks.setdefault(client_key, asyncio.Lock())
+            lock = self._new_session_locks.lock_for(client_key)
             async with lock:
                 # 双重检查：等锁期间先行者可能已完成同一 client_key 的建会话。
-                mapped_session_id = self._new_session_client_keys.get(client_key)
-                if mapped_session_id is not None:
-                    entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
-                    return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
+                existing = await self._find_accepted_new_session(client_key)
+                if existing is not None:
+                    return existing
                 result = await self._create_new_session(project_name, content, images, locale, client_key)
-                self._new_session_client_keys[client_key] = result["session_id"]
-                while len(self._new_session_client_keys) > self._new_session_client_keys_max:
-                    self._new_session_client_keys.popitem(last=False)
+                self._record_new_session_client_key(client_key, result["session_id"])
                 return result
+
+    async def _find_accepted_new_session(self, client_key: str) -> dict[str, Any] | None:
+        """按幂等键定位已受理的新会话：进程内映射为快路径，事件日志跨会话
+        查询兜底——进程重启 / LRU 淘汰后映射丢失，受理已落库的重试仍须命中
+        既有会话而非重复建会话（重复执行同一 prompt、重复计费）。"""
+        mapped_session_id = self._new_session_client_keys.get(client_key)
+        if mapped_session_id is not None:
+            # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
+            entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
+            return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
+        recovered = await self.event_log_store.find_new_session_by_client_key(client_key)
+        if recovered is None:
+            return None
+        session_id, entry = recovered
+        self._record_new_session_client_key(client_key, session_id)
+        return {"status": "accepted", "session_id": session_id, "entry": entry}
+
+    def _record_new_session_client_key(self, client_key: str, session_id: str) -> None:
+        self._new_session_client_keys[client_key] = session_id
+        while len(self._new_session_client_keys) > self._new_session_client_keys_max:
+            self._new_session_client_keys.popitem(last=False)
 
     async def _create_new_session(
         self,

@@ -12,7 +12,6 @@ import asyncio
 import logging
 import random
 import re
-import weakref
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
@@ -24,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.session_event import AgentSessionEventLogEntry
+from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.message_serialization import utc_now_iso
 from server.agent_runtime.turn_schema import _stringify_content, normalize_content
 
@@ -62,6 +62,14 @@ _ASK_USER_QUESTION_TOOL = "askuserquestion"
 # 与 DbSessionStore.append 相同的 seq 竞争重试参数。
 _MAX_APPEND_RETRY = 16
 _APPEND_BACKOFF_CAP_S = 0.05
+
+# PostgreSQL 唯一约束冲突的 SQLSTATE（asyncpg 经 SQLAlchemy 适配后暴露在
+# exc.orig.sqlstate / pgcode）。
+_PG_UNIQUE_VIOLATION_SQLSTATE = "23505"
+
+# SQLite 唯一约束冲突的扩展错误名：复合主键走 PRIMARYKEY、普通唯一索引走
+# UNIQUE，两者对本表都意味着唯一约束冲突。
+_SQLITE_UNIQUE_ERRORNAMES = {"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"}
 
 # 标记 SDK 回放的用户消息副本（POST 受理时已写日志），供写入点跳过。
 # 只存活在进程内消息 dict 上，不落任何持久化层。
@@ -416,6 +424,41 @@ def _assistant_tool_use_ids(message: Any) -> list[str]:
     return ids
 
 
+def _is_unique_violation(exc: IntegrityError) -> bool:
+    """判定唯一约束冲突：错误码优先（PostgreSQL SQLSTATE / SQLite errorname），
+    文案子串仅作兜底。
+
+    PostgreSQL 错误文案随服务端 lc_messages 本地化，非英文环境下不含
+    "duplicate key" 字样，子串匹配会把可重试的竞态误判为真实错误。错误码
+    沿 ``__cause__`` 链查找——SQLAlchemy 的 asyncpg 适配把原始驱动异常挂在
+    翻译后异常的 cause 上。
+    """
+    err: BaseException | None = exc.orig
+    while err is not None:
+        sqlstate = getattr(err, "sqlstate", None) or getattr(err, "pgcode", None)
+        if sqlstate is not None:
+            return str(sqlstate) == _PG_UNIQUE_VIOLATION_SQLSTATE
+        errorname = getattr(err, "sqlite_errorname", None)
+        if errorname is not None:
+            return errorname in _SQLITE_UNIQUE_ERRORNAMES
+        err = err.__cause__
+    msg = str(exc.orig) if exc.orig else str(exc)
+    return "UNIQUE" in msg or "duplicate key" in msg
+
+
+def _is_client_key_violation(exc: IntegrityError) -> bool:
+    """判定冲突是否落在 client_key 唯一索引：约束名优先（不随 locale 翻译），
+    驱动未暴露约束名时回退错误文本——两个后端的文案都会带索引/列名。"""
+    err: BaseException | None = exc.orig
+    while err is not None:
+        constraint = getattr(err, "constraint_name", None)
+        if constraint:
+            return "client_key" in str(constraint)
+        err = err.__cause__
+    msg = str(exc.orig) if exc.orig else str(exc)
+    return "client_key" in msg
+
+
 class EventLogStore:
     """事件日志 DB 访问：seq 单调分配（append-only）+ 幂等键查重。"""
 
@@ -441,9 +484,9 @@ class EventLogStore:
             try:
                 return await self._append_once(session_id, entries, client_key)
             except IntegrityError as exc:
-                msg = str(exc.orig) if exc.orig else str(exc)
-                unique_violation = "UNIQUE" in msg or "duplicate key" in msg
-                if unique_violation and "client_key" in msg and client_key is not None:
+                unique_violation = _is_unique_violation(exc)
+                client_key_conflict = unique_violation and _is_client_key_violation(exc)
+                if client_key_conflict and client_key is not None:
                     # 幂等键并发冲突：另一请求已写入同键条目，返回其权威条目。
                     existing = await self.find_by_client_key(session_id, client_key)
                     if existing is not None:
@@ -452,7 +495,7 @@ class EventLogStore:
                 # 表上只有两个唯一约束（(session_id, seq) 主键 + client_key 唯一索引）；
                 # 排除 client_key 冲突即可确定是 seq 竞争，不依赖驱动/配置相关的
                 # 错误信息措辞（不同驱动对主键冲突的 DETAIL 文案不一定含 "seq"）。
-                is_seq_race = unique_violation and "client_key" not in msg
+                is_seq_race = unique_violation and not client_key_conflict
                 if not is_seq_race or attempt == _MAX_APPEND_RETRY - 1:
                     raise
                 delay = random.uniform(0, min(_APPEND_BACKOFF_CAP_S, 0.001 * (2**attempt)))
@@ -526,6 +569,33 @@ class EventLogStore:
         if row is None:
             return None
         return {"seq": int(row.seq), **row.payload}
+
+    async def find_new_session_by_client_key(self, client_key: str) -> tuple[str, dict[str, Any]] | None:
+        """跨会话按幂等键定位新会话的受理条目（seq 0），返回 (session_id, 权威条目)。
+
+        client_key 唯一索引按 (session_id, client_key) 分区，覆盖不到
+        session_id 尚不存在的新会话受理；进程内映射在重启 / LRU 淘汰后丢失时，
+        由本查询兜底让重试命中既有会话，而非重复建会话。限定 seq 0 是因为只有
+        新会话的首条用户条目落在该位置，常规消息的幂等键不参与匹配。
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(
+                    AgentSessionEventLogEntry.session_id,
+                    AgentSessionEventLogEntry.seq,
+                    AgentSessionEventLogEntry.payload,
+                )
+                .where(
+                    AgentSessionEventLogEntry.client_key == client_key,
+                    AgentSessionEventLogEntry.seq == 0,
+                )
+                .order_by(AgentSessionEventLogEntry.created_at)
+                .limit(1)
+            )
+            row = result.first()
+        if row is None:
+            return None
+        return str(row.session_id), {"seq": int(row.seq), **row.payload}
 
     async def list_after(self, session_id: str, after_seq: int = -1) -> list[dict[str, Any]]:
         async with self._session_factory() as session:
@@ -601,8 +671,8 @@ class EventLogService:
     def __init__(self, store: EventLogStore, transcript_adapter: TranscriptReader):
         self._store = store
         self._adapter = transcript_adapter
-        # 弱引用：无协程持有/等待时锁对象自动回收，避免空会话锁永久残留内存
-        self._backfill_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+        # 每会话一把懒生成锁：无协程持有/等待时自动回收，空会话锁不残留内存
+        self._backfill_locks = KeyedLocks()
 
     @property
     def store(self) -> EventLogStore:
@@ -617,7 +687,7 @@ class EventLogService:
         """
         if await self._store.has_entries(session_id):
             return
-        lock = self._backfill_locks.setdefault(session_id, asyncio.Lock())
+        lock = self._backfill_locks.lock_for(session_id)
         async with lock:
             if await self._store.has_entries(session_id):
                 return
@@ -660,7 +730,7 @@ class EventLogService:
                 # 仅在写入成功后清锁引用：此后 has_entries 恒真，旧锁等待者与
                 # 新造锁的后来者都会在二次检查处短路。空 transcript 时保留锁，
                 # 否则后来者 setdefault 出新锁，与旧锁等待者并发重放、重复灌入。
-                self._backfill_locks.pop(session_id, None)
+                self._backfill_locks.discard(session_id)
 
     async def list_entries(
         self,

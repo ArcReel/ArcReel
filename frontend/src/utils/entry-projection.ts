@@ -207,41 +207,41 @@ export function createTimelineProjector(): TimelineProjector {
     return null;
   }
 
+  /**
+   * 按 task_id 定位既有 task 块：先查当前 turn（常见路径），未命中回退
+   * 已 flush 的 committed turns（新近优先）——turn 边界之后到达的 task 更新
+   * 仍要归属原块就地更新，否则原块永久停在 task_started 未完成态。返回
+   * 命中块所在的 turn，供调用方 touch 到正确的缓存失效范围（可能不是
+   * fold.cursor）。
+   */
+  function findTaskSite(fold: Fold, taskId: string): { turn: InternalTurn; block: ContentBlock } | null {
+    if (fold.cursor) {
+      const found = findTaskBlock(fold.cursor.content, taskId);
+      if (found) return { turn: fold.cursor, block: found };
+    }
+    for (let i = fold.committed.length - 1; i >= 0; i -= 1) {
+      const turn = fold.committed[i];
+      const found = findTaskBlock(turn.content, taskId);
+      if (found) return { turn, block: found };
+    }
+    return null;
+  }
+
   function applyTaskBlock(fold: Fold, entry: TimelineEntry, taskBlock: ContentBlock, updateOnly: boolean): void {
     const taskId = taskBlock.task_id;
-    if (taskId && updateOnly && fold.cursor) {
-      const existing = findTaskBlock(fold.cursor.content, taskId);
-      if (existing) {
+    if (taskId && updateOnly) {
+      const site = findTaskSite(fold, taskId);
+      if (site) {
+        const existing = site.block;
         existing.status = taskBlock.status;
         if (taskBlock.summary) existing.summary = taskBlock.summary;
         if (taskBlock.task_status) existing.task_status = taskBlock.task_status;
         if (taskBlock.usage) existing.usage = taskBlock.usage;
-        touch(fold, fold.cursor);
+        touch(fold, site.turn);
         return;
       }
     }
     attachSystemBlock(fold, entry, taskBlock);
-  }
-
-  /** tool_result 回填当前 turn 内的发起 tool_use；无匹配时追加独立结果块。 */
-  function attachToolResult(turnContent: ContentBlock[], entry: TimelineEntry): void {
-    const toolUseId = entry.tool_use_id;
-    const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
-    if (toolUseId) {
-      for (const block of turnContent) {
-        if (block.type === "tool_use" && block.id === toolUseId) {
-          block.result = resultText;
-          block.is_error = Boolean(entry.is_error);
-          return;
-        }
-      }
-    }
-    turnContent.push({
-      type: "tool_result",
-      tool_use_id: toolUseId ?? undefined,
-      content: resultText,
-      is_error: Boolean(entry.is_error),
-    });
   }
 
   /** 登记 tool_use 块位置（同 id 首次登记生效），并锚定等待中的 subagent 组。 */
@@ -301,14 +301,25 @@ export function createTimelineProjector(): TimelineProjector {
     }
 
     if (entry.type === "tool_result") {
-      if (fold.cursor && fold.cursor.type === "assistant") {
-        attachToolResult(fold.cursor.content, entry);
-        touch(fold, fold.cursor);
+      const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
+      // 回填锚点按登记索引 O(1) 定位，限定同一时间线：turn 边界之后到达的
+      // tool_result（如中断先把该 turn flush 出去）仍要能回填对应
+      // tool_use，否则其结果状态永久悬挂在未完成态（与 question_answer
+      // 回填口径一致）。
+      let site: ToolUseSite | null = null;
+      if (entry.tool_use_id) {
+        const hit = toolUseSites.get(entry.tool_use_id);
+        if (hit && hit.fold === fold) site = hit;
+      }
+      if (site) {
+        site.block.result = resultText;
+        site.block.is_error = Boolean(entry.is_error);
+        touch(site.fold, site.turn);
       } else {
         attachSystemBlock(fold, entry, {
           type: "tool_result",
           tool_use_id: entry.tool_use_id ?? undefined,
-          content: typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry)),
+          content: resultText,
           is_error: Boolean(entry.is_error),
         });
       }
