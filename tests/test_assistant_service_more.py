@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_store import SessionMetaStore
-from server.agent_runtime.stream_projector import AssistantStreamProjector
 from tests.factories import make_session_meta
 
 
@@ -36,6 +35,16 @@ class _FakeMetaStore:
         return self.metas.pop(session_id, None) is not None
 
 
+class _FakeEventLogService:
+    """No-op 事件日志：单测聚焦 service 编排，不触达真实 DB。"""
+
+    def __init__(self):
+        self.backfilled = []
+
+    async def ensure_backfilled(self, session_id, project_cwd):
+        self.backfilled.append(session_id)
+
+
 class _FakeSessionManager:
     def __init__(self):
         self.sessions = {}
@@ -58,9 +67,6 @@ class _FakeSessionManager:
     async def get_status(self, session_id):
         return self.status
 
-    def get_buffered_messages(self, session_id):
-        return list(self.buffer)
-
     async def get_pending_questions_snapshot(self, session_id):
         return list(self.pending)
 
@@ -75,15 +81,6 @@ class _FakeSessionManager:
         self.interrupted.append(session_id)
         return "interrupted"
 
-    async def subscribe(self, session_id, replay_buffer=True):
-        q = asyncio.Queue()
-        for m in self.buffer:
-            q.put_nowait(m)
-        return q
-
-    async def unsubscribe(self, session_id, queue):
-        self.unsubscribed.append(session_id)
-
     async def close_session(self, session_id, *, reason="session closed"):
         self.closed.append((session_id, reason))
         if self.close_error is not None:
@@ -92,14 +89,6 @@ class _FakeSessionManager:
 
     async def shutdown_gracefully(self):
         return None
-
-
-class _FakeTranscriptAdapter:
-    def __init__(self, history=None):
-        self.history = history or []
-
-    async def read_raw_messages(self, sdk_session_id=None, project_cwd=None):
-        return list(self.history)
 
 
 class TestAssistantServiceMore:
@@ -169,6 +158,7 @@ class TestAssistantServiceMore:
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = sm
         service.meta_store = _FakeMetaStore([meta])
+        service.event_log = _FakeEventLogService()
 
         listed = await service.list_sessions()
         assert len(listed) == 1
@@ -181,13 +171,13 @@ class TestAssistantServiceMore:
 
         # send_or_create — new session (no session_id)
         new_result = await service.send_or_create("demo", "hello")
-        assert new_result == {"status": "accepted", "session_id": "sdk-new-id"}
+        assert new_result == {"status": "accepted", "session_id": "sdk-new-id", "entry": None}
         assert len(sm.new_sessions) == 1
         assert sm.new_sessions[0][0] == "demo"
 
         # send_or_create — existing session
         existing_result = await service.send_or_create("demo", "world", session_id="s1")
-        assert existing_result == {"status": "accepted", "session_id": "s1"}
+        assert existing_result == {"status": "accepted", "session_id": "s1", "entry": None}
         assert sm.sent == [("s1", "world")]
 
         # send_or_create — empty message raises ValueError
@@ -223,6 +213,7 @@ class TestAssistantServiceMore:
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = sm
         service.meta_store = _FakeMetaStore([meta])
+        service.event_log = _FakeEventLogService()
 
         await service.send_or_create("demo", "world", session_id="s1", locale="en")
 
@@ -240,12 +231,326 @@ class TestAssistantServiceMore:
         service.pm = _FakePM(valid_project="demo")
         service.session_manager = sm
         service.meta_store = _FakeMetaStore([meta])
+        service.event_log = _FakeEventLogService()
 
         image = SimpleNamespace(data="ZmFrZQ==", media_type="image/png")
         await service.send_or_create("demo", "hello", session_id="s1", images=[image], locale="vi")
 
         assert sm.sent_kwargs[0]["locale"] == "vi"
         assert sm.sent_kwargs[0]["echo_content"] is not None
+
+    @pytest.mark.asyncio
+    async def test_send_or_create_concurrent_same_client_key_creates_one_session(self, tmp_path):
+        """同一 client_key 的并发新建请求应在 send_new_session 完成前互斥等待，
+        不因在途窗口各自建会话、重复执行同一 prompt。"""
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_send_new_session(project_name, prompt, **kwargs):
+            entered.set()
+            await release.wait()
+            sm.new_sessions.append((project_name, prompt))
+            return "sdk-new-id"
+
+        sm.send_new_session = slow_send_new_session
+
+        async def fake_find_by_client_key(session_id, client_key):
+            return {"seq": 0, "type": "user", "content": []}
+
+        async def fake_find_new_session_by_client_key(client_key):
+            return None
+
+        service.event_log_store.find_by_client_key = fake_find_by_client_key
+        service.event_log_store.find_new_session_by_client_key = fake_find_new_session_by_client_key
+
+        task1 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
+        await asyncio.wait_for(entered.wait(), timeout=0.2)
+        task2 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
+        await asyncio.sleep(0)  # 让 task2 跑到锁等待处挂起
+        release.set()
+
+        result1 = await task1
+        result2 = await task2
+
+        assert len(sm.new_sessions) == 1  # 只建了一个会话，未因在途窗口重复投递
+        assert result1["session_id"] == result2["session_id"] == "sdk-new-id"
+
+    @pytest.mark.asyncio
+    async def test_send_or_create_recovers_client_key_mapping_from_db_after_restart(self, tmp_path):
+        """进程内幂等映射重启丢失后，受理已落库（新会话首条条目 seq 0 携带
+        client_key）的重试应经 DB 兜底命中既有会话，不再重复建会话。"""
+        from server.agent_runtime.event_log import EventLogStore, build_user_entry
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        # 首次受理（重启前）：新会话首条用户条目已随 client_key 落库
+        accepted_entry = build_user_entry([{"type": "text", "text": "hello"}])
+        await store.append("sdk-prev", [accepted_entry], client_key="ck-restart")
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+        assert service._new_session_client_keys == {}  # 重启后进程内映射为空
+
+        result = await service.send_or_create("demo", "hello", client_key="ck-restart")
+
+        assert sm.new_sessions == []  # 未重复建会话
+        assert result["session_id"] == "sdk-prev"
+        assert result["entry"] is not None
+        assert result["entry"]["uuid"] == accepted_entry["uuid"]
+        # 命中后回填进程内映射，后续重试走快路径
+        assert service._new_session_client_keys["ck-restart"] == "sdk-prev"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_send_or_create_recovers_client_key_after_lru_eviction(self, tmp_path):
+        """进程内 LRU 淘汰旧键后，同键重试经 DB 兜底命中原会话。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+        service._new_session_client_keys_max = 1
+
+        # 模拟 SessionManager 的受理落库：新会话首条条目随 client_key 写入
+        async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
+            sid = f"sdk-{len(sm.new_sessions)}"
+            sm.new_sessions.append((project_name, prompt))
+            if user_entry is not None:
+                await store.append_user_entry(sid, user_entry, client_key=client_key)
+            return sid
+
+        sm.send_new_session = send_new_session
+
+        first = await service.send_or_create("demo", "hello", client_key="ck-a")
+        await service.send_or_create("demo", "another", client_key="ck-b")
+        assert "ck-a" not in service._new_session_client_keys  # LRU 已淘汰
+
+        retry = await service.send_or_create("demo", "hello", client_key="ck-a")
+
+        assert len(sm.new_sessions) == 2  # 重试未新建第三个会话
+        assert retry["session_id"] == first["session_id"] == "sdk-0"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_send_or_create_hit_refreshes_lru_position(self, tmp_path):
+        """命中进程内映射时刷新 LRU 位置：被频繁重试命中的 key 不因插入顺序
+        在先，被之后新到达但只访问一次的 key 挤出缓存（退化为 FIFO）。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+        service._new_session_client_keys_max = 2
+
+        async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
+            sid = f"sdk-{len(sm.new_sessions)}"
+            sm.new_sessions.append((project_name, prompt))
+            if user_entry is not None:
+                await store.append_user_entry(sid, user_entry, client_key=client_key)
+            return sid
+
+        sm.send_new_session = send_new_session
+
+        await service.send_or_create("demo", "hello-a", client_key="ck-a")
+        await service.send_or_create("demo", "hello-b", client_key="ck-b")
+        assert list(service._new_session_client_keys) == ["ck-a", "ck-b"]
+
+        # 命中 ck-a（幂等重试，不新建会话）：应把 ck-a 刷新到最近使用端
+        hit = await service.send_or_create("demo", "hello-a", client_key="ck-a")
+        assert hit["session_id"] == "sdk-0"
+        assert list(service._new_session_client_keys) == ["ck-b", "ck-a"]
+
+        # 第三个 key 到达挤出缓存：应淘汰最久未使用的 ck-b，而非刚被命中的 ck-a
+        await service.send_or_create("demo", "hello-c", client_key="ck-c")
+
+        assert "ck-a" in service._new_session_client_keys
+        assert "ck-b" not in service._new_session_client_keys
+        assert len(sm.new_sessions) == 3  # a/b/c 三次真正新建，命中未重复建会话
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_send_or_create_hit_survives_concurrent_eviction_during_db_lookup(self, tmp_path, monkeypatch):
+        """命中路径在 `await find_by_client_key(...)` 期间，该 key 被其他并发
+        请求的淘汰逻辑移除：刷新 LRU 位置的收尾步骤须安全处理键已不存在的
+        情形（不能直接 move_to_end 抛 KeyError 把幂等命中打成未处理异常）。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+
+        async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
+            sid = f"sdk-{len(sm.new_sessions)}"
+            sm.new_sessions.append((project_name, prompt))
+            if user_entry is not None:
+                await store.append_user_entry(sid, user_entry, client_key=client_key)
+            return sid
+
+        sm.send_new_session = send_new_session
+
+        first = await service.send_or_create("demo", "hello", client_key="ck-a")
+        assert "ck-a" in service._new_session_client_keys
+
+        original_find_by_client_key = store.find_by_client_key
+
+        async def find_by_client_key_with_concurrent_eviction(session_id, client_key):
+            # 模拟另一并发请求在本次 DB 查询期间把该 key 挤出缓存。
+            service._new_session_client_keys.pop(client_key, None)
+            return await original_find_by_client_key(session_id, client_key)
+
+        monkeypatch.setattr(store, "find_by_client_key", find_by_client_key_with_concurrent_eviction)
+
+        retry = await service.send_or_create("demo", "hello", client_key="ck-a")
+
+        assert retry["session_id"] == first["session_id"] == "sdk-0"
+        assert len(sm.new_sessions) == 1  # 未因异常或键缺失而重复建会话
+        assert service._new_session_client_keys["ck-a"] == "sdk-0"  # 命中后已安全重新记入
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_send_or_create_falls_back_when_cached_mapping_points_to_deleted_session(self, tmp_path):
+        """进程内映射指向的会话条目已不存在（如会话被删除后映射未清）时，
+        不应把幽灵 "accepted" 响应（entry=None）返回给调用方——应清掉失效
+        映射并按正常路径新建会话，而不是让调用方连接一个不存在的会话。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        service = AssistantService(project_root=tmp_path)
+        sm = _FakeSessionManager()
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = sm
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+        # 模拟会话已被删除但进程内映射未清（delete_session 不感知该映射）。
+        service._new_session_client_keys["ck-stale"] = "sdk-deleted"
+
+        result = await service.send_or_create("demo", "hello", client_key="ck-stale")
+
+        assert len(sm.new_sessions) == 1  # 未拿到幽灵响应，走了正常新建路径
+        assert result["session_id"] == "sdk-new-id"
+        assert result["session_id"] != "sdk-deleted"
+        # 映射已刷新为新会话，不再指向已删除的会话
+        assert service._new_session_client_keys["ck-stale"] == "sdk-new-id"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_ghost_mapping_cleanup_does_not_clobber_concurrent_fresh_mapping(self, tmp_path):
+        """幽灵映射清理在 `await find_by_client_key(...)` 期间该 key 被其他
+        并发请求写入了新的有效映射：清理不应无条件 pop，否则会误删并发
+        写入的新映射（即便 DB 兜底之后仍能查回正确会话，也不应制造这层
+        可避免的抖动窗口）。"""
+        service = AssistantService(project_root=tmp_path)
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = _FakeSessionManager()
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+
+        async def find_by_client_key(session_id, client_key):
+            # 模拟另一并发请求在本次查询期间把该 key 更新为新的有效映射。
+            service._new_session_client_keys[client_key] = "sdk-fresh"
+            return None  # 旧会话（sdk-deleted）条目已不存在
+
+        async def find_new_session_by_client_key(client_key):
+            return None  # 本测试只关心清理分支，不需要真的兜底恢复
+
+        service.event_log_store = SimpleNamespace(
+            find_by_client_key=find_by_client_key,
+            find_new_session_by_client_key=find_new_session_by_client_key,
+        )
+        service._new_session_client_keys["ck-a"] = "sdk-deleted"
+
+        result = await service._find_accepted_new_session("ck-a")  # pyright: ignore[reportPrivateUsage]
+
+        assert result is None  # 本测试的兜底查询返回 None，不影响本次断言重点
+        assert service._new_session_client_keys["ck-a"] == "sdk-fresh"  # 未被误删
+
+    @pytest.mark.asyncio
+    async def test_recovered_mapping_does_not_overwrite_concurrent_fresher_mapping(self, tmp_path):
+        """DB 兜底恢复在 `await find_new_session_by_client_key(...)` 期间该 key
+        已被其他并发请求记入更新的映射：不应用本次查到的（较旧）session_id
+        覆盖并发写入的映射。"""
+        service = AssistantService(project_root=tmp_path)
+        service.pm = _FakePM(valid_project="demo")
+        service.session_manager = _FakeSessionManager()
+        service.meta_store = _FakeMetaStore([])
+        service.event_log = _FakeEventLogService()
+
+        async def find_by_client_key(session_id, client_key):
+            return None
+
+        async def find_new_session_by_client_key(client_key):
+            # 模拟另一并发请求在本次查询期间已经建好新会话并记入映射。
+            service._new_session_client_keys[client_key] = "sdk-fresh"
+            return "sdk-old", {"seq": 0, "type": "user"}
+
+        service.event_log_store = SimpleNamespace(
+            find_by_client_key=find_by_client_key,
+            find_new_session_by_client_key=find_new_session_by_client_key,
+        )
+
+        result = await service._find_accepted_new_session("ck-b")  # pyright: ignore[reportPrivateUsage]
+
+        assert result is not None
+        assert result["session_id"] == "sdk-old"  # 本次调用仍返回自己查到的权威条目
+        # 但不应覆盖并发写入的更新映射
+        assert service._new_session_client_keys["ck-b"] == "sdk-fresh"
 
     @pytest.mark.asyncio
     async def test_delete_session_closes_active_session_before_delete(self, tmp_path):
@@ -279,129 +584,17 @@ class TestAssistantServiceMore:
 
         assert "s1" in sm.sessions
 
-    @pytest.mark.asyncio
-    async def test_snapshot_and_stream_helpers(self, tmp_path):
+    def test_status_event_helpers(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
-        meta = make_session_meta(id="s1", status="running")
-        service.meta_store = _FakeMetaStore([meta])
-        sm = _FakeSessionManager()
-        sm.status = "running"
-        sm.buffer = [{"type": "runtime_status", "status": "running"}]
-        sm.pending = [{"type": "ask_user_question", "question_id": "aq-1"}]
-        service.session_manager = sm
-        service.transcript_adapter = _FakeTranscriptAdapter(history=[])
-
-        with pytest.raises(FileNotFoundError):
-            await service.get_snapshot("missing")
-
-        snapshot = await service.get_snapshot("s1")
-        assert snapshot["status"] == "running"
-        assert snapshot["pending_questions"][0]["question_id"] == "aq-1"
-
-        projector = AssistantStreamProjector(initial_messages=[])
-        events2, stop2 = await service._dispatch_live_message(
-            {"type": "system", "subtype": "compact_boundary"},
-            projector,
-            "s1",
-        )
-        assert stop2 is False
-        assert any(event.event == "compact" for event in events2)
-
-        events3, stop3 = await service._dispatch_live_message(
-            {"type": "runtime_status", "status": "interrupted"},
-            projector,
-            "s1",
-        )
-        assert stop3 is True
-        assert any(event.event == "status" for event in events3)
-
-        events4, stop4 = await service._dispatch_live_message(
-            {"type": "result", "subtype": "success", "is_error": False},
-            projector,
-            "s1",
-        )
-        assert stop4 is True
-        assert any(event.event == "status" for event in events4)
 
         assert service._check_runtime_status_terminal({"status": "???."}, "s1") is None
-        assert await service._handle_heartbeat_timeout("s1", "running", projector) is None
-        sm.status = "completed"
-        status_event = await service._handle_heartbeat_timeout("s1", "running", projector)
-        assert status_event is not None
-        assert status_event.event == "status"
-        patch_event = service._sse_event("patch", {"x": 1})
-        assert patch_event.event == "patch"
-        assert patch_event.data == {"x": 1}
+        terminal_event = service._check_runtime_status_terminal({"status": "interrupted"}, "s1")
+        assert terminal_event is not None
+        assert terminal_event.event == "status"
 
-    def test_merge_and_dedup_helpers(self, tmp_path):
-        service = AssistantService(project_root=tmp_path)
-
-        # _fingerprint tests
-        assert service._fingerprint({"type": "assistant", "content": [{"text": "A"}]}) == "fp:assistant:t:A"
-        result_fp = service._fingerprint(
-            {
-                "type": "result",
-                "subtype": "success",
-                "is_error": False,
-            }
-        )
-        assert result_fp == "fp:result:success:False"
-        assert service._fingerprint({"type": "user", "content": "x"}) is None
-
-        # _fingerprint_tail tests
-        tail_fps = service._fingerprint_tail(
-            [
-                {"type": "user", "content": "hello", "uuid": "u1"},
-                {"type": "assistant", "content": [{"text": "A"}], "uuid": "a1"},
-            ]
-        )
-        assert "fp:assistant:t:A" in tail_fps
-
-        # _is_buffer_duplicate tests
-        assert service._is_buffer_duplicate({"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []) is True
-        assert (
-            service._is_buffer_duplicate(
-                {"type": "assistant", "content": [{"text": "A"}]},
-                "assistant",
-                set(),
-                {"fp:assistant:t:A"},
-                [],
-            )
-            is True
-        )
-
-        assert service._parse_iso_datetime(None) is None
-        assert service._parse_iso_datetime("bad") is None
-        naive = service._parse_iso_datetime("2026-02-01T00:00:00")
-        assert naive.tzinfo is not None
-        assert service._parse_iso_datetime("2026-02-01T00:00:00Z") is not None
-
-        # _echo_in_transcript tests — round-aware dedup
-        # Case 1: in-progress round (user only, no result after) → dedup
-        history_in_progress = [{"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}]
-        local_echo = {
-            "type": "user",
-            "content": "hello",
-            "local_echo": True,
-            "timestamp": "2026-02-01T00:00:00Z",
-        }
-        assert service._echo_in_transcript(local_echo, history_in_progress) is True
-
-        # Case 2: same text from an older round → do NOT dedup
-        history_complete = [
-            {"type": "user", "content": "hello", "timestamp": "2026-01-31T23:59:59Z"},
-            {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        ]
-        assert service._echo_in_transcript(local_echo, history_complete) is False
-
-        # Case 3: non-user message → False
-        assert service._echo_in_transcript({"type": "assistant"}, history_in_progress) is False
-
-        assert service._extract_plain_user_content({"type": "assistant"}) is None
-        assert (
-            service._extract_plain_user_content({"type": "user", "content": [{"type": "text", "text": " ok "}]}) == "ok"
-        )
-        assert service._is_groupable_message("bad") is False  # type: ignore[arg-type]
+        sse_event = service._sse_event("status", {"x": 1})
+        assert sse_event.event == "status"
+        assert sse_event.data == {"x": 1}
 
         assert service._resolve_result_status({"session_status": "interrupted"}) == "interrupted"
         assert service._resolve_result_status({"subtype": "error_x", "is_error": True}) == "error"

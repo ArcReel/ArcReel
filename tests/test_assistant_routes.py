@@ -1,12 +1,11 @@
 """Unit tests for assistant router contract changes."""
 
-import inspect
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.i18n import Translator, get_translator
+from lib.i18n import get_translator
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
 from tests.conftest import make_translator
@@ -60,37 +59,21 @@ class TestAssistantRoutes:
         payload = response.json()
         assert "下线" in payload.get("detail", "")
 
-    def test_snapshot_endpoint_returns_v2_snapshot(self):
-        snapshot_payload = {
-            "session_id": "session-1",
-            "status": "running",
-            "turns": [{"type": "user", "content": [{"type": "text", "text": "hello"}]}],
-            "draft_turn": {
-                "type": "assistant",
-                "content": [{"type": "text", "text": "Hi"}],
-            },
-            "pending_questions": [],
-        }
+    def test_snapshot_endpoint_returns_410(self):
+        with _build_client() as client:
+            response = client.get(f"{PREFIX}/sessions/session-1/snapshot")
 
-        # Mock get_session for ownership validation
-        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
-        with (
-            patch.object(
-                assistant.assistant_service,
-                "get_session",
-                return_value=session_meta,
-            ),
-            patch.object(
-                assistant.assistant_service,
-                "get_snapshot",
-                new=AsyncMock(return_value=snapshot_payload),
-            ),
-        ):
-            with _build_client() as client:
-                response = client.get(f"{PREFIX}/sessions/session-1/snapshot")
+        assert response.status_code == 410
+        payload = response.json()
+        assert "下线" in payload.get("detail", "")
 
-        assert response.status_code == 200
-        assert response.json() == snapshot_payload
+    def test_stream_endpoint_returns_410(self):
+        with _build_client() as client:
+            response = client.get(f"{PREFIX}/sessions/session-1/stream")
+
+        assert response.status_code == 410
+        payload = response.json()
+        assert "下线" in payload.get("detail", "")
 
     def test_interrupt_endpoint_returns_accepted(self):
         interrupt_payload = {
@@ -168,21 +151,6 @@ class TestAssistantRoutes:
 
         _assert_generic_500(response, "LEAK_delete")
 
-    def test_snapshot_unexpected_error_no_leak(self):
-        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
-        with (
-            patch.object(assistant.assistant_service, "get_session", return_value=session_meta),
-            patch.object(
-                assistant.assistant_service,
-                "get_snapshot",
-                new=AsyncMock(side_effect=RuntimeError("LEAK_snapshot")),
-            ),
-        ):
-            with _build_client() as client:
-                response = client.get(f"{PREFIX}/sessions/session-1/snapshot")
-
-        _assert_generic_500(response, "LEAK_snapshot")
-
     def test_interrupt_unexpected_error_no_leak(self):
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
         with (
@@ -215,35 +183,6 @@ class TestAssistantRoutes:
                 )
 
         _assert_generic_500(response, "LEAK_answer")
-
-    def test_stream_injects_translator_and_no_leak(self):
-        # SSE 端点在开始流式后已提交 200，末端 catch-all 的 HTTPException 无法把 detail 写回
-        # 已提交的响应体（body 恒为空）——故响应体断言对该端点天然 vacuous，无法区分修复与回归。
-        # 真正可锁定的契约是 catch-all 走 i18n 而非 str(exc)，这依赖 `_t: Translator` 被注入签名；
-        # 用 inspect 正向核验注入，再以 raise_server_exceptions=False 跑一遍确认哨兵串不泄露。
-        params = inspect.signature(assistant.stream_events).parameters
-        assert params["_t"].annotation is Translator
-
-        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
-
-        async def _boom(*args, **kwargs):
-            raise RuntimeError("LEAK_stream")
-            yield  # pragma: no cover - 标记为异步生成器
-
-        app = FastAPI()
-        app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
-        app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
-        app.dependency_overrides[get_translator] = _override_translator
-        app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
-
-        with (
-            patch.object(assistant.assistant_service, "get_session", return_value=session_meta),
-            patch.object(assistant.assistant_service, "stream_events", new=_boom),
-        ):
-            with TestClient(app, raise_server_exceptions=False) as client:
-                response = client.get(f"{PREFIX}/sessions/session-1/stream")
-
-        assert "LEAK_stream" not in response.text
 
     def test_list_skills_unexpected_error_no_leak(self):
         with patch.object(

@@ -492,9 +492,7 @@ class AgentAccessPolicy:
 
     @staticmethod
     def encode_sdk_project_path(project_cwd: Path) -> str:
-        """Encode a project cwd the same way the SDK does for session storage.
-
-        Uses the same scheme as transcript_reader.py and the SDK itself:
+        """Encode a project cwd the same way the SDK does for session storage:
         replace ``/`` and ``.`` with ``-``.
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")

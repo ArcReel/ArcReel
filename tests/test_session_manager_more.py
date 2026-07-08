@@ -10,7 +10,7 @@ from lib.db.base import Base
 from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.message_utils import extract_plain_user_content
-from server.agent_runtime.models import Heartbeat, LiveMessage, ReplayBatch
+from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
@@ -108,24 +108,17 @@ class _FakeDeny:
 
 
 class TestSessionManagerMore:
-    def test_managed_session_buffer_and_queue_overflow(self):
-        managed = ManagedSession(session_id="s1", actor=None, buffer_max_size=2)
-        managed.message_buffer = [
-            {"type": "stream_event", "id": "a"},
-            {"type": "assistant", "id": "b"},
-        ]
-        managed.add_message({"type": "assistant", "id": "c"})
-        assert len(managed.message_buffer) == 2
-        assert all(msg["id"] != "a" for msg in managed.message_buffer)
+    def test_managed_session_broadcast_and_queue_overflow(self):
+        managed = ManagedSession(session_id="s1", actor=None)
 
-        # add_message 经会话通道广播给订阅者。
+        # 会话通道把消息广播给订阅者。
         queue = managed.channel.subscribe()
-        managed.add_message({"type": "result", "uuid": "r1"})
+        managed.channel.broadcast({"type": "result", "uuid": "r1"})
         assert queue.get_nowait()["type"] == "result"
 
         # 订阅者彻底跟不上（队列填满关键消息、无可逐出）→ 按会话流溢出策略移除。
         for i in range(120):
-            managed.add_message({"type": "assistant", "uuid": f"m{i}"})
+            managed.channel.broadcast({"type": "assistant", "uuid": f"m{i}"})
         assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
@@ -212,7 +205,7 @@ class TestSessionManagerMore:
         meta = await meta_store.create("demo", "sdk-locale-stream-en")
 
         async with _cold_revival_clients(session_manager, monkeypatch) as created_clients:
-            async with session_manager.stream_messages(meta.id, replay=False, locale="en"):
+            async with session_manager.stream_messages(meta.id, locale="en"):
                 await asyncio.sleep(0)
             assert created_clients
             append = created_clients[0].options.kwargs["system_prompt"]["append"]
@@ -352,16 +345,6 @@ class TestSessionManagerMore:
         assert session_manager._extract_sdk_session_id(raw, msg) == "sdk-1"
         assert session_manager._extract_sdk_session_id(raw, {"sessionId": "sdk-2"}) == "sdk-2"
 
-        managed = ManagedSession(
-            session_id="s1",
-            actor=None,
-            message_buffer=[{"type": "stream_event"}, {"type": "assistant"}, {"type": "custom"}],
-        )
-        session_manager._prune_transient_buffer(managed)
-        assert managed.message_buffer == [{"type": "custom"}]
-        managed.clear_buffer()
-        assert managed.message_buffer == []
-
         assert session_manager._resolve_result_status({"subtype": "error_timeout"}) == "error"
         assert (
             session_manager._resolve_result_status(
@@ -372,11 +355,9 @@ class TestSessionManagerMore:
         )
 
     @pytest.mark.asyncio
-    async def test_buffer_snapshots_subscribe_and_shutdown(self, session_manager, meta_store):
+    async def test_subscribe_and_shutdown(self, session_manager, meta_store):
         from tests.fakes import build_managed_with_actor
 
-        assert await session_manager.get_message_buffer_snapshot("missing") == []
-        assert session_manager.get_buffered_messages("missing") == []
         assert await session_manager.get_pending_questions_snapshot("missing") == []
         with pytest.raises(ValueError):
             await session_manager.answer_user_question("missing", "q", {"a": "b"})
@@ -387,12 +368,9 @@ class TestSessionManagerMore:
             project_name="demo",
             status="running",
         )
-        managed.message_buffer.append({"type": "assistant", "uuid": "a1"})
         session_manager.sessions[meta.id] = managed
 
-        _channel, queue, replay = await session_manager._subscribe(meta.id, replay=True)
-        # 回放作为快照单独返回，不再塞进直播队列。
-        assert replay[0]["uuid"] == "a1"
+        _channel, queue = await session_manager._subscribe(meta.id)
         assert queue.empty()
         await session_manager._unsubscribe(meta.id, queue)
         assert not managed.channel.has_subscribers
@@ -403,7 +381,7 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_stream_messages_event_sequence(self, session_manager, meta_store):
-        """事件序列：回放批次 → 逐条直播 → 心跳 → 溢出以流结束表达。"""
+        """事件序列：订阅屏障 → 逐条直播 → 心跳 → 溢出以流结束表达。"""
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-stream-seq")
@@ -412,14 +390,12 @@ class TestSessionManagerMore:
             project_name="demo",
             status="running",
         )
-        managed.message_buffer.append({"type": "assistant", "uuid": "replay-1"})
         session_manager.sessions[meta.id] = managed
 
-        async with session_manager.stream_messages(meta.id, replay=True, idle_timeout=0.05) as stream:
+        async with session_manager.stream_messages(meta.id, idle_timeout=0.05) as stream:
             first = await anext(stream)
-            assert isinstance(first, ReplayBatch)
-            assert [m["uuid"] for m in first.messages] == ["replay-1"]
-            managed.add_message({"type": "assistant", "uuid": "live-1"})
+            assert isinstance(first, SubscriptionReady)
+            managed.channel.broadcast({"type": "assistant", "uuid": "live-1"})
             live = await anext(stream)
             assert isinstance(live, LiveMessage)
             assert live.message["uuid"] == "live-1"
@@ -427,34 +403,10 @@ class TestSessionManagerMore:
             assert isinstance(await anext(stream), Heartbeat)
             # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 队列被清空，流结束。
             for i in range(120):
-                managed.add_message({"type": "assistant", "uuid": f"m{i}"})
+                managed.channel.broadcast({"type": "assistant", "uuid": f"m{i}"})
             tail = [event async for event in stream]
             assert tail == []
         # 正常退出后订阅者被移除
-        assert not managed.channel.has_subscribers
-
-    @pytest.mark.asyncio
-    async def test_stream_messages_no_replay_yields_empty_batch(self, session_manager, meta_store):
-        """replay=False 首个事件仍是回放批次（空），协议形态对消费方保持统一。"""
-        from tests.fakes import build_managed_with_actor
-
-        meta = await meta_store.create("demo", "sdk-stream-overflow")
-        managed, _actor, _client = await build_managed_with_actor(
-            session_id=meta.id,
-            project_name="demo",
-            status="running",
-        )
-        managed.message_buffer.append({"type": "assistant", "uuid": "buffered-1"})
-        session_manager.sessions[meta.id] = managed
-
-        async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=5.0) as stream:
-            first = await anext(stream)
-            assert isinstance(first, ReplayBatch)
-            assert first.messages == []
-            for i in range(120):
-                managed.add_message({"type": "assistant", "uuid": f"m{i}"})
-            # 溢出无专门事件泄漏给消费方：队列被清空后流直接结束。
-            assert [event async for event in stream] == []
         assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
@@ -471,10 +423,10 @@ class TestSessionManagerMore:
         session_manager.sessions[meta.id] = managed
 
         async def consume():
-            async with session_manager.stream_messages(meta.id, replay=False, idle_timeout=0.02) as stream:
+            async with session_manager.stream_messages(meta.id, idle_timeout=0.02) as stream:
                 assert managed.channel.subscriber_count == 1
                 async for event in stream:
-                    if isinstance(event, ReplayBatch):
+                    if isinstance(event, SubscriptionReady):
                         continue
                     if exit_mode == "exception":
                         raise RuntimeError("boom")
@@ -1282,13 +1234,11 @@ def test_on_actor_message_non_result_message_preserves_status():
     assert managed.status == "running"
 
 
-def test_on_actor_message_appends_to_buffer():
+def test_on_actor_message_broadcasts_to_subscribers():
     managed = _make_managed_for_state_test()
+    queue = managed.channel.subscribe()
     managed._on_actor_message({"type": "assistant", "content": "hi"})
-    # add_message 负责 buffer + broadcast；这里只验 buffer
-    buffered = list(managed.message_buffer)
-    assert len(buffered) == 1
-    assert buffered[0]["type"] == "assistant"
+    assert queue.get_nowait()["type"] == "assistant"
 
 
 # --- ManagedSession 对 actor 的代理 -----------------------------------------

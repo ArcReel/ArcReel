@@ -14,7 +14,6 @@ from server.agent_runtime.message_serialization import (
     MESSAGE_TYPE_MAP,
     TASK_MESSAGE_SUBTYPES,
     build_runtime_status_message,
-    build_user_echo_message,
     infer_message_type,
     is_duplicate_user_echo,
     message_to_dict,
@@ -159,21 +158,6 @@ class TestMessageToDict:
     def test_preserves_existing_type(self):
         result = message_to_dict({"type": "custom", "value": 1})
         assert result == {"type": "custom", "value": 1}
-
-
-class TestBuildUserEchoMessage:
-    def test_plain_text_content(self):
-        echo = build_user_echo_message("hello")
-        assert echo["type"] == "user"
-        assert echo["content"] == "hello"
-        assert echo["local_echo"] is True
-        assert echo["uuid"].startswith("local-user-")
-        assert echo["timestamp"]
-
-    def test_content_blocks_take_precedence(self):
-        blocks = [{"type": "image"}, {"type": "text", "text": "cap"}]
-        echo = build_user_echo_message("hello", blocks)
-        assert echo["content"] == blocks
 
 
 class TestBuildRuntimeStatusMessage:

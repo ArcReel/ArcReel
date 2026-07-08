@@ -4,11 +4,11 @@ import { API } from "@/api";
 import { uid } from "@/utils/id";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type {
-  AssistantSnapshot,
+  DraftDeltaPayload,
+  DraftState,
   PendingQuestion,
   SessionMeta,
-  SessionStatus,
-  Turn,
+  TimelineEntry,
 } from "@/types";
 
 export interface AttachedImage {
@@ -18,7 +18,7 @@ export interface AttachedImage {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers — 从旧 use-assistant-state.js 移植
+// Helpers
 // ---------------------------------------------------------------------------
 
 function parseSsePayload(event: MessageEvent): Record<string, unknown> {
@@ -29,52 +29,10 @@ function parseSsePayload(event: MessageEvent): Record<string, unknown> {
   }
 }
 
-function applyTurnPatch(prev: Turn[], patch: Record<string, unknown>): Turn[] {
-  const op = patch.op as string;
-  if (op === "reset") return (patch.turns as Turn[]) ?? [];
-  if (op === "append" && patch.turn) {
-    const newTurn = patch.turn as Turn;
-    // 当后端 append 真实 user turn 时，移除末尾的 optimistic turn 避免重复
-    if (
-      newTurn.type === "user" &&
-      prev.length > 0 &&
-      prev.at(-1)?.uuid?.startsWith(OPTIMISTIC_PREFIX)
-    ) {
-      return [...prev.slice(0, -1), newTurn];
-    }
-    return [...prev, newTurn];
-  }
-  if (op === "replace_last" && patch.turn) {
-    return prev.length === 0
-      ? [patch.turn as Turn]
-      : [...prev.slice(0, -1), patch.turn as Turn];
-  }
-  return prev;
-}
-
 const TERMINAL = new Set(["completed", "error", "interrupted"]);
-const OPTIMISTIC_PREFIX = "optimistic-";
 
-function extractTurnText(turn: Turn): string {
-  return (
-    turn.content
-      ?.filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
-      .join("") ?? ""
-  );
-}
-
-function parseTurnTimestamp(turn: Turn | null): number | null {
-  if (!turn?.timestamp) return null;
-  const parsed = Date.parse(turn.timestamp);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-function findLatestUserTurn(turns: Turn[]): Turn | null {
-  for (let i = turns.length - 1; i >= 0; i--) {
-    if (turns[i].type === "user") return turns[i];
-  }
-  return null;
+function lastEntrySeq(entries: TimelineEntry[]): number {
+  return entries.length > 0 ? entries[entries.length - 1].seq : -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,11 +66,11 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * 管理 AI 助手会话生命周期：
- * - 加载/创建会话
- * - 发送消息
- * - SSE 流式接收
- * - 中断会话
+ * 管理 AI 助手会话生命周期，时间线唯一读源为会话事件日志：
+ * - 冷读 GET entries（历史回放）
+ * - SSE entry 流实时接收（事件 id 即 seq，断线按游标续传）
+ * - 发送消息：服务端先写日志分配身份，响应回传权威条目；
+ *   client_key 幂等，重试不产生重复；不渲染本地合成消息
  */
 export function useAssistantSession(projectName: string | null) {
   const store = useAssistantStore;
@@ -121,6 +79,8 @@ export function useAssistantSession(projectName: string | null) {
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusRef = useRef<string>("idle");
   const pendingSendVersionRef = useRef(0);
+  // 失败重试复用同一幂等键（同内容签名），成功后清除
+  const failedSendRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
   const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
     store.getState().setPendingQuestion(question);
@@ -136,59 +96,6 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setSending(false);
   }, [store]);
 
-  const restoreFailedSend = useCallback((
-    sessionId: string,
-    optimisticUuid: string,
-    previousStatus: SessionStatus | null,
-  ) => {
-    if (store.getState().currentSessionId !== sessionId) return;
-
-    store.getState().setTurns(
-      store.getState().turns.filter((turn) => turn.uuid !== optimisticUuid),
-    );
-    statusRef.current = previousStatus ?? "idle";
-    store.getState().setSessionStatus(previousStatus ?? "idle");
-    store.getState().setSending(false);
-  }, [store]);
-
-  const applySnapshot = useCallback((snapshot: Partial<AssistantSnapshot>) => {
-    const snapshotTurns = (snapshot.turns as Turn[]) ?? [];
-    const currentTurns = store.getState().turns;
-
-    // 保留末尾的 optimistic turn：仅当 snapshot 尚未包含当前轮 user 时。
-    // 使用内容匹配而非 UUID（optimistic UUID 永远不会匹配后端真实 UUID）。
-    const lastTurn = currentTurns.at(-1);
-    let shouldPreserveOptimistic = false;
-
-    if (lastTurn?.uuid?.startsWith(OPTIMISTIC_PREFIX)) {
-      const optText = extractTurnText(lastTurn);
-
-      if (optText) {
-        const latestUserTurn = findLatestUserTurn(snapshotTurns);
-        if (!latestUserTurn || extractTurnText(latestUserTurn) !== optText) {
-          shouldPreserveOptimistic = true;
-        } else {
-          const latestUserTs = parseTurnTimestamp(latestUserTurn);
-          const optimisticTs = parseTurnTimestamp(lastTurn);
-          shouldPreserveOptimistic = Boolean(
-            latestUserTs !== null &&
-            optimisticTs !== null &&
-            latestUserTs < optimisticTs,
-          );
-        }
-      }
-    }
-
-    if (shouldPreserveOptimistic && lastTurn) {
-      store.getState().setTurns([...snapshotTurns, lastTurn]);
-    } else {
-      store.getState().setTurns(snapshotTurns);
-    }
-
-    store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
-    syncPendingQuestion(getPendingQuestionFromSnapshot(snapshot));
-  }, [store, syncPendingQuestion]);
-
   // 关闭流
   const closeStream = useCallback(() => {
     if (reconnectRef.current) {
@@ -202,7 +109,7 @@ export function useAssistantSession(projectName: string | null) {
     streamSessionRef.current = null;
   }, []);
 
-  // 连接 SSE 流
+  // 连接 SSE entry 流
   const connectStream = useCallback(
     (sessionId: string) => {
       // 如果已连接到同一 session 且连接健康，跳过重连
@@ -217,7 +124,9 @@ export function useAssistantSession(projectName: string | null) {
       closeStream();
       streamSessionRef.current = sessionId;
 
-      const url = API.getAssistantStreamUrl(projectName!, sessionId);
+      // 冷订阅游标：已有条目之后；浏览器自动重连由 Last-Event-ID 续传
+      const after = lastEntrySeq(store.getState().entries);
+      const url = API.getAssistantEntriesStreamUrl(projectName!, sessionId, after);
       const source = new EventSource(url);
       streamRef.current = source;
       const isActiveStream = () =>
@@ -225,45 +134,27 @@ export function useAssistantSession(projectName: string | null) {
         streamSessionRef.current === sessionId &&
         store.getState().currentSessionId === sessionId;
 
-      source.addEventListener("snapshot", (event) => {
+      source.addEventListener("entry", (event) => {
         if (!isActiveStream()) return;
-        const data = parseSsePayload(event);
-        const isSending = store.getState().sending;
-
-        // 正在发送消息时，后端可能尚未将 session 切为 "running"，
-        // 此时 SSE 连接到旧 "completed" session 会立即收到旧 snapshot + status 后断开。
-        // 忽略这种 stale snapshot 的 turns 和 status，保留前端的 optimistic 状态。
-        if (isSending && typeof data.status === "string" && data.status !== "running") {
-          return;
-        }
-
-        applySnapshot(data);
-
-        if (typeof data.status === "string") {
-          store.getState().setSessionStatus(data.status as "idle");
-          statusRef.current = data.status;
-          // 收到任何有效 status 都清除 sending（stale 的已在上方过滤）。
-          // 特别是 "running" 表示后端已确认收到消息，必须清除 sending，
-          // 否则后续的 "completed" 会被 status handler 的 isSending 守卫过滤掉。
-          store.getState().setSending(false);
+        const entry = parseSsePayload(event);
+        if (typeof entry.seq === "number" && typeof entry.type === "string") {
+          store.getState().appendEntry(entry as unknown as TimelineEntry);
         }
       });
 
-      source.addEventListener("patch", (event) => {
+      source.addEventListener("draft", (event) => {
         if (!isActiveStream()) return;
         const payload = parseSsePayload(event);
-        const patch = (payload.patch ?? payload) as Record<string, unknown>;
-        store.getState().setTurns(applyTurnPatch(store.getState().turns, patch));
-        if ("draft_turn" in payload) {
-          store.getState().setDraftTurn((payload.draft_turn as Turn) ?? null);
-        }
+        const draft = (payload.draft ?? null) as DraftState | null;
+        const rev = typeof payload.rev === "number" ? payload.rev : 0;
+        store.getState().setDraftSnapshot(draft, rev);
       });
 
       source.addEventListener("delta", (event) => {
         if (!isActiveStream()) return;
         const payload = parseSsePayload(event);
-        if ("draft_turn" in payload) {
-          store.getState().setDraftTurn((payload.draft_turn as Turn) ?? null);
+        if (typeof payload.message_id === "string" && typeof payload.rev === "number") {
+          store.getState().applyDelta(payload as unknown as DraftDeltaPayload);
         }
       });
 
@@ -271,15 +162,6 @@ export function useAssistantSession(projectName: string | null) {
         if (!isActiveStream()) return;
         const data = parseSsePayload(event);
         const status = (data.status as string) ?? statusRef.current;
-        const isSending = store.getState().sending;
-
-        // 正在发送消息时，忽略旧 session 的 terminal status。
-        // 后端对非 running session 的 SSE 会发 status:"completed" 后关闭连接，
-        // 不应让这个 stale status 触发 closeStream / setSending(false)。
-        // onerror 回调会在连接断开后自动重连到已变为 "running" 的 session。
-        if (isSending && TERMINAL.has(status) && status !== "error") {
-          return;
-        }
 
         statusRef.current = status;
         store.getState().setSessionStatus(status as "idle");
@@ -288,8 +170,9 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setSending(false);
           store.getState().setInterrupting(false);
           clearPendingQuestion();
+          // 中断时保留 draft：被中断的流式内容不入日志，刷新后自然消失
           if (status !== "interrupted") {
-            store.getState().setDraftTurn(null);
+            store.getState().clearDraft();
           }
           closeStream();
 
@@ -314,10 +197,12 @@ export function useAssistantSession(projectName: string | null) {
 
       source.onerror = () => {
         if (!isActiveStream()) return;
-        // 重连条件：session 正在运行，或者前端正在发送消息。
-        // 后者处理后端对旧 "completed" session 的 SSE 立即关闭的情况：
-        // 连接断开后需要重连，此时后端已将 session 设为 "running"。
-        if (statusRef.current === "running" || store.getState().sending) {
+        // 浏览器原生自动重连携带 Last-Event-ID 续传；此处仅兜底
+        // 连接被判死（CLOSED）的场景，运行中或发送中才重建。
+        if (
+          source.readyState === EventSource.CLOSED &&
+          (statusRef.current === "running" || store.getState().sending)
+        ) {
           reconnectRef.current = setTimeout(() => {
             // 自引用 SSE 重连：useEffectEvent 不允许在 setTimeout 内调用，
             // 用 ref 中转又被 immutability 规则禁止。当前写法是延迟到下一 tick
@@ -328,8 +213,30 @@ export function useAssistantSession(projectName: string | null) {
         }
       };
     },
-    [applySnapshot, clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
+    [clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
   );
+
+  // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放
+  const loadSession = useCallback(async (sessionId: string) => {
+    const res = await API.getAssistantSession(projectName!, sessionId);
+    const raw = res as Record<string, unknown>;
+    const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
+    const status = (sessionObj.status as string) ?? "idle";
+    statusRef.current = status;
+    store.getState().setSessionStatus(status as "idle");
+    // 清掉跨挂载残留的过期问题（zustand 全局 store 在组件卸载后仍保留）；
+    // running 会话的未决问题由 entry 流的 question 事件重新投递。
+    clearPendingQuestion();
+
+    if (status === "running") {
+      connectStream(sessionId);
+    } else {
+      const data = await API.listAssistantEntries(projectName!, sessionId);
+      if (store.getState().currentSessionId !== sessionId) return;
+      store.getState().setEntries(data.entries ?? []);
+      store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
+    }
+  }, [projectName, clearPendingQuestion, connectStream, store]);
 
   // 加载会话
   useEffect(() => {
@@ -358,22 +265,7 @@ export function useAssistantSession(projectName: string | null) {
         if (cancelled) return;
 
         store.getState().setCurrentSessionId(sessionId);
-
-        // 加载会话快照
-        const session = await API.getAssistantSession(projectName!, sessionId);
-        const raw = session as Record<string, unknown>;
-        const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
-        const status = (sessionObj.status as string) ?? "idle";
-        statusRef.current = status;
-        store.getState().setSessionStatus(status as "idle");
-
-        if (status === "running") {
-          connectStream(sessionId);
-        } else {
-          const snapshot = await API.getAssistantSnapshot(projectName!, sessionId);
-          if (cancelled) return;
-          applySnapshot(snapshot);
-        }
+        await loadSession(sessionId);
       } catch {
         // 静默失败
       } finally {
@@ -397,66 +289,50 @@ export function useAssistantSession(projectName: string | null) {
     };
   }, [
     projectName,
-    applySnapshot,
     clearPendingQuestion,
-    connectStream,
     closeStream,
     invalidatePendingSend,
+    loadSession,
     store,
   ]);
 
-  // 发送消息
+  // 发送消息。返回是否受理成功——失败时调用方保留输入内容。
   const sendMessage = useCallback(
-    async (content: string, images?: AttachedImage[]) => {
-      if ((!content.trim() && (!images || images.length === 0)) || store.getState().sending) return;
+    async (content: string, images?: AttachedImage[]): Promise<boolean> => {
+      if ((!content.trim() && (!images || images.length === 0)) || store.getState().sending) {
+        return false;
+      }
 
       const sendVersion = pendingSendVersionRef.current + 1;
       pendingSendVersionRef.current = sendVersion;
-      const previousStatus = store.getState().sessionStatus;
       let sessionId = store.getState().currentSessionId;
-      let optimisticUuid = "";
       store.getState().setSending(true);
       store.getState().setError(null);
 
+      // 提取 base64 数据
+      const imagePayload = images?.map((img) => ({
+        data: img.dataUrl.split(",")[1] ?? "",
+        media_type: img.mimeType,
+      }));
+
+      // 请求侧幂等键：同一内容失败重试复用同键，服务端按键去重不产生重复
+      const signature = JSON.stringify([sessionId, content.trim(), imagePayload ?? []]);
+      const clientKey =
+        failedSendRef.current?.signature === signature
+          ? failedSendRef.current.clientKey
+          : uid();
+
       try {
-        // 提取 base64 数据
-        const imagePayload = images?.map((img) => ({
-          data: img.dataUrl.split(",")[1] ?? "",
-          media_type: img.mimeType,
-        }));
-
-        // 乐观更新：立即在 UI 上显示用户消息
-        const optimisticContent: import("@/types").ContentBlock[] = [
-          ...(imagePayload ?? []).map((img) => ({
-            type: "image" as const,
-            source: {
-              type: "base64" as const,
-              media_type: img.media_type,
-              data: img.data,
-            },
-          })),
-          ...(content.trim() ? [{ type: "text" as const, text: content.trim() }] : []),
-        ];
-        const optimisticTurn: Turn = {
-          type: "user",
-          content: optimisticContent,
-          uuid: `${OPTIMISTIC_PREFIX}${uid()}`,
-          timestamp: new Date().toISOString(),
-        };
-        optimisticUuid = optimisticTurn.uuid ?? "";
-        store.getState().setTurns([...store.getState().turns, optimisticTurn]);
-        statusRef.current = "running";
-        store.getState().setSessionStatus("running");
-
-        // 统一发送（新建或已有会话）
         const result = await API.sendAssistantMessage(
           projectName!,
           content,
           sessionId,  // null for new session
           imagePayload,
+          clientKey,
         );
 
-        if (pendingSendVersionRef.current !== sendVersion) return;
+        if (pendingSendVersionRef.current !== sendVersion) return false;
+        failedSendRef.current = null;
 
         const returnedSessionId = result.session_id;
 
@@ -477,25 +353,39 @@ export function useAssistantSession(projectName: string | null) {
           sessionId = returnedSessionId;
         }
 
-        if (store.getState().currentSessionId !== sessionId) return;
-        connectStream(sessionId);
-      } catch (err) {
-        if (pendingSendVersionRef.current !== sendVersion) return;
-        store.getState().setError(errMsg(err, "发送失败"));
-        if (sessionId && optimisticUuid) {
-          restoreFailedSend(sessionId, optimisticUuid, previousStatus);
-        } else {
-          // 新会话创建失败：回滚到 draft 模式
-          store.getState().setTurns(store.getState().turns.filter(t => t.uuid !== optimisticUuid));
-          store.getState().setIsDraftSession(true);
-          store.getState().setCurrentSessionId(null);
-          statusRef.current = previousStatus ?? "idle";
-          store.getState().setSessionStatus(previousStatus ?? "idle");
-          store.getState().setSending(false);
+        if (store.getState().currentSessionId !== sessionId) return false;
+
+        // 响应携带的权威条目（服务端已写日志分配身份），seq 门槛去重
+        if (result.entry) {
+          const lastSeq = lastEntrySeq(store.getState().entries);
+          if (result.entry.seq > lastSeq + 1) {
+            // seq 跳档：其他客户端在本地未订阅期间产生了轮次，先冷读补齐缺口，
+            // 否则订阅游标越过缺口后中间条目永远不会被拉取
+            try {
+              const gap = await API.listAssistantEntries(projectName!, sessionId, lastSeq);
+              if (store.getState().currentSessionId !== sessionId) return false;
+              store.getState().setEntries(gap.entries ?? []);
+            } catch {
+              // 静默失败：缺口留待刷新兜底
+            }
+          }
+          store.getState().appendEntry(result.entry);
         }
+        statusRef.current = "running";
+        store.getState().setSessionStatus("running");
+        store.getState().setSending(false);
+        connectStream(sessionId);
+        return true;
+      } catch (err) {
+        if (pendingSendVersionRef.current !== sendVersion) return false;
+        // 失败：无本地合成消息可回滚，仅记录幂等键供重试复用
+        failedSendRef.current = { clientKey, signature };
+        store.getState().setError(errMsg(err, "发送失败"));
+        store.getState().setSending(false);
+        return false;
       }
     },
-    [projectName, connectStream, restoreFailedSend, store],
+    [projectName, connectStream, store],
   );
 
   const answerQuestion = useCallback(
@@ -538,8 +428,7 @@ export function useAssistantSession(projectName: string | null) {
 
     invalidatePendingSend();
     closeStream();
-    store.getState().setTurns([]);
-    store.getState().setDraftTurn(null);
+    store.getState().resetTimeline();
     store.getState().setSessionStatus("idle");
     clearPendingQuestion();
     store.getState().setCurrentSessionId(null);
@@ -555,8 +444,7 @@ export function useAssistantSession(projectName: string | null) {
     closeStream();
     store.getState().setCurrentSessionId(sessionId);
     store.getState().setIsDraftSession(false);
-    store.getState().setTurns([]);
-    store.getState().setDraftTurn(null);
+    store.getState().resetTimeline();
     clearPendingQuestion();
     store.getState().setMessagesLoading(true);
 
@@ -564,25 +452,13 @@ export function useAssistantSession(projectName: string | null) {
     if (projectName) saveLastSessionId(projectName, sessionId);
 
     try {
-      const res = await API.getAssistantSession(projectName!, sessionId);
-      const raw = res as Record<string, unknown>;
-      const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
-      const status = (sessionObj.status as string) ?? "idle";
-      statusRef.current = status;
-      store.getState().setSessionStatus(status as "idle");
-
-      if (status === "running") {
-        connectStream(sessionId);
-      } else {
-        const snapshot = await API.getAssistantSnapshot(projectName!, sessionId);
-        applySnapshot(snapshot);
-      }
+      await loadSession(sessionId);
     } catch {
       // 静默失败
     } finally {
       store.getState().setMessagesLoading(false);
     }
-  }, [projectName, applySnapshot, clearPendingQuestion, closeStream, connectStream, invalidatePendingSend, store]);
+  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store]);
 
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
@@ -600,8 +476,7 @@ export function useAssistantSession(projectName: string | null) {
           invalidatePendingSend();
           closeStream();
           store.getState().setCurrentSessionId(null);
-          store.getState().setTurns([]);
-          store.getState().setDraftTurn(null);
+          store.getState().resetTimeline();
           store.getState().setSessionStatus(null);
           clearPendingQuestion();
           statusRef.current = "idle";
@@ -613,27 +488,6 @@ export function useAssistantSession(projectName: string | null) {
   }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
 
   return { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
-}
-
-function getPendingQuestionFromSnapshot(
-  snapshot: Partial<AssistantSnapshot> | Record<string, unknown>,
-): PendingQuestion | null {
-  const questions = snapshot.pending_questions as Array<Record<string, unknown>> | undefined;
-  const pending = questions?.find(
-    (question) =>
-      typeof question?.question_id === "string" &&
-      Array.isArray(question.questions) &&
-      question.questions.length > 0,
-  );
-
-  if (!pending) {
-    return null;
-  }
-
-  return {
-    question_id: pending.question_id as string,
-    questions: pending.questions as PendingQuestion["questions"],
-  };
 }
 
 function getPendingQuestionFromEvent(payload: Record<string, unknown>): PendingQuestion | null {
