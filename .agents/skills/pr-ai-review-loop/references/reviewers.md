@@ -7,7 +7,8 @@
 - **本轮新评论**:`created_at > last_push_at`。不要用 `commit_id == head` 判断——CodeRabbit 重审新 HEAD 时会改写旧 inline 的 `commit_id`,`created_at` 才是逐评论稳定的
 - **Acknowledgment 例外**:`inline_comments_by_user.*` 中 `is_ack == true` 的条目是 reviewer 对上一次修复或 inline 回复的确认,一律**不算** actionable;review state 为 `APPROVED` 也不算
 - **fix-up 顺延**:某家对上一已审 HEAD 已通过,且其后的 push 全为 fix-up(见 SKILL.md「fix-up 跳过」)时,沿用该通过结论参与目标判定,不触发重审——CodeRabbit 自动跟审每次 push,最终 HEAD 始终至少有它过目。**「上一已审 HEAD」指该家最近一次实际审过的 commit,不是最近一次通过的 commit**——若该家最近审的 HEAD 未通过(如 A 通过 → B 有 actionable → C fix-up,最近审的是 B),前提不满足,不得顺延;「其后」从该已审 HEAD 的下一个 commit 起算,到当前 HEAD 为止须全为 fix-up。该家还有未解决评论时同样不得跳过,必须正常触发重审
-- **触发去重**:同一 HEAD 上每种触发命令只发一次。在 `own_trigger_comments` 中取该命令最大 `createdAt`,晚于 `last_push_at` 即视为本轮已触发,跳过(`@coderabbitai resume` 例外:以 CodeRabbit 节的 `updated_at` 口径为准)。poll.sh 按**前缀**匹配:评论以命令开头即被收录(`/gemini review 补充说明` 算;`考虑过 /gemini review` 这类中段提及不算——故意不用包含匹配,否则引用过命令的 pushback 评论会被误判为已触发,导致漏触发)。发触发命令时仍应只写命令本身,且命令必须在评论最开头——前导只容空格/制表符(不容换行),空首行之后或第二行起的命令不会被识别
+- **触发去重**:同一 HEAD 上每种触发命令只发一次。在 `own_trigger_comments` 中取该命令最大 `createdAt`,晚于 `last_push_at` 即视为本轮已触发,跳过(`@coderabbitai resume` 例外:以 CodeRabbit 节的 `updated_at` 口径为准)。poll.sh 按**前缀**匹配:评论以命令开头即被收录(`/gemini review 补充说明` 算;`考虑过 /gemini review` 这类中段提及不算)。发触发命令时仍应只写命令本身,且命令必须在评论最开头——前导只容空格/制表符(不容换行),空首行之后或第二行起的命令不会被识别
+- **纯指标类 bot 不纳入循环**:`codecov[bot]` 等纯指标类 bot 没有意见可实施,也没有等待或重审的概念
 
 ## 总表
 
@@ -107,17 +108,6 @@
 
 两边的字符串不通用。GitHub code scanning 两家 bot 只出现在 REST inline 数据中(不发 GraphQL 可见的 review/comment)。
 
-## 查询 bot 新名称
-
-bot 改名后用这条查最新 GraphQL 名:
-
-```bash
-gh pr view <PR> --json reviews,comments \
-  --jq '[.reviews[].author.login, .comments[].author.login] | unique'
-```
+## bot 改名时
 
 REST 名规则:GraphQL 名 + `[bot]` 后缀。同步修改本文件和 `scripts/poll.sh` 的 select 语句。
-
-## reviewer 进出循环
-
-用户可以随时让某家 reviewer 进/出循环("这次别管 gemini"、"叫上 codex"),按用户意图执行。`codecov[bot]` 等纯指标类 bot 不纳入循环——它们没有意见可实施,也没有等待或重审的概念。

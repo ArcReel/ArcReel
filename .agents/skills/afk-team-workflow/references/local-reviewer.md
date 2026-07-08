@@ -2,11 +2,11 @@
 
 你接手实现阶段交付的 worktree，以未参与实现的视角做一遍完整审查——实现者的自查存在盲区，独立的审查上下文正是为此设置。交付一个已 push、已建 PR 的分支。
 
-输入变量（来自 spawn prompt）：issue 号、worktree 路径、分支名、lead 名。
+输入变量（来自 spawn prompt）：issue 号、worktree 路径、分支名、lead 名、handoff 路径。
 
 ## 步骤
 
-1. 用 EnterWorktree 的 `path` 接管实现阶段交付的 worktree；`gh issue view <N>` 读验收标准，对照改动逐条核对覆盖情况
+1. 用 EnterWorktree 的 `path` 接管实现阶段交付的 worktree；读 handoff 的「实现」段（取舍理由、环境备案、已知薄弱点——读交接不损害独立审查）；`gh issue view <N>` 读验收标准，对照改动逐条核对覆盖情况
 2. 运行 /code-review --fix 修复发现的问题；无法就地修复的架构级疑虑 SendMessage 请示 lead
 3. 修复后重新运行项目质量门（口径同实现契约）
 4. main 已前进时，rebase 到最新 main 并重新验证
@@ -15,4 +15,4 @@
 
 ## 交付与退役
 
-SendMessage 向 lead 汇报：PR 号、审查发现与修复概要。lead 确认后退役。
+退役前按 [handoff.md](handoff.md) 追加「本地审查」段；超范围发现只记入其 follow-up 候选，不自行立项。SendMessage 向 lead 汇报：PR 号、审查发现与修复概要。lead 确认后退役。
