@@ -6,7 +6,7 @@
 
 ## 执行
 
-先用 EnterWorktree 的 `path` 接管该 worktree——修复要在此工作树 push；读 handoff 的「实现」段（环境备案）与「本地审查」段（跳过项及理由，作为 pushback 依据）。随后按下列纪律驱动循环：
+先用 EnterWorktree 的 `path` 接管该 worktree——修复要在此工作树 push；读 handoff 的「实现」段（环境备案）与「本地审查」段（跳过项及理由，作为 pushback 依据）；若为替补接管，另读已追加的「审查循环」段以继承前任的 pushback 与故障记录，避免重复处理已驳回意见。随后按下列纪律驱动循环：
 
 1. 用 Skill 工具调用 /pr-ai-review-loop，按其全部纪律执行：poll、触发、收集评论转交 /receiving-code-review、ScheduleWakeup 控制轮询节奏。每轮动作后必须安排下一次唤醒
 2. **请示重定向**：skill 内所有"暂停询问用户"的场景（故障、收敛兜底、reviewer 冲突、业务取舍）一律 SendMessage 请示 lead，按裁决继续。等待裁决期间保持 ScheduleWakeup 监控 PR 动态
