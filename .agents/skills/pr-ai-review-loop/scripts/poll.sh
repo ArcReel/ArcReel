@@ -243,8 +243,8 @@ jq -n \
     [$sub_a[]
      | select(.user.login | test("(gemini-code-assist|coderabbitai)\\[bot\\]$"))
      | select(
-         (.body[0:500] | test("you(\\x27ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
-         or (.body[0:500] | test("(usage|rate|api|daily|monthly|review)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
+         (.body[0:500] | test("you(\\x27ve|\\x{2019}ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
+         or (.body[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
          or (.body[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
          or (.body[0:500] | test("(http\\s*)?429\\b|too many requests"; "i"))
        )
