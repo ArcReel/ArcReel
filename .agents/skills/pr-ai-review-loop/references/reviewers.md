@@ -16,9 +16,11 @@
 |---|---|---|---|---|
 | CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened 及后续每次 push | `@coderabbitai resume` / `review` / `full review` |
 | Gemini Code Assist | `gemini-code-assist` | `gemini-code-assist[bot]` | **仅 PR opened**(5 分钟内出结果) | `/gemini review` |
-| OpenAI Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | 取决于仓库配置 | `@codex review` |
+| OpenAI Codex(未接入,不参审) | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | 不适用(未接入) | **不触发** |
 | GitHub Code Quality | —(只发 inline) | `github-code-quality[bot]` | 每次 push 后的 CodeQL 分析 | **不可触发** |
 | GitHub Advanced Security | —(只发 inline) | `github-advanced-security[bot]` | 同上 | **不可触发** |
+
+本仓库未接入 Codex GitHub App:循环不发送 `@codex review`、不轮询或等待其响应、达标判定与 fix-up 跳过规则均不涉及 Codex。`## OpenAI Codex(未接入,不参审)` 节保留判定细则作日后接入时的参考。
 
 ## CodeRabbit
 
@@ -61,9 +63,9 @@
 1. 本轮无新 inline,或本轮新 inline 全部为 `low/nit/style` 或全部 `is_ack`
 2. summary 最新一条 body 含明确通过标记(非空不等于通过)
 
-## OpenAI Codex
+## OpenAI Codex(未接入,不参审)
 
-**触发决策**:仓库未开启自动 review 时,是否手动 `@codex review` 综合判断——用户明确意图(提到 codex 通常意味着要触发)、CodeRabbit 与 Gemini 意见冲突需第三方仲裁、改动面值得多看一遍(敏感模块、跨模块影响、新增依赖)、当前 HEAD 未触发过、fix-up 跳过未命中。
+本仓库未接入 Codex GitHub App:循环不发送 `@codex review`、不轮询或等待其响应、达标判定不含 Codex,fix-up 跳过规则也不再涉及它。以下判定规则保留作参考,日后接入 App 时按本节重新纳入参审名单。
 
 **三种 ack 模式**(任一命中即算"对当前 HEAD 无 actionable"):
 

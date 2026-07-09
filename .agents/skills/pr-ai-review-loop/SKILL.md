@@ -11,7 +11,7 @@ PR push 之后,多家 reviewer bot 会产出评论。本 skill 调度 review →
 
 循环的唯一正常出口。宣布通过前逐项核对:
 
-1. **本 PR 参审的每家 AI reviewer**(CodeRabbit / Gemini / Codex)对当前 HEAD 通过。CodeRabbit 始终参审,Gemini 由 cold-start fallback 保证参审,Codex 按其触发决策可不参审;fix-up 顺延时沿用上一已审 HEAD 的通过结论(口径见 reviewers.md「通用约定」)
+1. **本 PR 参审的每家 AI reviewer**(CodeRabbit / Gemini)对当前 HEAD 通过。CodeRabbit 始终参审,Gemini 由 cold-start fallback 保证参审;fix-up 顺延时沿用上一已审 HEAD 的通过结论(口径见 reviewers.md「通用约定」)。Codex 未接入本仓库 GitHub App,不参审、不触发、不计入达标判定(见 reviewers.md「OpenAI Codex(未接入,不参审)」)
 2. **CodeQL 退出门槛**:分析完成且成功、security 无 PR 引入的 open 告警、quality 全量评论逐条已处置——三条细则与"仓库未接入"的跳过口径见 reviewers.md「GitHub code scanning bots」节
 3. 循环期间的所有 actionable 评论均已实施修复或记录 pushback
 
@@ -64,7 +64,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/poll.sh <PR_NUMBER>
 | 以上缺口均消失 | 做目标状态**终核**(含 CodeQL 门槛逐条);全过则正常退出:退出前按 [references/retrospective.md](references/retrospective.md) 产出复盘、随简短汇报交出;发现遗留则按对应缺口处理 |
 | 未全部达成且无可执行动作(reviewer 响应中) | 按「轮询节奏」表等待下一轮 |
 
-**fix-up 跳过**:发触发命令前先跑 `classify_commits.sh`;若本轮 push 全为 fix-up(nit、format、typo、单字段调整、小 bug 修复)**且该家对上一已审 HEAD 已通过**,跳过手动触发 Gemini 与 Codex,沿用其通过结论。前提与范围的完整口径见 reviewers.md「通用约定」fix-up 顺延条,cold-start fallback 例外见其 Gemini「触发」节。
+**fix-up 跳过**:发触发命令前先跑 `classify_commits.sh`;若本轮 push 全为 fix-up(nit、format、typo、单字段调整、小 bug 修复)**且该家对上一已审 HEAD 已通过**,跳过手动触发 Gemini,沿用其通过结论。前提与范围的完整口径见 reviewers.md「通用约定」fix-up 顺延条,cold-start fallback 例外见其 Gemini「触发」节。
 
 执行完触发动作后,按「轮询节奏」表选择延迟,调用 `ScheduleWakeup`。
 
@@ -85,7 +85,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/poll.sh <PR_NUMBER>
 | 场景 | 延迟 | 备注 |
 |---|---|---|
 | 新 HEAD 后首次 poll | 180s | reviewer cold-start;CR 通常 60-90s 跟新 HEAD;Gemini 仅 PR opened 自动 review;CodeQL 分析需数分钟 |
-| 发送 `/gemini review` 或 `@codex review` 之后 | 120s | Gemini 响应通常 90-120s,60s 容易错过 |
+| 发送 `/gemini review` 之后 | 120s | Gemini 响应通常 90-120s,60s 容易错过 |
 | 常规等待(reviewer 响应中) | 60s | 处于 prompt cache 5 分钟窗口内 |
 | 仅剩 CodeQL 分析未完成 | 120s | 等 check 完成做终核 |
 | 超过 15 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 见「故障处理」 |

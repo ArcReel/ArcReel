@@ -24,7 +24,7 @@
 #
 # WHY
 # Skill needs to judge whether the latest push is "fix-up only" (nit/format/typo/small bug) so it can:
-#   (a) skip burning Gemini/Codex quota on a manual re-trigger (the conservative-trigger gate), and
+#   (a) skip burning Gemini quota on a manual re-trigger (the conservative-trigger gate), and
 #   (b) count consecutive nit-only rounds toward the convergence exit.
 # Output is raw metadata (file count, line stats, message text); Claude makes the final call —
 # scripting "is this nit?" would miss semantic cues like "fix typo in error message

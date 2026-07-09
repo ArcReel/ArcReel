@@ -31,7 +31,10 @@
 #     "reviews":  [{id, submittedAt, state, body}],     # body = review SUMMARY (## Code Review ...) — can contain actionable text not in inline; id = GraphQL node id
 #     "comments": [...]
 #   },
-#   "codex": {
+#   "codex": {                                          # NOT integrated in this repo (no Codex GitHub App) — the loop never
+#                                                       # triggers it and this block is unused by current pass/wait logic.
+#                                                       # Kept as raw data + reference for future re-integration — see
+#                                                       # references/reviewers.md "OpenAI Codex(未接入,不参审)" and PITFALL 4.
 #     "reviews":   [{id, submittedAt, state, body}],    # body contains "Reviewed commit: <SHA>" when present; id = GraphQL node id
 #     "comments":  [...],
 #     "reactions": [{content, created_at}]              # +1 reaction on PR = silent ack — see PITFALL 4
@@ -53,7 +56,7 @@
 #     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]  # open alerts introduced by this PR
 #   },
 #   "quota_alerts": [...],                              # PR-level issue comments matching quota keywords (bots emit quota errors as plain comments, not reviews)
-#   "own_trigger_comments": [...]                       # human-authored /gemini review / @codex review / @coderabbitai resume
+#   "own_trigger_comments": [...]                       # human-authored /gemini review / @coderabbitai resume
 # }
 #
 # PITFALLS
@@ -71,7 +74,8 @@
 #    REST    `user.login`   = "coderabbitai[bot]" (with [bot] suffix).
 #    This script uses both endpoints; downstream consumers must use the right form for each datum.
 #
-# 4. Codex acks PR in 3 modes — all must be checked (see references/reviewers.md for full table):
+# 4. Codex is NOT integrated in this repo — the loop never triggers or waits on it. The 3 ack modes
+#    below only apply if/when the Codex GitHub App is later connected (see references/reviewers.md):
 #    (a) inline review with body "### 💡 Codex Review" + "Reviewed commit: <SHA>"
 #    (b) PR-level +1 reaction with NO comment (silent pass)
 #    (c) empty-body review (state=COMMENTED, body="") with no new inline
@@ -235,7 +239,9 @@ jq -n \
       end;
 
   def is_ack_body:
-    (test("<!--\\s*<review_comment_addressed>")) or (test("^### Summary"));
+    (test("<!--\\s*<review_comment_addressed>"))
+    or (test("<!--\\s*<review_comment_withdrawn>"))
+    or (test("^### Summary"));
 
   def inline_by_bot:
     [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]
@@ -338,7 +344,7 @@ jq -n \
            (.author.login != "coderabbitai"
             and .author.login != "gemini-code-assist"
             and .author.login != "chatgpt-codex-connector")
-           and (.body | test("^[ \\t]*(/gemini review|@codex review|@coderabbitai resume)(\\s|$)"; "i"))
+           and (.body | test("^[ \\t]*(/gemini review|@coderabbitai resume)(\\s|$)"; "i"))
          )
        | {author: .author.login, createdAt, body: (.body | gsub("^\\s+|\\s+$"; ""))}]
   }
