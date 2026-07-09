@@ -522,4 +522,42 @@ describe("useProjectEventsSSE", () => {
 
     expect(openSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("clears an already-pending reconnect timer when the project_deleted event arrives", async () => {
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    const closeMock = vi.fn();
+    const openSpy = vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: closeMock } as unknown as EventSource;
+    });
+
+    renderHarness("/");
+    expect(openSpy).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    try {
+      // 先触发一次普通 onError，排入 3s 后的重连定时器。
+      act(() => {
+        capturedOptions?.onError?.(new Event("error"));
+      });
+
+      // 定时器排队期间收到终止事件：onProjectDeleted 应清掉这个待触发的重连定时器，
+      // 而不仅是处理之后新触发的 onError（见上一条用例）。
+      act(() => {
+        capturedOptions?.onProjectDeleted?.(
+          { project_name: "demo" },
+          new MessageEvent("project_deleted"),
+        );
+      });
+
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // 若定时器未被清除，会在 3s 时触发 connect() 导致 openSpy 被再次调用。
+    expect(openSpy).toHaveBeenCalledTimes(1);
+  });
 });

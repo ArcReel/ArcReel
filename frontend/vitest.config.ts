@@ -31,6 +31,7 @@ export default defineConfig({
         "src/stores/**/*.ts",
         "src/hooks/useTasksSSE.ts",
         "src/hooks/useScrollTarget.ts",
+        "src/hooks/useProjectEventsSSE.ts",
         "src/router.tsx",
         "src/components/pages/ProjectsPage.tsx",
         "src/components/canvas/StudioCanvasRouter.tsx",
