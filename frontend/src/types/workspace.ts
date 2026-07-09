@@ -57,6 +57,11 @@ export interface ProjectEventSnapshotPayload {
   generated_at: string;
 }
 
+/** 项目事件流终止事件负载——项目目录被删除后下发，随后流正常结束。 */
+export interface ProjectDeletedPayload {
+  project_name: string;
+}
+
 export interface WorkspaceFocusTarget {
   request_id: string;
   type: "character" | "scene" | "prop" | "segment" | "grid" | "reference_unit";

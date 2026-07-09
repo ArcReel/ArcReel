@@ -22,6 +22,7 @@ import type {
   ProjectOverview,
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
+  ProjectDeletedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   SystemConfigPatch,
@@ -150,6 +151,8 @@ export interface ProjectEventStreamOptions {
   projectName: string;
   onSnapshot?: (payload: ProjectEventSnapshotPayload, event: MessageEvent) => void;
   onChanges?: (payload: ProjectChangeBatchPayload, event: MessageEvent) => void;
+  /** 项目目录被删除后收到一次，随后流正常结束（浏览器会紧接着触发一次 onError）。 */
+  onProjectDeleted?: (payload: ProjectDeletedPayload, event: MessageEvent) => void;
   onError?: (event: Event) => void;
 }
 
@@ -1485,6 +1488,7 @@ class API {
 
     source.addEventListener("snapshot", createHandler(options.onSnapshot));
     source.addEventListener("changes", createHandler(options.onChanges));
+    source.addEventListener("project_deleted", createHandler(options.onProjectDeleted));
 
     source.onerror = (event: Event) => {
       if (typeof options.onError === "function") {

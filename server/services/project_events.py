@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 PROJECT_EVENTS_POLL_SECONDS = 0.5
 
+# 项目目录被删除后向订阅者广播的终止事件名——流在其后正常结束（见 stream_events._iter）。
+PROJECT_DELETED_EVENT = "project_deleted"
+
+
 # 条目名词按骨架种类硬编码——用于分镜级事件标签（如「镜头「E1S01」」）。名词 i18n 化是
 # 独立议题（与 ``_diff_named_entities`` 的「角色」/「线索」同为既有硬编码形态），不在此处收敛。
 _SKELETON_ITEM_NOUNS: dict[str, str] = {
@@ -246,6 +250,9 @@ class ProjectEventService:
             yield ("snapshot", snapshot)
             async for item in sse.iterate(queue, idle_timeout=idle_timeout):
                 yield {"type": "_idle"} if item is IDLE else item
+                # 项目已被删除：终止事件之后流正常结束，不再等待下一条广播或空闲心跳。
+                if isinstance(item, tuple) and item[0] == PROJECT_DELETED_EVENT:
+                    return
 
         try:
             yield _iter()
@@ -332,6 +339,12 @@ class ProjectEventService:
         """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
         try:
             snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+        except FileNotFoundError:
+            if await asyncio.to_thread(self._project_directory_gone, project_name):
+                self._handle_project_deleted(project_name, channel)
+                return
+            logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+            return
         except Exception:
             logger.exception("构建显式项目事件快照失败 project=%s", project_name)
             return
@@ -357,6 +370,38 @@ class ProjectEventService:
         snapshot = self._build_snapshot(project_name)
         return snapshot, _fingerprint(snapshot)
 
+    def _project_directory_gone(self, project_name: str) -> bool:
+        """判定项目目录当前是否确已不存在（``get_project_path`` 语义）。
+
+        供扫描 / hint 重建路径捕获 ``FileNotFoundError`` 后做一次独立的现状复核，
+        与「project.json 等深层文件缺失但目录仍在」区分——后者维持现状，按通用
+        异常兜底记 ERROR，不触发终止流程。用复核而非扫描起点的一次性判断，是因为
+        目录删除（如 ``shutil.rmtree``）本身非原子：扫描可能在删除过程中的任意
+        中间状态命中 ``FileNotFoundError``（如 project.json 先于目录本身被移除），
+        起点检查会误判为「未删除」；复核反映的是异常发生后的当前实况。
+        """
+        try:
+            self.pm.get_project_path(project_name)
+        except FileNotFoundError:
+            return True
+        return False
+
+    def _handle_project_deleted(self, project_name: str, channel: _ProjectChannel) -> None:
+        """项目目录已被删除：终止该通道——广播终止事件、移出注册表、取消 watch task。
+
+        轮询扫描与 hint 重建两条路径都可能独立探测到同一次删除并落到本方法；
+        按「本通道是否仍是注册表现行通道」判定是否为首次终止，避免重复广播/
+        重复日志，也避免误杀同名项目重建后已注册的新通道。
+        """
+        if self._channels.get(project_name) is not channel:
+            return
+        self._channels.pop(project_name, None)
+        channel.sse.broadcast((PROJECT_DELETED_EVENT, {"project_name": project_name}))
+        logger.info("项目已被删除，终止事件流 project=%s", project_name)
+        task = channel.task
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
     async def _watch_project(self, project_name: str, channel: _ProjectChannel) -> None:
         try:
             while channel.sse.has_subscribers:
@@ -367,6 +412,11 @@ class ProjectEventService:
                     self._apply_scan_result(project_name, channel, snapshot, fingerprint)
                 except asyncio.CancelledError:
                     raise
+                except FileNotFoundError:
+                    if await asyncio.to_thread(self._project_directory_gone, project_name):
+                        self._handle_project_deleted(project_name, channel)
+                        return
+                    logger.exception("项目事件扫描失败 project=%s", project_name)
                 except Exception:
                     logger.exception("项目事件扫描失败 project=%s", project_name)
                 finally:

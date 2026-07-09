@@ -148,3 +148,43 @@ async def test_stream_project_events_breaks_on_disconnect_during_continuous_even
     with pytest.raises(StopAsyncIteration):
         await anext(stream)
     assert service.unsubscribed is True
+
+
+@pytest.mark.asyncio
+async def test_stream_project_events_ends_naturally_after_project_deleted_event():
+    """终止事件（project_deleted）之后流自然结束——非因客户端断线，路由层原样透传该事件。
+
+    ``_FakeRequest`` 永不断线（``disconnect_after=None``），流的结束只能来自
+    service 侧 ``_iter()`` 在终止事件后主动 return，验证路由层对该事件不作特殊拦截。
+    """
+
+    class _DeletedService:
+        def __init__(self):
+            self.unsubscribed = False
+            self.pm = _FakePM()
+
+        @contextlib.asynccontextmanager
+        async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0):
+            async def _iter():
+                yield ("snapshot", {"project_name": project_name, "fingerprint": "fp-0"})
+                yield ("project_deleted", {"project_name": project_name})
+
+            try:
+                yield _iter()
+            finally:
+                self.unsubscribed = True
+
+    service = _DeletedService()
+    app = SimpleNamespace(state=SimpleNamespace(project_event_service=service))
+    request = _FakeRequest(app)
+
+    stream = project_events_router.stream_project_events("demo", request, _user={"sub": "testuser"}, service=service)
+
+    assert (await anext(stream)).event == "snapshot"
+    deleted_event = await anext(stream)
+    assert deleted_event.event == "project_deleted"
+    assert deleted_event.data == {"project_name": "demo"}
+
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    assert service.unsubscribed is True

@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import shutil
 
 import pytest
 
@@ -10,6 +12,7 @@ from server.services.project_events import (
     _SKELETON_ANCHOR_TYPES,
     _SKELETON_ENTITY_TYPES,
     _SKELETON_ITEM_NOUNS,
+    PROJECT_DELETED_EVENT,
     ProjectEventService,
 )
 
@@ -937,3 +940,103 @@ class TestProjectEventService:
         assert any(
             c["entity_type"] == "shot" and c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes
         )
+
+    @pytest.mark.asyncio
+    async def test_watch_terminates_stream_when_project_directory_deleted(self, tmp_path, caplog):
+        """订阅存续期间删除项目目录：一个轮询周期内扫描终止——广播终止事件、
+        流正常结束、通道从注册表移除，仅记一条 INFO 日志，无 ERROR/traceback。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=0.05)
+        await service.start()
+
+        with caplog.at_level(logging.INFO, logger="server.services.project_events"):
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                first = await anext(stream)
+                assert first[0] == "snapshot"
+
+                shutil.rmtree(pm.get_project_path("demo"))
+
+                event_name, payload = await _next_event(stream, timeout=1.5)
+                assert event_name == PROJECT_DELETED_EVENT
+                assert payload == {"project_name": "demo"}
+
+                # 终止事件之后流正常结束（不是因为消费方主动断线）。
+                with pytest.raises(StopAsyncIteration):
+                    await anext(stream)
+
+        assert "demo" not in service._channels
+        assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+        info_records = [
+            record for record in caplog.records if record.levelno == logging.INFO and "已被删除" in record.message
+        ]
+        assert len(info_records) == 1
+
+        await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_watch_keeps_error_logging_when_only_project_json_missing(self, tmp_path, caplog):
+        """项目目录仍存在、仅 project.json 缺失——不属于本次修复范围：维持现状，
+        按通用异常兜底记 ERROR，通道不终止、继续轮询重试。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=0.05)
+        await service.start()
+
+        with caplog.at_level(logging.INFO, logger="server.services.project_events"):
+            async with service.stream_events("demo", idle_timeout=0.1):
+                (pm.get_project_path("demo") / ProjectManager.PROJECT_FILE).unlink()
+                # 等至少一个轮询周期，让扫描命中缺失的 project.json。
+                await asyncio.sleep(0.3)
+                assert "demo" in service._channels  # 通道未终止，仍在注册表中
+
+        assert any(record.levelno >= logging.ERROR for record in caplog.records)
+        assert not any("已被删除" in record.message for record in caplog.records)
+
+        await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_hint_rebuild_terminates_channel_without_error_when_project_deleted(self, tmp_path, caplog):
+        """hint 触发的显式重建路径对已删除项目同样走终止处理，不产生 ERROR 日志。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        # 轮询间隔调大，确保观察到的是 hint 路径而非后台轮询先行探测到删除。
+        service = ProjectEventService(tmp_path, poll_interval=5.0)
+        await service.start()
+
+        with caplog.at_level(logging.INFO, logger="server.services.project_events"):
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                first = await anext(stream)
+                assert first[0] == "snapshot"
+
+                shutil.rmtree(pm.get_project_path("demo"))
+
+                emit_project_change_batch(
+                    "demo",
+                    [
+                        {
+                            "entity_type": "segment",
+                            "action": "updated",
+                            "entity_id": "E1S01",
+                            "label": "分镜「E1S01」",
+                            "focus": None,
+                            "important": False,
+                        }
+                    ],
+                    source="worker",
+                )
+
+                event_name, payload = await _next_event(stream, timeout=1.5)
+                assert event_name == PROJECT_DELETED_EVENT
+                assert payload == {"project_name": "demo"}
+
+        assert "demo" not in service._channels
+        assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+
+        await service.shutdown()

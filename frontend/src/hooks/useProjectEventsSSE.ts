@@ -144,6 +144,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   const refreshingRef = useRef(false);
   const needsRefreshRef = useRef(false);
   const queuedFocusRef = useRef<WorkspaceNotificationTarget | null>(null);
+  // 项目已被删除（收到终止事件）：停止断线重连循环，不再对已删项目周期性发起请求。
+  const terminatedRef = useRef(false);
 
   const executeFocus = useCallback(
     (target: WorkspaceNotificationTarget) => {
@@ -208,6 +210,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     queuedFocusRef.current = null;
     needsRefreshRef.current = false;
     refreshingRef.current = false;
+    terminatedRef.current = false;
     clearScrollTarget();
     clearWorkspaceNotifications();
     return () => {
@@ -324,8 +327,23 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             useAppStore.getState().invalidateGrids();
           }
         },
+        onProjectDeleted() {
+          if (disposed) return;
+          // 项目目录已被删除：后端已正常关流，停止重连循环——不对已删项目周期性发起请求。
+          // 浏览器随后会因连接结束触发一次 onError；terminatedRef 拦住它排的重连。
+          terminatedRef.current = true;
+          if (reconnectTimerRef.current) {
+            clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+          }
+          if (sourceRef.current) {
+            sourceRef.current.close();
+            sourceRef.current = null;
+          }
+        },
         onError() {
           if (disposed) return;
+          if (terminatedRef.current) return;
           if (sourceRef.current) {
             sourceRef.current.close();
             sourceRef.current = null;
