@@ -364,3 +364,12 @@ class TestCheckTruncation:
         from lib.text_backends.base import check_truncation
 
         check_truncation(None, provider="ark", model="doubao", structured=True)
+
+    def test_truncated_error_is_non_retryable(self):
+        """TextOutputTruncatedError 须是 NonRetryableError,否则消息里的 output_tokens 整数
+        偶然命中 with_retry_async 的瞬态错误模式子串（如 429/500）时会被误判重试
+        （见 lib/retry.py::NonRetryableError）。"""
+        from lib.retry import NonRetryableError
+        from lib.text_backends.base import TextOutputTruncatedError
+
+        assert issubclass(TextOutputTruncatedError, NonRetryableError)

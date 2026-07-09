@@ -3,6 +3,7 @@
 不依赖任何特定供应商 SDK，可被所有后端复用。
 各供应商可通过 retryable_errors 参数注入自己的可重试异常类型，
 或通过 retry_if 谓词实现精细化的条件重试。
+继承 NonRetryableError 的异常类型始终不重试，不受消息文本模式匹配影响。
 """
 
 from __future__ import annotations
@@ -20,6 +21,17 @@ BASE_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     ConnectionError,
     TimeoutError,
 )
+
+
+class NonRetryableError(RuntimeError):
+    """标记基类：命中此类型的异常始终不重试。
+
+    _should_retry 的字符串模式匹配（RETRYABLE_STATUS_PATTERNS）按子串比对，若异常消息
+    恰好携带一个数值型细节（如 token 数、行号）而其十进制文本包含 "429"/"500" 等子串，
+    会被误判为瞬态错误进而重试——重发同一份必然复现同一错误的请求没有意义。需要绝对不
+    可重试语义的异常类型应继承本类，在模式匹配之前短路。
+    """
+
 
 # 字符串模式匹配：覆盖异常类型不在列表中但属于瞬态的情况（大小写不敏感）
 RETRYABLE_STATUS_PATTERNS = (
@@ -50,6 +62,8 @@ DOWNLOAD_BACKOFF_SECONDS: tuple[int, ...] = (5, 10, 20, 40)
 
 def _should_retry(exc: Exception, retryable_errors: tuple[type[Exception], ...]) -> bool:
     """判断异常是否应当重试。"""
+    if isinstance(exc, NonRetryableError):
+        return False
     if isinstance(exc, retryable_errors):
         return True
     error_lower = str(exc).lower()

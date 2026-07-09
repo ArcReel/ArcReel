@@ -11,6 +11,7 @@ from lib.retry import (
     DOWNLOAD_BACKOFF_SECONDS,
     DOWNLOAD_MAX_ATTEMPTS,
     RETRYABLE_STATUS_PATTERNS,
+    NonRetryableError,
     _should_retry,
     with_retry_async,
 )
@@ -78,6 +79,20 @@ class TestShouldRetry:
         assert _should_retry(MyError("oops"), (MyError,)) is True
         assert _should_retry(MyError("oops"), ()) is False
 
+    def test_non_retryable_error_short_circuits_pattern_match(self):
+        """NonRetryableError 即使消息文本偶然命中瞬态模式子串，也始终不重试。
+
+        回归场景：结构化输出截断错误的消息里嵌入任意 output_tokens 整数，若其十进制
+        文本恰好包含 "500"/"429" 等子串，字符串模式匹配会误判为瞬态错误进而重试。
+        """
+
+        class _Truncated(NonRetryableError):
+            pass
+
+        exc = _Truncated("provider/model 在 output_tokens=8500 处被截断")
+        assert "500" in str(exc)
+        assert _should_retry(exc, ()) is False
+
 
 class TestWithRetryAsync:
     """with_retry_async 装饰器测试。"""
@@ -128,6 +143,22 @@ class TestWithRetryAsync:
             return await mock_fn()
 
         with pytest.raises(ValueError, match="bad input"):
+            await fn()
+        assert mock_fn.call_count == 1
+
+    async def test_no_retry_on_non_retryable_despite_colliding_pattern(self):
+        """NonRetryableError 消息即使包含 "500" 子串也只调用一次，不重试。"""
+
+        class _Truncated(NonRetryableError):
+            pass
+
+        mock_fn = AsyncMock(side_effect=_Truncated("output_tokens=8500 处被截断"))
+
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
+        async def fn():
+            return await mock_fn()
+
+        with pytest.raises(_Truncated):
             await fn()
         assert mock_fn.call_count == 1
 

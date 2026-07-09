@@ -11,6 +11,8 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ValidationError
 
+from lib.retry import NonRetryableError
+
 _logger = logging.getLogger(__name__)
 
 # Chat Completions 输出上限参数名：官方 OpenAI 端点已弃用 max_tokens（推理模型
@@ -48,11 +50,16 @@ def warn_if_truncated(
     return False
 
 
-class TextOutputTruncatedError(RuntimeError):
+class TextOutputTruncatedError(NonRetryableError):
     """结构化输出被模型输出上限截断，结果不完整、不可直接使用。
 
     仅在请求带 response_schema（结构化输出诉求）时抛出；自由文本截断维持
     ``warn_if_truncated`` 的 log-only 告警，不升级为本异常（见 docs/adr/0044）。
+
+    继承 NonRetryableError（而非直接 RuntimeError）：消息内嵌的 output_tokens 是任意
+    整数，其十进制文本可能偶然包含 with_retry_async 瞬态错误模式的子串（如 429/500/
+    502/503/504），若不显式标记为不可重试，会被误判为瞬态错误进而在各后端的
+    @with_retry_async() 包裹下重发同一份必然再截断的请求。
     """
 
     def __init__(self, *, provider: str, model: str, output_tokens: int | None = None):

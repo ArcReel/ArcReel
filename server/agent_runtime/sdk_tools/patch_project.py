@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -205,6 +206,14 @@ def _format_overview_result(updated: dict[str, str]) -> str:
     return f"{icon} overview: {summary}"
 
 
+def _coerce_numeric_string(value: str, parser: Callable[[str], int | float], error_message: str) -> int | float:
+    """数字字符串按 parser strip 后解析为落盘用的数值,解析失败抛 error_message。"""
+    try:
+        return parser(value.strip())
+    except ValueError:
+        raise ValueError(error_message) from None
+
+
 def _coerce_setting_value(key: str, value: Any) -> Any:
     """settings 字段值类型校验，返回落盘用的值。新增白名单字段时在此 dispatch。
 
@@ -217,11 +226,7 @@ def _coerce_setting_value(key: str, value: Any) -> Any:
         if value is None:
             return None
         if isinstance(value, str):
-            stripped = value.strip()
-            try:
-                value = int(stripped)
-            except ValueError:
-                raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}") from None
+            value = _coerce_numeric_string(value, int, f"{key} 必须是正整数或 null,收到 {value!r}")
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}")
         return value
@@ -247,11 +252,7 @@ def _coerce_setting_value(key: str, value: Any) -> Any:
         if value is None:
             return None
         if isinstance(value, str):
-            stripped = value.strip()
-            try:
-                value = float(stripped)
-            except ValueError:
-                raise ValueError(f"narration_speed 必须是正的有限数值或 null,收到 {value!r}") from None
+            value = _coerce_numeric_string(value, float, f"narration_speed 必须是正的有限数值或 null,收到 {value!r}")
         is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
         try:
             is_valid = is_number and math.isfinite(value) and value > 0
