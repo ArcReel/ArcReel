@@ -32,7 +32,12 @@ from lib.episode_ledger import (
 )
 from lib.episode_paths import episode_script_relpath
 from lib.project_manager import ProjectManager, resolve_source_kind
-from lib.text_backends.base import TextGenerationRequest, TextTaskType
+from lib.text_backends.base import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    TextGenerationRequest,
+    TextOutputTruncatedError,
+    TextTaskType,
+)
 from lib.text_generator import TextGenerator
 from lib.text_metrics import count_reading_units, reading_unit_noun
 from lib.text_utils import strip_json_code_fences
@@ -42,8 +47,6 @@ logger = logging.getLogger(__name__)
 # 窗口/批量内部默认值；project.json 顶层同名字段可覆盖
 DEFAULT_PLANNING_WINDOW_CHARS = 30000
 DEFAULT_PLANNING_MAX_EPISODES = 20
-
-PLANNING_MAX_OUTPUT_TOKENS = 16000
 
 # LLM 输出未通过 schema / 机械校验时的总尝试次数（含首次）
 _MAX_PLAN_ATTEMPTS = 3
@@ -726,19 +729,30 @@ class EpisodePlanner:
         snap_whitespace_tail: bool = False,
         max_episodes: int | None,
     ) -> tuple[list[NarrationEpisodeDraft], list[int], BaseModel]:
-        """LLM 调用 + schema/机械校验循环；重试 prompt 附上一轮失败原因。"""
+        """LLM 调用 + schema/机械校验循环；重试 prompt 附上一轮失败原因。
+
+        结构化输出被输出上限截断时 :class:`TextOutputTruncatedError` 直接短路本循环——
+        重发同一份必然再截断的请求没有意义；追加本规划器特有的杠杆提示（调小窗口字数 /
+        每批集数）后转为 :class:`EpisodePlanningError` 冒泡（见 docs/adr/0044）。
+        """
         if self.generator is None:
             raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
         failure: list[str] | None = None
         for attempt in range(1, self.max_attempts + 1):
-            result = await self.generator.generate(
-                TextGenerationRequest(
-                    prompt=prompt_builder(failure),
-                    response_schema=draft_model,
-                    max_output_tokens=PLANNING_MAX_OUTPUT_TOKENS,
-                ),
-                project_name=self.project_name,
-            )
+            try:
+                result = await self.generator.generate(
+                    TextGenerationRequest(
+                        prompt=prompt_builder(failure),
+                        response_schema=draft_model,
+                        max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+                    ),
+                    project_name=self.project_name,
+                )
+            except TextOutputTruncatedError as exc:
+                raise EpisodePlanningError(
+                    f"{exc}也可调小项目设置 planning_window_chars（单批窗口字数）或 "
+                    "planning_max_episodes（单批集数上限）以缩小本批输出体量后重试。"
+                ) from exc
             try:
                 draft = self._parse_draft(result.text, draft_model)
                 drafts = list(getattr(draft, "episodes"))

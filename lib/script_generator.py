@@ -49,15 +49,11 @@ from lib.script_models import (
     merge_drama_visual_into_scenes,
 )
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
-from lib.text_backends.base import TextGenerationRequest, TextTaskType
+from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
 
 logger = logging.getLogger(__name__)
-
-# 大型 JSON 剧本输出上限：22+ 场景典型约 14K token，留 2× 安全边际。
-# 注意：受各模型硬上限约束（如 doubao-seed-1-8 ~8192），需选择支持 ≥16K 输出的模型。
-SCRIPT_MAX_OUTPUT_TOKENS = 32000
 
 # 集号前缀正则：仅匹配 `E{数字}` + 紧随 S/U（segment/scene 用 S，video_unit 用 U），
 # 保留后缀（如 `E1S03_2` → `E2S03_2`）。设计契约见 lib/script_models.py。
@@ -298,7 +294,7 @@ class ScriptGenerator:
             TextGenerationRequest(
                 prompt=self._build_drama_step2_prompt(content_scenes, episode),
                 response_schema=DramaVisualScript,
-                max_output_tokens=SCRIPT_MAX_OUTPUT_TOKENS,
+                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=self.project_path.name,
         )
@@ -370,7 +366,7 @@ class ScriptGenerator:
             TextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=SCRIPT_MAX_OUTPUT_TOKENS,
+                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=project_name,
         )

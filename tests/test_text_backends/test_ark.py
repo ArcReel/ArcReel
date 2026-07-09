@@ -221,6 +221,33 @@ class TestCapabilityAwareStructured:
 
         assert any("被截断" in r.message for r in caplog.records)
 
+    async def test_native_structured_truncation_raises_and_skips_instructor_fallback(
+        self, backend_with_structured, sync_to_thread
+    ):
+        """原生 structured 通道截断直接抛 TextOutputTruncatedError，不降级到 Instructor 重试。"""
+        from lib.text_backends.base import TextOutputTruncatedError
+
+        mock_resp = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="partial"),
+                    finish_reason="length",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=8192),
+        )
+        backend_with_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        with patch("lib.text_backends.instructor_support.instructor_fallback_sync") as mock_fallback:
+            with pytest.raises(TextOutputTruncatedError) as exc_info:
+                await backend_with_structured.generate(
+                    TextGenerationRequest(prompt="gen", response_schema={"type": "object"})
+                )
+            mock_fallback.assert_not_called()
+
+        assert exc_info.value.provider == "ark"
+        assert exc_info.value.model == "mock-model-with-structured"
+
     async def test_max_output_tokens_plain(self, backend_no_structured, sync_to_thread):
         """plain 路径透传 max_tokens。"""
         mock_resp = SimpleNamespace(

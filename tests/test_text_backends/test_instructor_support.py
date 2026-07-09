@@ -3,8 +3,11 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from instructor.core import IncompleteOutputException
 from pydantic import BaseModel
 
+from lib.text_backends.base import TextOutputTruncatedError
 from lib.text_backends.instructor_support import (
     generate_structured_via_instructor,
     generate_structured_via_instructor_async,
@@ -153,6 +156,26 @@ class TestGenerateStructuredViaInstructor:
             assert call_kwargs["max_completion_tokens"] == 1234
             assert "max_tokens" not in call_kwargs
 
+    def test_incomplete_output_maps_to_truncated_error(self):
+        """Instructor 的 IncompleteOutputException（max_tokens 截断）归一为 TextOutputTruncatedError。"""
+        with patch("lib.text_backends.instructor_support.instructor") as mock_instructor:
+            mock_patched = MagicMock()
+            mock_instructor.from_openai.return_value = mock_patched
+            mock_patched.chat.completions.create_with_completion.side_effect = IncompleteOutputException()
+
+            with pytest.raises(TextOutputTruncatedError) as exc_info:
+                generate_structured_via_instructor(
+                    client=MagicMock(),
+                    model="test-model",
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=SampleModel,
+                    provider="test-provider",
+                )
+
+        assert exc_info.value.provider == "test-provider"
+        assert exc_info.value.model == "test-model"
+        assert isinstance(exc_info.value.__cause__, IncompleteOutputException)
+
 
 class TestGenerateStructuredViaInstructorAsync:
     async def test_explicit_token_param_max_completion_tokens(self):
@@ -177,6 +200,25 @@ class TestGenerateStructuredViaInstructorAsync:
             call_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
             assert call_kwargs["max_completion_tokens"] == 2345
             assert "max_tokens" not in call_kwargs
+
+    async def test_incomplete_output_maps_to_truncated_error(self):
+        """异步版 IncompleteOutputException 同样归一为 TextOutputTruncatedError。"""
+        with patch("lib.text_backends.instructor_support.instructor") as mock_instructor:
+            mock_patched = MagicMock()
+            mock_instructor.from_openai.return_value = mock_patched
+            mock_patched.chat.completions.create_with_completion = AsyncMock(side_effect=IncompleteOutputException())
+
+            with pytest.raises(TextOutputTruncatedError) as exc_info:
+                await generate_structured_via_instructor_async(
+                    client=AsyncMock(),
+                    model="async-model",
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=SampleModel,
+                    provider="async-provider",
+                )
+
+        assert exc_info.value.provider == "async-provider"
+        assert exc_info.value.model == "async-model"
 
 
 class TestInstructorFallbackSync:
@@ -294,6 +336,29 @@ class TestInstructorFallbackSync:
         assert call_kwargs["max_completion_tokens"] == 500
         assert "max_tokens" not in call_kwargs
 
+    def test_dict_schema_truncation_raises(self):
+        """dict schema（response_schema 非空，无 Pydantic 模型）截断同样升级为硬错误。"""
+        mock_client = MagicMock()
+        mock_response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content="partial"), finish_reason="length"),
+            ],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=999),
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with pytest.raises(TextOutputTruncatedError) as exc_info:
+            instructor_fallback_sync(
+                client=mock_client,
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_schema={"type": "object"},
+                provider="test-provider",
+            )
+
+        assert exc_info.value.provider == "test-provider"
+        assert exc_info.value.model == "test-model"
+
 
 class TestInstructorFallbackAsync:
     """instructor_fallback_async 高层函数测试。"""
@@ -407,3 +472,26 @@ class TestInstructorFallbackAsync:
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["max_completion_tokens"] == 600
         assert "max_tokens" not in call_kwargs
+
+    async def test_dict_schema_truncation_raises_async(self):
+        """异步 dict schema 截断同样升级为硬错误。"""
+        mock_client = AsyncMock()
+        mock_response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content="partial"), finish_reason="length"),
+            ],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=999),
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with pytest.raises(TextOutputTruncatedError) as exc_info:
+            await instructor_fallback_async(
+                client=mock_client,
+                model="async-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_schema={"type": "object"},
+                provider="async-provider",
+            )
+
+        assert exc_info.value.provider == "async-provider"
+        assert exc_info.value.model == "async-model"

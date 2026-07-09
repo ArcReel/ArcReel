@@ -19,11 +19,11 @@ from .base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    check_truncation,
     is_valid_json,
     resolve_schema,
     structured_fallback_reason,
     summarize_validation_error,
-    warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
@@ -199,7 +199,7 @@ class GeminiTextBackend:
         降级也包进重试范围，降级尝试的失败会连带重放已成功的原生调用（重试叠乘），且降级
         穷尽的 ValueError 消息含模型侧动态文本，可能误中重试判定的字符串模式。
         """
-        native = await self._generate_native(request)
+        native = await self._generate_native(request, structured=bool(request.response_schema))
 
         if request.response_schema:
             # 成功路径复验：HTTP 200 后校验返回是否真满足 schema。中转/代理可能静默忽略
@@ -221,8 +221,13 @@ class GeminiTextBackend:
         return native
 
     @with_retry_async()
-    async def _generate_native(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """单次原生 SDK 调用：构造 config/contents、发请求、截断告警与瞬态错误重试。"""
+    async def _generate_native(self, request: TextGenerationRequest, *, structured: bool) -> TextGenerationResult:
+        """单次原生 SDK 调用：构造 config/contents、发请求、截断处理与瞬态错误重试。
+
+        ``structured`` 由调用方按本次 generate() 的原始请求诉求传入，与 ``request.response_schema``
+        本身解耦——:meth:`_prompt_json_fallback` 会把 ``response_schema`` 置空后仍复用本方法
+        （schema 已改写进 prompt），但那仍是一次结构化输出尝试，截断同样要硬错误而非仅告警。
+        """
         config = self._build_config(
             request.response_schema,
             request.system_prompt,
@@ -253,11 +258,12 @@ class GeminiTextBackend:
         if candidates:
             finish_reason = getattr(candidates[0], "finish_reason", None)
             # Gemini finish_reason 可能是枚举对象，转 str 后再比对
-            warn_if_truncated(
+            check_truncation(
                 str(finish_reason).rsplit(".", 1)[-1] if finish_reason is not None else None,
                 provider=PROVIDER_GEMINI,
                 model=self._model,
                 output_tokens=output_tokens,
+                structured=structured,
             )
 
         return TextGenerationResult(
@@ -292,9 +298,10 @@ class GeminiTextBackend:
         last_reason = ""
         for _attempt in range(_FALLBACK_MAX_ATTEMPTS):
             fb_request = replace(request, prompt=base_prompt + feedback, response_schema=None)
-            # 直调 _generate_native 复用日志、截断告警与瞬态错误重试；不经 generate 的
-            # 复验分支，每次降级尝试只产生自己这一层的重试，不与外层调用叠乘。
-            fb_result = await self._generate_native(fb_request)
+            # 直调 _generate_native 复用日志、截断处理与瞬态错误重试；不经 generate 的
+            # 复验分支，每次降级尝试只产生自己这一层的重试，不与外层调用叠乘。structured
+            # 固定 True：response_schema 虽已置空改走 prompt 注入，这仍是一次结构化输出尝试。
+            fb_result = await self._generate_native(fb_request, structured=True)
             if fb_result.input_tokens is not None or total_input is not None:
                 total_input = (total_input or 0) + (fb_result.input_tokens or 0)
             if fb_result.output_tokens is not None or total_output is not None:

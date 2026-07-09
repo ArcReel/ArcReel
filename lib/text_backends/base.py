@@ -29,7 +29,9 @@ def warn_if_truncated(
 ) -> bool:
     """检测模型响应是否因 token 上限被截断，若是则 logger.warning。
 
-    返回 True 表示被截断（供调用方用于进一步处理）。
+    返回 True 表示被截断（供调用方用于进一步处理）。自由文本（无 response_schema）
+    的截断处理到此为止，仅告警不抛错；结构化输出的截断须走 :func:`check_truncation`
+    升级为硬错误。
     """
     if finish_reason is None:
         return False
@@ -44,6 +46,60 @@ def warn_if_truncated(
         )
         return True
     return False
+
+
+class TextOutputTruncatedError(RuntimeError):
+    """结构化输出被模型输出上限截断，结果不完整、不可直接使用。
+
+    仅在请求带 response_schema（结构化输出诉求）时抛出；自由文本截断维持
+    ``warn_if_truncated`` 的 log-only 告警，不升级为本异常（见 docs/adr/0044）。
+    """
+
+    def __init__(self, *, provider: str, model: str, output_tokens: int | None = None):
+        self.provider = provider
+        self.model = model
+        self.output_tokens = output_tokens
+        super().__init__(
+            f"{provider}/{model} 的结构化输出在 output_tokens={output_tokens} 处被模型输出上限截断，"
+            "内容不完整。请改用输出能力更高的文本模型。"
+        )
+
+
+# 文本输出上限：非约束安全阀，仅防模型退化性 runaway，不是功能预算——分集规划、剧本生成、
+# drama step1 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
+# 只有病态超大批量，或用户配置了输出能力偏低的模型时才会命中。三处共用同一常量，调整只改
+# 这一处（见 docs/adr/0044）。
+DEFAULT_MAX_OUTPUT_TOKENS = 64000
+
+
+def check_truncation(
+    finish_reason: str | None,
+    *,
+    provider: str,
+    model: str,
+    structured: bool,
+    output_tokens: int | None = None,
+    truncation_values: tuple[str, ...] = ("length", "MAX_TOKENS", "max_tokens"),
+) -> None:
+    """检测输出截断：结构化输出（``structured=True``）截断是硬错误，自由文本仅告警。
+
+    ``structured`` 由调用方按本次 ``generate()`` 的原始请求是否带 response_schema 传入——
+    判断口径是"这次生成诉求"而非"这次具体 wire 调用是否真的带了 schema 参数"，故内部降级
+    路径即使为兜底策略（如把 schema 写进 prompt）临时清空了 response_schema，仍应把
+    ``structured=True`` 显式传下来。
+
+    截断即抛 :class:`TextOutputTruncatedError`，天然短路调用方的校验重试循环——重发同一份
+    必然再截断的请求没有意义（见 docs/adr/0044）。
+    """
+    truncated = warn_if_truncated(
+        finish_reason,
+        provider=provider,
+        model=model,
+        output_tokens=output_tokens,
+        truncation_values=truncation_values,
+    )
+    if truncated and structured:
+        raise TextOutputTruncatedError(provider=provider, model=model, output_tokens=output_tokens)
 
 
 class TextCapability(StrEnum):

@@ -836,11 +836,18 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is True
         assert "source_language" not in ctx.pm.load_project("demo")
 
-    @pytest.mark.parametrize("bad_value", ["1000", 0, -5, 1.5, True])
+    @pytest.mark.parametrize("bad_value", [0, -5, 1.5, True, "10.5", "10.0", "abc", ""])
     async def test_invalid_value_rejected(self, ctx: ToolContext, bad_value: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": bad_value}})
         assert out.get("is_error") is True
         assert "episode_target_units" not in ctx.pm.load_project("demo")
+
+    @pytest.mark.parametrize("key", ["episode_target_units", "planning_window_chars", "planning_max_episodes"])
+    async def test_positive_int_setting_accepts_digit_string(self, ctx: ToolContext, key: str) -> None:
+        """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；数字字符串按落盘用 int 容忍。"""
+        out = await _call(patch_project_tool(ctx), {"settings": {key: "10"}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")[key] == 10
 
     @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
     async def test_set_and_clear_planning_overrides(self, ctx: ToolContext, key: str) -> None:
@@ -853,7 +860,7 @@ class TestPatchProjectSettings:
         assert key not in ctx.pm.load_project("demo")
 
     @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
-    @pytest.mark.parametrize("bad_value", ["10", 0, -1, 2.5, True])
+    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True, "10.5", "10.0", "abc", ""])
     async def test_invalid_planning_override_rejected(self, ctx: ToolContext, key: str, bad_value: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {key: bad_value}})
         assert out.get("is_error") is True
@@ -918,6 +925,12 @@ class TestPatchProjectNarrationSettings:
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["narration_speed"] == speed
 
+    async def test_narration_speed_accepts_numeric_string(self, ctx: ToolContext) -> None:
+        """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；有限数值字符串按落盘用 float 容忍。"""
+        out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": "1.5"}})
+        assert out.get("is_error") is not True
+        assert ctx.pm.load_project("demo")["narration_speed"] == 1.5
+
     async def test_clear_narration_speed(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"settings": {"narration_speed": 1.2}})
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": None}})
@@ -925,7 +938,7 @@ class TestPatchProjectNarrationSettings:
         assert "narration_speed" not in ctx.pm.load_project("demo")
         assert "已清除" in _text(out)
 
-    @pytest.mark.parametrize("bad", [0, -1.5, float("inf"), float("nan"), True, False, "1.2", "fast", [1.2], 10**400])
+    @pytest.mark.parametrize("bad", [0, -1.5, float("inf"), float("nan"), True, False, "fast", "", [1.2], 10**400])
     async def test_invalid_narration_speed_rejected(self, ctx: ToolContext, bad: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": bad}})
         assert out.get("is_error") is True

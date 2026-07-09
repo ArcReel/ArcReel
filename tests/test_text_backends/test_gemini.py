@@ -86,6 +86,40 @@ class TestGenerate:
         assert config["response_mime_type"] == "application/json"
         assert config["response_json_schema"] == schema
 
+    async def test_structured_truncation_raises(self, backend):
+        """结构化输出被 MAX_TOKENS 截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。"""
+        from lib.text_backends.base import TextOutputTruncatedError
+
+        mock_resp = SimpleNamespace(
+            text='{"key": "value"}',
+            usage_metadata=SimpleNamespace(prompt_token_count=20, candidates_token_count=10),
+            candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")],
+        )
+        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        schema = {"type": "object", "properties": {"key": {"type": "string"}}}
+        with pytest.raises(TextOutputTruncatedError) as exc_info:
+            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
+
+        assert exc_info.value.provider == "gemini"
+
+    async def test_free_text_truncation_only_warns(self, backend, caplog):
+        """自由文本（无 response_schema）被截断时维持 log-only 告警，不抛错。"""
+        import logging
+
+        mock_resp = SimpleNamespace(
+            text="partial",
+            usage_metadata=SimpleNamespace(prompt_token_count=20, candidates_token_count=10),
+            candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")],
+        )
+        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        with caplog.at_level(logging.WARNING, logger="lib.text_backends.base"):
+            result = await backend.generate(TextGenerationRequest(prompt="gen"))
+
+        assert result.text == "partial"
+        assert any("被截断" in r.message for r in caplog.records)
+
     async def test_structured_output_pydantic_class_resolved_to_json_schema(self, backend):
         """传入 Pydantic 类时解析为 JSON Schema dict 走 response_json_schema。
 

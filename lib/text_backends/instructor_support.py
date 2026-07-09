@@ -6,11 +6,18 @@ import logging
 
 import instructor
 from instructor import Mode
+from instructor.core import IncompleteOutputException
 from pydantic import BaseModel
 
-from lib.text_backends.base import TextGenerationResult, TokenParam
+from lib.text_backends.base import TextGenerationResult, TextOutputTruncatedError, TokenParam, check_truncation
 
 logger = logging.getLogger(__name__)
+
+
+def _output_tokens_from_incomplete(exc: IncompleteOutputException) -> int | None:
+    """尽力从截断异常携带的部分响应里取 output_tokens，取不到则 None（不阻断异常转换）。"""
+    usage = getattr(getattr(exc, "last_completion", None), "usage", None)
+    return getattr(usage, "completion_tokens", None) if usage else None
 
 
 def generate_structured_via_instructor(
@@ -22,11 +29,14 @@ def generate_structured_via_instructor(
     max_retries: int = 2,
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
+    provider: str = "",
 ) -> tuple[str, int | None, int | None]:
     """通过 Instructor 生成结构化输出（同步版，供 Ark 等同步 SDK 使用）。
 
     token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
-    返回 (json_text, input_tokens, output_tokens)。
+    返回 (json_text, input_tokens, output_tokens)。Instructor 的
+    ``IncompleteOutputException``（输出被 max_tokens 截断）归一为 :class:`TextOutputTruncatedError`，
+    与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
     if patched is None:
@@ -35,13 +45,18 @@ def generate_structured_via_instructor(
             "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
         )
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
-    result, completion = patched.chat.completions.create_with_completion(
-        model=model,
-        messages=messages,  # type: ignore[arg-type]
-        response_model=response_model,
-        max_retries=max_retries,
-        **extra,
-    )
+    try:
+        result, completion = patched.chat.completions.create_with_completion(
+            model=model,
+            messages=messages,  # type: ignore[arg-type]
+            response_model=response_model,
+            max_retries=max_retries,
+            **extra,
+        )
+    except IncompleteOutputException as exc:
+        raise TextOutputTruncatedError(
+            provider=provider, model=model, output_tokens=_output_tokens_from_incomplete(exc)
+        ) from exc
     json_text = result.model_dump_json()
 
     input_tokens = None
@@ -62,11 +77,14 @@ async def generate_structured_via_instructor_async(
     max_retries: int = 2,
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
+    provider: str = "",
 ) -> tuple[str, int | None, int | None]:
     """通过 Instructor 生成结构化输出（异步版，供 OpenAI AsyncOpenAI 使用）。
 
     token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
-    返回 (json_text, input_tokens, output_tokens)。
+    返回 (json_text, input_tokens, output_tokens)。Instructor 的
+    ``IncompleteOutputException``（输出被 max_tokens 截断）归一为 :class:`TextOutputTruncatedError`，
+    与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
     patched = instructor.from_openai(client, mode=mode)
     if patched is None:
@@ -75,13 +93,18 @@ async def generate_structured_via_instructor_async(
             "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
         )
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
-    result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]
-        model=model,
-        messages=messages,  # type: ignore[arg-type]
-        response_model=response_model,
-        max_retries=max_retries,
-        **extra,
-    )
+    try:
+        result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]
+            model=model,
+            messages=messages,  # type: ignore[arg-type]
+            response_model=response_model,
+            max_retries=max_retries,
+            **extra,
+        )
+    except IncompleteOutputException as exc:
+        raise TextOutputTruncatedError(
+            provider=provider, model=model, output_tokens=_output_tokens_from_incomplete(exc)
+        ) from exc
     json_text = result.model_dump_json()
 
     input_tokens = None
@@ -136,6 +159,7 @@ def instructor_fallback_sync(
             response_model=response_schema,
             max_tokens=max_tokens,
             token_param=token_param,
+            provider=provider,
         )
         return TextGenerationResult(
             text=json_text,
@@ -159,13 +183,14 @@ def instructor_fallback_sync(
     choice = response.choices[0]
     text = choice.message.content or ""
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
-    from lib.text_backends.base import warn_if_truncated
-
-    warn_if_truncated(
+    # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
+    # Instructor 通道），截断同样升级为硬错误。
+    check_truncation(
         getattr(choice, "finish_reason", None),
         provider=provider,
         model=model,
         output_tokens=output_tokens,
+        structured=True,
     )
     return TextGenerationResult(
         text=text.strip() if isinstance(text, str) else str(text),
@@ -203,6 +228,7 @@ async def instructor_fallback_async(
             response_model=response_schema,
             max_tokens=max_tokens,
             token_param=token_param,
+            provider=provider,
         )
         return TextGenerationResult(
             text=json_text,
@@ -226,13 +252,14 @@ async def instructor_fallback_async(
     choice = response.choices[0]
     text = choice.message.content or ""
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
-    from lib.text_backends.base import warn_if_truncated
-
-    warn_if_truncated(
+    # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
+    # Instructor 通道），截断同样升级为硬错误。
+    check_truncation(
         getattr(choice, "finish_reason", None),
         provider=provider,
         model=model,
         output_tokens=output_tokens,
+        structured=True,
     )
     return TextGenerationResult(
         text=text.strip() if isinstance(text, str) else str(text),

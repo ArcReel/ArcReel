@@ -412,6 +412,33 @@ class TestPlan:
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
+    async def test_plan_truncation_short_circuits_retry_and_hints_leverage(self, tmp_path: Path):
+        """结构化输出被截断时不重试，直接冒泡 EpisodePlanningError 并附带调小窗口/集数的提示（见 docs/adr/0044）。"""
+        from lib.text_backends.base import TextOutputTruncatedError
+
+        class _TruncatingGenerator:
+            model = "fake-model"
+
+            def __init__(self):
+                self.call_count = 0
+
+            async def generate(self, request, project_name=None):
+                self.call_count += 1
+                raise TextOutputTruncatedError(provider="fake", model="fake-model", output_tokens=64000)
+
+        project_dir = _write_project(tmp_path)
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        fake = _TruncatingGenerator()
+
+        with pytest.raises(EpisodePlanningError) as exc_info:
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        # 截断不重试：只发生一次调用，不像 schema/机械校验失败那样耗尽 max_attempts
+        assert fake.call_count == 1
+        assert "planning_window_chars" in str(exc_info.value)
+        assert "planning_max_episodes" in str(exc_info.value)
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+
     async def test_plan_accepts_uppercase_json_fence(self, tmp_path: Path):
         """模型输出大写 ```JSON 围栏也能解析（围栏标记不区分大小写）。"""
         project_dir = _write_project(tmp_path)

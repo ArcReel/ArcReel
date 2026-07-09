@@ -23,7 +23,7 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 # 资产表清单从 ASSET_SPECS 派生，新增资产类型时 schema enum 自动跟进。
 _TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 
-# 顶层 settings 白名单。新增项 append 到 tuple,并在 _validate_setting_value 加分支。
+# 顶层 settings 白名单。新增项 append 到 tuple,并在 _coerce_setting_value 加分支。
 # source_language: overview 生成是非必经路径(generate_overview=false / overview 失败时
 # 源语言不会落盘),需要给 agent 在用户确认后写入的恢复通道,带 zh/en/vi enum 校验防乱填。
 # planning_window_chars / planning_max_episodes: 分集规划工具的窗口字数与每批集数覆盖项,
@@ -125,20 +125,23 @@ def _apply_settings(ctx: ToolContext, settings: dict[str, Any]) -> dict[str, Any
 
     返回 { field: ('set', new_value) | ('clear', None) | ('noop', current_value) } 诊断 dict,
     供 _format_settings_result 渲染。整体在校验失败时不落盘(ValueError 冒到 handler 走 tool_error)。
+    数字类字段的字符串形态（如 "10"）在校验阶段一并转换为落盘用的 int/float,写入的是
+    转换后的值,不是原始字符串——见 _coerce_setting_value。
     """
+    coerced: dict[str, Any] = {}
     for key, value in settings.items():
         if key not in _SETTINGS_WHITELIST:
             raise ValueError(f"settings 字段 {key!r} 不在白名单 {list(_SETTINGS_WHITELIST)} 内")
-        _validate_setting_value(key, value)
+        coerced[key] = _coerce_setting_value(key, value)
 
     diagnostics: dict[str, tuple[str, Any]] = {}
 
     def _mutate(project: dict[str, Any]) -> None:
         # brief 仅广告/短片项目可用（与 DataValidator / 路由层同一约束），
         # 在持锁读到 content_mode 后门控，整体失败不落盘
-        if "brief" in settings and project.get("content_mode") != "ad":
+        if "brief" in coerced and project.get("content_mode") != "ad":
             raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
-        for key, value in settings.items():
+        for key, value in coerced.items():
             current = project.get(key)
             if value is None:
                 if key in project:
@@ -202,35 +205,53 @@ def _format_overview_result(updated: dict[str, str]) -> str:
     return f"{icon} overview: {summary}"
 
 
-def _validate_setting_value(key: str, value: Any) -> None:
-    """settings 字段值类型校验。新增白名单字段时在此 dispatch。"""
+def _coerce_setting_value(key: str, value: Any) -> Any:
+    """settings 字段值类型校验，返回落盘用的值。新增白名单字段时在此 dispatch。
+
+    MCP 工具的 ``settings`` 入参是无逐字段类型声明的泛型 object，模型常把数字加引号传入
+    （如 ``"10"``）；正整数三项与 ``narration_speed`` 据此额外容忍对应形态的数字字符串,
+    strip 后按目标数值类型解析——解析失败或数值本身非法一律 raise，不静默放行非数字字符串
+    （如 "10.5"/"10.0"/"abc"/""）。原有 int / float / null 输入行为不变，布尔仍被拒。
+    """
     if key in _POSITIVE_INT_SETTINGS:
         if value is None:
-            return
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            try:
+                value = int(stripped)
+            except ValueError:
+                raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}") from None
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}")
-        return
+        return value
     if key == "source_language":
         if value is None:
-            return
+            return None
         if not isinstance(value, str) or value not in _SOURCE_LANGUAGE_VALUES:
             raise ValueError(f"source_language 必须是 {list(_SOURCE_LANGUAGE_VALUES)} 之一或 null,收到 {value!r}")
-        return
+        return value
     if key == "brief":
         if value is None:
-            return
+            return None
         if not isinstance(value, str):
             raise ValueError(f"brief 必须是字符串或 null,收到 {value!r}")
-        return
+        return value
     if key == "narration_voice":
         if value is None:
-            return
+            return None
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"narration_voice 必须是非空字符串或 null,收到 {value!r}")
-        return
+        return value
     if key == "narration_speed":
         if value is None:
-            return
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            try:
+                value = float(stripped)
+            except ValueError:
+                raise ValueError(f"narration_speed 必须是正的有限数值或 null,收到 {value!r}") from None
         is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
         try:
             is_valid = is_number and math.isfinite(value) and value > 0
@@ -239,7 +260,7 @@ def _validate_setting_value(key: str, value: Any) -> None:
             is_valid = False
         if not is_valid:
             raise ValueError(f"narration_speed 必须是正的有限数值或 null,收到 {value!r}")
-        return
+        return value
     # 不应到这,白名单校验在调用前
     raise ValueError(f"settings 字段 {key!r} 缺类型校验")
 

@@ -30,7 +30,7 @@ from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
 from lib.prompt_builders_script import build_normalize_prompt
 from lib.script_generator import ScriptGenerator
 from lib.script_models import build_drama_normalized_script_model
-from lib.text_backends.base import TextGenerationRequest, TextTaskType
+from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
 from server.agent_runtime.sdk_tools._context import ToolContext, fetch_video_caps, tool_error
@@ -38,10 +38,6 @@ from server.agent_runtime.sdk_tools._context import ToolContext, fetch_video_cap
 logger = logging.getLogger(__name__)
 
 _FALLBACK_SUPPORTED_DURATIONS: list[int] = [4, 6, 8]
-
-# step1 结构化内容（utterances + source_text 逐字 + 视觉描述）比旧 markdown 表更长，
-# 且 source_text 逐字摘录原文，输出体量接近原文级；放宽上限避免长集被截断。
-_NORMALIZE_MAX_OUTPUT_TOKENS = 32000
 
 
 def _parse_normalized_content(response_text: str, model: type[BaseModel]) -> dict:
@@ -382,7 +378,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 TextGenerationRequest(
                     prompt=prompt,
                     response_schema=schema,
-                    max_output_tokens=_NORMALIZE_MAX_OUTPUT_TOKENS,
+                    max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
                 ),
                 project_name=ctx.project_name,
             )

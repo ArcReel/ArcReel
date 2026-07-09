@@ -14,7 +14,7 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
-    warn_if_truncated,
+    check_truncation,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,11 +115,12 @@ class GrokTextBackend:
             choices = getattr(response, "choices", None) or []
             if choices:
                 finish_reason = getattr(choices[0], "finish_reason", None)
-        warn_if_truncated(
+        check_truncation(
             finish_reason,
             provider=PROVIDER_GROK,
             model=self._model,
             output_tokens=output_tokens,
+            structured=bool(request.response_schema),
         )
 
         return TextGenerationResult(

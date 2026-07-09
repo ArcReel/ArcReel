@@ -99,3 +99,35 @@ class TestGenerate:
 
         call_kwargs = backend._test_client.chat.create.call_args.kwargs
         assert call_kwargs["max_tokens"] == 16000
+
+    async def test_structured_truncation_raises(self, backend):
+        """结构化输出被截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。"""
+        from lib.text_backends.base import TextOutputTruncatedError
+
+        mock_chat = MagicMock()
+        mock_response = SimpleNamespace(content='{"name": "test"}', finish_reason="length")
+        mock_parsed = MagicMock()
+        mock_parsed.model_dump_json.return_value = '{"name": "test"}'
+        mock_chat.parse = AsyncMock(return_value=(mock_response, mock_parsed))
+        backend._test_client.chat.create.return_value = mock_chat
+
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        with pytest.raises(TextOutputTruncatedError) as exc_info:
+            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
+
+        assert exc_info.value.provider == "grok"
+
+    async def test_free_text_truncation_only_warns(self, backend, caplog):
+        """自由文本（无 response_schema）被截断时维持 log-only 告警，不抛错。"""
+        import logging
+
+        mock_chat = MagicMock()
+        mock_response = SimpleNamespace(content="partial", finish_reason="length")
+        mock_chat.sample = AsyncMock(return_value=mock_response)
+        backend._test_client.chat.create.return_value = mock_chat
+
+        with caplog.at_level(logging.WARNING, logger="lib.text_backends.base"):
+            result = await backend.generate(TextGenerationRequest(prompt="hi"))
+
+        assert result.text == "partial"
+        assert any("被截断" in r.message for r in caplog.records)

@@ -643,3 +643,47 @@ class TestMaxOutputTokens:
         instructor_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
         assert instructor_kwargs["max_completion_tokens"] == 7000
         assert "max_tokens" not in instructor_kwargs
+
+
+class TestTruncation:
+    """结构化输出被截断时抛 TextOutputTruncatedError；自由文本仅告警（见 docs/adr/0044）。"""
+
+    async def test_structured_truncation_raises(self):
+        import pytest
+
+        from lib.text_backends.base import TextOutputTruncatedError
+
+        mock_client = AsyncMock()
+        response = _make_mock_response(json.dumps({"name": "x"}))
+        response.choices[0].finish_reason = "length"
+        mock_client.chat.completions.create = AsyncMock(return_value=response)
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            class MyModel(BaseModel):
+                name: str
+
+            backend = OpenAITextBackend(api_key="k")
+            with pytest.raises(TextOutputTruncatedError) as exc_info:
+                await backend.generate(TextGenerationRequest(prompt="hi", response_schema=MyModel))
+
+        assert exc_info.value.model == "gpt-5.4-mini"
+
+    async def test_free_text_truncation_only_warns(self, caplog):
+        import logging
+
+        response = _make_mock_response("partial")
+        response.choices[0].finish_reason = "length"
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=response)
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k")
+            with caplog.at_level(logging.WARNING, logger="lib.text_backends.base"):
+                result = await backend.generate(TextGenerationRequest(prompt="hi"))
+
+        assert result.text == "partial"
+        assert any("被截断" in r.message for r in caplog.records)

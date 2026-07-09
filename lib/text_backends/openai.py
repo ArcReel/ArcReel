@@ -16,9 +16,9 @@ from lib.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     TokenParam,
+    check_truncation,
     resolve_schema,
     structured_fallback_reason,
-    warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,11 +155,12 @@ class OpenAITextBackend:
         output_tokens = usage.completion_tokens if usage else None
         text = choice.message.content or ""
 
-        warn_if_truncated(
+        check_truncation(
             getattr(choice, "finish_reason", None),
             provider=self._provider_name,
             model=self._model,
             output_tokens=output_tokens,
+            structured=bool(request.response_schema),
         )
         return TextGenerationResult(
             text=text,
