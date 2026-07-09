@@ -16,11 +16,8 @@
 |---|---|---|---|---|
 | CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened 及后续每次 push | `@coderabbitai resume` / `review` / `full review` |
 | Gemini Code Assist | `gemini-code-assist` | `gemini-code-assist[bot]` | **仅 PR opened**(5 分钟内出结果) | `/gemini review` |
-| OpenAI Codex(未接入,不参审) | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | 不适用(未接入) | **不触发** |
 | GitHub Code Quality | —(只发 inline) | `github-code-quality[bot]` | 每次 push 后的 CodeQL 分析 | **不可触发** |
 | GitHub Advanced Security | —(只发 inline) | `github-advanced-security[bot]` | 同上 | **不可触发** |
-
-本仓库未接入 Codex GitHub App:循环不发送 `@codex review`、不轮询或等待其响应、达标判定与 fix-up 跳过规则均不涉及 Codex。`## OpenAI Codex(未接入,不参审)` 节保留判定细则作日后接入时的参考。
 
 ## CodeRabbit
 
@@ -63,22 +60,6 @@
 1. 本轮无新 inline,或本轮新 inline 全部为 `low/nit/style` 或全部 `is_ack`
 2. summary 最新一条 body 含明确通过标记(非空不等于通过)
 
-## OpenAI Codex(未接入,不参审)
-
-本仓库未接入 Codex GitHub App:循环不发送 `@codex review`、不轮询或等待其响应、达标判定不含 Codex,fix-up 跳过规则也不再涉及它。以下判定规则保留作参考,日后接入 App 时按本节重新纳入参审名单。
-
-**三种 ack 模式**(任一命中即算"对当前 HEAD 无 actionable"):
-
-1. **inline review with body**:`codex.reviews` 最新一条,body 开头 `### 💡 Codex Review`,含 `**Reviewed commit:** <SHA>`,短 SHA 前 7-10 位与当前 HEAD 匹配
-2. **PR-level +1 reaction**:`codex.reactions` 里有 `content == "+1"` **且** `created_at > last_push_at`(必须是本轮 push 之后留的 👍,旧的不算)
-3. **empty-body review**:`codex.reviews` 最新一条 `submittedAt > last_push_at` **且** `state == "COMMENTED"` **且** `body == ""`,且本轮无新 inline
-
-**已审当前 HEAD**:满足三种 ack 模式任一。
-
-**actionable**:本轮新 inline 中 `severity_alt` 为 `Pn Badge` 形式;P0/P1 通常算 actionable,P2/P3 视情况。
-
-**通过**:满足三种 ack 模式之一,且本轮无 ack 以外的 inline。
-
 ## GitHub code scanning bots(Code Quality + Advanced Security)
 
 同一次 CodeQL 分析的两个投递面:`github-code-quality[bot]` 发质量告警(unused import、empty except 等,附修复建议),`github-advanced-security[bot]` 发安全告警(链接到 `/security/code-scanning/<n>` 的 alert)。与 CodeRabbit / Gemini 两家参审 AI reviewer 的本质差异:
@@ -106,7 +87,6 @@
 |---|---|---|
 | `gh pr view --json reviews,comments,...`(GraphQL) | `.author.login` | **不带**——比如 `coderabbitai` |
 | `gh api repos/.../pulls/.../comments`(REST inline) | `.user.login` | **带**——比如 `coderabbitai[bot]` |
-| `gh api repos/.../issues/.../reactions`(REST) | `.user.login` | **带**——比如 `chatgpt-codex-connector[bot]` |
 
 两边的字符串不通用。GitHub code scanning 两家 bot 只出现在 REST inline 数据中(不发 GraphQL 可见的 review/comment)。
 

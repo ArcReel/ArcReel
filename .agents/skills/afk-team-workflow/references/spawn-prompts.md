@@ -1,6 +1,6 @@
 # Spawn prompt 模板
 
-按阶段取用，填入变量。契约文件路径必须填**主仓库的绝对路径**：teammate 的 worktree 基于 origin/main 检出，未必包含（最新的）skill 文件。
+按阶段取用，填入变量。
 
 ## 实现
 

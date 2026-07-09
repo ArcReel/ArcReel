@@ -11,7 +11,7 @@ PR push 之后,多家 reviewer bot 会产出评论。本 skill 调度 review →
 
 循环的唯一正常出口。宣布通过前逐项核对:
 
-1. **本 PR 参审的每家 AI reviewer**(CodeRabbit / Gemini)对当前 HEAD 通过。CodeRabbit 始终参审,Gemini 由 cold-start fallback 保证参审;fix-up 顺延时沿用上一已审 HEAD 的通过结论(口径见 reviewers.md「通用约定」)。Codex 未接入本仓库 GitHub App,不参审、不触发、不计入达标判定(见 reviewers.md「OpenAI Codex(未接入,不参审)」)
+1. **本 PR 参审的每家 AI reviewer**(CodeRabbit / Gemini)对当前 HEAD 通过。CodeRabbit 始终参审,Gemini 由 cold-start fallback 保证参审;fix-up 顺延时沿用上一已审 HEAD 的通过结论(口径见 reviewers.md「通用约定」)
 2. **CodeQL 退出门槛**:分析完成且成功、security 无 PR 引入的 open 告警、quality 全量评论逐条已处置——三条细则与"仓库未接入"的跳过口径见 reviewers.md「GitHub code scanning bots」节
 3. 循环期间的所有 actionable 评论均已实施修复或记录 pushback
 

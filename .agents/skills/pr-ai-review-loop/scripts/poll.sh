@@ -31,14 +31,6 @@
 #     "reviews":  [{id, submittedAt, state, body}],     # body = review SUMMARY (## Code Review ...) — can contain actionable text not in inline; id = GraphQL node id
 #     "comments": [...]
 #   },
-#   "codex": {                                          # NOT integrated in this repo (no Codex GitHub App) — the loop never
-#                                                       # triggers it and this block is unused by current pass/wait logic.
-#                                                       # Kept as raw data + reference for future re-integration — see
-#                                                       # references/reviewers.md "OpenAI Codex(未接入,不参审)" and PITFALL 4.
-#     "reviews":   [{id, submittedAt, state, body}],    # body contains "Reviewed commit: <SHA>" when present; id = GraphQL node id
-#     "comments":  [...],
-#     "reactions": [{content, created_at}]              # +1 reaction on PR = silent ack — see PITFALL 4
-#   },
 #   "inline_comments_by_user": {                        # PR-level inline review comments grouped by bot — includes
 #     "<bot[bot]>": [{id, path, commit_id, created_at, severity_alt, is_ack, body_head}]  # github-code-quality[bot] and
 #   },                                                  # github-advanced-security[bot]; id = REST PR review comment id
@@ -47,7 +39,7 @@
 #   "checks_failing": [{name, conclusion}],             # ALL check runs on current HEAD with a failing-ish conclusion
 #                                                       # (failure/timed_out/cancelled/action_required/startup_failure);
 #                                                       # red CI can block reviewers, so fix it before waiting on them
-#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 7
+#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 5
 #     "available": <bool>,                              # false = alerts API unreachable (missing scope / no merge-ref analysis); gate must degrade
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false — helps distinguish
 #                                                       # 404 not-enabled vs 403 missing-scope vs no-analysis (note: GitHub returns
@@ -74,13 +66,7 @@
 #    REST    `user.login`   = "coderabbitai[bot]" (with [bot] suffix).
 #    This script uses both endpoints; downstream consumers must use the right form for each datum.
 #
-# 4. Codex is NOT integrated in this repo — the loop never triggers or waits on it. The 3 ack modes
-#    below only apply if/when the Codex GitHub App is later connected (see references/reviewers.md):
-#    (a) inline review with body "### 💡 Codex Review" + "Reviewed commit: <SHA>"
-#    (b) PR-level +1 reaction with NO comment (silent pass)
-#    (c) empty-body review (state=COMMENTED, body="") with no new inline
-#
-# 5. Trigger-command dedup matches comments that START with the command (case-insensitive,
+# 4. Trigger-command dedup matches comments that START with the command (case-insensitive,
 #    leading spaces/tabs tolerated, trailing text allowed). Prefix matching — not full-line —
 #    so a human-issued "/gemini review (re: security fix)" still registers for dedup, while
 #    a comment merely MENTIONING a command mid-text does not (substring matching would
@@ -89,13 +75,7 @@
 #    command sitting on the second line after a blank first line — keep the matcher aligned
 #    with the documented contract (command at the very start of the comment).
 #
-# 6. Quota / rate-limit errors from Codex are PR-level ISSUE comments, NOT reviews/inline/reactions.
-#    Codex emits e.g. "You have reached your Codex usage limits..." as a plain PR comment — easy to miss.
-#    Captured into quota_alerts so the skill catches it on the first poll. Codex is NOT integrated
-#    in this repo and the loop never triggers it, but quota_alerts still watches for this pattern
-#    in case a human manually triggers `@codex review` outside the loop.
-#
-# 7. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
+# 5. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
 #    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
 #    repo-global and identical across refs, so a set difference on number is exact.
@@ -159,15 +139,8 @@ gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$TMPDIR/sub_a.j
   exit 5
 }
 
-# Sub-query B — PR-level reactions (Codex silent +1 ack path; Codex is NOT integrated in
-# this repo, see PITFALL 4 — kept as raw data for future re-integration reference).
-gh api "repos/${OWNER_REPO}/issues/${PR}/reactions" --paginate > "$TMPDIR/sub_b.json" 2>"$TMPDIR/gh_reactions.err" || {
-  echo "POLL_ERROR: REST reactions fetch failed" >&2
-  cat "$TMPDIR/gh_reactions.err" >&2
-  exit 5
-}
-
 # Sub-query C — REST inline review comments on the PR diff (severity tags live here).
+# (Sub-query B removed — was Codex reactions.)
 gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$TMPDIR/sub_c.json" 2>"$TMPDIR/gh_pr_comments.err" || {
   echo "POLL_ERROR: REST PR review comments fetch failed" >&2
   cat "$TMPDIR/gh_pr_comments.err" >&2
@@ -209,7 +182,6 @@ fi
 jq -n \
   --slurpfile main_w "$TMPDIR/main.json" \
   --slurpfile sub_a_w "$TMPDIR/sub_a.json" \
-  --slurpfile sub_b_w "$TMPDIR/sub_b.json" \
   --slurpfile sub_c_w "$TMPDIR/sub_c.json" \
   --slurpfile sub_d_w "$TMPDIR/sub_d.json" \
   --slurpfile sub_e_pr_w "$TMPDIR/sub_e_pr.json" \
@@ -219,7 +191,6 @@ jq -n \
   '
   ($main_w[0]) as $main
   | ($sub_a_w[0]) as $sub_a
-  | ($sub_b_w[0]) as $sub_b
   | ($sub_c_w[0]) as $sub_c |
   # ---- shared helpers ----
   def cr_walkthrough_rest:
@@ -247,7 +218,7 @@ jq -n \
     or (test("^### Summary"));
 
   def inline_by_bot:
-    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]
+    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|github-code-quality|github-advanced-security)\\[bot\\]$"))]
     | group_by(.user.login)
     | map({
         key:   .[0].user.login,
@@ -268,12 +239,12 @@ jq -n \
     # Bare keywords like "quota" / "rate limit" alone produce false positives when a
     # bot reply happens to discuss quota as a topic (e.g. a PR description that mentions quota).
     # Real alerts always pair a keyword with a verb like "exceeded" / "reached" / "exhausted",
-    # or use a fixed phrase like the Codex error "You have reached your ... limit".
+    # or use a fixed phrase like "You have / You\x27ve reached your ... limit".
     [$sub_a[]
-     | select(.user.login | test("(chatgpt-codex-connector|gemini-code-assist|coderabbitai)\\[bot\\]$"))
+     | select(.user.login | test("(gemini-code-assist|coderabbitai)\\[bot\\]$"))
      | select(
-         (.body[0:500] | test("you have reached your[^\\n]*?limit"; "i"))
-         or (.body[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
+         (.body[0:500] | test("you(\\x27ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
+         or (.body[0:500] | test("(usage|rate|api|daily|monthly|review)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
          or (.body[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
          or (.body[0:500] | test("(http\\s*)?429\\b|too many requests"; "i"))
        )
@@ -302,12 +273,6 @@ jq -n \
     gemini: {
       reviews:  [$main.reviews[]  | select(.author.login == "gemini-code-assist") | {id, submittedAt, state, body}],
       comments: [$main.comments[] | select(.author.login == "gemini-code-assist")]
-    },
-
-    codex: {
-      reviews:   [$main.reviews[]  | select(.author.login == "chatgpt-codex-connector") | {id, submittedAt, state, body}],
-      comments:  [$main.comments[] | select(.author.login == "chatgpt-codex-connector")],
-      reactions: [$sub_b[] | select(.user.login == "chatgpt-codex-connector[bot]") | {content, created_at}]
     },
 
     inline_comments_by_user: inline_by_bot,
@@ -345,12 +310,7 @@ jq -n \
       [$main.comments[]
        | select(
            (.author.login != "coderabbitai"
-            and .author.login != "gemini-code-assist"
-            # chatgpt-codex-connector: defensive exclusion, kept even though the trigger regex
-            # below no longer matches "@codex review" — harmless as long as this bot never posts
-            # comments matching the pattern, and cheap insurance against future regex changes
-            # that widen it again.
-            and .author.login != "chatgpt-codex-connector")
+            and .author.login != "gemini-code-assist")
            and (.body | test("^[ \\t]*(/gemini review|@coderabbitai resume)(\\s|$)"; "i"))
          )
        | {author: .author.login, createdAt, body: (.body | gsub("^\\s+|\\s+$"; ""))}]
