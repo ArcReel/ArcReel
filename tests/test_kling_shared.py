@@ -168,6 +168,16 @@ class TestResponseParsing:
         # 提交/轮询类接口的 data（task_id / task_status 等）不含 code 键，该检查为 no-op。
         assert kling_response_error({"code": 0, "data": {"task_id": "t-1", "task_status": "submitted"}}) is None
 
+    def test_non_dict_payload_normalized_not_error(self):
+        # 中转 endpoint / 异常网关可能返回非对象 JSON（数组、字符串等），按空 dict 处理，
+        # 不因 .get() 触发 AttributeError。
+        assert kling_response_error([]) is None
+        assert kling_response_error("oops") is None
+
+    def test_non_dict_nested_data_normalized_not_error(self):
+        # data 字段本身也可能是非对象 JSON（如字符串错误信息），同样归一化为空 dict。
+        assert kling_response_error({"code": 0, "message": "", "data": "unexpected"}) is None
+
     def test_terminal_states(self):
         assert is_kling_task_terminal({"data": {"task_status": "succeed"}}) is True
         assert is_kling_task_terminal({"data": {"task_status": "failed"}}) is True

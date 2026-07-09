@@ -169,7 +169,7 @@ def _code_error(scope: dict, message_key: str) -> str | None:
     return None
 
 
-def kling_response_error(payload: dict) -> str | None:
+def kling_response_error(payload: object) -> str | None:
     """``code != 0`` → 错误描述；0 或缺失 → None。
 
     可灵所有响应带顶层 ``code`` / ``message``，0 表成功。提交/查询接口本身失败（鉴权、参数
@@ -179,7 +179,11 @@ def kling_response_error(payload: dict) -> str | None:
     信封状态分离，专指该次业务查询本身的成功/失败（如参数非法、资源包不存在）；顶层通过后
     接着查这层，任一层非 0 即视为错误。提交/轮询类接口的 ``data``（``task_id`` /
     ``task_status`` 等）不含 ``code`` 键，该检查对其为 no-op。
+
+    ``payload`` 归一化为 dict：中转 endpoint / 异常网关可能返回非对象 JSON（数组、字符串等），
+    此时按空 dict 处理（无 ``code`` 键 → 视为无错误），避免 ``.get()`` 触发 AttributeError。
     """
+    payload = payload if isinstance(payload, dict) else {}
     return _code_error(payload, "message") or _code_error(_as_dict(payload.get("data")), "msg")
 
 
