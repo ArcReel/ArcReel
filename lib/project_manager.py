@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import shutil
+import time
 import unicodedata
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -278,6 +279,7 @@ class ProjectManager:
             except OSError as exc:
                 if exc.errno not in self._DELETE_RETRYABLE_ERRNOS or attempt == attempts - 1:
                     raise
+                time.sleep(0.05)
 
     def sync_agent_profile(
         self,
