@@ -124,8 +124,13 @@ def kling_auth_mode(credentials: Mapping[str, str | None]) -> Literal["bearer", 
 
     内置 provider 构造（backend_assembly._build_kling）与连接测试（providers._test_kling）共用
     本判定，避免"api_key 优先"这条业务规则在两处各写一份、调整时改一处漏另一处。
+
+    ``.strip()`` 后判空：纯空格 api_key（如误粘贴产生的空白字符串）不应误判为已填写 bearer
+    模式、静默吞掉同时存在的有效 access_key/secret_key（resolve_kling_api_key 对空白输入的
+    校验在其后才触发，本判定须先与之口径一致）。
     """
-    return "bearer" if credentials.get("api_key") else "jwt"
+    api_key = credentials.get("api_key")
+    return "bearer" if api_key and api_key.strip() else "jwt"
 
 
 def image_to_base64(image_path: Path) -> str:
@@ -146,16 +151,13 @@ def _as_str(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
-def kling_response_error(payload: dict) -> str | None:
-    """``code != 0`` → 错误描述；0 或缺失 → None。
-
-    可灵所有响应带顶层 ``code`` / ``message``，0 表成功。提交/查询接口本身失败（鉴权、参数
-    非法等）即在此暴露（鉴权失败等也可能另走 4xx，由 submit_post / raise_for_status 兜住）。
+def _code_error(scope: dict, message_key: str) -> str | None:
+    """从 ``scope`` 取 ``code`` / ``scope[message_key]`` 构造错误描述；``code`` 为 0 或缺失 → None。
 
     ``code`` 归一化为 int 再比较：bearer / 中转 endpoint 可能把 code 序列化成字符串（``"0"``）
     或浮点，直接 ``code != 0`` 会把字符串 ``"0"`` 误判为错误；无法解析的 code 一律视为错误暴露原值。
     """
-    code = payload.get("code")
+    code = scope.get("code")
     if code is None:
         return None
     try:
@@ -163,8 +165,22 @@ def kling_response_error(payload: dict) -> str | None:
     except (TypeError, ValueError, OverflowError):
         is_error = True
     if is_error:
-        return f"Kling API code={code}: {_as_str(payload.get('message'))}".strip()
+        return f"Kling API code={code}: {_as_str(scope.get(message_key))}".strip()
     return None
+
+
+def kling_response_error(payload: dict) -> str | None:
+    """``code != 0`` → 错误描述；0 或缺失 → None。
+
+    可灵所有响应带顶层 ``code`` / ``message``，0 表成功。提交/查询接口本身失败（鉴权、参数
+    非法等）即在此暴露（鉴权失败等也可能另走 4xx，由 submit_post / raise_for_status 兜住）。
+
+    部分接口（如 ``account/costs``）额外在 ``data`` 内嵌一层业务级 ``code`` / ``msg``——与顶层
+    信封状态分离，专指该次业务查询本身的成功/失败（如参数非法、资源包不存在）；顶层通过后
+    接着查这层，任一层非 0 即视为错误。提交/轮询类接口的 ``data``（``task_id`` /
+    ``task_status`` 等）不含 ``code`` 键，该检查对其为 no-op。
+    """
+    return _code_error(payload, "message") or _code_error(_as_dict(payload.get("data")), "msg")
 
 
 def extract_kling_task_id(submit_payload: dict) -> str:

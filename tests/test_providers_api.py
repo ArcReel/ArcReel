@@ -847,6 +847,18 @@ class TestTestProviderConnection:
             with pytest.raises(RuntimeError, match="auth failed"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
+    def test_kling_test_fn_raises_on_inner_data_code_error(self):
+        """顶层 code=0 但 data 内嵌业务级 code != 0（如资源包查询失败）→ 同样 RuntimeError。"""
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            return self._FakeKlingResponse(
+                {"code": 0, "message": "", "data": {"code": 1234, "msg": "resource pack not found"}}
+            )
+
+        with patch("httpx.get", _fake_get):
+            with pytest.raises(RuntimeError, match="resource pack not found"):
+                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+
     def test_kling_connection_test_via_router_with_api_key_only(self):
         """端到端：只填 api_key 的可灵凭证通过 /test 端点即可测通（验收标准之一）。
 

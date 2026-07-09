@@ -145,3 +145,23 @@ class TestCredentialGroups:
             credential_groups=[["api_key"], ["access_key", "secret_key"]],
         )
         assert meta.credential_groups == [["api_key"], ["access_key", "secret_key"]]
+
+    def test_empty_group_rejected(self):
+        with pytest.raises(ValueError, match="空分组"):
+            ProviderMeta(
+                display_name="t",
+                description="t",
+                required_keys=["api_key", "access_key", "secret_key"],
+                secret_keys=["api_key", "access_key", "secret_key"],
+                credential_groups=[["api_key"], []],
+            )
+
+    def test_uncovered_key_rejected(self):
+        with pytest.raises(ValueError, match="未覆盖"):
+            ProviderMeta(
+                display_name="t",
+                description="t",
+                required_keys=["api_key", "access_key", "secret_key"],
+                secret_keys=["api_key", "access_key", "secret_key"],
+                credential_groups=[["api_key"]],
+            )

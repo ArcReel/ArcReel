@@ -83,12 +83,22 @@ class ProviderMeta:
                 raise ValueError(f"{self.display_name} default_concurrency[{lane!r}] 必须是 >=1 的整数，得到 {limit!r}")
         if self.credential_groups:
             allowed = set(self.required_keys) & set(self.secret_keys)
+            covered: set[str] = set()
             for group in self.credential_groups:
+                # 空分组会被 unknown=set() 判定为合法、前端 group.every(...) 对空数组恒真，
+                # 误判该分组"已满足"——同属 import 期该拦的作者笔误。
+                if not group:
+                    raise ValueError(f"{self.display_name} credential_groups 含空分组")
                 unknown = set(group) - allowed
                 if unknown:
                     raise ValueError(
                         f"{self.display_name} credential_groups 含未登记为 required∩secret 的 key {sorted(unknown)}"
                     )
+                covered |= set(group)
+            # 未被任何分组覆盖的 key 既不受旧版"全部必填"约束，也不受任何分组约束——
+            # 声明了分组却漏登记某个 key，前端会误判该 key 为可选。
+            if covered != allowed:
+                raise ValueError(f"{self.display_name} credential_groups 未覆盖 {sorted(allowed - covered)}")
 
     @property
     def media_types(self) -> list[str]:
