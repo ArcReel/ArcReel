@@ -340,10 +340,9 @@ class ProjectEventService:
         try:
             snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
         except FileNotFoundError:
-            if await asyncio.to_thread(self._project_directory_gone, project_name):
-                self._handle_project_deleted(project_name, channel)
-                return
-            logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+            await self._handle_scan_file_not_found(
+                project_name, channel, log_message="构建显式项目事件快照失败 project=%s"
+            )
             return
         except Exception:
             logger.exception("构建显式项目事件快照失败 project=%s", project_name)
@@ -402,6 +401,21 @@ class ProjectEventService:
         if task is not None and task is not asyncio.current_task():
             task.cancel()
 
+    async def _handle_scan_file_not_found(
+        self, project_name: str, channel: _ProjectChannel, *, log_message: str
+    ) -> bool:
+        """扫描 / hint 重建路径捕获 ``FileNotFoundError`` 后的统一处理：复核目录是否确已
+        消失，是则终止通道并返回 ``True``；否则维持现状按 ERROR 兜底并返回 ``False``。
+
+        供 :meth:`_async_rebuild_and_broadcast` 与 :meth:`_watch_project` 两条独立路径
+        共用，避免各自维护一份相同判定逻辑、日后修改判定条件时漏改其中一处。
+        """
+        if await asyncio.to_thread(self._project_directory_gone, project_name):
+            self._handle_project_deleted(project_name, channel)
+            return True
+        logger.exception(log_message, project_name)
+        return False
+
     async def _watch_project(self, project_name: str, channel: _ProjectChannel) -> None:
         try:
             while channel.sse.has_subscribers:
@@ -413,10 +427,10 @@ class ProjectEventService:
                 except asyncio.CancelledError:
                     raise
                 except FileNotFoundError:
-                    if await asyncio.to_thread(self._project_directory_gone, project_name):
-                        self._handle_project_deleted(project_name, channel)
+                    if await self._handle_scan_file_not_found(
+                        project_name, channel, log_message="项目事件扫描失败 project=%s"
+                    ):
                         return
-                    logger.exception("项目事件扫描失败 project=%s", project_name)
                 except Exception:
                     logger.exception("项目事件扫描失败 project=%s", project_name)
                 finally:
