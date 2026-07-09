@@ -276,6 +276,10 @@ class ProjectManager:
             try:
                 shutil.rmtree(project_dir)
                 return
+            except FileNotFoundError:
+                # 目录已不存在——上一次重试已经成功,或并发的另一次删除已经完成,
+                # 删除目的已达成,无需继续重试或报错。
+                return
             except OSError as exc:
                 if exc.errno not in self._DELETE_RETRYABLE_ERRNOS or attempt == attempts - 1:
                     raise
