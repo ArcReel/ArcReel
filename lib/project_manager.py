@@ -260,15 +260,15 @@ class ProjectManager:
 
         return project_dir
 
-    def delete_project_directory(self, name: str) -> None:
-        """删除项目目录，容忍并发扫描与本次删除竞态产生的 ``ENOTEMPTY``。
+    # 并发读者（如 ProjectEventService 的轮询扫描）触发的 _project_lock 可能在
+    # rmtree 清空目录内容之后、移除目录本身之前重新 touch 出锁文件：POSIX 上表现为
+    # rmdir 因目录非空失败（ENOTEMPTY），Windows 上锁文件仍被对端进程持有的文件锁
+    # 占用，表现为访问被拒（PermissionError / EACCES）。两者都是同一竞态的平台
+    # 特定症状，重试让锁文件在下一轮清理中一并删除。
+    _DELETE_RETRYABLE_ERRNOS = (errno.ENOTEMPTY, errno.EACCES)
 
-        ``shutil.rmtree`` 非原子：并发读者（如 ``ProjectEventService`` 的轮询扫描）
-        调用 ``load_project``/``save_project`` 触发的 :meth:`_project_lock` 会
-        ``touch`` 隐藏锁文件；若恰好发生在 rmtree 清空目录内容之后、``rmdir`` 之前，
-        会在目录内重新创建该锁文件，导致 ``rmdir`` 因目录非空失败。重试让锁文件在
-        下一轮清理中一并删除。
-        """
+    def delete_project_directory(self, name: str) -> None:
+        """删除项目目录，容忍并发扫描与本次删除竞态产生的临时性错误。"""
         project_dir = self.get_project_path(name)
         attempts = 5
         for attempt in range(attempts):
@@ -276,7 +276,7 @@ class ProjectManager:
                 shutil.rmtree(project_dir)
                 return
             except OSError as exc:
-                if exc.errno != errno.ENOTEMPTY or attempt == attempts - 1:
+                if exc.errno not in self._DELETE_RETRYABLE_ERRNOS or attempt == attempts - 1:
                     raise
 
     def sync_agent_profile(
