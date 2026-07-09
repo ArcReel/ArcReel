@@ -1040,3 +1040,35 @@ class TestProjectEventService:
         assert not any(record.levelno >= logging.ERROR for record in caplog.records)
 
         await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_new_subscriber_after_project_recreated_gets_fresh_channel(self, tmp_path):
+        """项目删除后原通道终止；同名项目重建后新订阅走全新通道，行为与现在一致。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=0.05)
+        await service.start()
+
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            first = await anext(stream)
+            assert first[0] == "snapshot"
+
+            shutil.rmtree(pm.get_project_path("demo"))
+
+            event_name, _payload = await _next_event(stream, timeout=1.5)
+            assert event_name == PROJECT_DELETED_EVENT
+
+        assert "demo" not in service._channels
+
+        # 同名项目重建：新订阅应走全新通道，正常收到 snapshot 与后续变更（不复用将死通道）。
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo Reborn", "Anime", "narration")
+
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            first = await anext(stream)
+            assert first[0] == "snapshot"
+            assert "demo" in service._channels
+
+        await service.shutdown()
