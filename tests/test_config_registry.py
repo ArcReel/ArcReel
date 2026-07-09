@@ -1,3 +1,5 @@
+import pytest
+
 from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
 
 
@@ -115,3 +117,31 @@ class TestModelInfoDurations:
         mi = ModelInfo(display_name="test", media_type="text", capabilities=[])
         assert mi.supported_durations == []
         assert mi.duration_resolution_constraints == {}
+
+
+class TestCredentialGroups:
+    """凭证「二选一」分组声明的 fail-fast 校验（见 issue #1074）。"""
+
+    def test_default_empty(self):
+        meta = ProviderMeta(display_name="t", description="t", required_keys=["api_key"], secret_keys=["api_key"])
+        assert meta.credential_groups == []
+
+    def test_group_keys_must_be_subset_of_required_and_secret(self):
+        with pytest.raises(ValueError, match="credential_groups"):
+            ProviderMeta(
+                display_name="t",
+                description="t",
+                required_keys=["api_key"],
+                secret_keys=["api_key"],
+                credential_groups=[["api_key"], ["access_key"]],
+            )
+
+    def test_valid_groups_accepted(self):
+        meta = ProviderMeta(
+            display_name="t",
+            description="t",
+            required_keys=["api_key", "access_key", "secret_key"],
+            secret_keys=["api_key", "access_key", "secret_key"],
+            credential_groups=[["api_key"], ["access_key", "secret_key"]],
+        )
+        assert meta.credential_groups == [["api_key"], ["access_key", "secret_key"]]

@@ -108,7 +108,7 @@ class TestCredentialResolution:
 
 class TestResponseParsing:
     def test_base_url_constant(self):
-        assert KLING_BASE_URL == "https://api.klingai.com/v1"
+        assert KLING_BASE_URL == "https://api-beijing.klingai.com/v1"
 
     def test_extract_task_id(self):
         payload = {"code": 0, "message": "SUCCEED", "data": {"task_id": "t-1", "task_status": "submitted"}}

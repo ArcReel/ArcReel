@@ -989,6 +989,8 @@ export default {
   'access_key_label': 'Access Key',
   'secret_key_label': 'Secret Key',
   'enter_credentials_required': 'Vui lòng điền tất cả các trường khóa bí mật',
+  'enter_credentials_required_any_group': 'Vui lòng điền đầy đủ ít nhất một nhóm thông tin xác thực',
+  'or_label': 'hoặc',
 
   // ProviderModelSelect
   'select_model_placeholder': 'Chọn mô hình...',

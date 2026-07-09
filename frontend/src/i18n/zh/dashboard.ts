@@ -1021,6 +1021,8 @@ export default {
   'access_key_label': 'Access Key',
   'secret_key_label': 'Secret Key',
   'enter_credentials_required': '请填写所有密钥字段',
+  'enter_credentials_required_any_group': '请至少完整填写一组鉴权字段',
+  'or_label': '或',
 
   // ProviderModelSelect
   'select_model_placeholder': '选择模型…',

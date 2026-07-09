@@ -1020,6 +1020,8 @@ export default {
   'access_key_label': 'Access Key',
   'secret_key_label': 'Secret Key',
   'enter_credentials_required': 'Please fill in all secret fields',
+  'enter_credentials_required_any_group': 'Please fully fill in at least one credential group',
+  'or_label': 'or',
 
   // ProviderModelSelect
   'select_model_placeholder': 'Select model...',

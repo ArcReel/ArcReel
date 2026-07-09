@@ -127,6 +127,10 @@ class ProviderConfigResponse(BaseModel):
     supports_base_url: bool
     # 凭证表单应渲染的 secret 字段（有序，真相源：registry required_keys ∩ secret_keys ∩ 凭证键）。
     secret_fields: list[CredentialSecretField]
+    # 凭证「二选一」分组：前端据此校验「至少一组的字段全部填写」而非「全部字段都填写」
+    # （真相源：registry credential_groups；空声明时 router 回退为 [全部 secret_fields]，
+    # 与迁移前「全部必填」语义等价）。单一真相源：可灵二选一见 issue #1074。
+    secret_field_groups: list[list[str]]
 
 
 class ConnectionTestResponse(BaseModel):
@@ -331,6 +335,10 @@ async def get_provider_config(
         for key in meta.required_keys
         if key in _CREDENTIAL_KEYS and key in secret_keys
     ]
+    # 空声明（绝大多数单 secret / 双 secret-AND provider）回退为单一必填组 = 全部 secret_fields，
+    # 与迁移前「全部必填」语义等价；仅可灵声明了非空 credential_groups（api_key 单键 /
+    # access_key+secret_key 双键二选一）。
+    secret_field_groups = meta.credential_groups or [[f.key for f in secret_fields]]
 
     return ProviderConfigResponse(
         id=provider_id,
@@ -341,6 +349,7 @@ async def get_provider_config(
         fields=fields,
         supports_base_url="base_url" in meta.optional_keys,
         secret_fields=secret_fields,
+        secret_field_groups=secret_field_groups,
     )
 
 
@@ -737,6 +746,55 @@ def _test_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectionT
     )
 
 
+def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过查询账户资源包余量验证可灵凭证（``GET /account/costs``，官方标注 free-to-call、无副作用）。
+
+    双模式鉴权二选一，api_key 优先，与 backend_assembly._build_kling 的分派顺序一致；缺失时
+    resolve_kling_api_key / resolve_kling_jwt_credentials 抛出的 ValueError 经上层 except 转成
+    明确的 connection_failed 文案。account/costs 挂在域名根路径（不带 /v1 版本前缀），需从
+    base_url 剥离该后缀。
+    """
+    import time
+
+    import httpx
+
+    from lib.kling_shared import (
+        KLING_BASE_URL,
+        KlingJWTManager,
+        kling_bearer_headers,
+        kling_response_error,
+        resolve_kling_api_key,
+        resolve_kling_jwt_credentials,
+    )
+
+    api_key = config.get("api_key")
+    if api_key:
+        headers = kling_bearer_headers(resolve_kling_api_key(api_key))
+    else:
+        access_key, secret_key = resolve_kling_jwt_credentials(config.get("access_key"), config.get("secret_key"))
+        headers = KlingJWTManager(access_key, secret_key).auth_headers()
+
+    base_url = (config.get("base_url") or KLING_BASE_URL).rstrip("/")
+    root = base_url.removesuffix("/v1")
+    now_ms = int(time.time() * 1000)
+    one_day_ms = 24 * 60 * 60 * 1000
+    resp = httpx.get(
+        f"{root}/account/costs",
+        params={"start_time": now_ms - one_day_ms, "end_time": now_ms},
+        headers=headers,
+        timeout=_CONNECTION_TEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+    err = kling_response_error(resp.json())
+    if err is not None:
+        raise RuntimeError(err)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=[],
+        message=_t("connection_success"),
+    )
+
+
 _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse]] = {
     "gemini-aistudio": _test_gemini_aistudio,
     "gemini-vertex": _test_gemini_vertex,
@@ -747,6 +805,7 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse
     "vidu": _test_vidu,
     "dashscope": _test_dashscope,
     "minimax": _test_minimax,
+    "kling": _test_kling,
 }
 
 

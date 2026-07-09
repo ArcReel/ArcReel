@@ -393,6 +393,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
         providerId={providerId}
         supportsBaseUrl={detail.supports_base_url}
         secretFields={detail.secret_fields}
+        secretFieldGroups={detail.secret_field_groups}
         onChanged={voidPromise(handleCredentialChanged)}
       />
 

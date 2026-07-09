@@ -49,6 +49,9 @@ export interface ProviderConfigDetail {
   supports_base_url: boolean;
   // 凭证表单应渲染的 secret 字段（有序）
   secret_fields: CredentialSecretField[];
+  // 凭证「二选一」分组：满足任一组（组内字段全填）即视为凭证完整；单组场景（绝大多数
+  // provider）等价于「全部 secret_fields 必填」的旧语义。可灵为 [["api_key"], ["access_key", "secret_key"]]。
+  secret_field_groups: string[][];
 }
 
 export interface ProviderTestResult {

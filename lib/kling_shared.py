@@ -20,8 +20,10 @@ from pathlib import Path
 
 import jwt
 
-# 官方 base（含 /v1），对齐 ark_shared.ARK_BASE_URL 约定。
-KLING_BASE_URL = "https://api.klingai.com/v1"
+# 官方 base（含 /v1），对齐 ark_shared.ARK_BASE_URL 约定。国内调用域名官方已由 api.klingai.com
+# 迁移至 api-beijing.klingai.com（旧域名仍可用，未强制下线，见 issue #1074 核实结论）；此处只影响
+# 未显式配置 base_url 的新用户，registry.default_base_url 同步该值（两处保持一致，单一真相源）。
+KLING_BASE_URL = "https://api-beijing.klingai.com/v1"
 
 # JWT token 寿命与刷新策略。
 _TOKEN_TTL_SECONDS = 1800  # 约 30 分钟过期（官方）。
@@ -105,10 +107,14 @@ def resolve_kling_jwt_credentials(access_key: str | None, secret_key: str | None
 
 
 def resolve_kling_api_key(api_key: str | None) -> str:
-    """校验并归一化 bearer 模式静态 api_key；缺失即 raise。"""
+    """校验并归一化 bearer 模式静态 api_key；缺失即 raise。
+
+    bearer 模式现有两条调用路径共用本校验：自定义 endpoint（中转站 Bearer key）与内置
+    provider 的 API Key 单键模式（见 issue #1074），故报错文案不专指其中一条。
+    """
     key = (api_key or "").strip()
     if not key:
-        raise ValueError("请填写可灵 endpoint 的 API Key")
+        raise ValueError("请填写可灵 Kling 的 API Key")
     return key
 
 

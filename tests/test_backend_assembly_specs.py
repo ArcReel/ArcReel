@@ -202,8 +202,9 @@ class TestGeminiSpec:
 
 
 class TestKlingSpec:
-    """kling 特例族：JWT 双 secret（access_key + secret_key 按列名直取）、auth_mode=jwt、
-    image 侧 api_model_name 解耦（两栖别名键读 registry api_model_name）、base_url 兜底（db > registry default）。
+    """kling 特例族：双模式鉴权二选一（api_key 优先 → auth_mode=bearer；否则 access_key+secret_key
+    → auth_mode=jwt），image 侧 api_model_name 解耦（两栖别名键读 registry api_model_name）、
+    base_url 兜底（db > registry default，国内域名已迁移至 api-beijing，见 issue #1074）。
     video backend 不接受 api_model_name —— 非对称，video 闭包不传。"""
 
     @patch("lib.image_backends.registry.create_backend")
@@ -222,7 +223,7 @@ class TestKlingSpec:
             access_key="ak-1",
             secret_key="sk-1",
             model="kling-image-o1",
-            base_url="https://api.klingai.com/v1",
+            base_url="https://api-beijing.klingai.com/v1",
         )
 
     @patch("lib.image_backends.registry.create_backend")
@@ -242,7 +243,7 @@ class TestKlingSpec:
             secret_key="sk-1",
             model="kling-v3-omni-image",
             api_model_name="kling-v3-omni",
-            base_url="https://api.klingai.com/v1",
+            base_url="https://api-beijing.klingai.com/v1",
         )
 
     @patch("lib.image_backends.registry.create_backend")
@@ -280,7 +281,62 @@ class TestKlingSpec:
             access_key="ak-1",
             secret_key="sk-1",
             model="kling-v3",
-            base_url="https://api.klingai.com/v1",
+            base_url="https://api-beijing.klingai.com/v1",
+        )
+
+    @patch("lib.video_backends.registry.create_backend")
+    def test_video_api_key_dispatches_bearer_mode(self, mock_create):
+        """单填 api_key（无 access_key/secret_key）→ auth_mode=bearer，不透传 access_key/secret_key。"""
+        spec = get_provider_spec("kling", "video")
+        config = LoadedConfig(
+            credentials={"api_key": "sk-api-1"},
+            provider_meta=PROVIDER_REGISTRY.get("kling"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "kling-v3")
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="bearer",
+            api_key="sk-api-1",
+            model="kling-v3",
+            base_url="https://api-beijing.klingai.com/v1",
+        )
+
+    @patch("lib.image_backends.registry.create_backend")
+    def test_image_api_key_dispatches_bearer_mode_with_api_model_name(self, mock_create):
+        """image 侧 bearer 模式同样叠加 api_model_name 解耦（两栖别名键）。"""
+        spec = get_provider_spec("kling", "image")
+        config = LoadedConfig(
+            credentials={"api_key": "sk-api-1"},
+            provider_meta=PROVIDER_REGISTRY.get("kling"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "kling-v3-omni-image")
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="bearer",
+            api_key="sk-api-1",
+            model="kling-v3-omni-image",
+            api_model_name="kling-v3-omni",
+            base_url="https://api-beijing.klingai.com/v1",
+        )
+
+    @patch("lib.video_backends.registry.create_backend")
+    def test_api_key_takes_priority_over_dual_secret_when_both_set(self, mock_create):
+        """两者都填时 api_key 优先（不透传 access_key/secret_key），见 issue #1074 desired behavior。"""
+        spec = get_provider_spec("kling", "video")
+        config = LoadedConfig(
+            credentials={"api_key": "sk-api-1", "access_key": "ak-1", "secret_key": "sk-1"},
+            provider_meta=PROVIDER_REGISTRY.get("kling"),
+            rate_limiter=None,
+        )
+        spec.build_backend(config, "kling-v3")
+        mock_create.assert_called_once_with(
+            "kling",
+            auth_mode="bearer",
+            api_key="sk-api-1",
+            model="kling-v3",
+            base_url="https://api-beijing.klingai.com/v1",
         )
 
 

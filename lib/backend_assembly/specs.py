@@ -134,23 +134,30 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
 
 
 # ── kling 特例族 ──────────────────────────────────────────────────
-# JWT 直连：双 secret（access_key + secret_key 按列名直取，无条件透传含 None，由 backend 内
-# resolve_kling_jwt_credentials 处理）+ auth_mode=jwt。base_url 兜底：db_config 显式填写 > registry
-# default_base_url > 不传（KlingBackend 自带 KLING_BASE_URL 兜底）。image/video 共用单一构造 helper，
-# 仅 image 侧额外注入 api_model_name 解耦（两栖别名键如 kling-v3-omni-image 读 registry api_model_name
-# 发真实 API 名）；video backend 不接受 api_model_name 参数，故该注入仅对 image media_type 生效。
+# 双模式鉴权二选一（同时填写 api_key 优先，见 issue #1074）：
+# - api_key 非空 → auth_mode=bearer（官方 API Key，全模型适用）；
+# - 否则 → auth_mode=jwt（access_key + secret_key，官方标注仅 3.0 及更早模型），
+#   双 secret 按列名直取，无条件透传含 None，由 backend 内 resolve_kling_jwt_credentials 处理。
+# base_url 兜底：db_config 显式填写 > registry default_base_url > 不传（KlingBackend 自带
+# KLING_BASE_URL 兜底）。image/video 共用单一构造 helper，仅 image 侧额外注入 api_model_name 解耦
+# （两栖别名键如 kling-v3-omni-image 读 registry api_model_name 发真实 API 名）；video backend 不
+# 接受 api_model_name 参数，故该注入仅对 image media_type 生效。
 
 _KLING_REGISTRY_BACKEND = "kling"
 
 
 def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str) -> Any:
-    """kling 通用构造：JWT 双 secret + auth_mode=jwt + base_url 兜底；image 侧叠加 api_model_name 注入。"""
-    kwargs: dict[str, Any] = {
-        "auth_mode": "jwt",
-        "access_key": config.credentials.get("access_key"),
-        "secret_key": config.credentials.get("secret_key"),
-        "model": model_id,
-    }
+    """kling 通用构造：按凭证形态分派 auth_mode（api_key 优先于双 secret）；image 侧叠加 api_model_name 注入。"""
+    api_key = config.credentials.get("api_key")
+    if api_key:
+        kwargs: dict[str, Any] = {"auth_mode": "bearer", "api_key": api_key, "model": model_id}
+    else:
+        kwargs = {
+            "auth_mode": "jwt",
+            "access_key": config.credentials.get("access_key"),
+            "secret_key": config.credentials.get("secret_key"),
+            "model": model_id,
+        }
     if media_type == "image":
         # 两栖别名键读 registry api_model_name 发真实 API 名；video backend 不接受该参数，仅 image 注入。
         model_info = config.provider_meta.models.get(model_id) if (config.provider_meta and model_id) else None

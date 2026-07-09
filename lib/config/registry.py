@@ -55,6 +55,12 @@ class ProviderMeta:
     secret_keys: list[str] = field(default_factory=list)
     models: dict[str, ModelInfo] = field(default_factory=dict)
     default_base_url: str | None = None
+    # 凭证「二选一」分组：非空时凭证表单按「满足任一组」校验（组内字段全填），而非默认的
+    # 「required_keys ∩ secret_keys 全填」。目前仅可灵需要（api_key 单键 / access_key+secret_key
+    # 双键二选一，见 issue #1074）；空列表（默认）保持原语义不变，由 router 按
+    # [[全部 secret 字段]] 回退成单一必填组。声明的每个 key 须是 required_keys ∩ secret_keys 的
+    # 子集，在 __post_init__ 校验，misconfig fail-fast。
+    credential_groups: list[list[str]] = field(default_factory=list)
     # 按 lane（image / video / audio）声明的出厂默认并发上限；某条 lane 未列入则该 lane
     # 走全局默认。容量回退优先级：用户配置值 > 此处声明默认 > 全局默认。声明给不支持的
     # lane 无害——_lane_limits 会按 media_types 把不支持的 lane 投影为 0。键名与上限值在
@@ -75,6 +81,14 @@ class ProviderMeta:
             # "1"、浮点 3.0 同样违反声明类型。type() is int 把这几类一并挡在 import 期。
             if type(limit) is not int or limit < 1:
                 raise ValueError(f"{self.display_name} default_concurrency[{lane!r}] 必须是 >=1 的整数，得到 {limit!r}")
+        if self.credential_groups:
+            allowed = set(self.required_keys) & set(self.secret_keys)
+            for group in self.credential_groups:
+                unknown = set(group) - allowed
+                if unknown:
+                    raise ValueError(
+                        f"{self.display_name} credential_groups 含未登记为 required∩secret 的 key {sorted(unknown)}"
+                    )
 
     @property
     def media_types(self) -> list[str]:
@@ -1121,12 +1135,19 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "kling": ProviderMeta(
         display_name="可灵 Kling",
-        description="快手可灵 Kling 视频与图像生成平台，JWT（access_key + secret_key）鉴权。",
+        description=(
+            "快手可灵 Kling 视频与图像生成平台。API Key（Bearer）适用于全部模型；"
+            "Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。"
+        ),
         # 首个需要两个 secret 字符串的内置 provider（JWT HS256 鉴权），凭证按 registry key 名
-        # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。
-        required_keys=["access_key", "secret_key"],
-        optional_keys=["image_max_workers", "video_max_workers"],
-        secret_keys=["access_key", "secret_key"],
+        # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。api_key 复用
+        # 该表已有的 api_key 定型列（其余 provider 的静态 Bearer key 同列），无需新迁移。
+        required_keys=["api_key", "access_key", "secret_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        secret_keys=["api_key", "access_key", "secret_key"],
+        # api_key 单键 / access_key+secret_key 双键二选一（官方 API Key 鉴权全模型可用，AK/SK JWT
+        # 仅 3.0 及更早模型，见 issue #1074 核实结论）；同时填写时 backend_assembly 按 api_key 优先分派。
+        credential_groups=[["api_key"], ["access_key", "secret_key"]],
         # JWT 直连：视频默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
         # v2-6（pro 人声）、video-o1（多图主体 R2V）；图像 kling-image-o1（默认）+ v3-omni（两栖）。
         models={
@@ -1198,7 +1219,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_kling_video_pricing("kling-video-o1"),
             ),
         },
-        default_base_url="https://api.klingai.com/v1",
+        # 国内调用域名官方已由 api.klingai.com 迁移至 api-beijing.klingai.com（旧域名仍可用，见
+        # issue #1074 核实结论）；仅影响未显式配置 base_url 的新用户，存量显式配置不受影响。
+        default_base_url="https://api-beijing.klingai.com/v1",
     ),
     "agnes": ProviderMeta(
         display_name="Agnes",

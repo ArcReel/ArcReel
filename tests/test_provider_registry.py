@@ -57,11 +57,25 @@ def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:
 
 
 def test_kling_credentials_and_base_url() -> None:
-    """可灵双 secret required/secret key + 默认 base_url（JWT 直连，见 ADR 0037）。"""
+    """可灵三键 required/secret key（api_key 单键 / access_key+secret_key 双键二选一）+
+    默认 base_url（国内域名已迁移至 api-beijing，见 issue #1074）。"""
     p = PROVIDER_REGISTRY["kling"]
-    assert p.required_keys == ["access_key", "secret_key"]
-    assert p.secret_keys == ["access_key", "secret_key"]
-    assert p.default_base_url == "https://api.klingai.com/v1"
+    assert p.required_keys == ["api_key", "access_key", "secret_key"]
+    assert p.secret_keys == ["api_key", "access_key", "secret_key"]
+    assert "base_url" in p.optional_keys
+    assert p.default_base_url == "https://api-beijing.klingai.com/v1"
+
+
+def test_kling_credential_groups_api_key_or_dual_secret() -> None:
+    """凭证二选一分组：api_key 单键，或 access_key+secret_key 双键（见 issue #1074）。"""
+    p = PROVIDER_REGISTRY["kling"]
+    assert p.credential_groups == [["api_key"], ["access_key", "secret_key"]]
+
+
+def test_provider_meta_credential_groups_default_empty() -> None:
+    """未声明 credential_groups 的 provider（绝大多数）保持空列表默认，语义不变。"""
+    assert PROVIDER_REGISTRY["gemini-aistudio"].credential_groups == []
+    assert PROVIDER_REGISTRY["dashscope"].credential_groups == []
 
 
 def test_kling_declares_image_and_video_max_workers() -> None:

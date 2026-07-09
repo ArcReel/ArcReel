@@ -390,11 +390,22 @@ interface AddFormProps {
   isVertex: boolean;
   supportsBaseUrl: boolean;
   secretFields: CredentialSecretField[];
+  // 凭证「二选一」分组：满足任一组即视为凭证完整。单组（绝大多数 provider）等价于旧版
+  // 「全部必填」；可灵等多组 provider 下没有单个字段是无条件必填的，故不渲染红色必填星标。
+  secretFieldGroups: string[][];
   onCreated: () => void;
   onCancel: () => void;
 }
 
-function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, secretFields, onCreated, onCancel }: AddFormProps) {
+function AddCredentialForm({
+  providerId,
+  isVertex,
+  supportsBaseUrl,
+  secretFields,
+  secretFieldGroups,
+  onCreated,
+  onCancel,
+}: AddFormProps) {
   const { t } = useTranslation("dashboard");
   const [name, setName] = useState("");
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -406,6 +417,14 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, secretFields
   const nameRef = useAutoFocus<HTMLInputElement>();
 
   const labelFor = (field: CredentialSecretField): string => secretFieldLabel(t, field);
+  const fieldByKey = new Map(secretFields.map((f) => [f.key, f]));
+  const labelForKey = (key: string): string => labelFor(fieldByKey.get(key) ?? { key, label: key });
+  // 兜底：调用方未传分组时退化为单一必填组（= 全部 secret_fields），与旧版语义一致。
+  const groups = secretFieldGroups.length > 0 ? secretFieldGroups : [secretFields.map((f) => f.key)];
+  // 仅单一必填组时，组内每个字段才是无条件必填（旧版行为）；多组二选一时不标红星，
+  // 靠下方 orHint 提示组合关系，避免误导用户以为要填满所有字段。
+  const fieldsUnconditionallyRequired = groups.length <= 1;
+  const orHint = groups.length > 1 ? groups.map((g) => g.map(labelForKey).join(" + ")).join(` ${t("or_label")} `) : null;
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
@@ -421,9 +440,10 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, secretFields
         }
         await API.uploadVertexCredential(name, file);
       } else {
-        // 所有 secret 字段均必填（按 provider 的 required_keys 渲染）
-        if (secretFields.some((f) => !(secrets[f.key] ?? "").trim())) {
-          setError(t("enter_credentials_required"));
+        // 至少一组（组内字段全填）即视为凭证完整；单组场景等价于旧版「全部必填」。
+        const groupSatisfied = (group: string[]) => group.every((k) => (secrets[k] ?? "").trim());
+        if (!groups.some(groupSatisfied)) {
+          setError(groups.length > 1 ? t("enter_credentials_required_any_group") : t("enter_credentials_required"));
           setSaving(false);
           return;
         }
@@ -490,9 +510,10 @@ function AddCredentialForm({ providerId, isVertex, supportsBaseUrl, secretFields
         </div>
       ) : (
         <>
+          {orHint && <p className="text-[11px] text-text-4">{orHint}</p>}
           {secretFields.map((field) => (
             <div key={field.key}>
-              <FieldLabel htmlFor={`cred-add-${field.key}`} required>
+              <FieldLabel htmlFor={`cred-add-${field.key}`} required={fieldsUnconditionallyRequired}>
                 {labelFor(field)}
               </FieldLabel>
               <input
@@ -566,11 +587,14 @@ interface Props {
   providerId: string;
   supportsBaseUrl: boolean;
   secretFields?: CredentialSecretField[];
+  // 凭证「二选一」分组，见 AddFormProps 注释；未传时按单组全字段回退（旧版行为）。
+  secretFieldGroups?: string[][];
   onChanged?: () => void;
 }
 
-export function CredentialList({ providerId, supportsBaseUrl, secretFields, onChanged }: Props) {
+export function CredentialList({ providerId, supportsBaseUrl, secretFields, secretFieldGroups, onChanged }: Props) {
   const fields = secretFields ?? DEFAULT_SECRET_FIELDS;
+  const fieldGroups = secretFieldGroups ?? [fields.map((f) => f.key)];
   const { t } = useTranslation("dashboard");
   const [credentials, setCredentials] = useState<ProviderCredential[]>([]);
   const [loading, setLoading] = useState(true);
@@ -669,6 +693,7 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, onCh
             isVertex={isVertex}
             supportsBaseUrl={supportsBaseUrl}
             secretFields={fields}
+            secretFieldGroups={fieldGroups}
             onCreated={() => {
               setShowAdd(false);
               void handleChanged();

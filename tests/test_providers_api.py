@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
+from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.i18n import get_translator
 from server.dependencies import get_config_service
@@ -334,8 +335,8 @@ class TestGetProviderConfig:
         assert resp.status_code == 200
         assert [f["key"] for f in resp.json()["secret_fields"]] == ["api_key"]
 
-    def test_secret_fields_kling_two_ordered_secrets(self):
-        """可灵 → secret_fields = [access_key, secret_key]（保留 required_keys 顺序）。"""
+    def test_secret_fields_kling_three_ordered_secrets(self):
+        """可灵 → secret_fields = [api_key, access_key, secret_key]（保留 required_keys 顺序）。"""
         app, _ = _make_session_app()
         with (
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
@@ -345,12 +346,37 @@ class TestGetProviderConfig:
                 resp = client.get("/api/v1/providers/kling/config")
         assert resp.status_code == 200
         secret_fields = resp.json()["secret_fields"]
-        assert [f["key"] for f in secret_fields] == ["access_key", "secret_key"]
-        assert [f["label"] for f in secret_fields] == ["Access Key", "Secret Key"]
-        # 两 secret 走凭证表单，不进 advanced fields
+        assert [f["key"] for f in secret_fields] == ["api_key", "access_key", "secret_key"]
+        assert [f["label"] for f in secret_fields] == ["API Key", "Access Key", "Secret Key"]
+        # 三 secret 走凭证表单，不进 advanced fields
         field_keys = {f["key"] for f in resp.json()["fields"]}
+        assert "api_key" not in field_keys
         assert "access_key" not in field_keys
         assert "secret_key" not in field_keys
+
+    def test_secret_field_groups_kling_api_key_or_dual_secret(self):
+        """可灵 secret_field_groups 二选一分组：[api_key] 或 [access_key, secret_key]（见 issue #1074）。"""
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/providers/kling/config")
+        assert resp.status_code == 200
+        assert resp.json()["secret_field_groups"] == [["api_key"], ["access_key", "secret_key"]]
+
+    def test_secret_field_groups_single_secret_provider_falls_back_to_one_group(self):
+        """未声明 credential_groups 的 provider → secret_field_groups 回退为 [全部 secret_fields] 单组。"""
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/providers/gemini-aistudio/config")
+        assert resp.status_code == 200
+        assert resp.json()["secret_field_groups"] == [["api_key"]]
 
     def test_secret_fields_vertex_empty(self):
         """gemini-vertex 凭证是文件路径（非 secret）→ secret_fields 为空，前端走文件上传。"""
@@ -363,6 +389,7 @@ class TestGetProviderConfig:
                 resp = client.get("/api/v1/providers/gemini-vertex/config")
         assert resp.status_code == 200
         assert resp.json()["secret_fields"] == []
+        assert resp.json()["secret_field_groups"] == [[]]
 
 
 # ---------------------------------------------------------------------------
@@ -729,6 +756,118 @@ class TestTestProviderConnection:
         # 仅暴露 minimax/abab 模型，过滤掉 embedding 等
         assert resp.available_models == ["MiniMax-M2.7", "abab6.5s-chat"]
         assert resp.success is True
+
+    def test_kling_registered_in_dispatch(self):
+        # kling 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
+        # 否则点"测试连接"会落到 unsupported_test 分支（即便凭证有效）
+        assert "kling" in providers._TEST_DISPATCH
+
+    class _FakeKlingResponse:
+        def __init__(self, payload: dict):
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return self._payload
+
+    def test_kling_test_fn_uses_bearer_when_api_key_set(self):
+        """填了 api_key → bearer 静态头，不走 JWT（与 _build_kling 的优先级一致）。"""
+        captured: dict = {}
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            captured.update(url=url, params=params, headers=headers, timeout=timeout)
+            return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
+
+        with patch("httpx.get", _fake_get):
+            resp = providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+        assert resp.success is True
+        assert captured["headers"]["Authorization"] == "Bearer sk-kling"
+        # account/costs 挂域名根路径，不带 /v1；默认 base_url 已迁移至 api-beijing
+        assert captured["url"] == "https://api-beijing.klingai.com/account/costs"
+        assert "start_time" in captured["params"]
+        assert "end_time" in captured["params"]
+
+    def test_kling_test_fn_uses_jwt_when_only_dual_secret_set(self):
+        """只填 access_key + secret_key（无 api_key）→ JWT Bearer token（三段式）。"""
+        captured: dict = {}
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            captured.update(headers=headers)
+            return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
+
+        with patch("httpx.get", _fake_get):
+            resp = providers._test_kling({"access_key": "ak-1", "secret_key": "s" * 40}, lambda k, **kw: k)
+        assert resp.success is True
+        auth = captured["headers"]["Authorization"]
+        assert auth.startswith("Bearer ")
+        assert auth.removeprefix("Bearer ").count(".") == 2  # JWT: header.payload.signature
+
+    def test_kling_test_fn_api_key_takes_priority_when_both_set(self):
+        """两者都填时 api_key 优先，与 _build_kling 分派顺序一致。"""
+        captured: dict = {}
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            captured.update(headers=headers)
+            return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
+
+        with patch("httpx.get", _fake_get):
+            providers._test_kling(
+                {"api_key": "sk-kling", "access_key": "ak-1", "secret_key": "s" * 40}, lambda k, **kw: k
+            )
+        assert captured["headers"]["Authorization"] == "Bearer sk-kling"
+
+    def test_kling_test_fn_strips_v1_suffix_for_account_costs_root_path(self):
+        """自定义 base_url 带 /v1 后缀 → account/costs 请求剥离该后缀，落到域名根路径。"""
+        captured: dict = {}
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            captured.update(url=url)
+            return self._FakeKlingResponse({"code": 0, "message": "", "data": {}})
+
+        with patch("httpx.get", _fake_get):
+            providers._test_kling(
+                {"api_key": "sk-kling", "base_url": "https://relay.example.com/v1"}, lambda k, **kw: k
+            )
+        assert captured["url"] == "https://relay.example.com/account/costs"
+
+    def test_kling_test_fn_raises_clear_error_when_no_credentials(self):
+        """两种凭证形态都未填 → 明确报错（不静默发出无鉴权请求）。"""
+        with pytest.raises(ValueError, match="Access Key"):
+            providers._test_kling({}, lambda k, **kw: k)
+
+    def test_kling_test_fn_raises_on_code_error(self):
+        """响应 code != 0 → RuntimeError 携带官方错误信息，经上层转 connection_failed 文案。"""
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            return self._FakeKlingResponse({"code": 1101, "message": "auth failed", "data": {}})
+
+        with patch("httpx.get", _fake_get):
+            with pytest.raises(RuntimeError, match="auth failed"):
+                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+
+    def test_kling_connection_test_via_router_with_api_key_only(self):
+        """端到端：只填 api_key 的可灵凭证通过 /test 端点即可测通（验收标准之一）。
+
+        用真实 ProviderCredential（而非 MagicMock）：路由调用 cred.overlay_config(config) 靠
+        真实方法把 api_key 合入 config dict，MagicMock 的 overlay_config 不会真的修改 config。
+        """
+        cred = ProviderCredential(provider="kling", name="可灵账号", api_key="sk-kling", is_active=True)
+        repo = MagicMock(spec=CredentialRepository)
+        repo.get_by_id = AsyncMock(return_value=cred)
+        repo.get_active = AsyncMock(return_value=cred)
+
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=repo),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch("httpx.get", return_value=self._FakeKlingResponse({"code": 0, "message": "", "data": {}})),
+        ):
+            with TestClient(app) as client:
+                resp = client.post("/api/v1/providers/kling/test")
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
 
     def test_specific_credential_id(self):
         """使用 credential_id 参数测试特定凭证。"""
