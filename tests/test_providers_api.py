@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -763,8 +764,9 @@ class TestTestProviderConnection:
         assert "kling" in providers._TEST_DISPATCH
 
     class _FakeKlingResponse:
-        def __init__(self, payload: dict):
+        def __init__(self, payload: dict, *, content_type: str = "application/json"):
             self._payload = payload
+            self.headers = {"content-type": content_type}
 
         def raise_for_status(self) -> None:
             pass
@@ -845,6 +847,34 @@ class TestTestProviderConnection:
 
         with patch("httpx.get", _fake_get):
             with pytest.raises(RuntimeError, match="auth failed"):
+                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+
+    def test_kling_test_fn_prefers_json_body_error_over_raise_for_status(self):
+        """HTTP 状态非 2xx 但响应体带 JSON 业务错误 → 优先暴露具体原因，而非泛化的 HTTP 状态文案。"""
+
+        class _FailingResponse(self._FakeKlingResponse):
+            def raise_for_status(self) -> None:
+                raise httpx.HTTPStatusError("401 Unauthorized", request=MagicMock(), response=MagicMock())
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            return _FailingResponse({"code": 1101, "message": "access key not found", "data": {}})
+
+        with patch("httpx.get", _fake_get):
+            with pytest.raises(RuntimeError, match="access key not found"):
+                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+
+    def test_kling_test_fn_raises_http_status_error_when_body_not_json(self):
+        """非 JSON 响应体（如网关错误页）跳过业务错误解析，走 raise_for_status 兜底暴露 HTTP 状态。"""
+
+        class _FailingResponse(self._FakeKlingResponse):
+            def raise_for_status(self) -> None:
+                raise httpx.HTTPStatusError("502 Bad Gateway", request=MagicMock(), response=MagicMock())
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            return _FailingResponse({}, content_type="text/html")
+
+        with patch("httpx.get", _fake_get):
+            with pytest.raises(httpx.HTTPStatusError, match="502 Bad Gateway"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
     def test_kling_test_fn_raises_on_inner_data_code_error(self):

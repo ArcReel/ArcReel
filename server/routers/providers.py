@@ -786,10 +786,15 @@ def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTes
         headers=headers,
         timeout=_CONNECTION_TEST_TIMEOUT,
     )
+    # JSON 错误体先于 raise_for_status 解析：鉴权失败等场景可灵仍带 JSON 错误体（业务 code +
+    # message，如"access key 不存在"），先于 raise_for_status 提取能保留这份具体原因；否则
+    # 4xx/5xx 直接 raise 会丢弃响应体，只剩泛泛的 HTTP 状态文案。非 JSON 响应体（如网关错误页）
+    # 跳过解析，走 raise_for_status 兜底暴露 HTTP 状态。
+    if "application/json" in resp.headers.get("content-type", ""):
+        err = kling_response_error(resp.json())
+        if err is not None:
+            raise RuntimeError(err)
     resp.raise_for_status()
-    err = kling_response_error(resp.json())
-    if err is not None:
-        raise RuntimeError(err)
     return ConnectionTestResponse(
         success=True,
         available_models=[],
