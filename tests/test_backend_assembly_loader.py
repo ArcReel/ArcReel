@@ -133,7 +133,7 @@ class TestAssembleBuiltinEndToEnd:
             secret_key="sk-1",
             model="kling-v3-omni-image",
             api_model_name="kling-v3-omni",
-            base_url="https://api.klingai.com/v1",
+            base_url="https://api-beijing.klingai.com/v1",
         )
 
 
