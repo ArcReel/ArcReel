@@ -50,7 +50,7 @@ ArcReel 支持多个供应商，**至少配置一个**即可开始使用：
 | **Vidu** (生数科技) | [Vidu 平台](https://platform.vidu.com/) | 按积分折算计费 (CNY) |
 | **阿里百炼** (DashScope) | [阿里云百炼控制台](https://bailian.console.aliyun.com) | 全模态：文本 / 图像 / 视频 / TTS (CNY) |
 | **MiniMax** | [MiniMax 开放平台](https://platform.minimaxi.com/console) | 国内站，海外可切换国际站 (CNY) |
-| **可灵 Kling** (快手) | [可灵开放平台](https://klingai.com/dev) | 双密钥（Access Key + Secret Key）(CNY) |
+| **可灵 Kling** (快手) | [可灵开放平台](https://klingai.com/dev) | API Key 或双密钥（Access Key + Secret Key）二选一 (CNY) |
 
 也可以在部署后通过设置页添加**自定义供应商**（任何 OpenAI 兼容 / Google 兼容 API）。
 

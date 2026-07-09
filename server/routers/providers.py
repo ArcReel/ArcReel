@@ -107,8 +107,9 @@ class FieldInfo(BaseModel):
 class CredentialSecretField(BaseModel):
     """凭证表单需渲染的 secret 输入字段（按 provider 的 required ∩ secret ∩ 凭证键派生）。
 
-    驱动设置页凭证表单渲染：单 secret provider 给 ``[api_key]``，可灵给
-    ``[access_key, secret_key]``（见 ADR 0037）。key 名全程同名，前端据此读写各字段。
+    驱动设置页凭证表单渲染：单 secret provider 给 ``[api_key]``（见 ADR 0037），可灵给
+    ``[api_key, access_key, secret_key]``（二选一分组见 ``secret_field_groups``）。
+    key 名全程同名，前端据此读写各字段。
     """
 
     key: str
@@ -129,7 +130,7 @@ class ProviderConfigResponse(BaseModel):
     secret_fields: list[CredentialSecretField]
     # 凭证「二选一」分组：前端据此校验「至少一组的字段全部填写」而非「全部字段都填写」
     # （真相源：registry credential_groups；空声明时 router 回退为 [全部 secret_fields]，
-    # 与迁移前「全部必填」语义等价）。单一真相源：可灵二选一见 issue #1074。
+    # 与迁移前「全部必填」语义等价）。
     secret_field_groups: list[list[str]]
 
 
@@ -328,7 +329,8 @@ async def get_provider_config(
             fields.append(_build_field(key, required=False, db_entry=db_values.get(key)))
 
     # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
-    # 单 secret provider → [api_key]；可灵 → [access_key, secret_key]（见 ADR 0037）。
+    # 单 secret provider → [api_key]（见 ADR 0037）；可灵 → [api_key, access_key, secret_key]，
+    # 二选一分组见下方 secret_field_groups。
     secret_keys = set(meta.secret_keys)
     secret_fields = [
         CredentialSecretField(key=key, label=_FIELD_META.get(key, {"label": key})["label"])
@@ -749,10 +751,10 @@ def _test_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectionT
 def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过查询账户资源包余量验证可灵凭证（``GET /account/costs``，官方标注 free-to-call、无副作用）。
 
-    双模式鉴权二选一，api_key 优先，与 backend_assembly._build_kling 的分派顺序一致；缺失时
-    resolve_kling_api_key / resolve_kling_jwt_credentials 抛出的 ValueError 经上层 except 转成
-    明确的 connection_failed 文案。account/costs 挂在域名根路径（不带 /v1 版本前缀），需从
-    base_url 剥离该后缀。
+    双模式鉴权二选一，判定收口于 kling_auth_mode（与 backend_assembly._build_kling 共用，保证
+    实际生成任务与连接测试的分派顺序恒一致）；缺失时 resolve_kling_api_key /
+    resolve_kling_jwt_credentials 抛出的 ValueError 经上层 except 转成明确的 connection_failed
+    文案。account/costs 挂在域名根路径（不带 /v1 版本前缀），需从 base_url 剥离该后缀。
     """
     import time
 
@@ -761,15 +763,15 @@ def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTes
     from lib.kling_shared import (
         KLING_BASE_URL,
         KlingJWTManager,
+        kling_auth_mode,
         kling_bearer_headers,
         kling_response_error,
         resolve_kling_api_key,
         resolve_kling_jwt_credentials,
     )
 
-    api_key = config.get("api_key")
-    if api_key:
-        headers = kling_bearer_headers(resolve_kling_api_key(api_key))
+    if kling_auth_mode(config) == "bearer":
+        headers = kling_bearer_headers(resolve_kling_api_key(config.get("api_key")))
     else:
         access_key, secret_key = resolve_kling_jwt_credentials(config.get("access_key"), config.get("secret_key"))
         headers = KlingJWTManager(access_key, secret_key).auth_headers()

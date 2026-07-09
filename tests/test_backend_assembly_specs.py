@@ -204,7 +204,7 @@ class TestGeminiSpec:
 class TestKlingSpec:
     """kling 特例族：双模式鉴权二选一（api_key 优先 → auth_mode=bearer；否则 access_key+secret_key
     → auth_mode=jwt），image 侧 api_model_name 解耦（两栖别名键读 registry api_model_name）、
-    base_url 兜底（db > registry default，国内域名已迁移至 api-beijing，见 issue #1074）。
+    base_url 兜底（db > registry default，国内域名已迁移至 api-beijing）。
     video backend 不接受 api_model_name —— 非对称，video 闭包不传。"""
 
     @patch("lib.image_backends.registry.create_backend")
@@ -323,7 +323,7 @@ class TestKlingSpec:
 
     @patch("lib.video_backends.registry.create_backend")
     def test_api_key_takes_priority_over_dual_secret_when_both_set(self, mock_create):
-        """两者都填时 api_key 优先（不透传 access_key/secret_key），见 issue #1074 desired behavior。"""
+        """两者都填时 api_key 优先（不透传 access_key/secret_key）。"""
         spec = get_provider_spec("kling", "video")
         config = LoadedConfig(
             credentials={"api_key": "sk-api-1", "access_key": "ak-1", "secret_key": "sk-1"},

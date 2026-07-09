@@ -58,7 +58,7 @@ def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:
 
 def test_kling_credentials_and_base_url() -> None:
     """可灵三键 required/secret key（api_key 单键 / access_key+secret_key 双键二选一）+
-    默认 base_url（国内域名已迁移至 api-beijing，见 issue #1074）。"""
+    默认 base_url（国内域名已迁移至 api-beijing）。"""
     p = PROVIDER_REGISTRY["kling"]
     assert p.required_keys == ["api_key", "access_key", "secret_key"]
     assert p.secret_keys == ["api_key", "access_key", "secret_key"]
@@ -67,7 +67,7 @@ def test_kling_credentials_and_base_url() -> None:
 
 
 def test_kling_credential_groups_api_key_or_dual_secret() -> None:
-    """凭证二选一分组：api_key 单键，或 access_key+secret_key 双键（见 issue #1074）。"""
+    """凭证二选一分组：api_key 单键，或 access_key+secret_key 双键。"""
     p = PROVIDER_REGISTRY["kling"]
     assert p.credential_groups == [["api_key"], ["access_key", "secret_key"]]
 

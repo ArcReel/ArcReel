@@ -15,14 +15,15 @@ from __future__ import annotations
 
 import base64
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Literal
 
 import jwt
 
 # 官方 base（含 /v1），对齐 ark_shared.ARK_BASE_URL 约定。国内调用域名官方已由 api.klingai.com
-# 迁移至 api-beijing.klingai.com（旧域名仍可用，未强制下线，见 issue #1074 核实结论）；此处只影响
-# 未显式配置 base_url 的新用户，registry.default_base_url 同步该值（两处保持一致，单一真相源）。
+# 迁移至 api-beijing.klingai.com（旧域名仍可用，未强制下线）；此处只影响未显式配置 base_url 的
+# 新用户，registry.default_base_url 同步该值（两处保持一致，单一真相源）。
 KLING_BASE_URL = "https://api-beijing.klingai.com/v1"
 
 # JWT token 寿命与刷新策略。
@@ -110,12 +111,21 @@ def resolve_kling_api_key(api_key: str | None) -> str:
     """校验并归一化 bearer 模式静态 api_key；缺失即 raise。
 
     bearer 模式现有两条调用路径共用本校验：自定义 endpoint（中转站 Bearer key）与内置
-    provider 的 API Key 单键模式（见 issue #1074），故报错文案不专指其中一条。
+    provider 的 API Key 单键模式，故报错文案不专指其中一条。
     """
     key = (api_key or "").strip()
     if not key:
         raise ValueError("请填写可灵 Kling 的 API Key")
     return key
+
+
+def kling_auth_mode(credentials: Mapping[str, str | None]) -> Literal["bearer", "jwt"]:
+    """按凭证形态决定 auth_mode：``api_key`` 非空优先 bearer，否则 jwt（access_key + secret_key）。
+
+    内置 provider 构造（backend_assembly._build_kling）与连接测试（providers._test_kling）共用
+    本判定，避免"api_key 优先"这条业务规则在两处各写一份、调整时改一处漏另一处。
+    """
+    return "bearer" if credentials.get("api_key") else "jwt"
 
 
 def image_to_base64(image_path: Path) -> str:

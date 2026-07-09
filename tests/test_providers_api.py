@@ -355,7 +355,7 @@ class TestGetProviderConfig:
         assert "secret_key" not in field_keys
 
     def test_secret_field_groups_kling_api_key_or_dual_secret(self):
-        """可灵 secret_field_groups 二选一分组：[api_key] 或 [access_key, secret_key]（见 issue #1074）。"""
+        """可灵 secret_field_groups 二选一分组：[api_key] 或 [access_key, secret_key]。"""
         app, _ = _make_session_app()
         with (
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),

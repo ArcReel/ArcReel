@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from lib.kling_shared import kling_auth_mode
+
 if TYPE_CHECKING:
     from lib.backend_assembly.loaded_config import LoadedConfig
 
@@ -134,7 +136,8 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
 
 
 # ── kling 特例族 ──────────────────────────────────────────────────
-# 双模式鉴权二选一（同时填写 api_key 优先，见 issue #1074）：
+# 双模式鉴权二选一（同时填写 api_key 优先，判定收口于 lib.kling_shared.kling_auth_mode，
+# backend_assembly 与 providers._test_kling 共用同一判定，避免两处各写一份分派逻辑漂移）：
 # - api_key 非空 → auth_mode=bearer（官方 API Key，全模型适用）；
 # - 否则 → auth_mode=jwt（access_key + secret_key，官方标注仅 3.0 及更早模型），
 #   双 secret 按列名直取，无条件透传含 None，由 backend 内 resolve_kling_jwt_credentials 处理。
@@ -148,9 +151,12 @@ _KLING_REGISTRY_BACKEND = "kling"
 
 def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str) -> Any:
     """kling 通用构造：按凭证形态分派 auth_mode（api_key 优先于双 secret）；image 侧叠加 api_model_name 注入。"""
-    api_key = config.credentials.get("api_key")
-    if api_key:
-        kwargs: dict[str, Any] = {"auth_mode": "bearer", "api_key": api_key, "model": model_id}
+    if kling_auth_mode(config.credentials) == "bearer":
+        kwargs: dict[str, Any] = {
+            "auth_mode": "bearer",
+            "api_key": config.credentials.get("api_key"),
+            "model": model_id,
+        }
     else:
         kwargs = {
             "auth_mode": "jwt",

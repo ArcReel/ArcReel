@@ -15,6 +15,7 @@ from lib.kling_shared import (
     extract_kling_task_id,
     extract_kling_video_url,
     is_kling_task_terminal,
+    kling_auth_mode,
     kling_bearer_headers,
     kling_response_error,
     kling_task_failure_reason,
@@ -90,6 +91,25 @@ class TestBearerMode:
         headers = kling_bearer_headers("static-api-key")
         # bearer 模式旁路 JWT：Authorization 直接是静态 key，不是签名 token
         assert headers["Authorization"] == "Bearer static-api-key"
+
+
+class TestAuthModeDispatch:
+    """kling_auth_mode：内置 provider 构造与连接测试共用的凭证形态判定（api_key 优先）。"""
+
+    def test_api_key_present_dispatches_bearer(self):
+        assert kling_auth_mode({"api_key": "sk-1", "access_key": None, "secret_key": None}) == "bearer"
+
+    def test_only_dual_secret_dispatches_jwt(self):
+        assert kling_auth_mode({"api_key": None, "access_key": "ak-1", "secret_key": "sk-1"}) == "jwt"
+
+    def test_both_set_prefers_bearer(self):
+        assert kling_auth_mode({"api_key": "sk-1", "access_key": "ak-1", "secret_key": "sk-1"}) == "bearer"
+
+    def test_empty_api_key_falls_back_to_jwt(self):
+        assert kling_auth_mode({"api_key": "", "access_key": "ak-1", "secret_key": "sk-1"}) == "jwt"
+
+    def test_neither_set_falls_back_to_jwt(self):
+        assert kling_auth_mode({}) == "jwt"
 
 
 class TestCredentialResolution:

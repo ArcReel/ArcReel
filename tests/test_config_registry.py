@@ -120,7 +120,7 @@ class TestModelInfoDurations:
 
 
 class TestCredentialGroups:
-    """凭证「二选一」分组声明的 fail-fast 校验（见 issue #1074）。"""
+    """凭证「二选一」分组声明的 fail-fast 校验。"""
 
     def test_default_empty(self):
         meta = ProviderMeta(display_name="t", description="t", required_keys=["api_key"], secret_keys=["api_key"])
