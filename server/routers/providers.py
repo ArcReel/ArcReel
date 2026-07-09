@@ -339,8 +339,10 @@ async def get_provider_config(
     ]
     # 空声明（绝大多数单 secret / 双 secret-AND provider）回退为单一必填组 = 全部 secret_fields，
     # 与迁移前「全部必填」语义等价；仅可灵声明了非空 credential_groups（api_key 单键 /
-    # access_key+secret_key 双键二选一）。
-    secret_field_groups = meta.credential_groups or [[f.key for f in secret_fields]]
+    # access_key+secret_key 双键二选一）。secret_fields 为空时（当前仅 gemini-vertex，走文件
+    # 上传分支不经过分组校验）不合成 [[]]——与 registry.py 的空分组 fail-fast 语义保持一致，
+    # 避免未来新增"无 secret 字段但走普通凭证表单"的 provider 时该分组恒真、静默绕过校验。
+    secret_field_groups = meta.credential_groups or ([[f.key for f in secret_fields]] if secret_fields else [])
 
     return ProviderConfigResponse(
         id=provider_id,

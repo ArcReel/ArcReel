@@ -380,7 +380,11 @@ class TestGetProviderConfig:
         assert resp.json()["secret_field_groups"] == [["api_key"]]
 
     def test_secret_fields_vertex_empty(self):
-        """gemini-vertex 凭证是文件路径（非 secret）→ secret_fields 为空，前端走文件上传。"""
+        """gemini-vertex 凭证是文件路径（非 secret）→ secret_fields 为空，前端走文件上传。
+
+        secret_field_groups 回退不合成 [[]]（与 registry.py 的空分组 fail-fast 语义对称，
+        避免未来"无 secret 字段但走普通凭证表单"的 provider 因空分组恒真而绕过校验）。
+        """
         app, _ = _make_session_app()
         with (
             patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
@@ -390,7 +394,7 @@ class TestGetProviderConfig:
                 resp = client.get("/api/v1/providers/gemini-vertex/config")
         assert resp.status_code == 200
         assert resp.json()["secret_fields"] == []
-        assert resp.json()["secret_field_groups"] == [[]]
+        assert resp.json()["secret_field_groups"] == []
 
 
 # ---------------------------------------------------------------------------
