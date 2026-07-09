@@ -150,8 +150,8 @@ def _build_newapi_video(provider, model_id: str) -> CustomVideoBackend:
 
 
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
-    """用户只填到 host 时补全协议已知挂载路径（ark /api/v3、vidu /ent/v2、kling /v1）；
-    已带显式路径则原样信任，避免错误叠加。供 ark/vidu/kling 闭包复用。
+    """补全协议已知挂载路径（ark /api/v3、vidu /ent/v2、kling /v1）；
+    已带对应协议路径则原样信任，避免重复叠加。供 ark/vidu/kling 闭包复用。
 
     纯域名（无 scheme，如 ``relay.example.com``）会被 urlsplit 整体当作 path，
     先补 ``https://`` 再判定，否则 host-only 配置既补不上协议也挂不上路径。
@@ -160,9 +160,9 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     if not s:
         return None
     normalized = s if "://" in s else f"https://{s}"
-    if urlsplit(normalized).path in ("", "/"):
-        return normalized + suffix
-    return normalized
+    if urlsplit(normalized).path.rstrip("/").endswith(suffix):
+        return normalized
+    return normalized + suffix
 
 
 def _build_v2_video_generations(provider, model_id: str) -> CustomVideoBackend:

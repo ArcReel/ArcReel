@@ -257,6 +257,14 @@ class TestUrlNormalization:
             api_key="sk-test", base_url="https://relay.example.com/api/v3", model="doubao-seedance-2-0"
         )
 
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
+    def test_ark_mounted_base_url_appends_api_v3(self, mock_cls):
+        provider = _make_provider(base_url="https://relay.example.com/seedance")
+        create_custom_backend(provider=provider, model_id="doubao-seedance-2-0", endpoint="ark-seedance")
+        mock_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://relay.example.com/seedance/api/v3", model="doubao-seedance-2-0"
+        )
+
     @patch("lib.custom_provider.endpoints.ViduVideoBackend")
     def test_vidu_explicit_path_passthrough(self, mock_cls):
         provider = _make_provider(base_url="https://api.vidu.cn/ent/v2")
