@@ -8,16 +8,16 @@
 # plans, runs a health check, or recovers a crashed batch.
 #
 # USAGE
-#   bash batch-poll.sh --prd <N>            # expand a PRD's GitHub sub-issues
-#   bash batch-poll.sh --issues 1,2,3       # an explicit cross-PRD issue set
+#   bash batch-poll.sh --spec <N>           # expand a Spec's GitHub sub-issues
+#   bash batch-poll.sh --issues 1,2,3       # an explicit cross-Spec issue set
 #
 # OUTPUT: single JSON object to stdout (fatal errors to stderr prefixed
 # `BATCH_POLL_ERROR:`; per-issue degradations prefixed `BATCH_POLL_WARN:`).
 #
 # JSON SCHEMA
 # {
-#   "batch_id_hint": "prd-<N>" | null,        # prd-<N> for --prd; null for --issues (lead names that batch's slug)
-#   "generated_for": {"prd": <N>} | {"issues": [<int>,...]},
+#   "batch_id_hint": "spec-<N>" | null,       # spec-<N> for --spec; null for --issues (lead names that batch's slug)
+#   "generated_for": {"spec": <N>} | {"issues": [<int>,...]},
 #   "issues": [
 #     {
 #       "number":          <int>,
@@ -51,7 +51,7 @@
 #   6. no PR, no branch, issue closed/other   -> shelved
 #   7. otherwise                              -> no-branch  (means ONLY "no remote branch" — NOT "teammate dead")
 #
-# "## Blocked by" PARSING (mechanical, follows the to-issues template convention)
+# "## Blocked by" PARSING (mechanical, follows the to-tickets template convention)
 #   The dependency graph lives in each issue body's "## Blocked by" section, not in
 #   GitHub's native issue-dependency links (this repo leaves those empty). The section
 #   is either "None ..." or a list of "- #<N>" items. Rule: take the section's lines up
@@ -86,15 +86,15 @@
 set -euo pipefail
 
 usage() {
-  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh --prd <N> | --issues 1,2,3" >&2
+  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh --spec <N> | --issues 1,2,3" >&2
 }
 
-PRD=""
+SPEC=""
 ISSUES_CSV=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --prd)
-      PRD="${2:-}"; shift 2 || { usage; exit 2; } ;;
+    --spec)
+      SPEC="${2:-}"; shift 2 || { usage; exit 2; } ;;
     --issues)
       ISSUES_CSV="${2:-}"; shift 2 || { usage; exit 2; } ;;
     *)
@@ -102,14 +102,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -n "$PRD" && -n "$ISSUES_CSV" ]]; then
-  echo "BATCH_POLL_ERROR: pass exactly one of --prd / --issues, not both" >&2; exit 2
+if [[ -n "$SPEC" && -n "$ISSUES_CSV" ]]; then
+  echo "BATCH_POLL_ERROR: pass exactly one of --spec / --issues, not both" >&2; exit 2
 fi
-if [[ -z "$PRD" && -z "$ISSUES_CSV" ]]; then
+if [[ -z "$SPEC" && -z "$ISSUES_CSV" ]]; then
   usage; exit 2
 fi
-if [[ -n "$PRD" && ! "$PRD" =~ ^[0-9]+$ ]]; then
-  echo "BATCH_POLL_ERROR: --prd must be a number, got: $PRD" >&2; exit 2
+if [[ -n "$SPEC" && ! "$SPEC" =~ ^[0-9]+$ ]]; then
+  echo "BATCH_POLL_ERROR: --spec must be a number, got: $SPEC" >&2; exit 2
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
@@ -130,15 +130,15 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$TMPDIR/repo
 
 # ---- assemble the batch's raw issue objects (uniform shape regardless of input mode) ----
 # Project to {number, title, state, state_reason, labels, body} — the same fields whether they
-# arrive via the sub_issues array (--prd) or per-issue REST reads (--issues).
+# arrive via the sub_issues array (--spec) or per-issue REST reads (--issues).
 PROJECT_ISSUE='{number, title, state, state_reason, labels: [.labels[].name], body}'
 
-if [[ -n "$PRD" ]]; then
-  BATCH_ID_HINT="prd-$PRD"
-  GEN_JSON=$(jq -n --argjson n "$PRD" '{prd: $n}')
+if [[ -n "$SPEC" ]]; then
+  BATCH_ID_HINT="spec-$SPEC"
+  GEN_JSON=$(jq -n --argjson n "$SPEC" '{spec: $n}')
   # --paginate without -q: gh merges all pages into ONE array (poll.sh unwrap rule).
-  gh api "repos/${OWNER_REPO}/issues/${PRD}/sub_issues" --paginate > "$TMPDIR/sub_raw.json" 2>"$TMPDIR/sub.err" || {
-    echo "BATCH_POLL_ERROR: sub_issues fetch failed for PRD #${PRD}" >&2
+  gh api "repos/${OWNER_REPO}/issues/${SPEC}/sub_issues" --paginate > "$TMPDIR/sub_raw.json" 2>"$TMPDIR/sub.err" || {
+    echo "BATCH_POLL_ERROR: sub_issues fetch failed for Spec #${SPEC}" >&2
     cat "$TMPDIR/sub.err" >&2
     exit 5
   }

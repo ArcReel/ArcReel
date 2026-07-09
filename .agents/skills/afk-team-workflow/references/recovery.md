@@ -6,7 +6,7 @@ SKILL.md 入口扫描发现 `.afk/` 下存在**缺少 `closed` 收尾行**的账
 
 ## 1. 确认是否需要恢复
 
-入口扫描已选出缺 `closed` 行的账本。对其 batch-id 跑一次 poll：`prd-<N>` 批次的 N 已在 batch-id 中，直接 `--prd <N>`；slug 批次的 batch-id 不含成员，成员取自账本**最后一条带 `scope` 的行**（清尾扩员会追加新 scope 行；多数账本仅首条有），据此 `--issues`（账本无任何 `scope` 行时，恢复无法自动确定成员，须人工指定范围）：
+入口扫描已选出缺 `closed` 行的账本。对其 batch-id 跑一次 poll：`spec-<N>` 批次的 N 已在 batch-id 中，直接 `--spec <N>`；slug 批次的 batch-id 不含成员，成员取自账本**最后一条带 `scope` 的行**（清尾扩员会追加新 scope 行；多数账本仅首条有），据此 `--issues`（账本无任何 `scope` 行时，恢复无法自动确定成员，须人工指定范围）：
 
 - 每个 issue 的 `stage_hint` 均为 `done` / `shelved` → 批次实际已收敛，仅前任 lead 未及写 `closed`。但 poll 只证明远端收敛，无法证明前任会话已完成本地收尾，故仍按 SKILL.md 收尾节执行完整收尾（含 worktree 与本地分支清理）、补 `closed` 行并汇报，不止于补 `closed`。
 - 存在非终态 issue（`no-branch` / `local-review` / `review-loop`）→ 进入下方接管流程。
@@ -28,7 +28,7 @@ SKILL.md 入口扫描发现 `.afk/` 下存在**缺少 `closed` 收尾行**的账
 | `decision` | 已定的规划取舍（并发上限、范围裁断），不重新决策 |
 | `authorization` | 用户**曾**批准的事项——对再授权仅作**信息性**参考（见 §5），不等于已重新授权 |
 | `fault` | 已停用的 reviewer / 已吸收的故障，不重复处置 |
-| `gap` | 已向用户浮现的 PRD 缺口 |
+| `gap` | 已向用户浮现的 Spec 缺口 |
 | `shelve` | 已搁置为 needs-human 的 issue 及其争点（poll 显示 shelved，账本说明原因） |
 | `merge` | 已执行的合并（以 poll 复核） |
 | `retrospective` | 已收集、待并入收尾的 per-PR 复盘 |

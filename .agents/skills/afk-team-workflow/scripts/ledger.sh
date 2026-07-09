@@ -15,9 +15,9 @@
 #
 # USAGE
 #   bash ledger.sh <batch-id> <kind> [--issue N] [--pr M] \
-#                  [--scope-prd N | --scope-issues "1,2,3"] [--detail "free text"]
+#                  [--scope-spec N | --scope-issues "1,2,3"] [--detail "free text"]
 #
-#   <batch-id>  prd-<N> for a PRD batch, or a slug for an explicit-issue batch (e.g.
+#   <batch-id>  spec-<N> for a Spec batch, or a slug for an explicit-issue batch (e.g.
 #               batch-2026-06-20). Restricted to [A-Za-z0-9._-]; becomes the filename.
 #   <kind>      one of: decision | authorization | fault | gap | shelve | merge |
 #               retrospective | closed
@@ -28,11 +28,11 @@
 #     "kind":   "<kind>",
 #     "issue":  <int> | null,      # the issue this event concerns, when applicable
 #     "pr":     <int> | null,      # the PR this event concerns, when applicable
-#     "scope":  {"prd": <int>} | {"issues": [<int>,...]} | null,
+#     "scope":  {"spec": <int>} | {"issues": [<int>,...]} | null,
 #                                  # the batch's membership in machine-readable form, so recovery
 #                                  # rebuilds the batch-poll input deterministically instead of parsing
 #                                  # free text. Set it on the FIRST line (the plan decision/authorization):
-#                                  # --scope-prd <N> for a PRD batch, --scope-issues <csv> for a slug batch
+#                                  # --scope-spec <N> for a Spec batch, --scope-issues <csv> for a slug batch
 #                                  # (where batch-id alone cannot recover the member set). null otherwise.
 #     "detail": "<str>"            # human-readable specifics (the argument/decision/cause)
 #   }
@@ -40,7 +40,7 @@
 # LIFECYCLE (the skill drives this; the script only appends)
 #   - First append happens when the user confirms the plan (the pre-authorization /
 #     plan decision), which also creates .afk/ and the file. This first line MUST carry
-#     the batch scope (--scope-prd / --scope-issues, enforced below) so recovery can
+#     the batch scope (--scope-spec / --scope-issues, enforced below) so recovery can
 #     rebuild the members.
 #   - Events append throughout the run.
 #   - The batch ends with a `closed` line. The file is NOT deleted — it is the
@@ -73,14 +73,14 @@ esac
 ISSUE="null"
 PR="null"
 DETAIL=""
-SCOPE_PRD=""
+SCOPE_SPEC=""
 SCOPE_ISSUES_CSV=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --issue)        ISSUE="${2:-}"; shift 2 || die "--issue needs a value" ;;
     --pr)           PR="${2:-}";    shift 2 || die "--pr needs a value" ;;
     --detail)       DETAIL="${2:-}"; shift 2 || die "--detail needs a value" ;;
-    --scope-prd)    SCOPE_PRD="${2:-}"; shift 2 || die "--scope-prd needs a value" ;;
+    --scope-spec)   SCOPE_SPEC="${2:-}"; shift 2 || die "--scope-spec needs a value" ;;
     --scope-issues) SCOPE_ISSUES_CSV="${2:-}"; shift 2 || die "--scope-issues needs a value" ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -99,12 +99,12 @@ fi
 
 # resolve the optional batch scope (recorded on the first line so recovery can rebuild members)
 SCOPE_JSON="null"
-if [[ -n "$SCOPE_PRD" && -n "$SCOPE_ISSUES_CSV" ]]; then
-  die "pass at most one of --scope-prd / --scope-issues"
+if [[ -n "$SCOPE_SPEC" && -n "$SCOPE_ISSUES_CSV" ]]; then
+  die "pass at most one of --scope-spec / --scope-issues"
 fi
-if [[ -n "$SCOPE_PRD" ]]; then
-  [[ "$SCOPE_PRD" =~ ^[0-9]+$ ]] || die "--scope-prd must be a number, got: $SCOPE_PRD"
-  SCOPE_JSON=$(jq -nc --argjson prd "$SCOPE_PRD" '{prd: $prd}')
+if [[ -n "$SCOPE_SPEC" ]]; then
+  [[ "$SCOPE_SPEC" =~ ^[0-9]+$ ]] || die "--scope-spec must be a number, got: $SCOPE_SPEC"
+  SCOPE_JSON=$(jq -nc --argjson spec "$SCOPE_SPEC" '{spec: $spec}')
 elif [[ -n "$SCOPE_ISSUES_CSV" ]]; then
   # same fail-loud + de-dup discipline as batch-poll.sh --issues: a silent drop here would
   # let recovery rebuild the wrong member set
@@ -129,7 +129,7 @@ LEDGER_FILE=".afk/${BATCH_ID}.jsonl"
 
 # the first line of a batch must carry scope, else recovery cannot rebuild the member set
 if [[ ! -s "$LEDGER_FILE" && "$SCOPE_JSON" == "null" ]]; then
-  die "first ledger line needs --scope-prd or --scope-issues (recovery rebuilds members from it)"
+  die "first ledger line needs --scope-spec or --scope-issues (recovery rebuilds members from it)"
 fi
 
 jq -nc \
