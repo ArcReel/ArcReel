@@ -788,12 +788,19 @@ def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTes
     )
     # JSON 错误体先于 raise_for_status 解析：鉴权失败等场景可灵仍带 JSON 错误体（业务 code +
     # message，如"access key 不存在"），先于 raise_for_status 提取能保留这份具体原因；否则
-    # 4xx/5xx 直接 raise 会丢弃响应体，只剩泛泛的 HTTP 状态文案。非 JSON 响应体（如网关错误页）
-    # 跳过解析，走 raise_for_status 兜底暴露 HTTP 状态。
+    # 4xx/5xx 直接 raise 会丢弃响应体，只剩泛泛的 HTTP 状态文案。content-type 声称 JSON 但
+    # 实际非法/空体（如异常网关截断响应）时解析会抛 JSONDecodeError——按声明的 content-type
+    # 判断是否尝试解析，不代表响应体一定合法，解析失败即放弃业务错误提取，跳过、直接走
+    # raise_for_status 兜底暴露 HTTP 状态，而非让解析异常本身掩盖更具体的 HTTP 错误。
     if "application/json" in resp.headers.get("content-type", ""):
-        err = kling_response_error(resp.json())
-        if err is not None:
-            raise RuntimeError(err)
+        try:
+            payload = resp.json()
+        except ValueError:
+            payload = None
+        if payload is not None:
+            err = kling_response_error(payload)
+            if err is not None:
+                raise RuntimeError(err)
     resp.raise_for_status()
     return ConnectionTestResponse(
         success=True,

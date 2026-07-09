@@ -877,6 +877,23 @@ class TestTestProviderConnection:
             with pytest.raises(httpx.HTTPStatusError, match="502 Bad Gateway"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
+    def test_kling_test_fn_falls_back_to_raise_for_status_on_malformed_json(self):
+        """content-type 声称 JSON 但响应体非法/空（如异常网关截断）→ 解析失败不崩溃，走 raise_for_status 兜底。"""
+
+        class _MalformedJsonResponse(self._FakeKlingResponse):
+            def json(self) -> dict:
+                raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+            def raise_for_status(self) -> None:
+                raise httpx.HTTPStatusError("504 Gateway Timeout", request=MagicMock(), response=MagicMock())
+
+        def _fake_get(url, params=None, headers=None, timeout=None):
+            return _MalformedJsonResponse({})
+
+        with patch("httpx.get", _fake_get):
+            with pytest.raises(httpx.HTTPStatusError, match="504 Gateway Timeout"):
+                providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
+
     def test_kling_test_fn_raises_on_inner_data_code_error(self):
         """顶层 code=0 但 data 内嵌业务级 code != 0（如资源包查询失败）→ 同样 RuntimeError。"""
 
