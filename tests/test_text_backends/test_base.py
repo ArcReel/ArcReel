@@ -344,6 +344,18 @@ class TestCheckTruncation:
         # 点名当前模型 + 换模型建议
         assert "ark/doubao" in str(exc)
         assert "输出能力更高的文本模型" in str(exc)
+        assert "output_tokens=8192" in str(exc)
+
+    def test_structured_truncation_without_output_tokens_omits_placeholder(self):
+        """供应商响应缺失 usage 信息时 output_tokens 为 None，错误消息不应显示 "output_tokens=None"。"""
+        import pytest
+
+        from lib.text_backends.base import TextOutputTruncatedError, check_truncation
+
+        with pytest.raises(TextOutputTruncatedError) as exc_info:
+            check_truncation("length", provider="ark", model="doubao", output_tokens=None, structured=True)
+
+        assert "None" not in str(exc_info.value)
 
     def test_free_text_truncation_only_warns(self, caplog):
         import logging

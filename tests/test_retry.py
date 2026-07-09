@@ -275,6 +275,31 @@ class TestWithRetryAsync:
         assert result == "ok"
         assert mock_fn.call_count == 2
 
+    async def test_custom_retry_if_cannot_override_non_retryable(self):
+        """自定义 retry_if 即便对 NonRetryableError 返回 True，wrapper 仍应短路不重试——
+
+        这个保证须在装饰器内统一判定，不能依赖每个自定义谓词自行调用 _should_retry；
+        否则新增的自定义谓词若忘记处理 NonRetryableError，会破坏模块 docstring 承诺的
+        "继承 NonRetryableError 的异常类型始终不重试"。
+        """
+
+        class _Truncated(NonRetryableError):
+            pass
+
+        mock_fn = AsyncMock(side_effect=_Truncated("boom"))
+
+        @with_retry_async(
+            max_attempts=3,
+            backoff_seconds=(0, 0, 0),
+            retry_if=lambda e: True,
+        )
+        async def fn():
+            return await mock_fn()
+
+        with pytest.raises(_Truncated):
+            await fn()
+        assert mock_fn.call_count == 1
+
 
 class TestDownloadConstants:
     """下载重试常量测试。"""

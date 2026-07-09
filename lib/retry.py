@@ -92,7 +92,7 @@ def with_retry_async(
                     return await func(*args, **kwargs)
                 except Exception as e:
                     is_last = attempt >= max_attempts - 1
-                    if is_last or not predicate(e):
+                    if is_last or isinstance(e, NonRetryableError) or not predicate(e):
                         raise
                     wait_time = _compute_wait(attempt, backoff_seconds)
                     logger.warning("API 调用异常: %s - %s", type(e).__name__, str(e)[:200])
