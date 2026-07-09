@@ -91,7 +91,9 @@
 #
 # 6. Quota / rate-limit errors from Codex are PR-level ISSUE comments, NOT reviews/inline/reactions.
 #    Codex emits e.g. "You have reached your Codex usage limits..." as a plain PR comment — easy to miss.
-#    Captured into quota_alerts so the skill catches it on the first poll.
+#    Captured into quota_alerts so the skill catches it on the first poll. Codex is NOT integrated
+#    in this repo and the loop never triggers it, but quota_alerts still watches for this pattern
+#    in case a human manually triggers `@codex review` outside the loop.
 #
 # 7. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
@@ -157,7 +159,8 @@ gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$TMPDIR/sub_a.j
   exit 5
 }
 
-# Sub-query B — PR-level reactions (Codex silent +1 ack path).
+# Sub-query B — PR-level reactions (Codex silent +1 ack path; Codex is NOT integrated in
+# this repo, see PITFALL 4 — kept as raw data for future re-integration reference).
 gh api "repos/${OWNER_REPO}/issues/${PR}/reactions" --paginate > "$TMPDIR/sub_b.json" 2>"$TMPDIR/gh_reactions.err" || {
   echo "POLL_ERROR: REST reactions fetch failed" >&2
   cat "$TMPDIR/gh_reactions.err" >&2
@@ -343,6 +346,10 @@ jq -n \
        | select(
            (.author.login != "coderabbitai"
             and .author.login != "gemini-code-assist"
+            # chatgpt-codex-connector: defensive exclusion, kept even though the trigger regex
+            # below no longer matches "@codex review" — harmless as long as this bot never posts
+            # comments matching the pattern, and cheap insurance against future regex changes
+            # that widen it again.
             and .author.login != "chatgpt-codex-connector")
            and (.body | test("^[ \\t]*(/gemini review|@coderabbitai resume)(\\s|$)"; "i"))
          )

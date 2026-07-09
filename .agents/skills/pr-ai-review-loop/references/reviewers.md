@@ -81,14 +81,14 @@
 
 ## GitHub code scanning bots(Code Quality + Advanced Security)
 
-同一次 CodeQL 分析的两个投递面:`github-code-quality[bot]` 发质量告警(unused import、empty except 等,附修复建议),`github-advanced-security[bot]` 发安全告警(链接到 `/security/code-scanning/<n>` 的 alert)。与三家 AI reviewer 的本质差异:
+同一次 CodeQL 分析的两个投递面:`github-code-quality[bot]` 发质量告警(unused import、empty except 等,附修复建议),`github-advanced-security[bot]` 发安全告警(链接到 `/security/code-scanning/<n>` 的 alert)。与 CodeRabbit / Gemini 两家参审 AI reviewer 的本质差异:
 
 - **不可触发**,随 push 后的 CodeQL 分析自动产出,可能比 CodeRabbit 慢几分钟
 - **不读 inline 回复**,修复 push 后 alert 自动关闭——修了就不用回
 - **对未修复告警不重复提醒**:同一 alert 只在引入时评论一次,后续 push 不重贴。因此"无遗留告警"**不能**用"本轮无新评论"判定,漏修一条会静默通过
 - quality 告警通常**不会**让 check 变红,光看 CI 红绿会漏
 
-**actionable**:两家所有本轮新 inline 一律算 actionable(量少且都是 CodeQL 高置信度规则),与三家 AI reviewer 的评论合并转交 `receiving-code-review`。pushback(误报、不该提交的产物等)仍由 `receiving-code-review` 判断,但落点是 PR 评论说明或 dismiss alert,**不是**回 inline。
+**actionable**:两家所有本轮新 inline 一律算 actionable(量少且都是 CodeQL 高置信度规则),与 CodeRabbit / Gemini 的评论合并转交 `receiving-code-review`。pushback(误报、不该提交的产物等)仍由 `receiving-code-review` 判断,但落点是 PR 评论说明或 dismiss alert,**不是**回 inline。
 
 **退出门槛**(代替"通过",在准备宣布循环结束时核对):
 
