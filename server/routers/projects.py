@@ -818,8 +818,7 @@ async def delete_project(name: str, _user: CurrentUser, _t: Translator):
     try:
 
         def _sync():
-            project_dir = get_project_manager().get_project_path(name)
-            shutil.rmtree(project_dir)
+            get_project_manager().delete_project_directory(name)
             return {"success": True, "message": _t("project_deleted", name=name)}
 
         return await asyncio.to_thread(_sync)

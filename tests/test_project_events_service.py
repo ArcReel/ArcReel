@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import shutil
 
 import pytest
 
@@ -957,7 +956,7 @@ class TestProjectEventService:
                 first = await anext(stream)
                 assert first[0] == "snapshot"
 
-                shutil.rmtree(pm.get_project_path("demo"))
+                pm.delete_project_directory("demo")
 
                 event_name, payload = await _next_event(stream, timeout=1.5)
                 assert event_name == PROJECT_DELETED_EVENT
@@ -1015,7 +1014,7 @@ class TestProjectEventService:
                 first = await anext(stream)
                 assert first[0] == "snapshot"
 
-                shutil.rmtree(pm.get_project_path("demo"))
+                pm.delete_project_directory("demo")
 
                 emit_project_change_batch(
                     "demo",
@@ -1055,7 +1054,7 @@ class TestProjectEventService:
             first = await anext(stream)
             assert first[0] == "snapshot"
 
-            shutil.rmtree(pm.get_project_path("demo"))
+            pm.delete_project_directory("demo")
 
             event_name, _payload = await _next_event(stream, timeout=1.5)
             assert event_name == PROJECT_DELETED_EVENT

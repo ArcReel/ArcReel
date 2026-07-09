@@ -1,4 +1,5 @@
 import re
+import shutil
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -69,6 +70,9 @@ class _FakePM:
         if not path.exists():
             raise FileNotFoundError(name)
         return path
+
+    def delete_project_directory(self, name):
+        shutil.rmtree(self.get_project_path(name))
 
     def get_project_status(self, name):
         return {"current_stage": "source_ready"}
