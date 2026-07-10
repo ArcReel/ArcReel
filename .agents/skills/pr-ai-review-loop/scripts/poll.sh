@@ -1,63 +1,102 @@
 #!/usr/bin/env bash
-# poll.sh — pull all AI reviewer state for a PR in one shot.
+# poll.sh — pull all AI reviewer state for a PR in one shot; emit a MINIMAL INDEX on
+# stdout and stage the FULL SNAPSHOT to a temp file for query.sh (layer-2 lookups).
 #
 # USAGE
 #   bash poll.sh <PR_NUMBER>
 #
-# OUTPUT: single JSON object to stdout (errors to stderr prefixed `POLL_ERROR:`).
+# OUTPUT
+#   stdout   — minimal index JSON (schema below); errors to stderr prefixed `POLL_ERROR:`.
+#   snapshot — full-body JSON at ${TMPDIR:-/tmp}/pr-ai-review-poll-<owner>-<repo>-<PR>.json,
+#              atomically overwritten on every poll. The snapshot carries no cross-round
+#              state: it materializes THIS poll's fetch and is fully rebuilt by re-running
+#              poll.sh. query.sh is its only intended reader.
 #
-# JSON SCHEMA
+# INDEX SCHEMA (stdout)
 # {
-#   "pr": <int>,                                        # PR number
-#   "pr_created_at": "<ISO8601>",                       # PR createdAt (issue creation time) — distinct from last_push_at
+#   "pr": <int>,
+#   "pr_created_at": "<ISO8601>",                       # PR createdAt — distinct from last_push_at
 #   "head": "<sha>",                                    # current PR head commit SHA
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
-#   "commits": [{oid, committedDate}],                  # full commit list (includes pre-PR development commits)
-#   "round_estimate": <int>,                            # fix-round count: commits with committedDate > pr_created_at, clustered
-#                                                       # by >5min gaps (rebase refreshes all dates => underestimates; heuristic only)
+#   "round_estimate": <int>,                            # fix-round count: commits with committedDate > pr_created_at,
+#                                                       # clustered by >5min gaps (rebase refreshes all dates =>
+#                                                       # underestimates; heuristic only)
+#   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
+#   "base_oid": "<sha>" | null,                         # last commit at/before PR creation — SINCE_SHA for the
+#                                                       # first fix batch (null when every commit postdates creation)
+#   "commits_since_pr_created": [{oid, committedDate}], # fix-round commits only; pre-PR dev commits stay in snapshot
 #   "coderabbit": {
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
-#       "id":                 <int>,                    # REST issue comment id — stable across walkthrough rewrites
-#       "created_at", "updated_at",                     # updated_at > last_push_at => CR has reviewed current HEAD
-#       "is_ok":              <bool>,                   # CR explicit pass marker
-#       "is_paused":          <bool>,                   # CR paused for this PR
-#       "is_in_progress":     <bool>,                   # CR still processing — don't declare PASS yet
-#       "actionable_count":   "<n>" | null              # parsed from "Actionable comments posted: N"
+#       "id":                    <int>,                 # REST issue comment id — stable across rewrites
+#       "created_at", "updated_at",
+#       "reviewed_current_head": <bool>,                # updated_at > last_push_at
+#       "is_ok":                 <bool>,                # CR explicit pass marker
+#       "is_paused":             <bool>,                # CR paused for this PR
+#       "is_in_progress":        <bool>,                # CR still processing — don't declare PASS yet
+#       "actionable_count":      "<n>" | null           # parsed from "Actionable comments posted: N"
 #     },
-#     "other_comments":       [...],                    # CR's other PR comments (not walkthrough)
-#     "reviews":              [...]                     # CR's review-level submissions
+#     "reviews":          [{id, submittedAt, state, is_new}],
+#     "comments_new":     [{id, createdAt, preview}],   # this-round new non-walkthrough comments
+#     "comments_history": {total, last_created_at}      # older ones collapsed to counts
 #   },
 #   "gemini": {
-#     "reviews":  [{id, submittedAt, state, body}],     # body = review SUMMARY (## Code Review ...) — can contain actionable text not in inline; id = GraphQL node id
-#     "comments": [...]
+#     "reviews":          [{id, submittedAt, state, has_pass_marker, is_new}],
+#                                                       # body NEVER inlined — query.sh gemini-latest-body
+#     "comments_new":     [{id, createdAt, preview}],
+#     "comments_history": {total, last_created_at}
 #   },
-#   "inline_comments_by_user": {                        # PR-level inline review comments grouped by bot — includes
-#     "<bot[bot]>": [{id, path, commit_id, created_at, severity_alt, is_ack, body_head}]  # github-code-quality[bot] and
-#   },                                                  # github-advanced-security[bot]; id = REST PR review comment id
-#   "codeql_checks": [{name, app, status, conclusion}], # CodeQL-related check runs on current HEAD (Analyze (*) /
-#                                                       # codeql-required / CodeQL, or runs owned by the code scanning apps)
-#   "checks_failing": [{name, conclusion}],             # ALL check runs on current HEAD with a failing-ish conclusion
-#                                                       # (failure/timed_out/cancelled/action_required/startup_failure);
+#   "inline_new_by_user":     {"<bot[bot]>": [{id, path, created_at, severity_alt, cr_markers,
+#                                              is_ack, preview}]},   # id = REST PR review comment id
+#   "inline_history_by_user": {"<bot[bot]>": {total, acked, last_created_at}},
+#   "codeql_checks": [{name, app, status, conclusion,   # CodeQL-related check runs on current HEAD (Analyze (*) /
+#                      started_at}],                    # codeql-required / CodeQL, or runs owned by the scanning apps).
+#                                                       # Both check lists carry ONE row per check name: suite reruns
+#                                                       # produce same-name duplicates, collapsed to the latest run
+#                                                       # by started_at so a superseded failure cannot pin them red
+#   "checks_failing": [{name, conclusion}],             # check runs on current HEAD with a failing-ish conclusion —
+#                                                       # the failing set: failure/timed_out/cancelled/action_required/
+#                                                       # startup_failure (single source of truth for "failed check");
 #                                                       # red CI can block reviewers, so fix it before waiting on them
 #   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 5
-#     "available": <bool>,                              # false = alerts API unreachable (missing scope / no merge-ref analysis); gate must degrade
-#     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false — helps distinguish
-#                                                       # 404 not-enabled vs 403 missing-scope vs no-analysis (note: GitHub returns
-#                                                       # 404 for missing permissions too, so treat as a hint, not proof)
+#     "available": <bool>,                              # false = alerts API unreachable; gate must degrade
+#     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
+#                                                       # returns 404 for missing permissions too — hint, not proof)
 #     "pr_ref": "refs/pull/<n>/merge",
-#     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]  # open alerts introduced by this PR
+#     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]
 #   },
-#   "quota_alerts": [...],                              # PR-level issue comments matching quota keywords (bots emit quota errors as plain comments, not reviews)
-#   "own_trigger_comments": [...]                       # human-authored /gemini review / @coderabbitai resume
+#   "quota_alerts": [...],                              # PR-level issue comments matching quota-error phrases
+#   "own_trigger_comments": [{author, createdAt, command}]  # human-authored trigger commands — see PITFALL 4
 # }
+#
+# FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
+#   is_new                 new this round: created_at/submittedAt > last_push_at (see PITFALL 2)
+#   reviewed_current_head  walkthrough.updated_at > last_push_at (CR rewrites its first comment each review)
+#   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
+#                          <review_comment_addressed>/<review_comment_withdrawn> marker or starts with "### Summary"
+#   cr_markers             CodeRabbit tag tokens found in the first 300 chars of a body (literal match):
+#                            potential_issue "_⚠️ Potential issue"     major     "_🟠 Major"
+#                            refactor        "_🛠️ Refactor suggestion" minor     "_🟡 Minor"
+#                            verification    "_💡 Verification agent"  trivial   "_🔵 Trivial"
+#                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
+#   severity_alt           Gemini inline severity from its ![severity](...) badge image alt text
+#   has_pass_marker        Gemini review summary carries an explicit pass marker: "LGTM" / "no issues found" (any
+#                          case) / word "approved" (any case), or body is empty aside from the "## Code Review" heading
+#   preview                first 120 chars of body after stripping HTML comments and markdown images, whitespace
+#                          collapsed — the eyeball safety net for flag misparses (flag vs preview conflict => fetch
+#                          full body via query.sh details and trust the body)
+#
+# SNAPSHOT SCHEMA — same tree as the index, except: `other_comments`/`comments`/`reviews`/
+#   `inline_comments_by_user` are FULL lists (no new/history split) with full `body` and `is_new`
+#   on every row, walkthrough keeps `body`, `commits` is the full list, own_trigger_comments
+#   keeps `body`, plus top-level `repo` and `generated_at` for query.sh provenance.
 #
 # PITFALLS
 #
 # 1. last_push_at uses head commit committedDate, NOT pushedDate.
-#    pushedDate is null on the PR's head commit — GitHub's PR API doesn't surface push event time here.
-#    committedDate is the most reliable timestamp available.
+#    pushedDate is null on the PR's head commit — GitHub's PR API doesn't surface push event time
+#    here. committedDate is the most reliable timestamp available.
 #
-# 2. Determining "this round's new inline" must use `created_at > last_push_at`, NOT `commit_id == head`.
+# 2. is_new uses `created_at > last_push_at`, NOT `commit_id == head`.
 #    CodeRabbit's old inline comments get their commit_id advanced when it re-reviews a new HEAD
 #    (in-place edit or thread re-link — exact mechanism unconfirmed). created_at is per-comment-stable.
 #
@@ -105,22 +144,26 @@ fi
 
 # Stage gh output into temp files. Large PRs (dozens of comments) make --argjson
 # overflow ARG_MAX; --slurpfile reads from disk and is unbounded. Each gh call paginates,
-# so PRs with hundreds of comments work too. TMPDIR is created up-front so every gh
+# so PRs with hundreds of comments work too. WORKDIR is created up-front so every gh
 # invocation can route its stderr here — the skill's troubleshooting section promises
 # stderr on failure, so silently dropping it via `2>/dev/null` defeats that contract.
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+WORKDIR=$(mktemp -d)
+trap 'rm -rf "$WORKDIR"' EXIT
 
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$TMPDIR/gh_repo_view.err") || {
+OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$WORKDIR/gh_repo_view.err") || {
   echo "POLL_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
-  cat "$TMPDIR/gh_repo_view.err" >&2
+  cat "$WORKDIR/gh_repo_view.err" >&2
   exit 4
 }
 
+# Snapshot path: the repo slug keeps same-numbered PRs from different repos apart.
+SNAP_DIR="${TMPDIR:-/tmp}"
+SNAPSHOT_FILE="${SNAP_DIR%/}/pr-ai-review-poll-${OWNER_REPO//\//-}-${PR}.json"
+
 # Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
-gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$TMPDIR/main.json" 2>"$TMPDIR/gh_pr_view.err" || {
+gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$WORKDIR/main.json" 2>"$WORKDIR/gh_pr_view.err" || {
   echo "POLL_ERROR: gh pr view $PR failed" >&2
-  cat "$TMPDIR/gh_pr_view.err" >&2
+  cat "$WORKDIR/gh_pr_view.err" >&2
   exit 5
 }
 
@@ -133,17 +176,17 @@ gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "
 
 # Sub-query A — REST issue comments. Used to get CodeRabbit walkthrough's updated_at
 # (GraphQL doesn't expose updated_at on PR comments).
-gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$TMPDIR/sub_a.json" 2>"$TMPDIR/gh_issue_comments.err" || {
+gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$WORKDIR/sub_a.json" 2>"$WORKDIR/gh_issue_comments.err" || {
   echo "POLL_ERROR: REST issue comments fetch failed" >&2
-  cat "$TMPDIR/gh_issue_comments.err" >&2
+  cat "$WORKDIR/gh_issue_comments.err" >&2
   exit 5
 }
 
 # Sub-query C — REST inline review comments on the PR diff (severity tags live here).
 # (Sub-query B removed — was Codex reactions.)
-gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$TMPDIR/sub_c.json" 2>"$TMPDIR/gh_pr_comments.err" || {
+gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$WORKDIR/sub_c.json" 2>"$WORKDIR/gh_pr_comments.err" || {
   echo "POLL_ERROR: REST PR review comments fetch failed" >&2
-  cat "$TMPDIR/gh_pr_comments.err" >&2
+  cat "$WORKDIR/gh_pr_comments.err" >&2
   exit 5
 }
 
@@ -151,10 +194,10 @@ gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$TMPDIR/sub_c.js
 # gate: "analysis finished before declaring PASS") and checks_failing (red CI can block
 # reviewers). --paginate with -q runs the projection per page, emitting one array per
 # page; downstream slurpfile flattens with `add` (same as sub-query E).
-HEAD_SHA=$(jq -r '.headRefOid' "$TMPDIR/main.json")
-gh api "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs?per_page=100" --paginate -q '[.check_runs[] | {name, app: .app.slug, status, conclusion}]' > "$TMPDIR/sub_d.json" 2>"$TMPDIR/gh_check_runs.err" || {
+HEAD_SHA=$(jq -r '.headRefOid' "$WORKDIR/main.json")
+gh api "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs?per_page=100" --paginate -q '[.check_runs[] | {name, app: .app.slug, status, conclusion, started_at}]' > "$WORKDIR/sub_d.json" 2>"$WORKDIR/gh_check_runs.err" || {
   echo "POLL_ERROR: REST check-runs fetch failed" >&2
-  cat "$TMPDIR/gh_check_runs.err" >&2
+  cat "$WORKDIR/gh_check_runs.err" >&2
   exit 5
 }
 
@@ -163,36 +206,78 @@ gh api "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs?per_page=100" --pagin
 # conflict), so degrade to available=false instead of failing the whole poll.
 SECURITY_ALERTS_AVAILABLE=true
 SECURITY_ALERTS_HINT=""
-if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate > "$TMPDIR/sub_e_pr.json" 2>"$TMPDIR/gh_alerts_pr.err"; then
+if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate > "$WORKDIR/sub_e_pr.json" 2>"$WORKDIR/gh_alerts_pr.err"; then
   SECURITY_ALERTS_AVAILABLE=false
-  SECURITY_ALERTS_HINT="pr-ref: $(head -n 2 "$TMPDIR/gh_alerts_pr.err" | tr '\n' ' ' | cut -c1-300)"
-  echo '[]' > "$TMPDIR/sub_e_pr.json"
+  SECURITY_ALERTS_HINT="pr-ref: $(head -n 2 "$WORKDIR/gh_alerts_pr.err" | tr '\n' ' ' | cut -c1-300)"
+  echo '[]' > "$WORKDIR/sub_e_pr.json"
 fi
-if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?state=open&per_page=100" --paginate > "$TMPDIR/sub_e_base.json" 2>"$TMPDIR/gh_alerts_base.err"; then
+if ! gh api "repos/${OWNER_REPO}/code-scanning/alerts?state=open&per_page=100" --paginate > "$WORKDIR/sub_e_base.json" 2>"$WORKDIR/gh_alerts_base.err"; then
   SECURITY_ALERTS_AVAILABLE=false
-  SECURITY_ALERTS_HINT="${SECURITY_ALERTS_HINT} base: $(head -n 2 "$TMPDIR/gh_alerts_base.err" | tr '\n' ' ' | cut -c1-300)"
-  echo '[]' > "$TMPDIR/sub_e_base.json"
+  SECURITY_ALERTS_HINT="${SECURITY_ALERTS_HINT} base: $(head -n 2 "$WORKDIR/gh_alerts_base.err" | tr '\n' ' ' | cut -c1-300)"
+  echo '[]' > "$WORKDIR/sub_e_base.json"
 fi
 
-# Combine everything in jq. Bot login normalization happens here so consumers see consistent keys.
+GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
+# Flags are computed once, here, so the index and every query.sh consumer see identical
+# judgments. Bot login normalization happens here so consumers see consistent keys.
 # --slurpfile wraps each file in [...]. Unwrap rule: files written WITHOUT -q hold one
 # merged array (gh merges pages) — [0] suffices; sub-query D is written WITH -q, so it
 # holds one array PER PAGE — only `add` flattens that correctly ([0] would drop pages 2+).
 # `add` also equals [0] on single-value files, so D/E both use it.
 jq -n \
-  --slurpfile main_w "$TMPDIR/main.json" \
-  --slurpfile sub_a_w "$TMPDIR/sub_a.json" \
-  --slurpfile sub_c_w "$TMPDIR/sub_c.json" \
-  --slurpfile sub_d_w "$TMPDIR/sub_d.json" \
-  --slurpfile sub_e_pr_w "$TMPDIR/sub_e_pr.json" \
-  --slurpfile sub_e_base_w "$TMPDIR/sub_e_base.json" \
+  --slurpfile main_w "$WORKDIR/main.json" \
+  --slurpfile sub_a_w "$WORKDIR/sub_a.json" \
+  --slurpfile sub_c_w "$WORKDIR/sub_c.json" \
+  --slurpfile sub_d_w "$WORKDIR/sub_d.json" \
+  --slurpfile sub_e_pr_w "$WORKDIR/sub_e_pr.json" \
+  --slurpfile sub_e_base_w "$WORKDIR/sub_e_base.json" \
   --argjson security_available "$SECURITY_ALERTS_AVAILABLE" \
   --arg security_hint "$SECURITY_ALERTS_HINT" \
+  --arg repo "$OWNER_REPO" \
+  --arg generated_at "$GENERATED_AT" \
   '
   ($main_w[0]) as $main
   | ($sub_a_w[0]) as $sub_a
-  | ($sub_c_w[0]) as $sub_c |
+  | ($sub_c_w[0]) as $sub_c
+  | ($main.commits | last | .committedDate) as $last_push
+  # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
+  # superseded failure cannot pin codeql_checks / checks_failing red forever.
+  | (($sub_d_w | add) | group_by(.name) | map(max_by(.started_at))) as $check_runs |
   # ---- shared helpers ----
+  def mk_preview:
+    gsub("<!--[\\s\\S]*?-->"; "")
+    | gsub("!\\[[^\\]]*\\]\\([^\\)]*\\)"; "")
+    | gsub("\\s+"; " ")
+    | sub("^ +"; "")
+    | .[0:120];
+
+  def is_ack_body:
+    (test("<!--\\s*<review_comment_addressed>"))
+    or (test("<!--\\s*<review_comment_withdrawn>"))
+    or (test("^### Summary"));
+
+  def cr_markers_of:
+    .[0:300] as $h
+    | [
+        ["potential_issue", "_⚠️ Potential issue"],
+        ["major",           "_🟠 Major"],
+        ["minor",           "_🟡 Minor"],
+        ["refactor",        "_🛠️ Refactor suggestion"],
+        ["verification",    "_💡 Verification agent"],
+        ["nitpick",         "_🧹 Nitpick"],
+        ["trivial",         "_🔵 Trivial"],
+        ["low_value",       "_💤 Low value"]
+      ]
+    | map(select(.[1] as $pat | $h | contains($pat)) | .[0]);
+
+  def has_pass_marker_body:
+    (test("\\bLGTM\\b"))
+    or (test("no issues found"; "i"))
+    or (test("\\bapproved\\b"; "i"))
+    or ((gsub("\\s+"; "")) as $bare | ($bare == "" or $bare == "##CodeReview"));
+
   def cr_walkthrough_rest:
     [$sub_a[] | select(.user.login == "coderabbitai[bot]")]
     | sort_by(.created_at)
@@ -202,20 +287,17 @@ jq -n \
           id,
           created_at,
           updated_at,
+          reviewed_current_head: (.updated_at > $last_push),
           is_ok:          (.body | test("No actionable comments were generated in the recent review")),
           is_paused:      (.body | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
           is_in_progress: (.body | test("(review in progress by coderabbit|currently processing new changes)"; "i")),
           actionable_count:
             (if (.body | test("Actionable comments posted:"))
              then (.body | capture("Actionable comments posted:\\s*(?<n>[0-9]+)") | .n)
-             else null end)
+             else null end),
+          body
         }
       end;
-
-  def is_ack_body:
-    (test("<!--\\s*<review_comment_addressed>"))
-    or (test("<!--\\s*<review_comment_withdrawn>"))
-    or (test("^### Summary"));
 
   def inline_by_bot:
     [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|github-code-quality|github-advanced-security)\\[bot\\]$"))]
@@ -227,9 +309,12 @@ jq -n \
           path,
           commit_id,
           created_at,
+          is_new:       (.created_at > $last_push),
           severity_alt: ([.body | capture("!\\[(?<s>[^\\]]+)\\]")] | .[0].s // null),
+          cr_markers:   (.body | cr_markers_of),
           is_ack:       (.body | is_ack_body),
-          body_head:    (.body | .[0:400])
+          preview:      (.body | mk_preview),
+          body
         })
       })
     | from_entries;
@@ -250,12 +335,14 @@ jq -n \
        )
      | {user: .user.login, created_at, body_head: (.body | .[0:300])}];
 
-  # ---- main projection ----
+  # ---- snapshot projection ----
   {
     pr:            $main.number,
     pr_created_at: $main.createdAt,
     head:          $main.headRefOid,
-    last_push_at:  ($main.commits | last.committedDate),
+    last_push_at:  $last_push,
+    repo:          $repo,
+    generated_at:  $generated_at,
     commits:       [$main.commits[] | {oid, committedDate}],
     round_estimate:
       ([$main.commits[] | select(.committedDate > $main.createdAt) | .committedDate]
@@ -265,25 +352,35 @@ jq -n \
        | .n),
 
     coderabbit: {
-      walkthrough:    cr_walkthrough_rest,
-      other_comments: ([$main.comments[] | select(.author.login == "coderabbitai")] | sort_by(.createdAt) | .[1:]),
-      reviews:        [$main.reviews[] | select(.author.login == "coderabbitai")]
+      walkthrough: cr_walkthrough_rest,
+      other_comments:
+        ([$main.comments[] | select(.author.login == "coderabbitai")]
+         | sort_by(.createdAt) | .[1:]
+         | map({id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body})),
+      reviews:
+        [$main.reviews[] | select(.author.login == "coderabbitai")
+         | {id, submittedAt, state, is_new: (.submittedAt > $last_push), body}]
     },
 
     gemini: {
-      reviews:  [$main.reviews[]  | select(.author.login == "gemini-code-assist") | {id, submittedAt, state, body}],
-      comments: [$main.comments[] | select(.author.login == "gemini-code-assist")]
+      reviews:
+        [$main.reviews[] | select(.author.login == "gemini-code-assist")
+         | {id, submittedAt, state, is_new: (.submittedAt > $last_push),
+            has_pass_marker: (.body | has_pass_marker_body), body}],
+      comments:
+        [$main.comments[] | select(.author.login == "gemini-code-assist")
+         | {id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body}]
     },
 
     inline_comments_by_user: inline_by_bot,
 
     codeql_checks:
-      [($sub_d_w | add)[]
+      [$check_runs[]
        | select((.app == "github-advanced-security" or .app == "github-code-quality")
                 or (.name | test("^Analyze \\(|^codeql-required$|^CodeQL$")))],
 
     checks_failing:
-      [($sub_d_w | add)[]
+      [$check_runs[]
        | select(.conclusion | IN("failure", "timed_out", "cancelled", "action_required", "startup_failure"))
        | {name, conclusion}],
 
@@ -311,8 +408,67 @@ jq -n \
        | select(
            (.author.login != "coderabbitai"
             and .author.login != "gemini-code-assist")
-           and (.body | test("^[ \\t]*(/gemini review|@coderabbitai resume)(\\s|$)"; "i"))
+           and (.body | test("^[ \\t]*(/gemini review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
          )
-       | {author: .author.login, createdAt, body: (.body | gsub("^\\s+|\\s+$"; ""))}]
+       | {author: .author.login, createdAt,
+          command: (.body | capture("^[ \\t]*(?<c>/gemini review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
+          body: (.body | gsub("^\\s+|\\s+$"; ""))}]
   }
-  '
+  ' > "$WORKDIR/snapshot.json"
+
+# Atomic overwrite: same-filesystem rename keeps concurrent query.sh reads consistent.
+mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
+
+# ---- Pass 2: project the MINIMAL INDEX from the snapshot ----
+# New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
+# reach stdout — query.sh reads them from the snapshot on demand.
+jq --arg snapshot_file "$SNAPSHOT_FILE" '
+  . as $s
+  | ($s.pr_created_at) as $created
+  | {
+      pr:             $s.pr,
+      pr_created_at:  $s.pr_created_at,
+      head:           $s.head,
+      last_push_at:   $s.last_push_at,
+      round_estimate: $s.round_estimate,
+      snapshot_file:  $snapshot_file,
+      base_oid:       ([$s.commits[] | select(.committedDate <= $created)] | (last | .oid) // null),
+      commits_since_pr_created: [$s.commits[] | select(.committedDate > $created)],
+
+      coderabbit: {
+        walkthrough: ($s.coderabbit.walkthrough | if . == null then null else del(.body) end),
+        reviews:     [$s.coderabbit.reviews[] | {id, submittedAt, state, is_new}],
+        comments_new:
+          [$s.coderabbit.other_comments[] | select(.is_new) | {id, createdAt, preview}],
+        comments_history:
+          ([$s.coderabbit.other_comments[] | select(.is_new | not)]
+           | {total: length, last_created_at: (map(.createdAt) | max // null)})
+      },
+
+      gemini: {
+        reviews: [$s.gemini.reviews[] | {id, submittedAt, state, has_pass_marker, is_new}],
+        comments_new:
+          [$s.gemini.comments[] | select(.is_new) | {id, createdAt, preview}],
+        comments_history:
+          ([$s.gemini.comments[] | select(.is_new | not)]
+           | {total: length, last_created_at: (map(.createdAt) | max // null)})
+      },
+
+      inline_new_by_user:
+        ($s.inline_comments_by_user
+         | map_values([.[] | select(.is_new)
+                       | {id, path, created_at, severity_alt, cr_markers, is_ack, preview}])),
+      inline_history_by_user:
+        ($s.inline_comments_by_user
+         | map_values([.[] | select(.is_new | not)]
+                      | {total: length,
+                         acked: (map(select(.is_ack)) | length),
+                         last_created_at: (map(.created_at) | max // null)})),
+
+      codeql_checks:   $s.codeql_checks,
+      checks_failing:  $s.checks_failing,
+      security_alerts: $s.security_alerts,
+      quota_alerts:    $s.quota_alerts,
+      own_trigger_comments: [$s.own_trigger_comments[] | {author, createdAt, command}]
+    }
+  ' "$SNAPSHOT_FILE"
