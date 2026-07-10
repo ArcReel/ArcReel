@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.21.0](https://github.com/ArcReel/ArcReel/compare/v0.20.1...v0.21.0) (2026-07-10)
+
+
+### ✨ 新功能
+
+* **assistant:** 中断、提问答复与后台任务通知在对话时间线稳定呈现 ([#1061](https://github.com/ArcReel/ArcReel/issues/1061)) ([b3790ad](https://github.com/ArcReel/ArcReel/commit/b3790ad7887b39c76921dd77e2eb04e4f155f5e3))
+* **assistant:** 会话时间线切换为事件日志单一读源，断线重连按游标续传 ([#1059](https://github.com/ArcReel/ArcReel/issues/1059)) ([e8c85ac](https://github.com/ArcReel/ArcReel/commit/e8c85acbb882de6fd123ae9d4dc280a7b543e377))
+* **assistant:** 重设计对话时间线信息密度——skill 芯片、子任务折叠卡片与思考单行条 ([#1060](https://github.com/ArcReel/ArcReel/issues/1060)) ([b1c946f](https://github.com/ArcReel/ArcReel/commit/b1c946fd447add91b51a4351786a37e57511ad95))
+* **frontend:** 分集拆分后点击分集即可审阅源文切片，并一键唤起智能体起草剧本 ([#1090](https://github.com/ArcReel/ArcReel/issues/1090)) ([35faaef](https://github.com/ArcReel/ArcReel/commit/35faaef072e910a2e53c21c7e035af06c3f1bc9b))
+* **kling:** 内置可灵供应商支持 API Key 单密钥鉴权、域名迁移与 base_url 手动配置 ([#1082](https://github.com/ArcReel/ArcReel/issues/1082)) ([c242cd0](https://github.com/ArcReel/ArcReel/commit/c242cd06f03a094cb22eac07e111dd4f0b9b1d4c))
+
+
+### 🐛 Bug 修复
+
+* **agent:** 同步对话不再把截断回复当完整文本静默返回 ([#1069](https://github.com/ArcReel/ArcReel/issues/1069)) ([5f97f53](https://github.com/ArcReel/ArcReel/commit/5f97f53cdd66a1139f59237554ebe9182cddd604))
+* **assistant:** 新会话首条消息写入失败不再静默丢失，发送方即时收到错误 ([#1068](https://github.com/ArcReel/ArcReel/issues/1068)) ([e218235](https://github.com/ArcReel/ArcReel/commit/e21823594b18c98889ba6eb7795557003074027d))
+* **assistant:** 清理事件日志管道 4 条遗留缺陷——幂等持久化、跨 turn 投影、异常匹配、重复实现 ([#1073](https://github.com/ArcReel/ArcReel/issues/1073)) ([b7cf2fe](https://github.com/ArcReel/ArcReel/commit/b7cf2fea82d5758896408792b6e8359603afe60a))
+* **custom-provider:** append seedance API root for mounted base URLs ([#1087](https://github.com/ArcReel/ArcReel/issues/1087)) ([2f3aa18](https://github.com/ArcReel/ArcReel/commit/2f3aa187b2088ef12f7c6d2d1ba8b277cc0aba87))
+* **server:** 项目删除后事件流终止轮询，消除 ERROR 刷屏 ([#1080](https://github.com/ArcReel/ArcReel/issues/1080)) ([dc4d443](https://github.com/ArcReel/ArcReel/commit/dc4d4434f1bc4b837d7160486110cc8ab8109cb9))
+* **skills:** pr-ai-review-loop 识别 withdrawn 标记并停用未接入的 Codex 触发 ([#1079](https://github.com/ArcReel/ArcReel/issues/1079)) ([e0f4564](https://github.com/ArcReel/ArcReel/commit/e0f456437a74a76c42f8e9122ed701ad31036cb4))
+* **text-gen:** 分集规划超长输出改为清晰报错，patch_project 接受数字型 settings ([#1081](https://github.com/ArcReel/ArcReel/issues/1081)) ([abe0ba8](https://github.com/ArcReel/ArcReel/commit/abe0ba8e41a63e0d34c0b3d316b03043bb7ec5d2))
+
+
+### ⚡ 性能优化
+
+* **assistant:** 时间线投影增量化，长会话直播不再随历史线性变慢 ([#1070](https://github.com/ArcReel/ArcReel/issues/1070)) ([9486816](https://github.com/ArcReel/ArcReel/commit/948681692f62f24ce228836a59e24cdd7f343c36))
+* **assistant:** 移除对话历史重算与去重启发式，单条消息开销不再随会话增长 ([#1062](https://github.com/ArcReel/ArcReel/issues/1062)) ([0551f5e](https://github.com/ArcReel/ArcReel/commit/0551f5ec0cfd9f124d99b19f8cf215739eae931d))
+
+
+### 📚 文档
+
+* **adr:** 智能体对话时间线以会话事件日志为唯一读源的设计决策 ([#1052](https://github.com/ArcReel/ArcReel/issues/1052)) ([6394234](https://github.com/ArcReel/ArcReel/commit/6394234bea3b9d158a32d34ef6775d92e4cfdb15))
+* **license:** 补充 NOTICE 附加条款、README 许可证说明与关于页署名 ([#1039](https://github.com/ArcReel/ArcReel/issues/1039)) ([5fab091](https://github.com/ArcReel/ArcReel/commit/5fab0916c9abcb7c31ad7e41ad909cbb1257e0af))
+* **triage:** 登记 parked 标签——已评估但刻意搁置的 issue 不进 triage 状态机 ([7fc5620](https://github.com/ArcReel/ArcReel/commit/7fc5620664c5595d2a845d80d50ba717d229feee))
+
 ## [0.20.1](https://github.com/ArcReel/ArcReel/compare/v0.20.0...v0.20.1) (2026-07-03)
 
 
