@@ -102,7 +102,7 @@ case "$CMD" in
     ;;
 
   gemini-latest-body)
-    if ! jq -e -r '.gemini.reviews | sort_by(.submittedAt) | last | .body' "$SNAPSHOT_FILE"; then
+    if ! jq -e -r '(.gemini.reviews // []) | sort_by(.submittedAt) | last | .body' "$SNAPSHOT_FILE"; then
       echo "QUERY_ERROR: no gemini reviews in snapshot" >&2
       exit 6
     fi

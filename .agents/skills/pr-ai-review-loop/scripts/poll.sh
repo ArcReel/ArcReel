@@ -74,8 +74,9 @@
 #   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 5
 #     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
-#                                                       # returns 404 for missing permissions too — hint, not proof).
-#     "pr_ref": "refs/pull/<n>/merge",                  # unavailable_hint & pr_ref omitted when available == true
+#                                                       # returns 404 for missing permissions too — hint, not proof);
+#                                                       # omitted when available == true. pr_ref ("refs/pull/<n>/merge")
+#                                                       # is snapshot-only — always omitted from the index
 #     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]
 #   },
 #   "quota_alerts": [...],                              # PR-level issue comments matching quota-error phrases
@@ -158,12 +159,26 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
+# Snapshot dir: a user-private subdir (0700) keeps the predictable filename out of the
+# shared /tmp namespace on multi-user hosts; a pre-planted symlink (mkdir -p follows it)
+# or a foreign-owned dir at the path aborts loudly before anything is written.
+SNAP_BASE="${TMPDIR:-/tmp}"
+SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
+mkdir -p "$SNAP_DIR"
+if [[ -L "$SNAP_DIR" || ! -O "$SNAP_DIR" ]]; then
+  echo "POLL_ERROR: snapshot dir is a symlink or not owned by the current user: $SNAP_DIR" >&2
+  exit 4
+fi
+chmod 700 "$SNAP_DIR"
+
 # Stage gh output into temp files. Large PRs (dozens of comments) make --argjson
 # overflow ARG_MAX; --slurpfile reads from disk and is unbounded. Each gh call paginates,
 # so PRs with hundreds of comments work too. WORKDIR is created up-front so every gh
 # invocation can route its stderr here — the skill's troubleshooting section promises
 # stderr on failure, so silently dropping it via `2>/dev/null` defeats that contract.
-WORKDIR=$(mktemp -d)
+# It lives inside SNAP_DIR so staged PR data shares the 0700 protection and the final
+# snapshot rename never crosses a filesystem boundary (mv stays atomic).
+WORKDIR=$(mktemp -d "$SNAP_DIR/tmp.XXXXXX")
 trap 'rm -rf "$WORKDIR"' EXIT
 
 OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$WORKDIR/gh_repo_view.err") || {
@@ -172,13 +187,7 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$WORKDIR/gh_
   exit 4
 }
 
-# Snapshot path: a user-private subdir (0700) keeps the predictable filename out of the
-# shared /tmp namespace (symlink pre-planting / pre-created-file DoS on multi-user hosts);
-# chmod failing on a foreign-owned dir aborts loudly under set -e. The repo slug keeps
-# same-numbered PRs from different repos apart.
-SNAP_BASE="${TMPDIR:-/tmp}"
-SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
-mkdir -p "$SNAP_DIR" && chmod 700 "$SNAP_DIR"
+# The repo slug keeps same-numbered PRs from different repos apart.
 SNAPSHOT_FILE="$SNAP_DIR/poll-${OWNER_REPO//\//-}-${PR}.json"
 
 # Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
