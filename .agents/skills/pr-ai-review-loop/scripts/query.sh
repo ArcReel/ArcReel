@@ -73,7 +73,7 @@ case "$CMD" in
 
   details)
     [[ $# -ge 1 ]] || { echo "QUERY_ERROR: details needs at least one id" >&2; exit 2; }
-    IDS_JSON=$(printf '%s\n' "$@" | jq -R . | jq -s .)
+    IDS_JSON=$(jq -n '$ARGS.positional' --args "$@")
     RESULT=$(jq --argjson ids "$IDS_JSON" '
       [ (.coderabbit.walkthrough // empty
            | {source: "coderabbit_walkthrough", id, created_at, body}),
