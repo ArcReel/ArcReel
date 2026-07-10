@@ -611,7 +611,7 @@ async def spa_shell_no_cache_middleware(request: Request, call_next):
     落在原生 fallback 上的入口。
     """
     response: Response = await call_next(request)
-    if response.headers.get("content-type", "").startswith("text/html"):
+    if response.headers.get("content-type", "").lower().startswith("text/html"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
