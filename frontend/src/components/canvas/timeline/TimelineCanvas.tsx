@@ -363,7 +363,16 @@ export function TimelineCanvas({
               />
             </div>
           </div>
-        ) : null}
+        ) : (
+          // 兜底：timeline tab 下无可编辑分镜（剧本为空列表或未知 content_mode），
+          // 或剧本回退后 tab 仍停留在 timeline——给出指引而非空白
+          <div
+            className="flex h-full items-center justify-center text-[13px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
+            {hasScript ? t("timeline_no_editable_segments") : t("timeline_script_not_ready")}
+          </div>
+        )}
       </div>
     </div>
   );

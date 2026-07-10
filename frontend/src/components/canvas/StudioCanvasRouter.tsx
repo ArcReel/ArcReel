@@ -16,6 +16,7 @@ import { PropsPage } from "./lorebook/PropsPage";
 import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
+import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
@@ -671,10 +672,21 @@ export function StudioCanvasRouter() {
             ? REFERENCE_SHOT_DURATION_OPTIONS
             : durationOptions;
 
+          // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
+          // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
+          // 切片，走各自画布。
+          const showSourceReview = Boolean(episode) && !script && !hasDraft && !isAd;
+
           return (
             <div className="flex h-full flex-col">
               <div className="min-h-0 flex-1">
-                {mode === "reference_video" && !isAd ? (
+                {showSourceReview && episode ? (
+                  <EpisodeSourceReview
+                    projectName={currentProjectName}
+                    episode={epNum}
+                    episodes={currentProjectData?.episodes ?? []}
+                  />
+                ) : mode === "reference_video" && !isAd ? (
                   <ReferenceVideoCanvas
                     // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
                     // 残留上个项目的状态（例如 "E1U1" 长驻 set 里），切到同名 unit 的新项目

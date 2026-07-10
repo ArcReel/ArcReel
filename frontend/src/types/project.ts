@@ -88,6 +88,12 @@ export interface EpisodeMeta {
   episode: number;
   title: string;
   script_file: string;
+  /** Written by episode_planner at split time: ending hook / suspense */
+  hook?: string;
+  /** Written by episode_planner at split time: slice boundary in the source file (char offsets) */
+  source_range?: { source_file?: string; start?: number; end?: number };
+  /** Written by episode_planner at split time (drama only) */
+  outline?: { story_beats?: string[]; next_episode_teaser?: string };
   /** Injected by StatusCalculator at read time */
   scenes_count?: number;
   /** Injected by StatusCalculator at read time */
