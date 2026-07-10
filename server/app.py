@@ -22,8 +22,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
 from lib.agent_session_store import session_store_enabled
@@ -601,19 +603,36 @@ async def serve_skill_md(request: Request) -> Response:
     return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
 
 
-@app.middleware("http")
-async def spa_shell_no_cache_middleware(request: Request, call_next):
+class SPAShellNoCacheMiddleware:
     """SPA 入口 HTML 外壳禁止浏览器缓存。
 
     覆盖 spa_deep_link 与 app.frontend 原生 fallback 两条路径共用的响应特征
     （text/html），否则重新部署后浏览器可能沿用旧壳加载已被删除的旧哈希资源，
     导致白屏——按 content-type 而非按路由判定，才能同时管住 "/"、"/login" 等
-    落在原生 fallback 上的入口。
+    落在原生 fallback 上的入口。纯 ASGI 实现而非 BaseHTTPMiddleware：这是个作用于
+    全部请求的全局中间件，BaseHTTPMiddleware 的 anyio TaskGroup + contextvars
+    复制机制会给每个请求引入额外开销。
     """
-    response: Response = await call_next(request)
-    if response.headers.get("content-type", "").lower().startswith("text/html"):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    return response
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if headers.get("content-type", "").lower().startswith("text/html"):
+                    headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app.add_middleware(SPAShellNoCacheMiddleware)
 
 
 # 前端构建产物：SPA 静态文件服务。fallback 仅对 GET/HEAD 生效，写请求误入页面路径不再返回页面。
