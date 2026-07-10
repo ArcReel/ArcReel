@@ -118,7 +118,8 @@ case "$CMD" in
     # actual topic text.
     jq '
       def clean_head:
-        gsub("<!--[\\s\\S]*?-->"; "")
+        (. // "")
+        | gsub("<!--[\\s\\S]*?-->"; "")
         | gsub("!\\[[^\\]]*\\]\\([^\\)]*\\)"; "")
         | gsub("\\s+"; " ")
         | sub("^ +"; "")

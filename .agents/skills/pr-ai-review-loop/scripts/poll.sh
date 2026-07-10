@@ -164,10 +164,17 @@ fi
 # or a foreign-owned dir at the path aborts loudly before anything is written.
 SNAP_BASE="${TMPDIR:-/tmp}"
 SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
-mkdir -p "$SNAP_DIR"
-if [[ -L "$SNAP_DIR" || ! -O "$SNAP_DIR" ]]; then
-  echo "POLL_ERROR: snapshot dir is a symlink or not owned by the current user: $SNAP_DIR" >&2
+if [[ -L "$SNAP_DIR" ]]; then
+  echo "POLL_ERROR: snapshot dir is a symlink: $SNAP_DIR" >&2
   exit 4
+fi
+# Plain mkdir (no -p): never follows a symlink to create elsewhere; parent tmpdir always
+# exists. On EEXIST re-validate — including -L for a symlink raced in after the check.
+if ! mkdir "$SNAP_DIR" 2>/dev/null; then
+  if [[ -L "$SNAP_DIR" || ! -d "$SNAP_DIR" || ! -O "$SNAP_DIR" ]]; then
+    echo "POLL_ERROR: snapshot dir is a symlink, missing, or not owned by the current user: $SNAP_DIR" >&2
+    exit 4
+  fi
 fi
 chmod 700 "$SNAP_DIR"
 
@@ -276,23 +283,27 @@ jq -n \
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
   | ((($sub_d_w | add) // []) | group_by(.name) | map(max_by(.started_at))) as $check_runs |
   # ---- shared helpers ----
+  # Every body-consuming helper opens with (. // "") — jq string functions (gsub/test/
+  # contains/capture) raise fatal errors on null input, and a null body must not kill a poll.
   def mk_preview:
-    gsub("<!--[\\s\\S]*?-->"; "")
+    (. // "")
+    | gsub("<!--[\\s\\S]*?-->"; "")
     | gsub("!\\[[^\\]]*\\]\\([^\\)]*\\)"; "")
     | gsub("\\s+"; " ")
     | sub("^ +"; "")
     | .[0:120];
 
   def is_ack_body:
-    (test("<!--\\s*<review_comment_addressed>"))
-    or (test("<!--\\s*<review_comment_withdrawn>"))
-    or (test("^### Summary"));
+    (. // "")
+    | ((test("<!--\\s*<review_comment_addressed>"))
+       or (test("<!--\\s*<review_comment_withdrawn>"))
+       or (test("^### Summary")));
 
   def is_failing_conclusion:
     IN("failure", "timed_out", "cancelled", "action_required", "startup_failure");
 
   def cr_markers_of:
-    .[0:300] as $h
+    (. // "")[0:300] as $h
     | [
         ["potential_issue", "_⚠️ Potential issue"],
         ["major",           "_🟠 Major"],
@@ -306,27 +317,29 @@ jq -n \
     | map(select(.[1] as $pat | $h | contains($pat)) | .[0]);
 
   def has_pass_marker_body:
-    (test("\\bLGTM\\b"))
-    or (test("no issues found"; "i"))
-    or (test("\\bapproved\\b"; "i"))
-    or ((gsub("\\s+"; "")) as $bare | ($bare == "" or $bare == "##CodeReview"));
+    (. // "")
+    | ((test("\\bLGTM\\b"))
+       or (test("no issues found"; "i"))
+       or (test("\\bapproved\\b"; "i"))
+       or ((gsub("\\s+"; "")) as $bare | ($bare == "" or $bare == "##CodeReview")));
 
   def cr_walkthrough_rest:
     [$sub_a[] | select(.user.login == "coderabbitai[bot]")]
     | sort_by(.created_at)
     | first
     | if . == null then null else
-        {
+        (.body // "") as $wb
+        | {
           id,
           created_at,
           updated_at,
           reviewed_current_head: (.updated_at > $last_push),
-          is_ok:          (.body | test("No actionable comments were generated in the recent review")),
-          is_paused:      (.body | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
-          is_in_progress: (.body | test("(review in progress by coderabbit|currently processing new changes)"; "i")),
+          is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
+          is_paused:      ($wb | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
+          is_in_progress: ($wb | test("(review in progress by coderabbit|currently processing new changes)"; "i")),
           actionable_count:
-            (if (.body | test("Actionable comments posted:"))
-             then (.body | capture("Actionable comments posted:\\s*(?<n>[0-9]+)") | .n)
+            (if ($wb | test("Actionable comments posted:"))
+             then ($wb | capture("Actionable comments posted:\\s*(?<n>[0-9]+)") | .n)
              else null end),
           body
         }
@@ -343,7 +356,7 @@ jq -n \
           commit_id,
           created_at,
           is_new:       (.created_at > $last_push),
-          severity_alt: ([.body | capture("!\\[(?<s>[^\\]]+)\\]")] | .[0].s // null),
+          severity_alt: ([(.body // "") | capture("!\\[(?<s>[^\\]]+)\\]")] | .[0].s // null),
           cr_markers:   (.body | cr_markers_of),
           is_ack:       (.body | is_ack_body),
           preview:      (.body | mk_preview),
@@ -360,13 +373,14 @@ jq -n \
     # or use a fixed phrase like "You have / You\x27ve reached your ... limit".
     [$sub_a[]
      | select(.user.login | test("(gemini-code-assist|coderabbitai)\\[bot\\]$"))
+     | (.body // "") as $qb
      | select(
-         (.body[0:500] | test("you(\\x27ve|\\x{2019}ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
-         or (.body[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
-         or (.body[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
-         or (.body[0:500] | test("(http\\s*)?429\\b|too many requests"; "i"))
+         ($qb[0:500] | test("you(\\x27ve|\\x{2019}ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
+         or ($qb[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
+         or ($qb[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
+         or ($qb[0:500] | test("(http\\s*)?429\\b|too many requests"; "i"))
        )
-     | {user: .user.login, created_at, body_head: (.body | .[0:300])}];
+     | {user: .user.login, created_at, body_head: ($qb[0:300])}];
 
   # ---- snapshot projection ----
   {
@@ -439,14 +453,15 @@ jq -n \
 
     own_trigger_comments:
       [$main.comments[]
+       | (.body // "") as $tb
        | select(
            (.author.login != "coderabbitai"
             and .author.login != "gemini-code-assist")
-           and (.body | test("^[ \\t]*(/gemini review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
+           and ($tb | test("^[ \\t]*(/gemini review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
          )
        | {author: .author.login, createdAt,
-          command: (.body | capture("^[ \\t]*(?<c>/gemini review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
-          body: (.body | gsub("^\\s+|\\s+$"; ""))}]
+          command: ($tb | capture("^[ \\t]*(?<c>/gemini review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
+          body: ($tb | gsub("^\\s+|\\s+$"; ""))}]
   }
   ' > "$WORKDIR/snapshot.json"
 
