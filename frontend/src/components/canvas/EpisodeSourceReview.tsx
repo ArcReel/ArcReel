@@ -147,7 +147,7 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
             >
               {beats.map((b, i) => (
                 <div
-                  key={b}
+                  key={i}
                   className="rounded-lg px-3.5 py-3"
                   style={{ background: "oklch(0.24 0.012 265 / 0.55)", border: "1px solid var(--color-hairline-soft)" }}
                 >

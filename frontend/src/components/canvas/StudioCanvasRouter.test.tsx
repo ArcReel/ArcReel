@@ -75,6 +75,14 @@ vi.mock("./timeline/TimelineCanvas", () => ({
   ),
 }));
 
+vi.mock("./EpisodeSourceReview", () => ({
+  EpisodeSourceReview: ({ projectName, episode }: { projectName: string; episode: number }) => (
+    <div data-testid="episode-source-review">
+      {projectName}::{episode}
+    </div>
+  ),
+}));
+
 vi.mock("./grid/GridImageToVideoCanvas", () => ({
   GridImageToVideoCanvas: ({
     onGenerateGrid,
@@ -354,6 +362,37 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(screen.queryByText("加载中...")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows EpisodeSourceReview instead of TimelineCanvas when an episode has no script and no draft", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: {},
+    });
+
+    renderAt("/episodes/1");
+
+    expect(screen.getByTestId("episode-source-review")).toHaveTextContent("demo::1");
+    expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
+  });
+
+  it("falls back to TimelineCanvas when a draft exists but the script hasn't been generated", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "segmented" },
+        ],
+      }),
+      currentScripts: {},
+    });
+
+    renderAt("/episodes/1");
+
+    expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("timeline-has-script")).toHaveTextContent("no");
+    expect(screen.queryByTestId("episode-source-review")).not.toBeInTheDocument();
   });
 
   it("runs character callbacks and reports API failures with toast", async () => {

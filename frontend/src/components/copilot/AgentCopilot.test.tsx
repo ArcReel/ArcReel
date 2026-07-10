@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
 import { useAppStore } from "@/stores/app-store";
@@ -149,5 +149,19 @@ describe("AgentCopilot", () => {
     });
 
     expect(sendMessage).toHaveBeenCalledWith("你好", undefined);
+  });
+
+  it("consumes a one-shot prefill dispatched via the assistant store's input field", async () => {
+    render(<AgentCopilot />);
+
+    act(() => {
+      useAssistantStore.getState().setInput("为第 1 集生成剧本");
+    });
+
+    expect(screen.getByLabelText("助手输入")).toHaveValue("为第 1 集生成剧本");
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().input).toBe("");
+    });
   });
 });
