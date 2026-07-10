@@ -35,6 +35,9 @@ export default defineConfig({
         "src/router.tsx",
         "src/components/pages/ProjectsPage.tsx",
         "src/components/canvas/StudioCanvasRouter.tsx",
+        "src/components/canvas/EpisodeSourceReview.tsx",
+        "src/components/canvas/timeline/TimelineCanvas.tsx",
+        "src/components/copilot/AgentCopilot.tsx",
       ],
       reporter: ["text", "json-summary", "lcov"],
       thresholds: {
