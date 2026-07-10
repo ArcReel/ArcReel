@@ -229,7 +229,7 @@ export function EpisodeSourceReview({
     <div className="flex h-full flex-col p-6">
       <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
         <EpisodeHeader episode={episode} meta={meta} onStart={handleStart} />
-        <GuideSection meta={meta} />
+        <GuideSection key={episode} meta={meta} />
 
         <div className="mt-4 flex min-h-0 flex-1 flex-col">
           <div

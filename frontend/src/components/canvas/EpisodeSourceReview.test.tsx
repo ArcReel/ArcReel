@@ -94,6 +94,22 @@ describe("EpisodeSourceReview", () => {
     expect(screen.getByText("主角登场")).toBeInTheDocument();
   });
 
+  it("resets the collapsed guide section when switching to a different episode", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("text");
+    const episodes = [makeEpisode(), makeEpisode({ episode: 2, outline: { story_beats: ["新的一集"] } })];
+
+    const { rerender } = render(
+      <EpisodeSourceReview projectName="demo" episode={1} episodes={episodes} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /本集导览/ }));
+    expect(screen.queryByText("主角登场")).not.toBeInTheDocument();
+
+    rerender(<EpisodeSourceReview projectName="demo" episode={2} episodes={episodes} />);
+
+    expect(screen.getByText("新的一集")).toBeInTheDocument();
+  });
+
   it("prefills the assistant input and opens the panel on CTA click", async () => {
     vi.spyOn(API, "getSourceContent").mockResolvedValue("text");
     useAppStore.setState({ assistantPanelOpen: false });
