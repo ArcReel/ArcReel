@@ -7,6 +7,9 @@
 #   bash query.sh <PR_NUMBER> quality-all          # ALL github-code-quality[bot] inline comments, full body
 #   bash query.sh <PR_NUMBER> history              # every comment/review as {source,author,id,created_at,head(400)}
 #   bash query.sh <PR_NUMBER> unacked <bot[bot]>   # OLD (is_new==false) inline comments of <bot> with is_ack==false
+#   bash query.sh <PR_NUMBER> index                # re-print the last fully-printed poll index (recovers the
+#                                                  # decision facts a no_change line stands in for, e.g. after
+#                                                  # context compaction)
 #
 # Reads the snapshot poll.sh staged for the same round; field semantics live in poll.sh's
 # header. Failures are LOUD (never silent-empty): snapshot missing, unknown subcommand,
@@ -20,7 +23,7 @@
 set -euo pipefail
 
 usage() {
-  echo "QUERY_ERROR: usage: bash query.sh <PR_NUMBER> {details <id>...|gemini-latest-body|quality-all|history|unacked <bot[bot]>}" >&2
+  echo "QUERY_ERROR: usage: bash query.sh <PR_NUMBER> {details <id>...|gemini-latest-body|quality-all|history|unacked <bot[bot]>|index}" >&2
   exit 2
 }
 
@@ -45,13 +48,15 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || {
+OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || {
   echo "QUERY_ERROR: gh repo view failed (auth? wrong cwd?)" >&2
   exit 4
 }
 
-SNAP_DIR="${TMPDIR:-/tmp}"
-SNAPSHOT_FILE="${SNAP_DIR%/}/pr-ai-review-poll-${OWNER_REPO//\//-}-${PR}.json"
+# Keep in sync with poll.sh's SNAP_DIR/SNAPSHOT_FILE derivation (user-private subdir).
+SNAP_BASE="${TMPDIR:-/tmp}"
+SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
+SNAPSHOT_FILE="$SNAP_DIR/poll-${OWNER_REPO//\//-}-${PR}.json"
 
 if [[ ! -f "$SNAPSHOT_FILE" ]]; then
   echo "QUERY_ERROR: snapshot not found: $SNAPSHOT_FILE — run poll.sh $PR first" >&2
@@ -138,6 +143,16 @@ case "$CMD" in
               created_at, head: (.body | clean_head)})
       ] | sort_by(.created_at)
     ' "$SNAPSHOT_FILE"
+    ;;
+
+  index)
+    INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
+    if [[ ! -f "$INDEX_FILE" ]]; then
+      echo "QUERY_ERROR: index file not found: $INDEX_FILE — run poll.sh $PR first" >&2
+      exit 4
+    fi
+    jq -r '"QUERY_INDEX: printed_at=\(.printed_at)"' "$INDEX_FILE" >&2
+    jq '.index' "$INDEX_FILE"
     ;;
 
   unacked)

@@ -6,11 +6,21 @@
 #   bash poll.sh <PR_NUMBER>
 #
 # OUTPUT
-#   stdout   — minimal index JSON (schema below); errors to stderr prefixed `POLL_ERROR:`.
-#   snapshot — full-body JSON at ${TMPDIR:-/tmp}/pr-ai-review-poll-<owner>-<repo>-<PR>.json,
-#              atomically overwritten on every poll. The snapshot carries no cross-round
-#              state: it materializes THIS poll's fetch and is fully rebuilt by re-running
-#              poll.sh. query.sh is its only intended reader.
+#   stdout   — minimal index JSON (schema below), semi-compact: containers expand one key
+#              per line, row objects stay on one line each. When the derived index is
+#              identical to the last fully-printed one, a single line replaces it:
+#                {no_change: true, head, last_push_at, unchanged_since, hint}
+#              unchanged_since = printed_at of the last full print, so it tells how long
+#              the state has been flat. Recover the full index anytime (e.g. after context
+#              compaction) via `query.sh <PR> index`. The comparison covers the DERIVED
+#              INDEX only; the snapshot is still refreshed every poll, so query.sh always
+#              reads current bodies. Errors to stderr prefixed `POLL_ERROR:`.
+#   snapshot — full-body JSON at ${TMPDIR:-/tmp}/pr-ai-review-loop-<uid>/poll-<owner>-<repo>-<PR>.json
+#              (user-private 0700 subdir), atomically overwritten on every poll. The snapshot
+#              carries no cross-round state: it materializes THIS poll's fetch and is fully
+#              rebuilt by re-running poll.sh. query.sh is its only intended reader.
+#   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
+#              backs the no_change comparison and `query.sh index`.
 #
 # INDEX SCHEMA (stdout)
 # {
@@ -37,7 +47,7 @@
 #     },
 #     "reviews":          [{id, submittedAt, state, is_new}],
 #     "comments_new":     [{id, createdAt, preview}],   # this-round new non-walkthrough comments
-#     "comments_history": {total, last_created_at}      # older ones collapsed to counts
+#     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
 #   },
 #   "gemini": {
 #     "reviews":          [{id, submittedAt, state, has_pass_marker, is_new}],
@@ -46,22 +56,26 @@
 #     "comments_history": {total, last_created_at}
 #   },
 #   "inline_new_by_user":     {"<bot[bot]>": [{id, path, created_at, severity_alt, cr_markers,
-#                                              is_ack, preview}]},   # id = REST PR review comment id
-#   "inline_history_by_user": {"<bot[bot]>": {total, acked, last_created_at}},
-#   "codeql_checks": [{name, app, status, conclusion,   # CodeQL-related check runs on current HEAD (Analyze (*) /
-#                      started_at}],                    # codeql-required / CodeQL, or runs owned by the scanning apps).
-#                                                       # Both check lists carry ONE row per check name: suite reruns
-#                                                       # produce same-name duplicates, collapsed to the latest run
-#                                                       # by started_at so a superseded failure cannot pin them red
+#                                              is_ack, preview}]},   # id = REST PR review comment id; severity_alt
+#                                                       # omitted when null, cr_markers omitted when empty
+#   "inline_history_by_user": {"<bot[bot]>": {total, acked, last_created_at}},  # collapses to {total: 0} when empty
+#   "codeql_checks": {                                  # CodeQL analysis summary for current HEAD (Analyze (*) /
+#     "total": <int>,                                   # codeql-required / CodeQL runs, or runs owned by the scanning
+#     "all_ok": <bool>,                                 # apps). all_ok = total > 0 AND all completed AND none failing —
+#     "pending": [{name, app, status}],                 # the exit-gate bit; total == 0 alone is never a pass.
+#     "failing": [{name, app, conclusion}]              # failing-ish conclusion (set: see checks_failing below).
+#   },                                                  # Same-name suite reruns are collapsed in-script to the latest
+#                                                       # run per name (by started_at; full rows incl. started_at stay
+#                                                       # in the snapshot) so a superseded failure cannot pin them red
 #   "checks_failing": [{name, conclusion}],             # check runs on current HEAD with a failing-ish conclusion —
 #                                                       # the failing set: failure/timed_out/cancelled/action_required/
 #                                                       # startup_failure (single source of truth for "failed check");
 #                                                       # red CI can block reviewers, so fix it before waiting on them
 #   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 5
-#     "available": <bool>,                              # false = alerts API unreachable; gate must degrade
+#     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
-#                                                       # returns 404 for missing permissions too — hint, not proof)
-#     "pr_ref": "refs/pull/<n>/merge",
+#                                                       # returns 404 for missing permissions too — hint, not proof).
+#     "pr_ref": "refs/pull/<n>/merge",                  # unavailable_hint & pr_ref omitted when available == true
 #     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]
 #   },
 #   "quota_alerts": [...],                              # PR-level issue comments matching quota-error phrases
@@ -88,7 +102,9 @@
 # SNAPSHOT SCHEMA — same tree as the index, except: `other_comments`/`comments`/`reviews`/
 #   `inline_comments_by_user` are FULL lists (no new/history split) with full `body` and `is_new`
 #   on every row, walkthrough keeps `body`, `commits` is the full list, own_trigger_comments
-#   keeps `body`, plus top-level `repo` and `generated_at` for query.sh provenance.
+#   keeps `body`, `codeql_checks` is the full row list ({name, app, status, conclusion,
+#   started_at, is_failing}) instead of the summary, plus top-level `repo` and `generated_at`
+#   for query.sh provenance.
 #
 # PITFALLS
 #
@@ -156,9 +172,14 @@ OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$WORKDIR/gh_
   exit 4
 }
 
-# Snapshot path: the repo slug keeps same-numbered PRs from different repos apart.
-SNAP_DIR="${TMPDIR:-/tmp}"
-SNAPSHOT_FILE="${SNAP_DIR%/}/pr-ai-review-poll-${OWNER_REPO//\//-}-${PR}.json"
+# Snapshot path: a user-private subdir (0700) keeps the predictable filename out of the
+# shared /tmp namespace (symlink pre-planting / pre-created-file DoS on multi-user hosts);
+# chmod failing on a foreign-owned dir aborts loudly under set -e. The repo slug keeps
+# same-numbered PRs from different repos apart.
+SNAP_BASE="${TMPDIR:-/tmp}"
+SNAP_DIR="${SNAP_BASE%/}/pr-ai-review-loop-$(id -u)"
+mkdir -p "$SNAP_DIR" && chmod 700 "$SNAP_DIR"
+SNAPSHOT_FILE="$SNAP_DIR/poll-${OWNER_REPO//\//-}-${PR}.json"
 
 # Main query — GraphQL via gh pr view. author.login here is WITHOUT [bot] suffix.
 gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "$WORKDIR/main.json" 2>"$WORKDIR/gh_pr_view.err" || {
@@ -244,7 +265,7 @@ jq -n \
   | ($main.commits | last | .committedDate) as $last_push
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
-  | (($sub_d_w | add) | group_by(.name) | map(max_by(.started_at))) as $check_runs |
+  | ((($sub_d_w | add) // []) | group_by(.name) | map(max_by(.started_at))) as $check_runs |
   # ---- shared helpers ----
   def mk_preview:
     gsub("<!--[\\s\\S]*?-->"; "")
@@ -257,6 +278,9 @@ jq -n \
     (test("<!--\\s*<review_comment_addressed>"))
     or (test("<!--\\s*<review_comment_withdrawn>"))
     or (test("^### Summary"));
+
+  def is_failing_conclusion:
+    IN("failure", "timed_out", "cancelled", "action_required", "startup_failure");
 
   def cr_markers_of:
     .[0:300] as $h
@@ -377,11 +401,12 @@ jq -n \
     codeql_checks:
       [$check_runs[]
        | select((.app == "github-advanced-security" or .app == "github-code-quality")
-                or (.name | test("^Analyze \\(|^codeql-required$|^CodeQL$")))],
+                or (.name | test("^Analyze \\(|^codeql-required$|^CodeQL$")))
+       | . + {is_failing: (.conclusion | is_failing_conclusion)}],
 
     checks_failing:
       [$check_runs[]
-       | select(.conclusion | IN("failure", "timed_out", "cancelled", "action_required", "startup_failure"))
+       | select(.conclusion | is_failing_conclusion)
        | {name, conclusion}],
 
     security_alerts: {
@@ -423,6 +448,7 @@ mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
 # New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
 # reach stdout — query.sh reads them from the snapshot on demand.
 jq --arg snapshot_file "$SNAPSHOT_FILE" '
+  def prune_hist: if .total == 0 then {total} else . end;
   . as $s
   | ($s.pr_created_at) as $created
   | {
@@ -442,7 +468,8 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
           [$s.coderabbit.other_comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
           ([$s.coderabbit.other_comments[] | select(.is_new | not)]
-           | {total: length, last_created_at: (map(.createdAt) | max // null)})
+           | {total: length, last_created_at: (map(.createdAt) | max // null)}
+           | prune_hist)
       },
 
       gemini: {
@@ -451,24 +478,81 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
           [$s.gemini.comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
           ([$s.gemini.comments[] | select(.is_new | not)]
-           | {total: length, last_created_at: (map(.createdAt) | max // null)})
+           | {total: length, last_created_at: (map(.createdAt) | max // null)}
+           | prune_hist)
       },
 
       inline_new_by_user:
         ($s.inline_comments_by_user
          | map_values([.[] | select(.is_new)
-                       | {id, path, created_at, severity_alt, cr_markers, is_ack, preview}])),
+                       | {id, path, created_at, severity_alt, cr_markers, is_ack, preview}
+                       | (if .severity_alt == null then del(.severity_alt) else . end)
+                       | (if .cr_markers == [] then del(.cr_markers) else . end)])),
       inline_history_by_user:
         ($s.inline_comments_by_user
          | map_values([.[] | select(.is_new | not)]
                       | {total: length,
                          acked: (map(select(.is_ack)) | length),
-                         last_created_at: (map(.created_at) | max // null)})),
+                         last_created_at: (map(.created_at) | max // null)}
+                      | prune_hist)),
 
-      codeql_checks:   $s.codeql_checks,
+      codeql_checks:
+        ($s.codeql_checks
+         | {total: length,
+            all_ok: ((length > 0) and all(.[]; .status == "completed" and (.is_failing | not))),
+            pending: [.[] | select(.status != "completed") | {name, app, status}],
+            failing: [.[] | select(.is_failing) | {name, app, conclusion}]}),
+
       checks_failing:  $s.checks_failing,
-      security_alerts: $s.security_alerts,
+      security_alerts:
+        ($s.security_alerts
+         | if .available then {available, open_introduced} else del(.pr_ref) end),
       quota_alerts:    $s.quota_alerts,
       own_trigger_comments: [$s.own_trigger_comments[] | {author, createdAt, command}]
     }
-  ' "$SNAPSHOT_FILE"
+  ' "$SNAPSHOT_FILE" > "$WORKDIR/index.json"
+
+# ---- Pass 3: no-change collapse + semi-compact print ----
+# Waiting rounds dominate the loop; re-printing an identical index every poll is pure
+# context waste. Compare the derived index (key-order normalized) against the last fully
+# printed one and collapse to a single no_change line on match. printed_at sticks to the
+# last full print, so unchanged_since reports how long the state has been flat.
+INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
+NEW_NORM=$(jq -cS . "$WORKDIR/index.json")
+PREV_NORM=""
+if [[ -f "$INDEX_FILE" ]]; then
+  PREV_NORM=$(jq -cS '.index' "$INDEX_FILE" 2>/dev/null) || PREV_NORM=""
+fi
+
+if [[ -n "$PREV_NORM" && "$PREV_NORM" == "$NEW_NORM" ]]; then
+  jq -c --arg pr "$PR" '
+    {no_change: true,
+     head: .index.head,
+     last_push_at: .index.last_push_at,
+     unchanged_since: .printed_at,
+     hint: ("index identical to every poll since unchanged_since; full index: bash query.sh " + $pr + " index")}
+  ' "$INDEX_FILE"
+else
+  jq -n --arg printed_at "$GENERATED_AT" --slurpfile idx "$WORKDIR/index.json" \
+    '{printed_at: $printed_at, index: $idx[0]}' > "$WORKDIR/index_store.json"
+  mv "$WORKDIR/index_store.json" "$INDEX_FILE"
+  # Semi-compact render: same JSON, but row objects (and flat leaf objects like the
+  # walkthrough) print on one line each instead of one line per field.
+  jq -r '
+    def scalarish: (type != "object") and (type != "array");
+    def flatarr: type == "array" and all(.[]?; scalarish);
+    def leafobj: type == "object" and all(.[]?; scalarish or flatarr);
+    def render($ind):
+      if scalarish or flatarr then tojson
+      elif leafobj then tojson
+      elif type == "array" and all(.[]?; leafobj) then
+        "[\n" + ([.[] | $ind + "  " + tojson] | join(",\n")) + "\n" + $ind + "]"
+      elif type == "array" then
+        "[\n" + ([.[] | $ind + "  " + render($ind + "  ")] | join(",\n")) + "\n" + $ind + "]"
+      else
+        "{\n" + ([to_entries[] | $ind + "  " + (.key | tojson) + ": "
+                  + (.value | render($ind + "  "))] | join(",\n")) + "\n" + $ind + "}"
+      end;
+    render("")
+  ' "$WORKDIR/index.json"
+fi
