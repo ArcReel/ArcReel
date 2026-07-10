@@ -94,9 +94,9 @@
 #                            verification    "_💡 Verification agent"  trivial   "_🔵 Trivial"
 #                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
 #   severity_alt           Gemini inline severity from its ![severity](...) badge image alt text
-#   has_pass_marker        Gemini review summary carries an explicit pass marker: "LGTM" / "no issues found" (any
-#                          case) / word "approved" (any case), or body is empty aside from the "## Code Review"
-#                          heading (any case)
+#   has_pass_marker        Gemini review summary carries an explicit pass marker: "LGTM" / "no issues found" /
+#                          "no feedback to provide" (any case) / word "approved" (any case), or body is empty
+#                          aside from the "## Code Review" heading (any case)
 #   preview                first 120 chars of body after stripping HTML comments and markdown images, whitespace
 #                          collapsed — the eyeball safety net for flag misparses (flag vs preview conflict => fetch
 #                          full body via query.sh details and trust the body)
@@ -321,6 +321,7 @@ jq -n \
     (. // "")
     | ((test("\\bLGTM\\b"))
        or (test("no issues found"; "i"))
+       or (test("no feedback to provide"; "i"))
        or (test("\\bapproved\\b"; "i"))
        or ((gsub("\\s+"; "") | ascii_downcase) as $bare | ($bare == "" or $bare == "##codereview")));
 
