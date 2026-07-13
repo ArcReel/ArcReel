@@ -201,9 +201,16 @@ def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
         raise HTTPException(status_code=404, detail=_t("unknown_provider", provider_id=provider_id))
 
 
+_NON_SECRET_FIELDS = frozenset({"name", "base_url"})
+
+
 def _submitted_secret_values(body: CreateCredentialRequest | UpdateCredentialRequest) -> dict[str, str | None]:
-    """从请求体取出参与凭证组切换判定的密钥字段，供 create/update 共用以保持字段集一致。"""
-    return {"api_key": body.api_key, "access_key": body.access_key, "secret_key": body.secret_key}
+    """从请求体取出参与凭证组切换判定的密钥字段，供 create/update 共用以保持字段集一致。
+
+    动态排除非密钥字段而非硬编码字段名列表，新增供应商凭证字段（并纳入某个
+    credential_groups）时无需同步修改此处。
+    """
+    return {k: v for k, v in body.model_dump().items() if k not in _NON_SECRET_FIELDS}
 
 
 def _resolve_credential_group_switch(
@@ -490,10 +497,11 @@ async def update_credential(
     repo = CredentialRepository(session)
     # 先确认凭证存在（404 优先于后续切组歧义的 422），再用库内原值参与「切入」判定。
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
+    submitted = _submitted_secret_values(body)
     clear_keys = _resolve_credential_group_switch(
         provider_id,
-        _submitted_secret_values(body),
-        {"api_key": cred.api_key, "access_key": cred.access_key, "secret_key": cred.secret_key},
+        submitted,
+        {k: getattr(cred, k, None) for k in submitted},
         _t,
     )
     kwargs: dict = {}
