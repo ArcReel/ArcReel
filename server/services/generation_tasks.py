@@ -587,7 +587,7 @@ def _product_references_for_video(generator: Any, project: dict, project_path: P
 
 
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
-    if script is None:
+    if not isinstance(script, dict):
         return None
     episode = script.get("episode")
     if isinstance(episode, int):
@@ -767,7 +767,14 @@ def emit_generation_success_batch(
 
     action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
     if action is not None:
-        kind = resolve_script_kind(script) if script is not None else "segments"
+        if task_type == "reference_video":
+            # ad 剧本骨架恒为 shots[]（reference_video 路径只是把镜头派生分组为
+            # video_unit 索引，二者持久于同一份剧本 JSON），resolve_script_kind
+            # 的数据形状优先判别会因 shots 键仍在而退回 content_mode==ad→shots，
+            # 与该任务实际对应 video_unit 资源不符——直接固定 kind，不经骨架判别。
+            kind = "video_units"
+        else:
+            kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
         entity_type = SKELETON_ENTITY_TYPES.get(kind, "segment")
         noun = _SKELETON_TASK_LABEL_NOUNS.get(task_type) or SKELETON_ITEM_NOUNS.get(kind, "分镜")
         label_tpl = f"{noun}「{{}}」"

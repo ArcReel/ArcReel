@@ -856,6 +856,41 @@ class TestGenerationTasks:
         assert change["action"] == "reference_video_ready"
         assert change["label"] == "参考视频「U01」"
 
+    def test_emit_success_batch_reference_video_ad_entity_type_not_shot(self, monkeypatch, tmp_path):
+        """ad 剧本骨架恒为 shots[]，reference_video 路径派生的 video_unit 索引与 shots
+        同存于一份剧本 JSON——resolve_script_kind 的数据形状判别会因 shots 键仍在而落回
+        content_mode==ad→shots，与该任务实际对应 video_unit 资源不符，故需固定解析，
+        不随骨架判别漂到 "shot"。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = {
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01"}],
+            "video_units": [{"unit_id": "U01", "shot_ids": ["E1S01"]}],
+        }
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="reference_video",
+            project_name="demo",
+            resource_id="U01",
+            payload={"script_file": "episode_1.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "reference_unit"
+        assert change["action"] == "reference_video_ready"
+        assert change["label"] == "参考视频「U01」"
+
     def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):
         """骨架判定拿不到剧本（脚本缺失/损坏）时兜底 segments/「分镜」，不让通知发送中断。"""
         captured = []
@@ -880,6 +915,34 @@ class TestGenerationTasks:
             project_name="demo",
             resource_id="E1S01",
             payload={"script_file": "missing.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "segment"
+        assert change["label"] == "分镜「E1S01」"
+
+    def test_emit_success_batch_falls_back_to_segments_when_script_not_a_dict(self, monkeypatch, tmp_path):
+        """剧本文件内容损坏成非 dict（如顶层数组）时兜底 segments/「分镜」，不让
+        resolve_script_kind 内部的 .get() 调用抛 AttributeError 中断通知发送。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = ["not", "a", "dict"]
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="storyboard",
+            project_name="demo",
+            resource_id="E1S01",
+            payload={"script_file": "corrupted.json"},
         )
 
         assert len(captured) == 1
