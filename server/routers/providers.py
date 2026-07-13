@@ -207,7 +207,9 @@ def _submitted_secret_values(
     """从请求体取出参与凭证组切换判定的密钥字段，供 create/update 共用以保持字段集一致。
 
     按 provider 在 `PROVIDER_REGISTRY` 中声明的 `secret_keys` 动态过滤，而非硬编码排除列表，
-    与 `credential_groups` 同源、同步声明驱动：新增供应商凭证字段时只需在注册表登记。
+    与 `credential_groups` 同源、同步声明驱动。注：新增凭证字段时，除在注册表登记 `secret_keys`
+    外，仍需同步给 `CreateCredentialRequest`/`UpdateCredentialRequest` 加对应字段——未加字段的
+    key 会被 `hasattr` 过滤静默忽略。
     """
     meta = PROVIDER_REGISTRY[provider_id]
     return {k: getattr(body, k, None) for k in meta.secret_keys if hasattr(body, k)}
