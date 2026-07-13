@@ -21,10 +21,11 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.responses import FileResponse
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
 from lib.agent_session_store import session_store_enabled
@@ -602,24 +603,64 @@ async def serve_skill_md(request: Request) -> Response:
     return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
 
 
-# 前端构建产物：SPA 静态文件服务（必须在所有显式路由之后挂载）
+class SPAShellNoCacheMiddleware:
+    """SPA 入口 HTML 外壳禁止浏览器缓存。
+
+    覆盖 spa_deep_link 与 app.frontend 原生 fallback 两条路径共用的响应特征
+    （text/html），否则重新部署后浏览器可能沿用旧壳加载已被删除的旧哈希资源，
+    导致白屏——按 content-type 而非按路由判定，才能同时管住 "/"、"/login" 等
+    落在原生 fallback 上的入口。纯 ASGI 实现而非 BaseHTTPMiddleware：这是个作用于
+    全部请求的全局中间件，BaseHTTPMiddleware 的 anyio TaskGroup + contextvars
+    复制机制会给每个请求引入额外开销。
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if headers.get("content-type", "").lower().startswith("text/html"):
+                    headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app.add_middleware(SPAShellNoCacheMiddleware)
+
+
+# 前端构建产物：SPA 静态文件服务。fallback 仅对 GET/HEAD 生效，写请求误入页面路径不再返回页面。
+# 挂载条件必须检查 index.html 而非目录：app.frontend 在启动期校验 fallback 文件，
+# 构建产物不完整时会抛 RuntimeError 拖垮整个应用（含全部 API）
 frontend_dist_dir = PROJECT_ROOT / "frontend" / "dist"
 
+if (frontend_dist_dir / "index.html").is_file():
 
-class SPAStaticFiles(StaticFiles):
-    """服务 Vite 构建产物，未匹配的路径回退到 index.html（SPA 路由）。"""
+    @app.get("/app/{_rest:path}", include_in_schema=False)
+    async def spa_deep_link(_rest: str) -> FileResponse:
+        # SPA 深链末段可能带扩展名（如 /app/projects/x/source/chapter1.txt），
+        # app.frontend 的 fallback 会将其判为静态资源请求返回 404，此处显式兜底回 SPA 外壳。
+        # 本路由注册在 app.frontend 之前，/app/ 下任何请求都会先到这里——若构建产物中
+        # 恰好存在 dist/app/... 下的真实静态文件（URL 路径与 app.frontend 的映射规则一致，
+        # 即相对 dist 根目录同路径），须优先返回该文件，避免被无条件遮蔽。
+        # normpath + startswith 做越界守卫而非 resolve()/is_relative_to()：纯字符串规范化，
+        # 且是 CodeQL py/path-injection 能识别的收敛模式（resolve/is_relative_to 不被识别，
+        # 参见 jianying_draft_service.py 同类注释）
+        app_static_root = os.path.normpath(str(frontend_dist_dir / "app"))
+        candidate = os.path.normpath(os.path.join(app_static_root, _rest))
+        if candidate.startswith(app_static_root + os.sep) and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(frontend_dist_dir / "index.html")
 
-    async def get_response(self, path: str, scope):
-        try:
-            return await super().get_response(path, scope)
-        except StarletteHTTPException as exc:
-            if exc.status_code == 404:
-                return await super().get_response("index.html", scope)
-            raise
-
-
-if frontend_dist_dir.exists():
-    app.mount("/", SPAStaticFiles(directory=frontend_dist_dir, html=True), name="frontend")
+    app.frontend("/", directory=frontend_dist_dir, fallback="index.html")
+else:
+    logger.warning("frontend/dist/index.html 不存在，跳过前端页面挂载（API 不受影响）")
 
 
 if __name__ == "__main__":
