@@ -507,13 +507,13 @@ async def update_credential(
     kwargs: dict = {}
     if body.name is not None:
         kwargs["name"] = body.name
-    if body.api_key is not None:
+    if "api_key" in body.model_fields_set:
         kwargs["api_key"] = body.api_key
     if "base_url" in body.model_fields_set:
         kwargs["base_url"] = body.base_url
-    if body.access_key is not None:
+    if "access_key" in body.model_fields_set:
         kwargs["access_key"] = body.access_key
-    if body.secret_key is not None:
+    if "secret_key" in body.model_fields_set:
         kwargs["secret_key"] = body.secret_key
     # 切入某组：清空其它已声明组的字段，消除"静默沿用旧模式"。切入判定已排除本次提交触及的组，
     # 故不会覆盖用户本次填入的值。
