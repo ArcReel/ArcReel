@@ -586,14 +586,9 @@ def _product_references_for_video(generator: Any, project: dict, project_path: P
     return references
 
 
-def _resolve_script_episode(project_name: str, script_file: str | None) -> int | None:
-    if not script_file:
+def _episode_from_script(script: dict[str, Any] | None) -> int | None:
+    if script is None:
         return None
-    try:
-        script = get_project_manager().load_script(project_name, script_file)
-    except Exception:
-        return None
-
     episode = script.get("episode")
     if isinstance(episode, int):
         return episode
@@ -718,7 +713,7 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 # 三类项目级资产（character / scene / prop）的 spec 由 lib.asset_types.ASSET_SPECS 派生。
 # storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
 # video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
-# ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致（issue #1036）。
+# ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
@@ -734,26 +729,25 @@ _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
 }
 
 # reference_video 的条目标签沿用「参考视频」措辞（区别于分镜级事件的骨架名词「视频单元」，
-# 两者服务不同场景：此为任务完成通知的条目文案，不在本 issue 收敛）；storyboard/video 未列出，
+# 两者服务不同场景：此为任务完成通知的条目文案，不随骨架名词收敛）；storyboard/video 未列出，
 # 回退到骨架名词本身（分镜/场景/镜头），与同项目分镜级事件同口径。
 _SKELETON_TASK_LABEL_NOUNS: dict[str, str] = {
     "reference_video": "参考视频",
 }
 
 
-def _resolve_skeleton_kind_for_task(project_name: str, script_file: str | None) -> str:
-    """任务完成事件复用分镜级事件的骨架判定（``resolve_script_kind``），不独立维护第二套。
+def _load_event_script(project_name: str, script_file: str | None) -> dict[str, Any] | None:
+    """加载完成事件所属剧本一次，供骨架种类与 episode 共用；缺失/损坏时返回 None。
 
-    加载失败（脚本缺失/损坏）时回退 ``"segments"``，与既有 ``SKELETON_ENTITY_TYPES.get(kind,
-    "segment")`` 兜底口径一致，不让通知发送因骨架判定失败而中断。
+    调用方对 None 各自兜底（骨架种类回退 ``"segments"``、episode 回退 ``None``），
+    不让剧本加载失败导致通知发送中断。
     """
     if not script_file:
-        return "segments"
+        return None
     try:
-        script = get_project_manager().load_script(project_name, script_file)
+        return get_project_manager().load_script(project_name, script_file)
     except Exception:
-        return "segments"
-    return resolve_script_kind(script)
+        return None
 
 
 def emit_generation_success_batch(
@@ -768,10 +762,12 @@ def emit_generation_success_batch(
     事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
     """
     script_file = str(payload.get("script_file") or "") or None
+    # 单次加载剧本，骨架种类与 episode 共用，避免同一 script_file 双解析。
+    script = _load_event_script(project_name, script_file)
 
     action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
     if action is not None:
-        kind = _resolve_skeleton_kind_for_task(project_name, script_file)
+        kind = resolve_script_kind(script) if script is not None else "segments"
         entity_type = SKELETON_ENTITY_TYPES.get(kind, "segment")
         noun = _SKELETON_TASK_LABEL_NOUNS.get(task_type) or SKELETON_ITEM_NOUNS.get(kind, "分镜")
         label_tpl = f"{noun}「{{}}」"
@@ -795,7 +791,7 @@ def emit_generation_success_batch(
     }
     if include_script_episode:
         change["script_file"] = script_file
-        change["episode"] = _resolve_script_episode(project_name, script_file)
+        change["episode"] = _episode_from_script(script)
 
     try:
         emit_project_change_batch(project_name, [change])

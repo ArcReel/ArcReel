@@ -47,7 +47,7 @@ SKELETONS: dict[str, Skeleton] = {
 
 # 条目名词按骨架种类硬编码——驱动分镜级事件与任务完成事件共用的通知文案（如「镜头「E1S01」」）。
 # 名词 i18n 化是独立议题（与 ``_diff_named_entities`` 的「角色」/「线索」同为既有硬编码形态），
-# 不在此处收敛。两套事件路径必须读同一张表，不各自维护一份（见 issue #1036）。
+# 不在此处收敛。两套事件路径必须读同一张表，不各自维护一份。
 SKELETON_ITEM_NOUNS: dict[str, str] = {
     "segments": "分镜",
     "scenes": "场景",

@@ -798,7 +798,7 @@ class TestGenerationTasks:
         self, monkeypatch, tmp_path, script, expected_entity_type, expected_label
     ):
         """storyboard/video 任务完成通知与分镜级事件同口径：实体类型与名词按项目剧本骨架
-        种类解析，不恒为 narration 的 segment/「分镜」（issue #1036）。"""
+        种类解析，不恒为 narration 的 segment/「分镜」。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -829,7 +829,7 @@ class TestGenerationTasks:
     def test_emit_success_batch_reference_video_entity_type_aligns_with_frontend(self, monkeypatch, tmp_path):
         """参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit"
         （而非仅本侧认识的 "reference_video_unit"），分组标题才能落「视频单元」而非「内容」
-        兜底；条目文案仍沿用「参考视频」措辞，不随骨架名词改动（issue #1036）。"""
+        兜底；条目文案仍沿用「参考视频」措辞，不随骨架名词改动。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -886,6 +886,35 @@ class TestGenerationTasks:
         change = captured[0][0]
         assert change["entity_type"] == "segment"
         assert change["label"] == "分镜「E1S01」"
+
+    def test_emit_success_batch_attaches_script_file_and_episode(self, monkeypatch, tmp_path):
+        """骨架驱动的完成事件须挂 script_file 与 episode（供 episode 作用域消费方使用）——
+        锁死这条挂载，防将来改动 emit 时静默丢字段。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = {"content_mode": "narration", "episode": 3, "segments": [{"segment_id": "E3S01"}]}
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        for task_type in ("storyboard", "video", "reference_video"):
+            captured.clear()
+            generation_tasks.emit_generation_success_batch(
+                task_type=task_type,
+                project_name="demo",
+                resource_id="E3S01",
+                payload={"script_file": "ep03.json"},
+            )
+            assert len(captured) == 1
+            change = captured[0][0]
+            assert change["script_file"] == "ep03.json"
+            assert change["episode"] == 3
 
     def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
         """宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径"""

@@ -14,7 +14,7 @@ def test_task_change_action_registered_for_reference_video():
     # entity_type 不再是静态 spec：按剧本骨架种类动态解析（见
     # test_generation_tasks_service.py 里对 emit_generation_success_batch 的骨架覆盖用例），
     # 与前端 ProjectChange["entity_type"] 联合类型的 "reference_unit" 对齐，不再是仅本侧
-    # 认识的 "reference_video_unit"（issue #1036）。
+    # 认识的 "reference_video_unit"。
     assert _SKELETON_DRIVEN_TASK_ACTIONS.get("reference_video") == "reference_video_ready"
 
 
