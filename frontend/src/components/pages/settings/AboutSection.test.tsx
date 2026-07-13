@@ -76,7 +76,9 @@ describe("AboutSection diagnostics download (issue #1040)", () => {
     const button = await screen.findByRole("button", { name: "下载诊断日志" });
     await user.click(button);
 
-    await waitFor(() => expect(anchorRef.current).not.toBeNull());
-    expect(anchorRef.current?.download).toBe("custom-diagnostics.zip");
+    // 直接对下载锚点的 download 断言轮询：组件恒渲染的 GitHub 署名锚点会先被
+    // createElement spy 捕获（download 为空），若只断言 anchorRef 非空会立即命中
+    // 署名锚点而非下载锚点。断言 download 值可确保轮询到 click 后创建的下载锚点。
+    await waitFor(() => expect(anchorRef.current?.download).toBe("custom-diagnostics.zip"));
   });
 });
