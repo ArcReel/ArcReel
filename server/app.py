@@ -648,10 +648,13 @@ if (frontend_dist_dir / "index.html").is_file():
         # app.frontend 的 fallback 会将其判为静态资源请求返回 404，此处显式兜底回 SPA 外壳。
         # 本路由注册在 app.frontend 之前，/app/ 下任何请求都会先到这里——若构建产物中
         # 恰好存在 dist/app/... 下的真实静态文件（URL 路径与 app.frontend 的映射规则一致，
-        # 即相对 dist 根目录同路径），须优先返回该文件，避免被无条件遮蔽；resolve() 后校验
-        # 仍在 frontend_dist_dir 内，防止 _rest 携带 "../" 越界读取
-        candidate = (frontend_dist_dir / "app" / _rest).resolve()
-        if candidate.is_relative_to(frontend_dist_dir.resolve()) and candidate.is_file():
+        # 即相对 dist 根目录同路径），须优先返回该文件，避免被无条件遮蔽。
+        # normpath + startswith 做越界守卫而非 resolve()/is_relative_to()：纯字符串规范化，
+        # 且是 CodeQL py/path-injection 能识别的收敛模式（resolve/is_relative_to 不被识别，
+        # 参见 jianying_draft_service.py 同类注释）
+        app_static_root = os.path.normpath(str(frontend_dist_dir / "app"))
+        candidate = os.path.normpath(os.path.join(app_static_root, _rest))
+        if candidate.startswith(app_static_root + os.sep) and os.path.isfile(candidate):
             return FileResponse(candidate)
         return FileResponse(frontend_dist_dir / "index.html")
 
