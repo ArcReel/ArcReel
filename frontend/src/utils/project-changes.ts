@@ -31,22 +31,6 @@ export function buildEntityRevisionKey(
   return `${entityType}:${entityId}`;
 }
 
-export function buildVersionResourceRevisionKey(
-  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props",
-  resourceId: string,
-): string {
-  if (resourceType === "storyboards" || resourceType === "videos") {
-    return buildEntityRevisionKey("segment", resourceId);
-  }
-  if (resourceType === "characters") {
-    return buildEntityRevisionKey("character", resourceId);
-  }
-  if (resourceType === "scenes") {
-    return buildEntityRevisionKey("scene", resourceId);
-  }
-  return buildEntityRevisionKey("prop", resourceId);
-}
-
 export function groupChangesByType(
   changes: ProjectChange[],
 ): GroupedProjectChange[] {

@@ -212,8 +212,6 @@ class OptionsAssembler:
 
         policy = self._access_policy_provider()
 
-        transcripts_dir = self.data_dir / "transcripts"
-        transcripts_dir.mkdir(parents=True, exist_ok=True)
         project_cwd = self._resolve_project_cwd(project_name)
 
         # Build PreToolUse hooks — file access control MUST use hooks because
