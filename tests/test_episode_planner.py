@@ -351,6 +351,128 @@ class TestPlan:
         assert ep1 == source[:end]  # 切片逐字节落在源文坐标上，未被 \r/组合字符撑长漂移
         assert [s.title for s in result.episodes] == ["Mở đầu"]
 
+    async def test_plan_resolves_anchor_with_curly_double_quote_mismatch(self, tmp_path: Path):
+        """源文用弯双引号（U+201C/U+201D），模型回显成直双引号：折叠表新增映射令其对齐。"""
+        source = "他说：“古玉里藏着剑诀。”少女沉默不语。"
+        curly_anchor = "“古玉里藏着剑诀。”"
+        straight_anchor = '"古玉里藏着剑诀。"'  # 模型回显成直引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "hook", "end_anchor": straight_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(curly_anchor) + len(curly_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("”")  # 源文标点未被改写（仍是弯引号）
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+
+    async def test_plan_resolves_anchor_with_curly_double_quote_mismatch_reverse(self, tmp_path: Path):
+        """反向：源文用直双引号，模型回显成弯双引号，同一折叠表对齐两个方向。"""
+        source = '他说："古玉里藏着剑诀。"少女沉默不语。'
+        straight_anchor = '"古玉里藏着剑诀。"'
+        curly_anchor = "“古玉里藏着剑诀。”"  # 模型回显成弯引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "hook", "end_anchor": curly_anchor}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(straight_anchor) + len(straight_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+
+    async def test_plan_resolves_anchor_with_curly_single_quote_mismatch(self, tmp_path: Path):
+        """源文用弯单引号（U+2018/U+2019），模型回显成直单引号：折叠表新增映射令其对齐。"""
+        source = "少女低声说：‘我不是坏人。’李恒不再追问。"
+        curly_anchor = "‘我不是坏人。’"
+        straight_anchor = "'我不是坏人。'"  # 模型回显成直引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "少女辩白", "hook": "hook", "end_anchor": straight_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(curly_anchor) + len(curly_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("’")  # 源文标点未被改写（仍是弯引号）
+        assert [s.title for s in result.episodes] == ["少女辩白"]
+
+    async def test_plan_resolves_anchor_with_cjk_wave_dash_fullwidth_anchor(self, tmp_path: Path):
+        """源文用 CJK 波浪号（U+301C），模型回显成全角波浪号（U+FF5E）：两者折叠后同归半角 ~。"""
+        source = "古玉估价约〜百金，来历不明。少女转身离去。"
+        cjk_anchor = "约〜百金，来历不明。"
+        fullwidth_anchor = "约～百金，来历不明。"  # 模型回显成 U+FF5E
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "估价成谜", "hook": "hook", "end_anchor": fullwidth_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(cjk_anchor) + len(cjk_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("〜百金，来历不明。")  # 源文标点未被改写（仍是 CJK 波浪号）
+        assert [s.title for s in result.episodes] == ["估价成谜"]
+
+    async def test_plan_resolves_anchor_with_cjk_wave_dash_halfwidth_anchor(self, tmp_path: Path):
+        """源文用 CJK 波浪号（U+301C），模型回显成半角 ~：折叠表新增映射令其对齐。"""
+        source = "古玉估价约〜百金，来历不明。少女转身离去。"
+        cjk_anchor = "约〜百金，来历不明。"
+        halfwidth_anchor = "约~百金，来历不明。"  # 模型回显成半角 ~
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "估价成谜", "hook": "hook", "end_anchor": halfwidth_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(cjk_anchor) + len(cjk_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert [s.title for s in result.episodes] == ["估价成谜"]
+
+    async def test_plan_resolves_anchor_with_fullwidth_straight_quote_mismatch(self, tmp_path: Path):
+        """源文用全角直引号（U+FF02/U+FF07），模型回显成半角直引号：折叠表新增映射令其对齐。"""
+        source = "少女喊道：＂别跑，＇等等我＇！＂李恒停下脚步。"
+        fullwidth_anchor = "＂别跑，＇等等我＇！＂"
+        halfwidth_anchor = "\"别跑，'等等我'！\""  # 模型回显成半角直引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "城门呼喊", "hook": "hook", "end_anchor": halfwidth_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(fullwidth_anchor) + len(fullwidth_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("＂")  # 源文标点未被改写（仍是全角直引号）
+        assert [s.title for s in result.episodes] == ["城门呼喊"]
+
     async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
         """折叠后仍命中多处：维持「无法唯一定位」拒绝并重试，不静默挑第一处。"""
         source = "他说好的。她说好的。后来他离开了。"  # 两处「说好的。」全角句号
