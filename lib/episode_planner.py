@@ -900,13 +900,19 @@ class EpisodePlanner:
     def _remaining_units_from(self, source_rel: str, start: int, text: str, language: str | None) -> int:
         """当前源文窗口起点之后全部 + 后续源文件总量，按阅读单位计（全局进度提示用）。
 
-        每次调用线性扫一遍后续源文件，不缓存——分批规划下单次调用的量级可接受。
+        ``discover_sources`` 只调一次：它已返回全部源文件的归一化全文，定位到
+        ``source_rel`` 后直接复用后续文件的 ``doc.text``，避免按源文件数循环重复
+        调用 ``discover_sources``（每次都会重新读取并归一化目录下全部源文件）。
         """
         total = count_reading_units(text[start:], language)
-        next_rel = self._next_source_rel(source_rel)
-        while next_rel is not None:
-            total += count_reading_units(self._load_normalized_source(next_rel), language)
-            next_rel = self._next_source_rel(next_rel)
+        sources = discover_sources(self.project_path)
+        rels = [doc.rel_path for doc in sources]
+        try:
+            idx = rels.index(source_rel)
+        except ValueError:
+            return total
+        for doc in sources[idx + 1 :]:
+            total += count_reading_units(doc.text, language)
         return total
 
     def _next_source_rel(self, rel: str) -> str | None:
@@ -1036,9 +1042,10 @@ class EpisodePlanner:
             if entry.get("ledger_status") == "unanchored":
                 path = self.project_path / "source" / f"episode_{num}.txt"
                 try:
-                    units_by_episode[num] = count_reading_units(path.read_text(encoding="utf-8"), language)
-                except OSError:
+                    text = normalize_source_text(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError):
                     continue
+                units_by_episode[num] = count_reading_units(text, language)
                 continue
             source_range = entry.get("source_range")
             if not isinstance(source_range, Mapping):
