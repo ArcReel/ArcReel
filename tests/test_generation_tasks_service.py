@@ -771,6 +771,122 @@ class TestGenerationTasks:
         assert "storyboards/scene_E1S01.png" in change["asset_fingerprints"]
         assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
+    @pytest.mark.parametrize(
+        ("script", "expected_entity_type", "expected_label"),
+        [
+            pytest.param(
+                {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
+                "drama_scene",
+                "场景「E1S01」",
+                id="drama-scenes",
+            ),
+            pytest.param(
+                {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]},
+                "shot",
+                "镜头「E1S01」",
+                id="ad-shots",
+            ),
+            pytest.param(
+                {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]},
+                "segment",
+                "分镜「E1S01」",
+                id="narration-segments",
+            ),
+        ],
+    )
+    def test_emit_success_batch_storyboard_entity_type_follows_skeleton(
+        self, monkeypatch, tmp_path, script, expected_entity_type, expected_label
+    ):
+        """storyboard/video 任务完成通知与分镜级事件同口径：实体类型与名词按项目剧本骨架
+        种类解析，不恒为 narration 的 segment/「分镜」（issue #1036）。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = script
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        for task_type, action in (("storyboard", "storyboard_ready"), ("video", "video_ready")):
+            captured.clear()
+            generation_tasks.emit_generation_success_batch(
+                task_type=task_type,
+                project_name="demo",
+                resource_id="E1S01",
+                payload={"script_file": "ep01.json"},
+            )
+            assert len(captured) == 1
+            change = captured[0][0]
+            assert change["entity_type"] == expected_entity_type
+            assert change["action"] == action
+            assert change["label"] == expected_label
+
+    def test_emit_success_batch_reference_video_entity_type_aligns_with_frontend(self, monkeypatch, tmp_path):
+        """参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit"
+        （而非仅本侧认识的 "reference_video_unit"），分组标题才能落「视频单元」而非「内容」
+        兜底；条目文案仍沿用「参考视频」措辞，不随骨架名词改动（issue #1036）。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = {"content_mode": "narration", "video_units": [{"unit_id": "U01"}]}
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="reference_video",
+            project_name="demo",
+            resource_id="U01",
+            payload={"script_file": "ep01.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "reference_unit"
+        assert change["action"] == "reference_video_ready"
+        assert change["label"] == "参考视频「U01」"
+
+    def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):
+        """骨架判定拿不到剧本（脚本缺失/损坏）时兜底 segments/「分镜」，不让通知发送中断。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+
+        def _raise_load_script(project_name, script_file):
+            raise FileNotFoundError(script_file)
+
+        fake_pm.load_script = _raise_load_script
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="storyboard",
+            project_name="demo",
+            resource_id="E1S01",
+            payload={"script_file": "missing.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "segment"
+        assert change["label"] == "分镜「E1S01」"
+
     def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
         """宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径"""
         from lib.grid.models import FrameCell, GridGeneration

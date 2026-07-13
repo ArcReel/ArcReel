@@ -101,4 +101,32 @@ describe("project-changes utils", () => {
       );
     }
   });
+
+  it("labels reference_unit notifications as 视频单元, not the 内容 fallback", () => {
+    // 回归 issue #1036：后端曾把参考生视频任务完成事件的 entity_type 发成前端不认识的
+    // "reference_video_unit"，落 ENTITY_LABELS 兜底显示「内容」。修复后 entity_type 与前端
+    // 联合类型的 "reference_unit" 对齐，分组标题应显示「视频单元」。action 用 "updated"：
+    // 生产中该通知实际带 "reference_video_ready"（不在 ProjectChange["action"] 联合类型内，
+    // 类型收窄不在本 issue 范围），但 getEntityLabel 对非 storyboard/video/grid_ready 的
+    // action 走同一条 ENTITY_LABELS 兜底分支，"updated" 足以复现并锁定这条修复路径。
+    const [group] = groupChangesByType([
+      makeChange({
+        entity_type: "reference_unit",
+        action: "updated",
+        entity_id: "U01",
+        label: "参考视频「U01」",
+      }),
+      makeChange({
+        entity_type: "reference_unit",
+        action: "updated",
+        entity_id: "U02",
+        label: "参考视频「U02」",
+      }),
+    ]);
+
+    expect(formatGroupedNotificationText(group)).toBe(
+      "更新了 2 个视频单元：U01、U02",
+    );
+    expect(formatGroupedNotificationText(group)).not.toContain("内容");
+  });
 });

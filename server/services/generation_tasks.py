@@ -42,6 +42,7 @@ from lib.prompt_utils import (
 )
 from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import resource_relative_path
+from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -715,14 +716,44 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 
 # (entity_type, action, label_tpl, include_script_episode)
 # 三类项目级资产（character / scene / prop）的 spec 由 lib.asset_types.ASSET_SPECS 派生。
+# storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
+# video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
+# ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致（issue #1036）。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
-    "storyboard": ("segment", "storyboard_ready", "分镜「{}」", True),
-    "video": ("segment", "video_ready", "分镜「{}」", True),
     "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
-    "reference_video": ("reference_video_unit", "reference_video_ready", "参考视频「{}」", True),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }
+
+# 骨架驱动的任务类型 → 完成事件 action。entity_type/条目名词按项目剧本当前骨架种类
+# （resolve_script_kind，与分镜级事件同一判定）动态解析，不按 task_type 恒定硬编码。
+_SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
+    "storyboard": "storyboard_ready",
+    "video": "video_ready",
+    "reference_video": "reference_video_ready",
+}
+
+# reference_video 的条目标签沿用「参考视频」措辞（区别于分镜级事件的骨架名词「视频单元」，
+# 两者服务不同场景：此为任务完成通知的条目文案，不在本 issue 收敛）；storyboard/video 未列出，
+# 回退到骨架名词本身（分镜/场景/镜头），与同项目分镜级事件同口径。
+_SKELETON_TASK_LABEL_NOUNS: dict[str, str] = {
+    "reference_video": "参考视频",
+}
+
+
+def _resolve_skeleton_kind_for_task(project_name: str, script_file: str | None) -> str:
+    """任务完成事件复用分镜级事件的骨架判定（``resolve_script_kind``），不独立维护第二套。
+
+    加载失败（脚本缺失/损坏）时回退 ``"segments"``，与既有 ``SKELETON_ENTITY_TYPES.get(kind,
+    "segment")`` 兜底口径一致，不让通知发送因骨架判定失败而中断。
+    """
+    if not script_file:
+        return "segments"
+    try:
+        script = get_project_manager().load_script(project_name, script_file)
+    except Exception:
+        return "segments"
+    return resolve_script_kind(script)
 
 
 def emit_generation_success_batch(
@@ -736,11 +767,21 @@ def emit_generation_success_batch(
 
     事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
     """
-    spec = _TASK_CHANGE_SPECS.get(task_type)
-    if spec is None:
-        return {}
+    script_file = str(payload.get("script_file") or "") or None
 
-    entity_type, action, label_tpl, include_script_episode = spec
+    action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
+    if action is not None:
+        kind = _resolve_skeleton_kind_for_task(project_name, script_file)
+        entity_type = SKELETON_ENTITY_TYPES.get(kind, "segment")
+        noun = _SKELETON_TASK_LABEL_NOUNS.get(task_type) or SKELETON_ITEM_NOUNS.get(kind, "分镜")
+        label_tpl = f"{noun}「{{}}」"
+        include_script_episode = True
+    else:
+        spec = _TASK_CHANGE_SPECS.get(task_type)
+        if spec is None:
+            return {}
+        entity_type, action, label_tpl, include_script_episode = spec
+
     asset_fingerprints = compute_affected_fingerprints(project_name, task_type, resource_id)
 
     change: dict[str, Any] = {
@@ -753,7 +794,6 @@ def emit_generation_success_batch(
         "asset_fingerprints": asset_fingerprints,
     }
     if include_script_episode:
-        script_file = str(payload.get("script_file") or "") or None
         change["script_file"] = script_file
         change["episode"] = _resolve_script_episode(project_name, script_file)
 
