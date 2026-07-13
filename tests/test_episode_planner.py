@@ -20,6 +20,7 @@ from lib.episode_planner import (
     _find_all_overlapping,
 )
 from lib.text_backends.base import TextGenerationResult
+from lib.text_metrics import count_reading_units
 
 # 源文：三段剧情，句子互不重复，锚点可唯一定位
 SOURCE = (
@@ -718,6 +719,30 @@ class TestPlan:
         cursor = _load_project(project_dir)["planning_cursor"]
         assert cursor == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
 
+    async def test_plan_window_elasticity_extends_to_full_text_when_remainder_small(self, tmp_path: Path):
+        """剩余全文不足窗口 1.2 倍时窗口直接延伸到全文末尾，避免残余被迫单独成集。"""
+        window_chars = len(SOURCE) - 8  # 小于全文长度，但剩余量仍在 1.2 倍窗口以内
+        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        last_anchor = "卷入漩涡之中。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                        {"title": "丙", "hook": "丙", "end_anchor": last_anchor},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert last_anchor in fake.requests[0].prompt  # 窗口已延伸到全文末尾，未被 window_chars 截断
+        assert result.source_exhausted is True
+        project = _load_project(project_dir)
+        assert project["planning_cursor"]["offset"] == len(SOURCE)
+
     async def test_plan_max_episodes_setting_truncates_batch(self, tmp_path: Path):
         """planning_max_episodes 覆盖每批集数上限：超出的集截断留给下一批。"""
         project_dir = _write_project(tmp_path, extra={"planning_max_episodes": 1})
@@ -891,6 +916,101 @@ class TestPlan:
 
         assert blank.requests[0].prompt == none.requests[0].prompt
 
+    async def test_plan_with_instructions_injects_global_progress_section(self, tmp_path: Path):
+        """有 instructions 时才注入「全局进度」分节：已规划集数/余量/本窗口体量按阅读单位现算。"""
+        ep1_end = _end_of(ANCHOR_EP1)
+        window_chars = ep1_end + 4
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, ep1_end)],
+            planning_cursor={"source_file": "source/novel.txt", "offset": ep1_end},
+            extra={"planning_window_chars": window_chars},
+        )
+        fake = _FakeTextGenerator([_plan_response([{"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2}])])
+
+        await EpisodePlanner(project_dir, generator=fake).plan(instructions="严格按章节切分，一章一集")
+
+        prompt = fake.requests[0].prompt
+        remaining_units = count_reading_units(SOURCE[ep1_end:], None)
+        window_units = count_reading_units(SOURCE[ep1_end : ep1_end + window_chars], None)
+        assert "# 全局进度" in prompt
+        assert "已规划 1 集" in prompt
+        assert f"未规划余量约 {remaining_units} 字" in prompt
+        assert f"本窗口为其中前 {window_units} 字" in prompt
+
+    async def test_plan_normal_batch_omits_ledger_stats(self, tmp_path: Path):
+        """常规（非耗尽）批次不附全局核对材料，只报累计已规划集数。"""
+        window_chars = _end_of(ANCHOR_EP1) + 4
+        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "钩子", "end_anchor": ANCHOR_EP1}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.source_exhausted is False
+        assert result.ledger_stats is None
+        assert result.total_planned == 1
+
+    async def test_plan_exhausted_batch_includes_ledger_stats(self, tmp_path: Path):
+        """末批即耗尽：附全局核对材料——累计集数、最小体量集（升序）、中位数。"""
+        last_anchor = "卷入漩涡之中。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                        {"title": "丙", "hook": "丙", "end_anchor": last_anchor},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(_write_project(tmp_path), generator=fake).plan()
+
+        assert result.source_exhausted is True
+        stats = result.ledger_stats
+        assert stats is not None
+        assert stats.total_episodes == 3
+        assert [num for num, _units in stats.smallest] == [3, 2, 1]  # 体量升序：丙 < 乙 < 甲
+        assert stats.median_units == 37
+        assert stats.target_units is None  # 未配置 episode_target_units 时不报
+
+    async def test_plan_exhausted_batch_reports_target_units_when_configured(self, tmp_path: Path):
+        """episode_target_units 项目设置存在时，核对材料里带出该目标体量。"""
+        last_anchor = "卷入漩涡之中。"
+        project_dir = _write_project(tmp_path, extra={"episode_target_units": 800})
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                        {"title": "丙", "hook": "丙", "end_anchor": last_anchor},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.ledger_stats is not None
+        assert result.ledger_stats.target_units == 800
+
+    async def test_plan_no_new_content_early_exit_includes_ledger_stats(self, tmp_path: Path):
+        """再次调用无新内容（早退路径）：不调模型，仍附全局核对材料供复核。"""
+        project_dir = _planned_three(tmp_path)
+        fake = _FakeTextGenerator([])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.source_exhausted is True
+        assert fake.requests == []
+        stats = result.ledger_stats
+        assert stats is not None
+        assert stats.total_episodes == 3
+        assert [num for num, _units in stats.smallest] == [3, 2, 1]
+        assert stats.median_units == 37
+
 
 def _entry(
     num: int,
@@ -981,6 +1101,7 @@ class TestReplan:
         assert "第2集在下山处收尾" in prompt  # 用户意见进 prompt
         assert "钩子1" in prompt  # 之前的集作为已定上下文
         assert ANCHOR_EP1 not in prompt  # 已定范围的原文不重发
+        assert "# 全局进度" not in prompt  # replan 范围闭合、整段进 prompt，不注入全局进度
 
         project = _load_project(project_dir)
         eps = {e["episode"]: e for e in project["episodes"]}
@@ -998,6 +1119,28 @@ class TestReplan:
         assert (project_dir / "source" / "episode_3.txt").read_text(encoding="utf-8") == SOURCE[new_mid:]
         assert [s.episode for s in result.episodes] == [2, 3]
         assert result.stale_episodes == []
+        assert result.ledger_stats is not None  # replan 是偏差修复的主要动作，每次都附核对材料
+
+    async def test_replan_always_includes_ledger_stats_for_review_loop(self, tmp_path: Path):
+        """replan 成功返回一律带全局核对材料，闭合「重排后再核对」的复核循环。"""
+        project_dir = _planned_three(tmp_path)
+        new_anchor = "踏上去往青云城的路。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "辞别下山", "hook": "青云城里有什么", "end_anchor": new_anchor},
+                        {"title": "城门风波", "hook": "少女是谁", "end_anchor": "卷入漩涡之中。"},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾")
+
+        stats = result.ledger_stats
+        assert stats is not None
+        assert stats.total_episodes == 3  # 重排未改变集数：仍是 1/2/3 三集
 
     async def test_replan_requires_confirmation_for_consumed_episodes(self, tmp_path: Path):
         """波及已消费集且未确认：返回受影响清单，账本与文件零变更。"""
