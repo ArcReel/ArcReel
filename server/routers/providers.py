@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -201,26 +201,48 @@ def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
         raise HTTPException(status_code=404, detail=_t("unknown_provider", provider_id=provider_id))
 
 
+def _submitted_secret_values(body: CreateCredentialRequest | UpdateCredentialRequest) -> dict[str, str | None]:
+    """从请求体取出参与凭证组切换判定的密钥字段，供 create/update 共用以保持字段集一致。"""
+    return {"api_key": body.api_key, "access_key": body.access_key, "secret_key": body.secret_key}
+
+
 def _resolve_credential_group_switch(
     provider_id: str,
-    submitted: dict[str, str | None],
+    submitted: Mapping[str, str | None],
+    current: Mapping[str, str | None] | None,
     _t: Callable[..., str],
 ) -> set[str]:
     """判定本次提交是否触发凭证切组，返回需清空的其它组字段集合。
 
-    切组由 ``ProviderMeta.credential_groups`` 声明驱动（issue #1084）：本次提交完整覆盖
-    （非空）某一组时，视为切向该组，返回其它已声明组的全部字段供调用方清空；同时完整覆盖
-    多组时无法判断切向哪组，报错拒绝；未完整覆盖任何组（含未声明 credential_groups 的绝大多数
-    provider）时返回空集合，维持现有 PATCH/创建的保留语义不变。
+    切组由 ``ProviderMeta.credential_groups`` 声明驱动：
+    - 单次提交的非空字段横跨多个互斥组时无法判断意图，报错拒绝（避免静默丢弃用户填入的值）；
+    - 完整覆盖某一组、且该组在库内原值中原本未完整存在时，视为「切入」该组，返回其它已声明组
+      的全部字段供调用方清空——消除旧组残留导致的静默沿用旧模式；
+    - 完整覆盖的组在库内原本就已完整存在（存量共存行上例行轮换该组），则不算切组、不清空另一组，
+      避免清掉用户未触碰的休眠凭证；
+    - 未完整覆盖任何组（含未声明 credential_groups 的绝大多数 provider）时返回空集合，维持部分
+      更新的保留语义。
+
+    ``current`` 传入库内原值用于上述「切入」判定；创建端点无原值传 None（新行无可清空项，仅复用
+    本函数的横跨多组拒绝校验）。
     """
     meta = PROVIDER_REGISTRY[provider_id]
-    matched = meta.fully_covered_credential_groups(submitted)
-    if len(matched) > 1:
+    groups = meta.credential_groups
+    if not groups:
+        return set()
+    touched = [g for g in groups if any(submitted.get(k) for k in g)]
+    if len(touched) > 1:
         raise HTTPException(status_code=422, detail=_t("credential_group_ambiguous"))
-    if len(matched) == 1:
-        covered = set(matched[0])
-        return {k for group in meta.credential_groups for k in group if k not in covered}
-    return set()
+    covered = meta.fully_covered_credential_groups(submitted)
+    if not covered:
+        return set()
+    target = covered[0]
+    if current is not None:
+        pre_covered = {frozenset(g) for g in meta.fully_covered_credential_groups(current)}
+        if frozenset(target) in pre_covered:
+            return set()
+    target_keys = set(target)
+    return {k for group in groups for k in group if k not in target_keys}
 
 
 async def _get_credential_or_404(
@@ -439,12 +461,8 @@ async def create_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
-    # 创建是全新行，无需清空——同时完整覆盖多组仍歧义，一律拒绝（新行不落盘）。
-    _resolve_credential_group_switch(
-        provider_id,
-        {"api_key": body.api_key, "access_key": body.access_key, "secret_key": body.secret_key},
-        _t,
-    )
+    # 创建是全新行，无可清空——仅复用横跨多组的歧义校验拒绝矛盾提交（新行不落盘）。
+    _resolve_credential_group_switch(provider_id, _submitted_secret_values(body), None, _t)
     repo = CredentialRepository(session)
     cred = await repo.create(
         provider=provider_id,
@@ -469,15 +487,15 @@ async def update_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
-    # 切组判定须用本次提交的原始值（而非与库内旧值合并后的结果）：只有当次提交本身完整覆盖
-    # 某一组，才视为用户主动切组；否则维持现有「未提交字段保留原值」的部分更新语义。
+    repo = CredentialRepository(session)
+    # 先确认凭证存在（404 优先于后续切组歧义的 422），再用库内原值参与「切入」判定。
+    cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     clear_keys = _resolve_credential_group_switch(
         provider_id,
-        {"api_key": body.api_key, "access_key": body.access_key, "secret_key": body.secret_key},
+        _submitted_secret_values(body),
+        {"api_key": cred.api_key, "access_key": cred.access_key, "secret_key": cred.secret_key},
         _t,
     )
-    repo = CredentialRepository(session)
-    cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     kwargs: dict = {}
     if body.name is not None:
         kwargs["name"] = body.name
@@ -489,7 +507,8 @@ async def update_credential(
         kwargs["access_key"] = body.access_key
     if body.secret_key is not None:
         kwargs["secret_key"] = body.secret_key
-    # 切组命中：清空其它已声明组的字段，消除"静默沿用旧模式"（issue #1084）。
+    # 切入某组：清空其它已声明组的字段，消除"静默沿用旧模式"。切入判定已排除本次提交触及的组，
+    # 故不会覆盖用户本次填入的值。
     for key in clear_keys:
         kwargs[key] = None
     if kwargs:

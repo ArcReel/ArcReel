@@ -112,7 +112,7 @@ class ProviderMeta:
     def fully_covered_credential_groups(self, values: Mapping[str, str | None]) -> list[list[str]]:
         """返回本次提交「完整覆盖」的凭证组（组内所有 key 在 values 中均非空）。
 
-        驱动凭证创建/更新端点的切组判定（issue #1084）：未声明 credential_groups 的 provider
+        驱动凭证创建/更新端点的切组判定：未声明 credential_groups 的 provider
         （绝大多数）该列表恒为空，调用方据此保持"不做切组处理"的原语义不变。
         """
         return [group for group in self.credential_groups if all(values.get(k) for k in group)]

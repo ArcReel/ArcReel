@@ -168,7 +168,7 @@ class TestCredentialGroups:
 
 
 class TestFullyCoveredCredentialGroups:
-    """ProviderMeta.fully_covered_credential_groups —— 切组判定的核心真值表（issue #1084）。"""
+    """ProviderMeta.fully_covered_credential_groups —— 切组判定的核心真值表。"""
 
     def _kling_meta(self) -> ProviderMeta:
         return ProviderMeta(

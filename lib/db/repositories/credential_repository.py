@@ -93,7 +93,7 @@ class CredentialRepository(BaseRepository):
     ) -> None:
         """更新凭证字段。省略参数（保持 _UNSET）表示不修改；api_key/base_url/access_key/
         secret_key 显式传 None 会清空该字段——凭证切组时用于清空另一组的旧值（见
-        ``ProviderMeta.credential_groups`` / issue #1084）。name/credentials_path 无清空语义，
+        ``ProviderMeta.credential_groups``）。name/credentials_path 无清空语义，
         传 None 等同不修改。
         """
         cred = await self.get_by_id(cred_id)
