@@ -223,6 +223,11 @@ class TestScreenplaySourceKind:
     只断言语义关键词在场 / 缺席，不锁逐字措辞、不测 LLM 提取质量。
     """
 
+    @staticmethod
+    def _squash(text: str) -> str:
+        """去除全部空白字符，用于跨缩进比较。"""
+        return "".join(text.split())
+
     def _normalize_prompt(self, source_kind: str, **overrides) -> str:
         kwargs = dict(
             novel_text="【第1集】角色甲：「你好」",
@@ -302,6 +307,10 @@ class TestScreenplaySourceKind:
         assert "她推开门" in prompt
         # 无大纲时不渲染该段
         assert "故事节点" not in self._normalize_prompt("novel")
+
+    def test_normalize_injects_pacing(self):
+        # step1（normalize）与 step2 一样无条件注入节奏建议，二者共享同一份 DRAMA_PACING_RULES
+        assert self._squash(DRAMA_PACING_RULES) in self._squash(self._normalize_prompt("novel"))
 
 
 class TestOverviewPrompt:
