@@ -201,16 +201,16 @@ def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
         raise HTTPException(status_code=404, detail=_t("unknown_provider", provider_id=provider_id))
 
 
-_NON_SECRET_FIELDS = frozenset({"name", "base_url"})
-
-
-def _submitted_secret_values(body: CreateCredentialRequest | UpdateCredentialRequest) -> dict[str, str | None]:
+def _submitted_secret_values(
+    provider_id: str, body: CreateCredentialRequest | UpdateCredentialRequest
+) -> dict[str, str | None]:
     """从请求体取出参与凭证组切换判定的密钥字段，供 create/update 共用以保持字段集一致。
 
-    动态排除非密钥字段而非硬编码字段名列表，新增供应商凭证字段（并纳入某个
-    credential_groups）时无需同步修改此处。
+    按 provider 在 `PROVIDER_REGISTRY` 中声明的 `secret_keys` 动态过滤，而非硬编码排除列表，
+    与 `credential_groups` 同源、同步声明驱动：新增供应商凭证字段时只需在注册表登记。
     """
-    return {k: v for k, v in body.model_dump().items() if k not in _NON_SECRET_FIELDS}
+    meta = PROVIDER_REGISTRY[provider_id]
+    return {k: getattr(body, k, None) for k in meta.secret_keys if hasattr(body, k)}
 
 
 def _resolve_credential_group_switch(
@@ -469,7 +469,7 @@ async def create_credential(
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
     # 创建是全新行，无可清空——仅复用横跨多组的歧义校验拒绝矛盾提交（新行不落盘）。
-    _resolve_credential_group_switch(provider_id, _submitted_secret_values(body), None, _t)
+    _resolve_credential_group_switch(provider_id, _submitted_secret_values(provider_id, body), None, _t)
     repo = CredentialRepository(session)
     cred = await repo.create(
         provider=provider_id,
@@ -497,7 +497,7 @@ async def update_credential(
     repo = CredentialRepository(session)
     # 先确认凭证存在（404 优先于后续切组歧义的 422），再用库内原值参与「切入」判定。
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
-    submitted = _submitted_secret_values(body)
+    submitted = _submitted_secret_values(provider_id, body)
     clear_keys = _resolve_credential_group_switch(
         provider_id,
         submitted,
