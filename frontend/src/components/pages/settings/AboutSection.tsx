@@ -45,7 +45,9 @@ export function AboutSection() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      // Firefox / Safari 在下载任务尚未开始读取 Blob 前同步 revoke 会导致下载静默失败；
+      // 推迟到下一个宏任务再回收，确保下载已启动读取
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (err) {
       if (!mountedRef.current) return;
       setDownloadError(err instanceof Error ? err.message : String(err));
