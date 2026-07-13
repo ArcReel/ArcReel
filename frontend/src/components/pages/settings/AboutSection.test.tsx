@@ -62,11 +62,11 @@ describe("AboutSection diagnostics download (issue #1040)", () => {
       filename: "custom-diagnostics.zip",
     });
     const user = userEvent.setup();
-    const anchorRef: { current: HTMLAnchorElement | null } = { current: null };
+    const createdAnchors: HTMLAnchorElement[] = [];
     const originalCreateElement = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation((tagName: string) => {
       const el = originalCreateElement(tagName);
-      if (tagName === "a") anchorRef.current = el as HTMLAnchorElement;
+      if (tagName === "a") createdAnchors.push(el as HTMLAnchorElement);
       return el;
     });
 
@@ -76,9 +76,12 @@ describe("AboutSection diagnostics download (issue #1040)", () => {
     const button = await screen.findByRole("button", { name: "下载诊断日志" });
     await user.click(button);
 
-    // 直接对下载锚点的 download 断言轮询：组件恒渲染的 GitHub 署名锚点会先被
-    // createElement spy 捕获（download 为空），若只断言 anchorRef 非空会立即命中
-    // 署名锚点而非下载锚点。断言 download 值可确保轮询到 click 后创建的下载锚点。
-    await waitFor(() => expect(anchorRef.current?.download).toBe("custom-diagnostics.zip"));
+    // 遍历全部被创建的 <a> 标签查找下载锚点，不依赖「单一可变引用最后一次写入即为目标」
+    // 的假设——组件恒渲染的 GitHub 署名锚点先于下载锚点创建；用数组可避免未来若有更多
+    // <a> 创建（例如重渲染顺序变化）时单一引用被覆盖导致测试失真。
+    await waitFor(() => {
+      const target = createdAnchors.find((a) => a.download === "custom-diagnostics.zip");
+      expect(target).toBeDefined();
+    });
   });
 });
