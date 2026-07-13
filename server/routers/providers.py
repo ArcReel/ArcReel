@@ -201,6 +201,28 @@ def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
         raise HTTPException(status_code=404, detail=_t("unknown_provider", provider_id=provider_id))
 
 
+def _resolve_credential_group_switch(
+    provider_id: str,
+    submitted: dict[str, str | None],
+    _t: Callable[..., str],
+) -> set[str]:
+    """判定本次提交是否触发凭证切组，返回需清空的其它组字段集合。
+
+    切组由 ``ProviderMeta.credential_groups`` 声明驱动（issue #1084）：本次提交完整覆盖
+    （非空）某一组时，视为切向该组，返回其它已声明组的全部字段供调用方清空；同时完整覆盖
+    多组时无法判断切向哪组，报错拒绝；未完整覆盖任何组（含未声明 credential_groups 的绝大多数
+    provider）时返回空集合，维持现有 PATCH/创建的保留语义不变。
+    """
+    meta = PROVIDER_REGISTRY[provider_id]
+    matched = meta.fully_covered_credential_groups(submitted)
+    if len(matched) > 1:
+        raise HTTPException(status_code=422, detail=_t("credential_group_ambiguous"))
+    if len(matched) == 1:
+        covered = set(matched[0])
+        return {k for group in meta.credential_groups for k in group if k not in covered}
+    return set()
+
+
 async def _get_credential_or_404(
     repo: CredentialRepository,
     provider_id: str,
@@ -417,6 +439,12 @@ async def create_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
+    # 创建是全新行，无需清空——同时完整覆盖多组仍歧义，一律拒绝（新行不落盘）。
+    _resolve_credential_group_switch(
+        provider_id,
+        {"api_key": body.api_key, "access_key": body.access_key, "secret_key": body.secret_key},
+        _t,
+    )
     repo = CredentialRepository(session)
     cred = await repo.create(
         provider=provider_id,
@@ -441,6 +469,13 @@ async def update_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
+    # 切组判定须用本次提交的原始值（而非与库内旧值合并后的结果）：只有当次提交本身完整覆盖
+    # 某一组，才视为用户主动切组；否则维持现有「未提交字段保留原值」的部分更新语义。
+    clear_keys = _resolve_credential_group_switch(
+        provider_id,
+        {"api_key": body.api_key, "access_key": body.access_key, "secret_key": body.secret_key},
+        _t,
+    )
     repo = CredentialRepository(session)
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     kwargs: dict = {}
@@ -454,6 +489,9 @@ async def update_credential(
         kwargs["access_key"] = body.access_key
     if body.secret_key is not None:
         kwargs["secret_key"] = body.secret_key
+    # 切组命中：清空其它已声明组的字段，消除"静默沿用旧模式"（issue #1084）。
+    for key in clear_keys:
+        kwargs[key] = None
     if kwargs:
         await repo.update(cred_id, **kwargs)
         await session.commit()

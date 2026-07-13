@@ -201,6 +201,125 @@ class TestKlingTwoSecretCredential:
         assert "access_key" not in kwargs
 
 
+class TestCredentialGroupSwitch:
+    """凭证切组自动清空（issue #1084）：完整覆盖某组即视为切组，自动清空其它组字段。"""
+
+    def test_update_switch_to_dual_secret_clears_api_key(self):
+        """先存 api_key，再完整提交 access_key+secret_key → api_key 被清空。"""
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_cred(provider="kling", api_key="AK-old"))
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/kling/credentials/1",
+                    json={"access_key": "AK-new", "secret_key": "SK-new"},
+                )
+        assert resp.status_code == 204
+        kwargs = mock_repo.update.await_args.kwargs
+        assert kwargs["access_key"] == "AK-new"
+        assert kwargs["secret_key"] == "SK-new"
+        assert kwargs["api_key"] is None
+
+    def test_update_switch_to_api_key_clears_dual_secret(self):
+        """反向切换：完整提交 api_key → access_key/secret_key 被清空。"""
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/kling/credentials/1",
+                    json={"api_key": "AK-bearer"},
+                )
+        assert resp.status_code == 204
+        kwargs = mock_repo.update.await_args.kwargs
+        assert kwargs["api_key"] == "AK-bearer"
+        assert kwargs["access_key"] is None
+        assert kwargs["secret_key"] is None
+
+    def test_update_both_groups_submitted_rejected(self):
+        """一次提交同时完整覆盖两组：拒绝，凭证行不变。"""
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/kling/credentials/1",
+                    json={"api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
+                )
+        assert resp.status_code == 422
+        mock_repo.update.assert_not_awaited()
+
+    def test_update_partial_submission_does_not_clear(self):
+        """未完整覆盖任何组（仅轮换 secret_key）：不触发清空，其余字段保持原值。"""
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/kling/credentials/1",
+                    json={"secret_key": "SK-rotated"},
+                )
+        assert resp.status_code == 204
+        kwargs = mock_repo.update.await_args.kwargs
+        assert kwargs["secret_key"] == "SK-rotated"
+        assert "api_key" not in kwargs
+        assert "access_key" not in kwargs
+
+    def test_update_name_only_does_not_clear(self):
+        """存量两组并存的凭证行：仅改名/改 base_url 不触发清空，两组字段都不动。"""
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_kling_cred())
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/kling/credentials/1",
+                    json={"name": "改名"},
+                )
+        assert resp.status_code == 204
+        kwargs = mock_repo.update.await_args.kwargs
+        assert kwargs == {"name": "改名"}
+
+    def test_create_both_groups_submitted_rejected(self):
+        """创建端点同样拒绝一次提交同时完整覆盖两组，且不落盘。"""
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.create = AsyncMock(return_value=_fake_kling_cred())
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/api/v1/providers/kling/credentials",
+                    json={"name": "可灵账号", "api_key": "AK-bearer", "access_key": "AK-new", "secret_key": "SK-new"},
+                )
+        assert resp.status_code == 422
+        mock_repo.create.assert_not_awaited()
+
+    def test_provider_without_credential_groups_unaffected(self):
+        """未声明 credential_groups 的 provider（回归）：更新 api_key 不触发任何清空逻辑。"""
+        app, _ = _make_app()
+        mock_repo = MagicMock(spec=CredentialRepository)
+        mock_repo.get_by_id = AsyncMock(return_value=_fake_cred(provider="gemini-aistudio"))
+        mock_repo.update = AsyncMock()
+        with patch("server.routers.providers.CredentialRepository", return_value=mock_repo):
+            with TestClient(app) as client:
+                resp = client.patch(
+                    "/api/v1/providers/gemini-aistudio/credentials/1",
+                    json={"api_key": "AIza-new"},
+                )
+        assert resp.status_code == 204
+        kwargs = mock_repo.update.await_args.kwargs
+        assert kwargs == {"api_key": "AIza-new"}
+
+
 class TestActivateCredential:
     def test_returns_204(self):
         app, _ = _make_app()
