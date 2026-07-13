@@ -645,7 +645,14 @@ if (frontend_dist_dir / "index.html").is_file():
     @app.get("/app/{_rest:path}", include_in_schema=False)
     async def spa_deep_link(_rest: str) -> FileResponse:
         # SPA 深链末段可能带扩展名（如 /app/projects/x/source/chapter1.txt），
-        # app.frontend 的 fallback 会将其判为静态资源请求返回 404，此处显式兜底回 SPA 外壳
+        # app.frontend 的 fallback 会将其判为静态资源请求返回 404，此处显式兜底回 SPA 外壳。
+        # 本路由注册在 app.frontend 之前，/app/ 下任何请求都会先到这里——若构建产物中
+        # 恰好存在 dist/app/... 下的真实静态文件（URL 路径与 app.frontend 的映射规则一致，
+        # 即相对 dist 根目录同路径），须优先返回该文件，避免被无条件遮蔽；resolve() 后校验
+        # 仍在 frontend_dist_dir 内，防止 _rest 携带 "../" 越界读取
+        candidate = (frontend_dist_dir / "app" / _rest).resolve()
+        if candidate.is_relative_to(frontend_dist_dir.resolve()) and candidate.is_file():
+            return FileResponse(candidate)
         return FileResponse(frontend_dist_dir / "index.html")
 
     app.frontend("/", directory=frontend_dist_dir, fallback="index.html")
