@@ -286,10 +286,13 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
 
 
 def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
+    """归一化分镜图 prompt 并在末尾追加统一文本化的反向提示词。"""
+    from lib.prompt_builders import append_image_negative_tail
+
     if isinstance(prompt, str):
         if not prompt.strip():
             raise ValueError("prompt must not be empty")
-        return prompt
+        return append_image_negative_tail(prompt)
 
     if not isinstance(prompt, dict):
         raise ValueError("prompt must be a string or object")
@@ -311,7 +314,7 @@ def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
             "ambiance": str(composition.get("ambiance", "") or ""),
         },
     }
-    return image_prompt_to_yaml(normalized_prompt, style)
+    return append_image_negative_tail(image_prompt_to_yaml(normalized_prompt, style))
 
 
 def _normalize_video_prompt(prompt: str | dict) -> str:

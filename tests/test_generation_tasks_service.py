@@ -207,7 +207,15 @@ class TestGenerationTasks:
         assert mode_items[1] == "scene_id"
 
         prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime")
-        assert prompt == "text"
+        assert prompt.startswith("text")
+        # 分镜图与资产图 / 视频路径一致：归一化出口拼接统一图像反向提示词，且幂等
+        assert "画面避免" in prompt
+        assert generation_tasks._normalize_storyboard_prompt(prompt, "Anime") == prompt
+
+        structured = generation_tasks._normalize_storyboard_prompt(
+            {"scene": "林清坐在窗边", "composition": {"shot_type": "Close-up"}}, "Anime"
+        )
+        assert "画面避免" in structured
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")
@@ -1278,7 +1286,9 @@ class TestAdProductFidelityStoryboard:
             project_path / "characters" / "Alice.png",
             project_path / "scenes" / "祠堂.png",
         ]
-        assert generator.image_calls[0]["prompt"] == "氛围开场"
+        prompt = generator.image_calls[0]["prompt"]
+        assert prompt.startswith("氛围开场")
+        assert "产品高保真还原" not in prompt
 
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
         """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""

@@ -148,6 +148,19 @@ def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | Non
     return f"{prompt.rstrip()}\n\n{tail}"
 
 
+def append_image_negative_tail(prompt: str) -> str:
+    """给分镜图生成 prompt 追加统一的图像反向提示词。
+
+    资产图在各 build_*_prompt 内已拼接同一尾巴；分镜图 prompt 由 LLM 产出、
+    经归一化后交 image backend，在归一化出口过一遍此函数，保持各图像路径一致。
+    """
+    if not prompt or not prompt.strip():
+        return _NEGATIVE_TAIL_ASSET
+    if _NEGATIVE_TAIL_ASSET in prompt:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{_NEGATIVE_TAIL_ASSET}"
+
+
 def append_video_negative_tail(prompt: str) -> str:
     """给视频生成 prompt 追加统一的反向提示词。
 

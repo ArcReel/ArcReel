@@ -1,4 +1,5 @@
 from lib.prompt_builders import (
+    append_image_negative_tail,
     append_product_fidelity_tail,
     append_video_negative_tail,
     build_character_prompt,
@@ -81,6 +82,23 @@ class TestVideoNegativeTail:
         for blank in ("   ", "\n\n", "\t \n"):
             result = append_video_negative_tail(blank)
             assert result.startswith("禁止出现"), f"input={blank!r} → {result!r}"
+
+
+class TestImageNegativeTail:
+    def test_appends_when_missing(self):
+        result = append_image_negative_tail("林清坐在窗边木桌前")
+        assert result.startswith("林清坐在窗边木桌前")
+        assert "画面避免" in result
+
+    def test_idempotent(self):
+        once = append_image_negative_tail("林清坐在窗边木桌前")
+        twice = append_image_negative_tail(once)
+        assert once == twice
+
+    def test_handles_empty_and_whitespace_input(self):
+        for blank in ("", "   ", "\n\n", "\t \n"):
+            result = append_image_negative_tail(blank)
+            assert result.startswith("画面避免"), f"input={blank!r} → {result!r}"
 
 
 class TestProductFidelityTail:
