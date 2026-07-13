@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
+from lib.episode_ledger import backfill_episode_ledger, discover_episode_files
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
@@ -45,14 +46,44 @@ class ScriptReviewService:
     def __init__(self, pm: ProjectManager):
         self.pm = pm
 
-    def _require_episode(self, project: dict[str, Any], episode: int) -> None:
-        """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，缺失抛 episode_not_found。
+    def _require_episode(self, project_name: str, project: dict[str, Any], episode: int) -> dict[str, Any]:
+        """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，返回（必要时已自愈的）project。
 
         与 ``confirm`` 的写入前置一致：避免 ``get_state`` 把未登记分集误报成 no_step1、
         ``save_content`` 给未登记分集写出永远无法与 project.json 关联的孤儿 step1 文件。
+
+        条目缺失时不立即拒绝：若该集的派生文件 ``source/episode_N.txt`` 实际存在（用户绕过
+        分集规划器、手动预拆分上传的存量场景），先用 ``backfill_episode_ledger`` 自愈补建条目
+        再重新校验，而非直接判死锁——手动预拆分与账本为空同时出现时，唯一的登记来源就是这次
+        自愈，不做即无法登记、也无法确认。派生文件也不存在时（真正缺失的集号）不自愈，直接抛出。
         """
+        if script_review.find_episode(project, episode) is not None:
+            return project
+        project_path = self.pm.get_project_path(project_name)
+        if episode not in discover_episode_files(project_path):
+            raise ScriptReviewError("episode_not_found")
+        project = self._backfill_ledger(project_name)
         if script_review.find_episode(project, episode) is None:
             raise ScriptReviewError("episode_not_found")
+        return project
+
+    def _backfill_ledger(self, project_name: str) -> dict[str, Any]:
+        """在项目锁内运行一次 ``backfill_episode_ledger`` 并落盘，返回自愈后的 project。
+
+        落盘走 ``ProjectManager.update_project`` 的锁内 read-modify-write，不绕锁直写
+        project.json。``backfill_episode_ledger`` 是不修改入参的纯函数，返回新 dict；
+        这里在回调内把结果拷回被就地修改的 ``p``，桥接纯函数输出与 update_project 的
+        原地修改约定。已带 ``ledger_status`` 的条目在纯函数内部即被跳过，重复触发不会
+        重写既有条目或产生重复集号。
+        """
+        project_path = self.pm.get_project_path(project_name)
+
+        def _mutate(p: dict[str, Any]) -> None:
+            healed = backfill_episode_ledger(project_path, p)
+            p.clear()
+            p.update(healed)
+
+        return self.pm.update_project(project_name, _mutate)
 
     def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
@@ -66,7 +97,7 @@ class ScriptReviewService:
         if path is not None:
             # 适用 gate（drama / narration 非 reference_video）才要求分集已登记；
             # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
-            self._require_episode(project, episode)
+            project = self._require_episode(project_name, project, episode)
         fingerprint = script_review.content_fingerprint(path) if path is not None else None
         return {
             "episode": episode,
@@ -87,7 +118,7 @@ class ScriptReviewService:
         path = script_review.step1_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
-        self._require_episode(project, episode)
+        project = self._require_episode(project_name, project, episode)
         model = _CONTENT_MODEL[project["content_mode"]]
         try:
             validated = model.model_validate(content).model_dump()
@@ -107,7 +138,7 @@ class ScriptReviewService:
         path = script_review.step1_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
-        self._require_episode(project, episode)
+        project = self._require_episode(project_name, project, episode)
         fingerprint = script_review.content_fingerprint(path)
         if fingerprint is None:
             raise ScriptReviewError("no_step1")
