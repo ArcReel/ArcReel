@@ -59,7 +59,7 @@
 - 火山 Seedance 2.0：`一个镜头里尽量只指定 1 种运镜方式，不要同时要求推拉摇移`（https://www.volcengine.com/docs/82379/2222480?lang=zh ）。
 - Vidu：加镜头运动更电影感，但"避免同一句里堆多个同时运动指令"，用方向性语言+强度限定词（subtle/gentle/minimal）（https://www.vidu.com/blog/image-to-video-ai ）。
 
-**共识 3：时长/动作量匹配——官方普遍主张"短镜头聚焦单一动作、动作宜低缓连续"，且时长由 API 参数定、不能靠 prompt 文字改。**
+**共识 3：时长/动作量匹配——官方普遍主张"短镜头聚焦单一、可完成的动作"，"动作宜低缓连续"是部分供应商（如火山 Seedance）的具体建议而非普遍口径；时长由 API 参数定、不能靠 prompt 文字改。**
 - 火山 Seedance 2.0（最明确）：`优先选用缓慢、轻柔、连贯的细微动作，尽量规避狂奔、大跳、剧烈翻滚等高爆发、大动态动作`；且"模型对精确时间（如 0–3 秒）的支持不稳定"，建议用"镜头1/2/3"分镜按事件顺序描述而非秒级硬卡（https://www.volcengine.com/docs/82379/2222480?lang=zh ）。
 - Google：`For short videos, dedicate each prompt to a single, focused moment`，不要一条串 A→B→C（https://cloud.google.com/vertex-ai/generative-ai/docs/video/best-practice ）。
 - OpenAI：动作要"简单、单一、可完成"并给以秒计节拍（"takes four steps… in the final second"）；时长/分辨率是"容器"参数，`will not change based on prose like 'make it longer'`；4 秒镜头约容纳 1–2 句对白（https://developers.openai.com/cookbook/examples/sora/sora2_prompting_guide ）。
@@ -68,7 +68,7 @@
 
 **共识 4：t2v 与 i2v 指南在多数官方站点是清晰区分的。** Google、阿里、MiniMax、火山、Vidu、可灵均有可对应到 i2v 的官方内容（见逐家摘录标注）；仅 xAI 无成体系指南（只有一句博客措辞）。
 
-> **对 ArcReel 的启示（仅陈述共性事实）**："video_prompt 只描述该镜头时长内动作/运镜/环境音"的产品设计与全体主流官方 i2v 口径完全一致。"9 秒镜头动作仅 28 字、缺环境动态层"的问题，可对照官方"运动+运镜+（环境/氛围动态）"分层与"短镜头聚焦单一低缓动作"的口径来衡量——官方既反对复述静态画面，也反对堆多个同时剧烈动作。
+> **对 ArcReel 的启示（仅陈述共性事实）**："video_prompt 描述该镜头时长内的动作/运镜"与官方"短镜头聚焦单一、可完成动作 + 显式运镜"的主流口径一致；"低缓连续"仅是部分供应商（如火山 Seedance）的具体建议，"环境音"仅在供应商明确支持时适用，均不宜归为全体主流口径。"9 秒镜头动作仅 28 字、缺环境动态层"的问题，可对照官方"运动+运镜+（环境/氛围动态）"分层来衡量——官方既反对复述静态画面，也反对堆多个同时剧烈动作。
 
 ---
 
