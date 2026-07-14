@@ -667,6 +667,35 @@ class TestProjectManagerMore:
         assert backend.last_request is not None
         assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind=expected_kind)
 
+    @pytest.mark.parametrize("dirty_source_language", [123, ["zh"], {}, "", "   "])
+    @pytest.mark.asyncio
+    async def test_generate_overview_dirty_source_language_falls_back_to_default(
+        self, tmp_path, monkeypatch, dirty_source_language
+    ):
+        """project.json 的 source_language 是非字符串或空白脏数据时，target_language 回退默认值，
+        不把脏对象直接传入 prompt 文本。"""
+        from lib.prompt_builders_script import build_overview_prompt
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.update_project("demo", lambda project: project.__setitem__("source_language", dirty_source_language))
+        _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
+
+        backend = _FakeTextBackend()
+
+        async def _fake_create_backend(*args, **kwargs):
+            return backend
+
+        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
+        await pm.generate_overview("demo")
+
+        source_content = pm._read_source_files("demo")
+        assert backend.last_request is not None
+        assert backend.last_request.prompt == build_overview_prompt(
+            source_content, source_kind="novel", target_language="中文"
+        )
+
     @pytest.mark.asyncio
     async def test_generate_overview_legacy_project_without_source_kind_falls_back_to_novel(
         self, tmp_path, monkeypatch
