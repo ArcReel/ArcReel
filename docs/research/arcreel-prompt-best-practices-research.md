@@ -2,7 +2,7 @@
 
 > 用途：驱动 ArcReel（小说→短视频，i2v 图生视频流水线）剧本生成写作指导（LLM 产出 `image_prompt` / `video_prompt`）的迭代。
 > 对应议题：https://github.com/ArcReel/ArcReel/issues/1092（设计对齐决议见该 issue 评论区）。
-> 范围：8 家 ArcReel 实际接入的供应商，仅采信**官方**文档站/官方博客/模型卡。查不到官方指南的，如实记为"未找到官方指南"，不以第三方教程或模型记忆顶替。
+> 范围：8 家 ArcReel 实际接入的供应商，仅采信**官方**文档站/官方博客/模型卡/官方 Help Center。查不到官方指南的，如实记为"未找到官方指南"，不以第三方教程或模型记忆顶替。
 > 调研日期：2026-07-13
 > 硬约束落实：本报告每条结论均附官方来源 URL；凡官方未明示者一律标注"未找到官方指南/未见官方明文"。少数第三方镜像内容仅在明确标注"未验证"的前提下作旁注，不进入结论。
 
@@ -42,7 +42,7 @@
 
 ### Q2 i2v 图生视频 prompt 总体建议（首帧已给）
 
-**共识 1（最强、最一致）：首帧已定主体/场景/风格，prompt 应"只描述运动/变化 + 运镜"，不要复述画面。** 这是本次调研跨厂商一致性最高的一条，且直接命中 ArcReel 的 i2v 路径。
+**共识 1（最强、最一致）：首帧已提供主体/场景/风格，prompt 应优先描述运动/变化与运镜，避免重复复述静态画面；必要时补充环境动态或风格过渡。** 这是本次调研跨厂商一致性最高的一条，且直接命中 ArcReel 的 i2v 路径。
 - Google：`Prompt for motion only. Your source image already provides the subject, scene, and style. Focus your prompt on the motion…`；并明确"不要重新描述人物/背景/光线，冗余会让模型混乱"，人物用"the subject/the woman/he/she"等泛称（https://cloud.google.com/vertex-ai/generative-ai/docs/video/best-practice ）。
 - 阿里万相：`图像已经确定了主体、场景与风格，因此提示词主要描述动态过程及运镜需求`，图生视频公式 = `运动 + 运镜`（https://help.aliyun.com/zh/model-studio/text-to-video-prompt ）。
 - MiniMax：I2V 基础公式 = `首帧主体 + 运动/变化`；`prompt describes how the scene evolves from this static image into motion`（https://platform.minimax.io/docs/guides/video-prompt , https://platform.minimax.io/docs/guides/video-generation ）。
@@ -104,7 +104,7 @@
 
 **共识：几乎没有任何一家官方声明"某语言效果更佳"。** 各家普遍"支持中英文/多语言"，但对"该用哪种写 prompt"基本沉默。
 - 声明"支持中英文/多语言"但不表态优劣：阿里（图像/视频 prompt "支持中英文"，并给中英双写对照；HappyHorse "支持任何语言输入"）（https://help.aliyun.com/zh/model-studio/text-to-video-api-reference , https://help.aliyun.com/zh/model-studio/happyhorse-image-to-video-api-reference ）；火山 Seedance "支持中英文"（https://www.volcengine.com/docs/82379/2168087?lang=zh ）；MiniMax 中英双站、prompt 无语言限制（未表态）；可灵中英文示例并用（未表态）；Vidu 中英双站、prompt 均一等支持（未表态）。
-- 唯一有"语言机制"明文的是 Google 旧线 Imagen：`Imagen models support only English natively`，非英文靠翻译转英文，可显式设 zh/zh-CN/zh-TW 等；**但这是将弃用的旧线**，Gemini 3 新图像线与 Veo 均未见中英文优劣明文（https://cloud.google.com/vertex-ai/generative-ai/docs/image/set-text-prompt-language ）。
+- 唯一有"语言机制"明文的是 Google 旧线 Imagen：`Imagen models support only English natively`，非英文靠翻译转英文，可显式设 zh/zh-CN/zh-TW 等；**但这是已弃用且迁移期限已过的旧线**（Google 官方标注为 deprecated，建议在 2026-06-30 前迁移至 gemini-2.5-flash-image），Gemini 3 新图像线与 Veo 均未见中英文优劣明文（https://cloud.google.com/vertex-ai/generative-ai/docs/image/set-text-prompt-language ）。
 - OpenAI 通用口径（Help Center，非针对 GPT-image/Sora）：`optimized for English, but trained on multilingual data`，可用目标语言，但未给中英文优劣结论（https://help.openai.com/en/articles/6742369 ）。
 - 与"prompt 语言"易混但需区分的是"输出语言/对白语言"：可灵对白支持中/英/日/韩/西 5 语（https://kling.ai/blog/kling-ai-prompt-guide ）；Vidu Q3 音频输出支持英/日/中（https://www.vidu.com/vidu-q3 ）；火山 Seedance 2.0 要求"台词语言统一、避免中英混用"（https://www.volcengine.com/docs/82379/2222480?lang=zh ）。这些都是**视频内语音语言**，不是 prompt 书写语言建议。
 
@@ -225,7 +225,7 @@
 
 5. **Vidu"Q3 官方提示词指南"来源存疑（例外，需核实）**：中文侧署名"Vidu API 开放平台"的《结构公式+速查模板（50–150 字、音效句尾、i2v 分阶段结构）》仅在 CSDN/gitcode 镜像可见，**未能定位 platform.vidu.cn/.com 或 vidu.com/blog 官方原始 URL**。本报告未将其纳入结论；若 ArcReel 要引用其"50–150 字"等具体口径，建议先向 Vidu 官方核实原页。
 
-6. **语言优劣普遍空白（例外是没有例外）**：8 家中无一家声明"中文/英文哪个更好"。唯一有语言机制明文的 Google Imagen 属将弃用旧线。这与国产模型"中文优化"的坊间印象不符——**官方文档层面并无此声明**，属 ArcReel 的自主决策项。
+6. **语言优劣普遍空白（例外是没有例外）**：8 家中无一家声明"中文/英文哪个更好"。唯一有语言机制明文的 Google Imagen 属已弃用旧线。这与国产模型"中文优化"的坊间印象不符——**官方文档层面并无此声明**，属 ArcReel 的自主决策项。
 
 7. **参数陷阱（影响 prompt 策略的官方例外）**：
    - Vidu：`movement_amplitude` 对 Q2/Q3 无效 → 运动幅度只能靠 prompt 文字（https://platform.vidu.com/docs/image-to-video ）。
@@ -237,7 +237,7 @@
 
 ## 四、方法与约束说明
 
-- 本报告仅采信官方文档站/官方博客/模型卡；第三方教程、社区经验、镜像转载一律排除（唯一提及的 Vidu 镜像内容已明确标注"未验证、不作结论"）。
+- 本报告仅采信官方文档站/官方博客/模型卡/官方 Help Center；第三方教程、社区经验、镜像转载一律排除（唯一提及的 Vidu 镜像内容已明确标注"未验证、不作结论"）。
 - 火山、MiniMax 中文站、部分阿里/Vidu 文档为 JS 前端渲染，`web_fetch` 仅得导航壳，正文均经浏览器渲染后读取；MiniMax 以内容更完整的英文官方站为准（与中文站描述一致）。
 - 凡官方未明示的问题，均标注"未找到官方指南/未见官方明文"，未凭模型记忆补写供应商说法（硬约束）。
 - 本次不含 ArcReel 指导语改稿方案——仅交调研事实与共性结论，改稿由主仓库会话在对齐后另行制定。
