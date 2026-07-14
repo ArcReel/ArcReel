@@ -8,12 +8,12 @@
 # exercises the function actually shipped, not a copy that can drift) and runs it
 # against fixture comment bodies in testdata/:
 #   - quota_alert_pr1115_no_stack.txt / quota_alert_pr1115_review_stack.txt: real
-#     CodeRabbit rate-limit banners captured from PR #1115's walkthrough comment
-#     edit history (GraphQL userContentEdits — the live GitHub body has since been
-#     overwritten by CodeRabbit's own later edits, so this is the only way to
-#     recover the exact bytes). *_review_stack carries the change-stack link
-#     banner that pushes the alert phrase past the old 500-char scan window —
-#     this is the exact regression from issue #1124.
+#     CodeRabbit rate-limit banners captured from the source PR's walkthrough
+#     comment edit history (GraphQL userContentEdits — the live GitHub body has
+#     since been overwritten by CodeRabbit's own later edits, so this is the only
+#     way to recover the exact bytes). *_review_stack carries the change-stack
+#     link banner that pushes the alert phrase past the old 500-char scan window —
+#     this is the exact silent-miss regression this test guards against.
 #   - no_actionable_pr1115.txt: the same PR's final (non-alert) walkthrough body,
 #     also real, sharing the same change-stack banner prefix — proves the fix
 #     doesn't start matching on the banner alone.
