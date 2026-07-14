@@ -435,21 +435,24 @@ def _collect_sheet_references(
 
     for item in items:
         for char_name in item.get(char_field, []):
-            sheet = characters.get(char_name, {}).get("character_sheet")
+            char_data = characters.get(char_name)
+            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": char_name})
                     seen.add(sheet)
         for scene_name in item.get(scene_field, []):
-            sheet = project_scenes.get(scene_name, {}).get("scene_sheet")
+            scene_data = project_scenes.get(scene_name)
+            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": scene_name})
                     seen.add(sheet)
         for prop_name in item.get(prop_field, []):
-            sheet = project_props.get(prop_name, {}).get("prop_sheet")
+            prop_data = project_props.get(prop_name)
+            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
@@ -1437,7 +1440,8 @@ def _collect_grid_reference_images(
 
     for item in matched_items:
         for char_name in item.get(char_field, []):
-            sheet = characters.get(char_name, {}).get("character_sheet")
+            char_data = characters.get(char_name)
+            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
@@ -1445,7 +1449,8 @@ def _collect_grid_reference_images(
                     seen.add(sheet)
                     metadata.append({"path": sheet, "name": char_name, "ref_type": "character"})
         for scene_name in item.get(scene_field, []):
-            sheet = project_scenes.get(scene_name, {}).get("scene_sheet")
+            scene_data = project_scenes.get(scene_name)
+            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
@@ -1453,7 +1458,8 @@ def _collect_grid_reference_images(
                     seen.add(sheet)
                     metadata.append({"path": sheet, "name": scene_name, "ref_type": "scene"})
         for prop_name in item.get(prop_field, []):
-            sheet = project_props.get(prop_name, {}).get("prop_sheet")
+            prop_data = project_props.get(prop_name)
+            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
