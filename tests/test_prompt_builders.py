@@ -5,7 +5,6 @@ from lib.prompt_builders import (
     build_character_prompt,
     build_prop_prompt,
     build_scene_prompt,
-    build_storyboard_suffix,
 )
 
 
@@ -52,14 +51,6 @@ class TestScenePromptAndPropPrompt:
         assert "昏暗古朴" in prompt
         assert "主画面" in prompt
         assert "画面避免" in prompt
-
-
-class TestStoryboardSuffix:
-    def test_by_aspect_ratio(self):
-        assert build_storyboard_suffix(aspect_ratio="9:16") == "竖屏构图。"
-        assert build_storyboard_suffix(aspect_ratio="16:9") == "横屏构图。"
-        # 向后兼容：不传 aspect_ratio 时默认按 narration → 竖屏
-        assert build_storyboard_suffix() == "竖屏构图。"
 
 
 class TestVideoNegativeTail:
