@@ -102,6 +102,30 @@ class TestConstrainedValidation:
         with pytest.raises(ValidationError):
             model.model_validate(self._narration_payload(5))
 
+    def test_digit_string_duration_coerced_to_int(self):
+        """Gemini responseSchema 通道的 enum 仅支持字符串，时长枚举 wire 层转为字符串枚举，
+        约束解码下模型输出 "6"——解析/复验侧机械强转恢复 int 并命中 Literal。"""
+        model = build_episode_script_model("narration", [4, 6, 8])
+        payload = self._narration_payload(6)
+        payload["segments"][0]["duration_seconds"] = "6"
+        validated = model.model_validate(payload)
+        assert validated.segments[0].duration_seconds == 6
+
+    def test_out_of_set_digit_string_rejected(self):
+        """强转仅是类型恢复，不放宽成员约束：字符串 "5" 强转后仍被枚举拒绝。"""
+        model = build_episode_script_model("narration", [4, 6, 8])
+        payload = self._narration_payload(6)
+        payload["segments"][0]["duration_seconds"] = "5"
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+
+    def test_non_digit_string_rejected(self):
+        model = build_episode_script_model("narration", [4, 6, 8])
+        payload = self._narration_payload(6)
+        payload["segments"][0]["duration_seconds"] = "six"
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+
     def test_drama_out_of_set_duration_rejected(self):
         model = build_episode_script_model("drama", [4, 6, 8])
         payload = {

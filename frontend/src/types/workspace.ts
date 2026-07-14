@@ -32,7 +32,9 @@ export interface ProjectChange {
     | "deleted"
     | "storyboard_ready"
     | "video_ready"
-    | "grid_ready";
+    | "grid_ready"
+    | "reference_video_ready"
+    | "tts_ready";
   entity_id: string;
   label: string;
   script_file?: string;

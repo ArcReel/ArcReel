@@ -90,6 +90,22 @@ def _write_step2(pm: ProjectManager) -> Path:
     return path
 
 
+def _make_manual_split_project(tmp_path: Path, content_mode: str) -> ProjectManager:
+    """手动预拆分场景：绕过分集规划器，``episodes[]`` 账本为空，仅有派生 source/episode_N.txt。"""
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+    return pm
+
+
+def _write_source_text(pm: ProjectManager, filename: str, text: str) -> Path:
+    source_dir = pm.get_project_path("demo") / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    path = source_dir / filename
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 # ---------------------------------------------------------------------------
 # 状态流转（drama）
 # ---------------------------------------------------------------------------
@@ -339,3 +355,111 @@ class TestLegacyEnumeration:
         edited["scenes"][0]["source_text"] = "改写后的原文锚"
         ScriptReviewService(pm).save_content("demo", 1, edited)
         assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "pending_review"
+
+
+# ---------------------------------------------------------------------------
+# 手动预拆分自愈：episodes[] 账本为空但 source/episode_N.txt 派生文件已存在时，
+# _require_episode 自愈补建条目而非直接判死锁。
+# ---------------------------------------------------------------------------
+
+
+class TestManualSplitSelfHeal:
+    def test_get_state_self_heals_unanchored_orphan(self, tmp_path):
+        """无可匹配原文 → 自愈为 unanchored 条目（source_range 为 null），get_state 不再 episode_not_found。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
+        _write_step1(pm, "narration", _narration_step1())
+
+        state = ScriptReviewService(pm).get_state("demo", 1)
+        assert state["status"] == "pending_review"
+
+        ep = script_review.find_episode(pm.load_project("demo"), 1)
+        assert ep is not None
+        assert ep["ledger_status"] == "unanchored"
+        assert ep["source_range"] is None
+
+    def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
+        """confirm（web 与 agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
+        pm = _make_manual_split_project(tmp_path, "drama")
+        _write_source_text(pm, "episode_1.txt", "任意派生内容")
+        _write_step1(pm, "drama", _drama_step1())
+
+        confirmed = ScriptReviewService(pm).confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+
+        project_path = pm.get_project_path("demo")
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+    def test_self_heal_anchors_when_source_text_matches(self, tmp_path):
+        """派生文件内容能在原文中精确子串匹配 → 回填 source_range（而非 unanchored）。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        original = "裴与出征后的第二年，送回一个襁褓中的婴儿。后续内容在此。"
+        _write_source_text(pm, "novel.txt", original)
+        _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年，送回一个襁褓中的婴儿。")
+
+        ScriptReviewService(pm).get_state("demo", 1)
+
+        ep = script_review.find_episode(pm.load_project("demo"), 1)
+        assert ep is not None
+        assert ep["ledger_status"] in ("planned", "consumed")
+        assert ep["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 21}
+
+    def test_self_heal_backfills_all_orphans_not_just_requested(self, tmp_path):
+        """自愈一次回填账本中所有孤儿集号的派生文件，不只是当前请求的那一集。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        _write_source_text(pm, "episode_1.txt", "第一集内容")
+        _write_source_text(pm, "episode_2.txt", "第二集内容")
+
+        ScriptReviewService(pm).get_state("demo", 1)
+
+        project = pm.load_project("demo")
+        assert script_review.find_episode(project, 1) is not None
+        assert script_review.find_episode(project, 2) is not None
+
+    def test_self_heal_preserves_existing_ledger_status_entries(self, tmp_path):
+        """已带 ledger_status 的条目（规划工具写入）不因其他集号的自愈触发被改写。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+
+        def _mark_planned(p: dict) -> None:
+            ep = next(e for e in p["episodes"] if e["episode"] == 1)
+            ep["ledger_status"] = "planned"
+            ep["source_range"] = {"source_file": "source/novel.txt", "start": 0, "end": 5}
+
+        pm.update_project("demo", _mark_planned)
+        _write_source_text(pm, "episode_2.txt", "第二集派生内容")
+
+        # 触发对孤儿集（episode 2）的自愈请求，不涉及 episode 1。
+        ScriptReviewService(pm).get_state("demo", 2)
+
+        project = pm.load_project("demo")
+        ep1 = script_review.find_episode(project, 1)
+        assert ep1 is not None
+        assert ep1["ledger_status"] == "planned"
+        assert ep1["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 5}
+        assert script_review.find_episode(project, 2) is not None
+
+    def test_self_heal_does_not_apply_when_derivative_file_missing(self, tmp_path):
+        """账本为空且该集派生文件也不存在（真正缺失的集号）→ 仍抛 episode_not_found，不自愈。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        with pytest.raises(ScriptReviewError) as exc:
+            ScriptReviewService(pm).get_state("demo", 1)
+        assert exc.value.code == "episode_not_found"
+        assert pm.load_project("demo")["episodes"] == []
+
+    def test_self_heal_idempotent_no_duplicate_entries(self, tmp_path):
+        """重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已回填条目。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        _write_source_text(pm, "episode_1.txt", "第一集派生内容")
+
+        svc = ScriptReviewService(pm)
+        svc.get_state("demo", 1)
+        first = script_review.find_episode(pm.load_project("demo"), 1)
+
+        svc.get_state("demo", 1)
+        svc.get_state("demo", 1)
+
+        project = pm.load_project("demo")
+        matches = [e for e in project["episodes"] if e.get("episode") == 1]
+        assert len(matches) == 1
+        assert matches[0] == first

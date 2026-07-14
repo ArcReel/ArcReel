@@ -47,8 +47,6 @@ class AssistantService:
     def __init__(self, project_root: Path):
         self.project_root = Path(project_root)
         self.projects_root = app_data_dir()
-        self.data_dir = self.projects_root / ".agent_data"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.pm = ProjectManager(self.projects_root)
         self.meta_store = SessionMetaStore()
@@ -57,7 +55,6 @@ class AssistantService:
         self.event_log_store = EventLogStore()
         self.session_manager = SessionManager(
             project_root=self.project_root,
-            data_dir=self.data_dir,
             meta_store=self.meta_store,
             projects_root=self.projects_root,
             event_log_store=self.event_log_store,

@@ -6,11 +6,13 @@ import pytest
 
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
-from lib.script_skeleton import SKELETONS
+from lib.script_skeleton import (
+    SKELETON_ANCHOR_TYPES,
+    SKELETON_ENTITY_TYPES,
+    SKELETON_ITEM_NOUNS,
+    SKELETONS,
+)
 from server.services.project_events import (
-    _SKELETON_ANCHOR_TYPES,
-    _SKELETON_ENTITY_TYPES,
-    _SKELETON_ITEM_NOUNS,
     PROJECT_DELETED_EVENT,
     ProjectEventService,
 )
@@ -700,12 +702,12 @@ class TestProjectEventService:
 
     def test_every_skeleton_kind_has_label_noun(self):
         """标签名词表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出名词补全。"""
-        assert set(_SKELETON_ITEM_NOUNS) == set(SKELETONS)
+        assert set(SKELETON_ITEM_NOUNS) == set(SKELETONS)
 
     def test_every_skeleton_kind_has_entity_and_anchor_type(self):
         """实体/锚点类型表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出补全。"""
-        assert set(_SKELETON_ENTITY_TYPES) == set(SKELETONS)
-        assert set(_SKELETON_ANCHOR_TYPES) == set(SKELETONS)
+        assert set(SKELETON_ENTITY_TYPES) == set(SKELETONS)
+        assert set(SKELETON_ANCHOR_TYPES) == set(SKELETONS)
 
     @pytest.mark.parametrize(
         ("kind", "content_mode", "generation_mode", "entity_type", "anchor_type"),

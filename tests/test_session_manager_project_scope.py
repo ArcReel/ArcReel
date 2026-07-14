@@ -45,7 +45,6 @@ class TestSessionManagerProjectScope:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
@@ -66,7 +65,6 @@ class TestSessionManagerProjectScope:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
@@ -89,7 +87,6 @@ class TestSessionManagerProjectScope:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
@@ -123,7 +120,6 @@ class TestSessionManagerProjectScope:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
@@ -182,7 +178,6 @@ class TestSessionManagerProjectScope:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
 
@@ -232,7 +227,6 @@ class TestSessionManagerProjectScope:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
 
@@ -252,7 +246,6 @@ class TestAllowedToolsAndConstants:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
         tools = manager.DEFAULT_ALLOWED_TOOLS
@@ -275,7 +268,6 @@ class TestAllowedToolsAndConstants:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
         assert "LS" not in manager.access_policy.PATH_TOOLS
@@ -292,7 +284,6 @@ class TestSystemPromptProjectContext:
         store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=store,
         )
 

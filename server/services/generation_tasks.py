@@ -42,6 +42,7 @@ from lib.prompt_utils import (
 )
 from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import resource_relative_path
+from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -585,14 +586,9 @@ def _product_references_for_video(generator: Any, project: dict, project_path: P
     return references
 
 
-def _resolve_script_episode(project_name: str, script_file: str | None) -> int | None:
-    if not script_file:
+def _episode_from_script(script: dict[str, Any] | None) -> int | None:
+    if not isinstance(script, dict):
         return None
-    try:
-        script = get_project_manager().load_script(project_name, script_file)
-    except Exception:
-        return None
-
     episode = script.get("episode")
     if isinstance(episode, int):
         return episode
@@ -715,14 +711,43 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 
 # (entity_type, action, label_tpl, include_script_episode)
 # 三类项目级资产（character / scene / prop）的 spec 由 lib.asset_types.ASSET_SPECS 派生。
+# storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
+# video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
+# ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
-    "storyboard": ("segment", "storyboard_ready", "分镜「{}」", True),
-    "video": ("segment", "video_ready", "分镜「{}」", True),
     "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
-    "reference_video": ("reference_video_unit", "reference_video_ready", "参考视频「{}」", True),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }
+
+# 骨架驱动的任务类型 → 完成事件 action。entity_type/条目名词按项目剧本当前骨架种类
+# （resolve_script_kind，与分镜级事件同一判定）动态解析，不按 task_type 恒定硬编码。
+_SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
+    "storyboard": "storyboard_ready",
+    "video": "video_ready",
+    "reference_video": "reference_video_ready",
+}
+
+# reference_video 的条目标签沿用「参考视频」措辞（区别于分镜级事件的骨架名词「视频单元」，
+# 两者服务不同场景：此为任务完成通知的条目文案，不随骨架名词收敛）；storyboard/video 未列出，
+# 回退到骨架名词本身（分镜/场景/镜头），与同项目分镜级事件同口径。
+_SKELETON_TASK_LABEL_NOUNS: dict[str, str] = {
+    "reference_video": "参考视频",
+}
+
+
+def _load_event_script(project_name: str, script_file: str | None) -> dict[str, Any] | None:
+    """加载完成事件所属剧本一次，供骨架种类与 episode 共用；缺失/损坏时返回 None。
+
+    调用方对 None 各自兜底（骨架种类回退 ``"segments"``、episode 回退 ``None``），
+    不让剧本加载失败导致通知发送中断。
+    """
+    if not script_file:
+        return None
+    try:
+        return get_project_manager().load_script(project_name, script_file)
+    except Exception:
+        return None
 
 
 def emit_generation_success_batch(
@@ -736,11 +761,30 @@ def emit_generation_success_batch(
 
     事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
     """
-    spec = _TASK_CHANGE_SPECS.get(task_type)
-    if spec is None:
-        return {}
+    script_file = str(payload.get("script_file") or "") or None
+    # 单次加载剧本，骨架种类与 episode 共用，避免同一 script_file 双解析。
+    script = _load_event_script(project_name, script_file)
 
-    entity_type, action, label_tpl, include_script_episode = spec
+    action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
+    if action is not None:
+        if task_type == "reference_video":
+            # ad 剧本骨架恒为 shots[]（reference_video 路径只是把镜头派生分组为
+            # video_unit 索引，二者持久于同一份剧本 JSON），resolve_script_kind
+            # 的数据形状优先判别会因 shots 键仍在而退回 content_mode==ad→shots，
+            # 与该任务实际对应 video_unit 资源不符——直接固定 kind，不经骨架判别。
+            kind = "video_units"
+        else:
+            kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
+        entity_type = SKELETON_ENTITY_TYPES.get(kind, "segment")
+        noun = _SKELETON_TASK_LABEL_NOUNS.get(task_type) or SKELETON_ITEM_NOUNS.get(kind, "分镜")
+        label_tpl = f"{noun}「{{}}」"
+        include_script_episode = True
+    else:
+        spec = _TASK_CHANGE_SPECS.get(task_type)
+        if spec is None:
+            return {}
+        entity_type, action, label_tpl, include_script_episode = spec
+
     asset_fingerprints = compute_affected_fingerprints(project_name, task_type, resource_id)
 
     change: dict[str, Any] = {
@@ -753,9 +797,8 @@ def emit_generation_success_batch(
         "asset_fingerprints": asset_fingerprints,
     }
     if include_script_episode:
-        script_file = str(payload.get("script_file") or "") or None
         change["script_file"] = script_file
-        change["episode"] = _resolve_script_episode(project_name, script_file)
+        change["episode"] = _episode_from_script(script)
 
     try:
         emit_project_change_batch(project_name, [change])

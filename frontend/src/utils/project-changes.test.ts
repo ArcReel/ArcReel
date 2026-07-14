@@ -101,4 +101,76 @@ describe("project-changes utils", () => {
       );
     }
   });
+
+  it("labels reference_unit notifications as 视频单元, not the 内容 fallback", () => {
+    // 回归：后端曾把参考生视频任务完成事件的 entity_type 发成前端不认识的
+    // "reference_video_unit"，落 ENTITY_LABELS 兜底显示「内容」。修复后 entity_type 与前端
+    // 联合类型的 "reference_unit" 对齐，分组标题应显示「视频单元」。
+    const [group] = groupChangesByType([
+      makeChange({
+        entity_type: "reference_unit",
+        action: "reference_video_ready",
+        entity_id: "U01",
+        label: "参考视频「U01」",
+      }),
+      makeChange({
+        entity_type: "reference_unit",
+        action: "reference_video_ready",
+        entity_id: "U02",
+        label: "参考视频「U02」",
+      }),
+    ]);
+
+    expect(formatGroupedNotificationText(group)).toBe(
+      "已生成 2 个视频单元：U01、U02",
+    );
+    expect(formatGroupedNotificationText(group)).not.toContain("内容");
+  });
+
+  it("treats reference_video_ready/tts_ready as generation-completed, not the 更新了 fallback", () => {
+    const [singleReferenceVideo] = groupChangesByType([
+      makeChange({
+        entity_type: "reference_unit",
+        action: "reference_video_ready",
+        entity_id: "U01",
+        label: "参考视频「U01」",
+      }),
+    ]);
+    expect(formatGroupedNotificationText(singleReferenceVideo)).toBe(
+      "参考视频「U01」已生成",
+    );
+    expect(formatGroupedDeferredText(singleReferenceVideo)).toBe(
+      "参考视频「U01」 已生成",
+    );
+
+    const [singleTts] = groupChangesByType([
+      makeChange({
+        entity_type: "segment",
+        action: "tts_ready",
+        entity_id: "E1S01",
+        label: "旁白「E1S01」",
+      }),
+    ]);
+    expect(formatGroupedNotificationText(singleTts)).toBe("旁白「E1S01」已生成");
+    expect(formatGroupedDeferredText(singleTts)).toBe("旁白「E1S01」 已生成");
+
+    const [groupedTts] = groupChangesByType([
+      makeChange({
+        entity_type: "segment",
+        action: "tts_ready",
+        entity_id: "E1S01",
+        label: "旁白「E1S01」",
+      }),
+      makeChange({
+        entity_type: "segment",
+        action: "tts_ready",
+        entity_id: "E1S02",
+        label: "旁白「E1S02」",
+      }),
+    ]);
+    expect(formatGroupedNotificationText(groupedTts)).toBe(
+      "已生成 2 个旁白：E1S01、E1S02",
+    );
+    expect(formatGroupedNotificationText(groupedTts)).not.toContain("更新了");
+  });
 });

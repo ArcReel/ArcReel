@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from lib.agnes_shared import AGNES_BASE_URL
@@ -107,6 +108,14 @@ class ProviderMeta:
     @property
     def capabilities(self) -> list[str]:
         return sorted(set(c for m in self.models.values() for c in m.capabilities))
+
+    def fully_covered_credential_groups(self, values: Mapping[str, str | None]) -> list[list[str]]:
+        """返回本次提交「完整覆盖」的凭证组（组内所有 key 在 values 中均非空）。
+
+        驱动凭证创建/更新端点的切组判定：未声明 credential_groups 的 provider
+        （绝大多数）该列表恒为空，调用方据此保持"不做切组处理"的原语义不变。
+        """
+        return [group for group in self.credential_groups if all(values.get(k) for k in group)]
 
 
 # Gemini 文本费率（美元/百万 token），Standard paid tier、prompt ≤200K 区间。

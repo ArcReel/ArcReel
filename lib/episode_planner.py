@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import statistics
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,12 +76,28 @@ class EpisodePlanSummary:
 
 
 @dataclass
+class LedgerStats:
+    """全账本体量分布快照（机械现算，不做「多小算畸小」之类的阈值判断）。
+
+    语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主 agent 做——
+    这里只报分布事实。
+    """
+
+    total_episodes: int
+    smallest: list[tuple[int, int]]  # (集号, 体量) 体量最小的最多 5 集，按体量升序
+    median_units: int | None
+    target_units: int | None
+
+
+@dataclass
 class PlanResult:
     episodes: list[EpisodePlanSummary]
     cursor: dict[str, Any] | None
     source_exhausted: bool = False
     stale_episodes: list[int] = field(default_factory=list)
     settings_updated: dict[str, Any] = field(default_factory=dict)
+    total_planned: int = 0
+    ledger_stats: LedgerStats | None = None
 
 
 @dataclass
@@ -115,6 +132,15 @@ class _PlannedEpisode:
     source_rel: str
     start: int
     end: int
+
+
+@dataclass
+class _PlanningProgress:
+    """本批规划时的全局进度快照，仅在 instructions 非空时注入 prompt（供模型换算切分节奏）。"""
+
+    planned_count: int
+    remaining_units: int
+    window_units: int
 
 
 _DRAFT_CONFIG = ConfigDict(extra="forbid")
@@ -180,6 +206,13 @@ _PUNCT_FOLD: dict[str, str] = {
     "（": "(",  # U+FF08 全角左括号
     "）": ")",  # U+FF09 全角右括号
     "～": "~",  # U+FF5E 全角波浪号
+    "〜": "~",  # U+301C CJK 波浪号（与 U+FF5E 同族，一并折向半角 ~）
+    "“": '"',  # U+201C 左弯双引号
+    "”": '"',  # U+201D 右弯双引号
+    "‘": "'",  # U+2018 左弯单引号
+    "’": "'",  # U+2019 右弯单引号
+    "＂": '"',  # U+FF02 全角直双引号
+    "＇": "'",  # U+FF07 全角直单引号
 }
 # 折叠值必须是单字符：_fold_for_match 的逐字符 1:1 等长依赖于此。一旦某条映射折成多字符，
 # 折叠串偏移就相对 NFC 原文漂移，end = start + len(anchor) 会算出错误切点。导入期即拦截违例。
@@ -412,16 +445,37 @@ class EpisodePlanner:
         while not text[start:].strip():
             next_rel = self._next_source_rel(source_rel)
             if next_rel is None:
-                return PlanResult(episodes=[], cursor=project.get("planning_cursor"), source_exhausted=True)
+                return PlanResult(
+                    episodes=[],
+                    cursor=project.get("planning_cursor"),
+                    source_exhausted=True,
+                    total_planned=_count_planned_episodes(project),
+                    ledger_stats=self._compute_ledger_stats(project),
+                )
             source_rel, start = next_rel, 0
             text = self._load_normalized_source(source_rel)
 
         window_chars = self._setting_int(project, "planning_window_chars", DEFAULT_PLANNING_WINDOW_CHARS)
         max_episodes = self._setting_int(project, "planning_max_episodes", DEFAULT_PLANNING_MAX_EPISODES)
-        window = text[start : start + window_chars]
-        window_is_final = start + window_chars >= len(text)
+        remaining_chars = len(text) - start
+        # 窗口弹性：剩余全文不足 1.2 倍窗口时直接吃到底，避免下一批只剩孤儿残余
+        # 被迫单独成集（畸小集的机械成因）。系数 1.2 换来的浮动幅度足够小，
+        # 不会让常规批次显著超出窗口设置的预期体量。
+        window_end = len(text) if remaining_chars <= window_chars * 1.2 else start + window_chars
+        window = text[start:window_end]
+        window_is_final = window_end >= len(text)
         content_mode = str(project.get("content_mode") or "narration")
         draft_model: type[BaseModel] = DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        language = _language_of(project)
+        # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
+        # 无指令路径的 prompt 必须逐字保持不变（CONTEXT.md 对该路径有逐字一致的承诺）。
+        progress: _PlanningProgress | None = None
+        if planning_instructions:
+            progress = _PlanningProgress(
+                planned_count=_count_planned_episodes(project),
+                remaining_units=self._remaining_units_from(source_rel, start, text, language),
+                window_units=count_reading_units(window, language),
+            )
 
         def _prompt(failure: list[str] | None) -> str:
             return _build_planning_prompt(
@@ -434,6 +488,7 @@ class EpisodePlanner:
                 instructions=planning_instructions,
                 fixed_boundary=False,
                 is_replan=False,
+                progress=progress,
                 failure=failure,
             )
 
@@ -446,7 +501,6 @@ class EpisodePlanner:
             max_episodes=max_episodes,
         )
 
-        language = _language_of(project)
         summaries: list[EpisodePlanSummary] = []
         committed: dict[str, Any] = {}
 
@@ -488,11 +542,16 @@ class EpisodePlanner:
                 window_is_final and not text[start + ends[-1] :].strip() and self._next_source_rel(source_rel) is None
             )
 
-        self.pm.update_project(self.project_name, _commit)
+        final_project = self.pm.update_project(self.project_name, _commit)
+        exhausted = bool(committed["exhausted"])
         return PlanResult(
             episodes=summaries,
             cursor=committed["cursor"],
-            source_exhausted=bool(committed["exhausted"]),
+            source_exhausted=exhausted,
+            total_planned=_count_planned_episodes(final_project),
+            # 全局核对材料只在末批即耗尽时附上；常规批次只报「累计已规划 N 集」，
+            # 避免主 agent 上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
+            ledger_stats=self._compute_ledger_stats(final_project) if exhausted else None,
         )
 
     # --------------------------------------------------------------- replan
@@ -646,12 +705,15 @@ class EpisodePlanner:
             self._reconcile_derived_files(p, texts)
             committed["cursor"] = p.get("planning_cursor")
 
-        self.pm.update_project(self.project_name, _commit)
+        final_project = self.pm.update_project(self.project_name, _commit)
         return PlanResult(
             episodes=summaries,
             cursor=committed["cursor"],
             stale_episodes=list(committed["stale"]),
             settings_updated=dict(committed["settings"]),
+            total_planned=_count_planned_episodes(final_project),
+            # replan 是用户发现偏差后的主要修复动作，每次重排都附核对材料，闭合复核循环
+            ledger_stats=self._compute_ledger_stats(final_project),
         )
 
     def _replan_scope(self, project: Mapping[str, Any], from_episode: int) -> _ReplanScope:
@@ -835,6 +897,24 @@ class EpisodePlanner:
             raise EpisodePlanningError("source/ 下没有可规划的源文件（.txt/.md），请先上传小说原文")
         return (sources[0].rel_path, 0)
 
+    def _remaining_units_from(self, source_rel: str, start: int, text: str, language: str | None) -> int:
+        """当前源文窗口起点之后全部 + 后续源文件总量，按阅读单位计（全局进度提示用）。
+
+        ``discover_sources`` 只调一次：它已返回全部源文件的归一化全文，定位到
+        ``source_rel`` 后直接复用后续文件的 ``doc.text``，避免按源文件数循环重复
+        调用 ``discover_sources``（每次都会重新读取并归一化目录下全部源文件）。
+        """
+        total = count_reading_units(text[start:], language)
+        sources = discover_sources(self.project_path)
+        rels = [doc.rel_path for doc in sources]
+        try:
+            idx = rels.index(source_rel)
+        except ValueError:
+            return total
+        for doc in sources[idx + 1 :]:
+            total += count_reading_units(doc.text, language)
+        return total
+
     def _next_source_rel(self, rel: str) -> str | None:
         """按文件名序返回 ``rel`` 之后的下一个候选源文件；``rel`` 不在候选或已是最后一个时返回 None。"""
         rels = [doc.rel_path for doc in discover_sources(self.project_path)]
@@ -943,11 +1023,79 @@ class EpisodePlanner:
             except OSError as exc:
                 logger.warning("余文文件清理失败（不阻断提交）：%s: %s", remaining, exc)
 
+    def _compute_ledger_stats(self, project: Mapping[str, Any]) -> LedgerStats:
+        """账本现算全局体量分布：累计集数、最小 5 集、体量中位数（供偏差核对用）。
+
+        unanchored 集没有 source_range，物理集文件即其最终记录，直接读派生文件计体量；
+        锚定集读原文按 source_range 切片计。个别条目原文/派生文件读取失败时跳过，
+        不阻断整体统计（核对材料本身是尽力而为、非提交前置校验）。
+        """
+        language = _language_of(project)
+        text_cache: dict[str, str] = {}
+        units_by_episode: dict[int, int] = {}
+        for entry in project.get("episodes") or []:
+            if not isinstance(entry, dict):
+                continue
+            num = parse_episode_num(entry.get("episode"))
+            if num is None:
+                continue
+            if entry.get("ledger_status") == "unanchored":
+                path = self.project_path / "source" / f"episode_{num}.txt"
+                try:
+                    text = normalize_source_text(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError):
+                    continue
+                units_by_episode[num] = count_reading_units(text, language)
+                continue
+            source_range = entry.get("source_range")
+            if not isinstance(source_range, Mapping):
+                continue
+            rel = source_range.get("source_file")
+            start = source_range.get("start")
+            end = source_range.get("end")
+            if (
+                not isinstance(rel, str)
+                or not isinstance(start, int)
+                or not isinstance(end, int)
+                or isinstance(start, bool)
+                or isinstance(end, bool)
+            ):
+                continue
+            text = text_cache.get(rel)
+            if text is None:
+                try:
+                    text = self._load_normalized_source(rel)
+                except EpisodePlanningError:
+                    continue
+                text_cache[rel] = text
+            if not 0 <= start <= end <= len(text):
+                continue
+            units_by_episode[num] = count_reading_units(text[start:end], language)
+
+        ordered = sorted(units_by_episode.items(), key=lambda pair: (pair[1], pair[0]))
+        values = sorted(units_by_episode.values())
+        target = project.get("episode_target_units")
+        return LedgerStats(
+            total_episodes=_count_planned_episodes(project),
+            smallest=ordered[:5],
+            median_units=int(round(statistics.median(values))) if values else None,
+            target_units=target if isinstance(target, int) and not isinstance(target, bool) and target >= 1 else None,
+        )
+
 
 def _sort_episodes_if_possible(episodes: list[Any]) -> None:
     """全部集号可解析时按集号排序（与回填同口径），否则保持原序。"""
     if all(isinstance(e, dict) and parse_episode_num(e.get("episode")) is not None for e in episodes):
         episodes.sort(key=lambda e: parse_episode_num(e["episode"]) or 0)
+
+
+def _count_planned_episodes(project: Mapping[str, Any]) -> int:
+    """账本现算已规划集数（含全部 ledger_status），供全局进度提示使用。"""
+    return sum(
+        1
+        for entry in (project.get("episodes") or [])
+        if isinstance(entry, dict) and parse_episode_num(entry.get("episode")) is not None
+    )
 
 
 def _context_entries(project: Mapping[str, Any], *, before_episode: int | None = None) -> list[dict[str, Any]]:
@@ -982,6 +1130,7 @@ def _build_planning_prompt(
     is_replan: bool,
     failure: list[str] | None,
     slice_position: tuple[int, int] | None = None,
+    progress: _PlanningProgress | None = None,
 ) -> str:
     """plan / replan 共用的规划 prompt。仅面向文本模型，不做 i18n。
 
@@ -989,7 +1138,8 @@ def _build_planning_prompt(
     ``is_replan`` 区分措辞（plan 用「用户规划意见」、replan 用「用户重排意见」）；为空则不注入，
     prompt 与无指令时逐字一致。``slice_position=(第几段, 总段数)`` 标记当前 prompt 在重排范围
     中的位置；总段数大于 1（范围跨多个源文件）时注入跨文件说明，提示模型用户意见中与本段
-    无关的部分由其他段落实。
+    无关的部分由其他段落实。``progress`` 非 None 时注入「全局进度」分节（调用方只在 plan 且
+    instructions 非空时传入；replan 范围闭合、整段进 prompt，不存在窗口盲区，不传）。
     """
     overview = project.get("overview") or {}
     unit_name = reading_unit_noun(_language_of(project))
@@ -1025,6 +1175,15 @@ def _build_planning_prompt(
     if instructions:
         instructions_header = "# 用户重排意见（必须全部落实）" if is_replan else "# 用户规划意见（必须全部落实）"
         lines += ["", instructions_header, instructions]
+    if progress is not None:
+        lines += [
+            "",
+            "# 全局进度",
+            f"- 已规划 {progress.planned_count} 集",
+            f"- 未规划余量约 {progress.remaining_units} {unit_name}（含本窗口，含后续源文件）",
+            f"- 本窗口为其中前 {progress.window_units} {unit_name}",
+            "- 若用户意见含总集数、按章节对齐等全局约束，请结合以上进度与余量换算本批的切分节奏与集数。",
+        ]
     if slice_position is not None and slice_position[1] > 1:
         current, total = slice_position
         lines += [

@@ -6,9 +6,10 @@ script_models.py - 剧本数据模型
 2. 输出验证
 """
 
-from typing import Annotated, ClassVar, Literal
+import logging
+from typing import Annotated, ClassVar, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.script_skeleton import resolve_declared_kind
@@ -54,6 +55,51 @@ TransitionType = Literal[
     "dissolve",
 ]
 
+logger = logging.getLogger(__name__)
+
+
+def _canon_enum_key(value: str) -> str:
+    """枚举漂移归一键：下划线/连字符折叠为空格、多空格合一、casefold。"""
+    return " ".join(value.replace("_", " ").replace("-", " ").split()).casefold()
+
+
+# schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/OpenAI 兼容通道丢弃
+# wire 级结构化参数时，模型会把枚举写成大写/小写蛇形（MEDIUM_SHOT / medium_shot）
+# 甚至词表外值（wide_shot / dolly_in / orbit，均为线上实测值）。机械归一（大小写/
+# 分隔符）把风格漂移拉回词表；词表外值不做语义近义映射（语义映射永远穷举不全），
+# 一律降级为中性默认值并 warn——这两个字段下游只作生成 prompt 的文本插值，
+# 单镜头词汇漂移不值得让整集剧本生成失败。
+_DEFAULT_SHOT_TYPE: ShotType = "Medium Shot"
+_DEFAULT_CAMERA_MOTION: CameraMotion = "Static"
+
+_SHOT_TYPE_BY_KEY: dict[str, str] = {_canon_enum_key(v): v for v in get_args(ShotType)}
+_CAMERA_MOTION_BY_KEY: dict[str, str] = {_canon_enum_key(v): v for v in get_args(CameraMotion)}
+
+
+def _normalize_shot_type(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    hit = _SHOT_TYPE_BY_KEY.get(_canon_enum_key(value))
+    if hit is not None:
+        return hit
+    logger.warning("shot_type 枚举漂移无法归一，降级为 %s: %r", _DEFAULT_SHOT_TYPE, value)
+    return _DEFAULT_SHOT_TYPE
+
+
+def _normalize_camera_motion(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    hit = _CAMERA_MOTION_BY_KEY.get(_canon_enum_key(value))
+    if hit is not None:
+        return hit
+    logger.warning("camera_motion 枚举漂移无法归一，降级为 %s: %r", _DEFAULT_CAMERA_MOTION, value)
+    return _DEFAULT_CAMERA_MOTION
+
+
+def _none_to_empty_list(value: object) -> object:
+    """漂移容错：非约束解码通道可能把可选列表字段写成 null 而非省略。"""
+    return [] if value is None else value
+
 
 class Dialogue(BaseModel):
     """对话条目"""
@@ -69,7 +115,7 @@ class Composition(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    shot_type: ShotType = Field(description="镜头类型")
+    shot_type: Annotated[ShotType, BeforeValidator(_normalize_shot_type)] = Field(description="镜头类型")
     lighting: str = Field(description="光线描述：光源、方向、色温；避免抽象词")
     ambiance: str = Field(description="整体氛围：可观察的环境效果；避免抽象情绪词")
 
@@ -89,7 +135,7 @@ class _VideoPromptCore(BaseModel):
     model_config = _STRICT_CONFIG
 
     action: str = Field(description="动作描述：仅描述物理可观察动作，避免内心动词（如 陷入/回忆/意识到）")
-    camera_motion: CameraMotion = Field(description="镜头运动")
+    camera_motion: Annotated[CameraMotion, BeforeValidator(_normalize_camera_motion)] = Field(description="镜头运动")
     ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
 
 
@@ -100,7 +146,9 @@ class VideoPrompt(_VideoPromptCore):
     ``DramaVideoPrompt`` 变体（见 ADR 0040）。
     """
 
-    dialogue: list[Dialogue] = Field(default_factory=list, description="对话列表，仅当原文有引号对话时填写")
+    dialogue: Annotated[list[Dialogue], BeforeValidator(_none_to_empty_list)] = Field(
+        default_factory=list, description="对话列表，仅当原文有引号对话时填写"
+    )
 
 
 class DramaVideoPrompt(_VideoPromptCore):
@@ -799,8 +847,20 @@ class ReferenceVideoScript(BaseModel):
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
 
 
+def _coerce_digit_string(value: object) -> object:
+    """机械强转：纯数字字符串 → int，其余原样透传交给 ``Literal`` 校验。
+
+    Gemini ``responseSchema`` 通道的 ``enum`` 仅支持字符串，整数时长枚举在 wire 层转为
+    字符串枚举（``["4","6","8"]``，见 ``lib/text_backends/gemini.py``），约束解码下模型
+    输出 ``"4"``；此处恢复 int，使复验与解析两侧的 ``Literal[4,6,8]`` 照常命中。
+    """
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return value
+
+
 def _duration_literal(supported_durations: list[int]) -> object:
-    """把 supported_durations 去重排序后构造成 ``Literal[...]``。
+    """把 supported_durations 去重排序后构造成数字字符串可强转的 ``Literal[...]``。
 
     多值在 ``model_json_schema()`` 里渲染为 JSON-schema ``enum``、单值渲染为 ``const``，两者都是硬约束。
     与 ``ConfigResolver`` 同口径用 ``int(d)`` 归一（见 ``lib/config/resolver.py`` custom 分支）。空集抛 ValueError。
@@ -808,7 +868,7 @@ def _duration_literal(supported_durations: list[int]) -> object:
     values = tuple(sorted({int(d) for d in supported_durations}))
     if not values:
         raise ValueError("supported_durations 为空，无法构造 duration 枚举约束")
-    return Literal[values]
+    return Annotated[Literal[values], BeforeValidator(_coerce_digit_string)]
 
 
 def _constrained_duration_item(item_base: type[BaseModel], duration_type: object, description: str) -> type[BaseModel]:

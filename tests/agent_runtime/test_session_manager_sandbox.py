@@ -20,10 +20,8 @@ def session_manager(tmp_path: Path) -> SessionManager:
     project_root = tmp_path / "repo"
     project_root.mkdir()
     (project_root / "projects").mkdir()
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
     meta_store = SessionMetaStore()
-    return SessionManager(project_root, data_dir, meta_store)
+    return SessionManager(project_root, meta_store)
 
 
 @pytest.mark.asyncio
@@ -76,7 +74,7 @@ def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, mo
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(external_logs))
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(external_profile))
 
-    sm = SessionManager(repo, tmp_path / "data", SessionMetaStore(), projects_root=external_data)
+    sm = SessionManager(repo, SessionMetaStore(), projects_root=external_data)
     policy = sm.access_policy
 
     assert policy.log_dir == external_logs.resolve()
@@ -159,11 +157,8 @@ def _make_session_manager(tmp_path: Path, *, sandbox_enabled: bool) -> SessionMa
     project_root = tmp_path / "repo"
     project_root.mkdir(exist_ok=True)
     (project_root / "projects").mkdir(exist_ok=True)
-    data_dir = tmp_path / "data"
-    data_dir.mkdir(exist_ok=True)
     return SessionManager(
         project_root,
-        data_dir,
         SessionMetaStore(),
         sandbox_enabled=sandbox_enabled,
     )
