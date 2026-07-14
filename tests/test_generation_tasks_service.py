@@ -282,10 +282,12 @@ class TestGenerationTasks:
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
+        # 资产 sheet 以「资产名 label」显式绑定（供 Gemini 等支持内联标签的后端
+        # 把参考图与 prompt 专名对应）；extra_reference_images 无资产名上下文，保持裸 Path
         assert storyboard_refs == [
-            project_path / "characters" / "Alice.png",
-            project_path / "scenes" / "祠堂.png",
-            project_path / "props" / "玉佩.png",
+            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
+            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
+            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
             project_path / "characters" / "Alice.png",
             {
                 "image": project_path / "storyboards" / "scene_E1S01.png",
@@ -300,9 +302,9 @@ class TestGenerationTasks:
             {"script_file": "episode_1.json", "prompt": "direct prompt"},
         )
         assert fake_generator.image_calls[1]["reference_images"] == [
-            project_path / "characters" / "Alice.png",
-            project_path / "scenes" / "祠堂.png",
-            project_path / "props" / "玉佩.png",
+            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
+            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
+            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
         ]
 
         video_result = await generation_tasks.execute_video_task(

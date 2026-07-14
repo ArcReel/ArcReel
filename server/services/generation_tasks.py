@@ -402,7 +402,7 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
         )
 
 
-def _collect_sheet_paths(
+def _collect_sheet_references(
     project: dict,
     project_path: Path,
     items: list[dict],
@@ -411,17 +411,20 @@ def _collect_sheet_paths(
     scene_field: str,
     prop_field: str,
     max_count: int = 0,
-) -> tuple[list[Path], set[str]]:
-    """Collect character_sheet, scene_sheet and prop_sheet paths from scene/segment items.
+) -> tuple[list[dict], set[str]]:
+    """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
 
-    Returns (list of existing Paths, set of relative sheet strings for dedup).
-    If *max_count* > 0 collection stops after that many images.
+    Returns (list of ``{"image": Path, "label": 资产名}`` dicts, set of relative
+    sheet strings for dedup). If *max_count* > 0 collection stops after that many images.
+
+    label 取 project.json 中的资产名，与 prompt 里的专名严格一致——供支持内联标签的
+    后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
     references 条目形态存在），``item.get(None, [])`` 天然跳过角色 sheet 收集。
     """
     seen: set[str] = set()
-    paths: list[Path] = []
+    refs: list[dict] = []
 
     characters = project.get("characters", {})
     project_scenes = project.get("scenes", {})
@@ -433,26 +436,26 @@ def _collect_sheet_paths(
             if sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
-                    paths.append(path)
+                    refs.append({"image": path, "label": char_name})
                     seen.add(sheet)
         for scene_name in item.get(scene_field, []):
             sheet = project_scenes.get(scene_name, {}).get("scene_sheet")
             if sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
-                    paths.append(path)
+                    refs.append({"image": path, "label": scene_name})
                     seen.add(sheet)
         for prop_name in item.get(prop_field, []):
             sheet = project_props.get(prop_name, {}).get("prop_sheet")
             if sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
-                    paths.append(path)
+                    refs.append({"image": path, "label": prop_name})
                     seen.add(sheet)
-        if max_count and len(paths) >= max_count:
+        if max_count and len(refs) >= max_count:
             break
 
-    return paths, seen
+    return refs, seen
 
 
 def _collect_reference_images(
@@ -466,10 +469,10 @@ def _collect_reference_images(
     extra_reference_images: list[str] | None = None,
     previous_storyboard_path: Path | None = None,
 ) -> list[object] | None:
-    sheet_paths, _ = _collect_sheet_paths(
+    sheet_refs, _ = _collect_sheet_references(
         project, project_path, [target_item], char_field=char_field, scene_field=scene_field, prop_field=prop_field
     )
-    reference_images: list[object] = list(sheet_paths)
+    reference_images: list[object] = list(sheet_refs)
 
     for extra in extra_reference_images or []:
         extra_path = Path(extra)
