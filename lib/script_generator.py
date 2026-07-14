@@ -431,22 +431,26 @@ class ScriptGenerator:
         if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
             raise ValueError(f"广告/短片项目缺少合法的 target_duration（正整数秒），当前为 {target_duration!r}")
         # `or` 兜底：project.json 手工编辑时字段可能显式为 null，`.get(key, default)`
-        # 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。characters/scenes/props
-        # 额外校验 isinstance：`or` 无法拦截显式写成非 dict（如 list）的脏数据。
+        # 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。characters/scenes/props/
+        # products/overview 额外校验 isinstance：`or` 无法拦截显式写成非 dict（如 list）的脏数据。
         characters = self.project_json.get("characters")
         characters = characters if isinstance(characters, dict) else {}
         scenes = self.project_json.get("scenes")
         scenes = scenes if isinstance(scenes, dict) else {}
         props = self.project_json.get("props")
         props = props if isinstance(props, dict) else {}
+        products = self.project_json.get("products")
+        products = products if isinstance(products, dict) else {}
+        overview = self.project_json.get("overview")
+        overview = overview if isinstance(overview, dict) else {}
         return build_ad_prompt(
-            project_overview=self.project_json.get("overview") or {},
+            project_overview=overview,
             style=self.project_json.get("style") or "",
             style_description=self.project_json.get("style_description") or "",
             characters=characters,
             scenes=scenes,
             props=props,
-            products=self.project_json.get("products") or {},
+            products=products,
             brief=self.project_json.get("brief") or "",
             target_duration=target_duration,
             generation_mode=gen_mode,
