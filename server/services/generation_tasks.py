@@ -421,7 +421,7 @@ def _collect_sheet_references(
     后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
-    references 条目形态存在），``item.get(None, [])`` 天然跳过角色 sheet 收集。
+    references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
     """
     seen: set[str] = set()
     refs: list[dict] = []
@@ -434,26 +434,32 @@ def _collect_sheet_references(
     project_props = project_props if isinstance(project_props, dict) else {}
 
     for item in items:
-        for char_name in item.get(char_field, []):
+        for char_name in item.get(char_field) or []:
+            if not isinstance(char_name, str):
+                continue
             char_data = characters.get(char_name)
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
-            if sheet and sheet not in seen:
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": char_name})
                     seen.add(sheet)
-        for scene_name in item.get(scene_field, []):
+        for scene_name in item.get(scene_field) or []:
+            if not isinstance(scene_name, str):
+                continue
             scene_data = project_scenes.get(scene_name)
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
-            if sheet and sheet not in seen:
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": scene_name})
                     seen.add(sheet)
-        for prop_name in item.get(prop_field, []):
+        for prop_name in item.get(prop_field) or []:
+            if not isinstance(prop_name, str):
+                continue
             prop_data = project_props.get(prop_name)
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
-            if sheet and sheet not in seen:
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": prop_name})
@@ -1439,28 +1445,34 @@ def _collect_grid_reference_images(
     max_count = 6
 
     for item in matched_items:
-        for char_name in item.get(char_field, []):
+        for char_name in item.get(char_field) or []:
+            if not isinstance(char_name, str):
+                continue
             char_data = characters.get(char_name)
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
-            if sheet and sheet not in seen:
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
                     paths.append(p)
                     seen.add(sheet)
                     metadata.append({"path": sheet, "name": char_name, "ref_type": "character"})
-        for scene_name in item.get(scene_field, []):
+        for scene_name in item.get(scene_field) or []:
+            if not isinstance(scene_name, str):
+                continue
             scene_data = project_scenes.get(scene_name)
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
-            if sheet and sheet not in seen:
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
                     paths.append(p)
                     seen.add(sheet)
                     metadata.append({"path": sheet, "name": scene_name, "ref_type": "scene"})
-        for prop_name in item.get(prop_field, []):
+        for prop_name in item.get(prop_field) or []:
+            if not isinstance(prop_name, str):
+                continue
             prop_data = project_props.get(prop_name)
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
-            if sheet and sheet not in seen:
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
                     paths.append(p)
