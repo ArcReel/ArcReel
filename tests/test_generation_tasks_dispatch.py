@@ -3,20 +3,19 @@ from __future__ import annotations
 import pytest
 
 from lib.image_backends.base import ImageCapabilityError
-from server.services.generation_tasks import _TASK_CHANGE_SPECS, _TASK_EXECUTORS
+from server.services.generation_tasks import _SKELETON_DRIVEN_TASK_ACTIONS, _TASK_EXECUTORS
 
 
 def test_task_executors_registered_for_reference_video():
     assert "reference_video" in _TASK_EXECUTORS
 
 
-def test_task_change_specs_registered_for_reference_video():
-    spec = _TASK_CHANGE_SPECS.get("reference_video")
-    assert spec is not None
-    entity_type, action, _label_tpl, include_script_episode = spec
-    assert entity_type == "reference_video_unit"
-    assert action == "reference_video_ready"
-    assert include_script_episode is True
+def test_task_change_action_registered_for_reference_video():
+    # entity_type 不再是静态 spec：按剧本骨架种类动态解析（见
+    # test_generation_tasks_service.py 里对 emit_generation_success_batch 的骨架覆盖用例），
+    # 与前端 ProjectChange["entity_type"] 联合类型的 "reference_unit" 对齐，不再是仅本侧
+    # 认识的 "reference_video_unit"。
+    assert _SKELETON_DRIVEN_TASK_ACTIONS.get("reference_video") == "reference_video_ready"
 
 
 @pytest.mark.asyncio

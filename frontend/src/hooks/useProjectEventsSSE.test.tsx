@@ -6,6 +6,7 @@ import { API, type ProjectEventStreamOptions } from "@/api";
 import { useProjectEventsSSE } from "./useProjectEventsSSE";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useCostStore } from "@/stores/cost-store";
 
 function HookHarness({ projectName }: { projectName: string }) {
   useProjectEventsSSE(projectName);
@@ -267,6 +268,126 @@ describe("useProjectEventsSSE", () => {
     );
     expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");
     expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it.each([
+    {
+      action: "reference_video_ready" as const,
+      entityType: "reference_unit" as const,
+      entityId: "U01",
+      label: "参考视频「U01」",
+      expectedText: "参考视频「U01」已生成",
+    },
+    {
+      action: "tts_ready" as const,
+      entityType: "segment" as const,
+      entityId: "E1S01",
+      label: "旁白「E1S01」",
+      expectedText: "旁白「E1S01」已生成",
+    },
+  ])(
+    "shows a generation-completed toast and refreshes cost for $action, without navigation",
+    async ({ action, entityType, entityId, label, expectedText }) => {
+      let capturedOptions: ProjectEventStreamOptions | undefined;
+      vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+        capturedOptions = options;
+        return { close: vi.fn() } as unknown as EventSource;
+      });
+      const debouncedFetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch");
+
+      renderHarness("/episodes/1");
+
+      act(() => {
+        capturedOptions?.onChanges?.(
+          {
+            project_name: "demo",
+            batch_id: "batch-completion",
+            fingerprint: "fp-completion",
+            generated_at: "2026-03-01T00:00:00Z",
+            source: "worker",
+            changes: [
+              {
+                entity_type: entityType,
+                action,
+                entity_id: entityId,
+                label,
+                episode: 1,
+                focus: null,
+                important: true,
+              },
+            ],
+          },
+          new MessageEvent("changes"),
+        );
+      });
+
+      await waitFor(() => {
+        expect(API.getProject).toHaveBeenCalledWith("demo");
+        expect(useAppStore.getState().toast?.text).toBe(expectedText);
+      });
+      expect(useAppStore.getState().toast?.tone).toBe("success");
+      expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");
+      expect(useAppStore.getState().scrollTarget).toBeNull();
+      expect(debouncedFetchSpy).toHaveBeenCalledWith("demo");
+    },
+  );
+
+  it("ranks reference_video_ready/tts_ready alongside existing completion events, above entity changes", async () => {
+    // CHANGE_PRIORITY 中 reference_video_ready/tts_ready 排在 storyboard_ready/video_ready/grid_ready
+    // 之后：同批次多组变更时，toast 状态被逐组覆写，最终展示的应是优先级数值最大（最后处理）的一组。
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: vi.fn() } as unknown as EventSource;
+    });
+
+    renderHarness("/episodes/1");
+
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-priority",
+          fingerprint: "fp-priority",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "worker",
+          changes: [
+            {
+              entity_type: "character",
+              action: "created",
+              entity_id: "hero",
+              label: "角色「hero」",
+              focus: null,
+              important: true,
+            },
+            {
+              entity_type: "reference_unit",
+              action: "reference_video_ready",
+              entity_id: "U01",
+              label: "参考视频「U01」",
+              episode: 1,
+              focus: null,
+              important: true,
+            },
+            {
+              entity_type: "segment",
+              action: "tts_ready",
+              entity_id: "E1S01",
+              label: "旁白「E1S01」",
+              episode: 1,
+              focus: null,
+              important: true,
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(useAppStore.getState().toast?.text).toBe("旁白「E1S01」已生成");
+    });
   });
 
   it("groups remote changes by type and invalidates only the touched entity keys", async () => {

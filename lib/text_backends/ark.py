@@ -131,7 +131,7 @@ class ArkTextBackend:
                 return await self._structured_fallback(request, messages)
 
             # 成功路径复验：HTTP 200 后校验返回是否真满足 schema，违例（非 JSON / 违反 schema）则降级。
-            # 不严格强制 schema 的模型/中转会返回违例 JSON，若直接放行会一路漏到下游校验才报错。
+            # 不严格强制 schema 的模型/代理网关会返回违例 JSON，若直接放行会一路漏到下游校验才报错。
             # ark 原生 response_format 未声明 strict，复验同样用 strict=False，避免对可强转值误判违例。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:

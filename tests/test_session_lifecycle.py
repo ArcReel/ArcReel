@@ -22,7 +22,6 @@ def _make_manager(tmp_path: Path) -> SessionManager:
     """Create a SessionManager with a real MetaStore for testing."""
     return SessionManager(
         project_root=tmp_path,
-        data_dir=tmp_path / "data",
         meta_store=SessionMetaStore(),
     )
 

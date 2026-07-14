@@ -165,3 +165,55 @@ class TestCredentialGroups:
                 secret_keys=["api_key", "access_key", "secret_key"],
                 credential_groups=[["api_key"]],
             )
+
+
+class TestFullyCoveredCredentialGroups:
+    """ProviderMeta.fully_covered_credential_groups —— 切组判定的核心真值表。"""
+
+    def _kling_meta(self) -> ProviderMeta:
+        return ProviderMeta(
+            display_name="t",
+            description="t",
+            required_keys=["api_key", "access_key", "secret_key"],
+            secret_keys=["api_key", "access_key", "secret_key"],
+            credential_groups=[["api_key"], ["access_key", "secret_key"]],
+        )
+
+    def test_no_groups_declared_always_empty(self):
+        meta = ProviderMeta(display_name="t", description="t", required_keys=["api_key"], secret_keys=["api_key"])
+        assert meta.fully_covered_credential_groups({"api_key": "k"}) == []
+
+    def test_single_group_fully_submitted(self):
+        meta = self._kling_meta()
+        assert meta.fully_covered_credential_groups({"api_key": "k"}) == [["api_key"]]
+
+    def test_dual_key_group_fully_submitted(self):
+        meta = self._kling_meta()
+        assert meta.fully_covered_credential_groups({"access_key": "ak", "secret_key": "sk"}) == [
+            ["access_key", "secret_key"]
+        ]
+
+    def test_dual_key_group_partially_submitted_not_matched(self):
+        """只提交组内一个 key（如仅轮换 secret_key）不算完整覆盖该组。"""
+        meta = self._kling_meta()
+        assert meta.fully_covered_credential_groups({"secret_key": "sk"}) == []
+
+    def test_both_groups_fully_submitted(self):
+        meta = self._kling_meta()
+        assert meta.fully_covered_credential_groups({"api_key": "k", "access_key": "ak", "secret_key": "sk"}) == [
+            ["api_key"],
+            ["access_key", "secret_key"],
+        ]
+
+    def test_empty_string_not_counted_as_covering(self):
+        """空字符串视同未提交，不满足组覆盖。"""
+        meta = self._kling_meta()
+        assert meta.fully_covered_credential_groups({"api_key": ""}) == []
+
+    def test_none_not_counted_as_covering(self):
+        meta = self._kling_meta()
+        assert meta.fully_covered_credential_groups({"api_key": None}) == []
+
+    def test_nothing_submitted(self):
+        meta = self._kling_meta()
+        assert meta.fully_covered_credential_groups({}) == []

@@ -9,7 +9,6 @@
 - 节奏建议由 lib.prompt_rules.episode_pacing 注入，跨 subagent 与 builder 共享。
 """
 
-from lib.prompt_rules import is_v2_enabled
 from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
@@ -253,7 +252,7 @@ def build_narration_prompt(
     透传，step2 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
     LLM 不重出这些字段——novel_text 由此不再经 step2 的 LLM 扩写漂移。
     """
-    pacing_block = (render_pacing_section("narration") + "\n\n") if is_v2_enabled() else ""
+    pacing_block = render_pacing_section("narration") + "\n\n"
     segments_block = _format_narration_step1_segments(step1_segments)
 
     return f"""# 角色与任务
@@ -399,7 +398,7 @@ def build_drama_prompt(
     LLM 输出按 scene_id 与 step1 内容对齐、由后端合并；不再按 source_kind 分支、不再识别口播、
     不再标注资产或时长——这些都是 step1 的职责。
     """
-    pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
+    pacing_block = render_pacing_section("drama") + "\n\n"
 
     return f"""# 角色与任务
 
@@ -522,7 +521,7 @@ def build_normalize_prompt(
         )
 
     # 规范化 + 校验：空集合或 default 不在集合内都会产出自相矛盾的提示词，
-    # 让生成阶段失败比让 LLM 见到"只能取 — 中的值"更便于诊断（PR #528 review）。
+    # 让生成阶段失败比让 LLM 见到"只能取 — 中的值"更便于诊断。
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:
         raise ValueError("supported_durations 不能为空：必须提供模型支持的秒数集合")
@@ -557,7 +556,7 @@ def build_normalize_prompt(
         f"若口播估算已超过最长 {max_dur} 秒，取最长档即可（不裁台词、不硬塞），保存时会另有提示"
     )
     duration_rule = f"{base_duration_rule}。{duration_lower_bound_rule}"
-    pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
+    pacing_block = render_pacing_section("drama") + "\n\n"
 
     return f"""{task_line}
 

@@ -719,6 +719,13 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
 
+        # title 缺失/空白兜底：非约束解码通道下模型可能整字段漏写。title 仅展示用、
+        # 用户可改，不值得让整集生成失败；与 _merge_narration_visual 的兜底同口径。
+        if isinstance(data, dict):
+            title = data.get("title")
+            if not (isinstance(title, str) and title.strip()):
+                data["title"] = f"第{episode}集"
+
         # 校验模型经规范解析定骨架种类（ad→shots 骨架唯一，reference→video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
         kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))

@@ -459,7 +459,6 @@ class TestSessionManagerMore:
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=meta_store,
         )
 
@@ -507,7 +506,6 @@ class TestSessionManagerMore:
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=meta_store,
         )
 
@@ -545,7 +543,6 @@ class TestSessionManagerMore:
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=meta_store,
         )
 
@@ -579,7 +576,6 @@ class TestSessionManagerMore:
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=meta_store,
         )
 
@@ -671,7 +667,6 @@ class TestSessionManagerMore:
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path,
             meta_store=meta_store,
         )
 
@@ -704,7 +699,6 @@ class TestSessionManagerMore:
 
         mgr = sm_mod.SessionManager(
             project_root=app_root,
-            data_dir=app_root,
             meta_store=meta_store,
         )
         # SDK 会话数据基准目录是 policy 的构造参数：换新 policy 即注入测试位置
@@ -827,7 +821,6 @@ class TestJsonValidationHook:
 
         return SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path / "data",
             meta_store=SessionMetaStore(),
         )
 
@@ -1071,7 +1064,6 @@ class TestJsonPostValidationHook:
 
         return SessionManager(
             project_root=tmp_path,
-            data_dir=tmp_path / "data",
             meta_store=SessionMetaStore(),
         )
 

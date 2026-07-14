@@ -7,6 +7,7 @@ from lib.prompt_builders_script import (
     build_overview_prompt,
     render_drama_content_for_step2,
 )
+from lib.prompt_rules.episode_pacing import DRAMA_PACING_RULES, NARRATION_PACING_RULES
 from lib.speech_rate import speech_rate_units_per_second
 
 
@@ -222,6 +223,11 @@ class TestScreenplaySourceKind:
     只断言语义关键词在场 / 缺席，不锁逐字措辞、不测 LLM 提取质量。
     """
 
+    @staticmethod
+    def _squash(text: str) -> str:
+        """去除全部空白字符，用于跨缩进比较。"""
+        return "".join(text.split())
+
     def _normalize_prompt(self, source_kind: str, **overrides) -> str:
         kwargs = dict(
             novel_text="【第1集】角色甲：「你好」",
@@ -301,6 +307,10 @@ class TestScreenplaySourceKind:
         assert "她推开门" in prompt
         # 无大纲时不渲染该段
         assert "故事节点" not in self._normalize_prompt("novel")
+
+    def test_normalize_injects_pacing(self):
+        # step1（normalize）与 step2 一样无条件注入节奏建议，二者共享同一份 DRAMA_PACING_RULES
+        assert self._squash(DRAMA_PACING_RULES) in self._squash(self._normalize_prompt("novel"))
 
 
 class TestOverviewPrompt:
@@ -460,3 +470,76 @@ class TestDramaDurationSpeechLowerBound:
             supported_durations=[4, 6, 8],
         )
         assert self._SPEECH_MARKER not in ad
+
+
+class TestStep2PromptGuards:
+    """step2（视觉层）prompt 骨架守卫：节奏建议始终注入、schema 枚举不重复列举、
+    无字数硬限制、episode 约束在场且 scene_id 对齐要求不施加固定格式。"""
+
+    @staticmethod
+    def _squash(text: str) -> str:
+        """去除全部空白字符，用于跨缩进比较。"""
+        return "".join(text.split())
+
+    def _narration_prompt(self) -> str:
+        return build_narration_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            style_description="日漫半厚涂",
+            characters={"主角": {"description": "X"}},
+            scenes={"庙宇": {"description": "Y"}},
+            props={"玉佩": {"description": "Z"}},
+            step1_segments=[
+                {"segment_id": "E2S01", "novel_text": "原文", "duration_seconds": 4, "segment_break": False}
+            ],
+            episode=2,
+        )
+
+    def _drama_prompt(self) -> str:
+        return build_drama_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            style_description="日漫半厚涂",
+            scenes_content="### E2S01（时长 4 秒）\n视觉改编：xxx",
+            episode=2,
+        )
+
+    def test_drama_prompt_injects_pacing(self):
+        assert self._squash(DRAMA_PACING_RULES) in self._squash(self._drama_prompt())
+
+    def test_narration_prompt_injects_pacing(self):
+        assert self._squash(NARRATION_PACING_RULES) in self._squash(self._narration_prompt())
+
+    def test_drama_no_enum_dump_in_prompt(self):
+        """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
+        text = self._drama_prompt()
+        assert "Tracking Shot" not in text
+        assert "Pan Left, Pan Right" not in text
+
+    def test_drama_no_hard_char_limit(self):
+        """LLM 无法精确数字数，prompt 不写硬性字数上限。"""
+        text = self._drama_prompt()
+        assert "200 字以内" not in text
+        assert "150 字以内" not in text
+
+    def test_drama_injects_episode_constraints(self):
+        """drama prompt 必须明确告知 LLM 当前 episode，避免 ID 跨集污染。"""
+        text = self._drama_prompt()
+        assert "第 2 集" in text
+        assert "E2S" in text
+        assert "<episode_constraints>" in text
+
+    def test_drama_step2_scene_id_preserves_edit_suffix_no_fixed_format(self):
+        """step2 视觉层 scene_id 须逐字保留 step1 原 ID（含拆分/编辑后缀如 E2S02_1）；
+        不得施加 E{集}S{两位序号} 固定格式约束——模型若去掉后缀，merge 按精确串对齐会整集失败。"""
+        text = self._drama_prompt()
+        assert "逐字等于" in text
+        assert "后缀" in text
+        assert "两位序号" not in text
+
+    def test_narration_injects_episode_constraints(self):
+        """narration prompt 须告知 episode；step1 已铸定 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
+        text = self._narration_prompt()
+        assert "第 2 集" in text
+        assert "E2S" in text
+        assert "<episode_constraints>" in text

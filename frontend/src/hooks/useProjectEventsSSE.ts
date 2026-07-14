@@ -13,8 +13,10 @@ import type {
 } from "@/types";
 import {
   buildEntityRevisionKey,
+  COMPLETION_ACTIONS,
   formatGroupedDeferredText,
   formatGroupedNotificationText,
+  GENERATION_ACTIONS,
   groupChangesByType,
   type GroupedProjectChange,
 } from "@/utils/project-changes";
@@ -37,17 +39,19 @@ const CHANGE_PRIORITY: Record<string, number> = {
   storyboard_ready: 7,
   video_ready: 8,
   grid_ready: 9,
+  reference_video_ready: 10,
+  tts_ready: 11,
 };
 
 function getChangePriority(change: ProjectChange): number {
-  if (change.action === "storyboard_ready" || change.action === "video_ready" || change.action === "grid_ready") {
+  if (COMPLETION_ACTIONS.has(change.action)) {
     return CHANGE_PRIORITY[change.action] ?? Number.MAX_SAFE_INTEGER;
   }
   return CHANGE_PRIORITY[`${change.entity_type}:${change.action}`] ?? Number.MAX_SAFE_INTEGER;
 }
 
 function isNavigableChange(change: ProjectChange): boolean {
-  if (change.action === "storyboard_ready" || change.action === "video_ready" || change.action === "grid_ready") {
+  if (COMPLETION_ACTIONS.has(change.action)) {
     return false;
   }
   return Boolean(change.focus?.anchor_type && change.focus?.anchor_id);
@@ -315,8 +319,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void refreshProject();
 
           // Refresh cost data when generation completes
-          const hasGenerationEvent = payload.changes.some(
-            (c) => c.action === "storyboard_ready" || c.action === "video_ready",
+          const hasGenerationEvent = payload.changes.some((c) =>
+            GENERATION_ACTIONS.has(c.action),
           );
           if (hasGenerationEvent && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
