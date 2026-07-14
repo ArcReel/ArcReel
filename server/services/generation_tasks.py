@@ -461,7 +461,7 @@ def _collect_sheet_references(
         if max_count and len(refs) >= max_count:
             break
 
-    return refs, seen
+    return (refs[:max_count] if max_count else refs), seen
 
 
 def _collect_reference_images(
