@@ -2,6 +2,21 @@ import type { ProjectChange } from "@/types";
 
 const GROUP_NAME_LIMIT = 5;
 
+// 生成事件（用于刷新费用等）——不含 grid_ready：宫格生成完成不触发费用刷新（既有行为）。
+export const GENERATION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
+  "storyboard_ready",
+  "video_ready",
+  "reference_video_ready",
+  "tts_ready",
+]);
+
+// 完成事件（action 本身即通知类别，与 entity_type 无关）——优先级查表、导航行为、通知文案均不按
+// entity_type 拆分，五类骨架/任务共用同一套判定。
+export const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
+  ...GENERATION_ACTIONS,
+  "grid_ready",
+]);
+
 const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
   project: "项目",
   character: "角色",
@@ -148,13 +163,7 @@ export function formatGroupedNotificationText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (
-    group.action === "storyboard_ready" ||
-    group.action === "video_ready" ||
-    group.action === "grid_ready" ||
-    group.action === "reference_video_ready" ||
-    group.action === "tts_ready"
-  ) {
+  if (COMPLETION_ACTIONS.has(group.action)) {
     return `已生成 ${count} 个${entityLabel}：${summary}`;
   }
   if (group.action === "created") {
@@ -177,13 +186,7 @@ export function formatGroupedDeferredText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (
-    group.action === "storyboard_ready" ||
-    group.action === "video_ready" ||
-    group.action === "grid_ready" ||
-    group.action === "reference_video_ready" ||
-    group.action === "tts_ready"
-  ) {
+  if (COMPLETION_ACTIONS.has(group.action)) {
     return `AI 刚生成了 ${count} 个${entityLabel}：${summary}，点击查看`;
   }
   if (group.action === "created") {

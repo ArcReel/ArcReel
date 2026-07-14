@@ -13,8 +13,10 @@ import type {
 } from "@/types";
 import {
   buildEntityRevisionKey,
+  COMPLETION_ACTIONS,
   formatGroupedDeferredText,
   formatGroupedNotificationText,
+  GENERATION_ACTIONS,
   groupChangesByType,
   type GroupedProjectChange,
 } from "@/utils/project-changes";
@@ -40,16 +42,6 @@ const CHANGE_PRIORITY: Record<string, number> = {
   reference_video_ready: 10,
   tts_ready: 11,
 };
-
-// 完成事件（action 本身即通知类别，与 entity_type 无关）——优先级查表、导航行为均不按
-// entity_type 拆分，四类骨架/任务共用同一套判定。
-const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
-  "storyboard_ready",
-  "video_ready",
-  "grid_ready",
-  "reference_video_ready",
-  "tts_ready",
-]);
 
 function getChangePriority(change: ProjectChange): number {
   if (COMPLETION_ACTIONS.has(change.action)) {
@@ -327,12 +319,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void refreshProject();
 
           // Refresh cost data when generation completes
-          const hasGenerationEvent = payload.changes.some(
-            (c) =>
-              c.action === "storyboard_ready" ||
-              c.action === "video_ready" ||
-              c.action === "reference_video_ready" ||
-              c.action === "tts_ready",
+          const hasGenerationEvent = payload.changes.some((c) =>
+            GENERATION_ACTIONS.has(c.action),
           );
           if (hasGenerationEvent && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
