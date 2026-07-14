@@ -116,8 +116,8 @@ class Composition(BaseModel):
     model_config = _STRICT_CONFIG
 
     shot_type: Annotated[ShotType, BeforeValidator(_normalize_shot_type)] = Field(description="镜头类型")
-    lighting: str = Field(description="光线描述：光源、方向、色温；避免抽象词")
-    ambiance: str = Field(description="整体氛围：可观察的环境效果；避免抽象情绪词")
+    lighting: str = Field(description="光线描述")
+    ambiance: str = Field(description="整体氛围")
 
 
 class ImagePrompt(BaseModel):
@@ -125,7 +125,7 @@ class ImagePrompt(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    scene: str = Field(description="画面静态描述：角色姿态、环境元素、光影氛围（动作请写到 video_prompt.action）")
+    scene: str = Field(description="画面静态描述；动态内容由 video_prompt.action 承载")
     composition: Composition = Field(description="构图信息")
 
 
@@ -134,9 +134,9 @@ class _VideoPromptCore(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    action: str = Field(description="动作描述：仅描述物理可观察动作，避免内心动词（如 陷入/回忆/意识到）")
+    action: str = Field(description="该镜头时长内的动作描述；镜头运动由 camera_motion 承载")
     camera_motion: Annotated[CameraMotion, BeforeValidator(_normalize_camera_motion)] = Field(description="镜头运动")
-    ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
+    ambiance_audio: str = Field(description="环境音效（画内音）")
 
 
 class VideoPrompt(_VideoPromptCore):

@@ -324,6 +324,9 @@ class ScriptGenerator:
             aspect_ratio=self._resolve_aspect_ratio(),
             # 输出语言与 step1（normalize）同取项目 source_language，避免非中文项目 step1 内容与 step2 视觉割裂
             target_language=self.project_json.get("source_language") or "中文",
+            characters=self.project_json.get("characters") or {},
+            scenes=self.project_json.get("scenes") or {},
+            props=self.project_json.get("props") or {},
         )
 
     def _parse_drama_visual(self, response_text: str) -> list[dict]:

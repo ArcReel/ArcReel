@@ -7,7 +7,7 @@ WebUI（server/services/generation_tasks.py）和 Skill（agent_runtime_profile/
 - 无 backend 锁定：纯文本拼接，由调用方决定走哪个 image/video provider。
 - 反向提示词统一以「画面避免：xxx」追加到 prompt 末尾，不再使用各 backend 的 negative_prompt 参数通道
   （image backends 大多 silent 丢弃，参数化反而增加分叉）。
-- 防崩短语精简：扁平 4 项内核，避免 CFG 权重稀释。
+- 防崩与反向短语精简：只保关键项，避免 CFG 权重稀释。
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ _PROP_GUARD = "外观结构完整，焦点清晰。"
 _PRODUCT_FIDELITY_CORE = "logo、文字、配色、材质、比例与结构不得改变或臆造"
 _PRODUCT_GUARD = f"产品外观必须忠实于参考图中的真实产品：{_PRODUCT_FIDELITY_CORE}；各视图为同一件产品。"
 
-# 反向提示词：精简到核心 4 项，避免 CFG 权重稀释。
-_NEGATIVE_TAIL_ASSET = "画面避免：水印、多余文字、低分辨率、手指畸形。"
+# 反向提示词：只列实体排除项，不写质量词（质量词对现代生成模型近于噪声，且稀释 CFG 权重）。
+_NEGATIVE_TAIL_ASSET = "画面避免：水印、多余文字、Logo。"
 _NEGATIVE_TAIL_VIDEO = "禁止出现：BGM、文字字幕、水印。"
 
 
