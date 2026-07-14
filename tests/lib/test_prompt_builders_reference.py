@@ -69,6 +69,24 @@ def test_build_reference_video_prompt_emphasizes_no_appearance_description():
     assert "外貌" in prompt  # 有反向说明
 
 
+def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
+    """shot text 指导按景别 / 构图 / 运镜 / 画面内容四要素组织（对抗生成过短的镜头描述）。"""
+    prompt = build_reference_video_prompt(
+        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        style="s",
+        style_description="d",
+        characters={"A": {"description": "d"}},
+        scenes={},
+        props={},
+        units_md="stub",
+        supported_durations=[8],
+        max_refs=9,
+        episode=1,
+    )
+    for element in ("景别", "构图", "运镜", "画面内容"):
+        assert element in prompt
+
+
 def test_build_reference_video_prompt_injects_max_duration():
     """传入 max_duration=15 时，prompt 含"贴近 15 秒"指示（对抗 8s 锚点污染）。"""
     prompt = build_reference_video_prompt(
