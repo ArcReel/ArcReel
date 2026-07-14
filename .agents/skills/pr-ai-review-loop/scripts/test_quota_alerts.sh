@@ -34,7 +34,7 @@ fi
 
 # Pull the def verbatim: from `def quota_alerts:` through the line ending `];`
 # that closes it.
-QUOTA_DEF=$(awk '/^  def quota_alerts:/{flag=1} flag{print; if (/\];$/) exit}' "$POLL_SH")
+QUOTA_DEF=$(awk '/^[[:space:]]*def quota_alerts:/{flag=1} flag{print; if (/\];[[:space:]]*$/) exit}' "$POLL_SH")
 if [[ -z "$QUOTA_DEF" ]]; then
   echo "could not extract quota_alerts def from $POLL_SH" >&2
   exit 4
@@ -49,8 +49,8 @@ CASES=(
 )
 
 fail=0
-for case in "${CASES[@]}"; do
-  IFS=":" read -r file login expect <<<"$case"
+for tc in "${CASES[@]}"; do
+  IFS=":" read -r file login expect <<<"$tc"
   body_file="$TESTDATA/$file"
   if [[ ! -f "$body_file" ]]; then
     echo "FAIL $file: fixture missing at $body_file" >&2
