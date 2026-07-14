@@ -540,7 +540,7 @@ class TestStep2PromptGuards:
         assert "两位序号" not in text
 
     def test_narration_injects_episode_constraints(self):
-        """narration prompt 须告知 episode；step1 已铸定 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
+        """narration prompt 须告知 episode；step1 已分配 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
         text = self._narration_prompt()
         assert "第 2 集" in text
         assert "E2S" in text

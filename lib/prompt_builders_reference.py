@@ -3,7 +3,7 @@
 设计原则与 prompt_builders_script.py 一致：
 - 不重复 schema 已声明的枚举（type 等）；让 response_schema 直接约束。
 - 多选枚举字段不在 prompt 里写"如何选"判据；让模型按画面内容自行决定。
-- 字段说明给指导和 example，不堆"必须 / 禁止"清单。
+- 字段说明给指导和示例，不堆"必须 / 禁止"清单。
 - 跨 backend 时长 / references 上限通过参数显式注入，不在文本里硬编码秒数。
 """
 
@@ -44,7 +44,7 @@ def build_reference_video_prompt(
         supported_durations: 当前视频模型支持的单镜头时长列表（秒）。
         max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
         max_duration: 当前视频模型的单次生成时长上限（秒）。传入时 prompt 会显式
-            引导 LLM 让 unit 总时长贴近该值，避免默认挑最短值；为 None 时不插入该段。
+            引导 LLM 让 unit 总时长贴近该值，避免默认选最短值；为 None 时不插入该段。
     """
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
@@ -58,7 +58,7 @@ def build_reference_video_prompt(
     )
     max_duration_line = (
         f"\n   - unit 内所有 Shot `duration` 之和宜贴近 {max_duration} 秒（当前模型上限），"
-        f"除非内容明显不需要这么长；不要默认挑最短值，也不得超过 {max_duration}。"
+        f"除非内容明显不需要这么长；不要默认选最短值，也不得超过 {max_duration}。"
         if max_duration is not None
         else ""
     )
@@ -117,7 +117,7 @@ a. **unit_id**：保留 step1 中的 `E{episode}U{{序号}}`（当前为第 {epi
 b. **shots**：1-4 个 Shot。
     - `duration`：整数秒（1-15），用于在同一段视频内编排时间段。{max_duration_line}
     - `text`：镜头描述，聚焦此刻可见画面（语言遵循上方"输出语言"约束）。仅用 `@[名称]` 引用角色 / 场景 / 道具——**不要**写外貌、服装、场景细节（这些由参考图提供视觉一致性）。
-        - 好例：「@[角色A] 立于 @[场景A] 前，左手紧握 @[道具A]，目光投向远处」。
+        - 正例：「@[角色A] 立于 @[场景A] 前，左手紧握 @[道具A]，目光投向远处」。
         - 反例：「身穿某色服装的角色A 站在某色场景A 前，手里紧握着某色道具A」（外貌 / 服装 / 颜色应由参考图承担）。
         - 动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
     - 单 unit 内所有 Shot `duration` 之和即该 unit `duration_seconds`。
