@@ -42,6 +42,36 @@ class TestAssertDurationSupported:
         assert exc.value.code == "video_duration_invalid"
 
 
+class TestCollectSheetReferences:
+    def test_max_count_truncates_refs_from_single_item(self, tmp_path):
+        # 单个 item 内的角色数就超过 max_count 时，_group 内层三段循环不会在
+        # item 中途触发外层 break，需要在返回前再做一次显式切片。
+        from server.services.generation_tasks import _collect_sheet_references
+
+        characters = {}
+        char_names = [f"char{i}" for i in range(8)]
+        for name in char_names:
+            sheet_path = tmp_path / f"{name}.png"
+            sheet_path.write_bytes(b"fake-image")
+            characters[name] = {"character_sheet": f"{name}.png"}
+
+        project = {"characters": characters, "scenes": {}, "props": {}}
+        items = [{"characters_in_segment": char_names}]
+
+        refs, seen = _collect_sheet_references(
+            project,
+            tmp_path,
+            items,
+            char_field="characters_in_segment",
+            scene_field="scenes",
+            prop_field="props",
+            max_count=6,
+        )
+
+        assert len(refs) == 6
+        assert len(seen) == 8
+
+
 def _async_return(value):
     """Create an async function that always returns the given value (ignoring args)."""
 
@@ -207,7 +237,15 @@ class TestGenerationTasks:
         assert mode_items[1] == "scene_id"
 
         prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime")
-        assert prompt == "text"
+        assert prompt.startswith("text")
+        # 分镜图与资产图 / 视频路径一致：归一化出口拼接统一图像反向提示词，且幂等
+        assert "画面避免" in prompt
+        assert generation_tasks._normalize_storyboard_prompt(prompt, "Anime") == prompt
+
+        structured = generation_tasks._normalize_storyboard_prompt(
+            {"scene": "林清坐在窗边", "composition": {"shot_type": "Close-up"}}, "Anime"
+        )
+        assert "画面避免" in structured
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")
@@ -274,10 +312,12 @@ class TestGenerationTasks:
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
+        # 资产 sheet 以「资产名 label」显式绑定（供 Gemini 等支持内联标签的后端
+        # 把参考图与 prompt 专名对应）；extra_reference_images 无资产名上下文，保持裸 Path
         assert storyboard_refs == [
-            project_path / "characters" / "Alice.png",
-            project_path / "scenes" / "祠堂.png",
-            project_path / "props" / "玉佩.png",
+            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
+            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
+            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
             project_path / "characters" / "Alice.png",
             {
                 "image": project_path / "storyboards" / "scene_E1S01.png",
@@ -292,9 +332,9 @@ class TestGenerationTasks:
             {"script_file": "episode_1.json", "prompt": "direct prompt"},
         )
         assert fake_generator.image_calls[1]["reference_images"] == [
-            project_path / "characters" / "Alice.png",
-            project_path / "scenes" / "祠堂.png",
-            project_path / "props" / "玉佩.png",
+            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
+            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
+            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
         ]
 
         video_result = await generation_tasks.execute_video_task(
@@ -1278,7 +1318,9 @@ class TestAdProductFidelityStoryboard:
             project_path / "characters" / "Alice.png",
             project_path / "scenes" / "祠堂.png",
         ]
-        assert generator.image_calls[0]["prompt"] == "氛围开场"
+        prompt = generator.image_calls[0]["prompt"]
+        assert prompt.startswith("氛围开场")
+        assert "产品高保真还原" not in prompt
 
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
         """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""

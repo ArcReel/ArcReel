@@ -397,6 +397,10 @@ class TestEnumDriftNormalization:
             ("TILT_UP", "Tilt Up"),
             ("pan_right", "Pan Right"),
             ("tracking shot", "Tracking Shot"),
+            ("PUSH_IN", "Push In"),
+            ("truck-left", "Truck Left"),
+            ("pedestal_down", "Pedestal Down"),
+            ("orbit", "Orbit"),
         ],
     )
     def test_camera_motion_normalizes_case_and_separators(self, drifted: str, expected: str):
@@ -411,7 +415,7 @@ class TestEnumDriftNormalization:
         assert comp.shot_type == "Medium Shot"
         assert drifted in caplog.text
 
-    @pytest.mark.parametrize("drifted", ["dolly_in", "orbit", "crane_up_spiral"])
+    @pytest.mark.parametrize("drifted", ["dolly_in", "crane_up_spiral"])
     def test_out_of_vocab_camera_motion_falls_back_to_default_with_warning(self, caplog, drifted: str):
         with caplog.at_level("WARNING", logger="lib.script_models"):
             vp = VideoPrompt.model_validate(self._video_prompt(drifted))
@@ -457,7 +461,15 @@ class TestEnumDriftNormalization:
             "Tilt Down",
             "Zoom In",
             "Zoom Out",
+            "Push In",
+            "Pull Out",
+            "Truck Left",
+            "Truck Right",
+            "Pedestal Up",
+            "Pedestal Down",
+            "Orbit",
             "Tracking Shot",
+            "Shake",
         ]
 
 

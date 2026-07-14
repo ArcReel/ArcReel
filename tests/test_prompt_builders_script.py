@@ -144,7 +144,7 @@ class TestPromptBuildersScript:
         }
 
     def test_render_drama_content_passes_through_utterances_and_source_text(self):
-        """step1→step2 透传契约：utterances / source_text 逐字渲染进上下文，并标注「不要复制进视觉字段」。"""
+        """step1→step2 透传契约：utterances / source_text 逐字渲染进上下文。"""
         rendered = render_drama_content_for_step2([self._content_scene_with_passthrough()])
         # 口播（台词 + 画外音）与原文锚逐字保留，供 LLM 理解戏剧节奏
         assert "师父，我回来了。" in rendered
@@ -153,8 +153,10 @@ class TestPromptBuildersScript:
         # 出场资产含场景 / 道具
         assert "书房" in rendered
         assert "信纸" in rendered
-        # 口播与原文锚均标注不得搬进视觉字段（后端按 scene_id 透传，step2 只产视觉层）
-        assert rendered.count("不要复制进视觉字段") >= 2
+        # 「不要复制进视觉字段」由 build_drama_prompt 在 <shots> 前一次性声明，场景条目内不逐条重复
+        assert "口播：" in rendered
+        assert "原文锚：" in rendered
+        assert "不要复制进视觉字段" not in rendered
 
     def test_render_drama_content_filters_non_string_assets_and_neutralizes_tags(self):
         """降级 / 手改 step1 的脏数据鲁棒性：非字符串资产项被过滤（不抛 TypeError），逐字内容里的
@@ -208,7 +210,7 @@ class TestPromptBuildersScript:
         # 口播 / 原文锚随内容块透传进 prompt（供理解戏剧节奏）
         assert "师父，我回来了。" in prompt
         assert "林清回到故居，推门而入，信纸还在桌上。" in prompt
-        # 「不要复制进视觉字段」指引随内容块在场，约束 step2 不把口播 / 原文搬进视觉层
+        # 「不要复制进视觉字段」由 prompt 在 <shots> 前一次性声明，约束 step2 不把口播 / 原文搬进视觉层
         assert "不要复制进视觉字段" in prompt
         # 仍是视觉专责输出
         assert "image_prompt" in prompt
@@ -538,8 +540,39 @@ class TestStep2PromptGuards:
         assert "两位序号" not in text
 
     def test_narration_injects_episode_constraints(self):
-        """narration prompt 须告知 episode；step1 已铸定 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
+        """narration prompt 须告知 episode；step1 已分配 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。"""
         text = self._narration_prompt()
         assert "第 2 集" in text
         assert "E2S" in text
         assert "<episode_constraints>" in text
+
+    def test_narration_injects_asset_appearance(self):
+        """step2 资产块携带外观描述并声明取材口径，视觉字段写细节时从登记描述取材、不自行发明。"""
+        text = self._narration_prompt()
+        assert "- 主角：X" in text
+        assert "- 庙宇：Y" in text
+        assert "- 玉佩：Z" in text
+        assert "资产外观以上述描述为准" in text
+
+    def test_drama_injects_asset_appearance_when_provided(self):
+        """drama step2 传入资产 bucket 时渲染外观词典；缺描述的资产退化为纯名字。"""
+        text = build_drama_prompt(
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            style="动漫",
+            style_description="日漫半厚涂",
+            scenes_content="### E2S01（时长 4 秒）\n视觉改编：xxx",
+            episode=2,
+            characters={"主角": {"description": "X"}},
+            scenes={"庙宇": {"description": "Y"}},
+            props={"玉佩": {}},
+        )
+        assert "- 主角：X" in text
+        assert "- 庙宇：Y" in text
+        assert "- 玉佩" in text
+        assert "资产外观以上述描述为准" in text
+
+    def test_drama_omits_asset_block_without_assets(self):
+        """兼容旧调用：不传资产参数时 drama step2 不渲染资产块与取材注记。"""
+        text = self._drama_prompt()
+        assert "<characters>" not in text
+        assert "资产外观以上述描述为准" not in text

@@ -43,7 +43,7 @@ def test_build_reference_video_prompt_contains_required_sections():
     assert "E1U1" in prompt
     # 关键 prompt 指令
     assert "@[名称]" in prompt
-    assert "Shot" in prompt
+    assert "shots" in prompt
     # schema 上下文
     assert "ReferenceVideoScript" in prompt
     assert "references" in prompt
@@ -69,13 +69,13 @@ def test_build_reference_video_prompt_emphasizes_no_appearance_description():
     assert "外貌" in prompt  # 有反向说明
 
 
-def test_build_reference_video_prompt_lists_shot_max_count():
-    """spec §4.2：每 unit 1-4 shot。"""
+def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
+    """shot text 指导按景别 / 构图 / 运镜 / 画面内容四要素组织（对抗生成过短的镜头描述）。"""
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
         style="s",
         style_description="d",
-        characters={},
+        characters={"A": {"description": "d"}},
         scenes={},
         props={},
         units_md="stub",
@@ -83,7 +83,8 @@ def test_build_reference_video_prompt_lists_shot_max_count():
         max_refs=9,
         episode=1,
     )
-    assert "4" in prompt  # shot 数量上限
+    for element in ("景别", "构图", "运镜", "画面内容"):
+        assert element in prompt
 
 
 def test_build_reference_video_prompt_injects_max_duration():
@@ -123,10 +124,9 @@ def test_build_reference_video_prompt_max_duration_none_skips_segment():
 
 
 def test_build_reference_video_prompt_constrains_unit_total_to_supported():
-    """约束的是 unit 总时长（各 shot 之和）∈ supported，而非单个 shot 成员。
+    """unit 总时长（各 shot 之和）∈ supported 的硬约束由动态 schema 枚举承担；
 
-    参考视频发给 API 的是 unit.duration_seconds（各 shot 之和），故 prompt 必须把"必须取支持值"
-    挂到总和上；per-shot duration 只保留 1-15 合理性，不再要求每个 shot 都是 supported 成员。
+    prompt 只保留编排策略：给出支持集合，引导各 shot 时长相加正好落在集合内。
     """
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
@@ -141,9 +141,9 @@ def test_build_reference_video_prompt_constrains_unit_total_to_supported():
         max_duration=12,
         episode=1,
     )
-    # 支持集合出现，且与"之和 / 必须"绑定（约束挂在总和上）
+    # 支持集合出现，且与编排策略绑定（相加落在集合内）
     assert "4/8/12s" in prompt
-    assert "之和" in prompt and "必须" in prompt
+    assert "相加正好落在" in prompt
 
 
 def test_build_reference_video_prompt_injects_episode_constraints():

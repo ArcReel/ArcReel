@@ -38,6 +38,8 @@ ShotType = Literal[
     "Point-of-view",
 ]
 
+# 取值须为供应商官方运镜词表承认的写法（对齐 MiniMax Hailuo [command] 指令表与阿里万相
+# 基础/高级运镜表的运动类条目），下游按原文插值进视频 prompt，不做二次翻译。
 CameraMotion = Literal[
     "Static",
     "Pan Left",
@@ -46,7 +48,15 @@ CameraMotion = Literal[
     "Tilt Down",
     "Zoom In",
     "Zoom Out",
+    "Push In",
+    "Pull Out",
+    "Truck Left",
+    "Truck Right",
+    "Pedestal Up",
+    "Pedestal Down",
+    "Orbit",
     "Tracking Shot",
+    "Shake",
 ]
 
 TransitionType = Literal[
@@ -65,7 +75,7 @@ def _canon_enum_key(value: str) -> str:
 
 # schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/OpenAI 兼容通道丢弃
 # wire 级结构化参数时，模型会把枚举写成大写/小写蛇形（MEDIUM_SHOT / medium_shot）
-# 甚至词表外值（wide_shot / dolly_in / orbit，均为线上实测值）。机械归一（大小写/
+# 甚至词表外值（wide_shot / dolly_in，均为线上实测值）。机械归一（大小写/
 # 分隔符）把风格漂移拉回词表；词表外值不做语义近义映射（语义映射永远穷举不全），
 # 一律降级为中性默认值并 warn——这两个字段下游只作生成 prompt 的文本插值，
 # 单镜头词汇漂移不值得让整集剧本生成失败。
@@ -116,8 +126,8 @@ class Composition(BaseModel):
     model_config = _STRICT_CONFIG
 
     shot_type: Annotated[ShotType, BeforeValidator(_normalize_shot_type)] = Field(description="镜头类型")
-    lighting: str = Field(description="光线描述：光源、方向、色温；避免抽象词")
-    ambiance: str = Field(description="整体氛围：可观察的环境效果；避免抽象情绪词")
+    lighting: str = Field(description="光线描述")
+    ambiance: str = Field(description="整体氛围")
 
 
 class ImagePrompt(BaseModel):
@@ -125,7 +135,7 @@ class ImagePrompt(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    scene: str = Field(description="画面静态描述：角色姿态、环境元素、光影氛围（动作请写到 video_prompt.action）")
+    scene: str = Field(description="画面静态描述；动态内容由 video_prompt.action 承载")
     composition: Composition = Field(description="构图信息")
 
 
@@ -134,9 +144,9 @@ class _VideoPromptCore(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    action: str = Field(description="动作描述：仅描述物理可观察动作，避免内心动词（如 陷入/回忆/意识到）")
+    action: str = Field(description="该镜头时长内的动作描述；镜头运动由 camera_motion 承载")
     camera_motion: Annotated[CameraMotion, BeforeValidator(_normalize_camera_motion)] = Field(description="镜头运动")
-    ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
+    ambiance_audio: str = Field(description="环境音效（画内音）")
 
 
 class VideoPrompt(_VideoPromptCore):

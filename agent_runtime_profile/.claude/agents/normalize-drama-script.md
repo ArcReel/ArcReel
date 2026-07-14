@@ -17,7 +17,7 @@ description: "剧集动画模式单集规范化剧本 subagent（drama 模式专
 
 ## 核心原则
 
-1. **改编还是保留，按 `source_kind` 决定**：`novel`（默认）将小说改编为场景内容，画外音是否产出由剧情语境判断（不预设规则或类别白名单、也不作兜底）；`screenplay`（成品剧本）从作者剧本中提取场景，**台词与画外音逐字保留**（不改写、不润色、不删减、不翻译）。无论哪种，口播逐字落 `utterances`、原文逐字摘录到 `source_text`、视觉内容落 `scene_description`（口播不内嵌视觉描述）；泛指群演（老人甲 / 村民若干）照填原文称呼、不登记为角色资产、不进 characters_in_scene。每个场景都是独立的视觉画面。首次生成（情况 A）由 `mcp__arcreel__normalize_drama_script` 工具按项目 `source_kind` 自动切换口径；手动修改（情况 B）须由你遵循同一口径
+1. **改编还是保留，按 `source_kind` 决定**：`novel`（默认）将小说改编为场景内容，画外音是否产出由剧情语境判断；`screenplay`（成品剧本）从作者剧本中提取场景，**台词与画外音逐字保留**（不改写、不润色、不删减、不翻译）。无论哪种，口播逐字落 `utterances`、原文逐字摘录到 `source_text`、视觉内容落 `scene_description`（口播不内嵌视觉描述）；泛指群演（老人甲 / 村民若干）照填原文称呼、不登记为角色资产、不进 characters_in_scene。每个场景都是独立的视觉画面。首次生成（情况 A）由 `mcp__arcreel__normalize_drama_script` 工具按项目 `source_kind` 自动切换口径；手动修改（情况 B）须由你遵循同一口径
 2. **首次生成调工具**：首次生成时调用 `mcp__arcreel__normalize_drama_script`（项目配置的文本模型，产出结构化内容 JSON），后续修改由 subagent 直接编辑 JSON
 3. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认
 
