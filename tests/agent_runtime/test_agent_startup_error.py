@@ -53,10 +53,8 @@ def session_manager(tmp_path: Path) -> SessionManager:
     proj_dir.mkdir()
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
     meta_store = SessionMetaStore()
-    return SessionManager(project_root, data_dir, meta_store)
+    return SessionManager(project_root, meta_store)
 
 
 @pytest.mark.asyncio

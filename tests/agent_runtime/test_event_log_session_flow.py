@@ -48,7 +48,6 @@ async def db_factory(tmp_path):
 async def manager(tmp_path, db_factory):
     return SessionManager(
         project_root=tmp_path,
-        data_dir=tmp_path / "data",
         meta_store=SessionMetaStore(session_factory=db_factory),
         event_log_store=EventLogStore(session_factory=db_factory),
     )
