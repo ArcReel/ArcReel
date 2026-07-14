@@ -426,9 +426,12 @@ def _collect_sheet_references(
     seen: set[str] = set()
     refs: list[dict] = []
 
-    characters = project.get("characters", {})
-    project_scenes = project.get("scenes", {})
-    project_props = project.get("props", {})
+    characters = project.get("characters")
+    characters = characters if isinstance(characters, dict) else {}
+    project_scenes = project.get("scenes")
+    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
+    project_props = project.get("props")
+    project_props = project_props if isinstance(project_props, dict) else {}
 
     for item in items:
         for char_name in item.get(char_field, []):
@@ -1420,9 +1423,12 @@ def _collect_grid_reference_images(
     scene_id_set = set(scene_ids)
     matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
 
-    characters = project.get("characters", {})
-    project_scenes = project.get("scenes", {})
-    project_props = project.get("props", {})
+    characters = project.get("characters")
+    characters = characters if isinstance(characters, dict) else {}
+    project_scenes = project.get("scenes")
+    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
+    project_props = project.get("props")
+    project_props = project_props if isinstance(project_props, dict) else {}
 
     seen: set[str] = set()
     paths: list[Path] = []
