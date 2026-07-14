@@ -3,6 +3,7 @@ import type { ProjectChange } from "@/types";
 import {
   formatGroupedDeferredText,
   formatGroupedNotificationText,
+  GENERATION_ACTIONS,
   groupChangesByType,
 } from "./project-changes";
 
@@ -19,6 +20,10 @@ function makeChange(overrides: Partial<ProjectChange> = {}): ProjectChange {
 }
 
 describe("project-changes utils", () => {
+  it("includes grid_ready in GENERATION_ACTIONS so grid completion refreshes cost", () => {
+    expect(GENERATION_ACTIONS.has("grid_ready")).toBe(true);
+  });
+
   it("groups changes by entity_type and action", () => {
     const groups = groupChangesByType([
       makeChange({ entity_id: "张三", label: "角色「张三」" }),

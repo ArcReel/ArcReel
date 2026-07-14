@@ -272,6 +272,13 @@ describe("useProjectEventsSSE", () => {
 
   it.each([
     {
+      action: "grid_ready" as const,
+      entityType: "grid" as const,
+      entityId: "G01",
+      label: "宫格「G01」",
+      expectedText: "宫格「G01」已生成",
+    },
+    {
       action: "reference_video_ready" as const,
       entityType: "reference_unit" as const,
       entityId: "U01",
