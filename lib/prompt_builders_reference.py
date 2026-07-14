@@ -44,7 +44,8 @@ def build_reference_video_prompt(
         supported_durations: 当前视频模型支持的单镜头时长列表（秒）。
         max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
         max_duration: 当前视频模型的单次生成时长上限（秒）。传入时 prompt 会显式
-            给出时长目标（贴近 step1 预估、不默认选最短值）与上限；为 None 时不插入该段。
+            给出时长目标（贴近 step1 预估、不默认选最短值）；上限本身由动态 schema 的
+            duration 枚举硬约束，prompt 不复述。为 None 时不插入该段。
     """
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
@@ -56,10 +57,9 @@ def build_reference_video_prompt(
         if max_refs is not None
         else ""
     )
-    max_duration_line = (
-        f"\n   - unit 内所有 Shot `duration` 之和应贴近 step1 预估时长；预估缺失或超过 "
-        f"{max_duration} 秒（当前模型上限）时，以 {max_duration} 秒为目标。"
-        f"不要默认选最短值，也不得超过 {max_duration}。"
+    duration_guide_line = (
+        f"\n    - `duration`：unit 内所有 Shot `duration` 之和应贴近 step1 预估时长；预估缺失或超过 "
+        f"{max_duration} 秒（当前模型上限）时，以 {max_duration} 秒为目标。不要默认选最短值。"
         if max_duration is not None
         else ""
     )
@@ -105,7 +105,7 @@ def build_reference_video_prompt(
 </step1_units>
 
 <episode_constraints>
-当前正在生成第 {episode} 集。本集所有 unit_id 必须严格使用 `E{episode}U{{两位序号}}` 格式（如 E{episode}U01、E{episode}U02），不得使用其他集号前缀。
+当前正在生成第 {episode} 集。本集所有 unit_id 沿用 step1_units 表中的编号，必须严格使用 `E{episode}U{{两位序号}}` 格式（如 E{episode}U01、E{episode}U02），不得使用其他集号前缀。
 若 step1_units 表里出现非 `E{episode}` 前缀（如残留自其他集号的编号），视为脏数据，请按当前集号 `E{episode}` 重写。
 </episode_constraints>
 
@@ -113,36 +113,19 @@ def build_reference_video_prompt(
 
 对每个 video_unit，按下列要求填写字段：
 
-a. **unit_id**：保留 step1 中的 `E{episode}U{{序号}}`（当前为第 {episode} 集），不要改格式。
-
-b. **shots**：1-4 个 Shot。
-    - `duration`：整数秒（1-15），用于在同一段视频内编排时间段。{max_duration_line}
+a. **shots**：{duration_guide_line}
     - `text`：镜头描述，聚焦此刻可见画面（语言遵循上方"输出语言"约束）。仅用 `@[名称]` 引用角色 / 场景 / 道具——**不要**写外貌、服装、场景细节（这些由参考图提供视觉一致性）。
         - 正例：「@[角色A] 立于 @[场景A] 前，左手紧握 @[道具A]，目光投向远处」。
         - 反例：「身穿某色服装的角色A 站在某色场景A 前，手里紧握着某色道具A」（外貌 / 服装 / 颜色应由参考图承担）。
         - 动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
-    - 单 unit 内所有 Shot `duration` 之和即该 unit `duration_seconds`。
 
-c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
+b. **references**：每个 shot `text` 中出现的 `@[名称]` 都要在 references 注册一次。
     - `name` 必须来自候选：
         - character: {", ".join(character_names) or "（暂无）"}
         - scene: {", ".join(scene_names) or "（暂无）"}
-        - prop: {", ".join(prop_names) or "（暂无）"}
-    - 每个 shot `text` 中出现的 `@[名称]` 都要在 references 注册一次。{max_refs_line}
+        - prop: {", ".join(prop_names) or "（暂无）"}{max_refs_line}
 
-d. **duration_seconds**：所有 shot `duration` 之和，且**必须**等于当前模型支持列表中的某个值：{durations_desc}。请据此编排各 shot 时长，使其相加正好落在该集合内。
-
-# 顶层字段
-
-- `title` 必填。
-- `episode` / `content_mode` / `generation_mode` / `novel` / `duration_seconds` 由 caller 注入或派生，不需 LLM 填。
-
-# 复核
-
-- 每 unit 最多 4 个 shot；shot 时长之和贴近 step1 预估。
-- `@[名称]` 只能引用 characters / scenes / props 三表中已注册的名字。
-- 不要在 shot `text` 中描写外貌、服装、场景细节。
-- 不要发明新资产。
+c. **duration_seconds**：请编排各 shot 时长，使其相加正好落在支持集合（{durations_desc}）内。
 
 请按 step1_units 顺序逐 unit 产出。
 """
