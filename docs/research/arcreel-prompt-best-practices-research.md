@@ -91,7 +91,7 @@
 - 火山 Seedance 2.0：专设"约束词"小节，示例含"保持无字幕/避免生成任何文字或字幕/不要生成Logo/不要生成水印"，甚至"视频全程禁止出现…同款分身、双胞胎效果"；同时坦承"无法 100% 避免，只能降低概率"（https://www.volcengine.com/docs/82379/2222480?lang=zh ）。
 - OpenAI 图像（GPT-image）：官方**鼓励**显式写排除项/不变量，`State exclusions and invariants explicitly (e.g., 'no watermark,' 'no extra text,' 'no logos')`，编辑用"change only X + keep everything else the same"（https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide ）。
 
-**共同的隐含底线：否定式（无论哪种通道）都不是万能，且几家明确"约束非 100% 可控"（火山明说；Vidu/Google 以"改写为正向"规避）。** xAI 则对否定式完全无官方口径（接口无 negative 通道、也无相关指导文字）。
+**共同的隐含底线：否定式（无论哪种通道）都不是万能，且几家明确"约束非 100% 可控"（火山明说；Vidu/Google 图像侧以"改写为正向"规避，Google 视频侧使用描述式 negativePrompt）。** xAI 则对否定式完全无官方口径（接口无 negative 通道、也无相关指导文字）。
 
 > **对 ArcReel 三个冻结决策的直接关联（仅提供事实依据，不给改稿）**：
 > - 「不要混入过去/未来事件」类禁令句——官方证据两极：图像侧（Google/Vidu/MiniMax/Sora）主流是"改写为正向描述、少用否定词"；但火山与 OpenAI 图像又明确"可把排除项写进正文"。没有任何一家把"叙事时序/记忆闪回"作为可 prompt 控制项，这类问题本质是"单帧静态图无法渲染时序"，与 negative 通道无关。
@@ -115,6 +115,7 @@
 ## 二、逐家摘录（官方来源 + 关键结论）
 
 ### 1. Google（Gemini 3 Pro/3.1 Flash Image；Veo 3.1）
+
 官方来源：
 - 图像 prompting：https://ai.google.dev/gemini-api/docs/image-generation
 - 图像 best practices：https://cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/gemini-image-generation-best-practices
@@ -127,6 +128,7 @@
 查不到：图像字数/长度量化建议；Gemini 3 新图像线与 Veo 的中英文优劣明文；时长-动作量量化对照。
 
 ### 2. 火山方舟 / 豆包（Seedream 4.0/4.5/5.0；Seedance 1.5 Pro/2.0）
+
 官方来源：
 - Seedream 图像 prompt 指南：https://www.volcengine.com/docs/82379/1829186?lang=zh
 - Seedance 1.5 Pro 提示词指南：https://www.volcengine.com/docs/82379/2168087?lang=zh
@@ -139,6 +141,7 @@
 备注：火山文档站为 JS 渲染，正文经浏览器渲染后读取。
 
 ### 3. xAI（Grok Imagine Image/Video）
+
 官方来源（均已核对，确认无 prompt 指南）：
 - Imagine 总览：https://docs.x.ai/developers/model-capabilities/imagine
 - 图像生成：https://docs.x.ai/developers/model-capabilities/images/generation
@@ -149,6 +152,7 @@
 **结论：xAI 未发布任何专门 prompt 编写指南**，docs.x.ai 全为 API 参考。可用的官方信号仅：i2v 一句 `Give it a starting image, describe the motion…` + 官方英文叙述句示例（动作/运镜/氛围导向）；参数硬约束（duration 1–15s、宽高比、分辨率）。**否定式：接口无 negative 通道、官方无任何相关指导文字。语言：官方零建议（示例均英文）。** 网传结构公式/negative 用法均来自第三方镜像，未采信。
 
 ### 4. OpenAI（GPT-image-2；Sora 2 / 2 Pro）
+
 官方来源：
 - GPT Image prompting 指南：https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide
 - 图像 API 指南：https://developers.openai.com/api/docs/guides/image-generation
@@ -160,6 +164,7 @@
 要点：图像=固定顺序`场景→主体→细节→约束`+写明用途；极简/叙述/JSON/标签式皆可；"长 prompt 可行"但生产环境优先清晰模板+小步迭代。i2v=图作首帧锚点、prompt 定义"之后发生什么"（`input_reference` 传图）；动作要简单+给秒级节拍；**短 prompt=更多创意自由、长 prompt=更强控制**；时长是"容器"参数不能靠 prose 改，最长 20s。否定式：**图像官方鼓励显式写 no watermark/no logos 等排除项**；Sora 靠正向描述、无 negative 参数。语言：仅 Help Center 通用"英文优化+多语言"，无 GPT-image/Sora 专门中英文结论。
 
 ### 5. 生数科技 Vidu（Q1/Q2 图像；Q3 turbo/pro、2.0 视频）
+
 官方来源：
 - 图生视频 API：https://platform.vidu.com/docs/image-to-video
 - 参考生图 API：https://platform.vidu.com/docs/reference-to-image
@@ -172,6 +177,7 @@
 未验证旁注：中文流传《Vidu Q3 官方提示词指南（结构公式+50–150 字+音效句尾）》仅见 CSDN/gitcode 镜像，未定位官方原始 URL，不作结论。
 
 ### 6. 阿里 DashScope / 百炼（Qwen-image 2.0；万相 wan2.7；HappyHorse 1.0）
+
 官方来源：
 - 文生图 prompt 指南：https://help.aliyun.com/zh/model-studio/text-to-image-prompt
 - 文/图生视频 prompt 指南（含 i2v 公式）：https://help.aliyun.com/zh/model-studio/text-to-video-prompt
@@ -184,6 +190,7 @@
 要点：图像基础`主体+场景+风格`/进阶`+镜头语言+氛围+细节`+五维词典；"越完整精确丰富品质越高"；qwen-image-2.0-pro 走超长结构化详述。i2v 公式=`运动+运镜`（"图像已确定主体/场景/风格"），不变化写"固定镜头"，wan2.7 取消 shot_type 改自然语言，`duration` 2–15s、宽高比跟随首帧。否定式=**分模型**：qwen-image/wan2.7 视频支持 `negative_prompt`（辅助优化）；wan2.7-image-pro/image 不支持、要求正文写"不要出现 xxx"；HappyHorse 无 negative。语言：图/视频 prompt "支持中英文"、给中英双写对照、HappyHorse "支持任何语言"，但**未见"中文优化/更佳"官方原话**。
 
 ### 7. MiniMax（image-01；Hailuo 2.3/Fast；S2V-01）
+
 官方来源：
 - 图像生成指南：https://platform.minimax.io/docs/guides/image-generation
 - 图像 t2i API：https://platform.minimax.io/docs/api-reference/image-generation-t2i
@@ -195,6 +202,7 @@
 要点：图像=分层堆叠描述性要素（主体+景别+环境+风格+介质+写实度），image-01 上限 1500 字符、`prompt_optimizer` 图像端默认 false。i2v 基础`首帧主体+运动/变化`、精确`+运镜+美学氛围`；**官方 15 种 `[command]` 方括号运镜指令**适用 Hailuo 2.3，同 [] 内≤3 个；单次运镜控制 5–6s；i2v 上限 2000 字符、`prompt_optimizer` 视频端默认 true。否定式=**无 negative 通道、正向叠加描述**（唯一"禁止"是敏感内容 1026 拦截）。语言：中英双站，无优劣声明。
 
 ### 8. 快手可灵 Kling（Image O1、v3 Omni Image；Video v2.5T/v2.6/v3/v3 Omni/O1）
+
 官方来源：
 - 官方视频提示词指南：https://kling.ai/blog/kling-ai-prompt-guide
 - Image 3.0 用户指南（Prompt Handbook）：https://kling.ai/quickstart/klingai-image-3-model-user-guide
