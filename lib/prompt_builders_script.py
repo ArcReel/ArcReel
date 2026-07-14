@@ -174,11 +174,11 @@ _NORMALIZE_SCENE_RULE_NOVEL = (
     "改编后的视觉化描述：角色动作、神态、环境、光影氛围，适合画面呈现。"
     "以本场景当下的单一时空落笔——原文的回忆、闪回、心理活动，改编为此刻可见的载体"
     "（人物神态、手中物件、环境痕迹）；这段描述是后续单帧分镜画面的内容来源。"
-    "**台词 / 画外音不要写进这里**——口播统一落在 utterances，本字段只承载视觉内容。"
+    "**台词 / 画外音不要写进这里**——口播统一落在 utterances。"
 )
 _NORMALIZE_SCENE_RULE_SCREENPLAY = (
     "把作者写下的运镜、景别、舞台提示、视觉场景转写为画面视觉描述。"
-    "**台词 / 画外音不要写进这里**——逐字落在 utterances，本字段只承载视觉内容；"
+    "**台词 / 画外音不要写进这里**——逐字落在 utterances；"
     "排版符号（markdown、△、各类标签、表格、emoji）一律剥离，只留干净文本。"
 )
 
@@ -197,10 +197,7 @@ _NORMALIZE_UTTERANCES_SCREENPLAY = (
 )
 
 # step1 source_text（逐字原文锚）填写规则——两源共用
-_NORMALIZE_SOURCE_TEXT_GUIDE = (
-    "逐字摘录本场景对应的原文片段（追溯锚：用于对照原文、定位失真、为单场景重生成提供依据；"
-    "不被朗读、不出音）。尽量与原文一致、宁缺毋造（best-effort，无把握可留空）。"
-)
+_NORMALIZE_SOURCE_TEXT_GUIDE = "逐字摘录本场景对应的原文片段，尽量与原文一致、宁缺毋造（无把握可留空）。"
 
 # step1 segment_break 规则。novel 分支无增量判断标准（「是否为场景切换点」由 schema
 # description 表达），不再单列；screenplay 分支保留「沿用作者场次、不重新切碎」的实质指导。
@@ -583,13 +580,12 @@ def build_normalize_prompt(
     max_dur = normalized_durations[-1]
     if default_duration is not None:
         base_duration_rule = (
-            f"只能取 {durations_str} 中的值（该视频模型支持的秒数集合）；默认 {default_duration} 秒，"
-            f"打斗 / 大场面 / 情绪铺陈等画面可取更长值至上限 {max_dur} 秒，不要默认选最短值"
+            f"从支持的秒数档位（{durations_str}）中按画面内容选择：默认 {default_duration} 秒，"
+            f"打斗 / 大场面 / 情绪铺陈等画面可取更长档至 {max_dur} 秒，不要默认选最短档"
         )
     else:
         base_duration_rule = (
-            f"只能取 {durations_str} 中的值（该视频模型支持的秒数集合）；"
-            f"按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
+            f"从支持的秒数档位（{durations_str}）中按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
         )
     # 台词口播时长单向下界软指引：模型为某场选 duration 时，不应选到装不下该场 utterances 口播的短档。
     # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源按 source_language 注入、不写死，与保存期上界
@@ -601,7 +597,7 @@ def build_normalize_prompt(
     unit_label = reading_unit_noun(source_language)
     duration_lower_bound_rule = (
         "再按台词口播长度设下界：先估算该场 utterances（台词 + 画外音）念完约需的秒数"
-        f"（口播语速约 {speech_rate:g} {unit_label}/秒），在上述可选值里取**不低于**这个秒数的最接近档位；"
+        f"（口播语速约 {speech_rate:g} {unit_label}/秒），在上述档位里取**不低于**这个秒数的最接近档位；"
         "这是单向下界——画面 / 情绪留白可在此之上取更长档位，但台词永不把时长压到念不完的短档，"
         "utterances 为空（纯画面、无口播）的场景没有此下界、按画面自行取值；"
         f"若口播估算已超过最长 {max_dur} 秒，取最长档即可（不删减台词、不强行压进短档），保存时会另有提示"
@@ -654,7 +650,7 @@ def build_normalize_prompt(
 
 - **scene_id**：`E{episode}S{{两位序号}}` 格式（如 E{episode}S01），按分镜顺序递增，不得用其他集号前缀。
 - **duration_seconds**：{duration_rule}。{break_rule}
-- **characters_in_scene** / **scenes** / **props**：仅列出此分镜实际出现的资产。
+- **characters_in_scene** / **scenes** / **props**：从下列候选中列出此分镜实际出现的资产。
   - 候选 characters：[{", ".join(character_names) or "（暂无）"}]
   - 候选 scenes：[{", ".join(scene_names) or "（暂无）"}]
   - 候选 props：[{", ".join(prop_names) or "（暂无）"}]
