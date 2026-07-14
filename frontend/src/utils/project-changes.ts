@@ -64,6 +64,9 @@ function getEntityLabel(group: GroupedProjectChange): string {
   if (group.action === "grid_ready") {
     return "宫格";
   }
+  if (group.action === "tts_ready") {
+    return "旁白";
+  }
   return ENTITY_LABELS[group.entityType] ?? "内容";
 }
 
@@ -95,7 +98,11 @@ function formatSingleNotificationText(change: ProjectChange): string {
   if (change.action === "video_ready") {
     return `${change.label}的视频已生成`;
   }
-  if (change.action === "grid_ready") {
+  if (
+    change.action === "grid_ready" ||
+    change.action === "reference_video_ready" ||
+    change.action === "tts_ready"
+  ) {
     return `${change.label}已生成`;
   }
   if (change.action === "created") {
@@ -114,7 +121,11 @@ function formatSingleDeferredText(change: ProjectChange): string {
   if (change.action === "video_ready") {
     return `AI 刚生成了 ${change.label} 的视频，点击查看`;
   }
-  if (change.action === "grid_ready") {
+  if (
+    change.action === "grid_ready" ||
+    change.action === "reference_video_ready" ||
+    change.action === "tts_ready"
+  ) {
     return `${change.label} 已生成`;
   }
   if (change.action === "created") {
@@ -137,7 +148,13 @@ export function formatGroupedNotificationText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (group.action === "storyboard_ready" || group.action === "video_ready" || group.action === "grid_ready") {
+  if (
+    group.action === "storyboard_ready" ||
+    group.action === "video_ready" ||
+    group.action === "grid_ready" ||
+    group.action === "reference_video_ready" ||
+    group.action === "tts_ready"
+  ) {
     return `已生成 ${count} 个${entityLabel}：${summary}`;
   }
   if (group.action === "created") {
@@ -160,7 +177,13 @@ export function formatGroupedDeferredText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (group.action === "storyboard_ready" || group.action === "video_ready" || group.action === "grid_ready") {
+  if (
+    group.action === "storyboard_ready" ||
+    group.action === "video_ready" ||
+    group.action === "grid_ready" ||
+    group.action === "reference_video_ready" ||
+    group.action === "tts_ready"
+  ) {
     return `AI 刚生成了 ${count} 个${entityLabel}：${summary}，点击查看`;
   }
   if (group.action === "created") {

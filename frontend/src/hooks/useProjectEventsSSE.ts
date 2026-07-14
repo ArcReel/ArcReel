@@ -37,17 +37,29 @@ const CHANGE_PRIORITY: Record<string, number> = {
   storyboard_ready: 7,
   video_ready: 8,
   grid_ready: 9,
+  reference_video_ready: 10,
+  tts_ready: 11,
 };
 
+// 完成事件（action 本身即通知类别，与 entity_type 无关）——优先级查表、导航行为均不按
+// entity_type 拆分，四类骨架/任务共用同一套判定。
+const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
+  "storyboard_ready",
+  "video_ready",
+  "grid_ready",
+  "reference_video_ready",
+  "tts_ready",
+]);
+
 function getChangePriority(change: ProjectChange): number {
-  if (change.action === "storyboard_ready" || change.action === "video_ready" || change.action === "grid_ready") {
+  if (COMPLETION_ACTIONS.has(change.action)) {
     return CHANGE_PRIORITY[change.action] ?? Number.MAX_SAFE_INTEGER;
   }
   return CHANGE_PRIORITY[`${change.entity_type}:${change.action}`] ?? Number.MAX_SAFE_INTEGER;
 }
 
 function isNavigableChange(change: ProjectChange): boolean {
-  if (change.action === "storyboard_ready" || change.action === "video_ready" || change.action === "grid_ready") {
+  if (COMPLETION_ACTIONS.has(change.action)) {
     return false;
   }
   return Boolean(change.focus?.anchor_type && change.focus?.anchor_id);
@@ -316,7 +328,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
           // Refresh cost data when generation completes
           const hasGenerationEvent = payload.changes.some(
-            (c) => c.action === "storyboard_ready" || c.action === "video_ready",
+            (c) =>
+              c.action === "storyboard_ready" ||
+              c.action === "video_ready" ||
+              c.action === "reference_video_ready" ||
+              c.action === "tts_ready",
           );
           if (hasGenerationEvent && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
