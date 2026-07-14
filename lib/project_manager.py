@@ -2258,8 +2258,10 @@ class ProjectManager:
 
         # 调用 TextGenerator（Structured Outputs）。source_kind=screenplay 时翻为「提取优先」：
         # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。
-        source_kind = resolve_source_kind(self.load_project(project_name))
-        prompt = build_overview_prompt(source_content, source_kind=source_kind)
+        project_data = self.load_project(project_name)
+        source_kind = resolve_source_kind(project_data)
+        target_language = project_data.get("source_language") or "中文"
+        prompt = build_overview_prompt(source_content, source_kind=source_kind, target_language=target_language)
 
         result = await generator.generate(
             TextGenerationRequest(

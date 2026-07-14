@@ -135,7 +135,7 @@ _SCENE_WRITING_GUIDE = """这段文字将直接生成一张静态图：只描述
    反例（过短）：「林清坐在窗边发呆。」——缺少环境元素、光线方向、氛围细节，至少应覆盖主体 / 环境 / 光线 / 氛围中三层。"""
 
 # video_prompt.action 写作指导：i2v 契约（首帧已定、只写运动）+ 分层要素 + 正反例。
-_ACTION_WRITING_GUIDE = """分镜图已定格主体、场景与风格，这段文字驱动它动起来：只描述该时长内发生的运动与变化，不复述画面中的静态内容；镜头运动专由 camera_motion 字段承载，action 只写主体与环境的运动。按主体动作（肢体 / 手势 / 表情过渡）、物件互动（摩挲信纸、推门带起的气流等）、环境动态（衣摆、尘埃、雨势、光影移动）分层写成连贯叙述句；动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免内心动词。优先低缓、连贯的细微动作，动作量与该镜头时长匹配：5 秒级镜头通常完成一个连贯动作 + 一个细节互动；8 秒级可承载一次动作过渡（如「抬头—对视—开口」）；更长的镜头保持单一低缓的动作主线，随时长递增动作段数（如「起身—走到窗前—驻足」），而非叠加多条并行动作。
+_ACTION_WRITING_GUIDE = """首帧画面已定格主体、场景与风格，这段文字驱动它动起来：只描述该时长内发生的运动与变化，不复述画面中的静态内容；镜头运动专由 camera_motion 字段承载，action 只写主体与环境的运动。按主体动作（肢体 / 手势 / 表情过渡）、物件互动（摩挲信纸、推门带起的气流等）、环境动态（衣摆、尘埃、雨势、光影移动）分层写成连贯叙述句；动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免内心动词。优先低缓、连贯的细微动作，动作量与该镜头时长匹配：5 秒级镜头通常完成一个连贯动作 + 一个细节互动；8 秒级可承载一次动作过渡（如「抬头—对视—开口」）；更长的镜头保持单一低缓的动作主线，随时长递增动作段数（如「起身—走到窗前—驻足」），而非叠加多条并行动作。
    正例：「林清缓缓抬起头，眼角微微收紧，手指无意识地摩挲信纸边缘；窗外雨势渐大，桌面投下的雨痕影子在缓慢移动。」——主体动作、物件互动、环境动态各有一笔。
    反例：「林清像蝴蝶般飞舞，思绪在过去与现在之间快速切换。」——「思绪切换」不是可拍摄的运动；「像蝴蝶般」是修辞，不是动作描述。"""
 
@@ -560,16 +560,17 @@ def build_normalize_prompt(
     # novel 的台词 text 仍按目标语言改编。
     if is_screenplay:
         language_rule = (
-            "除资产引用字段（`characters_in_scene[]` / `scenes[]` / `props[]`，须逐字等于 project.json 登记名）"
-            "与逐字字段（`utterances[].text` / `utterances[].speaker` / `source_text`）外，"
-            f"其余自然语言字符串值必须使用 {target_language}；上述豁免字段逐字保留原文、不翻译、不改写"
-            "（speaker 沿用 characters_in_scene 中登记的角色名原文，群演沿用原文称呼）。JSON 键名 / 枚举值保持英文。"
+            f"自然语言字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。"
+            "例外（逐字保留原文、不翻译、不改写）：资产引用字段（`characters_in_scene[]` / `scenes[]` / `props[]`，"
+            "须逐字等于 project.json 登记名）与逐字字段（`utterances[].text` / `utterances[].speaker` / `source_text`）；"
+            "speaker 沿用 characters_in_scene 中登记的角色名原文，群演沿用原文称呼。"
         )
     else:
         language_rule = (
-            "除资产引用字段（`characters_in_scene[]` / `scenes[]` / `props[]`，须逐字等于 project.json 登记名）、"
-            "说话人引用 `utterances[].speaker`（须等于 characters_in_scene 中登记的角色名、不翻译）"
-            f"与逐字原文锚 `source_text` 外，其余自然语言字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。"
+            f"自然语言字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。"
+            "例外（逐字保留、不翻译）：资产引用字段（`characters_in_scene[]` / `scenes[]` / `props[]`，"
+            "须逐字等于 project.json 登记名）、说话人引用 `utterances[].speaker`"
+            "（须等于 characters_in_scene 中登记的角色名）与逐字原文锚 `source_text`。"
         )
 
     # 规范化 + 校验：空集合或 default 不在集合内都会产出自相矛盾的提示词，
@@ -657,9 +658,9 @@ def build_normalize_prompt(
 - **duration_seconds**：{duration_rule}。
 {break_rule}
 - **characters_in_scene** / **scenes** / **props**：仅列出此分镜实际出现的资产。
-  - 候选 characters：[{", ".join(character_names) or "（无）"}]
-  - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
-  - 候选 props：[{", ".join(prop_names) or "（无）"}]
+  - 候选 characters：[{", ".join(character_names) or "（暂无）"}]
+  - 候选 scenes：[{", ".join(scene_names) or "（暂无）"}]
+  - 候选 props：[{", ".join(prop_names) or "（暂无）"}]
   - 不要发明候选之外的名称；泛指群演（如「老人甲」「村民若干」）不登记为角色资产、不进 characters_in_scene。
 - **scene_description**：{scene_rule}
 
@@ -690,12 +691,15 @@ _OVERVIEW_TASK_SCREENPLAY = (
 )
 
 
-def build_overview_prompt(source_content: str, source_kind: str = "novel") -> str:
+def build_overview_prompt(source_content: str, source_kind: str = "novel", target_language: str = "中文") -> str:
     """构建项目概述（overview）生成 prompt。
 
     ``source_kind="screenplay"`` 时翻为「提取优先」：作者若在剧本内写下创作方案前言
     （题材 / 主题 / 一句话故事 / 世界观，形态不限、无固定标记），优先照用其设定填充
     overview 字段，缺失才退回从正文归纳。``"novel"``（默认，含非法值）维持从正文归纳的原行为。
+
+    overview 产出的字段会注入后续所有生成 prompt，输出语言须与其余 builder 同口径
+    （target_language 由调用方按 project.json 的 source_language 解析）。
     """
     task = _OVERVIEW_TASK_SCREENPLAY if source_kind == "screenplay" else _OVERVIEW_TASK_NOVEL
-    return f"{task}\n\n{source_content}"
+    return f"{task}\n\n**输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。\n\n{source_content}"

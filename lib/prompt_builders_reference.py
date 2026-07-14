@@ -12,7 +12,7 @@ from __future__ import annotations
 
 def _format_asset_names(assets: dict | None) -> str:
     if not assets:
-        return "（无）"
+        return "（暂无）"
     return "\n".join(
         f"- {name}: {meta.get('description', '') if isinstance(meta, dict) else ''}" for name, meta in assets.items()
     )
@@ -44,7 +44,7 @@ def build_reference_video_prompt(
         supported_durations: 当前视频模型支持的单镜头时长列表（秒）。
         max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
         max_duration: 当前视频模型的单次生成时长上限（秒）。传入时 prompt 会显式
-            引导 LLM 让 unit 总时长贴近该值，避免默认选最短值；为 None 时不插入该段。
+            给出时长目标（贴近 step1 预估、不默认选最短值）与上限；为 None 时不插入该段。
     """
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
@@ -57,8 +57,9 @@ def build_reference_video_prompt(
         else ""
     )
     max_duration_line = (
-        f"\n   - unit 内所有 Shot `duration` 之和宜贴近 {max_duration} 秒（当前模型上限），"
-        f"除非内容明显不需要这么长；不要默认选最短值，也不得超过 {max_duration}。"
+        f"\n   - unit 内所有 Shot `duration` 之和应贴近 step1 预估时长；预估缺失或超过 "
+        f"{max_duration} 秒（当前模型上限）时，以 {max_duration} 秒为目标。"
+        f"不要默认选最短值，也不得超过 {max_duration}。"
         if max_duration is not None
         else ""
     )
@@ -69,7 +70,7 @@ def build_reference_video_prompt(
 你的任务：基于下方 step1_units 表，按 schema 产出 ReferenceVideoScript。
 
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
-**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段**。
+**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 # 上下文
 
@@ -105,7 +106,7 @@ def build_reference_video_prompt(
 
 <episode_constraints>
 当前正在生成第 {episode} 集。本集所有 unit_id 必须严格使用 `E{episode}U{{两位序号}}` 格式（如 E{episode}U01、E{episode}U02），不得使用其他集号前缀。
-若 step1_units 表里出现非 `E{episode}` 前缀（如 E1U..），视为脏数据，请按当前集号 `E{episode}` 重写。
+若 step1_units 表里出现非 `E{episode}` 前缀（如残留自其他集号的编号），视为脏数据，请按当前集号 `E{episode}` 重写。
 </episode_constraints>
 
 # 字段写作指引
@@ -124,9 +125,9 @@ b. **shots**：1-4 个 Shot。
 
 c. **references**：`{{type, name}}` 列表，顺序决定 `[图N]` 编号。
     - `name` 必须来自候选：
-        - character: {", ".join(character_names) or "（无）"}
-        - scene: {", ".join(scene_names) or "（无）"}
-        - prop: {", ".join(prop_names) or "（无）"}
+        - character: {", ".join(character_names) or "（暂无）"}
+        - scene: {", ".join(scene_names) or "（暂无）"}
+        - prop: {", ".join(prop_names) or "（暂无）"}
     - 每个 shot `text` 中出现的 `@[名称]` 都要在 references 注册一次。{max_refs_line}
 
 d. **duration_seconds**：所有 shot `duration` 之和，且**必须**等于当前模型支持列表中的某个值：{durations_desc}。请据此编排各 shot 时长，使其相加正好落在该集合内。
