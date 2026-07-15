@@ -30,10 +30,11 @@ bash <repo_root>/.agents/skills/afk-team-workflow-codex/scripts/preflight.sh \
 
 - `gh` 只读仓库访问与 `jq`
 - `git fetch --dry-run origin`
-- 对唯一临时 ref 的 `git push --dry-run`，验证 push 凭证而不写远端
-- 在系统临时目录创建并清理 detached probe worktree，验证 worktree 写权限
+- 用兼容旧版 Git 的目录解析确认传入路径是主 checkout，而非 linked worktree
+- 对 `issue/afk-preflight-probe-*` 下的唯一临时 ref 执行 `git push --dry-run`，验证 push 凭证而不写远端，并贴近真实 `issue/` 分支命名规则
+- 在系统临时目录创建 detached probe worktree，验证 worktree 写权限；正常或异常退出都会清理 worktree 与全部 probe 临时目录
 - `codex review --help` 存在 `--base`
-- 用临时空目录、ephemeral session 和 read-only sandbox 发起一次最小 `codex exec`，实际验证 Codex 鉴权与服务连通性；只看到 CLI help 不算通过
+- 用临时空目录、ephemeral session 和 read-only sandbox 发起一次最小 `codex exec`，实际验证 Codex 鉴权与服务连通性；只看到 CLI help 不算通过，异常退出也不得遗留该临时目录
 - GitHub connector 与 heartbeat 的 lead 声明已传入
 
 `codex` 不在 PATH 时，脚本会尝试 macOS ChatGPT app 内置路径；也可显式传 `--codex-bin`。成功时 stdout 只输出一份 JSON 结果；失败以 `AFK_PREFLIGHT_ERROR:` 写 stderr 并非零退出。

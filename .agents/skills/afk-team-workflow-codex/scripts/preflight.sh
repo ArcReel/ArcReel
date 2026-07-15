@@ -44,8 +44,8 @@ git rev-parse --show-toplevel >/dev/null 2>&1 || die "--repo is not a Git worktr
 GIT_TOP=$(git rev-parse --show-toplevel)
 GIT_TOP=$(cd "$GIT_TOP" && pwd -P)
 [[ "$GIT_TOP" == "$REPO" ]] || die "--repo must point at the main checkout root"
-GIT_DIR=$(git rev-parse --absolute-git-dir)
-GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
+GIT_DIR=$(cd "$(git rev-parse --git-dir)" && pwd -P)
+GIT_COMMON_DIR=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
 [[ "$GIT_DIR" == "$GIT_COMMON_DIR" ]] || die "--repo must be the main checkout, not a linked worktree: $REPO"
 git remote get-url origin >/dev/null 2>&1 || die "git remote 'origin' is not configured"
 
@@ -60,7 +60,7 @@ if ! FETCH_OUTPUT=$(git fetch --dry-run origin 2>&1); then
   die "git fetch permission probe failed: ${FETCH_OUTPUT:0:300}"
 fi
 
-PROBE_REF="refs/heads/afk-preflight-probe-$(date -u +%Y%m%d%H%M%S)-$$"
+PROBE_REF="refs/heads/issue/afk-preflight-probe-$(date -u +%Y%m%d%H%M%S)-$$"
 PUSH_OUTPUT=""
 if ! PUSH_OUTPUT=$(git push --dry-run --porcelain origin "HEAD:${PROBE_REF}" 2>&1); then
   die "git push credential probe failed: ${PUSH_OUTPUT:0:300}"
@@ -68,12 +68,16 @@ fi
 
 PROBE_ROOT=""
 PROBE_WT=""
+CODEX_PROBE_DIR=""
 cleanup() {
   if [[ -n "$PROBE_WT" && -d "$PROBE_WT" ]]; then
     git -C "$REPO" worktree remove --force "$PROBE_WT" >/dev/null 2>&1 || true
   fi
   if [[ -n "$PROBE_ROOT" && -d "$PROBE_ROOT" ]]; then
-    rmdir "$PROBE_ROOT" >/dev/null 2>&1 || true
+    rm -rf -- "$PROBE_ROOT" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$CODEX_PROBE_DIR" && -d "$CODEX_PROBE_DIR" ]]; then
+    rm -rf -- "$CODEX_PROBE_DIR" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -117,10 +121,10 @@ if ! CODEX_PROBE_OUTPUT=$("$CODEX_BIN" exec \
   --color never \
   -C "$CODEX_PROBE_DIR" \
   "Reply with exactly AFK_CODEX_AUTH_OK and do not call tools." 2>&1); then
-  rmdir "$CODEX_PROBE_DIR" >/dev/null 2>&1 || true
   die "codex authentication/service probe failed: ${CODEX_PROBE_OUTPUT:0:300}"
 fi
 rmdir "$CODEX_PROBE_DIR" >/dev/null 2>&1 || die "codex probe temp directory cleanup failed: $CODEX_PROBE_DIR"
+CODEX_PROBE_DIR=""
 grep -qx 'AFK_CODEX_AUTH_OK' <<<"$CODEX_PROBE_OUTPUT" || die "codex authentication/service probe returned no success marker"
 
 jq -n \

@@ -14,6 +14,8 @@ description: 仅在用户显式调用 `$afk-team-workflow-codex` 时使用：用
 1. 在 `repo_root/.afk/*.jsonl` 中找末条 `kind` 不是 `closed` 的账本。存在任一未关闭批次时，先完整读取 [recovery.md](references/recovery.md)，完成接管/重开/忽略分流；不能把它覆盖成新批次。缺少 `runtime` 的旧行按 legacy/Claude 处理，`runtime` 不参与终态判定。
 2. 对新批次或选择接管的批次，完整执行 [preflight.md](references/preflight.md)。能力与权限探针全部通过，才可制定批次计划；任一项失败就响亮停止并在用户仍在线时解决，不能进入 AFK 后再等待权限弹窗。
 
+本地 preflight 必须兼容旧版 Git，临时 push ref 沿用真实 `issue/` 分支命名空间，并在任意退出路径清理 worktree 与 Codex probe 临时目录；具体探针与测试口径以引用页和脚本为准。
+
 完成条件：已证明不存在待处理旧批次，或用户明确选择了恢复动作；且 preflight 的每项均为 PASS。
 
 ## 2. 重建批次事实与语义
