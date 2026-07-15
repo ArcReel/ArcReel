@@ -7,14 +7,14 @@ description: 仅在用户显式调用 `$afk-team-workflow-codex` 时使用：用
 
 担任 lead：只负责调度、Git/worktree 编排、合并、裁决、健康检查、恢复与收尾；把业务实现、本地审查和 PR AI 审查循环交给三个不同的 Codex 子代理。以 GitHub 与 Git 现场为唯一远端真相，以 `.afk/` 保存无法重推的薄账本与阶段交接。
 
-设 `repo_root` 为主 checkout 的绝对路径。所有 lead 命令显式使用 `repo_root`，所有 teammate shell 命令显式使用传入的绝对 worktree 路径；文件写入只允许落在 worktree，或契约传入的绝对 handoff 路径。内部 teammate 一律使用 collaboration 子代理；不要创建用户可见的新 Codex task。
+设 `repo_root` 为主 checkout 的绝对路径。所有 lead 命令显式使用 `repo_root`；lead 只按契约写 `.afk/<batch-id>.jsonl`、集中管理 issue worktree，并创建和清理 preflight 临时产物，不写业务代码。所有 teammate shell 命令显式使用传入的绝对 worktree 路径；teammate 文件写入只允许落在 worktree，或契约传入的绝对 handoff 路径。内部 teammate 一律使用 collaboration 子代理；不要创建用户可见的新 Codex task。
 
 ## 1. 先判定恢复，再过硬启动门槛
 
 1. 在 `repo_root/.afk/*.jsonl` 中找末条 `kind` 不是 `closed` 的账本。存在任一未关闭批次时，先完整读取 [recovery.md](references/recovery.md)，完成接管/重开/忽略分流；不能把它覆盖成新批次。缺少 `runtime` 的旧行按 legacy/Claude 处理，`runtime` 不参与终态判定。
 2. 对新批次或选择接管的批次，完整执行 [preflight.md](references/preflight.md)。能力与权限探针全部通过，才可制定批次计划；任一项失败就响亮停止并在用户仍在线时解决，不能进入 AFK 后再等待权限弹窗。
 
-本地 preflight 必须兼容旧版 Git，临时 push ref 沿用真实 `issue/` 分支命名空间，并在任意退出路径清理 worktree 与 Codex probe 临时目录；具体探针与测试口径以引用页和脚本为准。
+preflight 必须只读证明 squash merge 配置与分支规则不会阻断已授权的自动合并路径；本地探针兼容旧版 Git，临时 push ref 沿用真实 `issue/` 分支命名空间，并在任意退出路径清理 worktree 与 Codex probe 临时目录。具体探针与测试口径以引用页和脚本为准。
 
 完成条件：已证明不存在待处理旧批次，或用户明确选择了恢复动作；且 preflight 的每项均为 PASS。
 
