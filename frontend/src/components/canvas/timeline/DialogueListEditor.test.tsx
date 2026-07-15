@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { DialogueListEditor } from "./DialogueListEditor";
@@ -73,5 +74,36 @@ describe("DialogueListEditor", () => {
     render(<DialogueListEditor dialogue={dialogue} onChange={onChange} />);
     fireEvent.click(screen.getByRole("button", { name: "dialogue_remove" }));
     expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("keeps each remaining row's own DOM node and content after removing a middle row", () => {
+    // Stateful wrapper: onChange feeds back into dialogue so React actually
+    // reconciles the list, which is what exposes index-key DOM reuse bugs.
+    function Wrapper() {
+      const [items, setItems] = useState<Dialogue[]>([
+        { speaker: "甲", line: "第一行" },
+        { speaker: "乙", line: "第二行" },
+        { speaker: "丙", line: "第三行" },
+      ]);
+      return <DialogueListEditor dialogue={items} onChange={setItems} />;
+    }
+    render(<Wrapper />);
+
+    const firstLineNode = screen.getByDisplayValue("第一行");
+    const thirdLineNode = screen.getByDisplayValue("第三行");
+
+    // Delete the middle row (乙/第二行).
+    const removeButtons = screen.getAllByRole("button", { name: "dialogue_remove" });
+    fireEvent.click(removeButtons[1]);
+
+    // With a stable per-row key, the surviving rows keep their own DOM nodes
+    // (and thus focus/content) instead of the third row's node being silently
+    // rebound to the first row's data via reused index-based DOM.
+    expect(screen.getByDisplayValue("第一行")).toBe(firstLineNode);
+    expect(screen.getByDisplayValue("第三行")).toBe(thirdLineNode);
+    expect(screen.queryByDisplayValue("第二行")).toBeNull();
+    expect(screen.getByDisplayValue("甲")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("丙")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("乙")).toBeNull();
   });
 });

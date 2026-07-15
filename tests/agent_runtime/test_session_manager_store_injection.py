@@ -30,7 +30,6 @@ def _build_sm(tmp_path: Path) -> SessionManager:
 
     return SessionManager(
         project_root=tmp_path,
-        data_dir=tmp_path / "data",
         meta_store=_NullMetaStore(),
     )
 

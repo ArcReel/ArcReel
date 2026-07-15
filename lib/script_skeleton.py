@@ -45,6 +45,36 @@ SKELETONS: dict[str, Skeleton] = {
     "video_units": Skeleton("unit_id", None),
 }
 
+# 条目名词按骨架种类硬编码——驱动分镜级事件与任务完成事件共用的通知文案（如「镜头「E1S01」」）。
+# 名词 i18n 化是独立议题（与 ``_diff_named_entities`` 的「角色」/「线索」同为既有硬编码形态），
+# 不在此处收敛。两套事件路径必须读同一张表，不各自维护一份。
+SKELETON_ITEM_NOUNS: dict[str, str] = {
+    "segments": "分镜",
+    "scenes": "场景",
+    "shots": "镜头",
+    "video_units": "视频单元",
+}
+
+# 事件的实体类型按骨架种类推导，与 ``SKELETON_ITEM_NOUNS`` 同源。驱动前端分组标签映射
+# （``ENTITY_LABELS``），使四种骨架各显分镜/场景/镜头/视频单元，而非恒为「分镜」。取值与既有
+# ``entity_type`` 枚举不冲突（drama 用 ``drama_scene`` 避免与命名实体 ``scene`` 撞组）。
+SKELETON_ENTITY_TYPES: dict[str, str] = {
+    "segments": "segment",
+    "scenes": "drama_scene",
+    "shots": "shot",
+    "video_units": "reference_unit",
+}
+
+# 事件的锚点类型按骨架种类推导，取值与前端各画布的滚动目标类型守卫对齐：video_units 归
+# ``reference_unit``（参考生视频画布按此选中并高亮对应视频单元），其余归 ``segment``
+# （narration/drama/ad 共用时间线镜头拆分视图，按 id 选中条目）。
+SKELETON_ANCHOR_TYPES: dict[str, str] = {
+    "segments": "segment",
+    "scenes": "segment",
+    "shots": "segment",
+    "video_units": "reference_unit",
+}
+
 
 def _validate_registry() -> None:
     """import 期表自洽校验：四骨架齐全、字段合法。失败即启动炸（同 ``docs/adr/0039`` 手法）。"""
@@ -57,6 +87,13 @@ def _validate_registry() -> None:
         # chars_field 为 None 合法（video_units 显式缺位）；空串非法。
         if skeleton.chars_field is not None and not skeleton.chars_field:
             raise RuntimeError(f"SKELETONS[{kind!r}].chars_field 非法：{skeleton.chars_field!r}")
+    for name, table in (
+        ("SKELETON_ITEM_NOUNS", SKELETON_ITEM_NOUNS),
+        ("SKELETON_ENTITY_TYPES", SKELETON_ENTITY_TYPES),
+        ("SKELETON_ANCHOR_TYPES", SKELETON_ANCHOR_TYPES),
+    ):
+        if set(table) != expected:
+            raise RuntimeError(f"{name} 骨架种类不齐：期望 {expected}，实际 {set(table)}")
 
 
 _validate_registry()

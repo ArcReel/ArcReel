@@ -1,10 +1,10 @@
 from lib.prompt_builders import (
+    append_image_negative_tail,
     append_product_fidelity_tail,
     append_video_negative_tail,
     build_character_prompt,
     build_prop_prompt,
     build_scene_prompt,
-    build_storyboard_suffix,
 )
 
 
@@ -53,14 +53,6 @@ class TestScenePromptAndPropPrompt:
         assert "画面避免" in prompt
 
 
-class TestStoryboardSuffix:
-    def test_by_aspect_ratio(self):
-        assert build_storyboard_suffix(aspect_ratio="9:16") == "竖屏构图。"
-        assert build_storyboard_suffix(aspect_ratio="16:9") == "横屏构图。"
-        # 向后兼容：不传 aspect_ratio 时默认按 narration → 竖屏
-        assert build_storyboard_suffix() == "竖屏构图。"
-
-
 class TestVideoNegativeTail:
     def test_appends_when_missing(self):
         result = append_video_negative_tail("林清缓缓抬头")
@@ -81,6 +73,23 @@ class TestVideoNegativeTail:
         for blank in ("   ", "\n\n", "\t \n"):
             result = append_video_negative_tail(blank)
             assert result.startswith("禁止出现"), f"input={blank!r} → {result!r}"
+
+
+class TestImageNegativeTail:
+    def test_appends_when_missing(self):
+        result = append_image_negative_tail("林清坐在窗边木桌前")
+        assert result.startswith("林清坐在窗边木桌前")
+        assert "画面避免" in result
+
+    def test_idempotent(self):
+        once = append_image_negative_tail("林清坐在窗边木桌前")
+        twice = append_image_negative_tail(once)
+        assert once == twice
+
+    def test_handles_empty_and_whitespace_input(self):
+        for blank in ("", "   ", "\n\n", "\t \n"):
+            result = append_image_negative_tail(blank)
+            assert result.startswith("画面避免"), f"input={blank!r} → {result!r}"
 
 
 class TestProductFidelityTail:

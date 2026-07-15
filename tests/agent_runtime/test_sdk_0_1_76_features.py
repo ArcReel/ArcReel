@@ -121,11 +121,8 @@ class TestCanUseToolDecisionReason:
         from server.agent_runtime.session_manager import SessionManager
         from server.agent_runtime.session_store import SessionMetaStore
 
-        data_dir = tmp_path / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
         sm = SessionManager(
             project_root=tmp_path,
-            data_dir=data_dir,
             meta_store=SessionMetaStore(),
         )
         callback = await sm._build_can_use_tool_callback(session_id="sess-x")
@@ -140,11 +137,8 @@ class TestCanUseToolDecisionReason:
         from server.agent_runtime.session_manager import SessionManager
         from server.agent_runtime.session_store import SessionMetaStore
 
-        data_dir = tmp_path / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
         sm = SessionManager(
             project_root=tmp_path,
-            data_dir=data_dir,
             meta_store=SessionMetaStore(),
         )
         callback = await sm._build_can_use_tool_callback(session_id="sess-y")

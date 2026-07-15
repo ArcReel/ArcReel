@@ -22,6 +22,8 @@ from lib.prompt_builders_script import (
     _format_names,
 )
 from lib.script_models import REFERENCE_SHOT_DURATION_RANGE
+from lib.speech_rate import speech_rate_units_per_second
+from lib.text_metrics import reading_unit_noun
 
 # ---------------------------------------------------------------------------
 # 审定配比表（数字真相源，逐字照搬，不得修改）
@@ -53,8 +55,7 @@ _AD_GENERAL_RULES = """\
 - price_promo 永远紧贴 cta 构成「促单收尾块」
 - 即使 hook 不是产品画面，产品也应在前 3 秒内入画（文字/局部/手持均可）
 - 单 section 超过 6 秒必须拆成多个镜头；全片平均 3-5 秒/镜，开头允许 2-3 秒快切；镜头数宁多勿少（多场景多角度有平台官方数据背书）
-- 30 秒档为默认推荐档；90 秒档用「小故事」组织而非平铺卖点，仅适合高客单/需教育的产品
-- 中文口播按约 4 字/秒折算台词长度（15s≈60 字 / 30s≈120 字 / 60s≈240 字 / 90s≈360 字；此换算为推断值，后续按 TTS 实测校定）"""
+- 30 秒档为默认推荐档；90 秒档用「小故事」组织而非平铺卖点，仅适合高客单/需教育的产品"""
 
 _AD_TIER_TABLES: dict[int, str] = {
     15: """\
@@ -199,6 +200,12 @@ def build_ad_prompt(
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
 
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
+    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama step1 下界、字幕派生同口径）。
+    # 语速表按语言代码（zh / en / vi）登记；target_language 是自由文本（默认「中文」），
+    # 未登记值回退默认语速（zh 口径），量词（字 / 词）由 reading_unit_noun 同源派生。
+    speech_rate = speech_rate_units_per_second(target_language)
+    unit_label = reading_unit_noun(target_language)
+    voiceover_rate_note = f"口播长度按约 {speech_rate:g} {unit_label}/秒折算"
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
@@ -253,7 +260,7 @@ def build_ad_prompt(
 ## 视频提示词（video_prompt）——切换到「动作设计师」视角
 
 - **video_prompt.action**：{_ACTION_WRITING_GUIDE}
-- **video_prompt.camera_motion**：每个镜头只选一种，按画面内容自行选择。
+- **video_prompt.camera_motion**：按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
 - **video_prompt.dialogue**：仅当镜头内有出镜人物开口说话时填写（口播旁白写在 voiceover_text，不要重复进 dialogue）；speaker 必须出现在 characters_in_shot。"""
 
@@ -277,7 +284,7 @@ def build_ad_prompt(
 ## 基础字段
 
 - **section**：本片无带货框架，按内容自拟简短英文段落标签（如 opening/development/climax/ending），用于标记镜头在叙事中的位置。
-- **voiceover_text**：每镜头的口播文案，必须完整可照稿配音；无口播的纯画面镜头填空字符串。中文口播按约 4 字/秒折算台词长度。
+- **voiceover_text**：每镜头的口播文案，必须完整可照稿配音；无口播的纯画面镜头填空字符串。{voiceover_rate_note}。
 - **characters_in_shot** / **scenes** / **props**：仅列出此镜头画面中实际出现的资产。
   - 候选 characters：[{", ".join(character_names) or "（无）"}]
   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
@@ -319,7 +326,7 @@ def build_ad_prompt(
 ## 基础字段
 
 - **section**：该镜头所属的带货框架段落标签，使用上方八值（如 hook、pain_point）；同段多镜头重复同一标签。
-- **voiceover_text**：每镜头的口播文案，必须完整可照稿配音、与画面同步；无口播的纯画面镜头填空字符串。全片口播连起来应是一篇完整流畅的带货话术，长度按约 4 字/秒折算。
+- **voiceover_text**：每镜头的口播文案，必须完整可照稿配音、与画面同步；无口播的纯画面镜头填空字符串。全片口播连起来应是一篇完整流畅的带货话术，{voiceover_rate_note}。
 - **duration_seconds**：单镜头{duration_constraint}；各段合计遵循配比表，全片总和贴近 {target_duration} 秒。
 - **products_in_shot**：该镜头画面中实际出现的产品名称列表（产品入画即列出，含局部/手持/包装）；氛围镜头填空数组。
   - 候选 products：[{", ".join(product_names)}]

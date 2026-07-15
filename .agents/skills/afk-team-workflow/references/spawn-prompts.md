@@ -18,6 +18,8 @@
 交付或遇到契约规定的请示场景时，SendMessage 给 lead。
 ```
 
+> spawn 该阶段 teammate 时指定 `model=opus`。
+
 ## AI 审查循环
 
 ```text

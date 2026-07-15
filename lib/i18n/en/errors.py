@@ -103,6 +103,10 @@ MESSAGES = {
     "connection_failed": "Connection failed: {err_msg}",
     "unsupported_test": "Provider {provider_id} does not support connection testing yet",
     "missing_credentials": "Missing credential configuration, please add a key first",
+    "credential_group_ambiguous": (
+        "This submission mixes fields from more than one mutually exclusive credential group, so the "
+        "switch target is ambiguous. Please fill in only one group."
+    ),
     # Assistant
     "session_not_found": "Session '{session_id}' does not exist",
     "session_or_project_not_found": "Session or project does not exist",

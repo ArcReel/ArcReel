@@ -380,7 +380,8 @@ class TestScriptGenerator:
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
-        assert parsed == {"foo": "bar"}
+        # 校验失败降级返回原始数据；title 兜底在校验前注入，故降级结果也携带
+        assert parsed == {"foo": "bar", "title": "第1集"}
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         project_path = tmp_path / "demo"
@@ -1335,6 +1336,71 @@ class TestAdScriptGeneration:
         output_path = await generator.generate(1)
         saved = json.loads(output_path.read_text(encoding="utf-8"))
         assert saved["shots"][0]["shot_id"] == "E1S01"
+
+
+class TestAdParseResponseDriftRecovery:
+    """代理网关不执行约束解码时的输出容错：枚举风格漂移归一 + title 缺失兜底。
+
+    复刻 2026-07-13 诊断日志捕获的失败形态：gemini 代理网关输出大写/小写蛇形枚举
+    （MEDIUM_SHOT / dolly_in）、dialogue 为 null、顶层 title 缺失，三次生成全部
+    折在 save_script 结构校验上。_parse_response 须把这类可挽救漂移归一后放行。
+    """
+
+    @staticmethod
+    def _drifted_shot(shot_id: str, shot_type: str, camera_motion: str) -> dict:
+        return {
+            "shot_id": shot_id,
+            "section": "hook",
+            "duration_seconds": 3,
+            "voiceover_text": "开场口播",
+            "image_prompt": {
+                "scene": "老伴在广场中央起舞",
+                "composition": {"shot_type": shot_type, "lighting": "夕阳侧光", "ambiance": "人群环绕"},
+            },
+            "video_prompt": {
+                "action": "旋转舞动",
+                "camera_motion": camera_motion,
+                "ambiance_audio": "广场音乐",
+                "dialogue": None,
+            },
+        }
+
+    def test_parse_response_recovers_drifted_payload_without_title(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        generator = ScriptGenerator(project_path)
+
+        llm_response = json.dumps(
+            {
+                "shots": [
+                    self._drifted_shot("E1S01", "MEDIUM_SHOT", "ZOOM_OUT"),
+                    self._drifted_shot("E1S02", "wide_shot", "dolly_in"),
+                ]
+            },
+            ensure_ascii=False,
+        )
+        parsed = generator._parse_response(llm_response, 1)
+
+        assert parsed["title"] == "第1集"
+        first, second = parsed["shots"]
+        assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
+        assert first["video_prompt"]["camera_motion"] == "Zoom Out"
+        assert first["video_prompt"]["dialogue"] == []
+        # 词表外值（wide_shot / dolly_in）不做语义映射，降级为中性默认值
+        assert second["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
+        assert second["video_prompt"]["camera_motion"] == "Static"
+
+    def test_parse_response_keeps_model_title_when_present(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        generator = ScriptGenerator(project_path)
+
+        llm_response = json.dumps(
+            {"title": "速干杯广场舞", "shots": [self._drifted_shot("E1S01", "Medium Shot", "Static")]},
+            ensure_ascii=False,
+        )
+        parsed = generator._parse_response(llm_response, 1)
+        assert parsed["title"] == "速干杯广场舞"
 
 
 class TestAdQualityProbe:

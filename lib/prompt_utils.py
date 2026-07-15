@@ -5,8 +5,11 @@ Prompt 工具函数
 """
 
 import re
+from typing import get_args
 
 import yaml
+
+from lib.script_models import CameraMotion, ShotType
 
 # 风格值开头的「画风：」前缀（全角/半角冒号）。新版风格模版已去前缀，此处兼容存量 project.json。
 _STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
@@ -21,29 +24,9 @@ def normalize_style(style: str | None) -> str:
     return _STYLE_PREFIX_RE.sub("", (style or "").strip())
 
 
-# 预设选项定义
-SHOT_TYPES = [
-    "Extreme Close-up",
-    "Close-up",
-    "Medium Close-up",
-    "Medium Shot",
-    "Medium Long Shot",
-    "Long Shot",
-    "Extreme Long Shot",
-    "Over-the-shoulder",
-    "Point-of-view",
-]
-
-CAMERA_MOTIONS = [
-    "Static",
-    "Pan Left",
-    "Pan Right",
-    "Tilt Up",
-    "Tilt Down",
-    "Zoom In",
-    "Zoom Out",
-    "Tracking Shot",
-]
+# 预设选项：真相源是 lib.script_models 的 Literal 词表，此处派生避免双写漂移
+SHOT_TYPES: list[str] = list(get_args(ShotType))
+CAMERA_MOTIONS: list[str] = list(get_args(CameraMotion))
 
 
 def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:

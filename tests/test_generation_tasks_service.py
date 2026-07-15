@@ -42,6 +42,36 @@ class TestAssertDurationSupported:
         assert exc.value.code == "video_duration_invalid"
 
 
+class TestCollectSheetReferences:
+    def test_max_count_truncates_refs_from_single_item(self, tmp_path):
+        # 单个 item 内的角色数就超过 max_count 时，_group 内层三段循环不会在
+        # item 中途触发外层 break，需要在返回前再做一次显式切片。
+        from server.services.generation_tasks import _collect_sheet_references
+
+        characters = {}
+        char_names = [f"char{i}" for i in range(8)]
+        for name in char_names:
+            sheet_path = tmp_path / f"{name}.png"
+            sheet_path.write_bytes(b"fake-image")
+            characters[name] = {"character_sheet": f"{name}.png"}
+
+        project = {"characters": characters, "scenes": {}, "props": {}}
+        items = [{"characters_in_segment": char_names}]
+
+        refs, seen = _collect_sheet_references(
+            project,
+            tmp_path,
+            items,
+            char_field="characters_in_segment",
+            scene_field="scenes",
+            prop_field="props",
+            max_count=6,
+        )
+
+        assert len(refs) == 6
+        assert len(seen) == 8
+
+
 def _async_return(value):
     """Create an async function that always returns the given value (ignoring args)."""
 
@@ -207,7 +237,15 @@ class TestGenerationTasks:
         assert mode_items[1] == "scene_id"
 
         prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime")
-        assert prompt == "text"
+        assert prompt.startswith("text")
+        # 分镜图与资产图 / 视频路径一致：归一化出口拼接统一图像反向提示词，且幂等
+        assert "画面避免" in prompt
+        assert generation_tasks._normalize_storyboard_prompt(prompt, "Anime") == prompt
+
+        structured = generation_tasks._normalize_storyboard_prompt(
+            {"scene": "林清坐在窗边", "composition": {"shot_type": "Close-up"}}, "Anime"
+        )
+        assert "画面避免" in structured
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")
@@ -274,10 +312,12 @@ class TestGenerationTasks:
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
+        # 资产 sheet 以「资产名 label」显式绑定（供 Gemini 等支持内联标签的后端
+        # 把参考图与 prompt 专名对应）；extra_reference_images 无资产名上下文，保持裸 Path
         assert storyboard_refs == [
-            project_path / "characters" / "Alice.png",
-            project_path / "scenes" / "祠堂.png",
-            project_path / "props" / "玉佩.png",
+            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
+            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
+            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
             project_path / "characters" / "Alice.png",
             {
                 "image": project_path / "storyboards" / "scene_E1S01.png",
@@ -292,9 +332,9 @@ class TestGenerationTasks:
             {"script_file": "episode_1.json", "prompt": "direct prompt"},
         )
         assert fake_generator.image_calls[1]["reference_images"] == [
-            project_path / "characters" / "Alice.png",
-            project_path / "scenes" / "祠堂.png",
-            project_path / "props" / "玉佩.png",
+            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
+            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
+            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
         ]
 
         video_result = await generation_tasks.execute_video_task(
@@ -771,6 +811,214 @@ class TestGenerationTasks:
         assert "storyboards/scene_E1S01.png" in change["asset_fingerprints"]
         assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
+    @pytest.mark.parametrize(
+        ("script", "expected_entity_type", "expected_label"),
+        [
+            pytest.param(
+                {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
+                "drama_scene",
+                "场景「E1S01」",
+                id="drama-scenes",
+            ),
+            pytest.param(
+                {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]},
+                "shot",
+                "镜头「E1S01」",
+                id="ad-shots",
+            ),
+            pytest.param(
+                {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]},
+                "segment",
+                "分镜「E1S01」",
+                id="narration-segments",
+            ),
+        ],
+    )
+    def test_emit_success_batch_storyboard_entity_type_follows_skeleton(
+        self, monkeypatch, tmp_path, script, expected_entity_type, expected_label
+    ):
+        """storyboard/video 任务完成通知与分镜级事件同口径：实体类型与名词按项目剧本骨架
+        种类解析，不恒为 narration 的 segment/「分镜」。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = script
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        for task_type, action in (("storyboard", "storyboard_ready"), ("video", "video_ready")):
+            captured.clear()
+            generation_tasks.emit_generation_success_batch(
+                task_type=task_type,
+                project_name="demo",
+                resource_id="E1S01",
+                payload={"script_file": "ep01.json"},
+            )
+            assert len(captured) == 1
+            change = captured[0][0]
+            assert change["entity_type"] == expected_entity_type
+            assert change["action"] == action
+            assert change["label"] == expected_label
+
+    def test_emit_success_batch_reference_video_entity_type_aligns_with_frontend(self, monkeypatch, tmp_path):
+        """参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit"
+        （而非仅本侧认识的 "reference_video_unit"），分组标题才能落「视频单元」而非「内容」
+        兜底；条目文案仍沿用「参考视频」措辞，不随骨架名词改动。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = {"content_mode": "narration", "video_units": [{"unit_id": "U01"}]}
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="reference_video",
+            project_name="demo",
+            resource_id="U01",
+            payload={"script_file": "ep01.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "reference_unit"
+        assert change["action"] == "reference_video_ready"
+        assert change["label"] == "参考视频「U01」"
+
+    def test_emit_success_batch_reference_video_ad_entity_type_not_shot(self, monkeypatch, tmp_path):
+        """ad 剧本骨架恒为 shots[]，reference_video 路径派生的 video_unit 索引与 shots
+        同存于一份剧本 JSON——resolve_script_kind 的数据形状判别会因 shots 键仍在而落回
+        content_mode==ad→shots，与该任务实际对应 video_unit 资源不符，故需固定解析，
+        不随骨架判别漂到 "shot"。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = {
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01"}],
+            "video_units": [{"unit_id": "U01", "shot_ids": ["E1S01"]}],
+        }
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="reference_video",
+            project_name="demo",
+            resource_id="U01",
+            payload={"script_file": "episode_1.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "reference_unit"
+        assert change["action"] == "reference_video_ready"
+        assert change["label"] == "参考视频「U01」"
+
+    def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):
+        """骨架判定拿不到剧本（脚本缺失/损坏）时兜底 segments/「分镜」，不让通知发送中断。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+
+        def _raise_load_script(project_name, script_file):
+            raise FileNotFoundError(script_file)
+
+        fake_pm.load_script = _raise_load_script
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="storyboard",
+            project_name="demo",
+            resource_id="E1S01",
+            payload={"script_file": "missing.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "segment"
+        assert change["label"] == "分镜「E1S01」"
+
+    def test_emit_success_batch_falls_back_to_segments_when_script_not_a_dict(self, monkeypatch, tmp_path):
+        """剧本文件内容损坏成非 dict（如顶层数组）时兜底 segments/「分镜」，不让
+        resolve_script_kind 内部的 .get() 调用抛 AttributeError 中断通知发送。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = ["not", "a", "dict"]
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="storyboard",
+            project_name="demo",
+            resource_id="E1S01",
+            payload={"script_file": "corrupted.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "segment"
+        assert change["label"] == "分镜「E1S01」"
+
+    def test_emit_success_batch_attaches_script_file_and_episode(self, monkeypatch, tmp_path):
+        """骨架驱动的完成事件须挂 script_file 与 episode（供 episode 作用域消费方使用）——
+        锁死这条挂载，防将来改动 emit 时静默丢字段。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = {"content_mode": "narration", "episode": 3, "segments": [{"segment_id": "E3S01"}]}
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        for task_type in ("storyboard", "video", "reference_video"):
+            captured.clear()
+            generation_tasks.emit_generation_success_batch(
+                task_type=task_type,
+                project_name="demo",
+                resource_id="E3S01",
+                payload={"script_file": "ep03.json"},
+            )
+            assert len(captured) == 1
+            change = captured[0][0]
+            assert change["script_file"] == "ep03.json"
+            assert change["episode"] == 3
+
     def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
         """宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径"""
         from lib.grid.models import FrameCell, GridGeneration
@@ -1070,7 +1318,9 @@ class TestAdProductFidelityStoryboard:
             project_path / "characters" / "Alice.png",
             project_path / "scenes" / "祠堂.png",
         ]
-        assert generator.image_calls[0]["prompt"] == "氛围开场"
+        prompt = generator.image_calls[0]["prompt"]
+        assert prompt.startswith("氛围开场")
+        assert "产品高保真还原" not in prompt
 
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
         """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""

@@ -20,6 +20,7 @@ from lib.episode_planner import (
     _find_all_overlapping,
 )
 from lib.text_backends.base import TextGenerationResult
+from lib.text_metrics import count_reading_units
 
 # 源文：三段剧情，句子互不重复，锚点可唯一定位
 SOURCE = (
@@ -351,6 +352,128 @@ class TestPlan:
         assert ep1 == source[:end]  # 切片逐字节落在源文坐标上，未被 \r/组合字符撑长漂移
         assert [s.title for s in result.episodes] == ["Mở đầu"]
 
+    async def test_plan_resolves_anchor_with_curly_double_quote_mismatch(self, tmp_path: Path):
+        """源文用弯双引号（U+201C/U+201D），模型回显成直双引号：折叠表新增映射令其对齐。"""
+        source = "他说：“古玉里藏着剑诀。”少女沉默不语。"
+        curly_anchor = "“古玉里藏着剑诀。”"
+        straight_anchor = '"古玉里藏着剑诀。"'  # 模型回显成直引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "hook", "end_anchor": straight_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(curly_anchor) + len(curly_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("”")  # 源文标点未被改写（仍是弯引号）
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+
+    async def test_plan_resolves_anchor_with_curly_double_quote_mismatch_reverse(self, tmp_path: Path):
+        """反向：源文用直双引号，模型回显成弯双引号，同一折叠表对齐两个方向。"""
+        source = '他说："古玉里藏着剑诀。"少女沉默不语。'
+        straight_anchor = '"古玉里藏着剑诀。"'
+        curly_anchor = "“古玉里藏着剑诀。”"  # 模型回显成弯引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "hook", "end_anchor": curly_anchor}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(straight_anchor) + len(straight_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+
+    async def test_plan_resolves_anchor_with_curly_single_quote_mismatch(self, tmp_path: Path):
+        """源文用弯单引号（U+2018/U+2019），模型回显成直单引号：折叠表新增映射令其对齐。"""
+        source = "少女低声说：‘我不是坏人。’李恒不再追问。"
+        curly_anchor = "‘我不是坏人。’"
+        straight_anchor = "'我不是坏人。'"  # 模型回显成直引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "少女辩白", "hook": "hook", "end_anchor": straight_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(curly_anchor) + len(curly_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("’")  # 源文标点未被改写（仍是弯引号）
+        assert [s.title for s in result.episodes] == ["少女辩白"]
+
+    async def test_plan_resolves_anchor_with_cjk_wave_dash_fullwidth_anchor(self, tmp_path: Path):
+        """源文用 CJK 波浪号（U+301C），模型回显成全角波浪号（U+FF5E）：两者折叠后同归半角 ~。"""
+        source = "古玉估价约〜百金，来历不明。少女转身离去。"
+        cjk_anchor = "约〜百金，来历不明。"
+        fullwidth_anchor = "约～百金，来历不明。"  # 模型回显成 U+FF5E
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "估价成谜", "hook": "hook", "end_anchor": fullwidth_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(cjk_anchor) + len(cjk_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("〜百金，来历不明。")  # 源文标点未被改写（仍是 CJK 波浪号）
+        assert [s.title for s in result.episodes] == ["估价成谜"]
+
+    async def test_plan_resolves_anchor_with_cjk_wave_dash_halfwidth_anchor(self, tmp_path: Path):
+        """源文用 CJK 波浪号（U+301C），模型回显成半角 ~：折叠表新增映射令其对齐。"""
+        source = "古玉估价约〜百金，来历不明。少女转身离去。"
+        cjk_anchor = "约〜百金，来历不明。"
+        halfwidth_anchor = "约~百金，来历不明。"  # 模型回显成半角 ~
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "估价成谜", "hook": "hook", "end_anchor": halfwidth_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(cjk_anchor) + len(cjk_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert [s.title for s in result.episodes] == ["估价成谜"]
+
+    async def test_plan_resolves_anchor_with_fullwidth_straight_quote_mismatch(self, tmp_path: Path):
+        """源文用全角直引号（U+FF02/U+FF07），模型回显成半角直引号：折叠表新增映射令其对齐。"""
+        source = "少女喊道：＂别跑，＇等等我＇！＂李恒停下脚步。"
+        fullwidth_anchor = "＂别跑，＇等等我＇！＂"
+        halfwidth_anchor = "\"别跑，'等等我'！\""  # 模型回显成半角直引号
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "城门呼喊", "hook": "hook", "end_anchor": halfwidth_anchor}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        end = source.index(fullwidth_anchor) + len(fullwidth_anchor)
+        eps = _load_project(project_dir)["episodes"]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
+        ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
+        assert ep1 == source[:end]
+        assert ep1.endswith("＂")  # 源文标点未被改写（仍是全角直引号）
+        assert [s.title for s in result.episodes] == ["城门呼喊"]
+
     async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
         """折叠后仍命中多处：维持「无法唯一定位」拒绝并重试，不静默挑第一处。"""
         source = "他说好的。她说好的。后来他离开了。"  # 两处「说好的。」全角句号
@@ -596,6 +719,30 @@ class TestPlan:
         cursor = _load_project(project_dir)["planning_cursor"]
         assert cursor == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
 
+    async def test_plan_window_elasticity_extends_to_full_text_when_remainder_small(self, tmp_path: Path):
+        """剩余全文不足窗口 1.2 倍时窗口直接延伸到全文末尾，避免残余被迫单独成集。"""
+        window_chars = len(SOURCE) - 8  # 小于全文长度，但剩余量仍在 1.2 倍窗口以内
+        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        last_anchor = "卷入漩涡之中。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                        {"title": "丙", "hook": "丙", "end_anchor": last_anchor},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert last_anchor in fake.requests[0].prompt  # 窗口已延伸到全文末尾，未被 window_chars 截断
+        assert result.source_exhausted is True
+        project = _load_project(project_dir)
+        assert project["planning_cursor"]["offset"] == len(SOURCE)
+
     async def test_plan_max_episodes_setting_truncates_batch(self, tmp_path: Path):
         """planning_max_episodes 覆盖每批集数上限：超出的集截断留给下一批。"""
         project_dir = _write_project(tmp_path, extra={"planning_max_episodes": 1})
@@ -769,6 +916,101 @@ class TestPlan:
 
         assert blank.requests[0].prompt == none.requests[0].prompt
 
+    async def test_plan_with_instructions_injects_global_progress_section(self, tmp_path: Path):
+        """有 instructions 时才注入「全局进度」分节：已规划集数/余量/本窗口体量按阅读单位现算。"""
+        ep1_end = _end_of(ANCHOR_EP1)
+        window_chars = ep1_end + 4
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, ep1_end)],
+            planning_cursor={"source_file": "source/novel.txt", "offset": ep1_end},
+            extra={"planning_window_chars": window_chars},
+        )
+        fake = _FakeTextGenerator([_plan_response([{"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2}])])
+
+        await EpisodePlanner(project_dir, generator=fake).plan(instructions="严格按章节切分，一章一集")
+
+        prompt = fake.requests[0].prompt
+        remaining_units = count_reading_units(SOURCE[ep1_end:], None)
+        window_units = count_reading_units(SOURCE[ep1_end : ep1_end + window_chars], None)
+        assert "# 全局进度" in prompt
+        assert "已规划 1 集" in prompt
+        assert f"未规划余量约 {remaining_units} 字" in prompt
+        assert f"本窗口为其中前 {window_units} 字" in prompt
+
+    async def test_plan_normal_batch_omits_ledger_stats(self, tmp_path: Path):
+        """常规（非耗尽）批次不附全局核对材料，只报累计已规划集数。"""
+        window_chars = _end_of(ANCHOR_EP1) + 4
+        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "钩子", "end_anchor": ANCHOR_EP1}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.source_exhausted is False
+        assert result.ledger_stats is None
+        assert result.total_planned == 1
+
+    async def test_plan_exhausted_batch_includes_ledger_stats(self, tmp_path: Path):
+        """末批即耗尽：附全局核对材料——累计集数、最小体量集（升序）、中位数。"""
+        last_anchor = "卷入漩涡之中。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                        {"title": "丙", "hook": "丙", "end_anchor": last_anchor},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(_write_project(tmp_path), generator=fake).plan()
+
+        assert result.source_exhausted is True
+        stats = result.ledger_stats
+        assert stats is not None
+        assert stats.total_episodes == 3
+        assert [num for num, _units in stats.smallest] == [3, 2, 1]  # 体量升序：丙 < 乙 < 甲
+        assert stats.median_units == 37
+        assert stats.target_units is None  # 未配置 episode_target_units 时不报
+
+    async def test_plan_exhausted_batch_reports_target_units_when_configured(self, tmp_path: Path):
+        """episode_target_units 项目设置存在时，核对材料里带出该目标体量。"""
+        last_anchor = "卷入漩涡之中。"
+        project_dir = _write_project(tmp_path, extra={"episode_target_units": 800})
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
+                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
+                        {"title": "丙", "hook": "丙", "end_anchor": last_anchor},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.ledger_stats is not None
+        assert result.ledger_stats.target_units == 800
+
+    async def test_plan_no_new_content_early_exit_includes_ledger_stats(self, tmp_path: Path):
+        """再次调用无新内容（早退路径）：不调模型，仍附全局核对材料供复核。"""
+        project_dir = _planned_three(tmp_path)
+        fake = _FakeTextGenerator([])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.source_exhausted is True
+        assert fake.requests == []
+        stats = result.ledger_stats
+        assert stats is not None
+        assert stats.total_episodes == 3
+        assert [num for num, _units in stats.smallest] == [3, 2, 1]
+        assert stats.median_units == 37
+
 
 def _entry(
     num: int,
@@ -859,6 +1101,7 @@ class TestReplan:
         assert "第2集在下山处收尾" in prompt  # 用户意见进 prompt
         assert "钩子1" in prompt  # 之前的集作为已定上下文
         assert ANCHOR_EP1 not in prompt  # 已定范围的原文不重发
+        assert "# 全局进度" not in prompt  # replan 范围闭合、整段进 prompt，不注入全局进度
 
         project = _load_project(project_dir)
         eps = {e["episode"]: e for e in project["episodes"]}
@@ -876,6 +1119,28 @@ class TestReplan:
         assert (project_dir / "source" / "episode_3.txt").read_text(encoding="utf-8") == SOURCE[new_mid:]
         assert [s.episode for s in result.episodes] == [2, 3]
         assert result.stale_episodes == []
+        assert result.ledger_stats is not None  # replan 是偏差修复的主要动作，每次都附核对材料
+
+    async def test_replan_always_includes_ledger_stats_for_review_loop(self, tmp_path: Path):
+        """replan 成功返回一律带全局核对材料，闭合「重排后再核对」的复核循环。"""
+        project_dir = _planned_three(tmp_path)
+        new_anchor = "踏上去往青云城的路。"
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "辞别下山", "hook": "青云城里有什么", "end_anchor": new_anchor},
+                        {"title": "城门风波", "hook": "少女是谁", "end_anchor": "卷入漩涡之中。"},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾")
+
+        stats = result.ledger_stats
+        assert stats is not None
+        assert stats.total_episodes == 3  # 重排未改变集数：仍是 1/2/3 三集
 
     async def test_replan_requires_confirmation_for_consumed_episodes(self, tmp_path: Path):
         """波及已消费集且未确认：返回受影响清单，账本与文件零变更。"""
