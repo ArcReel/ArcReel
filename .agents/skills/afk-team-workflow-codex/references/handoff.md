@@ -1,6 +1,6 @@
 # 阶段交接文件
 
-每个 issue 使用主 checkout 下的 `.afk/<batch-id>/handoff-<N>.md`。三个阶段各自在退役前追加一段，不改写前段；账本只由 lead 写。
+每个 issue 使用主 checkout 下的 `.afk/<batch-id>/handoff-<N>.md`。该绝对 handoff 是 teammate 唯一获准写入主 checkout 的阶段文件，且只允许在末尾追加；不得借此修改主 checkout 的其他文件或账本，账本只由 lead 写。
 
 只记录 diff、issue、PR 与远端状态无法重推的信息。可重推事实不写；空项写“无”。follow-up 只记候选，不自行立项。
 

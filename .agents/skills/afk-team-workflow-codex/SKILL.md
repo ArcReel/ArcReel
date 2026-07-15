@@ -7,7 +7,7 @@ description: 仅在用户显式调用 `$afk-team-workflow-codex` 时使用：用
 
 担任 lead：只负责调度、Git/worktree 编排、合并、裁决、健康检查、恢复与收尾；把业务实现、本地审查和 PR AI 审查循环交给三个不同的 Codex 子代理。以 GitHub 与 Git 现场为唯一远端真相，以 `.afk/` 保存无法重推的薄账本与阶段交接。
 
-设 `repo_root` 为主 checkout 的绝对路径。所有 lead 命令显式使用 `repo_root`，所有 teammate 命令显式使用传入的绝对 worktree 路径。内部 teammate 一律使用 collaboration 子代理；不要创建用户可见的新 Codex task。
+设 `repo_root` 为主 checkout 的绝对路径。所有 lead 命令显式使用 `repo_root`，所有 teammate shell 命令显式使用传入的绝对 worktree 路径；文件写入只允许落在 worktree，或契约传入的绝对 handoff 路径。内部 teammate 一律使用 collaboration 子代理；不要创建用户可见的新 Codex task。
 
 ## 1. 先判定恢复，再过硬启动门槛
 

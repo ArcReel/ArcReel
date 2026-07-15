@@ -90,7 +90,7 @@ if ! WORKTREE_OUTPUT=$(git worktree add --detach "$PROBE_WT" HEAD 2>&1); then
 fi
 git worktree remove --force "$PROBE_WT" >/dev/null 2>&1 || die "probe worktree cleanup failed: $PROBE_WT"
 PROBE_WT=""
-rmdir "$PROBE_ROOT" >/dev/null 2>&1 || die "probe temp directory cleanup failed: $PROBE_ROOT"
+rm -rf -- "$PROBE_ROOT" >/dev/null 2>&1 || die "probe temp directory cleanup failed: $PROBE_ROOT"
 PROBE_ROOT=""
 
 if [[ -z "$CODEX_BIN" ]]; then
@@ -123,7 +123,7 @@ if ! CODEX_PROBE_OUTPUT=$("$CODEX_BIN" exec \
   "Reply with exactly AFK_CODEX_AUTH_OK and do not call tools." 2>&1); then
   die "codex authentication/service probe failed: ${CODEX_PROBE_OUTPUT:0:300}"
 fi
-rmdir "$CODEX_PROBE_DIR" >/dev/null 2>&1 || die "codex probe temp directory cleanup failed: $CODEX_PROBE_DIR"
+rm -rf -- "$CODEX_PROBE_DIR" >/dev/null 2>&1 || die "codex probe temp directory cleanup failed: $CODEX_PROBE_DIR"
 CODEX_PROBE_DIR=""
 grep -qx 'AFK_CODEX_AUTH_OK' <<<"$CODEX_PROBE_OUTPUT" || die "codex authentication/service probe returned no success marker"
 

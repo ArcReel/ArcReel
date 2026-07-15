@@ -2,7 +2,7 @@
 
 输入：`repo_root`、issue 号、PR 号、绝对 worktree、lead canonical task 名、绝对 handoff。
 
-所有命令显式在 worktree 中运行。先读实现/本地审查 handoff；替补还要读已有“审查循环”段。然后使用共享 `$pr-ai-review-loop` 及其原始文件，不能复制或改写 reviewer 业务规则：
+所有 shell 命令显式在 worktree 中运行；主 checkout 的唯一写入例外是向传入的绝对 handoff 路径追加本阶段记录。先读实现/本地审查 handoff；替补还要读已有“审查循环”段。然后使用共享 `$pr-ai-review-loop` 及其原始文件，不能复制或改写 reviewer 业务规则：
 
 - `<repo_root>/.agents/skills/pr-ai-review-loop/SKILL.md`
 - `<repo_root>/.agents/skills/pr-ai-review-loop/references/reviewers.md`

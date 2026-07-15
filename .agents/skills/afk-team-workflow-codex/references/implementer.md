@@ -2,7 +2,7 @@
 
 输入：`repo_root`、issue 号、绝对 worktree 路径、分支 `issue/<N>`、lead 的 canonical task 名、绝对 handoff 路径。
 
-交付一个基于最新 `origin/main`、改动全部 commit、质量门通过、未 push 且未建 PR 的 worktree。lead 已创建 worktree；所有命令显式以该绝对路径为 `workdir`，不切换或修改主 checkout。
+交付一个基于最新 `origin/main`、改动全部 commit、质量门通过、未 push 且未建 PR 的 worktree。lead 已创建 worktree；所有命令显式以该绝对路径为 `workdir`，不切换或修改主 checkout；唯一例外是按契约向传入的绝对 handoff 路径追加本阶段记录。
 
 ## 步骤
 

@@ -33,6 +33,11 @@ printf '%s\n' \
   '  if [[ "$arg" == "--path-format=absolute" ]]; then echo "fixture old git rejects --path-format" >&2; exit 45; fi' \
   'done' \
   'if [[ -n "${GIT_ARGS_LOG:-}" ]]; then printf "%s\\n" "$*" >> "$GIT_ARGS_LOG"; fi' \
+  'if [[ "${GIT_LEAVE_PROBE_ROOT_FILE:-0}" == "1" && "$1" == "worktree" && "$2" == "add" ]]; then' \
+  '  "$REAL_GIT" "$@" || exit $?' \
+  '  printf "fixture residue\\n" > "$(dirname "$4")/.fixture-residue"' \
+  '  exit 0' \
+  'fi' \
   'exec "$REAL_GIT" "$@"' > "$FAKEBIN/git"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
@@ -58,13 +63,16 @@ printf '%s\n' \
   'echo "unexpected codex invocation: $*" >&2; exit 43' > "$FAKEBIN/codex"
 chmod +x "$FAKEBIN/git" "$FAKEBIN/gh" "$FAKEBIN/codex"
 
-GIT_ARGS_LOG="$TMP_ROOT/git-args.log" PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
+GIT_ARGS_LOG="$TMP_ROOT/git-args.log" GIT_LEAVE_PROBE_ROOT_FILE=1 CODEX_LEAVE_FILE=1 \
+  CODEX_PROBE_LOG="$TMP_ROOT/success-codex-probe-dir" PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
   --repo "$REPO" \
   --github-connector-ok \
   --heartbeat-ok \
   --codex-bin "$FAKEBIN/codex" > "$TMP_ROOT/success.json"
 
 grep -q '^push --dry-run --porcelain origin HEAD:refs/heads/issue/afk-preflight-probe-' "$TMP_ROOT/git-args.log"
+[[ -s "$TMP_ROOT/success-codex-probe-dir" ]]
+[[ ! -e "$(cat "$TMP_ROOT/success-codex-probe-dir")" ]]
 
 jq -e '
   .ok == true

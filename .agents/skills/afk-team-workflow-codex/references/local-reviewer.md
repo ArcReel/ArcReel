@@ -2,13 +2,13 @@
 
 输入：`repo_root`、issue 号、绝对 worktree、分支、lead canonical task 名、绝对 handoff、通过 preflight 的 `codex_bin`。
 
-你没有实现阶段对话历史。所有命令显式在传入的 worktree 中运行；交付一个已修复有效发现、已验证、已 push、已建非 draft PR 的分支。
+你没有实现阶段对话历史。所有命令显式在传入的 worktree 中运行；主 checkout 的唯一写入例外是向传入的绝对 handoff 路径追加本阶段记录。交付一个已修复有效发现、已验证、已 push、已建非 draft PR 的分支。
 
 ## 步骤
 
 1. 通读 issue 正文/评论、实现 handoff 和完整 diff。做规格三问：验收要求有无缺失或只完成一半；改动有无 scope creep；已覆盖项是否实现正确。小缺口就地补齐，接近重做规模的事项用 `collaboration.send_message` 请示 lead。
-2. 在 worktree 中运行 `<codex_bin> review --base origin/main`。把输出当外部审查意见，按 `$receiving-code-review` 逐条结合代码和测试验证；修复有效发现，对不成立项保留技术依据。不要触发 GitHub 云端 `@codex review`。
-3. commit 审查修复，重新运行相关质量门。然后 `git fetch origin`；main 已前进时 rebase 到最新 `origin/main`，解决冲突并再次验证。
+2. 先运行 `git fetch origin`，再在 worktree 中运行 `<codex_bin> review --base origin/main`。把输出当外部审查意见，按 `$receiving-code-review` 逐条结合代码和测试验证；修复有效发现，对不成立项保留技术依据。不要触发 GitHub 云端 `@codex review`。
+3. commit 审查修复并重新运行相关质量门。push 前再次 `git fetch origin`；main 已前进时 rebase 到最新 `origin/main`，解决冲突后必须重新运行 Codex 审查、处理有效发现并执行质量门，然后从本步起点再次核对 main。只有最终 diff 的审查和验证均通过才进入下一步。
 4. push `issue/<N>`。GitHub 状态变更优先使用已通过 preflight 的 connector 创建非 draft PR；标题遵循仓库 Conventional Commits，正文含 `Closes #<N>` 与验证说明。
 5. 复核 PR head 与本地 HEAD 一致，PR 不是 draft。
 

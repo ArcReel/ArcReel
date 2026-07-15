@@ -6,7 +6,7 @@
 
 逐项以当前工具目录和只读调用取证：
 
-1. **GitHub connector**：确认存在读取仓库/issue/PR，以及创建 PR、转 draft、更新 issue/标签、评论、squash merge 所需的 connector 工具；先调用 `github_get_profile` 取得当前 login，再调用 `github_get_repo_collaborator_permission` 核对该 login 对 `ArcReel/ArcReel` 的权限为 `write`、`maintain` 或 `admin`，最后用一个只读 repository 搜索/读取工具确认仓库可访问。工具存在但权限低于 `write` 不算通过；不要用真实写操作做探针。
+1. **GitHub connector**：确认存在读取仓库/issue/PR，以及创建 PR、转 draft、更新 issue/标签、评论、squash merge 所需的 connector 工具；先从传入 `repo_root` 的 `origin` 动态解析目标 `<owner>/<repo>`，再调用 `github_get_profile` 取得当前 login，并用 `github_get_repo_collaborator_permission` 核对该 login 对目标仓库的权限为 `write`、`maintain` 或 `admin`，最后用一个只读 repository 搜索/读取工具确认同一目标仓库可访问。不得把仓库名写死；工具存在但权限低于 `write` 不算通过，也不要用真实写操作做探针。
 2. **Collaboration**：确认 `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`list_agents`、`interrupt_agent` 可用，并由槽位信息算出 lead 之外的上限。
 3. **当前任务 heartbeat**：确认 `codex_app__automation_update` 支持当前 task 的 heartbeat 创建与删除。创建一个约 30 分钟后才会触发的临时 heartbeat，取得 id 后立即删除；两步都成功才算权限通过。
 
