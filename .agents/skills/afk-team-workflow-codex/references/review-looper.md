@@ -16,11 +16,11 @@
 1. 始终在传入的绝对 worktree 工作，结束时保留它给 lead。
 2. 共享 skill 进入下一轮延迟时，由本 teammate 自己调用 `collaboration.wait_agent(timeout_ms=60000)`：60 秒等 1 次，120 秒连续等 2 次，180 秒连续等 3 次。每次等待提前收到 lead 消息就立即处理；PR 轮询只使用这一等待机制。
 3. 所有“询问用户”重定向为 `collaboration.send_message` 给 lead，包含事实、原文和可选裁决。等待裁决时继续按上条监控；运行中的回复由 lead `send_message`，若本 agent 已结束当前 turn，则 lead 用 `followup_task` 续同一 teammate。
-4. 常规 `no_change`、reviewer 响应中和普通 idle 不汇报 lead。只在达标、故障、真实 reviewer 冲突或业务取舍时汇报。
+4. 常规 `no_change`、reviewer 响应中和普通 idle 不汇报 lead。只在达标、故障、真实 reviewer 冲突、业务取舍，或共享 skill 的收敛兜底（达到 8 轮、连续两轮只有 nit/format push）触发时汇报。
 5. main 前进时不单独 rebase；下次修复 push 一并 rebase。PR 进入 `CONFLICTING` 时立即按功能意图解决冲突并重验。
 
 ## 交付
 
-目标状态终核通过后，在 handoff 追加“### 审查循环”段，内容严格按共享 retrospective 参考。向 lead 报告达标 HEAD、轮数、参审结果、pushback、故障和复盘摘要；等待 lead 核验并合并后结束。
+目标状态终核通过后，在 handoff 追加“### 审查循环”段，内容严格按共享 retrospective 参考。向 lead 报告达标 HEAD、轮数、参审结果、pushback、故障和复盘摘要；等待 lead 核验并合并后结束。收敛兜底触发时不要自行选择 merge / 继续 / 放弃；把当前 HEAD、触发条件、未满足门槛和三个选项发给 lead，由 lead 按运行契约搁置为 needs-human 后结束。
 
-完成条件：共享 skill 的全部目标门槛对当前远端 HEAD 成立，`unacked` 兜底已处理，handoff 与报告指向同一 HEAD。
+完成条件：共享 skill 的全部目标门槛对当前远端 HEAD 成立、`unacked` 兜底已处理且 handoff 与报告指向同一 HEAD；或收敛兜底已由 lead 按运行契约转为 needs-human 并确认搁置完成。

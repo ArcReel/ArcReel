@@ -44,6 +44,9 @@ git rev-parse --show-toplevel >/dev/null 2>&1 || die "--repo is not a Git worktr
 GIT_TOP=$(git rev-parse --show-toplevel)
 GIT_TOP=$(cd "$GIT_TOP" && pwd -P)
 [[ "$GIT_TOP" == "$REPO" ]] || die "--repo must point at the main checkout root"
+GIT_DIR=$(git rev-parse --absolute-git-dir)
+GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
+[[ "$GIT_DIR" == "$GIT_COMMON_DIR" ]] || die "--repo must be the main checkout, not a linked worktree: $REPO"
 git remote get-url origin >/dev/null 2>&1 || die "git remote 'origin' is not configured"
 
 GH_REPO=""
@@ -103,6 +106,23 @@ if ! REVIEW_HELP=$("$CODEX_BIN" review --help 2>&1); then
 fi
 grep -q -- '--base' <<<"$REVIEW_HELP" || die "codex review does not advertise --base"
 
+CODEX_PROBE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/afk-codex-auth.XXXXXX")
+CODEX_PROBE_OUTPUT=""
+if ! CODEX_PROBE_OUTPUT=$("$CODEX_BIN" exec \
+  --ephemeral \
+  --ignore-user-config \
+  --ignore-rules \
+  --sandbox read-only \
+  --skip-git-repo-check \
+  --color never \
+  -C "$CODEX_PROBE_DIR" \
+  "Reply with exactly AFK_CODEX_AUTH_OK and do not call tools." 2>&1); then
+  rmdir "$CODEX_PROBE_DIR" >/dev/null 2>&1 || true
+  die "codex authentication/service probe failed: ${CODEX_PROBE_OUTPUT:0:300}"
+fi
+rmdir "$CODEX_PROBE_DIR" >/dev/null 2>&1 || die "codex probe temp directory cleanup failed: $CODEX_PROBE_DIR"
+grep -qx 'AFK_CODEX_AUTH_OK' <<<"$CODEX_PROBE_OUTPUT" || die "codex authentication/service probe returned no success marker"
+
 jq -n \
   --arg repo "$REPO" \
   --arg github_repo "$GH_REPO" \
@@ -119,5 +139,6 @@ jq -n \
     git_push_dry_run: true,
     worktree_write: true,
     codex_review_base: true,
+    codex_authenticated: true,
     codex_bin: $codex_bin
   }'

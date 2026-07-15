@@ -39,6 +39,7 @@ teammate 的暂停场景只到 lead：
 1. **故障**：bot 报错、quota、长时间无响应或意外权限失败。按共享 review-loop 建议重试一次；仍失败就对本 PR 停用该 reviewer，追加 `fault`，收尾前可补审一次。AFK 中新的权限失败也按 fault 安全搁置/转呈，不绕过授权。
 2. **重复意见**：同一 reviewer 重提已有 pushback 的主题，维持技术结论，让 looper 引用在案依据回复后继续；值得升级的原则记复盘候选。
 3. **真实 reviewer 冲突或业务取舍**：不选边。用 connector 把 PR 转 draft、issue 改为 `ready-for-human`、在 PR 评论双方立场，追加 `shelve`；结束 teammate，保留远端分支/PR供人工接手，清理本地 worktree/分支。
+4. **收敛兜底**：共享 review-loop 达到 8 轮，或连续两轮只有 nit/format push 时，不替用户选择强行合并、继续或放弃。用 connector 把 PR 转 draft、issue 改为 `ready-for-human`，在 PR 评论触发条件、当前未满足门槛与三个可选动作，追加 `shelve`；结束 teammate，保留远端分支/PR 供人工接手，清理本地 worktree/分支。
 
 ## Gap 与清尾轮
 
