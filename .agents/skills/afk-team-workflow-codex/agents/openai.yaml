@@ -1,0 +1,7 @@
+interface:
+  display_name: "AFK 团队工作流（Codex）"
+  short_description: "用 Codex 子代理无人值守推进一批 issue 到合并"
+  default_prompt: "使用 $afk-team-workflow-codex 将指定 Spec 或 issue 批次无人值守推进到全部合并或明确搁置。"
+
+policy:
+  allow_implicit_invocation: false
