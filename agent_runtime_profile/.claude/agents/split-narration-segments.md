@@ -73,8 +73,8 @@ mcp__arcreel__get_video_capabilities({})
 - 优先在句号、问号、感叹号、省略号等标点处拆分
 - 段落结束处拆分
 
-**铸定 segment_id**：
-- 按顺序为每个片段铸定 `E{N}S{两位序号}`（N 为当前集号），如第 1 集为 `E1S01`、`E1S02`……不要用其他集号前缀
+**分配 segment_id**：
+- 按顺序为每个片段分配 `E{N}S{两位序号}`（N 为当前集号），如第 1 集为 `E1S01`、`E1S02`……不要用其他集号前缀
 
 **资产登记**（`characters_in_segment` / `scenes` / `props`）：
 - 列出该片段 `novel_text` 中实际出现（被叙述或对话提及）的已登记角色 / 场景 / 道具
@@ -104,7 +104,7 @@ mcp__arcreel__get_video_capabilities({})
     },
     {
       "segment_id": "E1S02",
-      "novel_text": "“夫人，这是侯爷的亲笔信。”老管家递上一封火漆封印的书信。",
+      "novel_text": "「夫人，这是侯爷的亲笔信。」老管家递上一封火漆封印的书信。",
       "duration_seconds": 6,
       "segment_break": false,
       "characters_in_segment": ["老管家"],

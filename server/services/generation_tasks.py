@@ -42,6 +42,7 @@ from lib.prompt_utils import (
 )
 from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import resource_relative_path
+from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -285,10 +286,13 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
 
 
 def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
+    """归一化分镜图 prompt 并在末尾追加统一文本化的反向提示词。"""
+    from lib.prompt_builders import append_image_negative_tail
+
     if isinstance(prompt, str):
         if not prompt.strip():
             raise ValueError("prompt must not be empty")
-        return prompt
+        return append_image_negative_tail(prompt)
 
     if not isinstance(prompt, dict):
         raise ValueError("prompt must be a string or object")
@@ -310,7 +314,7 @@ def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
             "ambiance": str(composition.get("ambiance", "") or ""),
         },
     }
-    return image_prompt_to_yaml(normalized_prompt, style)
+    return append_image_negative_tail(image_prompt_to_yaml(normalized_prompt, style))
 
 
 def _normalize_video_prompt(prompt: str | dict) -> str:
@@ -398,7 +402,7 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
         )
 
 
-def _collect_sheet_paths(
+def _collect_sheet_references(
     project: dict,
     project_path: Path,
     items: list[dict],
@@ -407,48 +411,63 @@ def _collect_sheet_paths(
     scene_field: str,
     prop_field: str,
     max_count: int = 0,
-) -> tuple[list[Path], set[str]]:
-    """Collect character_sheet, scene_sheet and prop_sheet paths from scene/segment items.
+) -> tuple[list[dict], set[str]]:
+    """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
 
-    Returns (list of existing Paths, set of relative sheet strings for dedup).
-    If *max_count* > 0 collection stops after that many images.
+    Returns (list of ``{"image": Path, "label": 资产名}`` dicts, set of relative
+    sheet strings for dedup). If *max_count* > 0 collection stops after that many images.
+
+    label 取 project.json 中的资产名，与 prompt 里的专名严格一致——供支持内联标签的
+    后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
-    references 条目形态存在），``item.get(None, [])`` 天然跳过角色 sheet 收集。
+    references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
     """
     seen: set[str] = set()
-    paths: list[Path] = []
+    refs: list[dict] = []
 
-    characters = project.get("characters", {})
-    project_scenes = project.get("scenes", {})
-    project_props = project.get("props", {})
+    characters = project.get("characters")
+    characters = characters if isinstance(characters, dict) else {}
+    project_scenes = project.get("scenes")
+    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
+    project_props = project.get("props")
+    project_props = project_props if isinstance(project_props, dict) else {}
 
     for item in items:
-        for char_name in item.get(char_field, []):
-            sheet = characters.get(char_name, {}).get("character_sheet")
-            if sheet and sheet not in seen:
+        for char_name in item.get(char_field) or []:
+            if not isinstance(char_name, str):
+                continue
+            char_data = characters.get(char_name)
+            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
-                    paths.append(path)
+                    refs.append({"image": path, "label": char_name})
                     seen.add(sheet)
-        for scene_name in item.get(scene_field, []):
-            sheet = project_scenes.get(scene_name, {}).get("scene_sheet")
-            if sheet and sheet not in seen:
+        for scene_name in item.get(scene_field) or []:
+            if not isinstance(scene_name, str):
+                continue
+            scene_data = project_scenes.get(scene_name)
+            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
-                    paths.append(path)
+                    refs.append({"image": path, "label": scene_name})
                     seen.add(sheet)
-        for prop_name in item.get(prop_field, []):
-            sheet = project_props.get(prop_name, {}).get("prop_sheet")
-            if sheet and sheet not in seen:
+        for prop_name in item.get(prop_field) or []:
+            if not isinstance(prop_name, str):
+                continue
+            prop_data = project_props.get(prop_name)
+            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
                 if path.exists():
-                    paths.append(path)
+                    refs.append({"image": path, "label": prop_name})
                     seen.add(sheet)
-        if max_count and len(paths) >= max_count:
+        if max_count and len(refs) >= max_count:
             break
 
-    return paths, seen
+    return (refs[:max_count] if max_count else refs), seen
 
 
 def _collect_reference_images(
@@ -462,10 +481,10 @@ def _collect_reference_images(
     extra_reference_images: list[str] | None = None,
     previous_storyboard_path: Path | None = None,
 ) -> list[object] | None:
-    sheet_paths, _ = _collect_sheet_paths(
+    sheet_refs, _ = _collect_sheet_references(
         project, project_path, [target_item], char_field=char_field, scene_field=scene_field, prop_field=prop_field
     )
-    reference_images: list[object] = list(sheet_paths)
+    reference_images: list[object] = list(sheet_refs)
 
     for extra in extra_reference_images or []:
         extra_path = Path(extra)
@@ -585,14 +604,9 @@ def _product_references_for_video(generator: Any, project: dict, project_path: P
     return references
 
 
-def _resolve_script_episode(project_name: str, script_file: str | None) -> int | None:
-    if not script_file:
+def _episode_from_script(script: dict[str, Any] | None) -> int | None:
+    if not isinstance(script, dict):
         return None
-    try:
-        script = get_project_manager().load_script(project_name, script_file)
-    except Exception:
-        return None
-
     episode = script.get("episode")
     if isinstance(episode, int):
         return episode
@@ -715,14 +729,43 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 
 # (entity_type, action, label_tpl, include_script_episode)
 # 三类项目级资产（character / scene / prop）的 spec 由 lib.asset_types.ASSET_SPECS 派生。
+# storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
+# video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
+# ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
-    "storyboard": ("segment", "storyboard_ready", "分镜「{}」", True),
-    "video": ("segment", "video_ready", "分镜「{}」", True),
     "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
-    "reference_video": ("reference_video_unit", "reference_video_ready", "参考视频「{}」", True),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }
+
+# 骨架驱动的任务类型 → 完成事件 action。entity_type/条目名词按项目剧本当前骨架种类
+# （resolve_script_kind，与分镜级事件同一判定）动态解析，不按 task_type 恒定硬编码。
+_SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
+    "storyboard": "storyboard_ready",
+    "video": "video_ready",
+    "reference_video": "reference_video_ready",
+}
+
+# reference_video 的条目标签沿用「参考视频」措辞（区别于分镜级事件的骨架名词「视频单元」，
+# 两者服务不同场景：此为任务完成通知的条目文案，不随骨架名词收敛）；storyboard/video 未列出，
+# 回退到骨架名词本身（分镜/场景/镜头），与同项目分镜级事件同口径。
+_SKELETON_TASK_LABEL_NOUNS: dict[str, str] = {
+    "reference_video": "参考视频",
+}
+
+
+def _load_event_script(project_name: str, script_file: str | None) -> dict[str, Any] | None:
+    """加载完成事件所属剧本一次，供骨架种类与 episode 共用；缺失/损坏时返回 None。
+
+    调用方对 None 各自兜底（骨架种类回退 ``"segments"``、episode 回退 ``None``），
+    不让剧本加载失败导致通知发送中断。
+    """
+    if not script_file:
+        return None
+    try:
+        return get_project_manager().load_script(project_name, script_file)
+    except Exception:
+        return None
 
 
 def emit_generation_success_batch(
@@ -736,11 +779,30 @@ def emit_generation_success_batch(
 
     事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
     """
-    spec = _TASK_CHANGE_SPECS.get(task_type)
-    if spec is None:
-        return {}
+    script_file = str(payload.get("script_file") or "") or None
+    # 单次加载剧本，骨架种类与 episode 共用，避免同一 script_file 双解析。
+    script = _load_event_script(project_name, script_file)
 
-    entity_type, action, label_tpl, include_script_episode = spec
+    action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
+    if action is not None:
+        if task_type == "reference_video":
+            # ad 剧本骨架恒为 shots[]（reference_video 路径只是把镜头派生分组为
+            # video_unit 索引，二者持久于同一份剧本 JSON），resolve_script_kind
+            # 的数据形状优先判别会因 shots 键仍在而退回 content_mode==ad→shots，
+            # 与该任务实际对应 video_unit 资源不符——直接固定 kind，不经骨架判别。
+            kind = "video_units"
+        else:
+            kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
+        entity_type = SKELETON_ENTITY_TYPES.get(kind, "segment")
+        noun = _SKELETON_TASK_LABEL_NOUNS.get(task_type) or SKELETON_ITEM_NOUNS.get(kind, "分镜")
+        label_tpl = f"{noun}「{{}}」"
+        include_script_episode = True
+    else:
+        spec = _TASK_CHANGE_SPECS.get(task_type)
+        if spec is None:
+            return {}
+        entity_type, action, label_tpl, include_script_episode = spec
+
     asset_fingerprints = compute_affected_fingerprints(project_name, task_type, resource_id)
 
     change: dict[str, Any] = {
@@ -753,9 +815,8 @@ def emit_generation_success_batch(
         "asset_fingerprints": asset_fingerprints,
     }
     if include_script_episode:
-        script_file = str(payload.get("script_file") or "") or None
         change["script_file"] = script_file
-        change["episode"] = _resolve_script_episode(project_name, script_file)
+        change["episode"] = _episode_from_script(script)
 
     try:
         emit_project_change_batch(project_name, [change])
@@ -1371,9 +1432,12 @@ def _collect_grid_reference_images(
     scene_id_set = set(scene_ids)
     matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
 
-    characters = project.get("characters", {})
-    project_scenes = project.get("scenes", {})
-    project_props = project.get("props", {})
+    characters = project.get("characters")
+    characters = characters if isinstance(characters, dict) else {}
+    project_scenes = project.get("scenes")
+    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
+    project_props = project.get("props")
+    project_props = project_props if isinstance(project_props, dict) else {}
 
     seen: set[str] = set()
     paths: list[Path] = []
@@ -1381,25 +1445,34 @@ def _collect_grid_reference_images(
     max_count = 6
 
     for item in matched_items:
-        for char_name in item.get(char_field, []):
-            sheet = characters.get(char_name, {}).get("character_sheet")
-            if sheet and sheet not in seen:
+        for char_name in item.get(char_field) or []:
+            if not isinstance(char_name, str):
+                continue
+            char_data = characters.get(char_name)
+            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
                     paths.append(p)
                     seen.add(sheet)
                     metadata.append({"path": sheet, "name": char_name, "ref_type": "character"})
-        for scene_name in item.get(scene_field, []):
-            sheet = project_scenes.get(scene_name, {}).get("scene_sheet")
-            if sheet and sheet not in seen:
+        for scene_name in item.get(scene_field) or []:
+            if not isinstance(scene_name, str):
+                continue
+            scene_data = project_scenes.get(scene_name)
+            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
                     paths.append(p)
                     seen.add(sheet)
                     metadata.append({"path": sheet, "name": scene_name, "ref_type": "scene"})
-        for prop_name in item.get(prop_field, []):
-            sheet = project_props.get(prop_name, {}).get("prop_sheet")
-            if sheet and sheet not in seen:
+        for prop_name in item.get(prop_field) or []:
+            if not isinstance(prop_name, str):
+                continue
+            prop_data = project_props.get(prop_name)
+            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
                 if p.exists():
                     paths.append(p)

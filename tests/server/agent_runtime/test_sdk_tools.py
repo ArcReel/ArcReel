@@ -1387,6 +1387,50 @@ async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch
     assert "全部规划" in out["content"][0]["text"]
 
 
+async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: ToolContext, monkeypatch) -> None:
+    """再次调用无新内容（早退路径）：附全局核对材料供主 agent 核对结构性偏好。"""
+    from lib.episode_planner import LedgerStats, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    stats = LedgerStats(total_episodes=30, smallest=[(30, 57), (12, 640)], median_units=812, target_units=800)
+    result = PlanResult(episodes=[], cursor=None, source_exhausted=True, ledger_stats=stats)
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "累计总集数：30" in text
+    assert "第 30 集（约 57）" in text
+    assert "第 12 集（约 640）" in text
+    assert "中位数：约 812" in text
+    assert "目标体量设置：约 800" in text
+    assert "有偏差须向用户明确说明" in text
+
+
+async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_ctx: ToolContext, monkeypatch) -> None:
+    """常规（非耗尽）批次没有 ledger_stats：只附「累计已规划 N 集」一行，不带全局核对材料。"""
+    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    result = PlanResult(
+        episodes=[
+            EpisodePlanSummary(episode=5, title="第五集", hook="悬念", reading_units=800, ledger_status="planned")
+        ],
+        cursor={"source_file": "source/novel.txt", "offset": 4000},
+        source_exhausted=False,
+        total_planned=5,
+        ledger_stats=None,
+    )
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {})
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "累计已规划 5 集。" in text
+    assert "累计总集数" not in text  # 不附全局核对材料
+    assert "体量最小的几集" not in text
+
+
 async def test_plan_episodes_error_envelope(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_planner import EpisodePlanningError
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -1420,6 +1464,32 @@ async def test_replan_episodes_passes_args_and_reports_stale(fake_ctx: ToolConte
     text = out["content"][0]["text"]
     assert "stale" in text
     assert "episode_target_units" in text
+
+
+async def test_replan_episodes_includes_ledger_stats(fake_ctx: ToolContext, monkeypatch) -> None:
+    """replan 是偏差修复的主要动作，返回一律附全局核对材料，闭合复核循环。"""
+    from lib.episode_planner import EpisodePlanSummary, LedgerStats, PlanResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    stats = LedgerStats(total_episodes=3, smallest=[(3, 23), (2, 37), (1, 45)], median_units=37, target_units=None)
+    result = PlanResult(
+        episodes=[
+            EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="planned")
+        ],
+        cursor=None,
+        ledger_stats=stats,
+    )
+    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
+    out = await _call(
+        mod.replan_episodes_tool(fake_ctx),
+        {"from_episode": 2, "instructions": "第2集在下山处收尾"},
+    )
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "累计总集数：3" in text
+    assert "第 3 集（约 23）" in text
+    assert "有偏差须向用户明确说明" in text
 
 
 async def test_replan_episodes_confirmation_required(fake_ctx: ToolContext, monkeypatch) -> None:

@@ -165,7 +165,6 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
     """Create a SessionManager wired to *tmp_path* and *meta_store*."""
     return SessionManager(
         project_root=tmp_path,
-        data_dir=tmp_path,
         meta_store=meta_store,
     )
 

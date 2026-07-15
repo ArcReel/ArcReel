@@ -134,4 +134,6 @@ class TestUtterancesToDialogue:
         assert validate_shot_type("Close-up")
         assert not validate_shot_type("Bad Shot")
         assert validate_camera_motion("Zoom In")
+        # 词表从 lib.script_models 的 Literal 派生，扩充后的值应直接可校验
+        assert validate_camera_motion("Orbit")
         assert not validate_camera_motion("Teleport")

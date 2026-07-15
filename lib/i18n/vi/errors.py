@@ -103,6 +103,10 @@ MESSAGES = {
     "connection_failed": "Kết nối thất bại: {err_msg}",
     "unsupported_test": "Nhà cung cấp {provider_id} hiện chưa hỗ trợ kiểm tra kết nối",
     "missing_credentials": "Thiếu cấu hình thông tin xác thực, vui lòng thêm khóa trước",
+    "credential_group_ambiguous": (
+        "Lần gửi này chứa các trường thuộc nhiều nhóm thông tin xác thực loại trừ lẫn nhau, không "
+        "thể xác định muốn chuyển sang nhóm nào. Vui lòng chỉ điền một nhóm."
+    ),
     # Assistant
     "session_not_found": "Phiên '{session_id}' không tồn tại",
     "session_or_project_not_found": "Phiên hoặc dự án không tồn tại",

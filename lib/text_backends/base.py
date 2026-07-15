@@ -227,7 +227,7 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     （用于日志）；None 表示原生输出可直接采用。两类触发场景：
 
     1. 返回非 JSON：供应商静默忽略结构化输出参数，吐出纯文本/markdown。
-    2. 返回违反 schema 的合法 JSON：供应商接受结构化输出参数却不真正强制 schema（国内中转 /
+    2. 返回违反 schema 的合法 JSON：供应商接受结构化输出参数却不真正强制 schema（代理网关 /
        非原厂模型常见），枚举值非法或缺必填字段。此类违例 JSON 若直接放行，会一路漏到下游
        Pydantic 校验或渲染处才抛裸 ValidationError。
 

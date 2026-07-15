@@ -223,9 +223,12 @@ class ScriptGenerator:
 
         caps = await self._fetch_video_capabilities()
 
-        characters = self.project_json.get("characters", {})
-        scenes = self.project_json.get("scenes", {})
-        props = self.project_json.get("props", {})
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
 
         # 解析一次时长能力：reference 据此构造 duration 枚举硬约束 schema；
         # narration 两段式用于校验 step1 各片段时长成员合法（step2 不再产出时长）。
@@ -315,6 +318,12 @@ class ScriptGenerator:
 
     def _build_drama_step2_prompt(self, content_scenes: list, episode: int) -> str:
         """构建 drama step2（视觉层）prompt：把 step1 内容渲染为输入，仅求 image_prompt / video_prompt。"""
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
         return build_drama_prompt(
             project_overview=self.project_json.get("overview", {}),
             style=self.project_json.get("style", ""),
@@ -324,6 +333,9 @@ class ScriptGenerator:
             aspect_ratio=self._resolve_aspect_ratio(),
             # 输出语言与 step1（normalize）同取项目 source_language，避免非中文项目 step1 内容与 step2 视觉割裂
             target_language=self.project_json.get("source_language") or "中文",
+            characters=characters,
+            scenes=scenes,
+            props=props,
         )
 
     def _parse_drama_visual(self, response_text: str) -> list[dict]:
@@ -418,16 +430,27 @@ class ScriptGenerator:
         target_duration = self.project_json.get("target_duration")
         if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
             raise ValueError(f"广告/短片项目缺少合法的 target_duration（正整数秒），当前为 {target_duration!r}")
-        # 统一 `or` 兜底：project.json 手工编辑时字段可能显式为 null，
-        # `.get(key, default)` 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。
+        # `or` 兜底：project.json 手工编辑时字段可能显式为 null，`.get(key, default)`
+        # 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。characters/scenes/props/
+        # products/overview 额外校验 isinstance：`or` 无法拦截显式写成非 dict（如 list）的脏数据。
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
+        products = self.project_json.get("products")
+        products = products if isinstance(products, dict) else {}
+        overview = self.project_json.get("overview")
+        overview = overview if isinstance(overview, dict) else {}
         return build_ad_prompt(
-            project_overview=self.project_json.get("overview") or {},
+            project_overview=overview,
             style=self.project_json.get("style") or "",
             style_description=self.project_json.get("style_description") or "",
-            characters=self.project_json.get("characters") or {},
-            scenes=self.project_json.get("scenes") or {},
-            props=self.project_json.get("props") or {},
-            products=self.project_json.get("products") or {},
+            characters=characters,
+            scenes=scenes,
+            props=props,
+            products=products,
             brief=self.project_json.get("brief") or "",
             target_duration=target_duration,
             generation_mode=gen_mode,
@@ -460,9 +483,12 @@ class ScriptGenerator:
             return self._build_drama_step2_prompt(content_scenes, episode)
 
         caps = await self._fetch_video_capabilities()
-        characters = self.project_json.get("characters", {})
-        scenes = self.project_json.get("scenes", {})
-        props = self.project_json.get("props", {})
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
 
         if gen_mode == "reference_video":
             return build_reference_video_prompt(
@@ -718,6 +744,13 @@ class ScriptGenerator:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
+
+        # title 缺失/空白兜底：非约束解码通道下模型可能整字段漏写。title 仅展示用、
+        # 用户可改，不值得让整集生成失败；与 _merge_narration_visual 的兜底同口径。
+        if isinstance(data, dict):
+            title = data.get("title")
+            if not (isinstance(title, str) and title.strip()):
+                data["title"] = f"第{episode}集"
 
         # 校验模型经规范解析定骨架种类（ad→shots 骨架唯一，reference→video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。

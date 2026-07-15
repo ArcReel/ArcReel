@@ -38,20 +38,11 @@ logs/
 
 # Keep project structure but ignore generated content
 !projects/.gitkeep
-!projects/.agent_data/
-!projects/.agent_data/.gitkeep
-!projects/.agent_data/transcripts/
-!projects/.agent_data/transcripts/.gitkeep
-
-# Agent data (transcripts are large, only keep structure)
-projects/.agent_data/transcripts/*.json
-projects/.agent_data/sessions.db
 
 # New unified ORM database (SQLite)
 projects/.arcreel.db
 # Old SQLite database backups (created by migration script)
 projects/.*.db.bak
-projects/.agent_data/*.db.bak
 
 # Environment
 .env

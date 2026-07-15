@@ -13,6 +13,7 @@ from claude_agent_sdk import tool
 from lib.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
+    LedgerStats,
     PlanResult,
     ReplanConfirmationRequired,
 )
@@ -23,8 +24,26 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 _MAX_INSTRUCTIONS_LEN = 4000
 
 
+def _render_ledger_stats(stats: LedgerStats) -> list[str]:
+    """全局核对材料：累计集数、最小体量集、中位数、目标体量，附一句面向主 agent 的核对指令。"""
+    lines = [f"累计总集数：{stats.total_episodes}"]
+    if stats.smallest:
+        smallest = "、".join(f"第 {num} 集（约 {units}）" for num, units in stats.smallest)
+        lines.append(f"体量最小的几集：{smallest}")
+    if stats.median_units is not None:
+        lines.append(f"全账本体量中位数：约 {stats.median_units}")
+    if stats.target_units is not None:
+        lines.append(f"每集目标体量设置：约 {stats.target_units}")
+    lines.append("若用户给过总集数、按章节对齐等结构性偏好，请对照以上分布核实，有偏差须向用户明确说明。")
+    return lines
+
+
 def _format_summary(result: PlanResult, *, header: str) -> str:
-    """账本摘要：每集标题 + 钩子 + 体量（阅读单位）。"""
+    """账本摘要：每集标题 + 钩子 + 体量（阅读单位）。
+
+    常规批次只加「累计已规划 N 集」一行；末批/耗尽/重排时 ``result.ledger_stats`` 非
+    None，改附全局核对材料（累计集数已含在其中，不重复加那一行）。
+    """
     lines = [header]
     for ep in result.episodes:
         status_note = "（stale，需重做下游产物）" if ep.ledger_status == "stale" else ""
@@ -36,6 +55,10 @@ def _format_summary(result: PlanResult, *, header: str) -> str:
         lines.append("源文已全部规划完毕。")
     elif result.cursor:
         lines.append(f"下一批规划起点：{result.cursor.get('source_file')} 偏移 {result.cursor.get('offset')}")
+    if result.ledger_stats is not None:
+        lines += _render_ledger_stats(result.ledger_stats)
+    else:
+        lines.append(f"累计已规划 {result.total_planned} 集。")
     lines.append("请把以上摘要展示给用户做批级审阅；需要调整时调用 replan_episodes。")
     return "\n".join(lines)
 
@@ -49,8 +72,12 @@ def plan_episodes_tool(ctx: ToolContext):
         "窗口字数与每批集数上限为内部默认，project.json 顶层 planning_window_chars / "
         "planning_max_episodes 可覆盖，每集目标体量沿用 episode_target_units。"
         "用户表达分集偏好（如按章节对齐切分、指定某处收尾）时经 instructions 传入原文；规划器会"
-        "以「必须全部落实」的强度对齐该偏好、优先于默认剧情弧完整性。规划按窗口分多批（长篇会多次"
-        "调用本工具），instructions 不持久化，规划全部完成前每一批调用都要重复带上同一偏好。",
+        "以「必须全部落实」的强度对齐该偏好、优先于默认剧情弧完整性，并附带已规划集数、未规划余量、"
+        "本窗口体量供换算切分节奏。规划按窗口分多批（长篇会多次调用本工具），instructions 不持久化，"
+        "规划全部完成前每一批调用都要重复带上同一偏好。末批即全部源文规划完毕、或再次调用已无新内容"
+        "时，返回会额外附全局体量核对材料（累计集数、体量最小几集、体量中位数、目标体量）："
+        "若用户给过总集数、按章节对齐等结构性偏好，须对照核对、有偏差明确告知用户；常规批次只报"
+        "累计已规划集数。",
         {
             "type": "object",
             "properties": {
@@ -77,7 +104,10 @@ def plan_episodes_tool(ctx: ToolContext):
             planner = await EpisodePlanner.create(ctx.project_path)
             result = await planner.plan(instructions=instructions or None)
             if not result.episodes and result.source_exhausted:
-                return {"content": [{"type": "text", "text": "源文已全部规划完毕，没有可规划的新内容。"}]}
+                lines = ["源文已全部规划完毕，没有可规划的新内容。"]
+                if result.ledger_stats is not None:
+                    lines += _render_ledger_stats(result.ledger_stats)
+                return {"content": [{"type": "text", "text": "\n".join(lines)}]}
             return {
                 "content": [
                     {"type": "text", "text": _format_summary(result, header=f"✅ 已规划 {len(result.episodes)} 集：")}
@@ -98,7 +128,8 @@ def replan_episodes_tool(ctx: ToolContext):
         "from_episode 起的已规划集，from_episode 取意见中最早受影响的集；之前的集作为已定上下文。"
         "波及已消费集（已有 step1/剧本/媒体）时不执行并返回受影响清单，须告知用户、确认后带 "
         "confirm_consumed=true 重新调用，这些集会标 stale（产物不删除）。全局性意见（每集体量等）"
-        "自动回写项目设置。返回重排后的账本摘要。",
+        "自动回写项目设置。返回重排后的账本摘要，并附全局体量核对材料（累计集数、体量最小几集、"
+        "体量中位数、目标体量）——重排是用户发现偏差后的主要修复动作，须对照核对、有偏差明确告知用户。",
         {
             "type": "object",
             "properties": {

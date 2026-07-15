@@ -49,7 +49,7 @@ mcp__arcreel__get_video_capabilities({})
 |---|---|
 | 1. 硬约束 | 单 shot 时长必须取自 `supported_durations`；unit 内所有 shot 时长之和 ≤ `max_duration`。违反任一条的方案直接排除，**不得违约时长** |
 | 2. 默认时长偏好 | `default_duration` 有效（非 null 且在 `supported_durations` 内）→ 作为单 shot 时长默认值；单 shot 叙事需要更长时可从 `supported_durations` 取更长值（偏好可被内容需要覆盖，硬约束不可） |
-| 3. 打包效率 | 在 1、2 之内组合 shot，使 unit 总时长贴近 `max_duration`；不要默认挑最短 / 保守值 |
+| 3. 打包效率 | 在 1、2 之内组合 shot，使 unit 总时长贴近 `max_duration`；不要默认选最短 / 保守值 |
 
 **超限处理**：叙事需要的 shot 总时长超过 `max_duration` 时，**把该 unit 重拆为多个 unit**（shot 按叙事顺序连续分组，每个 unit 各自满足硬约束），而不是把 shot 压到 `supported_durations` 之外或让 unit 超限。
 
@@ -69,7 +69,7 @@ mcp__arcreel__get_video_capabilities({})
 
 - 每个 unit 对应一个**连贯的视频生成片段**：同一时间、同一地点、主体动作连续。
 - 一个 unit 内可拆 1-4 个 shot；shot 表示镜头切换，但共享同一次生成调用。
-- shot 时长严格按 Step 0 的**时长决策表**取值：单 shot 只能取 `supported_durations` 中的值、unit 总时长 ≤ `max_duration`（硬约束）；`default_duration` 非 null 时作单 shot 默认；在此之内组合 shot 使 unit 总时长贴近 `max_duration`，不要默认挑最短 / 保守值。总时长放不下时重拆 unit。
+- shot 时长严格按 Step 0 的**时长决策表**取值：单 shot 只能取 `supported_durations` 中的值、unit 总时长 ≤ `max_duration`（硬约束）；`default_duration` 非 null 时作单 shot 默认；在此之内组合 shot 使 unit 总时长贴近 `max_duration`，不要默认选最短 / 保守值。总时长放不下时重拆 unit。
 - 时间 / 空间 / 情节重大切换点 → 开一个新 unit。
 - 一个 unit 涉及的角色 / 场景 / 道具总数不超过 Step 0 查到的 `max_reference_images`；超出时将次要角色融入背景描述，不进入 references。
 
@@ -136,4 +136,4 @@ Shot 2 (<d2>s): ...
 - unit_id 从 `E{集数}U1` 开始按顺序递增。
 - 每 unit shots 不超过 4 个；单 unit references 不超过 Step 0 查到的 `max_reference_images`。
 - `@[名称]` 中的「名称」需出现在 project.json 的 characters / scenes / props 三张表之一；若确实需要新资产，报告给主 agent 要求补资产生成，不要在本 unit 中先发明。
-- 所有 shot 时长按 Step 0 的时长决策表取值（硬约束 > `default_duration` 偏好 > 贴近 `max_duration` 的打包效率）；不要自己发明其它时长，不要默认挑最短值，超限时重拆 unit 而不是违约时长。
+- 所有 shot 时长按 Step 0 的时长决策表取值（硬约束 > `default_duration` 偏好 > 贴近 `max_duration` 的打包效率）；不要自己发明其它时长，不要默认选最短值，超限时重拆 unit 而不是违约时长。

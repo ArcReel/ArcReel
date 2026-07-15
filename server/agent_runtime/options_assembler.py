@@ -75,7 +75,7 @@ _PERSONA_PROMPT = """\
 class OptionsAssembler:
     """把开会话时现场收集的依赖装配成 ClaudeAgentOptions。
 
-    构造参数分两类：静态依赖（``data_dir`` / ``projects_root`` / ``allowed_tools`` /
+    构造参数分两类：静态依赖（``projects_root`` / ``allowed_tools`` /
     ``setting_sources``）在实例化时锁定；随运行时变化的依赖用 provider 回调每次 build
     时现取——``access_policy_provider``（``configure_sandbox_runtime`` 会整体换新）与
     ``max_turns_provider``（``refresh_config`` 会改写）。``resolve_project_cwd`` 由
@@ -90,7 +90,6 @@ class OptionsAssembler:
     def __init__(
         self,
         *,
-        data_dir: Path,
         projects_root: Path,
         allowed_tools: Sequence[str],
         setting_sources: Sequence[str],
@@ -101,7 +100,6 @@ class OptionsAssembler:
         session_factory_provider: Callable[[], Any] | None = None,
         user_id_provider: Callable[[], str] | None = None,
     ) -> None:
-        self.data_dir = Path(data_dir)
         self.projects_root = Path(projects_root)
         self._allowed_tools = list(allowed_tools)
         self._setting_sources = list(setting_sources)
@@ -212,8 +210,6 @@ class OptionsAssembler:
 
         policy = self._access_policy_provider()
 
-        transcripts_dir = self.data_dir / "transcripts"
-        transcripts_dir.mkdir(parents=True, exist_ok=True)
         project_cwd = self._resolve_project_cwd(project_name)
 
         # Build PreToolUse hooks — file access control MUST use hooks because

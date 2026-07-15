@@ -2,6 +2,19 @@ import type { ProjectChange } from "@/types";
 
 const GROUP_NAME_LIMIT = 5;
 
+// 生成事件（用于刷新费用等）。
+export const GENERATION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
+  "storyboard_ready",
+  "video_ready",
+  "grid_ready",
+  "reference_video_ready",
+  "tts_ready",
+]);
+
+// 完成事件（action 本身即通知类别，与 entity_type 无关）——优先级查表、导航行为、通知文案均不按
+// entity_type 拆分，五类骨架/任务共用同一套判定。
+export const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = GENERATION_ACTIONS;
+
 const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
   project: "项目",
   character: "角色",
@@ -29,22 +42,6 @@ export function buildEntityRevisionKey(
   entityId: string,
 ): string {
   return `${entityType}:${entityId}`;
-}
-
-export function buildVersionResourceRevisionKey(
-  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props",
-  resourceId: string,
-): string {
-  if (resourceType === "storyboards" || resourceType === "videos") {
-    return buildEntityRevisionKey("segment", resourceId);
-  }
-  if (resourceType === "characters") {
-    return buildEntityRevisionKey("character", resourceId);
-  }
-  if (resourceType === "scenes") {
-    return buildEntityRevisionKey("scene", resourceId);
-  }
-  return buildEntityRevisionKey("prop", resourceId);
 }
 
 export function groupChangesByType(
@@ -80,6 +77,9 @@ function getEntityLabel(group: GroupedProjectChange): string {
   if (group.action === "grid_ready") {
     return "宫格";
   }
+  if (group.action === "tts_ready") {
+    return "旁白";
+  }
   return ENTITY_LABELS[group.entityType] ?? "内容";
 }
 
@@ -111,7 +111,11 @@ function formatSingleNotificationText(change: ProjectChange): string {
   if (change.action === "video_ready") {
     return `${change.label}的视频已生成`;
   }
-  if (change.action === "grid_ready") {
+  if (
+    change.action === "grid_ready" ||
+    change.action === "reference_video_ready" ||
+    change.action === "tts_ready"
+  ) {
     return `${change.label}已生成`;
   }
   if (change.action === "created") {
@@ -130,7 +134,11 @@ function formatSingleDeferredText(change: ProjectChange): string {
   if (change.action === "video_ready") {
     return `AI 刚生成了 ${change.label} 的视频，点击查看`;
   }
-  if (change.action === "grid_ready") {
+  if (
+    change.action === "grid_ready" ||
+    change.action === "reference_video_ready" ||
+    change.action === "tts_ready"
+  ) {
     return `${change.label} 已生成`;
   }
   if (change.action === "created") {
@@ -153,7 +161,7 @@ export function formatGroupedNotificationText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (group.action === "storyboard_ready" || group.action === "video_ready" || group.action === "grid_ready") {
+  if (COMPLETION_ACTIONS.has(group.action)) {
     return `已生成 ${count} 个${entityLabel}：${summary}`;
   }
   if (group.action === "created") {
@@ -176,7 +184,7 @@ export function formatGroupedDeferredText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (group.action === "storyboard_ready" || group.action === "video_ready" || group.action === "grid_ready") {
+  if (COMPLETION_ACTIONS.has(group.action)) {
     return `AI 刚生成了 ${count} 个${entityLabel}：${summary}，点击查看`;
   }
   if (group.action === "created") {

@@ -6,6 +6,7 @@
 import pytest
 
 from lib.prompt_builders_ad import build_ad_prompt
+from lib.speech_rate import speech_rate_units_per_second
 
 
 def _build(**overrides):
@@ -105,7 +106,6 @@ class TestTierTableVerbatim:
                 "产品也应在前 3 秒内入画（文字/局部/手持均可）",
                 "单 section 超过 6 秒必须拆成多个镜头；全片平均 3-5 秒/镜，开头允许 2-3 秒快切",
                 "30 秒档为默认推荐档；90 秒档用「小故事」组织而非平铺卖点",
-                "中文口播按约 4 字/秒折算台词长度（15s≈60 字 / 30s≈120 字 / 60s≈240 字 / 90s≈360 字",
             ):
                 assert rule in prompt
 
@@ -164,6 +164,17 @@ class TestProductsInjection:
         prompt = _build()
         assert "voiceover_text" in prompt
         assert "完整可照稿配音" in prompt
+
+    def test_voiceover_rate_injected_from_single_source(self):
+        """口播字数→时长折算语速由 lib.speech_rate 注入，不写死数字；带货与通用短片两分支同源。"""
+        # 默认 target_language「中文」不在语言代码表内 → 回退默认语速（zh 口径，量词「字」）
+        default_rate = speech_rate_units_per_second(None)
+        for prompt in (_build(), _build(products={})):
+            assert f"约 {default_rate:g} 字/秒" in prompt
+        # 语速与量词随 target_language 切换（en 计词），证明是注入而非写死
+        en_rate = speech_rate_units_per_second("en")
+        assert en_rate != default_rate
+        assert f"约 {en_rate:g} 词/秒" in _build(target_language="en")
 
     def test_section_eight_values_guidance(self):
         prompt = _build()

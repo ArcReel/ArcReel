@@ -7,7 +7,7 @@ WebUI（server/services/generation_tasks.py）和 Skill（agent_runtime_profile/
 - 无 backend 锁定：纯文本拼接，由调用方决定走哪个 image/video provider。
 - 反向提示词统一以「画面避免：xxx」追加到 prompt 末尾，不再使用各 backend 的 negative_prompt 参数通道
   （image backends 大多 silent 丢弃，参数化反而增加分叉）。
-- 防崩短语精简：扁平 4 项内核，避免 CFG 权重稀释。
+- 防崩与反向短语精简：只保关键项，避免 CFG 权重稀释。
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ _PROP_GUARD = "外观结构完整，焦点清晰。"
 _PRODUCT_FIDELITY_CORE = "logo、文字、配色、材质、比例与结构不得改变或臆造"
 _PRODUCT_GUARD = f"产品外观必须忠实于参考图中的真实产品：{_PRODUCT_FIDELITY_CORE}；各视图为同一件产品。"
 
-# 反向提示词：精简到核心 4 项，避免 CFG 权重稀释。
-_NEGATIVE_TAIL_ASSET = "画面避免：水印、多余文字、低分辨率、手指畸形。"
+# 反向提示词：只列实体排除项，不写质量词（质量词对现代生成模型近于噪声，且稀释 CFG 权重）。
+_NEGATIVE_TAIL_ASSET = "画面避免：水印、多余文字、Logo。"
 _NEGATIVE_TAIL_VIDEO = "禁止出现：BGM、文字字幕、水印。"
 
 
@@ -148,6 +148,19 @@ def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | Non
     return f"{prompt.rstrip()}\n\n{tail}"
 
 
+def append_image_negative_tail(prompt: str) -> str:
+    """给分镜图生成 prompt 追加统一的图像反向提示词。
+
+    资产图在各 build_*_prompt 内已拼接同一尾巴；分镜图 prompt 由 LLM 产出、
+    经归一化后交 image backend，在归一化出口过一遍此函数，保持各图像路径一致。
+    """
+    if not prompt or not prompt.strip():
+        return _NEGATIVE_TAIL_ASSET
+    if _NEGATIVE_TAIL_ASSET in prompt:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{_NEGATIVE_TAIL_ASSET}"
+
+
 def append_video_negative_tail(prompt: str) -> str:
     """给视频生成 prompt 追加统一的反向提示词。
 
@@ -159,16 +172,3 @@ def append_video_negative_tail(prompt: str) -> str:
     if _NEGATIVE_TAIL_VIDEO in prompt:
         return prompt
     return f"{prompt.rstrip()}\n\n{_NEGATIVE_TAIL_VIDEO}"
-
-
-def build_storyboard_suffix(content_mode: str = "narration", *, aspect_ratio: str | None = None) -> str:
-    """分镜图构图后缀。优先 aspect_ratio，缺省按 content_mode 推导。"""
-    if aspect_ratio is None:
-        ratio = "9:16" if content_mode in {"narration", "ad"} else "16:9"
-    else:
-        ratio = aspect_ratio
-    if ratio == "9:16":
-        return "竖屏构图。"
-    if ratio == "16:9":
-        return "横屏构图。"
-    return ""

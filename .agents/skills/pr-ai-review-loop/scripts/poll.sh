@@ -373,11 +373,17 @@ jq -n \
     # bot reply happens to discuss quota as a topic (e.g. a PR description that mentions quota).
     # Real alerts always pair a keyword with a verb like "exceeded" / "reached" / "exhausted",
     # or use a fixed phrase like "You have / You\x27ve reached your ... limit".
+    # CodeRabbit additionally always wraps its rate-limit banner in a dedicated
+    # HTML marker ("rate limited by coderabbit.ai"); matching that marker directly
+    # is CodeRabbit-authored and unambiguous, so this check is not restricted to
+    # the body head — a preceding change-stack link banner can otherwise push
+    # the phrase itself past the 500-char window and cause a silent miss.
     [$sub_a[]
      | select(.user.login | test("(gemini-code-assist|coderabbitai)\\[bot\\]$"))
      | (.body // "") as $qb
      | select(
-         ($qb[0:500] | test("you(\\x27ve|\\x{2019}ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
+         ($qb | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->"))
+         or ($qb[0:500] | test("you(\\x27ve|\\x{2019}ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
          or ($qb[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
          or ($qb[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
          or ($qb[0:500] | test("(http\\s*)?429\\b|too many requests"; "i"))
