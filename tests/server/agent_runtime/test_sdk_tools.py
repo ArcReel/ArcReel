@@ -2345,7 +2345,7 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
 
 
 async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ctx: ToolContext, monkeypatch) -> None:
-    """片段边界恰好落在源文的段落换行处：安全空格拼接 + CJK 相邻空白清除，不应误报删减。"""
+    """片段边界恰好落在源文的段落换行处：边界处允许可选空格，不应误报删减。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -2363,7 +2363,7 @@ async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ct
 async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """片段边界落在半角标点后（源文无空白分隔）：安全拼接引入的空格须视为噪声清除，不应误报删减。"""
+    """片段边界落在半角标点后（源文无空白分隔）：边界处允许可选空格，不应误报删减。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -2376,6 +2376,21 @@ async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
     assert out.get("is_error") is not True, out
     step1_path = fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
     assert step1_path.exists()
+
+
+async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """标点后的词间空格在片段内部（非边界）丢失："Hello, world." -> "Hello,world."，属实质内容损坏，须拦截。"""
+    out = await _nr_source_and_call(
+        fake_ctx,
+        monkeypatch,
+        "Hello, world. This is fine.",
+        [_nr_segment("E1S01", 4, "Hello,world. This is fine.")],
+    )
+    assert out.get("is_error") is True
+    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
 async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:

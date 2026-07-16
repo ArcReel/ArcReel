@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -651,58 +652,23 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
         raise ValueError(f"step1 拆分内容 duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
 
-def _is_cjk_or_symbol(ch: str) -> bool:
-    """CJK 表意文字 / CJK 标点 / 全角字符 / 引号——本身不靠空格分词，也不是空格分词语言的字母。"""
-    cp = ord(ch)
-    return (
-        0x4E00 <= cp <= 0x9FFF  # CJK 统一表意文字
-        or 0x3000 <= cp <= 0x303F  # CJK 符号与标点（含全角句号、顿号等）
-        or 0xFF00 <= cp <= 0xFFEF  # 全角字符
-        or 0x2018 <= cp <= 0x201F  # 全角引号
-    )
-
-
-def _is_space_delimited_letter(ch: str) -> bool:
-    """英语 / 越南语等空格分词语言的字母——两侧都是这类字符时，空白才可能是有意义的分词间隔。"""
-    return ch.isalpha() and not _is_cjk_or_symbol(ch)
-
-
 def _normalize_for_coverage(text: str) -> str:
-    """把空白折叠为单个空格，仅容忍空白的类型/数量差异，不抹去"有空白"这一事实本身。
-
-    片段安全拼接引入的人工分隔符与源文本身的换行 / 半角标点等排版差异无法从字符本身区分，
-    因此只在空白两侧都是空格分词语言的字母（英语 / 越南语等）时才当作潜在词间空格保留（折叠为
-    单个空格，以便检出词间空格丢失）；两侧只要有一侧是 CJK 表意文字、CJK/全角标点或其他非字母
-    字符（含半角标点、数字），空白一律视为排版噪声直接清除——这类边界原生就不靠空格分词。
-    """
-    result: list[str] = []
-    i, n = 0, len(text)
-    while i < n:
-        ch = text[i]
-        if not ch.isspace():
-            result.append(ch)
-            i += 1
-            continue
-        j = i
-        while j < n and text[j].isspace():
-            j += 1
-        prev_ch = result[-1] if result else ""
-        next_ch = text[j] if j < n else ""
-        if _is_space_delimited_letter(prev_ch) and _is_space_delimited_letter(next_ch):
-            result.append(" ")
-        i = j
-    return "".join(result).strip()
+    """把连续空白折叠为单个空格，不删除空白本身，仅消除空白的类型 / 数量差异。"""
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: str) -> None:
     """机械校验片段 ``novel_text`` 按序、完整覆盖源文，杜绝模型删减 / 改写 / 重排后仍被当真值落盘。
 
-    片段间用空格安全拼接（而非直接首尾相连），避免源文在片段交界处的空白（段落换行等）被
-    拼接吞掉——被吞掉会导致合法拆分误报删减；交界处引入的多余空格与源文换行一样，交给
-    ``_normalize_for_coverage`` 统一折叠 / 清除，两侧处理口径一致。
+    片段边界处的空白存在与否天然歧义——模型选择的切分点可能落在源文空格上（该空格被
+    切分本身"消耗"，不落在任一片段自身文本里），也可能落在无空格的 CJK / 标点邻接处，
+    两者从拼接后的字符串本身无法可靠区分。因此仅在片段交界处允许可选的单个空格；片段
+    自身文本内部与源文其余部分一律要求折叠后逐字相等，不能让边界宽容掩盖片段内部真实的
+    删减、改写或词间空格丢失（后者是 CJK / 半角标点邻接边界的普适宽容规则曾误伤的场景）。
     """
-    combined = " ".join(str(s.get("novel_text") or "") for s in segments)
-    if _normalize_for_coverage(combined) != _normalize_for_coverage(novel_text):
+    parts = [re.escape(_normalize_for_coverage(str(s.get("novel_text") or ""))) for s in segments]
+    pattern = " ?".join(parts)
+    if re.fullmatch(pattern, _normalize_for_coverage(novel_text)) is None:
         raise ValueError("step1 拆分内容 novel_text 未逐字、完整覆盖小说原文（存在删减、改写或重排）")
 
 
