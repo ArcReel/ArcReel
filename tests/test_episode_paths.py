@@ -87,3 +87,19 @@ def test_gate_only_json_status_and_web_also_md():
     # 状态计算：narration 旧 .md 认作已分段，drama 旧 .md 不认（见 ADR 0041）
     assert "step1_segments.md" in status_calculator._draft_candidates("narration")
     assert "step1_normalized_script.md" not in status_calculator._draft_candidates("drama")
+
+
+def test_draft_candidates_reference_video_across_content_modes():
+    """rv 是跨 content_mode 的 generation_mode 维度：narration/drama 项目挂 rv 后，状态计算的
+    草稿探测都应改落 rv 专属结构化文件名，而非各自 content_mode 对应名（回归：此前遗漏 generation_mode
+    参数，rv 项目的 step1_reference_units.json 永远探测不到，script_status 停留 none）。"""
+    assert status_calculator._draft_candidates("narration", "reference_video") == (
+        episode_paths.REFERENCE_VIDEO_STEP1_FILENAME,
+    )
+    assert status_calculator._draft_candidates("drama", "reference_video") == (
+        episode_paths.REFERENCE_VIDEO_STEP1_FILENAME,
+    )
+    # 未传 generation_mode（向后兼容）沿用 content_mode 既有候选，不受影响
+    assert status_calculator._draft_candidates("narration") == status_calculator._draft_candidates("narration", None)
+    # ad 优先于 generation_mode：即便挂 rv 也无草稿可探测（与 gate/web 同口径，见上一测试）
+    assert status_calculator._draft_candidates("ad", "reference_video") == ()

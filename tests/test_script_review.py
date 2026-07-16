@@ -282,6 +282,30 @@ class TestReferenceVideoGateFlow:
             svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
 
+    def test_confirm_rederives_references_when_step1_edited_outside_save_content(self, tmp_path):
+        """confirm 前直改 step1 文件（绕过 save_content，如 agent Write/Edit 直改 drafts/）→
+        确认时按当前正文重派生 references 并落盘，不放行陈旧引用（回归 Codex P2）。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
+        svc = ScriptReviewService(pm)
+
+        # 直改正文引用为 @[屋檐]，但故意保留旧 references（模拟绕过 save_content 的直写）。
+        stale = _rv_step1()
+        stale["units"][0]["shots"][1]["text"] = "镜头扫过 @[屋檐]。"
+        path = _write_rv_step1(pm, stale)
+
+        confirmed = svc.confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+        refs = confirmed["content"]["units"][0]["references"]
+        assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
+
+        # 落盘内容也已更新（confirm 记录的指纹对应重派生后的内容，非编辑前的陈旧版本）。
+        on_disk = json.loads(path.read_text(encoding="utf-8"))
+        assert [(r["type"], r["name"]) for r in on_disk["units"][0]["references"]] == [
+            ("character", "阿离"),
+            ("scene", "屋檐"),
+        ]
+
 
 class TestReferenceVideoStep2Enforcement:
     async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):

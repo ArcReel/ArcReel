@@ -162,11 +162,23 @@ class ScriptReviewService:
             raise ScriptReviewError("no_step1")
         # 确认前按 step1 变体模型校验 step1 结构：content_fingerprint 对非法 JSON / 任意字节
         # 也会产出哈希，仅凭 fingerprint 非空会把损坏草稿确认放行、拖到 step2 才暴露；此处拒绝。
-        _kind, model = self._resolve_step1_model(project, episode)
+        kind, model = self._resolve_step1_model(project, episode)
         try:
-            model.model_validate(_read_json(path))
+            validated = model.model_validate(_read_json(path))
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
+
+        if kind == "reference_video":
+            # references 是从 shot 正文机械派生的字段（同 save_content）。agent / 人工可能绕过
+            # save_content 直改 step1 文件正文后直接调用本方法确认：若不在此重派生，references
+            # 会带着与新正文不符的陈旧引用被确认放行，step2 仍用旧 [图N] 映射生成。重派生后落盘，
+            # 指纹改按落盘后的内容算，确认记录与实际 step1 内容一致。
+            dumped = validated.model_dump()
+            rederive_unit_references(dumped["units"], project)
+            atomic_write_json(path, dumped)
+            fingerprint = script_review.content_fingerprint(path)
+            if fingerprint is None:
+                raise ScriptReviewError("no_step1")
 
         confirmed_at = datetime.now(UTC).isoformat()
 
