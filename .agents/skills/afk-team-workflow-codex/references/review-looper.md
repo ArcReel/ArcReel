@@ -18,6 +18,7 @@
 3. 所有“询问用户”重定向为 `collaboration.send_message` 给 lead，包含事实、原文和可选裁决。等待裁决时继续按上条监控；运行中的回复由 lead `send_message`，若本 agent 已结束当前 turn，则 lead 用 `followup_task` 续同一 teammate。
 4. 常规 `no_change`、reviewer 响应中和普通 idle 不汇报 lead。只在达标、故障、真实 reviewer 冲突、业务取舍，或共享 skill 的收敛兜底（达到 8 轮、连续两轮只有 nit/format push）触发时汇报。
 5. main 前进时不单独 rebase；下次修复 push 一并 rebase。PR 进入 `CONFLICTING` 时立即按功能意图解决冲突并重验。
+6. 共享 `$pr-ai-review-loop` 与 `$receiving-code-review` 中所有 PR 写操作都映射为已通过 preflight 的 connector：reviewer 触发命令和 pushback 使用 PR 顶层评论，inline 回应必须回复原 thread；`poll.sh`、`query.sh` 等机械脚本仅可用 `gh` 只读。connector 缺少任一写能力时按故障报告 lead 并停止，不得降级为 `gh` 写 PR。
 
 ## 交付
 

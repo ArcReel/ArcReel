@@ -6,7 +6,7 @@
 
 逐项以当前工具目录和只读调用取证：
 
-1. **GitHub connector**：确认存在读取仓库/issue/PR/合并配置/分支规则，以及创建 PR、转 draft、PR 评论和 squash merge 所需的 connector 工具。先从传入 `repo_root` 的 `origin` 动态解析目标 `<owner>/<repo>`，再调用 `github_get_profile` 取得当前 login，并用 `github_get_repo_collaborator_permission` 核对该 login 对目标仓库的权限为 `write`、`maintain` 或 `admin`；随后只读确认同一目标仓库可访问、已启用 squash merge，并读取作用于默认分支与 `issue/*` 的 protection/ruleset。CI 等可由后续流程满足的要求记录即可；强制人工批准、actor 限制或其他当前 connector 身份无法满足/绕过的规则均视为失败。不得把仓库名写死，也不要用真实写操作做探针；任一配置无法读取时不能推定为通过。issue/Spec 的标签、评论与立项统一由 `gh` 执行，其仓库写权限由下方脚本只读核验。
+1. **GitHub connector**：确认存在读取仓库/issue/PR/合并配置/分支规则，以及创建 PR、转 draft、PR 顶层评论、inline thread 回复和 squash merge 所需的 connector 工具。先从传入 `repo_root` 的 `origin` 动态解析目标 `<owner>/<repo>`，再调用 `github_get_profile` 取得当前 login，并用 `github_get_repo_collaborator_permission` 核对该 login 对目标仓库的权限为 `write`、`maintain` 或 `admin`；随后只读确认同一目标仓库可访问、已启用 squash merge，并读取作用于默认分支与 `issue/*` 的 protection/ruleset。CI 等可由后续流程满足的要求记录即可；强制人工批准、actor 限制或其他当前 connector 身份无法满足/绕过的规则均视为失败。不得把仓库名写死，也不要用真实写操作做探针；任一配置无法读取时不能推定为通过。issue/Spec 的标签、评论与立项统一由 `gh` 执行，其仓库写权限由下方脚本只读核验。
 2. **Collaboration**：确认 `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`list_agents`、`interrupt_agent` 可用，并由槽位信息算出 lead 之外的上限。
 3. **本地审查 skill**：确认外部 `$code-review` 可由本地审查 agent 调用；它是审查流程的单一真相源。
 4. **当前任务 heartbeat**：确认 `codex_app__automation_update` 支持当前 task 的 heartbeat 创建与删除。创建一个约 30 分钟后才会触发的临时 heartbeat，取得 id 后立即删除；两步都成功才算权限通过。
