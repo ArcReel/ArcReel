@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,7 +31,7 @@ class _MultiProjectPM:
     def get_project_path(self, project_name):
         if project_name not in self.valid_projects:
             raise FileNotFoundError(project_name)
-        return Path("/tmp") / project_name
+        return Path(tempfile.gettempdir()) / project_name
 
 
 class _FakeMetaStore:
