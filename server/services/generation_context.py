@@ -284,17 +284,16 @@ async def resolve_generation_context(
             max_reference_images: int | None = None
             try:
                 caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project)
-            except ValueError as exc:
+                supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
+                max_duration = caps.get("max_duration")
+                max_reference_images = caps.get("max_reference_images")
+            except Exception as exc:
                 logger.info(
                     "无法解析 video capabilities（%s/%s），能力值降级为空：%s",
                     resolved.provider_id,
                     actual_model,
                     exc,
                 )
-            else:
-                supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
-                max_duration = caps.get("max_duration")
-                max_reference_images = caps.get("max_reference_images")
             video_result = VideoLaneResult(
                 provider_model=resolved,
                 backend_name=video_backend.name,
