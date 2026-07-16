@@ -1242,6 +1242,83 @@ class TestSkeletonEntryTypeGuards:
         assert any(array_key in error and "数组" in error for error in result.errors), result.errors
 
 
+class TestInvalidContentModeEpisodeValidation:
+    """content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud 抛 ValueError，
+    但剧集级校验的契约是把脏数据报告成结构化错误，不让异常向外传播。"""
+
+    def test_validate_episode_reports_structured_error_not_crash(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("bogus_legacy"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "segments": []},
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not result.valid
+        assert any("content_mode" in error for error in result.errors), result.errors
+
+    def test_validate_project_tree_reports_structured_error_not_crash(self, tmp_path):
+        payload = _project_payload("bogus_legacy")
+        payload["episodes"] = [{"episode": 1, "title": "x", "script_file": "scripts/episode_1.json"}]
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "segments": []},
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(project_dir)
+
+        assert not result.valid
+        assert any("content_mode" in error for error in result.errors), result.errors
+
+    def test_episode_level_invalid_content_mode_also_reported(self, tmp_path):
+        # 项目级 content_mode 合法，但剧集自身声明的 content_mode 非法（覆盖项目级值）：
+        # 同样结构化报错，不抛异常。
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "content_mode": "bogus_legacy", "segments": []},
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not result.valid
+        assert any("content_mode" in error for error in result.errors), result.errors
+
+    def test_missing_episode_content_mode_still_falls_back_to_project_value(self, tmp_path):
+        # 回归防线：剧集级 content_mode 完全缺失时仍应回落项目级值 / "narration"，不触发本次改动
+        # 新增的错误分支。
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "原文",
+                        "characters_in_segment": ["姜月茴"],
+                        "scenes": ["古宅"],
+                        "props": ["玉佩"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "duration_seconds": 3,
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert result.valid, result.errors
+
+
 # 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
 _KIND_TO_MODES = {
     "segments": ("narration", None),
