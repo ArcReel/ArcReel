@@ -201,6 +201,37 @@ describe("selectHasActiveTaskForScriptFile", () => {
     expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(false);
   });
 
+  it("normalizes an optional scripts/ prefix before comparing, either side", () => {
+    // router 入队路径可能传入带 scripts/ 前缀的 script_file，Agent/SDK 工具路径经
+    // validate_script_filename 强制裸文件名；两种任务行格式都要能被两种调用方式
+    // 传入的 scriptFile（带或不带前缀）匹配到，不依赖调用方预先裁剪。
+    const prefixedTaskTasks = [
+      task({
+        task_id: "grid-prefixed",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "scripts/episode_1.json",
+        status: "running",
+      }),
+    ];
+    expect(selectHasActiveTaskForScriptFile(prefixedTaskTasks, "grid", "episode_1.json", "proj")).toBe(
+      true,
+    );
+
+    const bareTaskTasks = [
+      task({
+        task_id: "grid-bare",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "running",
+      }),
+    ];
+    expect(
+      selectHasActiveTaskForScriptFile(bareTaskTasks, "grid", "scripts/episode_1.json", "proj"),
+    ).toBe(true);
+  });
+
   it("does not merge to a latest row — a terminal grid task for the scriptFile stays inactive", () => {
     const tasks = [
       task({

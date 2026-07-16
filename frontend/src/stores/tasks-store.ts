@@ -106,6 +106,14 @@ export function selectActiveResourceIds(
   return ids;
 }
 
+// 与 task-target.ts 的 stripScriptsPrefix 同一归一化规则：episode 元数据的 script_file
+// 固定带 `scripts/` 前缀（见 ProjectManager._apply_episode_sync），但任务行的 script_file
+// 由各入队调用方各自传入——router 直传 webui 表单值，Agent/SDK 工具经 validate_script_filename
+// 强制裸文件名，两者格式不保证一致。此处不依赖调用方预先裁剪，自行归一化后再比较。
+function stripScriptsPrefix(path: string): string {
+  return path.replace(/^scripts\//, "");
+}
+
 /**
  * 是否存在指定 scriptFile 下、taskType 类型的活跃任务。不做「最新行胜出」归并——
  * 存在即算，用于粗粒度剧集级占用判定：grid 任务的 resource_id 是 grid_id 而非
@@ -119,11 +127,13 @@ export function selectHasActiveTaskForScriptFile(
   scriptFile: string,
   projectName: string,
 ): boolean {
+  const normalized = stripScriptsPrefix(scriptFile);
   return tasks.some(
     (task) =>
       task.project_name === projectName &&
       task.task_type === taskType &&
-      task.script_file === scriptFile &&
+      task.script_file != null &&
+      stripScriptsPrefix(task.script_file) === normalized &&
       isActiveStatus(task.status),
   );
 }
