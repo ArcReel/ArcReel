@@ -62,6 +62,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
   let refreshQueued = false;
   let queuedName: string | null = null;
   let queuedKeys: string[] = [];
+  let queuedOnErrors: Array<(err: unknown) => void> = [];
 
   // 执行刷新循环：while 排队重跑替代递归，失败路径也消费排队请求，
   // 直至无新排队为止；返回最后一轮是否成功。
@@ -72,28 +73,36 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
   ): Promise<boolean> => {
     let curName = name;
     let curKeys = keys;
+    let curOnErrors = onError ? [onError] : [];
     let ok = false;
     let again = true;
     while (again) {
       again = false;
       try {
         const res = await API.getProject(curName);
-        get().setCurrentProject(curName, res.project, res.scripts ?? {}, res.asset_fingerprints);
-        if (curKeys.length > 0) {
-          useAppStore.getState().invalidateEntities(curKeys);
+        // 在途期间若已排队到不同项目的刷新请求，本轮响应针对的是即将切走的旧项目——
+        // 跳过写入，避免用它覆盖排队轮即将加载的新项目（数据 / 名称均不提交）。
+        const supersededByOtherProject = refreshQueued && queuedName !== null && queuedName !== curName;
+        if (!supersededByOtherProject) {
+          get().setCurrentProject(curName, res.project, res.scripts ?? {}, res.asset_fingerprints);
+          if (curKeys.length > 0) {
+            useAppStore.getState().invalidateEntities(curKeys);
+          }
+          ok = true;
         }
-        ok = true;
       } catch (err) {
         // 失败留旧：不覆盖 currentProjectData；调用方按返回值 / onError 决定提示。
         ok = false;
-        onError?.(err);
+        curOnErrors.forEach((cb) => cb(err));
       }
       if (refreshQueued) {
         refreshQueued = false;
         curName = queuedName ?? curName;
         curKeys = queuedKeys;
+        curOnErrors = queuedOnErrors;
         queuedName = null;
         queuedKeys = [];
+        queuedOnErrors = [];
         again = true;
       }
     }
@@ -131,10 +140,14 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
       if (!name) return Promise.resolve(false);
       const invalidateKeys = options?.invalidateKeys ?? [];
       if (refreshInFlight) {
-        // 已有刷新在途：合并为「结束后再跑一轮」，取最新 name，累积 invalidateKeys。
+        // 已有刷新在途：合并为「结束后再跑一轮」，取最新 name，累积 invalidateKeys /
+        // onError——排队轮次失败时需通知全部合并进来的调用方，不能只保留首轮回调。
         refreshQueued = true;
         queuedName = name;
         queuedKeys = [...queuedKeys, ...invalidateKeys];
+        if (options?.onError) {
+          queuedOnErrors = [...queuedOnErrors, options.onError];
+        }
         return refreshInFlight;
       }
       const p = runRefresh(name, invalidateKeys, options?.onError).finally(() => {

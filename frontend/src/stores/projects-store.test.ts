@@ -134,6 +134,49 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("新");
   });
 
+  it("跨项目合并：A 在途时排队刷新 B，A 的响应不写入 store（避免覆盖排队中的 B）", async () => {
+    useProjectsStore.getState().setCurrentProject("B", makeProject("B-旧"), {}, {});
+    const dA = deferred<GetProjectResult>();
+    const dB = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
+
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A");
+    const pB = store.refreshProject("B"); // 合并 → 排队到不同名称
+
+    dA.resolve(makeResult("A-数据"));
+    await flush();
+    // A 的响应到达，但排队目标已是不同项目 B：不提交，store 仍是 B 的旧数据
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-旧");
+
+    dB.reject(new Error("B failed"));
+    const [okA, okB] = await Promise.all([pA, pB]);
+    expect(okA).toBe(false);
+    expect(okB).toBe(false);
+    // B 轮失败：留旧，仍是 B 的旧数据，绝不能变成 A 的数据
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-旧");
+  });
+
+  it("排队轮 onError：首轮无回调、排队轮有回调且失败时通知排队轮回调", async () => {
+    const d1 = deferred<GetProjectResult>();
+    const d2 = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+    const onError2 = vi.fn();
+
+    const store = useProjectsStore.getState();
+    const p1 = store.refreshProject("demo"); // 首轮无 onError
+    const p2 = store.refreshProject("demo", { onError: onError2 }); // 排队轮带 onError
+
+    d1.resolve(makeResult("R1"));
+    await flush();
+    const err = new Error("round2 fail");
+    d2.reject(err);
+    await Promise.all([p1, p2]);
+    expect(onError2).toHaveBeenCalledWith(err);
+  });
+
   it("合并期间累积 invalidateKeys：排队轮成功后一并失效", async () => {
     const d1 = deferred<GetProjectResult>();
     const d2 = deferred<GetProjectResult>();
