@@ -162,10 +162,11 @@ async def generate_video(
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
-        if resolved:
-            assets = resolved[0].get("generated_assets") or {}
-            if isinstance(assets, dict):
-                storyboard_rel = assets.get("storyboard_image")
+        if resolved is None:
+            raise NotFoundError("segment_not_found", id=segment_id)
+        assets = resolved[0].get("generated_assets") or {}
+        if isinstance(assets, dict):
+            storyboard_rel = assets.get("storyboard_image")
 
         storyboard_file = (
             project_path / storyboard_rel

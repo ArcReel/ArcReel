@@ -284,6 +284,31 @@ class TestGenerateRouter:
             # 任务未入队
             assert fake_queue.calls == []
 
+    def test_video_missing_segment_404(self, tmp_path, monkeypatch):
+        """segment_id 在脚本中根本不存在时,/generate/video 应 404,而不是
+        悄悄走 default storyboard 路径——即使 default 文件恰好存在(如与旧
+        数据撞名),也不能把不存在的 segment 当成校验通过而入队。
+        """
+        project_path = _prepare_files(tmp_path)
+        # default 路径恰好存在的场景：撞上一个不存在 segment 的默认文件名
+        (project_path / "storyboards" / "scene_E1S99.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S99",
+                json={
+                    "script_file": "episode_1.json",
+                    "duration_seconds": 5,
+                    "prompt": "fail fast",
+                },
+            )
+            assert video.status_code == 404, video.text
+            # 任务未入队
+            assert fake_queue.calls == []
+
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
