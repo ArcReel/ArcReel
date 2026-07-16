@@ -143,9 +143,13 @@ class TestRecordBracket:
 
     async def test_cancellation_passes_through_leaving_pending(self, factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=factory)
-        with pytest.raises(asyncio.CancelledError):
+        try:
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 raise asyncio.CancelledError()
+        except asyncio.CancelledError:
+            pass
+        else:
+            pytest.fail("expected CancelledError to propagate")
 
         # 穿透不记账：行停在 pending，不翻 failed
         row = await _only_row(factory)
@@ -179,6 +183,37 @@ class TestRecordBracket:
         with pytest.raises(ValueError, match="original"):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 raise ValueError("original")
+
+    async def test_success_write_failure_flips_failed_and_reraises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """call.success() 已声明，但成功结算写入本身抛异常时，须尝试翻 failed 而非永久留 pending。"""
+
+        statuses: list[str] = []
+
+        class _BoomOnSuccessRepo:
+            def __init__(self, _session: Any) -> None:
+                pass
+
+            async def start_call(self, **_kwargs: Any) -> int:
+                return 1
+
+            async def finish_call(self, _call_id: int, *, status: str, **_kwargs: Any) -> None:
+                statuses.append(status)
+                if status == "success":
+                    raise RuntimeError("settlement write down")
+
+        monkeypatch.setattr("lib.ledger.UsageRepository", _BoomOnSuccessRepo)
+
+        @asynccontextmanager
+        async def _dummy_session() -> AsyncIterator[None]:
+            yield None
+
+        ledger = Ledger(session_factory=lambda: _dummy_session())
+
+        with pytest.raises(RuntimeError, match="settlement write down"):
+            async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
+                call.success(_TextResult(input_tokens=1, output_tokens=1))
+
+        assert statuses == ["success", "failed"]
 
 
 # ---------------------------------------------------------------------------

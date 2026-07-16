@@ -27,7 +27,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -142,7 +142,12 @@ class Ledger:
         else:
             if call._settlement is None:
                 raise RuntimeError(f"ledger.record(call_type={call_type!r}) 正常退出但未调用 call.success(result)")
-            await self._finish_success(call_id, call._settlement, output_path=output_path)
+            try:
+                await self._finish_success(call_id, call._settlement, output_path=output_path)
+            except Exception as exc:
+                # 成功结算写入本身失败：不留永久 pending，尝试翻 failed 后原样重抛。
+                await self._finish_failed(call_id, exc)
+                raise
 
     async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
         """resume 成功补账：按 call_id 精准翻 pending → success，返回受影响行数（幂等 0/1）。
@@ -165,7 +170,7 @@ class Ledger:
         provider: str,
         prompt: str | None,
         user_id: str,
-        status: str,
+        status: Literal["success", "failed"],
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         usage_tokens: int | None = None,
