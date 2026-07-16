@@ -1332,6 +1332,7 @@ export default {
   'tool_name_list_pending_assets': 'Liệt kê tài sản chờ tạo',
   'tool_name_generate_assets': 'Tạo tài sản',
   'tool_name_generate_storyboards': 'Tạo storyboard',
+  'tool_name_edit_images': 'Chỉnh sửa ảnh',
   'tool_name_generate_grid': 'Tạo lưới',
   'tool_name_generate_video_episode': 'Tạo video (toàn tập)',
   'tool_name_generate_video_scene': 'Tạo video (cảnh)',

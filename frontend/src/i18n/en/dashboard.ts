@@ -1212,6 +1212,7 @@ export default {
   'tool_name_list_pending_assets': 'List pending assets',
   'tool_name_generate_assets': 'Generate assets',
   'tool_name_generate_storyboards': 'Generate storyboards',
+  'tool_name_edit_images': 'Edit images',
   'tool_name_generate_grid': 'Generate grid',
   'tool_name_generate_video_episode': 'Generate video (episode)',
   'tool_name_generate_video_scene': 'Generate video (scene)',

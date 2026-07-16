@@ -177,6 +177,15 @@ async def enqueue_task_only(
     if not await queue.is_worker_online(name=lease_name):
         raise WorkerOfflineError("queue worker is offline")
 
+    # image_edit 跨四类资产 + storyboard 共用 task_type，resource_id 命名空间不互斥
+    # （角色和道具可能同名）；顶层 resource_type 是去重/占用匹配键的一部分（见
+    # lib/generation_queue.py::enqueue_task），从 payload.resource_type 回填而非要求
+    # 每个调用方重复传参——路由层的直接 queue.enqueue_task() 调用已显式传入，这里补齐
+    # 经 enqueue_task_only()/enqueue_and_wait()/batch_enqueue_and_wait() 入队的路径
+    # （目前是 SDK edit_images 工具），避免同名跨类型资源被误判为重复任务。
+    raw_resource_type = (payload or {}).get("resource_type")
+    resource_type = raw_resource_type if isinstance(raw_resource_type, str) and raw_resource_type else None
+
     enqueue_result = await queue.enqueue_task(
         project_name=project_name,
         task_type=task_type,
@@ -184,6 +193,7 @@ async def enqueue_task_only(
         resource_id=resource_id,
         payload=payload or {},
         script_file=script_file,
+        resource_type=resource_type,
         source=source,
         dependency_task_id=dependency_task_id,
         dependency_group=dependency_group,

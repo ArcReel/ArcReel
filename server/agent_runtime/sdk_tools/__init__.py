@@ -22,6 +22,7 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
     list_pending_assets_tool,
 )
 from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
+from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import (
@@ -63,6 +64,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
+    "edit_images",
     "generate_grid",
     "generate_video_episode",
     "generate_video_scene",
@@ -95,6 +97,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             list_pending_assets_tool(ctx),
             generate_assets_tool(ctx),
             generate_storyboards_tool(ctx),
+            edit_images_tool(ctx),
             generate_grid_tool(ctx),
             generate_video_episode_tool(ctx),
             generate_video_scene_tool(ctx),

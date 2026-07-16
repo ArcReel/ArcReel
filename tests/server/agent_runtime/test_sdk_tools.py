@@ -21,6 +21,7 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
     list_pending_assets_tool,
 )
 from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
+from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_all_tool,
@@ -535,6 +536,108 @@ async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) ->
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
+
+
+# ---------------------------------------------------------------------------
+# enqueue_image_edits
+# ---------------------------------------------------------------------------
+
+
+def test_edit_images_registered() -> None:
+    """edit_images 必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。"""
+    from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
+
+    assert "edit_images" in ARCREEL_MCP_TOOL_IDS
+
+
+async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+
+    async def fake_i2i(_project):
+        return True
+
+    async def fake_batch(*, project_name, specs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"characters/{s.resource_id}.png", "version": 2},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(
+        tool_obj,
+        {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
+    )
+    assert out.get("is_error") is not True, out
+    text = out["content"][0]["text"]
+    assert "1 succeeded" in text
+    assert "张三" in text
+
+
+async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -> None:
+    """i2i 不可用时直接报错，不创建任何任务（复用服务端 fail-fast 判断点）。"""
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    async def fake_i2i(_project):
+        return False
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(
+        tool_obj,
+        {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
+    )
+    assert out.get("is_error") is True
+
+
+async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    async def fake_i2i(_project):
+        return True
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(tool_obj, {"resource_type": "storyboard", "edits": [{"id": "E1S01", "instruction": "去杂物"}]})
+    assert out.get("is_error") is True
+    assert "script_file" in out["content"][0]["text"]
+
+
+async def test_edit_images_rejects_unknown_resource_type(fake_ctx: ToolContext) -> None:
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(tool_obj, {"resource_type": "video", "edits": [{"id": "x", "instruction": "y"}]})
+    assert out.get("is_error") is True
+
+
+async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext, monkeypatch) -> None:
+    """资产没有可编辑的当前图（sheet 字段未设置）时跳过并告警，不入队。"""
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    async def fake_i2i(_project):
+        return True
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    tool_obj = edit_images_tool(fake_ctx)
+    # 李四 没有 character_sheet
+    out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "李四", "instruction": "换发色"}]})
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "李四" in text
+    assert "没有可编辑的当前图" in text
 
 
 # ---------------------------------------------------------------------------

@@ -1213,6 +1213,7 @@ export default {
   'tool_name_list_pending_assets': '查询待生成资产',
   'tool_name_generate_assets': '生成资产',
   'tool_name_generate_storyboards': '生成分镜图',
+  'tool_name_edit_images': '编辑图片',
   'tool_name_generate_grid': '生成宫格图',
   'tool_name_generate_video_episode': '生成视频（整集）',
   'tool_name_generate_video_scene': '生成视频（单场景）',
