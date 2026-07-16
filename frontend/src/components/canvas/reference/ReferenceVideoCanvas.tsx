@@ -39,6 +39,8 @@ export interface ReferenceVideoCanvasProps {
   episodeTitle?: string;
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
+  /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
+  hasScript?: boolean;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -69,6 +71,7 @@ export function ReferenceVideoCanvas({
   episodeTitle,
   onSaveTitle,
   canEditTitle,
+  hasScript = true,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -95,8 +98,11 @@ export function ReferenceVideoCanvas({
   const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
 
   useEffect(() => {
+    // step2 剧本未生成时 /episodes/{episode}/units 后端会 404（无脚本可拆单元）；
+    // hasScript 转 true 后本 effect 随依赖变化重跑，补上首次拉取。
+    if (!hasScript) return;
     void loadUnits(projectName, episode);
-  }, [loadUnits, projectName, episode]);
+  }, [loadUnits, projectName, episode, hasScript]);
 
   const selected = useMemo(
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,
@@ -355,14 +361,22 @@ export function ReferenceVideoCanvas({
   );
 
   // Reset tab to units on project/episode change (render-time derived-state pattern).
-  const [tab, setTab] = useState<"units" | "preproc">("units");
+  // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
+  // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
+  const [tab, setTab] = useState<"units" | "preproc">(hasScript ? "units" : "preproc");
   const [lastEpisode, setLastEpisode] = useState(episode);
   const [lastProject, setLastProject] = useState(projectName);
   if (lastEpisode !== episode || lastProject !== projectName) {
     setLastEpisode(episode);
     setLastProject(projectName);
-    setTab("units");
+    setTab(hasScript ? "units" : "preproc");
   }
+
+  useEffect(() => {
+    // 剧本生成完成后（hasScript 由 false 变 true）自动切到 units，同一 episode 内组件不 remount。
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 镜像 GridImageToVideoCanvas 同款效果
+    if (hasScript) setTab("units");
+  }, [hasScript]);
 
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。

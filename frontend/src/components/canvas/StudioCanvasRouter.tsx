@@ -638,6 +638,7 @@ export function StudioCanvasRouter() {
                     episodeTitle={episode?.title}
                     onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
                     canEditTitle={Boolean(episode?.script_file)}
+                    hasScript={Boolean(script)}
                   />
                 ) : mode === "grid" ? (
                   <GridImageToVideoCanvas

@@ -164,6 +164,45 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
   });
 
+  // step2 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
+  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板（回归 Codex P2）。
+  it("defaults to preproc tab and skips loadUnits when hasScript is false", async () => {
+    const listSpy = vi.spyOn(API, "listReferenceVideoUnits");
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      episode: 1,
+      content_mode: "narration",
+      status: "pending_review",
+      fingerprint: "fp",
+      confirmed_at: null,
+      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
+    const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    expect(preprocTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it("switches to units tab and fetches once hasScript flips true", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      episode: 1,
+      content_mode: "narration",
+      status: "pending_review",
+      fingerprint: "fp",
+      confirmed_at: null,
+      content: { units: [] },
+    });
+    const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
+    const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    expect(preprocTab).toHaveAttribute("aria-selected", "true");
+    rerender(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={true} />);
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Video units|视频单元/ })).toHaveAttribute("aria-selected", "true"),
+    );
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+  });
+
   // optimistic：任务队列 3s 轮询间隙内按钮也要立刻反馈 busy，否则用户
   // 会误以为"点了没反应"继续点击造成重复入队。
   it("flips the generate button to busy optimistically before the task poll picks it up", async () => {
