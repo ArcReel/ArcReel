@@ -635,7 +635,12 @@ def split_reference_video_units_tool(ctx: ToolContext):
 
 
 def _validate_narration_segments(segments: list[dict], supported_durations: list[int]) -> None:
-    """按 narration step1 读取契约做后校验：segment_id 唯一 + duration ∈ supported_durations。
+    """按 narration step1 读取契约做后校验：segment_id 唯一 + novel_text 非空白 + duration ∈ supported_durations。
+
+    静态 ``NarrationStep1Segment.novel_text`` 的 ``min_length=1`` 只校验原始字符串长度，纯空白
+    （如单个空格）能满足该约束却不携带任何实际旁白内容；此类片段在覆盖校验中经
+    ``_normalize_for_coverage`` 折叠为空字符串后不消耗任何字符，不会被覆盖校验拦截，会被当作
+    合法片段（携带真实 duration_seconds / 资产引用）写盘，产生"有时长但无旁白"的哑片段。
 
     静态 ``NarrationStep1Segment.duration_seconds`` 是 ``ge=1, le=60`` 开区间（复用既有片段 schema，
     不在 schema 层枚举硬约束），故超出 ``supported_durations`` 的时长能过 schema 校验；此处 fail-loud
@@ -646,6 +651,9 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
     dupes = sorted(str(sid) for sid, count in Counter(ids).items() if count > 1)
     if dupes:
         raise ValueError(f"step1 拆分内容 segment_id 重复: {dupes}")
+    blank = sorted(str(s.get("segment_id")) for s in segments if not str(s.get("novel_text") or "").strip())
+    if blank:
+        raise ValueError(f"step1 拆分内容 novel_text 为空白: {blank}")
     allowed = {int(d) for d in supported_durations}
     bad = sorted({s["duration_seconds"] for s in segments if int(s.get("duration_seconds") or 0) not in allowed})
     if bad:
