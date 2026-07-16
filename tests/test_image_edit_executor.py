@@ -192,7 +192,9 @@ class TestExecuteImageEditTask:
         assert fake_pm.sheet_updates == []
 
     async def test_backend_failure_skips_writeback(self, tmp_path, monkeypatch):
-        """失败零损失：backend 抛错时不写回资源字段（current 图/版本由 MediaGenerator 保证不触碰）。"""
+        """失败零损失：backend 抛错时不写回资源字段（current 图指针由 MediaGenerator 保证不触碰）。
+        旧图基线登记先于 backend 调用发生，与成败无关、不因失败回滚，不在本用例断言范围。
+        """
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator(fail=True)

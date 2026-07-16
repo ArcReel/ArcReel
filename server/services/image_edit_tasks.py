@@ -87,8 +87,11 @@ async def execute_image_edit_task(
     """执行图片编辑任务：读 current 图 → i2i → 新版本覆盖 current → 按资源类型写回。
 
     编辑必然 i2i（唯一入队即知 capability 的图片任务，见 ``docs/adr/0001``），故
-    ``needs_i2i=True`` 恒定走 i2i 槽；backend 调用失败时 current 图与版本文件不被
-    触碰（MediaGenerator 仅在成功后覆盖 output 并登记新版本），写回也不会发生。
+    ``needs_i2i=True`` 恒定走 i2i 槽；backend 调用失败时 current 图指针与资源写回
+    不被触碰（MediaGenerator 仅在成功后覆盖 output 并登记新版本，写回也不会发生）。
+    旧图基线登记（见下方 ``ensure_current_tracked`` 调用）先于 backend 调用发生，与
+    backend 成败无关、失败时不回滚——保证编辑前的旧图始终可回滚，不属于本次生成
+    的版本变更范畴。
     """
     resource_type = str(payload.get("resource_type") or "")
     if resource_type not in EDITABLE_RESOURCE_TYPES:
