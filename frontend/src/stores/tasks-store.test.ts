@@ -6,6 +6,7 @@ import {
   selectHasActiveTaskForScriptFile,
   selectLatestTaskByResource,
   taskResourceKind,
+  useTasksStore,
 } from "./tasks-store";
 import type { TaskItem, TaskStatus } from "@/types";
 
@@ -156,6 +157,60 @@ describe("selectActiveResourceIds with image_edit", () => {
       }),
     ];
     expect(selectActiveResourceIds(tasks, "character", "proj").has("A")).toBe(true);
+  });
+});
+
+describe("selectActiveResourceIds optimistic occupancy", () => {
+  it("counts a resource active via an optimistic marker when no real task row exists yet", () => {
+    // 提交成功但 SSE 尚未把任务行写进 store 的空窗：仅凭乐观标记也应判定占用
+    const key = "proj\0character\0A\0image_edit";
+    expect(selectActiveResourceIds([], "character", "proj", new Set([key])).has("A")).toBe(true);
+  });
+
+  it("lets the real task row supersede the optimistic marker regardless of its status", () => {
+    // 真实任务行一旦出现（哪怕已是终态），不再依赖乐观标记——但此时该行本身若是活跃态，
+    // 仍会通过 selectActiveResourceIds 主逻辑判定占用；这里验证的是"不因乐观标记残留而
+    // 对已完结的真实行仍强制判占用"
+    const key = "proj\0character\0A\0image_edit";
+    const tasks = [
+      task({
+        task_id: "edit-A",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "succeeded",
+      }),
+    ];
+    expect(selectActiveResourceIds(tasks, "character", "proj", new Set([key])).has("A")).toBe(false);
+  });
+
+  it("ignores an optimistic marker scoped to a different project or resource kind", () => {
+    const key = "proj\0character\0A\0image_edit";
+    expect(selectActiveResourceIds([], "storyboard", "proj", new Set([key])).has("A")).toBe(false);
+    expect(selectActiveResourceIds([], "character", "other-proj", new Set([key])).has("A")).toBe(false);
+  });
+});
+
+describe("useTasksStore.markOptimisticActive", () => {
+  it("marks a resource optimistically active and prunes markers already superseded by a real row", () => {
+    useTasksStore.setState({
+      tasks: [
+        task({
+          task_id: "edit-A",
+          task_type: "image_edit",
+          resource_type: "character",
+          resource_id: "A",
+          status: "succeeded",
+        }),
+      ],
+      optimisticActive: new Set(["proj\0character\0A\0image_edit"]),
+    });
+
+    // 标记一个新资源 B 的同时，A 的旧标记已被上面的真实终态行取代，应被顺带清理
+    useTasksStore.getState().markOptimisticActive("proj", "character", "B", "image_edit");
+
+    const keys = [...useTasksStore.getState().optimisticActive];
+    expect(keys).toEqual(["proj\0character\0B\0image_edit"]);
   });
 });
 
