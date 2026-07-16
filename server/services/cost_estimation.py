@@ -9,6 +9,7 @@ from typing import Any
 from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.cost_calculator import cost_calculator
 from lib.grid.layout import calculate_grid_layout
+from lib.pricing.strategies import PricingParams
 from lib.project_manager import effective_mode
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
@@ -120,10 +121,8 @@ class CostEstimationService:
         grid_image_unit_cost: tuple[float, str] | None = None
         try:
             image_unit_cost = cost_calculator.calculate_cost(
-                provider=image_provider,
-                call_type="image",
-                model=image_model,
-                resolution="1K",
+                image_provider,
+                PricingParams(call_type="image", model=image_model, resolution="1K"),
             )
         except Exception:
             logger.debug("无法计算 image 预估单价", exc_info=True)
@@ -131,10 +130,8 @@ class CostEstimationService:
         if generation_mode == "grid":
             try:
                 grid_image_unit_cost = cost_calculator.calculate_cost(
-                    provider=image_provider,
-                    call_type="image",
-                    model=image_model,
-                    resolution="2K",
+                    image_provider,
+                    PricingParams(call_type="image", model=image_model, resolution="2K"),
                 )
             except Exception:
                 grid_image_unit_cost = image_unit_cost
@@ -223,12 +220,14 @@ class CostEstimationService:
 
                 try:
                     vid_amount, vid_currency = cost_calculator.calculate_cost(
-                        provider=video_provider,
-                        call_type="video",
-                        model=video_model,
-                        resolution=video_resolution,
-                        duration_seconds=duration,
-                        generate_audio=generate_audio,
+                        video_provider,
+                        PricingParams(
+                            call_type="video",
+                            model=video_model,
+                            resolution=video_resolution,
+                            duration_seconds=duration,
+                            generate_audio=generate_audio,
+                        ),
                     )
                     _add_cost(est_video, vid_amount, vid_currency)
                 except Exception:
@@ -240,10 +239,8 @@ class CostEstimationService:
                 if narration_chars:
                     try:
                         audio_amount, audio_currency = cost_calculator.calculate_cost(
-                            provider=audio_provider,
-                            call_type="audio",
-                            model=audio_model,
-                            usage_tokens=narration_chars,
+                            audio_provider,
+                            PricingParams(call_type="audio", model=audio_model, usage_tokens=narration_chars),
                         )
                         _add_cost(est_audio, audio_amount, audio_currency)
                     except Exception:

@@ -1,4 +1,5 @@
 from lib.cost_calculator import CostCalculator
+from lib.pricing.strategies import PricingParams
 
 
 class TestTextCost:
@@ -6,7 +7,7 @@ class TestTextCost:
         self.calc = CostCalculator()
 
     def _text(self, provider: str):
-        return self.calc.calculate_cost(provider, "text", input_tokens=1000, output_tokens=500)
+        return self.calc.calculate_cost(provider, PricingParams(call_type="text", input_tokens=1000, output_tokens=500))
 
     def test_gemini_cost(self):
         amount, currency = self._text("gemini")

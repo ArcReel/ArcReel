@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.audio_backends.base import AudioCapability, AudioSynthesisResult
 from lib.data_validator import DataValidator
 from lib.db.base import Base
-from lib.db.repositories.usage_repo import UsageRepository
+from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation_worker import CapacityTable, GenerationWorker, SlotTable
 from lib.media_generator import MediaGenerator
 from lib.resource_paths import RESOURCE_TYPES, resource_extension, resource_relative_path
@@ -184,7 +184,7 @@ class TestUsageStatsAudioCount:
                 call_id = await repo.start_call(
                     project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
                 )
-                await repo.finish_call(call_id, status="success", usage_tokens=1500)
+                await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
                 stats = await repo.get_stats(project_name="demo")
                 assert stats["audio_count"] == 1
                 # audio 按字符冻结成本快照（非 0）

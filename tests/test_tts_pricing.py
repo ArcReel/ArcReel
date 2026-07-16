@@ -65,14 +65,14 @@ class TestAudioLookupPinsPerCharacter:
 class TestBuiltinAudioCost:
     def test_dashscope_audio_non_zero_cny(self):
         amount, currency = cost_calculator.calculate_cost(
-            provider="dashscope", call_type="audio", model="qwen3-tts-flash", usage_tokens=1500
+            "dashscope", PricingParams(call_type="audio", model="qwen3-tts-flash", usage_tokens=1500)
         )
         assert currency == "CNY"
         assert amount == pytest.approx(0.12)
 
     def test_zero_chars_zero_cost(self):
         amount, currency = cost_calculator.calculate_cost(
-            provider="dashscope", call_type="audio", model="qwen3-tts-flash", usage_tokens=0
+            "dashscope", PricingParams(call_type="audio", model="qwen3-tts-flash", usage_tokens=0)
         )
         assert currency == "CNY"
         assert amount == pytest.approx(0.0)

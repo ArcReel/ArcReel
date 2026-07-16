@@ -11,7 +11,7 @@ from typing import Any
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.db.repositories.usage_repo import UsageRepository
+from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.providers import PROVIDER_GEMINI, CallType
 
 
@@ -68,13 +68,15 @@ class UsageTracker:
             repo = UsageRepository(session)
             return await repo.finalize_pending_by_call_id(
                 call_id=call_id,
-                cost_amount=cost_amount,
-                currency=currency,
                 status=status,
-                service_tier=service_tier,
-                usage_tokens=usage_tokens,
-                generate_audio=generate_audio,
-                billed_duration_seconds=billed_duration_seconds,
+                settlement=SettlementInput(
+                    cost_amount=cost_amount,
+                    currency=currency,
+                    service_tier=service_tier,
+                    usage_tokens=usage_tokens,
+                    generate_audio=generate_audio,
+                    billed_duration_seconds=billed_duration_seconds,
+                ),
             )
 
     async def finish_call(
@@ -104,22 +106,24 @@ class UsageTracker:
             await repo.finish_call(
                 call_id,
                 status=status,
+                settlement=SettlementInput(
+                    cost_amount=cost_amount,
+                    currency=currency,
+                    service_tier=service_tier,
+                    generate_audio=generate_audio,
+                    billed_duration_seconds=billed_duration_seconds,
+                    usage_tokens=usage_tokens,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    quality=quality,
+                    image_input_tokens=image_input_tokens,
+                    image_output_tokens=image_output_tokens,
+                    text_input_tokens=text_input_tokens,
+                    text_output_tokens=text_output_tokens,
+                ),
                 output_path=output_path,
                 error_message=error_message,
                 retry_count=retry_count,
-                usage_tokens=usage_tokens,
-                service_tier=service_tier,
-                generate_audio=generate_audio,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                quality=quality,
-                image_input_tokens=image_input_tokens,
-                image_output_tokens=image_output_tokens,
-                text_input_tokens=text_input_tokens,
-                text_output_tokens=text_output_tokens,
-                cost_amount=cost_amount,
-                currency=currency,
-                billed_duration_seconds=billed_duration_seconds,
             )
 
     async def get_stats(
