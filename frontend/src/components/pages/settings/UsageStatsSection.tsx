@@ -82,14 +82,15 @@ export function UsageStatsSection() {
   }, [fetchStats]);
 
   const providers = useMemo(() => {
+    const locale = i18n.language;
     const byProvider = new Map<string, string | undefined>();
     for (const s of stats) {
       if (!byProvider.has(s.provider)) byProvider.set(s.provider, s.display_name);
     }
     return Array.from(byProvider.entries())
       .map(([provider, displayName]) => ({ provider, displayName }))
-      .sort((a, b) => (a.displayName ?? a.provider).localeCompare(b.displayName ?? b.provider));
-  }, [stats]);
+      .sort((a, b) => (a.displayName ?? a.provider).localeCompare(b.displayName ?? b.provider, locale));
+  }, [stats, i18n.language]);
 
   // Aggregate totals — used for the editorial header summary card.
   // 这里只是求和：用 Object.entries 直接遍历，避免 costEntries 的排序/过滤开销
