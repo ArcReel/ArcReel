@@ -81,9 +81,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-TEMP_ROOT="${TMPDIR:-${TEMP:-${TMP:-}}}"
-[[ -n "$TEMP_ROOT" && -d "$TEMP_ROOT" ]] || die "no usable system temp directory in TMPDIR, TEMP, or TMP"
-PROBE_ROOT=$(mktemp -d "$TEMP_ROOT/afk-codex-preflight.XXXXXX")
+PROBE_ROOT=$(mktemp -d -t afk-codex-preflight.XXXXXX)
 PROBE_WT="$PROBE_ROOT/worktree"
 WORKTREE_OUTPUT=""
 if ! WORKTREE_OUTPUT=$(git worktree add --detach "$PROBE_WT" HEAD 2>&1); then
