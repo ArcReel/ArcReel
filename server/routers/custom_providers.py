@@ -345,7 +345,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
 
 async def _invalidate_caches(request: Request) -> None:
     """清空 backend 实例缓存 + 刷新 worker 限流配置。"""
-    from server.services.generation_tasks import invalidate_backend_cache
+    from server.services.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
     worker = getattr(request.app.state, "generation_worker", None)

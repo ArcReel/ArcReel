@@ -11,7 +11,7 @@ from typing import cast
 import pytest
 
 from lib.config.resolver import ConfigResolver, ProviderModel
-from server.services import generation_tasks
+from server.services import generation_context, generation_tasks
 
 
 def _async_return(value):
@@ -140,12 +140,12 @@ class TestGetOrCreateAudioBackend:
             calls.append((provider_id, media_type, model_id))
             return sentinel
 
-        monkeypatch.setattr(generation_tasks, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_tasks, "_backend_cache", {})
+        monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
+        monkeypatch.setattr(generation_context, "_backend_cache", {})
 
         resolver = cast(ConfigResolver, None)
-        b1 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
-        b2 = await generation_tasks._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
+        b1 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
+        b2 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
 
         assert b1 is sentinel and b2 is sentinel
         assert calls == [("custom-3", "audio", "tts-1")], "第二次调用须命中缓存，不再重建 backend"
@@ -158,14 +158,14 @@ class TestGetOrCreateAudioBackend:
             created.append((provider_id, media_type, model_id))
             return sentinel
 
-        monkeypatch.setattr(generation_tasks, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_tasks, "_backend_cache", {})
+        monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
+        monkeypatch.setattr(generation_context, "_backend_cache", {})
 
         resolver = cast(ConfigResolver, None)
-        b1 = await generation_tasks._get_or_create_audio_backend(
+        b1 = await generation_context._get_or_create_audio_backend(
             "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
-        b2 = await generation_tasks._get_or_create_audio_backend(
+        b2 = await generation_context._get_or_create_audio_backend(
             "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
         )
         assert b1 is sentinel and b2 is sentinel
@@ -178,10 +178,10 @@ class TestGetOrCreateAudioBackend:
             calls.append(model_id)
             return object()
 
-        monkeypatch.setattr(generation_tasks, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_tasks, "_backend_cache", {})
+        monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
+        monkeypatch.setattr(generation_context, "_backend_cache", {})
 
-        await generation_tasks._get_or_create_audio_backend(
+        await generation_context._get_or_create_audio_backend(
             "dashscope",
             {"model": "explicit-model"},
             cast(ConfigResolver, None),

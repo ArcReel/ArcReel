@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver, ProviderModel
 
 from lib.asset_types import ASSET_SPECS
-from lib.backend_assembly import assemble_backend
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
@@ -51,17 +50,14 @@ from lib.storyboard_sequence import (
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
+from server.services.generation_context import (
+    _get_or_create_audio_backend,
+    _get_or_create_image_backend,
+    _get_or_create_video_backend,
+)
 
 rate_limiter = get_shared_rate_limiter()
 logger = logging.getLogger(__name__)
-
-# 按 (channel, provider_name, model) 缓存 Backend 实例，避免每次任务重建 API 客户端
-_backend_cache: dict[tuple[str, str, str | None], Any] = {}
-
-
-def invalidate_backend_cache() -> None:
-    """清空 VideoBackend 实例缓存。在配置变更后调用。"""
-    _backend_cache.clear()
 
 
 async def _resolve_effective_image_backend(
@@ -95,84 +91,6 @@ async def _resolve_resolution(project: dict, provider_id: str, model_id: str) ->
 
     resolver = ConfigResolver(async_session_factory)
     return await resolver.resolve_resolution(project, provider_id, model_id)
-
-
-async def _get_or_create_video_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_video_model: str | None = None,
-):
-    """获取或创建 VideoBackend 实例（带缓存）。
-
-    provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
-    通过 resolver 按需加载供应商配置。
-    default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
-    """
-    effective_model = provider_settings.get("model") or default_video_model or None
-    cache_key = ("video", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="video",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
-
-
-async def _get_or_create_image_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_image_model: str | None = None,
-):
-    """获取或创建 ImageBackend 实例（带缓存）。"""
-    effective_model = provider_settings.get("model") or default_image_model or None
-    cache_key = ("image", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="image",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
-
-
-async def _get_or_create_audio_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_audio_model: str | None = None,
-):
-    """获取或创建 AudioBackend 实例（带缓存）。"""
-    effective_model = provider_settings.get("model") or default_audio_model or None
-    cache_key = ("audio", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    # audio 无 gemini/kling 媒体特例：自定义 + 简单族统一经构造缝
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="audio",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
 
 
 async def _resolve_video_backend(
