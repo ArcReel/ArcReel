@@ -3,6 +3,7 @@ import {
   isActiveStatus,
   isTerminalStatus,
   selectActiveResourceIds,
+  selectHasActiveTaskForScriptFile,
   selectLatestTaskByResource,
   taskResourceKind,
 } from "./tasks-store";
@@ -155,6 +156,62 @@ describe("selectActiveResourceIds with image_edit", () => {
       }),
     ];
     expect(selectActiveResourceIds(tasks, "character", "proj").has("A")).toBe(true);
+  });
+});
+
+describe("selectHasActiveTaskForScriptFile", () => {
+  it("returns true when a grid task for the scriptFile is queued or running", () => {
+    const tasks = [
+      task({
+        task_id: "grid-1",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "running",
+      }),
+    ];
+    expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(true);
+  });
+
+  it("ignores tasks for a different scriptFile, project, or task_type", () => {
+    const tasks = [
+      task({
+        task_id: "grid-other-file",
+        task_type: "grid",
+        resource_id: "grid-a",
+        script_file: "episode_2.json",
+        status: "running",
+      }),
+      task({
+        task_id: "grid-other-project",
+        task_type: "grid",
+        resource_id: "grid-b",
+        script_file: "episode_1.json",
+        project_name: "other-proj",
+        status: "running",
+      }),
+      task({
+        task_id: "non-grid",
+        task_type: "storyboard",
+        resource_id: "seg-1",
+        script_file: "episode_1.json",
+        status: "running",
+      }),
+    ];
+    expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(false);
+  });
+
+  it("does not merge to a latest row — a terminal grid task for the scriptFile stays inactive", () => {
+    const tasks = [
+      task({
+        task_id: "grid-done",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "succeeded",
+      }),
+    ];
+    expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(false);
   });
 });
 

@@ -106,6 +106,41 @@ export function selectActiveResourceIds(
   return ids;
 }
 
+/**
+ * 是否存在指定 scriptFile 下、taskType 类型的活跃任务。不做「最新行胜出」归并——
+ * 存在即算，用于粗粒度剧集级占用判定：grid 任务的 resource_id 是 grid_id 而非
+ * 分镜 segment_id，无法归入 selectActiveResourceIds 的按资源判定；但 grid 切割阶段
+ * 会覆写本集内多个分镜的 storyboard 文件，故按 scriptFile 判定「本集是否有宫格任务
+ * 在跑」，用于禁用宫格模式下的分镜编辑入口，避免编辑与切割并发写同一文件。
+ */
+export function selectHasActiveTaskForScriptFile(
+  tasks: TaskItem[],
+  taskType: string,
+  scriptFile: string,
+  projectName: string,
+): boolean {
+  return tasks.some(
+    (task) =>
+      task.project_name === projectName &&
+      task.task_type === taskType &&
+      task.script_file === scriptFile &&
+      isActiveStatus(task.status),
+  );
+}
+
+/** hook 版 {@link selectHasActiveTaskForScriptFile}；scriptFile/projectName 缺失时返回 false。 */
+export function useHasActiveTaskForScriptFile(
+  taskType: string,
+  scriptFile: string | undefined | null,
+  projectName: string | undefined | null,
+): boolean {
+  return useTasksStore((s) =>
+    scriptFile && projectName
+      ? selectHasActiveTaskForScriptFile(s.tasks, taskType, scriptFile, projectName)
+      : false,
+  );
+}
+
 // projectName 缺失时复用同一空集，保证 hook 引用稳定。
 const EMPTY_ACTIVE_IDS: Set<string> = new Set();
 

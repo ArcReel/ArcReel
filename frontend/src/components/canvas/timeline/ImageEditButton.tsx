@@ -65,7 +65,9 @@ export function ImageEditButton({
 
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
-    if (!trimmed || submitting) return;
+    // disabled 是响应式的 busy||!hasImage：弹窗打开期间资源转为占用中时随之更新，
+    // 这里兜底防止禁用态生效前的一次点击仍发出请求。
+    if (!trimmed || submitting || disabled) return;
     setSubmitting(true);
     try {
       const res = await API.editImage(projectName, {
@@ -161,7 +163,7 @@ export function ImageEditButton({
             <button
               type="button"
               onClick={() => void handleSubmit()}
-              disabled={submitting || instruction.trim().length === 0}
+              disabled={submitting || instruction.trim().length === 0 || disabled}
               className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 color: "oklch(0.14 0 0)",

@@ -7,7 +7,7 @@ import { ShotSplitView } from "../timeline/ShotSplitView";
 import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
-import { useActiveResourceIds } from "@/stores/tasks-store";
+import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
 import { getScriptItemId } from "@/utils/script-shape";
 import type {
   EpisodeScript,
@@ -123,9 +123,13 @@ export function GridImageToVideoCanvas({
   const storyboardBusyIds = useActiveResourceIds("storyboard", projectName);
   const videoBusyIds = useActiveResourceIds("video", projectName);
   const ttsBusyIds = useActiveResourceIds("tts", projectName);
+  // 本集有宫格任务在跑：切割阶段会覆写本集内多个分镜的 storyboard 文件，grid 任务的
+  // resource_id 是 grid_id、无法归入按分镜 resource_id 判定的 storyboardBusyIds，
+  // 故按 scriptFile 粗粒度判定，禁用宫格模式下的分镜编辑入口，避免并发写同一文件。
+  const gridActiveForEpisode = useHasActiveTaskForScriptFile("grid", scriptFile, projectName);
   const generatingStoryboard = useCallback(
-    (segId: string) => storyboardBusyIds.has(segId),
-    [storyboardBusyIds],
+    (segId: string) => storyboardBusyIds.has(segId) || gridActiveForEpisode,
+    [storyboardBusyIds, gridActiveForEpisode],
   );
   const generatingVideo = useCallback(
     (segId: string) => videoBusyIds.has(segId),
