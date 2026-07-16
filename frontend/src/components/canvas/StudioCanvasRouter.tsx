@@ -132,26 +132,15 @@ export function StudioCanvasRouter() {
   const generatingPropNames = useActiveResourceIds("prop", currentProjectName);
   const generatingProductNames = useActiveResourceIds("product", currentProjectName);
 
-  // 刷新项目数据；返回本地 store 是否已同步成功，供调用方决定是否推进依赖新顺序的 UI 状态
-  const refreshProject = useCallback(async (invalidateKeys: string[] = []): Promise<boolean> => {
-    if (!currentProjectName) return false;
-    try {
-      const res = await API.getProject(currentProjectName);
-      useProjectsStore.getState().setCurrentProject(
-        currentProjectName,
-        res.project,
-        res.scripts ?? {},
-        res.asset_fingerprints,
-      );
-      if (invalidateKeys.length > 0) {
-        useAppStore.getState().invalidateEntities(invalidateKeys);
-      }
-      return true;
-    } catch {
-      // 静默失败：多数调用方只做尽力刷新，由返回值交调用方自行判断
-      return false;
-    }
-  }, [currentProjectName]);
+  // 刷新项目数据；返回本地 store 是否已同步成功，供调用方决定是否推进依赖新顺序的 UI 状态。
+  // 在途合并 + 失败留旧收敛于 projects-store 的 refreshProject，此处仅表达意图。
+  const refreshProject = useCallback(
+    (invalidateKeys: string[] = []): Promise<boolean> =>
+      currentProjectName
+        ? useProjectsStore.getState().refreshProject(currentProjectName, { invalidateKeys })
+        : Promise.resolve(false),
+    [currentProjectName],
+  );
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.

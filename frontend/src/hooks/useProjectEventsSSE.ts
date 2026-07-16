@@ -131,7 +131,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     tRef.current = t;
   }, [t]);
   const [, setLocation] = useLocation();
-  const setCurrentProject = useProjectsStore((s) => s.setCurrentProject);
   const invalidateEntities = useAppStore((s) => s.invalidateEntities);
   const triggerScrollTo = useAppStore((s) => s.triggerScrollTo);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
@@ -145,8 +144,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   const sourceRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFingerprintRef = useRef<string | null>(null);
-  const refreshingRef = useRef(false);
-  const needsRefreshRef = useRef(false);
   const queuedFocusRef = useRef<WorkspaceNotificationTarget | null>(null);
   // 项目已被删除（收到终止事件）：停止断线重连循环，不再对已删项目周期性发起请求。
   const terminatedRef = useRef(false);
@@ -179,41 +176,18 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
   const refreshProject = useCallback(async () => {
     if (!projectName) return;
-    if (refreshingRef.current) {
-      needsRefreshRef.current = true;
-      return;
-    }
-
-    refreshingRef.current = true;
-    try {
-      // while 循环替代递归自调用，规避 react-hooks/immutability 的自引用限制。
-      // API 异常单独捕获，确保失败路径也消费排队中的 needsRefreshRef
-      // （与旧递归实现的"成功或失败都会再跑一轮"语义一致）。
-      let again = true;
-      while (again) {
-        again = false;
-        try {
-          const res = await API.getProject(projectName);
-          setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
-        } catch (err) {
-          pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning");
-        }
-        if (needsRefreshRef.current) {
-          needsRefreshRef.current = false;
-          again = true;
-        }
-      }
-    } finally {
-      refreshingRef.current = false;
-    }
+    // 在途合并逻辑（单飞 + 排队再跑一轮 + 失败留旧）已下沉到 projects-store.refreshProject；
+    // 此处只保留 SSE 专属包装：失败时告警、刷新落定后消费排队的聚焦目标。
+    await useProjectsStore.getState().refreshProject(projectName, {
+      onError: (err) =>
+        pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning"),
+    });
     flushQueuedFocus();
-  }, [flushQueuedFocus, projectName, pushNotification, setCurrentProject]);
+  }, [flushQueuedFocus, projectName, pushNotification]);
 
   useEffect(() => {
     lastFingerprintRef.current = null;
     queuedFocusRef.current = null;
-    needsRefreshRef.current = false;
-    refreshingRef.current = false;
     terminatedRef.current = false;
     clearScrollTarget();
     clearWorkspaceNotifications();
