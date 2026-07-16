@@ -476,6 +476,16 @@ class TestPatchSystemConfig:
             )
         assert res.status_code == 400
 
+    def test_patch_rejects_text_tier_backend_with_video_model(self):
+        """text_backend_simple 引用一个真实存在但是 video 类型的模型，应被 media_type 校验拒绝。"""
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"text_backend_simple": "gemini-aistudio/veo-3.1-generate-preview"},
+            )
+        assert res.status_code == 400
+
     def test_patch_ignores_legacy_text_task_keys(self):
         """旧任务级键已从请求模型移除，提交后既不落库也不出现在响应里。"""
         mock_svc = _make_mock_svc()

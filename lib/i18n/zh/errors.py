@@ -161,6 +161,7 @@ MESSAGES = {
     "cost_estimation_failed": "费用估算失败，请稍后重试",
     # Validators
     "invalid_backend_format": "{field_name} 格式应为 provider/model",
+    "backend_media_type_mismatch": "{field_name} 期望 {expected} 类型模型，但 {provider}/{model} 是 {actual} 类型",
     "deprecated_image_backend": "image_backend 字段已废弃，请改用 image_provider_t2i 与 image_provider_i2i",
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",

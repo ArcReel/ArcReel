@@ -960,9 +960,6 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
             status_code=400,
             detail=_t("vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value),
         )
-    # 其余解析层错误原样透出为 400，不落进笼统 500
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

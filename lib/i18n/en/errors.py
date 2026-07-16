@@ -164,6 +164,7 @@ MESSAGES = {
     "cost_estimation_failed": "Cost estimation failed, please try again later",
     # Validators
     "invalid_backend_format": "{field_name} format should be provider/model",
+    "backend_media_type_mismatch": "{field_name} expects a {expected} model, but {provider}/{model} is a {actual} model",
     "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
