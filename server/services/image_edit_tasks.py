@@ -22,11 +22,11 @@ from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.generation_tasks import (
     _resolve_effective_image_backend,
+    _resolve_resolution,
     get_aspect_ratio,
     get_media_generator,
     get_project_manager,
 )
-from server.services.resolution_resolver import resolve_resolution
 
 # 版本记录里标记「指令式编辑」的 source 值；前端据此展示编辑标记（与 manual_upload 同机制）
 IMAGE_EDIT_VERSION_SOURCE = "image_edit"
@@ -132,7 +132,7 @@ async def execute_image_edit_task(
 
     aspect_ratio = get_aspect_ratio(project, version_resource_type)
     resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=True)
-    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = await _resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
 
     # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
     # 自动参考图收集）；新版本 prompt 字段即编辑指令，source 标记编辑版本。

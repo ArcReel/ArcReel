@@ -96,7 +96,7 @@ def _patch_common(monkeypatch, fake_pm, fake_generator):
     monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(image_edit_tasks, "get_media_generator", _async_return(fake_generator))
     monkeypatch.setattr(image_edit_tasks, "_resolve_effective_image_backend", _async_return(_FakeResolved()))
-    monkeypatch.setattr(image_edit_tasks, "resolve_resolution", _async_return("2K"))
+    monkeypatch.setattr(image_edit_tasks, "_resolve_resolution", _async_return("2K"))
 
 
 class TestResolveCurrentImageRel:
