@@ -457,6 +457,9 @@ class ScriptGenerator:
             supported_durations=supported,
             episode=episode,
             aspect_ratio=self._resolve_aspect_ratio(),
+            # 输出语言与口播语速折算同取项目 source_language，与 drama/narration 同口径
+            # （见 build_ad_prompt 内 speech_rate_units_per_second/reading_unit_noun 调用）。
+            target_language=self.project_json.get("source_language") or "中文",
         )
 
     async def build_prompt(self, episode: int) -> str:

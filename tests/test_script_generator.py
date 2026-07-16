@@ -1209,6 +1209,25 @@ class TestAdScriptGeneration:
         # 不得落入参考视频 video_units prompt
         assert "video_units" not in prompt
 
+    async def test_build_prompt_uses_project_source_language(self, tmp_path):
+        """ad prompt 的口播语速折算与输出语言须取项目 source_language（与 drama/narration 同口径），非中文项目不得回落中文/zh 语速。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["source_language"] = "en"
+        _write_json(project_json_path, payload)
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 口播语速折算按 en 口径（约 2.5 词/秒），不得回落默认 zh 口径（约 5 字/秒）
+        assert "约 2.5 词/秒" in prompt
+        assert "约 5 字/秒" not in prompt
+        # 输出语言规则锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 en" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
+
     async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
         """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
         project_path = tmp_path / "demo"
