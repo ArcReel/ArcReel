@@ -143,13 +143,14 @@ class TestRecordBracket:
 
     async def test_cancellation_passes_through_leaving_pending(self, factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=factory)
+        caught = False
         try:
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 raise asyncio.CancelledError()
         except asyncio.CancelledError:
-            pass
-        else:
-            pytest.fail("expected CancelledError to propagate")
+            caught = True
+
+        assert caught, "expected CancelledError to propagate"
 
         # 穿透不记账：行停在 pending，不翻 failed
         row = await _only_row(factory)
