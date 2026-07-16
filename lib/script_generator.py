@@ -646,6 +646,14 @@ class ScriptGenerator:
         if dupes:
             raise ValueError(f"step1_reference_units.json unit_id 重复: {dupes}")
 
+        # _add_metadata 落盘前会把 E\d+ 前缀改写成当前 episode：原始 id 互异但改写后可能相撞
+        # （E1U01 与 E2U01 在 episode=2 都成 E2U01）。提前 fail-loud，杜绝重复 id 静默落盘。
+        # 与 _load_narration_step1 / _load_drama_step1_content 同口径。
+        rewritten_ids = [str(_rewrite_episode_prefix(uid, episode)) for uid in ids]
+        rewritten_dupes = sorted(uid for uid, count in Counter(rewritten_ids).items() if count > 1)
+        if rewritten_dupes:
+            raise ValueError(f"step1_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
+
         allowed = {int(d) for d in supported_durations}
         bad = sorted({s["duration"] for u in units for s in u["shots"] if s["duration"] not in allowed})
         if bad:

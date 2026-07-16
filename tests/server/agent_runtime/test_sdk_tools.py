@@ -1811,6 +1811,29 @@ def _rv_caps(default=4, durations=(4, 6, 8), max_duration=12, max_refs=3):
     return fake_caps
 
 
+async def test_fetch_reference_caps_with_fallback_clips_shot_durations_to_static_range(monkeypatch) -> None:
+    """resolver 声明的 supported_durations 含 >15 的值时（如 vidu Q3 系列达 16、agnes 达 18），
+    返回的单 shot 时长集合须与 REFERENCE_SHOT_DURATION_RANGE 求交集——否则 step1 允许 LLM 选中
+    的 shot 时长会在 step2 读回校验（复用同一静态区间的 Shot 模型）时 fail-loud。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    class _FakeResolver:
+        def __init__(self, _factory):
+            pass
+
+        async def video_capabilities_for_project(self, _project):
+            return {"supported_durations": [1, 8, 16, 18], "max_duration": 18, "default_duration": 16}
+
+    monkeypatch.setattr(mod, "ConfigResolver", _FakeResolver)
+
+    default, durations, max_duration, max_refs = await mod._fetch_reference_caps_with_fallback({})
+
+    assert durations == [1, 8]
+    assert max_duration == 18  # 单 unit 总时长上限沿用 resolver 原始声明，不受单 shot 过滤影响
+    assert default is None  # 16 已被过滤掉，非法 default 归 None
+    assert max_refs is None
+
+
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
     """构造返回指定 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 

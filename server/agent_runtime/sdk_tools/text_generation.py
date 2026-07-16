@@ -33,7 +33,11 @@ from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import build_normalize_prompt
 from lib.reference_video.shot_parser import extract_mentions, resolve_references
 from lib.script_generator import ScriptGenerator
-from lib.script_models import build_drama_normalized_script_model, build_reference_units_step1_model
+from lib.script_models import (
+    REFERENCE_SHOT_DURATION_RANGE,
+    build_drama_normalized_script_model,
+    build_reference_units_step1_model,
+)
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
@@ -441,8 +445,12 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     """解析 rv 拆分所需的视频能力：``(default_duration, supported_durations, max_duration, max_refs)``。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
-    ``_FALLBACK_SUPPORTED_DURATIONS``、``max_duration`` 取集合最大值、``max_refs`` 视为未声明。
-    ``default_duration`` 非集合成员（用户配置漂移）按 None 处理，避免 prompt 构建自相矛盾。
+    ``_FALLBACK_SUPPORTED_DURATIONS``、``max_duration`` 取集合最大值（用原始集合，不受下方单
+    shot 过滤影响）、``max_refs`` 视为未声明。返回的 ``supported_durations`` 已与
+    ``REFERENCE_SHOT_DURATION_RANGE`` 求交集——部分供应商（如 vidu/agnes）的单 shot 时长上限
+    超过该静态区间，未过滤会让 step1 产出的 shot 时长在 step2 读回校验（复用同一静态区间）时
+    fail-loud。``default_duration`` 非过滤后集合成员（用户配置漂移）按 None 处理，避免 prompt
+    构建自相矛盾。
     """
     try:
         resolver = ConfigResolver(async_session_factory)
@@ -457,11 +465,13 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     max_duration = int(raw_max) if isinstance(raw_max, int | float) else max(durations)
     raw_refs = caps.get("max_reference_images")
     max_refs = int(raw_refs) if isinstance(raw_refs, int | float) else None
+    low, high = REFERENCE_SHOT_DURATION_RANGE
+    shot_durations = [d for d in durations if low <= d <= high]
     raw_default = caps.get("default_duration")
     default = int(raw_default) if isinstance(raw_default, int | float) else None
-    if default is not None and default not in durations:
+    if default is not None and default not in shot_durations:
         default = None
-    return default, durations, max_duration, max_refs
+    return default, shot_durations, max_duration, max_refs
 
 
 def _derive_and_validate_reference_units(

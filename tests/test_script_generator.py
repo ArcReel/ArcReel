@@ -1137,6 +1137,59 @@ class TestLoadNarrationStep1:
         assert segments[0]["characters_in_segment"] == []
 
 
+class TestLoadReferenceStep1:
+    """step1 结构化中间文件 step1_reference_units.json 的读取与校验。"""
+
+    @staticmethod
+    def _step1_path(sg: ScriptGenerator, episode: int) -> Path:
+        return sg.project_path / "drafts" / f"episode_{episode}" / "step1_reference_units.json"
+
+    def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:
+        path = self._step1_path(sg, episode)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    @staticmethod
+    def _unit(unit_id: str, *, duration: int = 6) -> dict:
+        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子", "duration": duration}]}
+
+    def test_loads_structured_units_verbatim(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U02", duration=8)]})
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert [u["unit_id"] for u in units] == ["E1U01", "E1U02"]
+
+    def test_duplicate_unit_id_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
+        with pytest.raises(ValueError, match="重复|E1U01"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_post_rewrite_collision_raises(self, tmp_path):
+        """原始 unit_id 互异但改写 episode 前缀后相撞（E1U01 与 E2U01 在 ep2 都成 E2U01）→ fail-loud。
+
+        对应 lib/script_generator.py::_add_metadata 落盘前无条件改写 E\\d+ 前缀的既有行为：
+        LLM 若在 step1 混用集号前缀，需在 step1 读取侧提前拦截，不能拖到最终脚本静默落盘
+        （与 _load_narration_step1 / _load_drama_step1_content 同口径）。
+        """
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 2, {"units": [self._unit("E1U01"), self._unit("E2U01")]})
+        with pytest.raises(ValueError, match="改写|E2U01"):
+            sg._load_reference_step1(2, [4, 6, 8])
+
+    def test_duration_outside_supported_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
+        with pytest.raises(ValueError, match="duration"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_empty_units_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": []})
+        with pytest.raises(ValueError):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+
 def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
     payload = {
         "title": "速干杯",
