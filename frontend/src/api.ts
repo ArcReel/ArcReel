@@ -52,6 +52,7 @@ import type {
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationStep1Draft,
+  ReferenceStep1Draft,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -758,7 +759,7 @@ class API {
   static async saveScriptReviewContent(
     projectName: string,
     episode: number,
-    content: DramaNormalizedScript | NarrationStep1Draft
+    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft
   ): Promise<ScriptReviewState> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content`,

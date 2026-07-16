@@ -5,6 +5,8 @@
  * - lib/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
+import type { ReferenceStep1Draft } from "./reference-video";
+
 export const SHOT_TYPES = [
   "Extreme Close-up",
   "Close-up",
@@ -159,7 +161,7 @@ export interface ScriptReviewState {
   status: ScriptReviewStatus;
   fingerprint: string | null;
   confirmed_at: string | null;
-  content: DramaNormalizedScript | NarrationStep1Draft | null;
+  content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft | null;
 }
 
 export interface Composition {

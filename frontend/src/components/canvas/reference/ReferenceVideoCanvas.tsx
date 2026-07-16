@@ -15,7 +15,7 @@ import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
-import { PreprocessingView } from "@/components/canvas/timeline/PreprocessingView";
+import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
 import { API } from "@/api";
 import {
   useReferenceVideoStore,
@@ -543,11 +543,11 @@ export function ReferenceVideoCanvas({
       {tab === "preproc" ? (
         <div className="min-h-0 flex-1 overflow-auto bg-[oklch(0.18_0.011_250_/_0.25)]">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
-            <PreprocessingView
+            <ScriptReviewGate
+              key={`${projectName}:${episode}`}
               projectName={projectName}
               episode={episode}
               contentMode="reference_video"
-              compact
             />
           </div>
         </div>
