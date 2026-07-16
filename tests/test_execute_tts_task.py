@@ -36,6 +36,9 @@ def _audio_ctx(generator, *, voice="Cherry", speed=None):
     )
 
     async def _resolve(*args, **kwargs):
+        assert kwargs.get("audio") is not None
+        assert kwargs.get("image") is None
+        assert kwargs.get("video") is None
         return ctx
 
     return _resolve
