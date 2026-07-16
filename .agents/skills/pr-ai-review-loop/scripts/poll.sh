@@ -271,6 +271,14 @@ gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$WORKDIR/sub_c.j
   exit 5
 }
 
+# Sub-query C2 — REST reviews. `gh pr view --json reviews` omits the review commit;
+# REST `node_id` matches GraphQL review `id` and supplies the exact `commit_id`.
+gh api "repos/${OWNER_REPO}/pulls/${PR}/reviews" --paginate > "$WORKDIR/sub_c2.json" 2>"$WORKDIR/gh_pr_reviews.err" || {
+  echo "POLL_ERROR: REST PR reviews fetch failed" >&2
+  cat "$WORKDIR/gh_pr_reviews.err" >&2
+  exit 5
+}
+
 # Sub-query D — check runs on the PR head. Feeds two projections: codeql_checks (exit
 # gate: "analysis finished before declaring PASS") and checks_failing (red CI can block
 # reviewers). --paginate with -q runs the projection per page, emitting one array per
@@ -312,6 +320,7 @@ jq -n \
   --slurpfile sub_b_w "$WORKDIR/sub_b.json" \
   --slurpfile sub_b2_w "$WORKDIR/sub_b2.json" \
   --slurpfile sub_c_w "$WORKDIR/sub_c.json" \
+  --slurpfile sub_c2_w "$WORKDIR/sub_c2.json" \
   --slurpfile sub_d_w "$WORKDIR/sub_d.json" \
   --slurpfile sub_e_pr_w "$WORKDIR/sub_e_pr.json" \
   --slurpfile sub_e_base_w "$WORKDIR/sub_e_base.json" \
@@ -325,6 +334,9 @@ jq -n \
   | (($sub_b_w | add) // []) as $sub_b
   | ($sub_b2_w[0]) as $sub_b2
   | (($sub_c_w | add) // []) as $sub_c
+  | (($sub_c2_w | add) // []) as $sub_c2
+  | ($sub_c2 | map(select(.node_id != null))
+     | map({key: .node_id, value: .commit_id}) | from_entries) as $review_commit_by_id
   | ($main.commits | last | .committedDate) as $last_push
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
@@ -408,7 +420,8 @@ jq -n \
 
   def codex_review_row:
     (.body // "") as $rb
-    | ((.commit.oid // null)
+    | .id as $review_id
+    | (($review_commit_by_id[$review_id] // null)
        // ($rb | codex_reviewed_commit_from_body)) as $reviewed_commit
     | (if $reviewed_commit == null
        then (.submittedAt > $last_push)
