@@ -49,9 +49,6 @@ from server.services.project_cover import resolve_project_cover
 
 router = APIRouter()
 
-# 状态计算器
-calc = StatusCalculator(get_project_manager())
-
 # episode 字段白名单：只允许持久化合法的 on-disk 字段。
 # StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
 # 是读时计算值，禁止写回 project.json。title 不在白名单：它以剧本顶层 title 为唯一真相源，
@@ -60,7 +57,7 @@ EPISODE_PERSIST_FIELDS = {"script_file", "generation_mode"}
 
 
 def get_status_calculator() -> StatusCalculator:
-    return calc
+    return StatusCalculator(get_project_manager())
 
 
 def get_archive_service() -> ProjectArchiveService:
