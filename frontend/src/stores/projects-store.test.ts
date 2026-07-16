@@ -112,7 +112,7 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("R2");
   });
 
-  it("首轮失败、排队轮成功时用新值替换旧值并返回 true", async () => {
+  it("首轮失败、排队轮成功时用新值替换旧值；各调用方返回自己那一轮的结果", async () => {
     useProjectsStore.getState().setCurrentProject("demo", makeProject("旧"), {}, {});
     const d1 = deferred<GetProjectResult>();
     const d2 = deferred<GetProjectResult>();
@@ -129,9 +129,36 @@ describe("projects-store refreshProject", () => {
 
     d2.resolve(makeResult("新"));
     const [r1, r2] = await Promise.all([p1, p2]);
-    // 返回最后一轮结果（成功）
-    expect([r1, r2]).toEqual([true, true]);
+    // 首轮调用方拿到自己那一轮的真实结果（失败），不因排队轮后续成功被覆盖；
+    // 排队轮调用方拿到自己那一轮的结果（成功）。
+    expect(r1).toBe(false);
+    expect(r2).toBe(true);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("新");
+  });
+
+  it("首轮成功、排队轮失败时，首轮调用方仍返回 true（不被无关的后续轮次拖累）", async () => {
+    const d1 = deferred<GetProjectResult>();
+    const d2 = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+
+    const store = useProjectsStore.getState();
+    // 例如 handleMoveShot：重排后发起刷新，依赖返回值推进选中态。
+    const pMoveShot = store.refreshProject("demo");
+    // 合并期间到达的另一意图（如 SSE 刷新），随后失败。
+    const pSse = store.refreshProject("demo");
+
+    d1.resolve(makeResult("重排后"));
+    await flush();
+    // 首轮已成功写入
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("重排后");
+
+    d2.reject(new Error("sse round fail"));
+    const [okMoveShot, okSse] = await Promise.all([pMoveShot, pSse]);
+    // 首轮调用方拿到自己那一轮的真实结果（成功），不因排队轮后续失败被覆盖为 false。
+    expect(okMoveShot).toBe(true);
+    expect(okSse).toBe(false);
+    // 失败留旧：store 仍保留首轮写入的数据，不因排队轮失败被清空或回滚。
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("重排后");
   });
 
   it("跨项目合并：A 在途时排队刷新 B，A 的响应不写入 store（避免覆盖排队中的 B）", async () => {

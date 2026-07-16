@@ -58,26 +58,33 @@ interface ProjectsState {
 
 export const useProjectsStore = create<ProjectsState>((set, get) => {
   // 刷新的在途合并协调状态（非响应式单例，不进 store state，避免触发订阅重渲染）。
-  let refreshInFlight: Promise<boolean> | null = null;
+  let refreshRunning = false;
   let refreshQueued = false;
   let queuedName: string | null = null;
   let queuedKeys: string[] = [];
   let queuedOnErrors: Array<(err: unknown) => void> = [];
+  // 排队轮调用方各自的 resolve——与 curResolvers 分开累积，避免"排队进同一批"
+  // 被误解为"共享同一个最终结果"：每个调用方只对自己实际服务的那一轮结果负责。
+  let queuedResolvers: Array<(ok: boolean) => void> = [];
 
-  // 执行刷新循环：while 排队重跑替代递归，失败路径也消费排队请求，
-  // 直至无新排队为止；返回最后一轮是否成功。
+  // 执行刷新循环：while 排队重跑替代递归，失败路径也消费排队请求，直至无新排队为止。
+  // 每轮结束立刻 resolve 该轮的调用方（curResolvers），不等后续排队轮跑完——否则先到
+  // 的调用方会被后到、且与自己无关的轮次结果覆盖返回值（如已成功写入的重排刷新，被
+  // 随后排队、失败的 SSE 刷新拖累成 false，UI 无法据此推进选中态）。
   const runRefresh = async (
     name: string,
     keys: string[],
-    onError?: (err: unknown) => void,
-  ): Promise<boolean> => {
+    onError: ((err: unknown) => void) | undefined,
+    resolvers: Array<(ok: boolean) => void>,
+  ): Promise<void> => {
     let curName = name;
     let curKeys = keys;
     let curOnErrors = onError ? [onError] : [];
-    let ok = false;
+    let curResolvers = resolvers;
     let again = true;
     while (again) {
       again = false;
+      let ok = false;
       try {
         const res = await API.getProject(curName);
         // 在途期间若已排队到不同项目的刷新请求，本轮响应针对的是即将切走的旧项目——
@@ -95,18 +102,21 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         ok = false;
         curOnErrors.forEach((cb) => cb(err));
       }
+      curResolvers.forEach((resolve) => resolve(ok));
       if (refreshQueued) {
         refreshQueued = false;
         curName = queuedName ?? curName;
         curKeys = queuedKeys;
         curOnErrors = queuedOnErrors;
+        curResolvers = queuedResolvers;
         queuedName = null;
         queuedKeys = [];
         queuedOnErrors = [];
+        queuedResolvers = [];
         again = true;
       }
     }
-    return ok;
+    refreshRunning = false;
   };
 
   return {
@@ -139,22 +149,23 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     refreshProject: (name, options) => {
       if (!name) return Promise.resolve(false);
       const invalidateKeys = options?.invalidateKeys ?? [];
-      if (refreshInFlight) {
-        // 已有刷新在途：合并为「结束后再跑一轮」，取最新 name，累积 invalidateKeys /
-        // onError——排队轮次失败时需通知全部合并进来的调用方，不能只保留首轮回调。
-        refreshQueued = true;
-        queuedName = name;
-        queuedKeys = [...queuedKeys, ...invalidateKeys];
-        if (options?.onError) {
-          queuedOnErrors = [...queuedOnErrors, options.onError];
+      return new Promise<boolean>((resolve) => {
+        if (refreshRunning) {
+          // 已有刷新在途：合并为「结束后再跑一轮」，取最新 name，累积 invalidateKeys /
+          // onError / resolve——排队轮次结束时需各自通知全部合并进来的调用方，
+          // 而非共享首轮或末轮的单一结果。
+          refreshQueued = true;
+          queuedName = name;
+          queuedKeys = [...queuedKeys, ...invalidateKeys];
+          if (options?.onError) {
+            queuedOnErrors = [...queuedOnErrors, options.onError];
+          }
+          queuedResolvers = [...queuedResolvers, resolve];
+          return;
         }
-        return refreshInFlight;
-      }
-      const p = runRefresh(name, invalidateKeys, options?.onError).finally(() => {
-        refreshInFlight = null;
+        refreshRunning = true;
+        void runRefresh(name, invalidateKeys, options?.onError, [resolve]);
       });
-      refreshInFlight = p;
-      return p;
     },
   };
 });
