@@ -507,7 +507,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
         monkeypatch.setattr(
             resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
         )
@@ -542,7 +542,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
         monkeypatch.setattr(
@@ -599,7 +599,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
         monkeypatch.setattr(
@@ -639,7 +639,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
         monkeypatch.setattr(
@@ -662,7 +662,7 @@ class TestGenerationTasks:
         assert fake_generator.video_calls[0]["duration_seconds"] == 6
 
     async def test_caps_failure_preserves_resolved_provider(self, monkeypatch, tmp_path):
-        """caps 解析失败不得丢弃已解析的 provider/model：resolve_resolution 仍按真实 provider。"""
+        """caps 解析失败不得丢弃已解析的 provider/model：resolution 仍按真实 provider。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -680,7 +680,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "resolve_resolution", fake_resolution)
+        monkeypatch.setattr(generation_tasks, "_resolve_resolution", fake_resolution)
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
         monkeypatch.setattr(
@@ -717,7 +717,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
         # 模拟历史任务 payload 覆盖：resolve_video_backend 解析出 ark/seedance。
@@ -1351,7 +1351,7 @@ def _patch_video_path(monkeypatch, pm, generator):
 
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(generator))
-    monkeypatch.setattr(generation_tasks, "resolve_resolution", _async_return("720p"))
+    monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
     monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
     monkeypatch.setattr(

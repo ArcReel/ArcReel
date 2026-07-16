@@ -6,14 +6,13 @@ import logging
 import math
 from typing import Any
 
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.cost_calculator import cost_calculator
 from lib.grid.layout import calculate_grid_layout
 from lib.project_manager import effective_mode
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.usage_tracker import UsageTracker
-from server.services.resolution_resolver import get_provider_fallback, resolve_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +98,7 @@ class CostEstimationService:
             image_provider, image_model = project_image_pair.split("/", 1)
 
         _resolve_pid = registry_video_provider_id or video_provider
-        _resolved_resolution = await resolve_resolution(project_data, _resolve_pid, video_model or "")
+        _resolved_resolution = await self._resolver.resolve_resolution(project_data, _resolve_pid, video_model or "")
         video_resolution = _resolved_resolution or get_provider_fallback(video_provider)
 
         # Get actual costs

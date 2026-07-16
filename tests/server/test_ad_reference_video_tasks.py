@@ -271,6 +271,7 @@ async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, mon
 
     fake_resolver = MagicMock()
     fake_resolver.video_capabilities_for_project = AsyncMock(side_effect=_fake_caps)
+    fake_resolver.resolve_resolution = AsyncMock(return_value=None)
     monkeypatch.setattr(rvt_mod, "ConfigResolver", lambda *_a, **_kw: fake_resolver)
 
     result = await rvt.execute_reference_video_task(

@@ -159,6 +159,44 @@ _TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
 }
 
 
+# 当 resolve_resolution 返回 None 时下游的保底分辨率。Grok 即便 registry 声明 1080p
+# 也可能被 xai_sdk 拒收，故按 provider 区分。
+PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
+    "gemini": "1080p",
+    "ark": "720p",
+    "grok": "720p",
+    "openai": "720p",
+    # MiniMax 海螺缺省 768P：1080P 仅 6s，默认落 768P 避免与 10s 档冲突。
+    "minimax": "768p",
+}
+
+
+def get_provider_fallback(provider_id: str | None, default: str = "1080p") -> str:
+    """纯查表：对 registry ID（如 ``gemini-aistudio``）归一化到短前缀后查 fallback。不触 DB。"""
+    if not provider_id:
+        return default
+    if provider_id in PROVIDER_FALLBACK_RESOLUTION:
+        return PROVIDER_FALLBACK_RESOLUTION[provider_id]
+    short = provider_id.split("-", 1)[0]
+    return PROVIDER_FALLBACK_RESOLUTION.get(short, default)
+
+
+def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> str | None:
+    """project.model_settings（``provider/model`` 复合 key）> legacy video_model_settings > None。
+
+    内层也用 ``or {}`` 是因为 ``dict.get("k", {})`` 在 value 显式为 None 时会返回 None，
+    导致后续链调 AttributeError；project.json 手编可能出现这种脏值。
+    """
+    key = f"{provider_id}/{model_id}"
+    override = ((project.get("model_settings") or {}).get(key) or {}).get("resolution")
+    if override:
+        return override
+    legacy = ((project.get("video_model_settings") or {}).get(model_id) or {}).get("resolution")
+    if legacy:
+        return legacy
+    return None
+
+
 class ConfigResolver:
     """运行时配置解析器。
 
@@ -253,6 +291,40 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_provider_model(svc, session, project, payload)
+
+    async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
+        """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
+
+        None 代表"调用时不传 SDK resolution 参数"（见 ``docs/adr/0019``）。前两级纯读 project
+        dict、无副作用；自定义供应商默认（``CustomProviderModel.resolution``）需 DB，故本方法
+        整体为 async 并在同一 session 内完成。
+        """
+        from_project = _resolution_from_project(project, provider_id, model_id)
+        if from_project:
+            return from_project
+        # 仅自定义供应商才有 DB 侧默认；预置供应商在此直接 None，避免为热路径上的
+        # 每次生成任务白开一个 session（原独立模块正是先判 is_custom_provider 再触 DB）。
+        if not provider_id or not model_id or not is_custom_provider(provider_id):
+            return None
+        async with self._open_session() as (session, _svc):
+            return await self._resolve_custom_resolution_default(session, provider_id, model_id)
+
+    async def _resolve_custom_resolution_default(
+        self,
+        session: AsyncSession,
+        provider_id: str,
+        model_id: str,
+    ) -> str | None:
+        """自定义供应商的模型默认 resolution（``CustomProviderModel.resolution``），其他一律 None。"""
+        if not provider_id or not model_id or not is_custom_provider(provider_id):
+            return None
+        try:
+            db_id = parse_provider_id(provider_id)
+        except ValueError:
+            return None
+        repo = CustomProviderRepository(session)
+        model = await repo.get_model_by_ids(db_id, model_id)
+        return model.resolution if model else None
 
     async def default_audio_backend(self) -> tuple[str, str]:
         """返回系统级默认音频 (provider_id, model_id)（不含项目级覆盖）。"""

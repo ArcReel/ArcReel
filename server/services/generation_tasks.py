@@ -52,7 +52,6 @@ from lib.storyboard_sequence import (
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
-from server.services.resolution_resolver import resolve_resolution
 
 pm = ProjectManager(app_data_dir())
 rate_limiter = get_shared_rate_limiter()
@@ -89,6 +88,19 @@ async def _resolve_effective_image_backend(
     resolver = ConfigResolver(async_session_factory)
     capability = "i2i" if needs_i2i else "t2i"
     return await resolver.resolve_image_backend(project, payload, capability=capability)
+
+
+async def _resolve_resolution(project: dict, provider_id: str, model_id: str) -> str | None:
+    """resolution 解析的薄投影：委托 ``ConfigResolver.resolve_resolution``。
+
+    project.model_settings > legacy > 自定义供应商默认 > None（None＝不传 SDK 参数，见
+    ``docs/adr/0019``）。
+    """
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
+
+    resolver = ConfigResolver(async_session_factory)
+    return await resolver.resolve_resolution(project, provider_id, model_id)
 
 
 async def _get_or_create_video_backend(
@@ -889,7 +901,7 @@ async def execute_storyboard_task(
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
     resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
-    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = await _resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
 
     _, version = await generator.generate_image_async(
         prompt=prompt_text,
@@ -1076,7 +1088,7 @@ async def execute_video_task(
     # supported_durations 按上面已解析出的 provider/model 取（而非按 project 二次解析），
     # 确保 duration 守卫所依据的能力与实际要调用的 model 一致——历史任务 payload 携带
     # provider 覆盖时，二者不一致会用「项目默认 model 的能力」误判「payload 解析出的 model」。
-    # caps 失败不得丢弃已解析出的 provider/model，否则 resolve_resolution 与默认 duration
+    # caps 失败不得丢弃已解析出的 provider/model，否则 resolution 与默认 duration
     # 会错配。能力不可解析时留空，守卫遇空列表放行（不更坏，见 ADR-0002）。
     supported_durations: list[int] = []
     try:
@@ -1085,7 +1097,7 @@ async def execute_video_task(
     except Exception:
         supported_durations = []
 
-    resolution = await resolve_resolution(
+    resolution = await _resolve_resolution(
         project,
         registry_provider_id,
         model_name or "",
@@ -1229,7 +1241,7 @@ async def execute_character_task(
     aspect_ratio = get_aspect_ratio(project, "characters")
 
     resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
-    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = await _resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
 
     _, version = await generator.generate_image_async(
         prompt=full_prompt,
@@ -1328,7 +1340,7 @@ async def execute_design_task(
     aspect_ratio = get_aspect_ratio(project, bucket_key)
 
     resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=needs_i2i)
-    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = await _resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
 
     _, version = await generator.generate_image_async(
         prompt=full_prompt,
@@ -1553,7 +1565,7 @@ async def execute_grid_task(
         grid.model = resolved_image.model_id
         grid_manager.save(grid)
         image_size = (
-            await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id) or "2K"
+            await _resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id) or "2K"
         )  # 宫格图保底高分辨率
 
         image_path, version = await generator.generate_image_async(
