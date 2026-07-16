@@ -261,7 +261,7 @@ class AssistantService:
             if not client_key:
                 return await self._create_new_session(project_name, content, images, locale, client_key)
 
-            existing = await self._find_accepted_new_session(client_key)
+            existing = await self._find_accepted_new_session(client_key, project_name)
             if existing is not None:
                 return existing
 
@@ -270,22 +270,37 @@ class AssistantService:
             lock = self._new_session_locks.lock_for(client_key)
             async with lock:
                 # 双重检查：等锁期间先行者可能已完成同一 client_key 的建会话。
-                existing = await self._find_accepted_new_session(client_key)
+                existing = await self._find_accepted_new_session(client_key, project_name)
                 if existing is not None:
                     return existing
                 result = await self._create_new_session(project_name, content, images, locale, client_key)
                 self._record_new_session_client_key(client_key, result["session_id"])
                 return result
 
-    async def _find_accepted_new_session(self, client_key: str) -> dict[str, Any] | None:
+    async def _find_accepted_new_session(self, client_key: str, project_name: str) -> dict[str, Any] | None:
         """按幂等键定位已受理的新会话：进程内映射为快路径，事件日志跨会话
         查询兜底——进程重启 / LRU 淘汰后映射丢失，受理已落库的重试仍须命中
-        既有会话而非重复建会话（重复执行同一 prompt、重复计费）。"""
+        既有会话而非重复建会话（重复执行同一 prompt、重复计费）。
+
+        命中会话的项目归属须与调用方 ``project_name`` 一致：不一致则视为未命中
+        （返回 None，由调用方在当前项目新建会话），不抛错——用户未指名任何
+        会话，跨项目复用同一 client_key 时新会话意图应落在当前项目。两条查找
+        路径口径一致，均在返回前做归属校验。"""
         mapped_session_id = self._new_session_client_keys.get(client_key)
         if mapped_session_id is not None:
             # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
             entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
-            if entry is not None:
+            if entry is None:
+                # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
+                # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
+                # 响应——调用方会据此连接一个不存在的会话，消息静默丢失。上一行
+                # await 期间该 key 可能已被其他并发请求写入更新的映射；仅当当前
+                # 值仍是本次读到的旧值时才清，避免清掉并发写入的新映射（DB 兜底
+                # 查询本身按 client_key 定位一定命中同一权威会话，误删只是白跑
+                # 一次查询，但仍以精确条件避免这层不必要的抖动）。
+                if self._new_session_client_keys.get(client_key) == mapped_session_id:
+                    self._new_session_client_keys.pop(client_key, None)
+            elif await self._new_session_matches_project(mapped_session_id, project_name):
                 # 命中即刷新 LRU 位置：否则被频繁重试命中的 key 仍按插入
                 # 顺序（而非访问顺序）淘汰，退化成 FIFO。上一行 await 期间
                 # 该 key 可能已被其他并发请求的淘汰逻辑移除，直接
@@ -294,25 +309,29 @@ class AssistantService:
                 # 存在则原地更新）再显式挪到最近使用端，两种情形都安全。
                 self._record_new_session_client_key(client_key, mapped_session_id)
                 return {"status": "accepted", "session_id": mapped_session_id, "entry": entry}
-            # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
-            # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
-            # 响应——调用方会据此连接一个不存在的会话，消息静默丢失。上一行
-            # await 期间该 key 可能已被其他并发请求写入更新的映射；仅当当前
-            # 值仍是本次读到的旧值时才清，避免清掉并发写入的新映射（DB 兜底
-            # 查询本身按 client_key 定位一定命中同一权威会话，误删只是白跑
-            # 一次查询，但仍以精确条件避免这层不必要的抖动）。
-            if self._new_session_client_keys.get(client_key) == mapped_session_id:
-                self._new_session_client_keys.pop(client_key, None)
+            # else：映射命中的会话属于其他项目 → 视为未命中，落到 DB 兜底 / 新建
+            # 路径。不清映射：它对原项目仍有效；后续在当前项目新建会话时由
+            # _record_new_session_client_key 以本项目 session 覆盖同一 client_key。
         recovered = await self.event_log_store.find_new_session_by_client_key(client_key)
         if recovered is None:
             return None
         session_id, entry = recovered
+        if not await self._new_session_matches_project(session_id, project_name):
+            # 兜底命中的会话属于其他项目 → 视为未命中，走当前项目新建路径。
+            return None
         # 上一行 await 期间该 key 可能已被其他并发请求记入新映射；仅当当前
         # 无映射或已是同一 session_id 时才写入，避免用本次查到的（较旧）
         # session_id 覆盖并发写入的映射。
         if self._new_session_client_keys.get(client_key) in (None, session_id):
             self._record_new_session_client_key(client_key, session_id)
         return {"status": "accepted", "session_id": session_id, "entry": entry}
+
+    async def _new_session_matches_project(self, session_id: str, project_name: str) -> bool:
+        """幂等命中的新会话是否属于当前调用项目。校验依据为会话 meta 的
+        ``project_name``；meta 不存在（异常 / 已删）时不阻断命中，保持既有幂等
+        语义——跨项目串号的前提是命中会话 meta 存在且项目不同。"""
+        meta = await self.meta_store.get(session_id)
+        return meta is None or meta.project_name == project_name
 
     def _record_new_session_client_key(self, client_key: str, session_id: str) -> None:
         self._new_session_client_keys[client_key] = session_id

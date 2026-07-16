@@ -321,8 +321,11 @@ export function useAssistantSession(projectName: string | null) {
         media_type: img.mimeType,
       }));
 
-      // 请求侧幂等键：同一内容失败重试复用同键，服务端按键去重不产生重复
-      const signature = JSON.stringify([sessionId, content.trim(), imagePayload ?? []]);
+      // 请求侧幂等键：同一内容失败重试复用同键，服务端按键去重不产生重复。
+      // 签名纳入 projectName：面板为长生命周期单例，切换项目不卸载，失败缓存
+      // （clientKey + 签名）跨项目存活；含项目维度后旧项目缓存的 clientKey 自然
+      // 失效，不再被其他项目的同内容重发复用。
+      const signature = JSON.stringify([projectName, sessionId, content.trim(), imagePayload ?? []]);
       const clientKey =
         failedSendRef.current?.signature === signature
           ? failedSendRef.current.clientKey

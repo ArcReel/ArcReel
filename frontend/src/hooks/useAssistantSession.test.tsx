@@ -438,6 +438,41 @@ describe("useAssistantSession", () => {
     expect(sendSpy.mock.calls[1][4]).not.toBe(sendSpy.mock.calls[0][4]);
   });
 
+  it("uses a fresh idempotency key after switching projects (signature includes project)", async () => {
+    // 面板为长生命周期单例，切换项目不卸载：项目 A 的失败缓存（clientKey + 签名）
+    // 会跨项目存活。签名含项目维度后，切到 B 重发同内容应生成新键、不复用 A 的键。
+    mockIdleSession();
+    const sendSpy = vi
+      .spyOn(API, "sendAssistantMessage")
+      .mockRejectedValueOnce(new Error("发送失败")) // 项目 A：失败并缓存 clientKey
+      .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+
+    const { result, rerender } = renderHook(({ p }) => useAssistantSession(p), {
+      initialProps: { p: "proj_a" },
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    // 切换项目（同一 hook 实例，失败缓存的 ref 存活）
+    rerender({ p: "proj_b" });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+    // 跨项目同内容重发：签名含项目维度 → 生成新键，不复用旧项目缓存的 clientKey
+    expect(sendSpy.mock.calls[1][4]).not.toBe(sendSpy.mock.calls[0][4]);
+  });
+
   it("ignores delayed send completions after switching sessions", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [
