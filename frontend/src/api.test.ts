@@ -272,6 +272,51 @@ describe("API", () => {
       });
     });
 
+    it("editImage posts instruction with singular resource_type; script_file null for non-storyboard", async () => {
+      const requestSpy = vi
+        .spyOn(API, "request")
+        .mockResolvedValue({ success: true, task_id: "t1", message: "ok" } as never);
+
+      await API.editImage("demo", {
+        resourceType: "character",
+        resourceId: "Hero",
+        instruction: "把头发改成红色",
+      });
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/edit/image", {
+        method: "POST",
+        body: JSON.stringify({
+          resource_type: "character",
+          resource_id: "Hero",
+          instruction: "把头发改成红色",
+          script_file: null,
+        }),
+      });
+    });
+
+    it("editImage forwards script_file for storyboard edits and encodes the project name", async () => {
+      const requestSpy = vi
+        .spyOn(API, "request")
+        .mockResolvedValue({ success: true, task_id: "t2", message: "ok" } as never);
+
+      await API.editImage("a b", {
+        resourceType: "storyboard",
+        resourceId: "E1S01",
+        instruction: "去掉背景路人",
+        scriptFile: "episode_1.json",
+      });
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/edit/image", {
+        method: "POST",
+        body: JSON.stringify({
+          resource_type: "storyboard",
+          resource_id: "E1S01",
+          instruction: "去掉背景路人",
+          script_file: "episode_1.json",
+        }),
+      });
+    });
+
     it("rejects unsupported project mode updates before sending the request", async () => {
       const requestSpy = vi
         .spyOn(API, "request")

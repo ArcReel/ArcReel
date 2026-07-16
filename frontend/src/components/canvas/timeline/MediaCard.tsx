@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
+import { ImageEditButton } from "./ImageEditButton";
 import { VersionTimeMachine } from "./VersionTimeMachine";
 
 type MediaKind = "storyboard" | "video";
@@ -46,6 +47,8 @@ interface MediaCardProps {
   uploading?: boolean;
   /** 其他上传进行中等需要互斥的场景：禁用上传入口但不显示 spinner */
   uploadDisabled?: boolean;
+  /** 分镜编辑所需的剧集文件；提供时（且 kind=storyboard、已有图）显示编辑入口 */
+  editScriptFile?: string | null;
 }
 
 const UPLOAD_ACCEPT: Record<MediaKind, string> = {
@@ -70,6 +73,7 @@ export function MediaCard({
   onUpload,
   uploading,
   uploadDisabled,
+  editScriptFile,
 }: MediaCardProps) {
   const { t } = useTranslation("dashboard");
 
@@ -121,6 +125,16 @@ export function MediaCard({
             busy={uploading}
             disabled={generating || uploadDisabled}
             onSelect={(f) => void onUpload(f)}
+          />
+        )}
+        {kind === "storyboard" && editScriptFile && (
+          <ImageEditButton
+            projectName={projectName}
+            resourceType="storyboard"
+            resourceId={segmentId}
+            scriptFile={editScriptFile}
+            hasImage={Boolean(assetPath)}
+            busy={generating}
           />
         )}
         <VersionTimeMachine

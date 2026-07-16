@@ -295,9 +295,14 @@ export function VersionTimeMachine({
                 {selectedInfo && (
                   <div className="rounded-xl border border-gray-700 bg-gray-950/80 p-2.5">
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-medium text-gray-200">
+                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-gray-200">
                         v{selectedInfo.version}
-                        <span className="ml-1.5 text-[10px] font-normal text-gray-500">
+                        {selectedInfo.source === "image_edit" && (
+                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-200">
+                            {t("version_image_edit_badge")}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-normal text-gray-500">
                           {selectedInfo.created_at}
                         </span>
                       </span>

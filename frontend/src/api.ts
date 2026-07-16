@@ -1303,6 +1303,37 @@ class API {
     );
   }
 
+  /**
+   * 提交图片指令式编辑任务：以当前图为唯一底图、指令为唯一 prompt 走 i2i，
+   * 新图覆盖 current、旧图进版本历史。分镜（resourceType="storyboard"）须带 scriptFile。
+   */
+  static async editImage(
+    projectName: string,
+    params: {
+      resourceType: "character" | "scene" | "prop" | "product" | "storyboard";
+      resourceId: string;
+      instruction: string;
+      scriptFile?: string | null;
+    }
+  ): Promise<{
+    success: boolean;
+    task_id: string;
+    message: string;
+  }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/edit/image`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          resource_type: params.resourceType,
+          resource_id: params.resourceId,
+          instruction: params.instruction,
+          script_file: params.scriptFile ?? null,
+        }),
+      }
+    );
+  }
+
   // ==================== 任务队列 API ====================
 
   static async getTask(taskId: string): Promise<TaskItem> {

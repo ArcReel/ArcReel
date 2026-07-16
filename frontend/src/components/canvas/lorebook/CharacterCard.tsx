@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ImagePlus, Upload, User } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
+import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
@@ -234,10 +235,10 @@ export function CharacterCard({
           <button
             type="button"
             onClick={() => sheetInputRef.current?.click()}
-            disabled={uploadingSheet}
+            disabled={uploadingSheet || generating}
             title={t("assets:upload_sheet")}
             aria-label={t("assets:upload_sheet")}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
+            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
             style={{ color: "var(--color-text-3)" }}
           >
             <Upload className="h-3.5 w-3.5" />
@@ -249,6 +250,13 @@ export function CharacterCard({
             aria-label={t("assets:upload_sheet")}
             className="hidden"
             onChange={(e) => void handleSheetUpload(e)}
+          />
+          <ImageEditButton
+            projectName={projectName}
+            resourceType="character"
+            resourceId={name}
+            hasImage={Boolean(character.character_sheet)}
+            busy={generating}
           />
           <AddToLibraryButton
             resourceType="character"

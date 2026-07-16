@@ -4,6 +4,7 @@ import {
   isTerminalStatus,
   selectActiveResourceIds,
   selectLatestTaskByResource,
+  taskResourceKind,
 } from "./tasks-store";
 import type { TaskItem, TaskStatus } from "@/types";
 
@@ -13,6 +14,7 @@ function task(overrides: Partial<TaskItem> & { task_id: string }): TaskItem {
     task_type: "reference_video",
     media_type: "video",
     resource_id: "unit-1",
+    resource_type: null,
     script_file: null,
     payload: {},
     status: "queued",
@@ -52,6 +54,62 @@ describe("isTerminalStatus", () => {
   it("counts in-flight statuses as non-terminal", () => {
     const live: TaskStatus[] = ["queued", "running", "cancelling"];
     for (const status of live) expect(isTerminalStatus(status)).toBe(false);
+  });
+});
+
+describe("taskResourceKind", () => {
+  it("returns task_type for non-edit tasks", () => {
+    expect(taskResourceKind(task({ task_id: "a", task_type: "storyboard" }))).toBe("storyboard");
+    expect(taskResourceKind(task({ task_id: "b", task_type: "character" }))).toBe("character");
+  });
+
+  it("returns resource_type for image_edit tasks so edits land in the target resource slot", () => {
+    expect(
+      taskResourceKind(task({ task_id: "a", task_type: "image_edit", resource_type: "character" })),
+    ).toBe("character");
+    expect(
+      taskResourceKind(task({ task_id: "b", task_type: "image_edit", resource_type: "storyboard" })),
+    ).toBe("storyboard");
+  });
+
+  it("falls back to empty string when an image_edit task has no resource_type", () => {
+    expect(taskResourceKind(task({ task_id: "a", task_type: "image_edit", resource_type: null }))).toBe("");
+  });
+});
+
+describe("selectActiveResourceIds with image_edit", () => {
+  it("counts an in-flight edit toward its resource kind's occupancy set", () => {
+    // 角色 A 有一条运行中的编辑任务：应落入 character 占用集，与生成任务同槽互斥
+    const tasks = [
+      task({
+        task_id: "edit-A",
+        task_type: "image_edit",
+        media_type: "image",
+        resource_id: "A",
+        resource_type: "character",
+        status: "running",
+      }),
+      task({
+        task_id: "gen-B",
+        task_type: "character",
+        media_type: "image",
+        resource_id: "B",
+        status: "queued",
+      }),
+    ];
+    expect([...selectActiveResourceIds(tasks, "character", "proj")].sort()).toEqual(["A", "B"]);
+    // 分镜编辑不串到 character 槽
+    const sbEdit = [
+      task({
+        task_id: "edit-S",
+        task_type: "image_edit",
+        resource_id: "S",
+        resource_type: "storyboard",
+        status: "running",
+      }),
+    ];
+    expect(selectActiveResourceIds(sbEdit, "character", "proj").has("S")).toBe(false);
+    expect(selectActiveResourceIds(sbEdit, "storyboard", "proj").has("S")).toBe(true);
   });
 });
 

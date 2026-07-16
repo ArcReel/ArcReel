@@ -51,6 +51,15 @@ export function isTerminalStatus(status: TaskStatus): boolean {
 }
 
 /**
+ * 任务占用的「资源种类」。除 image_edit 外，task_type 本身即资源种类；image_edit 跨
+ * character/scene/prop/product/storyboard 共用一个 task_type，真正的种类在 resource_type，
+ * 故按 resource_type 归槽——编辑任务与同资源的生成任务落入同一占用集、彼此互斥。
+ */
+export function taskResourceKind(task: TaskItem): string {
+  return task.task_type === "image_edit" ? (task.resource_type ?? "") : task.task_type;
+}
+
+/**
  * 不变量 2：按 resource_id 归并任务，同一 resource 多行时取 updated_at 最新的一行。
  * 可选按 projectName / taskType 预筛；store 不保证顺序，故显式比较 updated_at。
  */
@@ -61,7 +70,7 @@ export function selectLatestTaskByResource(
   const latest = new Map<string, TaskItem>();
   for (const task of tasks) {
     if (filter.projectName !== undefined && task.project_name !== filter.projectName) continue;
-    if (filter.taskType !== undefined && task.task_type !== filter.taskType) continue;
+    if (filter.taskType !== undefined && taskResourceKind(task) !== filter.taskType) continue;
     const prev = latest.get(task.resource_id);
     if (!prev || task.updated_at > prev.updated_at) latest.set(task.resource_id, task);
   }

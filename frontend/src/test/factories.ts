@@ -9,6 +9,7 @@ export function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
     task_type: "reference_video",
     media_type: "video",
     resource_id: "E1U1",
+    resource_type: null,
     script_file: null,
     payload: {},
     status: "queued",

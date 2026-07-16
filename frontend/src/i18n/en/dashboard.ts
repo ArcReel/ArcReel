@@ -224,6 +224,16 @@ export default {
   'voice_style_example': 'e.g., Gentle but authoritative',
   'generate_design': 'Generate Design',
   'regenerate_design': 'Regenerate Design',
+
+  // Instruction-based image editing
+  'image_edit_action': 'Edit image',
+  'image_edit_no_image_hint': 'Generate or upload an image first, then edit',
+  'image_edit_modal_title': 'Edit image',
+  'image_edit_modal_desc': 'Describe in one line what to change on "{{name}}". Only that part is adjusted; everything else stays the same.',
+  'image_edit_instruction_label': 'Edit instruction',
+  'image_edit_instruction_placeholder': 'e.g. change the hair to red, remove the passerby in the background',
+  'image_edit_submit': 'Submit edit',
+  'image_edit_submitting': 'Submitting…',
   'characters_count': 'Characters ({{count}})',
   'scenes': 'Scenes',
   'props': 'Props',
@@ -1120,6 +1130,7 @@ export default {
   'version_preview_alt': 'Version v{{version}} preview',
   'version_no_notes': 'No additional notes recorded for this version.',
   'version_manual_upload': 'Manually uploaded by the user.',
+  'version_image_edit_badge': 'Edited',
 
   // ProjectCard - more actions
   'more_actions': 'More Actions',

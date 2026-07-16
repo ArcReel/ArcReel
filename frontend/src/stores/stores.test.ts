@@ -23,6 +23,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
     task_type: "storyboard",
     media_type: "image",
     resource_id: "segment-1",
+    resource_type: null,
     script_file: null,
     payload: {},
     status: "queued",

@@ -18,6 +18,7 @@ function task(overrides: Partial<TaskItem>): TaskItem {
     task_type: "storyboard",
     media_type: "image",
     resource_id: "E1S01",
+    resource_type: null,
     script_file: "ep1.json",
     payload: {},
     status: "running",

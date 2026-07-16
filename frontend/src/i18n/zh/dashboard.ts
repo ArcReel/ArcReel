@@ -225,6 +225,16 @@ export default {
   'voice_style_example': '例如：温柔但有威严',
   'generate_design': '生成设计图',
   'regenerate_design': '重新生成设计图',
+
+  // 图片指令式编辑
+  'image_edit_action': '编辑图片',
+  'image_edit_no_image_hint': '先生成或上传图片后再编辑',
+  'image_edit_modal_title': '编辑图片',
+  'image_edit_modal_desc': '用一句话描述「{{name}}」要修改的地方，只调整这一处，其余保持不变。',
+  'image_edit_instruction_label': '编辑指令',
+  'image_edit_instruction_placeholder': '例如：把头发改成红色、去掉背景里的路人',
+  'image_edit_submit': '提交编辑',
+  'image_edit_submitting': '提交中…',
   'characters_count': '角色 ({{count}})',
   'scenes': '场景',
   'props': '道具',
@@ -1121,6 +1131,7 @@ export default {
   'version_preview_alt': '版本 v{{version}} 预览',
   'version_no_notes': '该版本没有记录额外说明。',
   'version_manual_upload': '用户手动上传的版本。',
+  'version_image_edit_badge': '编辑',
 
   // ProjectCard - more actions
   'more_actions': '更多操作',
