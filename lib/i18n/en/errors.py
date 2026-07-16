@@ -73,6 +73,7 @@ MESSAGES = {
     "unsupported_video_type": "Unsupported video type {ext}. Allowed types: {allowed}",
     "upload_too_large": "Uploaded file exceeds the size limit ({max_mb} MB)",
     "invalid_image_file": "Invalid image file, could not be parsed",
+    "vision_model_required": "Text model {provider}/{model} does not support image input (vision) and cannot perform the {task} task; please select a vision-capable text model for the simple tier or default model in settings",
     "internal_server_error": "Internal server error, please try again later",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",

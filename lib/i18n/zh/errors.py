@@ -73,6 +73,7 @@ MESSAGES = {
     "unsupported_video_type": "不支持的视频类型 {ext}，允许的类型: {allowed}",
     "upload_too_large": "上传文件超过大小上限（{max_mb} MB）",
     "invalid_image_file": "无效的图片文件，无法解析",
+    "vision_model_required": "文本模型 {provider}/{model} 不支持图像输入（vision），无法执行 {task} 任务；请在设置中为简单档或默认模型选择支持 vision 的文本模型",
     "internal_server_error": "服务器内部错误，请稍后重试",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",

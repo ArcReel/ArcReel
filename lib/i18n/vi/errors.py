@@ -73,6 +73,7 @@ MESSAGES = {
     "unsupported_video_type": "Định dạng video không hỗ trợ {ext}. Các loại cho phép: {allowed}",
     "upload_too_large": "Tệp tải lên vượt quá giới hạn dung lượng ({max_mb} MB)",
     "invalid_image_file": "Tệp ảnh không hợp lệ, không thể phân tích",
+    "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",

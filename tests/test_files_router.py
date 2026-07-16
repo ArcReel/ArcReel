@@ -918,3 +918,29 @@ class TestFilesUnexpectedErrorsMapTo500:
             )
         assert resp.status_code == 500
         assert sentinel not in resp.text
+
+    def test_upload_style_image_vision_unsupported_maps_to_localized_400(self, tmp_path, monkeypatch):
+        """简单档模型不支持 vision 时，400 detail 走 i18n 翻译，不透出裸中文技术消息。"""
+        from lib.config.resolver import VisionCapabilityError
+        from lib.text_backends.base import TextTaskType
+
+        async def _raise_vision_error(*args, **kwargs):
+            raise VisionCapabilityError(
+                task_type=TextTaskType.STYLE_ANALYSIS,
+                provider_id="gemini-aistudio",
+                model_id="gemini-3.1-flash-lite-preview",
+            )
+
+        client, _ = _client(monkeypatch, tmp_path)
+        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _raise_vision_error)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/style-image",
+                files={"file": ("style.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "gemini-aistudio/gemini-3.1-flash-lite-preview" in detail
+        assert "vision" in detail
+        # 英文 zh 环境默认无 Accept-Language，走中文翻译文案，而非 __str__ 的英文技术消息
+        assert "不支持图像输入" in detail

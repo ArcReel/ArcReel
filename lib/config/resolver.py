@@ -185,6 +185,21 @@ def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> 
     return None
 
 
+class VisionCapabilityError(ValueError):
+    """解析出的文本模型不支持图像输入（vision），无法执行需要 vision 的任务。
+
+    携带结构化字段供调用方（如面向用户的 router）按需本地化；``str(exc)`` 是英文技术
+    消息，供 log / 非用户可见路径直接使用。"""
+
+    def __init__(self, *, task_type: TextTaskType, provider_id: str, model_id: str):
+        self.task_type = task_type
+        self.provider_id = provider_id
+        self.model_id = model_id
+        super().__init__(
+            f"text model {provider_id}/{model_id} does not support vision, cannot perform task {task_type.value}"
+        )
+
+
 def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
     """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
 
@@ -193,10 +208,7 @@ def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str,
     meta = PROVIDER_REGISTRY.get(provider_id)
     model_info = meta.models.get(model_id) if meta else None
     if model_info is not None and "vision" not in model_info.capabilities:
-        raise ValueError(
-            f"文本模型 {provider_id}/{model_id} 不支持图像输入（vision），无法执行 {task_type.value} 任务。"
-            f"请在设置中为简单档或默认模型选择支持 vision 的文本模型。"
-        )
+        raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
 
 
 class ConfigResolver:
