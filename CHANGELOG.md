@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.22.0](https://github.com/ArcReel/ArcReel/compare/v0.21.0...v0.22.0) (2026-07-15)
+
+
+### ✨ 新功能
+
+* **script:** 分镜图与视频提示词按供应商官方实践优化生成质量，参考生视频镜头描述改用四要素结构 ([#1131](https://github.com/ArcReel/ArcReel/issues/1131)) ([1934c38](https://github.com/ArcReel/ArcReel/commit/1934c38e04a333168957e7be680116099a36ead3))
+
+
+### 🐛 Bug 修复
+
+* **episode-planner:** 分集规划遵循用户结构性偏好，偏离时主动提示 ([#1116](https://github.com/ArcReel/ArcReel/issues/1116)) ([7e078e9](https://github.com/ArcReel/ArcReel/commit/7e078e9dcb7f50418136fe8be61e5dc6968c2b08))
+* **episode-planner:** 锚点折叠表补充弯引号、CJK 波浪号与全角直引号 ([#1111](https://github.com/ArcReel/ArcReel/issues/1111)) ([afffba1](https://github.com/ArcReel/ArcReel/commit/afffba1252cfcbc94fa6e5cc32145264b02abe02))
+* **frontend:** ProjectChange action 联合类型补全 reference_video_ready/tts_ready ([#1122](https://github.com/ArcReel/ArcReel/issues/1122)) ([3eff885](https://github.com/ArcReel/ArcReel/commit/3eff8856eaab3d0a2db3eeed4a26853411a79149))
+* **frontend:** 参考生视频与 TTS 完成事件补全为一等生成完成，刷新费用并显示正确文案 ([#1127](https://github.com/ArcReel/ArcReel/issues/1127)) ([4ff7f0b](https://github.com/ArcReel/ArcReel/commit/4ff7f0b9e1a2d33af761ad48938b91fba9e0a0f0))
+* **frontend:** 宫格生成完成后刷新费用面板 ([#1136](https://github.com/ArcReel/ArcReel/issues/1136)) ([44321d0](https://github.com/ArcReel/ArcReel/commit/44321d055484db312877e55beb1e1e16231b59c4))
+* **frontend:** 对话行编辑器用稳定 key，删除中间行不再串行内容 ([#1114](https://github.com/ArcReel/ArcReel/issues/1114)) ([0bfb6ee](https://github.com/ArcReel/ArcReel/commit/0bfb6ee4e22c8bdb2a3d1fd715aa46dddb791754))
+* **frontend:** 诊断日志下载在 Firefox/Safari 不再因过早回收 Blob 而静默失败 ([#1115](https://github.com/ArcReel/ArcReel/issues/1115)) ([45dedc5](https://github.com/ArcReel/ArcReel/commit/45dedc5b70404a1290d8f014018dcbb38ef453d2))
+* **server:** drama/ad 项目生成完成通知按骨架显示正确名词，不再一律标「分镜」 ([#1117](https://github.com/ArcReel/ArcReel/issues/1117)) ([a015213](https://github.com/ArcReel/ArcReel/commit/a0152134a09ceb8ad7ff118acc237acc472a0d35))
+* **server:** 多凭证组供应商切换鉴权方式后旧凭证自动清除，切换立即生效 ([#1113](https://github.com/ArcReel/ArcReel/issues/1113)) ([eaa96f5](https://github.com/ArcReel/ArcReel/commit/eaa96f55dd214fe8609174acde47fd3b3ebc4783))
+* **server:** 手动预拆分分集在空账本下自愈登记，解除审核确认死锁 ([#1112](https://github.com/ArcReel/ArcReel/issues/1112)) ([0507b1f](https://github.com/ArcReel/ArcReel/commit/0507b1f66e65902bc26abd40ecb22960e398c3e1))
+* **skills:** PR 审查轮询能识别 CodeRabbit 限流评论，避免漏审假通过 ([#1128](https://github.com/ArcReel/ArcReel/issues/1128)) ([6915c14](https://github.com/ArcReel/ArcReel/commit/6915c14e214c78f6836a9f8677f8e81f925e4ae6))
+* **text:** Gemini 经代理网关的结构化输出恢复枚举约束，剧本生成不再连续失败 ([#1119](https://github.com/ArcReel/ArcReel/issues/1119)) ([0418d7a](https://github.com/ArcReel/ArcReel/commit/0418d7a7270bafd5ef4d860f71cf3e6d40957f2c))
+
+
+### ♻️ 重构
+
+* **agent_runtime:** 移除 data_dir 三级构造透传与 .agent_data 空目录创建 ([#1126](https://github.com/ArcReel/ArcReel/issues/1126)) ([fc855b4](https://github.com/ArcReel/ArcReel/commit/fc855b4f55283da8a1ea71ce821f3c29b9e4cb76))
+* **script:** 剧本节奏建议转为始终注入，移除灰度开关 ([#1118](https://github.com/ArcReel/ArcReel/issues/1118)) ([99a94d3](https://github.com/ArcReel/ArcReel/commit/99a94d36e14085913602a44218186aa204416fe0))
+* **server:** 前端页面服务改用 FastAPI 原生挂载，写请求误入页面路径不再返回页面 ([#1094](https://github.com/ArcReel/ArcReel/issues/1094)) ([3f826ff](https://github.com/ArcReel/ArcReel/commit/3f826ff490aa6c3109126169de1978e3012619cf))
+
+
+### 📚 文档
+
+* **research:** 落库图像/视频提示词官方最佳实践调研报告 ([#1121](https://github.com/ArcReel/ArcReel/issues/1121)) ([63daa73](https://github.com/ArcReel/ArcReel/commit/63daa73103c017d80a9ac472f4524d32c6d33e42))
+
 ## [0.21.0](https://github.com/ArcReel/ArcReel/compare/v0.20.1...v0.21.0) (2026-07-10)
 
 
