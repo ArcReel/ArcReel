@@ -150,7 +150,8 @@ def render_reference_units_for_step2(units: list[dict]) -> str:
         for idx, shot in enumerate(shots, start=1):
             if not isinstance(shot, dict):
                 continue
-            lines.append(f"Shot {idx} ({shot.get('duration')}s): {shot.get('text', '')}")
+            duration = shot.get("duration")
+            lines.append(f"Shot {idx} ({duration if duration is not None else 0}s): {shot.get('text', '')}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 

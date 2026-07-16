@@ -90,7 +90,9 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
         if not source_dir.exists() or not any(source_dir.iterdir()):
             raise ValueError(f"source/ 目录为空或不存在: {source_dir}")
         texts = [
-            f.read_text(encoding="utf-8") for f in sorted(source_dir.iterdir()) if f.suffix in (".txt", ".md", ".text")
+            f.read_text(encoding="utf-8")
+            for f in sorted(source_dir.iterdir())
+            if f.is_file() and f.suffix in (".txt", ".md", ".text")
         ]
         novel_text = "\n\n".join(texts)
     if not novel_text.strip():
