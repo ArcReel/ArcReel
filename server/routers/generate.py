@@ -525,14 +525,15 @@ async def edit_image(
     if not instruction:
         raise BadRequestError("image_edit_instruction_required")
     is_storyboard = req.resource_type == "storyboard"
-    if is_storyboard and not req.script_file:
+    script_file = req.script_file.strip() if req.script_file else None
+    if is_storyboard and not script_file:
         raise BadRequestError("image_edit_script_file_required")
 
     def _sync() -> dict:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
-        script = pm_local.load_script(project_name, str(req.script_file)) if is_storyboard else None
+        script = pm_local.load_script(project_name, str(script_file)) if is_storyboard else None
         try:
             current_rel = resolve_current_image_rel(project, req.resource_type, req.resource_id, script)
         except KeyError:
@@ -553,7 +554,7 @@ async def edit_image(
         media_type="image",
         resource_id=req.resource_id,
         prompt=instruction,
-        script_file=req.script_file if is_storyboard else None,
+        script_file=script_file if is_storyboard else None,
         extra_payload={"resource_type": req.resource_type},
     )
 

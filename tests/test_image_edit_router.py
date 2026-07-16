@@ -192,6 +192,20 @@ class TestEditImageValidation:
             assert resp.status_code == 400
             assert fake_queue.calls == []
 
+    def test_storyboard_blank_script_file_400(self, tmp_path, monkeypatch):
+        """script_file 为纯空白字符串时应等同未提供，不能绕过必填校验。"""
+        project_path = _prepare_files(tmp_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, _FakePM(project_path), fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/edit/image",
+                json={"resource_type": "storyboard", "resource_id": "E1S01", "instruction": "x", "script_file": "   "},
+            )
+            assert resp.status_code == 400
+            assert fake_queue.calls == []
+
     def test_i2i_unavailable_400_no_task(self, tmp_path, monkeypatch):
         """i2i 槽解析不出供应商：入队前 fail-fast，不创建任务。"""
         project_path = _prepare_files(tmp_path)
