@@ -679,12 +679,15 @@ describe("useAssistantSession", () => {
 
     // 同会话断线：连接被判死且运行中，兜底重连（3s 后）
     vi.useFakeTimers();
-    act(() => {
-      MockEventSource.instances[0].readyState = MockEventSource.CLOSED;
-      MockEventSource.instances[0].onerror?.(new Event("error"));
-      vi.advanceTimersByTime(3000);
-    });
-    vi.useRealTimers();
+    try {
+      act(() => {
+        MockEventSource.instances[0].readyState = MockEventSource.CLOSED;
+        MockEventSource.instances[0].onerror?.(new Event("error"));
+        vi.advanceTimersByTime(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
 
     // 续传游标停在最后 seq（after=1），不因本 issue 的项目切换重置而回退到从头
     expect(MockEventSource.instances).toHaveLength(2);
