@@ -1,6 +1,7 @@
 """image_edit executor 的编辑独有语义：底图即当前图且是唯一参考图、prompt 即指令、
 按资源类型写回、版本带编辑标记、失败不写回。"""
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ class _FakeGenerator:
         if self.fail:
             raise RuntimeError("backend boom")
         self.image_calls.append(kwargs)
-        return Path("/tmp/image.png"), 2
+        return Path(tempfile.gettempdir()) / "image.png", 2
 
     def ensure_current_tracked(self, resource_type, resource_id, current_file, prompt, **metadata):
         self.tracked.append({"resource_type": resource_type, "resource_id": resource_id, "prompt": prompt})

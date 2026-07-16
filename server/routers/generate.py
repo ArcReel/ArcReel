@@ -564,6 +564,9 @@ async def edit_image(
         media_type=spec.media_type,
         resource_id=spec.resource_id,
         script_file=spec.script_file,
+        # image_edit 跨四类资产 + storyboard 共用同一 task_type，resource_id 命名空间
+        # 不互斥（角色和道具可能同名）；纳入去重键避免跨类型误判为重复任务。
+        resource_type=req.resource_type,
         payload=spec.payload,
         source="webui",
         user_id=_user.id,

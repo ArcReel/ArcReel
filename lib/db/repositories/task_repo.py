@@ -42,6 +42,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "task_type": row.task_type,
         "media_type": row.media_type,
         "resource_id": row.resource_id,
+        "resource_type": row.resource_type,
         "script_file": row.script_file,
         "payload": _json_loads(row.payload_json, {}),
         "status": row.status,
@@ -106,6 +107,7 @@ class TaskRepository(BaseRepository):
         resource_id: str,
         payload: dict[str, Any] | None = None,
         script_file: str | None = None,
+        resource_type: str | None = None,
         source: str = "webui",
         dependency_task_id: str | None = None,
         dependency_group: str | None = None,
@@ -123,6 +125,7 @@ class TaskRepository(BaseRepository):
             media_type=media_type,
             resource_id=resource_id,
             script_file=script_file,
+            resource_type=resource_type,
             payload_json=_json_dumps(payload or {}),
             status="queued",
             source=source,
@@ -141,6 +144,7 @@ class TaskRepository(BaseRepository):
             await self.session.rollback()
             # Unique partial index violation: an active task already exists
             sf = script_file or ""
+            rt = resource_type or ""
             result = await self.session.execute(
                 select(Task)
                 .where(
@@ -148,6 +152,7 @@ class TaskRepository(BaseRepository):
                     Task.task_type == task_type,
                     Task.resource_id == resource_id,
                     func.coalesce(Task.script_file, "") == sf,
+                    func.coalesce(Task.resource_type, "") == rt,
                     Task.status.in_(ACTIVE_TASK_STATUSES),
                 )
                 .order_by(Task.queued_at.desc())

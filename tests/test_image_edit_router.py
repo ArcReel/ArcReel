@@ -104,6 +104,8 @@ class TestEditImageEnqueue:
                 assert call["media_type"] == "image"
                 assert call["resource_id"] == resource_id
                 assert call["source"] == "webui"
+                # 顶层 resource_type 纳入 image_edit 去重键，避免不同资产类型同名互相误判去重
+                assert call["resource_type"] == resource_type
                 assert call["payload"]["resource_type"] == resource_type
                 assert call["payload"]["prompt"] == "把头发改成红色"
                 # i2i 槽在入队前已解析，provider_id 直接复用（限流池按 i2i 槽精确记账）
