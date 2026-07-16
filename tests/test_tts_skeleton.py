@@ -144,6 +144,7 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen._image_backend = None
     gen._video_backend = None
     gen._audio_backend = _FakeAudioBackend()
+    gen._audio_provider_id = "fake-audio"
     gen._user_id = "default"
     gen._config = None
     gen.versions = _FakeVersions()

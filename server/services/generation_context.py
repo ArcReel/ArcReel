@@ -331,6 +331,7 @@ async def resolve_generation_context(
         user_id=user_id,
         image_provider_id=image_result.provider_model.provider_id if image_result else None,
         video_provider_id=video_result.provider_model.provider_id if video_result else None,
+        audio_provider_id=audio_result.provider_model.provider_id if audio_result else None,
     )
     return GenerationContext(
         generator=generator,

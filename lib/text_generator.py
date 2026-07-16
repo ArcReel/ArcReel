@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from lib.ledger import Ledger
+from lib.providers import require_provider_pair
 from lib.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
@@ -26,9 +27,11 @@ logger = logging.getLogger(__name__)
 class TextGenerator:
     """组合 TextBackend + Ledger，统一封装文本生成 + 记账。"""
 
-    def __init__(self, backend: TextBackend, ledger: Ledger):
+    def __init__(self, backend: TextBackend, ledger: Ledger, provider_id: str):
+        require_provider_pair("text", backend, provider_id)
         self.backend = backend
         self.ledger = ledger
+        self._provider_id = provider_id
 
     @property
     def model(self) -> str:
@@ -42,8 +45,8 @@ class TextGenerator:
         project_name: str | None = None,
     ) -> TextGenerator:
         """工厂方法：根据任务类型创建对应的 backend + ledger。"""
-        backend = await create_text_backend_for_task(task_type, project_name)
-        return cls(backend, Ledger())
+        backend, provider_id = await create_text_backend_for_task(task_type, project_name)
+        return cls(backend, Ledger(), provider_id)
 
     async def generate(
         self,
@@ -56,7 +59,7 @@ class TextGenerator:
             call_type="text",
             model=self.backend.model,
             prompt=request.prompt[:500],
-            provider=self.backend.name,
+            provider=self._provider_id,
         ) as call:
             result = await self.backend.generate(request)
             call.success(result)

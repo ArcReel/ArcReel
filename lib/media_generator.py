@@ -17,7 +17,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from PIL import Image
 
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
+from lib.providers import require_provider_pair
 from lib.resource_paths import resource_relative_path
 from lib.version_manager import VersionManager
 
@@ -80,6 +81,7 @@ class MediaGenerator:
         user_id: str = DEFAULT_USER_ID,
         image_provider_id: str | None = None,
         video_provider_id: str | None = None,
+        audio_provider_id: str | None = None,
     ):
         """
         初始化 MediaGenerator
@@ -92,10 +94,16 @@ class MediaGenerator:
             audio_backend: 可选的 AudioBackend 实例（用于语音合成）
             config_resolver: ConfigResolver 实例，用于运行时读取配置
             user_id: 用户 ID
-            image_provider_id: 图像 registry provider_id（解析参考图压缩 per-provider 上限用；
-                None 时走保守通用上限）。须为 registry id（如 "gemini-aistudio"），非 backend.name
-            video_provider_id: 视频 registry provider_id（同上，I2V/R2V 用）
+            image_provider_id: 图像 registry provider_id。既是解析参考图压缩 per-provider 上限的
+                依据，也是该 lane 记账 provider 的单一真相源。须为 registry id（如 "gemini-aistudio"），
+                非 backend.name；与 image_backend 成对提供，缺一即抛
+            video_provider_id: 视频 registry provider_id（同上，I2V/R2V 与视频记账用）
+            audio_provider_id: 音频 registry provider_id（旁白 TTS 记账用），与 audio_backend 成对
         """
+        require_provider_pair("image", image_backend, image_provider_id)
+        require_provider_pair("video", video_backend, video_provider_id)
+        require_provider_pair("audio", audio_backend, audio_provider_id)
+
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
         self._rate_limiter = rate_limiter
@@ -106,6 +114,7 @@ class MediaGenerator:
         self._user_id = user_id
         self._image_provider_id = image_provider_id
         self._video_provider_id = video_provider_id
+        self._audio_provider_id = audio_provider_id
         self.versions = VersionManager(project_path)
 
         # 初始化记账账本（使用全局 async session factory）
@@ -331,7 +340,8 @@ class MediaGenerator:
             prompt=prompt,
             resolution=image_size,
             aspect_ratio=aspect_ratio,
-            provider=self._image_backend.name,
+            # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
+            provider=cast(str, self._image_provider_id),
             user_id=self._user_id,
             segment_id=resource_id if resource_type in ("storyboards", "videos", "grids") else None,
             output_path=str(output_path),
@@ -424,7 +434,8 @@ class MediaGenerator:
             call_type="audio",
             model=self._audio_backend.model,
             prompt=text,
-            provider=self._audio_backend.name,
+            # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
+            provider=cast(str, self._audio_provider_id),
             user_id=self._user_id,
             segment_id=resource_id,
             output_path=str(output_path),
@@ -555,7 +566,6 @@ class MediaGenerator:
             raise RuntimeError("video_backend not configured")
 
         model_name = self._video_backend.model
-        provider_name = self._video_backend.name
         if self._config is not None:
             configured_generate_audio = await self._config.video_generate_audio(self.project_name)
         else:
@@ -577,7 +587,8 @@ class MediaGenerator:
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
             generate_audio=effective_generate_audio,
-            provider=provider_name,
+            # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
+            provider=cast(str, self._video_provider_id),
             user_id=self._user_id,
             segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
             service_tier=version_metadata.get("service_tier", "default"),

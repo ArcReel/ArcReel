@@ -21,6 +21,11 @@ from lib.providers import PROVIDER_GEMINI, CallType
 # 解析侧（grok / dashscope extractor）的 clamp 引用同一常量，保持口径一致。
 MAX_BILLED_DURATION_SECONDS = 86400
 
+# 存量裸 provider 值的报表显示兜底：身份反转前，文本 gemini 调用以 backend.name 落账为裸
+# "gemini"（图像/视频侧已是 "gemini-aistudio"）。这些历史行不迁移，仅在分组报表按此表补一个
+# 友好显示名；registry 只登记新格式 key（gemini-aistudio / gemini-vertex），故裸值查不到 meta。
+_LEGACY_PROVIDER_DISPLAY_NAMES = {PROVIDER_GEMINI: "Gemini"}
+
 
 @dataclass(frozen=True)
 class SettlementInput:
@@ -573,7 +578,10 @@ class UsageRepository(BaseRepository):
                     stat["display_name"] = provider_str
             else:
                 meta = PROVIDER_REGISTRY.get(provider_str or "")
-                stat["display_name"] = meta.display_name if meta else provider_str
+                if meta:
+                    stat["display_name"] = meta.display_name
+                else:
+                    stat["display_name"] = _LEGACY_PROVIDER_DISPLAY_NAMES.get(provider_str or "", provider_str)
 
         period_start: str | None = None
         period_end: str | None = None

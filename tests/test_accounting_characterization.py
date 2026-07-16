@@ -382,15 +382,24 @@ def _media_generator(
     image_backend: _FakeImageBackend | None = None,
     video_backend: _FakeVideoBackend | None = None,
     audio_backend: _FakeAudioBackend | None = None,
+    image_provider_id: str | None = None,
+    video_provider_id: str | None = None,
+    audio_provider_id: str | None = None,
 ) -> MediaGenerator:
     project_path = tmp_path / "projects" / "demo"
     project_path.mkdir(parents=True, exist_ok=True)
+    # 成对不变量要求：backend 在则 provider_id 在。媒体侧真实 backend.name 与解析层 id 同值
+    # （gemini-aistudio/ark/dashscope），故默认取 backend.name 保持矩阵零改动；反转锁测试显式传
+    # 不同值证明记账取 provider_id 而非 name。
     gen = MediaGenerator(
         project_path,
         image_backend=image_backend,
         video_backend=video_backend,
         audio_backend=audio_backend,
         config_resolver=cast(ConfigResolver, _FakeConfigResolver()),
+        image_provider_id=image_provider_id or (image_backend.name if image_backend else None),
+        video_provider_id=video_provider_id or (video_backend.name if video_backend else None),
+        audio_provider_id=audio_provider_id or (audio_backend.name if audio_backend else None),
     )
     # 唯一的接线替换：把记账落点指到测试内存库。记账链路内部（ledger→repo→结算→定价）全真实。
     gen.ledger = Ledger(session_factory=db.factory)
@@ -756,11 +765,12 @@ class TestTextChannel:
                 output_tokens=1_000_000,
             ),
             Ledger(session_factory=acct.factory),
+            "gemini-aistudio",
         )
 
         await gen.generate(TextGenerationRequest(prompt="文" * 700), project_name="demo")
 
-        # 0.50 + 3.00 USD/百万 token
+        # 0.50 + 3.00 USD/百万 token；记账 provider 取解析层 id（gemini-aistudio），非 backend.name（gemini）
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
@@ -768,6 +778,7 @@ class TestTextChannel:
                 model="gemini-3-flash-preview",
                 prompt="文" * 500,
                 cost_amount=pytest.approx(3.5),
+                provider="gemini-aistudio",
                 input_tokens=1_000_000,
                 output_tokens=1_000_000,
             ),
@@ -777,6 +788,7 @@ class TestTextChannel:
         gen = TextGenerator(
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview"),
             Ledger(session_factory=acct.factory),
+            "gemini-aistudio",
         )
 
         await gen.generate(TextGenerationRequest(prompt="p"))
@@ -789,6 +801,7 @@ class TestTextChannel:
                 model="gemini-3-flash-preview",
                 project_name="",
                 prompt="p",
+                provider="gemini-aistudio",
             ),
         )
 
@@ -796,6 +809,7 @@ class TestTextChannel:
         gen = TextGenerator(
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview", error=ValueError("t" * 600)),
             Ledger(session_factory=acct.factory),
+            "gemini-aistudio",
         )
 
         with pytest.raises(ValueError):
@@ -809,6 +823,7 @@ class TestTextChannel:
                 prompt="p",
                 status="failed",
                 error_message="t" * 500,
+                provider="gemini-aistudio",
             ),
         )
 
@@ -845,6 +860,7 @@ class TestTextChannel:
                 output_tokens=500_000,
             ),
             Ledger(session_factory=acct.factory),
+            provider_key,
         )
 
         await gen.generate(TextGenerationRequest(prompt="p"), project_name="demo")
@@ -863,6 +879,52 @@ class TestTextChannel:
                 output_tokens=500_000,
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# 身份不变量：记账 provider 取解析层 provider_id，构造期成对不变量
+# ---------------------------------------------------------------------------
+
+
+class TestIdentityInvariant:
+    async def test_media_records_resolver_provider_id_not_backend_name(
+        self, tmp_path: Path, acct: _AccountingDb
+    ) -> None:
+        # backend.name 报裸 "gemini"，解析层 id 为 "gemini-aistudio"：记账须落解析层 id。
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(provider="gemini", model="gemini-3-pro-image-preview"),
+            image_provider_id="gemini-aistudio",
+        )
+
+        await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿", image_size="2K")
+
+        row = await acct.fetch_only_row()
+        assert row["provider"] == "gemini-aistudio"
+
+    def test_media_backend_without_provider_id_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            MediaGenerator(
+                tmp_path / "projects" / "demo",
+                image_backend=_FakeImageBackend(provider="gemini", model="m"),
+                image_provider_id=None,
+            )
+
+    def test_media_provider_id_without_backend_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            MediaGenerator(
+                tmp_path / "projects" / "demo",
+                video_provider_id="gemini-aistudio",
+            )
+
+    def test_text_missing_provider_id_raises(self, acct: _AccountingDb) -> None:
+        with pytest.raises(ValueError):
+            TextGenerator(
+                _FakeTextBackend(provider="gemini", model="m"),
+                Ledger(session_factory=acct.factory),
+                cast(str, None),
+            )
 
 
 # ---------------------------------------------------------------------------

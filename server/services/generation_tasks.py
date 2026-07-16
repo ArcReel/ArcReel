@@ -101,7 +101,7 @@ async def _resolve_video_backend(
     project_name: str,
     resolver: ConfigResolver,
     payload: dict | None,
-) -> tuple[Any | None, str]:
+) -> tuple[Any | None, str | None]:
     """解析并构造视频后端，返回 (video_backend, provider_id)。
 
     provider/model 的**解析**是 ``resolver.resolve_video_backend`` 的薄投影；backend **构造**
@@ -121,7 +121,9 @@ async def _resolve_video_backend(
             default_video_model=resolved.model_id or None,
         )
 
-    return video_backend, resolved.provider_id
+    # provider_id 与 backend 成对返回：无 payload 时不构造 video_backend，此时 provider_id 无
+    # 消费者（压缩上限与记账都只在视频真实调用时用），返回 None 以满足 MediaGenerator 的成对不变量。
+    return video_backend, (resolved.provider_id if video_backend is not None else None)
 
 
 async def get_media_generator(
@@ -149,6 +151,7 @@ async def get_media_generator(
     # image provider，纯图任务也要拿到 video provider，两个分支各自赋值后传给 MediaGenerator。
     image_provider_id: str | None = None
     video_provider_id: str | None = None
+    audio_provider_id: str | None = None
     async with resolver.session() as r:
         image_backend = None
         video_backend = None
@@ -157,6 +160,7 @@ async def get_media_generator(
         if needs_audio:
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
             resolved_audio = await r.resolve_audio_backend(project, payload)
+            audio_provider_id = resolved_audio.provider_id
             audio_backend = await _get_or_create_audio_backend(
                 resolved_audio.provider_id,
                 {},
@@ -193,6 +197,7 @@ async def get_media_generator(
         user_id=user_id,
         image_provider_id=image_provider_id,
         video_provider_id=video_provider_id,
+        audio_provider_id=audio_provider_id,
     )
 
 

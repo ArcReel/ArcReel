@@ -30,7 +30,7 @@ class _FakeTextBackend:
 
 
 async def _fake_create_backend(*args, **kwargs):
-    return _FakeTextBackend()
+    return _FakeTextBackend(), "fake"
 
 
 def _img_bytes(fmt="JPEG"):

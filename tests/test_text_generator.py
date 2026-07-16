@@ -53,8 +53,9 @@ def _make_backend(provider="gemini", model="gemini-3-flash-preview"):
 
 class TestTextGenerator:
     async def test_generate_records_usage_on_success(self, wired):
+        # backend.name 为裸 "gemini"，记账须取解析层 provider_id（"gemini-aistudio"）。
         backend = _make_backend()
-        gen = TextGenerator(backend, wired.ledger)
+        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio")
 
         result = await gen.generate(
             TextGenerationRequest(prompt="测试"),
@@ -72,13 +73,13 @@ class TestTextGenerator:
         assert item["status"] == "success"
         assert item["input_tokens"] == 100
         assert item["output_tokens"] == 50
-        assert item["provider"] == "gemini"
+        assert item["provider"] == "gemini-aistudio"
         assert item["cost_amount"] == pytest.approx((100 * 0.50 + 50 * 3.00) / 1_000_000)
 
     async def test_generate_records_usage_on_failure(self, wired):
         backend = _make_backend()
         backend.generate = AsyncMock(side_effect=RuntimeError("API 超时"))
-        gen = TextGenerator(backend, wired.ledger)
+        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio")
 
         with pytest.raises(RuntimeError, match="API 超时"):
             await gen.generate(
@@ -95,7 +96,7 @@ class TestTextGenerator:
 
     async def test_generate_without_project_name(self, wired):
         backend = _make_backend()
-        gen = TextGenerator(backend, wired.ledger)
+        gen = TextGenerator(backend, wired.ledger, "gemini-aistudio")
 
         result = await gen.generate(TextGenerationRequest(prompt="工具箱调用"))
 
