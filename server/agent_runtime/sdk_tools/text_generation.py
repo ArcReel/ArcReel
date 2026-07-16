@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -651,14 +652,20 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
         raise ValueError(f"step1 拆分内容 duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
 
+def _normalize_for_coverage(text: str) -> str:
+    """把空白游程折叠为单个空格，仅容忍空白的类型/数量差异，不抹去"有空白"这一事实本身。"""
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: str) -> None:
     """机械校验片段 ``novel_text`` 按序、完整覆盖源文，杜绝模型删减 / 改写 / 重排后仍被当真值落盘。
 
-    比对前去除全部空白：段落间换行是否保留属排版差异，不是 prompt 要求逐字保留的内容本身
-    （prompt 只禁止改标点 / 删减 / 改写字词）；空白之外的任一字符差异均判定为不合格。
+    比对前折叠空白游程为单个空格：段落间换行 / 多空格是否保留属排版差异，不是 prompt 要求逐字
+    保留的内容本身（prompt 只禁止改标点 / 删减 / 改写字词）；但空格分词语言（英语 / 越南语）里
+    词间空格被整体删掉属实质内容损坏，折叠而非整体剥离才能拦住这种情况。
     """
     combined = "".join(str(s.get("novel_text") or "") for s in segments)
-    if "".join(combined.split()) != "".join(novel_text.split()):
+    if _normalize_for_coverage(combined) != _normalize_for_coverage(novel_text):
         raise ValueError("step1 拆分内容 novel_text 未逐字、完整覆盖小说原文（存在删减、改写或重排）")
 
 

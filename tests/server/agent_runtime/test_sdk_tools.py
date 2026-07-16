@@ -2331,6 +2331,19 @@ async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: ToolContext, monkeypatch) -> None:
+    """空格分词语言里模型丢失词间空格（"Hello world" -> "Helloworld"）属实质内容损坏，须拦截。"""
+    out = await _nr_source_and_call(
+        fake_ctx,
+        monkeypatch,
+        "Hello world, this is fine.",
+        [_nr_segment("E1S01", 4, "Helloworld, this is fine.")],
+    )
+    assert out.get("is_error") is True
+    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
 async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
