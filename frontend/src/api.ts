@@ -127,26 +127,6 @@ export interface ShotUploadResult {
   asset_fingerprints: Record<string, number>;
 }
 
-/** Options for {@link API.openTaskStream}. */
-export interface TaskStreamOptions {
-  projectName?: string;
-  lastEventId?: number | string;
-  onSnapshot?: (payload: TaskStreamSnapshotPayload, event: MessageEvent) => void;
-  onTask?: (payload: TaskStreamTaskPayload, event: MessageEvent) => void;
-  onError?: (event: Event) => void;
-}
-
-export interface TaskStreamSnapshotPayload {
-  tasks: TaskItem[];
-  stats: TaskStats;
-}
-
-export interface TaskStreamTaskPayload {
-  action: "created" | "updated";
-  task: TaskItem;
-  stats: TaskStats;
-}
-
 export interface ProjectEventStreamOptions {
   projectName: string;
   onSnapshot?: (payload: ProjectEventSnapshotPayload, event: MessageEvent) => void;
@@ -1406,57 +1386,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/tasks/cancel-all`,
       { method: "POST" }
     );
-  }
-
-  static openTaskStream(options: TaskStreamOptions = {}): EventSource {
-    const params = new URLSearchParams();
-    if (options.projectName)
-      params.append("project_name", options.projectName);
-    const parsedLastEventId = Number(options.lastEventId);
-    if (Number.isFinite(parsedLastEventId) && parsedLastEventId > 0) {
-      params.append("last_event_id", String(parsedLastEventId));
-    }
-
-    const query = params.toString();
-    const url = withAuthQuery(`${API_BASE}/tasks/stream${query ? "?" + query : ""}`);
-    const source = new EventSource(url);
-
-    const parsePayload = (event: MessageEvent): unknown => {
-      try {
-        return JSON.parse((event.data as string) || "{}");
-      } catch (err) {
-        console.error("解析 SSE 数据失败:", err, event.data);
-        return null;
-      }
-    };
-
-    source.addEventListener("snapshot", (event) => {
-      const payload = parsePayload(event);
-      if (payload && typeof options.onSnapshot === "function") {
-        options.onSnapshot(
-          payload as TaskStreamSnapshotPayload,
-          event
-        );
-      }
-    });
-
-    source.addEventListener("task", (event) => {
-      const payload = parsePayload(event);
-      if (payload && typeof options.onTask === "function") {
-        options.onTask(
-          payload as TaskStreamTaskPayload,
-          event
-        );
-      }
-    });
-
-    source.onerror = (event: Event) => {
-      if (typeof options.onError === "function") {
-        options.onError(event);
-      }
-    };
-
-    return source;
   }
 
   static openProjectEventStream(options: ProjectEventStreamOptions): EventSource {

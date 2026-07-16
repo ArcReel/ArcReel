@@ -9,7 +9,6 @@ interface TasksState {
 
   // Actions
   setTasks: (tasks: TaskItem[]) => void;
-  upsertTask: (task: TaskItem) => void;
   setStats: (stats: TaskStats) => void;
   setConnected: (connected: boolean) => void;
 }
@@ -24,16 +23,6 @@ export const useTasksStore = create<TasksState>((set) => ({
   connected: false,
 
   setTasks: (tasks) => set({ tasks }),
-  upsertTask: (task) =>
-    set((s) => {
-      const idx = s.tasks.findIndex((t) => t.task_id === task.task_id);
-      if (idx >= 0) {
-        const updated = [...s.tasks];
-        updated[idx] = task;
-        return { tasks: updated };
-      }
-      return { tasks: [task, ...s.tasks] };
-    }),
   setStats: (stats) => set({ stats }),
   setConnected: (connected) => set({ connected }),
 }));
@@ -44,8 +33,8 @@ export const useTasksStore = create<TasksState>((set) => ({
 // 消费点（画布 loading 派生、参考视频单元状态等）此前各自重写两条隐性契约：
 //   1.「什么算活跃」——排队或运行中的任务占用其 resource（isActiveStatus）。
 //   2.「最新行胜出」——同一 resource 可能有多条任务行：失败后重试是新的 task_id，
-//      store 按 task_id upsert（见 upsertTask）且不保证 tasks 顺序，故判定时须取
-//      updated_at 最新的一行，重试的新行不被旧失败行遮挡（selectLatestTaskByResource）。
+//      tasks 由服务端列表整体写入、顺序不保证，故判定时须取 updated_at 最新的一行，
+//      重试的新行不被旧失败行遮挡（selectLatestTaskByResource）。
 //
 // 纯函数版把两条不变量收敛于此、可直接用 vitest 测试；hook 版用 useShallow 比较
 // Set/Map 内容，保证内容不变时引用稳定，避免每次渲染返回新集合触发重渲染。
