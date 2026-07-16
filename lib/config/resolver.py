@@ -324,7 +324,7 @@ class ConfigResolver:
             return None
         repo = CustomProviderRepository(session)
         model = await repo.get_model_by_ids(db_id, model_id)
-        return model.resolution if model else None
+        return model.resolution if (model and model.resolution) else None
 
     async def default_audio_backend(self) -> tuple[str, str]:
         """返回系统级默认音频 (provider_id, model_id)（不含项目级覆盖）。"""
