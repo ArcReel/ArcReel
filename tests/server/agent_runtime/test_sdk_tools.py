@@ -2273,6 +2273,25 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+async def test_split_narration_segments_rejects_unregistered_asset_reference(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """characters_in_segment / scenes / props 引用了 project.json 未登记的名称须被拦截，不落盘。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    segments = [_nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+    assert "未登记的资产名" in out["content"][0]["text"]
+    assert "王五" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
 async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: str, segments: list[dict]):
     from server.agent_runtime.sdk_tools import text_generation as mod
 

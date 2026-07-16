@@ -652,6 +652,32 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
         raise ValueError(f"step1 拆分内容 duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
 
+def _validate_narration_asset_references(
+    segments: list[dict],
+    characters: dict[str, Any],
+    scenes: dict[str, Any],
+    props: dict[str, Any],
+) -> None:
+    """校验片段登记的角色 / 场景 / 道具已在 project.json 对应表注册，与 rv 侧
+    ``_derive_and_validate_reference_units`` 对资产引用的校验同口径：只信登记过的资产名，
+    不允许模型发明或拼错的名称被当真值写盘、被 step2 视觉层只读消费。
+    """
+    missing: dict[str, list[str]] = {}
+    for segment in segments:
+        sid = str(segment.get("segment_id"))
+        for field, bucket in (
+            ("characters_in_segment", characters),
+            ("scenes", scenes),
+            ("props", props),
+        ):
+            names = segment.get(field) or []
+            bad = sorted({str(name) for name in names if name not in bucket})
+            if bad:
+                missing[f"{sid}.{field}"] = bad
+    if missing:
+        raise ValueError(f"step1 拆分内容引用了未登记的资产名: {missing}；资产名必须逐字取自 project.json 三张表")
+
+
 def _normalize_for_coverage(text: str) -> str:
     """把连续空白折叠为单个空格，不删除空白本身，仅消除空白的类型 / 数量差异。"""
     return re.sub(r"\s+", " ", text).strip()
@@ -757,6 +783,7 @@ def split_narration_segments_tool(ctx: ToolContext):
             if not isinstance(raw_segments, list) or not raw_segments:
                 raise ValueError("step1 拆分内容结构异常：segments 必须是非空的片段对象数组")
             _validate_narration_segments(raw_segments, supported_durations)
+            _validate_narration_asset_references(raw_segments, characters, scenes, props)
             _validate_narration_novel_text_coverage(raw_segments, novel_text)
 
             drafts_dir = episode_drafts_dir(project_path, episode)
