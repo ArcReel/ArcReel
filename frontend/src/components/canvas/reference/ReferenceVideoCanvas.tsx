@@ -21,7 +21,7 @@ import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
-import { useLatestTasksByResource } from "@/stores/tasks-store";
+import { isActiveStatus, useLatestTasksByResource } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -123,7 +123,7 @@ export function ReferenceVideoCanvas({
       // 上传中的 unit 视为 running：批量生成按 statusMap 选 pending，
       // 否则上传期间会被再次入队，与生成回写同一个成片文件
       if (uploadingUnitIds.has(u.unit_id)) st = "running";
-      else if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
+      else if (queueRow && isActiveStatus(queueRow.status)) st = "running";
       // 失败任务行 DB 持久化、不会过期：手动上传成片后单元已有可播放资产，
       // 不再让历史失败覆盖 ready（与 timeline/grid 画布用 toast 提示失败的语义对齐）
       else if (queueRow?.status === "failed" && !u.generated_assets.video_clip) st = "failed";
