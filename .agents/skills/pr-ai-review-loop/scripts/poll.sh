@@ -60,7 +60,7 @@
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
 #     "comments_new":     [{id, createdAt, preview}],
 #     "comments_history": {total, last_created_at},
-#     "reactions":        [{content, created_at, is_new}] # current-round +1 is Codex's silent pass
+#     "reactions":        [{content, created_at, is_new}] # eyes = reviewing current HEAD; +1 = silent pass
 #   },
 #   "inline_new_by_user":     {"<bot[bot]>": [{id, path, created_at, severity_alt, cr_markers,
 #                                              is_ack, preview}]},   # id = REST PR review comment id; severity_alt
@@ -144,6 +144,8 @@
 #    an empty-body COMMENTED review tied to that commit, or a +1 PR reaction after the last
 #    push. Keep all three: automatic review follows fix pushes and may use
 #    different shapes depending on whether it found another P0/P1 issue.
+#    The PR reaction is mutable: a new review replaces the previous +1 with eyes, naturally
+#    invalidating the previous pass while the current HEAD is under review.
 #
 # 6. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
@@ -259,7 +261,7 @@ done < <(
   jq -r '.[]
     | select(.user.login != "chatgpt-codex-connector[bot]")
     | select((.body // "") | test("^[ \\t]*@codex review(\\s|$)"; "i"))
-    | select((.reactions.eyes // 0) > 0)
+    | select((.reactions == null) or ((.reactions.eyes // 0) > 0))
     | .id' "$WORKDIR/sub_a.json"
 )
 
@@ -396,7 +398,7 @@ jq -n \
   def codex_review_row:
     (.body // "") as $rb
     | ((.commit.oid // null)
-       // ([$rb | capture("Reviewed commit:\\*\\*?[ `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null)) as $reviewed_commit
+       // ([$rb | capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null)) as $reviewed_commit
     | (if $reviewed_commit == null
        then (.submittedAt > $last_push)
        else (($main.headRefOid | startswith($reviewed_commit))
@@ -404,7 +406,7 @@ jq -n \
        end) as $reviewed_current_head
     | {id, submittedAt, state, reviewed_commit: $reviewed_commit,
        reviewed_current_head: $reviewed_current_head,
-       is_new: $reviewed_current_head, body};
+       is_new: (.submittedAt > $last_push), body};
 
   def inline_by_bot:
     [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]

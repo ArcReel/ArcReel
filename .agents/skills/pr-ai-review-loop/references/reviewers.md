@@ -66,8 +66,11 @@
 - 从无上述信号,`pr_created_at` 距今不足 5 分钟 → cold-start 窗口内等待
 - 从无上述信号,已超过 5 分钟,且本轮尚无 `@codex review` → 发送一次 `@codex review`
 - 已有 `@codex review` 但尚无结果 → 评论上的 Codex `👀` 会令 `codex.has_started == true`;未出现时同样等待,25 分钟后按故障处理
+- Codex 已参审,新 push 后尚无已审当前 HEAD 信号 → 等待;距 `last_push_at` 超过 25 分钟仍无 review / `+1` / inline → 按故障处理
 
 `codex.has_started` 汇总两种已接单信号:Codex 在 PR 上的 `eyes` reaction,或 `own_trigger_comments` 中 `@codex review` 的 `has_codex_eyes == true`;两处均按 `chatgpt-codex-connector[bot]` 身份精确核验,不把其他人的 👀 算作 Codex。
+
+PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮 `+1` 换成 `eyes`;此时上一轮通过失效,当前 HEAD 进入审查中。
 
 **已审当前 HEAD**:满足三种历史兼容信号任一:
 
@@ -77,9 +80,9 @@
 
 `poll.sh` 优先用 review 自带的 commit OID 判当前 HEAD,缺失时解析 body 的 `Reviewed commit`,再缺失才按提交时间回退。
 
-**actionable**:本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 一律 actionable;兼容旧 payload 时,P2/P3 交 `receiving-code-review` 核实。
+**actionable**:本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 一律 actionable;兼容旧 payload 时,P2/P3 交 `receiving-code-review` 核实。判定为非 actionable 并记录 pushback 的 P2/P3 不再阻塞通过。
 
-**通过**:满足三种已审信号之一,且本轮无非 ack inline。
+**通过**:满足三种已审信号之一,且本轮无未解决的 actionable inline。
 
 ## GitHub code scanning bots(Code Quality + Advanced Security)
 
