@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -507,7 +507,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
-    # 只 mock 最外层：VideoBackend（唯一的真外部依赖）+ UsageTracker/ConfigResolver
+    # 只 mock 最外层：VideoBackend（唯一的真外部依赖）+ Ledger/ConfigResolver
     # （这俩摸 DB，测试无 DB）。VersionManager 用真实实现 —— 这样 VersionManager
     # 自己的白名单（RESOURCE_TYPES / EXTENSIONS）也被这条路径守住，
     # 任何一处三张注册表漏登记都会在此爆 ValueError。
@@ -536,12 +536,16 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
                 generate_audio=False,
             )
 
-    class _FakeUsage:
-        async def start_call(self, **_kwargs):
-            return 1
+    class _FakeLedger:
+        @asynccontextmanager
+        async def record(self, **_kwargs):
+            class _Call:
+                call_id = 1
 
-        async def finish_call(self, **_kwargs):
-            pass
+                def success(self, _result):
+                    pass
+
+            yield _Call()
 
     class _FakeConfigResolver:
         async def video_generate_audio(self, _project_name=None):
@@ -555,7 +559,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
             return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
-    # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 UsageTracker 对 DB 的初始化）
+    # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 Ledger 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir
     real_gen.project_name = "demo"
@@ -567,7 +571,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     real_gen._image_provider_id = None
     real_gen._video_provider_id = None
     real_gen.versions = VersionManager(proj_dir)
-    real_gen.usage_tracker = _FakeUsage()
+    real_gen.ledger = _FakeLedger()
 
     _wire_context(monkeypatch, rvt, real_gen, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
 

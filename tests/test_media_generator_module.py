@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -77,17 +79,46 @@ class _FakeVersions:
         }
 
 
-class _FakeUsage:
+class _FakeLedgerCall:
+    def __init__(self, call_id):
+        self.call_id = call_id
+        self.declared = False
+        self.result = None
+
+    def success(self, result):
+        self.declared = True
+        self.result = result
+
+
+class _FakeLedger:
+    """记账账本假实现：捕获记账括号入参（started）与终态结果（outcomes）——新主缝。
+
+    括号语义与真 Ledger 一致：CancelledError 穿透、Exception 记 failed 后重抛、
+    正常退出未声明成功抛 RuntimeError。usage 字段的提取归属真 Ledger 的 union 分发，
+    此处只捕获调用点递交的 backend 结果对象。
+    """
+
     def __init__(self):
         self.started = []
-        self.finished = []
+        self.outcomes = []
+        self._n = 0
 
-    async def start_call(self, **kwargs):
+    @asynccontextmanager
+    async def record(self, **kwargs):
+        self._n += 1
         self.started.append(kwargs)
-        return len(self.started)
-
-    async def finish_call(self, **kwargs):
-        self.finished.append(kwargs)
+        call = _FakeLedgerCall(self._n)
+        try:
+            yield call
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.outcomes.append({"status": "failed", "error": exc})
+            raise
+        else:
+            if not call.declared:
+                raise RuntimeError("ledger.record exited without success()")
+            self.outcomes.append({"status": "success", "result": call.result})
 
 
 class _FakeConfigResolver:
@@ -122,7 +153,7 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen._image_provider_id = None
     gen._video_provider_id = None
     gen.versions = _FakeVersions()
-    gen.usage_tracker = _FakeUsage()
+    gen.ledger = _FakeLedger()
     return gen
 
 
@@ -147,9 +178,10 @@ class TestMediaGenerator:
 
         assert output_path.name == "scene_E1S01.png"
         assert version == 1
-        assert gen.usage_tracker.started[0]["call_type"] == "image"
-        assert gen.usage_tracker.finished[0]["status"] == "success"
-        assert gen.usage_tracker.finished[0]["usage_tokens"] == 8
+        assert gen.ledger.started[0]["call_type"] == "image"
+        assert gen.ledger.outcomes[0]["status"] == "success"
+        # usage_tokens 提取归属真 Ledger union 分发；此处确认调用点递交了 backend 结果对象
+        assert gen.ledger.outcomes[0]["result"].usage_tokens == 8
 
         async def _raise(request):
             raise RuntimeError("boom")
@@ -158,7 +190,7 @@ class TestMediaGenerator:
         with pytest.raises(RuntimeError):
             gen.generate_image(prompt="p", resource_type="characters", resource_id="A")
 
-        assert any(item["status"] == "failed" for item in gen.usage_tracker.finished)
+        assert any(o["status"] == "failed" for o in gen.ledger.outcomes)
 
     @pytest.mark.asyncio
     async def test_generate_video_sync_and_async(self, tmp_path):
@@ -183,7 +215,7 @@ class TestMediaGenerator:
         )
         assert video_path2.name == "scene_E1S02.mp4"
         assert version2 == 2
-        assert gen.usage_tracker.started[-1]["call_type"] == "video"
+        assert gen.ledger.started[-1]["call_type"] == "video"
 
     @pytest.mark.asyncio
     async def test_video_billed_duration_passed_to_finish_call(self, tmp_path):
@@ -197,25 +229,27 @@ class TestMediaGenerator:
             resource_id="E1S10",
             duration_seconds="6",
         )
-        assert gen.usage_tracker.started[-1]["duration_seconds"] == 6
-        assert gen.usage_tracker.finished[-1]["billed_duration_seconds"] == 15
+        assert gen.ledger.started[-1]["duration_seconds"] == 6
+        # billed_duration_seconds 由真 Ledger union 分发从结果对象提取；此处确认递交了 duration=15 的结果
+        assert gen.ledger.outcomes[-1]["result"].duration_seconds == 15
 
     @pytest.mark.asyncio
     async def test_video_billed_duration_lands_in_ledger(self, tmp_path):
-        """端到端：backend 返回与请求不同的实际计费时长，ApiCall 账本记录 backend 值。"""
+        """端到端：真 Ledger 落库，backend 返回与请求不同的实际计费时长，ApiCall 账本记录 backend 值。"""
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
         from lib.db.base import Base
+        from lib.ledger import Ledger
         from lib.usage_tracker import UsageTracker
 
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         try:
+            factory = async_sessionmaker(engine, expire_on_commit=False)
             gen = _build_generator(tmp_path)
             gen._video_backend = _FakeVideoBackend(result_duration_seconds=15)
-            tracker = UsageTracker(session_factory=async_sessionmaker(engine, expire_on_commit=False))
-            gen.usage_tracker = tracker
+            gen.ledger = Ledger(session_factory=factory)
 
             await gen.generate_video_async(
                 prompt="p",
@@ -224,7 +258,8 @@ class TestMediaGenerator:
                 duration_seconds="6",
             )
 
-            item = (await tracker.get_calls(project_name="demo"))["items"][0]
+            # 读侧仍走 UsageTracker（读侧未迁移）
+            item = (await UsageTracker(session_factory=factory).get_calls(project_name="demo"))["items"][0]
             assert item["status"] == "success"
             assert item["duration_seconds"] == 15
         finally:
@@ -242,7 +277,7 @@ class TestMediaGenerator:
             resource_id="E1S03",
         )
         # VideoBackend 路径尊重 ConfigResolver 返回的值
-        assert gen.usage_tracker.started[-1]["generate_audio"] is False
+        assert gen.ledger.started[-1]["generate_audio"] is False
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_respects_config_true(self, tmp_path):
@@ -255,7 +290,7 @@ class TestMediaGenerator:
             resource_type="videos",
             resource_id="E1S04",
         )
-        assert gen.usage_tracker.started[-1]["generate_audio"] is True
+        assert gen.ledger.started[-1]["generate_audio"] is True
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_defaults_true_when_config_none(self, tmp_path):
@@ -269,7 +304,7 @@ class TestMediaGenerator:
             resource_type="videos",
             resource_id="E1S05",
         )
-        assert gen.usage_tracker.started[-1]["generate_audio"] is True
+        assert gen.ledger.started[-1]["generate_audio"] is True
 
 
 # ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
@@ -423,8 +458,8 @@ class TestReferenceCompressionSeam:
         # 一次 413 后降档重试成功：backend 被调两次
         assert len(backend.calls) == 2
         # 只记一条 success（413 内循环重试不额外记账）
-        assert len(gen.usage_tracker.finished) == 1
-        assert gen.usage_tracker.finished[0]["status"] == "success"
+        assert len(gen.ledger.outcomes) == 1
+        assert gen.ledger.outcomes[0]["status"] == "success"
 
     async def test_413_exhausted_raises_floor_records_failed(self, tmp_path):
         gen = _build_generator(tmp_path)
@@ -443,8 +478,8 @@ class TestReferenceCompressionSeam:
         # 走完梯子（基线 + LADDER_STEPS-1 档 + 地板）= LADDER_STEPS + 1 次调用后耗尽
         assert len(backend.calls) == LADDER_STEPS + 1
         # 耗尽冒泡到外层 except 记一条 failed
-        assert len(gen.usage_tracker.finished) == 1
-        assert gen.usage_tracker.finished[0]["status"] == "failed"
+        assert len(gen.ledger.outcomes) == 1
+        assert gen.ledger.outcomes[0]["status"] == "failed"
 
     async def test_t2i_no_refs_413_not_converted_to_floor(self, tmp_path):
         # 无参考图（T2I）的 413 与参考图无关，不应被误转成 floor、也不降档

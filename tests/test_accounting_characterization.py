@@ -1,7 +1,7 @@
 """记账特征化测试矩阵：六通道落库行为锁。
 
 以生成器公开方法驱动 + 假 backend（Protocol 实现，返回可控结果/抛可控异常）+ 真内存
-SQLite 落库 + 冻结时钟，把记账链路（UsageTracker → UsageRepository → 结算 →
+SQLite 落库 + 冻结时钟，把记账链路（Ledger → UsageRepository → 结算 →
 CostCalculator → 定价策略）的落库行为逐字段锁定：链路内部不 mock，断言 ApiCall 整行，
 任何记账落库行为的意外变化都会在此当场失败。
 
@@ -35,11 +35,12 @@ from lib.config.resolver import ConfigResolver
 from lib.db.base import Base
 from lib.db.models.api_call import ApiCall
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+from lib.ledger import Ledger
 from lib.media_generator import MediaGenerator
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.text_generator import TextGenerator
-from lib.usage_tracker import UsageTracker
 from lib.video_backends.base import (
     ResumeExpiredError,
     VideoCapabilities,
@@ -90,7 +91,6 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> _SteppingClock:
 class _AccountingDb:
     engine: AsyncEngine
     factory: async_sessionmaker
-    tracker: UsageTracker
 
     async def fetch_rows(self) -> list[dict[str, Any]]:
         """按 id 升序取全部 ApiCall 行，整行快照（表列全集）。
@@ -117,7 +117,7 @@ async def acct(frozen_clock: _SteppingClock) -> Any:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    db = _AccountingDb(engine=engine, factory=factory, tracker=UsageTracker(session_factory=factory))
+    db = _AccountingDb(engine=engine, factory=factory)
     yield db
     await engine.dispose()
 
@@ -392,8 +392,8 @@ def _media_generator(
         audio_backend=audio_backend,
         config_resolver=cast(ConfigResolver, _FakeConfigResolver()),
     )
-    # 唯一的接线替换：把记账落点指到测试内存库。记账链路内部（tracker→repo→结算→定价）全真实。
-    gen.usage_tracker = UsageTracker(session_factory=db.factory)
+    # 唯一的接线替换：把记账落点指到测试内存库。记账链路内部（ledger→repo→结算→定价）全真实。
+    gen.ledger = Ledger(session_factory=db.factory)
     return gen
 
 
@@ -755,7 +755,7 @@ class TestTextChannel:
                 input_tokens=1_000_000,
                 output_tokens=1_000_000,
             ),
-            UsageTracker(session_factory=acct.factory),
+            Ledger(session_factory=acct.factory),
         )
 
         await gen.generate(TextGenerationRequest(prompt="文" * 700), project_name="demo")
@@ -776,7 +776,7 @@ class TestTextChannel:
     async def test_no_tokens_and_no_project_yields_zero_cost(self, acct: _AccountingDb) -> None:
         gen = TextGenerator(
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview"),
-            UsageTracker(session_factory=acct.factory),
+            Ledger(session_factory=acct.factory),
         )
 
         await gen.generate(TextGenerationRequest(prompt="p"))
@@ -795,7 +795,7 @@ class TestTextChannel:
     async def test_failure_flips_failed_with_truncated_error(self, acct: _AccountingDb) -> None:
         gen = TextGenerator(
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview", error=ValueError("t" * 600)),
-            UsageTracker(session_factory=acct.factory),
+            Ledger(session_factory=acct.factory),
         )
 
         with pytest.raises(ValueError):
@@ -844,7 +844,7 @@ class TestTextChannel:
                 input_tokens=1_000_000,
                 output_tokens=500_000,
             ),
-            UsageTracker(session_factory=acct.factory),
+            Ledger(session_factory=acct.factory),
         )
 
         await gen.generate(TextGenerationRequest(prompt="p"), project_name="demo")
@@ -871,19 +871,24 @@ class TestTextChannel:
 
 
 async def _pending_video_call(acct: _AccountingDb) -> int:
-    """模拟 submit 侧已记账的 pending 行（resume 的补账锚点）。"""
-    return await acct.tracker.start_call(
-        project_name="demo",
-        call_type="video",
-        model="veo-3.1-generate-preview",
-        prompt="p",
-        resolution="720p",
-        duration_seconds=8,
-        aspect_ratio="9:16",
-        generate_audio=True,
-        provider="gemini",
-        segment_id="E1S01",
-    )
+    """模拟 submit 侧已记账的 pending 行（resume 的补账锚点）。
+
+    直接经 UsageRepository 落 pending 行 —— submit 侧生产入口是记账括号的 start，此处仅需
+    锚点行，不必开括号。
+    """
+    async with acct.factory() as session:
+        return await UsageRepository(session).start_call(
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-preview",
+            prompt="p",
+            resolution="720p",
+            duration_seconds=8,
+            aspect_ratio="9:16",
+            generate_audio=True,
+            provider="gemini",
+            segment_id="E1S01",
+        )
 
 
 async def _resume_video(gen: MediaGenerator, api_call_id: int | None) -> None:
@@ -978,14 +983,14 @@ class TestResumeChannel:
 
     async def test_pending_guard_never_touches_terminal_row(self, tmp_path: Path, acct: _AccountingDb) -> None:
         call_id = await _pending_video_call(acct)
-        await acct.tracker.finish_call(
-            call_id,
-            status="success",
-            output_path="/already/done.mp4",
-            usage_tokens=0,
-            generate_audio=True,
-            billed_duration_seconds=8,
-        )
+        # 预置一条已 success 的终态行（模拟 generate 已 finish），供 resume 幂等守卫验证。
+        async with acct.factory() as session:
+            await UsageRepository(session).finish_call(
+                call_id,
+                status="success",
+                settlement=SettlementInput(usage_tokens=0, generate_audio=True, billed_duration_seconds=8),
+                output_path="/already/done.mp4",
+            )
         terminal_snapshot = await acct.fetch_only_row()
 
         gen = _media_generator(tmp_path, acct, video_backend=_veo_backend(usage_tokens=0, duration_seconds=6))
@@ -1041,7 +1046,7 @@ class TestAgentBackfillChannel:
             project_root=tmp_path,
             meta_store=SessionMetaStore(session_factory=acct.factory),
         )
-        mgr.usage_tracker = UsageTracker(session_factory=acct.factory)
+        mgr.ledger = Ledger(session_factory=acct.factory)
         return mgr
 
     async def test_completed_turn_prefers_reported_cost(self, manager: SessionManager, acct: _AccountingDb) -> None:

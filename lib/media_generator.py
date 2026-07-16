@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
+from lib.ledger import Ledger
 from lib.resource_paths import resource_relative_path
-from lib.usage_tracker import UsageTracker
 from lib.version_manager import VersionManager
 
 logger = logging.getLogger(__name__)
@@ -108,8 +108,8 @@ class MediaGenerator:
         self._video_provider_id = video_provider_id
         self.versions = VersionManager(project_path)
 
-        # 初始化 UsageTracker（使用全局 async session factory）
-        self.usage_tracker = UsageTracker()
+        # 初始化记账账本（使用全局 async session factory）
+        self.ledger = Ledger()
 
     @staticmethod
     def _sync(coro):
@@ -322,8 +322,9 @@ class MediaGenerator:
                 model=self._image_backend.model,
             )
 
-        # 2. 记录 API 调用开始
-        call_id = await self.usage_tracker.start_call(
+        # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，
+        #    Exception 自动翻 failed 后重抛，CancelledError 穿透留 pending。
+        async with self.ledger.record(
             project_name=self.project_name,
             call_type="image",
             model=self._image_backend.model,
@@ -333,9 +334,8 @@ class MediaGenerator:
             provider=self._image_backend.name,
             user_id=self._user_id,
             segment_id=resource_id if resource_type in ("storyboards", "videos", "grids") else None,
-        )
-
-        try:
+            output_path=str(output_path),
+        ) as call:
             from lib.reference_compression import ReferenceSpec, RefRole
 
             image_backend = self._image_backend
@@ -359,28 +359,7 @@ class MediaGenerator:
                 provider_id=self._image_provider_id,
                 build_and_call=_call_image,
             )
-
-            # 4. 记录调用成功
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path),
-                usage_tokens=getattr(result, "usage_tokens", None),
-                quality=getattr(result, "quality", None),
-                image_input_tokens=getattr(result, "image_input_tokens", None),
-                image_output_tokens=getattr(result, "image_output_tokens", None),
-                text_input_tokens=getattr(result, "text_input_tokens", None),
-                text_output_tokens=getattr(result, "text_output_tokens", None),
-            )
-        except Exception as e:
-            # 记录调用失败
-            logger.exception("生成失败 (%s)", "image")
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="failed",
-                error_message=str(e),
-            )
-            raise
+            call.success(result)
 
         # 5. 记录新版本
         new_version = self.versions.add_version(
@@ -438,7 +417,9 @@ class MediaGenerator:
         if self._audio_backend is None:
             raise RuntimeError("audio_backend not configured")
 
-        call_id = await self.usage_tracker.start_call(
+        # audio 合成字符数 → 计费 token 的语义转写已收进 ledger union 分发（_settlement_from_result），
+        # 此处仅把 backend 结果对象递交给 call.success。
+        async with self.ledger.record(
             project_name=self.project_name,
             call_type="audio",
             model=self._audio_backend.model,
@@ -446,9 +427,8 @@ class MediaGenerator:
             provider=self._audio_backend.name,
             user_id=self._user_id,
             segment_id=resource_id,
-        )
-
-        try:
+            output_path=str(output_path),
+        ) as call:
             request = AudioSynthesisRequest(
                 text=text,
                 output_path=output_path,
@@ -457,23 +437,7 @@ class MediaGenerator:
                 speed=speed,
             )
             result = await self._audio_backend.synthesize(request)
-
-            # audio 的 usage_tokens 承载合成字符数（非 LLM token），驱动 per_character 计费；
-            # finish_call 据此冻结 ApiCall.cost_amount 成本快照。
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path),
-                usage_tokens=result.characters,
-            )
-        except Exception as e:
-            logger.exception("生成失败 (%s)", "audio")
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="failed",
-                error_message=str(e),
-            )
-            raise
+            call.success(result)
 
         new_version = self.versions.add_version(
             resource_type=resource_type,
@@ -600,7 +564,11 @@ class MediaGenerator:
             configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
-        call_id = await self.usage_tracker.start_call(
+        # video 实际计费时长（result.duration_seconds）覆盖请求时长的语义转写已收进 ledger union
+        # 分发（_settlement_from_result），此处仅递交 backend 结果对象。
+        video_ref = None
+        video_uri: str | None = None
+        async with self.ledger.record(
             project_name=self.project_name,
             call_type="video",
             model=model_name,
@@ -612,18 +580,17 @@ class MediaGenerator:
             provider=provider_name,
             user_id=self._user_id,
             segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
-        )
-
-        try:
-            # start_call 拿到 call_id 后立即写入 task.payload["api_call_id"]，让 worker
-            # 崩溃重启后 resume 路径能精准翻这条 pending ApiCall 行（而不是按
-            # segment_id+LIMIT 1 模糊匹配）。fail-fast 抛异常会被本块 except 捕获，
-            # 走 finish_call(status="failed") 翻 pending → failed 后再 raise，避免
-            # 留下永久 pending 账目（ADR 0007）；放在 try 块内是必须的。
+            service_tier=version_metadata.get("service_tier", "default"),
+            output_path=str(output_path),
+        ) as call:
+            # 拿到 call_id 后立即写入 task.payload["api_call_id"]，让 worker 崩溃重启后 resume
+            # 路径能精准翻这条 pending ApiCall 行（而不是按 segment_id+LIMIT 1 模糊匹配）。
+            # fail-fast 抛异常会被记账括号翻 pending → failed 后再重抛，避免留下永久 pending
+            # 账目（ADR 0007）；放在 backend 调用前是必须的。
             if task_id is not None:
                 from lib.video_backends.base import persist_api_call_id
 
-                await persist_api_call_id(task_id, call_id)
+                await persist_api_call_id(task_id, call.call_id)
 
             from lib.video_backends.base import VideoGenerationRequest
 
@@ -704,30 +671,8 @@ class MediaGenerator:
                 provider_id=self._video_provider_id,
                 build_and_call=_call_video,
             )
-            video_ref = None
             video_uri = result.video_uri
-
-            # Track usage with provider info
-            # result.duration_seconds 是 backend 回报的实际计费/生成时长（如 DashScope
-            # usage.duration 含输入参考视频时长、vidu 为校正后的合法档位），缺省等于请求时长。
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path),
-                usage_tokens=result.usage_tokens,
-                service_tier=version_metadata.get("service_tier", "default"),
-                generate_audio=result.generate_audio,
-                billed_duration_seconds=result.duration_seconds,
-            )
-        except Exception as e:
-            # 记录调用失败
-            logger.exception("生成失败 (%s)", "video")
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="failed",
-                error_message=str(e),
-            )
-            raise
+            call.success(result)
 
         # 5. 记录新版本
         new_version = self.versions.add_version(
@@ -758,9 +703,9 @@ class MediaGenerator:
         """接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。
 
         与 generate_video_async 的差异：
-        - 不调 usage_tracker.start_call/finish_call —— 首次 submit 已记账；ResumeExpired
-          / crash window 都不应再写 ApiCall（防双重扣费）。caller 透传 ``api_call_id``
-          时按 call_id 精准翻 pending → success/failed；不透传则 logger.warning 不阻断。
+        - 不开记账括号（不落新 pending 行）—— 首次 submit 已记账；ResumeExpired / crash window
+          都不应再写 ApiCall（防双重扣费）。caller 透传 ``api_call_id`` 时经 ledger.resume_success
+          / resume_failed 按 call_id 精准翻 pending → success/failed；不透传则 logger.warning 不阻断。
         - resume 成功后总是 add_version 记录新版本：无论 versions.json 是否已有历史版本，
           backend.resume_video 都会下载新视频并覆盖 output_path，必须 bump 一个新版本号
           让 versions.json 与磁盘文件一致；否则会漏记本次重新生成的视频，回滚记录失真。
@@ -814,11 +759,7 @@ class MediaGenerator:
             # finalize 失败时不吞异常，让 worker finally 走 mark_failed 兜底，避免 ApiCall
             # 永久卡 pending 导致 usage 报表/补账缺口（与 persist_api_call_id 的 fail-fast 一致）。
             if api_call_id is not None:
-                await self.usage_tracker.finalize_pending_by_call_id(
-                    call_id=api_call_id,
-                    cost_amount=0.0,
-                    status="failed",
-                )
+                await self.ledger.resume_failed(call_id=api_call_id)
             raise
         except Exception:
             logger.exception("resume 失败 (video) task_id=%s job_id=%s", task_id, job_id)
@@ -827,27 +768,16 @@ class MediaGenerator:
         video_ref = None
         video_uri = result.video_uri
 
-        # Resume 成功：精准翻 pending → success。cost_amount=None 让 repo 按 ApiCall 行
-        # 字段（model/resolution/duration/generate_audio）调 cost_calculator 算实际 cost，
-        # 与 generate 路径 finish_call 自动算 cost 等价——避免视频已生成但账本永久漏记。
-        # service_tier 由 caller 透传（ApiCall 模型无该列），让非 default 档位按真实档计费。
-        # usage_tokens 同样透传：Ark video 按 token 计费，缺省 0 时 cost 永远为 0。
-        # generate_audio 从 backend 返回值透传：provider 在 submit 后可能降级/关闭音频，
-        # 与 generate 路径 finish_call(generate_audio=result.generate_audio) 等价，
-        # 避免按请求值误计费。
-        # billed_duration_seconds 同样从 backend 返回值透传：DashScope 的 resume 与 generate
-        # 走同一段 poll，会提取 usage.duration 实际计费时长；不透传则同一笔调用经 resume
-        # 完成时账本回落请求时长，与 generate 路径记账分叉。
-        # finalize 失败时不吞异常，让 worker finally 兜底处理（与 ResumeExpired 分支一致）。
-        # WHERE status='pending' 仍保护幂等性，已 success 行不会被 touch。
+        # Resume 成功：精准翻 pending → success。ledger.resume_success 收 backend 结果对象，
+        # 与视频通道成功分支同源做 union 分发（usage_tokens / generate_audio / 实际计费时长），
+        # cost 由 repo 按 ApiCall 行字段自动算——与 generate 路径记账等价，避免视频已生成但账本
+        # 永久漏记。service_tier 由 caller 透传（ApiCall 模型无该列），让非 default 档位按真实档
+        # 计费。finalize 自身异常不吞，交 worker finally 兜底；WHERE status='pending' 保护幂等性。
         if api_call_id is not None:
-            await self.usage_tracker.finalize_pending_by_call_id(
+            await self.ledger.resume_success(
                 call_id=api_call_id,
-                status="success",
+                result=result,
                 service_tier=version_metadata.get("service_tier", "default"),
-                usage_tokens=result.usage_tokens,
-                generate_audio=result.generate_audio,
-                billed_duration_seconds=result.duration_seconds,
             )
         else:
             logger.warning(

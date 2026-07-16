@@ -1,8 +1,8 @@
 """MediaGenerator.resume_video_async 单元测试。
 
 关注点：
-- resume 路径不写 ApiCall（不调 start_call / finish_call）
-- finalize_pending_by_call_id 按 api_call_id 精准翻 pending → success/failed
+- resume 路径不落新 pending 行（不开记账括号）
+- ledger.resume_success / resume_failed 按 api_call_id 精准翻 pending → success/failed
 - 版本管理用 add_version：resume 成功后总是 bump 新版本，让 versions.json 与磁盘文件一致
   （submit→poll 崩 → 登记 v1；已有 v_n 的覆盖式重新生成 → 登记 v_(n+1)）
 - ResumeExpiredError 沿调用链上抛，pending 翻 failed
@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -85,23 +87,49 @@ class _ProbeVideoBackend(_FakeVideoBackend):
         return await super().resume_video(job_id, request)
 
 
-class _FakeUsage:
+class _FakeLedgerCall:
+    def __init__(self, call_id: int) -> None:
+        self.call_id = call_id
+        self.declared = False
+        self.result: Any = None
+
+    def success(self, result: Any) -> None:
+        self.declared = True
+        self.result = result
+
+
+class _FakeLedger:
+    """记账账本假实现：resume 路径只该走 resume_success/resume_failed，不开记账括号。
+
+    ``started`` 捕获误开的括号（应恒空）；``resumed`` 捕获 resume 补账入参（含递交的
+    backend 结果对象）——新主缝。
+    """
+
     def __init__(self) -> None:
         self.started: list[dict[str, Any]] = []
-        self.finished: list[dict[str, Any]] = []
-        self.finalized: list[dict[str, Any]] = []
-        self._finalize_affected = 1
+        self.resumed: list[dict[str, Any]] = []
+        self._n = 0
+        self._resume_affected = 1
 
-    async def start_call(self, **kwargs):
+    @asynccontextmanager
+    async def record(self, **kwargs):
+        self._n += 1
         self.started.append(kwargs)
-        return 999
+        call = _FakeLedgerCall(self._n)
+        try:
+            yield call
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise
 
-    async def finish_call(self, **kwargs):
-        self.finished.append(kwargs)
+    async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
+        self.resumed.append({"status": "success", "call_id": call_id, "result": result, "service_tier": service_tier})
+        return self._resume_affected
 
-    async def finalize_pending_by_call_id(self, **kwargs):
-        self.finalized.append(kwargs)
-        return self._finalize_affected
+    async def resume_failed(self, *, call_id: int) -> int:
+        self.resumed.append({"status": "failed", "call_id": call_id})
+        return self._resume_affected
 
 
 class _FakeConfigResolver:
@@ -120,12 +148,12 @@ def _build_generator(tmp_path: Path, *, initial_version: int = 0) -> MediaGenera
     gen._user_id = "default"
     gen._config = _FakeConfigResolver()
     gen.versions = _FakeVersions(initial_version=initial_version)
-    gen.usage_tracker = _FakeUsage()
+    gen.ledger = _FakeLedger()
     return gen
 
 
 @pytest.mark.asyncio
-async def test_resume_does_not_call_usage_tracker_start_or_finish(tmp_path):
+async def test_resume_does_not_open_record_bracket(tmp_path):
     gen = _build_generator(tmp_path)
 
     await gen.resume_video_async(
@@ -136,8 +164,8 @@ async def test_resume_does_not_call_usage_tracker_start_or_finish(tmp_path):
         api_call_id=42,
     )
 
-    assert gen.usage_tracker.started == [], "resume 不应调 start_call"
-    assert gen.usage_tracker.finished == [], "resume 不应调 finish_call"
+    # resume 不落新 pending 行：只走 resume_success/resume_failed 补账，不开记账括号
+    assert gen.ledger.started == [], "resume 不应开记账括号"
 
 
 @pytest.mark.asyncio
@@ -152,19 +180,19 @@ async def test_resume_success_flips_pending_apicall_by_call_id(tmp_path):
         api_call_id=42,
     )
 
-    assert len(gen.usage_tracker.finalized) == 1
-    call = gen.usage_tracker.finalized[0]
+    assert len(gen.ledger.resumed) == 1
+    call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "success"
-    # success 路径不显式传 cost_amount，让 repo 按 ApiCall 行字段 auto-calc 算实际 cost
-    # （与 generate 路径 finish_call 等价记账），caller 端不再硬编码 0.0
-    assert "cost_amount" not in call or call["cost_amount"] is None
+    # 成功补账不显式传 cost_amount，让 repo 按 ApiCall 行字段 auto-calc 算实际 cost
+    # （与 generate 路径记账等价）；cost_amount 不进 resume_success 的补账入参
+    assert "cost_amount" not in call
 
 
 @pytest.mark.asyncio
 async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
     gen = _build_generator(tmp_path)
-    gen.usage_tracker._finalize_affected = 0  # 模拟「已 success」幂等场景
+    gen.ledger._resume_affected = 0  # 模拟「已 success」幂等场景
 
     output_path, version, _, _ = await gen.resume_video_async(
         job_id="provider-job-1",
@@ -177,7 +205,7 @@ async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
     assert output_path.exists()
     assert version == 1
     # 0 rows 不应抛异常，应当 logger.info 记录
-    assert len(gen.usage_tracker.finalized) == 1
+    assert len(gen.ledger.resumed) == 1
 
 
 @pytest.mark.asyncio
@@ -194,11 +222,11 @@ async def test_resume_expired_flips_pending_to_failed(tmp_path):
             api_call_id=42,
         )
 
-    assert len(gen.usage_tracker.finalized) == 1
-    call = gen.usage_tracker.finalized[0]
+    assert len(gen.ledger.resumed) == 1
+    call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "failed"
-    assert call["cost_amount"] == 0.0
+    # 零费用不重扣的语义已收进 ledger.resume_failed 内部（cost_amount=0.0），补账入参不再显式承载
 
 
 @pytest.mark.asyncio
@@ -216,7 +244,7 @@ async def test_resume_other_exception_does_not_finalize(tmp_path):
             api_call_id=42,
         )
 
-    assert gen.usage_tracker.finalized == [], "非 ResumeExpired 不应 finalize pending"
+    assert gen.ledger.resumed == [], "非 ResumeExpired 不应 finalize pending"
 
 
 @pytest.mark.asyncio
@@ -349,11 +377,11 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
         api_call_id=42,
     )
 
-    assert len(gen.usage_tracker.finalized) == 1
-    call = gen.usage_tracker.finalized[0]
+    assert len(gen.ledger.resumed) == 1
+    call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "success"
-    assert call["usage_tokens"] == 12345, "usage_tokens 必须透传，否则 Ark cost 永远为 0"
+    assert call["result"].usage_tokens == 12345, "backend 结果对象必须递交，usage_tokens 由 ledger 分发透传"
 
 
 @pytest.mark.asyncio
@@ -371,18 +399,22 @@ async def test_resume_missing_api_call_id_warns_does_not_crash(tmp_path, caplog)
 
     assert output_path.exists()
     assert version == 1
-    assert gen.usage_tracker.finalized == [], "无 api_call_id 时不应 finalize"
+    assert gen.ledger.resumed == [], "无 api_call_id 时不应 finalize"
 
 
-class _FailingFinalizeUsage(_FakeUsage):
-    """模拟 finalize_pending_by_call_id 自身失败的场景。"""
+class _FailingResumeLedger(_FakeLedger):
+    """模拟 resume 补账（finalize）自身失败的场景。"""
 
     def __init__(self, *, exc: Exception) -> None:
         super().__init__()
         self._exc = exc
 
-    async def finalize_pending_by_call_id(self, **kwargs):
-        self.finalized.append(kwargs)
+    async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
+        self.resumed.append({"status": "success", "call_id": call_id})
+        raise self._exc
+
+    async def resume_failed(self, *, call_id: int) -> int:
+        self.resumed.append({"status": "failed", "call_id": call_id})
         raise self._exc
 
 
@@ -394,7 +426,7 @@ async def test_resume_success_propagates_finalize_exception(tmp_path):
     expired 分支又是终态），usage 报表和补账会出现永久缺口。fail-fast
     交给 worker finally 的 mark_failed 兜底。"""
     gen = _build_generator(tmp_path)
-    gen.usage_tracker = _FailingFinalizeUsage(exc=RuntimeError("db down"))
+    gen.ledger = _FailingResumeLedger(exc=RuntimeError("db down"))
 
     with pytest.raises(RuntimeError, match="db down"):
         await gen.resume_video_async(
@@ -406,7 +438,7 @@ async def test_resume_success_propagates_finalize_exception(tmp_path):
         )
 
     # finalize 被调过一次（看到异常上抛前的入参）
-    assert len(gen.usage_tracker.finalized) == 1
+    assert len(gen.ledger.resumed) == 1
 
 
 @pytest.mark.asyncio
@@ -415,7 +447,7 @@ async def test_resume_expired_propagates_finalize_exception(tmp_path):
     失败，避免 ApiCall 永远卡 pending。"""
     gen = _build_generator(tmp_path)
     gen._video_backend = _FakeVideoBackend(raises=ResumeExpiredError(job_id="provider-job-1", provider="openai"))
-    gen.usage_tracker = _FailingFinalizeUsage(exc=RuntimeError("db down"))
+    gen.ledger = _FailingResumeLedger(exc=RuntimeError("db down"))
 
     # finalize 抛 RuntimeError 应该覆盖原本要抛的 ResumeExpiredError 上抛
     with pytest.raises(RuntimeError, match="db down"):
@@ -427,7 +459,7 @@ async def test_resume_expired_propagates_finalize_exception(tmp_path):
             api_call_id=42,
         )
 
-    assert len(gen.usage_tracker.finalized) == 1
+    assert len(gen.ledger.resumed) == 1
 
 
 @pytest.mark.asyncio
@@ -470,9 +502,9 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
         api_call_id=42,
     )
 
-    assert len(gen.usage_tracker.finalized) == 1
-    call = gen.usage_tracker.finalized[0]
-    assert call["generate_audio"] is False, "generate_audio 必须透传 backend 返回的实际值"
+    assert len(gen.ledger.resumed) == 1
+    call = gen.ledger.resumed[0]
+    assert call["result"].generate_audio is False, "backend 结果对象必须递交，generate_audio 由 ledger 分发透传"
 
 
 @pytest.mark.asyncio
@@ -516,6 +548,6 @@ async def test_resume_passes_billed_duration_to_finalize(tmp_path):
         api_call_id=42,
     )
 
-    assert len(gen.usage_tracker.finalized) == 1
-    call = gen.usage_tracker.finalized[0]
-    assert call["billed_duration_seconds"] == 15, "实际计费时长必须透传，否则 resume 路径回落请求时长记账"
+    assert len(gen.ledger.resumed) == 1
+    call = gen.ledger.resumed[0]
+    assert call["result"].duration_seconds == 15, "backend 结果对象必须递交，实际计费时长由 ledger 分发透传"
