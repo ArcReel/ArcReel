@@ -187,7 +187,7 @@ export function PropCard({
             resourceType="prop"
             resourceId={name}
             hasImage={Boolean(prop.prop_sheet)}
-            busy={generating}
+            busy={generating || uploadingSheet}
           />
           <AddToLibraryButton
             resourceType="prop"

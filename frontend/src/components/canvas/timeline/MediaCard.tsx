@@ -134,7 +134,7 @@ export function MediaCard({
             resourceId={segmentId}
             scriptFile={editScriptFile}
             hasImage={Boolean(assetPath)}
-            busy={generating}
+            busy={generating || uploading}
           />
         )}
         <VersionTimeMachine

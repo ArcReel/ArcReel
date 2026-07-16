@@ -11,7 +11,7 @@ import type { TaskStatus } from "@/types";
  * 通知。这是后台任务失败的唯一通知来源——用户可能已离开出错的页面，因此用
  * pushNotification 而非瞬时 toast（入队同步失败仍由调用点用 toast 反馈，那类任务
  * 从未进入队列，不会被这里捕获）。覆盖 storyboard/video/character/scene/prop/grid/
- * reference_video。
+ * reference_video/image_edit。
  *
  * 任务队列是 3 秒轮询（useTasksSSE）。两类情况推送：
  * 1. 观察到非 failed → failed 的状态转换；

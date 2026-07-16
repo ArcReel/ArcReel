@@ -236,7 +236,7 @@ export function ProductCard({
             resourceType="product"
             resourceId={name}
             hasImage={Boolean(product.product_sheet)}
-            busy={generating}
+            busy={generating || uploadingSheet}
           />
           <VersionTimeMachine
             projectName={projectName}

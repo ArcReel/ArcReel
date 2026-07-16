@@ -619,6 +619,7 @@ export default {
   'scene_task_failed': 'Tạo cảnh "{{id}}" thất bại: {{reason}}',
   'prop_task_failed': 'Tạo đạo cụ "{{id}}" thất bại: {{reason}}',
   'grid_task_failed': 'Tạo lưới thất bại: {{reason}}',
+  'image_edit_task_failed': 'Chỉnh sửa "{{id}}" thất bại: {{reason}}',
   'episode_mode_switcher_label': 'Chế độ tạo của tập',
   'episode_mode_inherit_from_project': 'Kế thừa từ dự án',
   'episode_mode_switch_keep_data': "Chuyển chế độ sẽ không xóa các đơn vị / cảnh hiện có — bạn có thể chuyển lại bất cứ lúc nào.",

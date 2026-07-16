@@ -187,7 +187,7 @@ export function SceneCard({
             resourceType="scene"
             resourceId={name}
             hasImage={Boolean(scene.scene_sheet)}
-            busy={generating}
+            busy={generating || uploadingSheet}
           />
           <AddToLibraryButton
             resourceType="scene"

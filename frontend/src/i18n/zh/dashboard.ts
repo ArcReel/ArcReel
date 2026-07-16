@@ -643,6 +643,7 @@ export default {
   'scene_task_failed': '场景 "{{id}}" 生成失败：{{reason}}',
   'prop_task_failed': '道具 "{{id}}" 生成失败：{{reason}}',
   'grid_task_failed': '宫格生成失败：{{reason}}',
+  'image_edit_task_failed': '"{{id}}" 编辑失败：{{reason}}',
   'episode_mode_switcher_label': '集级生成模式',
   'episode_mode_inherit_from_project': '继承项目设置',
   'episode_mode_switch_keep_data': '切换模式不会删除已生成的 units / scenes，可随时切回原模式继续。',

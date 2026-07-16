@@ -9,6 +9,8 @@ import type { ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types
  * - storyboard/video → 对应剧集的分镜（ShotSplitView 按 segment id 选中）
  * - grid → 对应剧集的宫格画布（导航即回跳，无 DOM 锚点）
  * - reference_video → 对应剧集的参考单元（ReferenceVideoCanvas 选中 unit）
+ * - image_edit → 按 resource_type 转发到上述对应路由；product 暂无路由（与既有
+ *   product 生成任务缺口一致），仅推送文案不可点击
  *
  * 剧集路由由 task.script_file 反查 projectData.episodes 得到；查不到时返回
  * null，让通知仍然推送、仅不可点击（优雅降级）。
@@ -30,6 +32,7 @@ const FAILURE_TEXT_KEYS: Partial<
   prop: { key: "prop_task_failed", idParam: "id" },
   grid: { key: "grid_task_failed", idParam: "id" },
   reference_video: { key: "reference_generation_task_failed", idParam: "unitId" },
+  image_edit: { key: "image_edit_task_failed", idParam: "id" },
 };
 
 function stripScriptsPrefix(path: string): string {
@@ -76,6 +79,30 @@ export function buildTaskFailureTarget(
     case "reference_video": {
       const route = resolveEpisodeRoute(projectData, task.script_file);
       return route ? { type: "reference_unit", id: task.resource_id, route } : null;
+    }
+    case "image_edit": {
+      // image_edit 跨 character/scene/prop/product/storyboard 共用 task_type，真正
+      // 的资源种类在 resource_type；product 目前无对应 WorkspaceFocusTarget 路由
+      // （与既有 product 生成任务的通知目标缺口一致），优雅降级为不可点击。
+      switch (task.resource_type) {
+        case "character":
+        case "scene":
+        case "prop":
+          return {
+            type: task.resource_type,
+            id: task.resource_id,
+            route: ASSET_ROUTES[task.resource_type],
+            highlight_style: "flash",
+          };
+        case "storyboard": {
+          const route = resolveEpisodeRoute(projectData, task.script_file);
+          return route
+            ? { type: "segment", id: task.resource_id, route, highlight_style: "flash" }
+            : null;
+        }
+        default:
+          return null;
+      }
     }
     default:
       return null;

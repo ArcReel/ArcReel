@@ -93,6 +93,40 @@ describe("buildTaskFailureTarget", () => {
   it("returns null for unknown task types", () => {
     expect(buildTaskFailureTarget(makeTask({ task_type: "unknown" }), projectData)).toBeNull();
   });
+
+  it("dispatches image_edit to the resource_type's own route", () => {
+    expect(
+      buildTaskFailureTarget(
+        makeTask({ task_type: "image_edit", resource_type: "character", resource_id: "Hero" }),
+        null,
+      ),
+    ).toEqual({ type: "character", id: "Hero", route: "/characters", highlight_style: "flash" });
+
+    const storyboardTarget = buildTaskFailureTarget(
+      makeTask({
+        task_type: "image_edit",
+        resource_type: "storyboard",
+        resource_id: "E1S01",
+        script_file: "ep1.json",
+      }),
+      projectData,
+    );
+    expect(storyboardTarget).toEqual({
+      type: "segment",
+      id: "E1S01",
+      route: "/episodes/1",
+      highlight_style: "flash",
+    });
+  });
+
+  it("returns null for image_edit on a product (no route defined)", () => {
+    expect(
+      buildTaskFailureTarget(
+        makeTask({ task_type: "image_edit", resource_type: "product", resource_id: "Bag" }),
+        null,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("describeTaskFailure", () => {
@@ -116,5 +150,14 @@ describe("describeTaskFailure", () => {
 
   it("returns null for unknown task types", () => {
     expect(describeTaskFailure(t, makeTask({ task_type: "unknown" }))).toBeNull();
+  });
+
+  it("uses the image_edit key regardless of resource_type", () => {
+    expect(
+      describeTaskFailure(
+        t,
+        makeTask({ task_type: "image_edit", resource_type: "prop", resource_id: "Sword" }),
+      ),
+    ).toBe("image_edit_task_failed|Sword|boom");
   });
 });

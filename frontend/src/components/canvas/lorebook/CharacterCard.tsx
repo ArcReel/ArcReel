@@ -256,7 +256,7 @@ export function CharacterCard({
             resourceType="character"
             resourceId={name}
             hasImage={Boolean(character.character_sheet)}
-            busy={generating}
+            busy={generating || uploadingSheet}
           />
           <AddToLibraryButton
             resourceType="character"

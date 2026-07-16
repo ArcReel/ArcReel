@@ -642,6 +642,7 @@ export default {
   'scene_task_failed': 'Scene "{{id}}" generation failed: {{reason}}',
   'prop_task_failed': 'Prop "{{id}}" generation failed: {{reason}}',
   'grid_task_failed': 'Grid generation failed: {{reason}}',
+  'image_edit_task_failed': 'Edit for "{{id}}" failed: {{reason}}',
   'episode_mode_switcher_label': 'Episode generation mode',
   'episode_mode_inherit_from_project': 'Inherit from project',
   'episode_mode_switch_keep_data': "Switching mode won't remove existing units / scenes — you can switch back anytime.",
