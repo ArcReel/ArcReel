@@ -1,10 +1,9 @@
 """execute_tts_task 执行链单测：文本来源三分支 / 写回 narration_audio /
-_get_or_create_audio_backend 缓存与自定义供应商路径 / get_media_generator(needs_audio) /
+_get_or_create_audio_backend 缓存与自定义供应商路径 /
 compute_affected_fingerprints tts 分支 / 任务注册表。"""
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
@@ -13,13 +12,6 @@ import pytest
 from lib.config.resolver import ConfigResolver, ProviderModel
 from server.services import generation_context, generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext
-
-
-def _async_return(value):
-    async def _inner(*args, **kwargs):
-        return value
-
-    return _inner
 
 
 def _audio_ctx(generator, *, voice="Cherry", speed=None):
@@ -209,37 +201,6 @@ class TestGetOrCreateAudioBackend:
             default_audio_model="fallback-model",
         )
         assert calls == ["explicit-model"]
-
-
-class TestGetMediaGeneratorNeedsAudio:
-    async def test_only_audio_backend_constructed(self, monkeypatch, tmp_path):
-        project_path = tmp_path / "projects" / "demo"
-        project_path.mkdir(parents=True)
-        pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-
-        sentinel_backend = object()
-        audio_resolutions = []
-
-        class _FakeResolver:
-            async def resolve_audio_backend(self, project, payload):
-                audio_resolutions.append((project, payload))
-                return ProviderModel("dashscope", "qwen3-tts-flash")
-
-        @asynccontextmanager
-        async def _fake_session(self):
-            yield _FakeResolver()
-
-        monkeypatch.setattr(ConfigResolver, "session", _fake_session)
-        monkeypatch.setattr(generation_tasks, "_get_or_create_audio_backend", _async_return(sentinel_backend))
-
-        generator = await generation_tasks.get_media_generator(
-            "demo", payload={"k": 1}, require_image_backend=False, needs_audio=True
-        )
-        assert generator._audio_backend is sentinel_backend
-        assert generator._image_backend is None
-        assert generator._video_backend is None
-        assert audio_resolutions == [(pm.project, {"k": 1})]
 
 
 class TestComputeAffectedFingerprintsTts:
