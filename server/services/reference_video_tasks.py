@@ -326,8 +326,8 @@ async def execute_reference_video_task(
     max_refs: int | None = None
     max_duration: int | None = None
     supported_durations: list[int] = []
+    resolver = ConfigResolver(async_session_factory)
     try:
-        resolver = ConfigResolver(async_session_factory)
         caps = await resolver.video_capabilities_for_project(project)
         caps_model = caps.get("model")
         if model_name and caps_model and caps_model != model_name:
@@ -384,9 +384,7 @@ async def execute_reference_video_task(
     video_backend_raw = project.get("video_backend") or ""
     registry_provider_id = video_backend_raw.split("/", 1)[0] if "/" in video_backend_raw else provider_name
 
-    resolution = await ConfigResolver(async_session_factory).resolve_resolution(
-        project, registry_provider_id or provider_name, model_name or ""
-    )
+    resolution = await resolver.resolve_resolution(project, registry_provider_id or provider_name, model_name or "")
     if resolution is None:
         resolution = get_provider_fallback(provider_name)
 
