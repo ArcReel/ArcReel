@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
 import {
   ChevronLeft,
@@ -22,7 +21,7 @@ import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { useLatestTasksByResource } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -91,13 +90,9 @@ export function ReferenceVideoCanvas({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  const relevantTasks = useTasksStore(
-    useShallow((s) =>
-      s.tasks.filter(
-        (tk) => tk.project_name === projectName && tk.task_type === "reference_video",
-      ),
-    ),
-  );
+  // resource（=unit）→ 最新任务行。「最新行胜出」下沉到 store selector：
+  // store 不保证 tasks 顺序（SSE 原位 upsert），重试的新行不被旧失败行盖住。
+  const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
 
   useEffect(() => {
     void loadUnits(projectName, episode);
@@ -119,17 +114,6 @@ export function ReferenceVideoCanvas({
   const [optimisticUnitIds, setOptimisticUnitIds] = useState<Set<string>>(() => new Set());
 
   const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
-
-  const tasksByUnit = useMemo(() => {
-    const map = new Map<string, (typeof relevantTasks)[number]>();
-    // store 不保证顺序（SSE upsert 原位更新、初始列表排序属后端实现细节）：
-    // 显式取 updated_at 最新的任务行，重试时不被旧失败行盖住
-    for (const tk of relevantTasks) {
-      const prev = map.get(tk.resource_id);
-      if (!prev || tk.updated_at > prev.updated_at) map.set(tk.resource_id, tk);
-    }
-    return map;
-  }, [relevantTasks]);
 
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
