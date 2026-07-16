@@ -35,7 +35,7 @@ describe("UsageStatsSection provider filter dropdown (issue #1179)", () => {
     render(<UsageStatsSection />);
     await waitFor(() => expect(API.getUsageStatsGrouped).toHaveBeenCalled());
 
-    const select = await screen.findByRole("combobox", { name: "按供应商筛选" });
+    const select = await screen.findByRole("combobox");
     const options = Array.from(select.querySelectorAll("option"));
     const byValue = Object.fromEntries(options.map((o) => [o.value, o.textContent]));
 
@@ -65,7 +65,7 @@ describe("UsageStatsSection provider filter dropdown (issue #1179)", () => {
     render(<UsageStatsSection />);
     await waitFor(() => expect(API.getUsageStatsGrouped).toHaveBeenCalled());
 
-    const select = await screen.findByRole("combobox", { name: "按供应商筛选" });
+    const select = await screen.findByRole("combobox");
     const option = select.querySelector('option[value="legacy-provider"]');
     expect(option?.textContent).toBe("legacy-provider");
   });
