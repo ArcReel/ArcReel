@@ -200,6 +200,13 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
     "image_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
+    # Image Edit
+    "image_edit_resource_type_invalid": "Loại tài nguyên '{resource_type}' không hỗ trợ chỉnh sửa ảnh",
+    "image_edit_instruction_required": "Chỉ dẫn chỉnh sửa không được để trống",
+    "image_edit_script_file_required": "Cần cung cấp script_file khi chỉnh sửa ảnh phân cảnh",
+    "image_edit_no_current_image": "'{id}' chưa có ảnh hiện tại để chỉnh sửa; hãy tạo hoặc tải lên trước",
+    "image_edit_i2i_unavailable": "Chưa cấu hình nhà cung cấp ảnh hỗ trợ image-to-image (i2i); hãy cấu hình trong Cài đặt trước",
+    "image_edit_task_submitted": "Đã gửi tác vụ chỉnh sửa ảnh cho '{id}'",
     # Video Capability
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",

@@ -63,6 +63,7 @@ pnpm build       # 生产构建，含 typecheck
 ### server/services/ — 业务服务层
 
 - `generation_tasks.py` — 分镜/视频/角色/场景/道具生成任务编排
+- `image_edit_tasks.py` — 图片指令式编辑任务执行（当前图为唯一参考图的 i2i 微调，见 `docs/adr/0049`）
 - `reference_video_tasks.py` — 参考视频→视频生成任务编排
 - `project_archive.py` — 项目导出（ZIP 打包）
 - `project_cover.py` — 项目封面生成

@@ -200,6 +200,13 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
     "image_dashscope_4k_t2i_only": "Model {model}: 4K output is only supported by wan2.7-image-pro for text-to-image; use 2K or lower",
     "image_reference_images_unreadable": "Model {model} has reference images that are missing or unreadable; generation aborted: {names}; check the reference image paths",
+    # Image Edit
+    "image_edit_resource_type_invalid": "Resource type '{resource_type}' does not support image editing",
+    "image_edit_instruction_required": "Edit instruction must not be empty",
+    "image_edit_script_file_required": "script_file is required when editing a storyboard image",
+    "image_edit_no_current_image": "'{id}' has no current image to edit; generate or upload one first",
+    "image_edit_i2i_unavailable": "No image provider with image-to-image (i2i) support is configured; configure one in Settings first",
+    "image_edit_task_submitted": "Image edit task for '{id}' submitted",
     # Video Capability
     "video_duration_invalid": "Video duration {duration} is not a valid integer number of seconds",
     "video_duration_not_supported": "Video duration {duration}s is not within the durations supported by this model ({supported})",

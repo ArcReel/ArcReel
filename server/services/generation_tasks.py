@@ -785,6 +785,12 @@ def emit_generation_success_batch(
 
     事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
     """
+    if task_type == "image_edit":
+        # 编辑完成事件与「同一资源的生成完成事件」同形状：按 payload.resource_type 派发到
+        # 既有 spec 表（storyboard 走骨架驱动、四类资产走 ASSET_SPECS 派生表），entity/action/
+        # 指纹与生成路径一致，前端既有的 SSE fingerprint 刷新零改动即可覆盖编辑完成。
+        task_type = str(payload.get("resource_type") or "")
+
     script_file = str(payload.get("script_file") or "") or None
     # 单次加载剧本，骨架种类与 episode 共用，避免同一 script_file 双解析。
     script = _load_event_script(project_name, script_file)
@@ -1689,6 +1695,20 @@ async def _execute_reference_video_task_proxy(
     return await execute_reference_video_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
+async def _execute_image_edit_task_proxy(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Lazy proxy to avoid circular import: image_edit_tasks imports from this module."""
+    from server.services.image_edit_tasks import execute_image_edit_task
+
+    return await execute_image_edit_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+
+
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
@@ -1699,6 +1719,7 @@ _TASK_EXECUTORS = {
     "product": execute_product_task,
     "grid": execute_grid_task,
     "reference_video": _execute_reference_video_task_proxy,
+    "image_edit": _execute_image_edit_task_proxy,
 }
 
 

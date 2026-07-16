@@ -96,7 +96,11 @@ provider 解析的结果——一对 `(provider_id, model_id)`（provider_id 为
 _Avoid_: ResolvedBackend、BackendSelection（会与 backend 混淆）。
 
 **capability（t2i / i2i）**：
-图片任务的两种形态——t2i 文生图（无参考图）、i2i 图生图（带参考图）。一个镜头属于哪种，取决于"开画那一刻"是否拼出了参考图，**只有执行时才能确定**（见 `docs/adr/0001`）；入队与调度（worker claim）这两个执行前环节都无法获知。视频任务无 capability 维度。
+图片任务的两种形态——t2i 文生图（无参考图）、i2i 图生图（带参考图）。一个镜头属于哪种，取决于"开画那一刻"是否拼出了参考图，**只有执行时才能确定**（见 `docs/adr/0001`）；入队与调度（worker claim）这两个执行前环节都无法获知。图片编辑任务是唯一例外——它必然 i2i，入队即知（见「图片编辑」）。视频任务无 capability 维度。
+
+**图片编辑（image edit）**：
+对一张已有设计图或分镜图的指令式修改：以当前图为唯一参考图、以用户的增量修改指令为唯一 prompt，产出保持原图大体不变的新版本。编辑是对**图**的分叉而非对 prompt 的分叉——原 image_prompt 不回写；编辑后再触发重新生成仍按原 prompt 重画，编辑效果只能从版本历史找回。必然 i2i。
+_Avoid_: 重新生成（regenerate——按原 prompt 重画整图，是与编辑并列的另一条路）；inpaint / 蒙版（编辑无选区语义）；把编辑指令当 image_prompt 写回资产。
 
 ### 尺寸与比例
 

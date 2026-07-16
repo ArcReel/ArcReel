@@ -197,6 +197,13 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
     "image_dashscope_4k_t2i_only": "模型 {model} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",
     "image_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
+    # Image Edit
+    "image_edit_resource_type_invalid": "资源类型「{resource_type}」不支持图片编辑",
+    "image_edit_instruction_required": "编辑指令不能为空",
+    "image_edit_script_file_required": "编辑分镜图需要提供 script_file",
+    "image_edit_no_current_image": "「{id}」还没有可编辑的当前图，请先生成或上传",
+    "image_edit_i2i_unavailable": "当前未配置支持图生图（i2i）的图片供应商，请先在设置中配置",
+    "image_edit_task_submitted": "「{id}」图片编辑任务已提交",
     # Video Capability
     "video_duration_invalid": "视频时长 {duration} 不是合法的整数秒数",
     "video_duration_not_supported": "视频时长 {duration}s 不在该模型支持的时长（{supported}）内",

@@ -20,12 +20,14 @@ from lib.config.resolver import ConfigResolver
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
+from lib.path_safety import safe_exists
 from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
 )
 from server.auth import CurrentUser
+from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
 
 router = APIRouter()
 
@@ -62,6 +64,13 @@ class GeneratePropRequest(BaseModel):
 
 class GenerateProductRequest(BaseModel):
     prompt: str
+
+
+class EditImageRequest(BaseModel):
+    resource_type: str
+    resource_id: str
+    instruction: str
+    script_file: str | None = None
 
 
 # ==================== 分镜图生成 ====================
@@ -477,3 +486,92 @@ async def generate_product(
         user_id=_user.id,
         _t=_t,
     )
+
+
+# ==================== 图片指令式编辑（image edit） ====================
+
+
+async def _require_i2i_image_provider_configured(project: dict) -> str:
+    """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
+
+    图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 CONTEXT.md「图片编辑」），
+    故解析前置到入队；执行层 ``generate_image_async`` 的 capability gating 保留兜底。
+    返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
+    """
+    from lib.db import async_session_factory
+
+    try:
+        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, None, capability="i2i")
+    except ValueError:
+        raise BadRequestError("image_edit_i2i_unavailable")
+    return resolved.provider_id
+
+
+@router.post("/projects/{project_name}/edit/image")
+async def edit_image(
+    project_name: str,
+    req: EditImageRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """提交图片指令式编辑任务到队列，立即返回 task_id。
+
+    以当前图为唯一参考图、编辑指令为唯一 prompt 走 i2i；新图覆盖 current、旧图自动进
+    版本历史，原 image_prompt 不回写（编辑语义见 ``docs/adr/0049``）。
+    """
+    if req.resource_type not in EDITABLE_RESOURCE_TYPES:
+        raise BadRequestError("image_edit_resource_type_invalid", resource_type=req.resource_type)
+    instruction = req.instruction.strip()
+    if not instruction:
+        raise BadRequestError("image_edit_instruction_required")
+    is_storyboard = req.resource_type == "storyboard"
+    if is_storyboard and not req.script_file:
+        raise BadRequestError("image_edit_script_file_required")
+
+    def _sync() -> dict:
+        pm_local = get_project_manager()
+        project = pm_local.load_project(project_name)
+        project_path = pm_local.get_project_path(project_name)
+        script = pm_local.load_script(project_name, str(req.script_file)) if is_storyboard else None
+        try:
+            current_rel = resolve_current_image_rel(project, req.resource_type, req.resource_id, script)
+        except KeyError:
+            if is_storyboard:
+                raise NotFoundError("segment_not_found", id=req.resource_id)
+            raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id)
+        if not (current_rel and safe_exists(project_path, current_rel)):
+            raise BadRequestError("image_edit_no_current_image", id=req.resource_id)
+        return project
+
+    project = await asyncio.to_thread(_sync)
+
+    provider_id = await _require_i2i_image_provider_configured(project)
+
+    # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）
+    spec = TaskSpec.from_request(
+        task_type="image_edit",
+        media_type="image",
+        resource_id=req.resource_id,
+        prompt=instruction,
+        script_file=req.script_file if is_storyboard else None,
+        extra_payload={"resource_type": req.resource_type},
+    )
+
+    queue = get_generation_queue()
+    result = await queue.enqueue_task(
+        project_name=project_name,
+        task_type=spec.task_type,
+        media_type=spec.media_type,
+        resource_id=spec.resource_id,
+        script_file=spec.script_file,
+        payload=spec.payload,
+        source="webui",
+        user_id=_user.id,
+        provider_id=provider_id,
+    )
+
+    return {
+        "success": True,
+        "task_id": result["task_id"],
+        "message": _t("image_edit_task_submitted", id=req.resource_id),
+    }
