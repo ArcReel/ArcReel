@@ -3,6 +3,7 @@ from lib.prompt_builders_script import (
     _format_names,
     build_drama_prompt,
     build_narration_prompt,
+    build_narration_split_prompt,
     build_normalize_prompt,
     build_overview_prompt,
     render_drama_content_for_step2,
@@ -576,3 +577,51 @@ class TestStep2PromptGuards:
         text = self._drama_prompt()
         assert "<characters>" not in text
         assert "资产外观以上述描述为准" not in text
+
+
+class TestBuildNarrationSplitPrompt:
+    """step1 说书片段拆分 prompt（源文 → 结构化片段表）。"""
+
+    def _prompt(self, **overrides):
+        kwargs = dict(
+            novel_text="张三走向村口，久久凝望。",
+            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            characters={"张三": {"description": "主角"}},
+            scenes={"村口": {"description": "黄昏村口"}},
+            props={},
+            default_duration=4,
+            supported_durations=[4, 6, 8],
+            episode=1,
+        )
+        kwargs.update(overrides)
+        return build_narration_split_prompt(**kwargs)
+
+    def test_injects_episode_prefix_assets_and_durations(self):
+        text = self._prompt()
+        assert "E1S" in text
+        assert "张三" in text
+        assert "村口" in text
+        # 档位与默认偏好进 prompt
+        assert "4, 6, 8" in text
+        assert "默认取 4 秒" in text
+
+    def test_mirrors_narration_pacing_rules(self):
+        text = self._prompt()
+        assert NARRATION_PACING_RULES[:40] in text
+
+    def test_drifted_default_treated_as_null_not_raised(self):
+        """default 漂移到 supported_durations 之外时按 null 处理、不 fail-loud（软偏好口径）。"""
+        text = self._prompt(default_duration=5)
+        assert "不强制默认值" in text
+        assert "默认取 5 秒" not in text
+
+    def test_empty_supported_durations_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            self._prompt(supported_durations=[])
+
+    def test_novel_text_verbatim_instruction(self):
+        text = self._prompt()
+        assert "逐字保留" in text
+        assert "张三走向村口，久久凝望。" in text

@@ -34,6 +34,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     get_video_capabilities_tool,
     normalize_drama_script_tool,
+    split_narration_segments_tool,
     split_reference_video_units_tool,
 )
 
@@ -2113,6 +2114,165 @@ async def test_split_reference_video_units_rejects_duplicate_unit_ids(fake_ctx: 
 
 async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = split_reference_video_units_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+
+
+# ---------------------------------------------------------------------------
+# split_narration_segments
+# ---------------------------------------------------------------------------
+
+
+def _nr_caps(default=4, durations=(4, 6, 8)):
+    async def fake_caps(_p):
+        return default, list(durations)
+
+    return fake_caps
+
+
+def _nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None = None):
+    """构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
+
+    class _FakeGenerator:
+        async def generate(self, _request, project_name=None):
+            if captured is not None:
+                captured["generate_project_name"] = project_name
+
+            class _R:
+                text = json.dumps({"episode": 1, "segments": segments}, ensure_ascii=False)
+
+            return _R()
+
+    async def fake_create(task_type, project_name=None):
+        if captured is not None:
+            captured["task_type"] = task_type
+            captured["create_project_name"] = project_name
+        return _FakeGenerator()
+
+    return fake_create
+
+
+def _nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口。", **extra):
+    seg = {
+        "segment_id": segment_id,
+        "novel_text": novel_text,
+        "duration_seconds": duration,
+        "segment_break": False,
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+    }
+    seg.update(extra)
+    return seg
+
+
+async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "DRY RUN" in prompt_text
+    # episode 注入 segment_id 前缀、资产候选与能力档位进 prompt
+    assert "E1S" in prompt_text
+    assert "张三" in prompt_text
+    assert "4" in prompt_text
+
+
+async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:
+    """happy path：结构化片段 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    captured: dict[str, Any] = {}
+    segments = [
+        _nr_segment("E1S01", 4, "张三走向村口。", characters_in_segment=["张三"], scenes=["村口"]),
+        _nr_segment("E1S02", 6, "他停下脚步，久久凝望。", segment_break=True),
+    ]
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments, captured))
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is not True, out
+
+    step1_path = fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
+    assert step1_path.exists()
+    saved = json.loads(step1_path.read_text(encoding="utf-8"))
+    assert [s["segment_id"] for s in saved["segments"]] == ["E1S01", "E1S02"]
+    # novel_text 逐字保留
+    assert saved["segments"][0]["novel_text"] == "张三走向村口。"
+    assert captured["task_type"] is mod.TextTaskType.SCRIPT
+    assert captured["create_project_name"] == "demo"
+    assert captured["generate_project_name"] == "demo"
+
+
+async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
+    """静态片段 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    segments = [_nr_segment("E1S01", 5)]
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+    assert "duration_seconds 非法" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    segments = [_nr_segment("E1S01", 4), _nr_segment("E1S01", 6)]
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+    assert "segment_id 重复" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([]))
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolContext, monkeypatch) -> None:
+    """缺资产字段（characters_in_segment 等）由既有片段 schema（NarrationStep1Segment strict）拦截。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([bad]))
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+    assert "step1 拆分内容结构校验失败" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:
+    tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
 

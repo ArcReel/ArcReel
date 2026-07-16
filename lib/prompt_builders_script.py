@@ -666,6 +666,111 @@ def build_normalize_prompt(
 """
 
 
+def build_narration_split_prompt(
+    *,
+    novel_text: str,
+    project_overview: dict,
+    characters: dict,
+    scenes: dict,
+    props: dict,
+    default_duration: int | None,
+    supported_durations: list[int],
+    episode: int,
+    target_language: str = "中文",
+) -> str:
+    """Step-1 说书片段拆分 prompt：源文 → 结构化片段表（逐字 novel_text + 时长 + 资产登记）。
+
+    由 ``split_narration_segments`` MCP tool 消费。输出受 response_schema（``NarrationStep1Draft``）
+    约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 step2 按
+    ``segment_id`` 对齐补齐。片段时长的成员校验（∈ ``supported_durations``）由工具后校验兜底，因静态
+    ``NarrationStep1Segment.duration_seconds`` 是 ``ge=1, le=60`` 开区间、不在 schema 层枚举硬约束
+    （复用既有片段 schema）。
+
+    ``default_duration`` 为单片段默认秒数偏好；与 ``build_normalize_prompt`` 不同，此处对漂移到
+    ``supported_durations`` 之外的 default 按 None 处理（软偏好、可被内容需要覆盖），不 fail-loud——
+    与 split-narration-segments subagent 的「default 非成员按 null」口径一致。
+    """
+    normalized_durations = sorted({int(d) for d in supported_durations})
+    if not normalized_durations:
+        raise ValueError("supported_durations 不能为空：必须提供模型支持的秒数集合")
+    if default_duration is not None and int(default_duration) not in normalized_durations:
+        default_duration = None
+
+    durations_str = ", ".join(str(d) for d in normalized_durations)
+    max_dur = normalized_durations[-1]
+    if default_duration is not None:
+        duration_rule = (
+            f"单片段默认取 {default_duration} 秒（按朗读语速估算该秒数内能念完的字数）；长句 / 情绪铺陈 / "
+            f"关键对话等可从档位中取更长值（至 {max_dur} 秒）——偏好可被内容需要覆盖，硬约束不可"
+        )
+    else:
+        duration_rule = f"按朗读节奏从档位（{durations_str}）中取值（最长 {max_dur} 秒），不强制默认值"
+    pacing_block = render_pacing_section("narration") + "\n\n"
+
+    character_names = list(characters.keys())
+    scene_names = list(scenes.keys())
+    prop_names = list(props.keys())
+
+    return f"""# 角色与任务
+
+你是一位专业的说书内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的片段表（step1 内容拆分）。
+说书剧本走两段式：本阶段只定内容层——逐字 `novel_text`、片段边界、时长、场景切换标记与出场资产；
+视觉层（image_prompt / video_prompt）由后续 step2 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
+
+**输出语言**：自然语言字符串值使用 {target_language}；JSON 键名保持英文。
+例外（逐字保留、不翻译、不改写）：`novel_text` 逐字等于源文原句（含标点）；资产引用字段
+（`characters_in_segment` / `scenes` / `props`）逐字等于下方候选表中的登记名。
+**结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
+
+{pacing_block}# 上下文
+
+<overview>
+{project_overview.get("synopsis", "")}
+
+题材：{project_overview.get("genre", "")}
+主题：{project_overview.get("theme", "")}
+世界观：{project_overview.get("world_setting", "")}
+</overview>
+
+<characters>
+{_format_names(characters)}
+</characters>
+
+<scenes>
+{_format_names(scenes)}
+</scenes>
+
+<props>
+{_format_names(props)}
+</props>
+
+## 小说原文
+
+<novel>
+{novel_text}
+</novel>
+
+# 拆分规则
+
+当前正在生成第 {episode} 集。
+
+- **novel_text**：逐字保留小说原文，不改编 / 不删减 / 不添加 / 不改标点（后期配音与透传的真相源）；
+  对话片段含完整说话内容与引导语（如「他说道」）。在句号 / 问号 / 感叹号 / 省略号等标点或段落结束处拆分，
+  保持语义完整，不拆断完整的语义单元。
+- **segment_id**：`E{episode}S{{两位序号}}` 格式（如 E{episode}S01），按顺序递增，不得用其他集号前缀。
+- **duration_seconds**：{duration_rule}。取值必须落在支持档位（{durations_str}）内。
+- **segment_break**：在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`，同一连续场景内标 `false`，不要滥用。
+- **characters_in_segment / scenes / props**：列出该片段 `novel_text` 中实际出现（被叙述或对话提及）的已登记资产，
+  名称逐字取自下列候选，不要发明候选之外的名称；泛指群演（老人甲 / 村民若干）不登记、不进 characters_in_segment。
+  三个数组均必填，无对应资产时显式写空数组 `[]`。
+  - character: {", ".join(character_names) or "（暂无）"}
+  - scene: {", ".join(scene_names) or "（暂无）"}
+  - prop: {", ".join(prop_names) or "（暂无）"}
+
+请覆盖全部源文，按叙事顺序逐片段产出。
+"""
+
+
 # ---------------------------------------------------------------------------
 # 项目概述（overview）prompt
 #

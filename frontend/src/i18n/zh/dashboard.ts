@@ -1224,6 +1224,7 @@ export default {
   'tool_name_confirm_script_review': '确认 step1 审核',
   'tool_name_normalize_drama_script': '规范化剧本',
   'tool_name_split_reference_video_units': '拆分参考视频单元',
+  'tool_name_split_narration_segments': '拆分说书片段',
   'tool_name_get_video_capabilities': '查询视频模型能力',
   'tool_name_plan_episodes': '分集规划',
   'tool_name_replan_episodes': '分集重排',

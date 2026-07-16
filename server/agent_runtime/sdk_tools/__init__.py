@@ -48,6 +48,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     get_video_capabilities_tool,
     normalize_drama_script_tool,
+    split_narration_segments_tool,
     split_reference_video_units_tool,
 )
 
@@ -75,6 +76,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "confirm_script_review",
     "normalize_drama_script",
     "split_reference_video_units",
+    "split_narration_segments",
     "get_video_capabilities",
     "plan_episodes",
     "replan_episodes",
@@ -108,6 +110,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             confirm_script_review_tool(ctx),
             normalize_drama_script_tool(ctx),
             split_reference_video_units_tool(ctx),
+            split_narration_segments_tool(ctx),
             get_video_capabilities_tool(ctx),
             plan_episodes_tool(ctx),
             replan_episodes_tool(ctx),
