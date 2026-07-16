@@ -652,19 +652,28 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
         raise ValueError(f"step1 拆分内容 duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
 
+_CJK_ADJACENT_WHITESPACE_RE = re.compile(r"(?<=[一-鿿　-〿＀-￯‘-‟])\s+(?=[一-鿿　-〿＀-￯‘-‟])")
+
+
 def _normalize_for_coverage(text: str) -> str:
-    """把空白游程折叠为单个空格，仅容忍空白的类型/数量差异，不抹去"有空白"这一事实本身。"""
+    """把空白折叠为单个空格，仅容忍空白的类型/数量差异，不抹去"有空白"这一事实本身。
+
+    中日韩表意文字 / 全角标点原生不靠空格分词，两侧相邻时中间的空白（无论是源文段落换行、还是
+    片段安全拼接引入的分隔符）一律视为排版噪声、直接清除；剩余空白（英语 / 越南语等空格分词
+    语言的词间空格）折叠为单个空格但不抹去，以便与拼接侧的处理对称、能检出词间空格丢失。
+    """
+    text = _CJK_ADJACENT_WHITESPACE_RE.sub("", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
 def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: str) -> None:
     """机械校验片段 ``novel_text`` 按序、完整覆盖源文，杜绝模型删减 / 改写 / 重排后仍被当真值落盘。
 
-    比对前折叠空白游程为单个空格：段落间换行 / 多空格是否保留属排版差异，不是 prompt 要求逐字
-    保留的内容本身（prompt 只禁止改标点 / 删减 / 改写字词）；但空格分词语言（英语 / 越南语）里
-    词间空格被整体删掉属实质内容损坏，折叠而非整体剥离才能拦住这种情况。
+    片段间用空格安全拼接（而非直接首尾相连），避免源文在片段交界处的空白（段落换行等）被
+    拼接吞掉——被吞掉会导致合法拆分误报删减；交界处引入的多余空格与源文换行一样，交给
+    ``_normalize_for_coverage`` 统一折叠 / 清除，两侧处理口径一致。
     """
-    combined = "".join(str(s.get("novel_text") or "") for s in segments)
+    combined = " ".join(str(s.get("novel_text") or "") for s in segments)
     if _normalize_for_coverage(combined) != _normalize_for_coverage(novel_text):
         raise ValueError("step1 拆分内容 novel_text 未逐字、完整覆盖小说原文（存在删减、改写或重排）")
 
