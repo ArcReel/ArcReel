@@ -32,8 +32,9 @@ STEP1_LEGACY_FILENAMES: dict[str, tuple[str, ...]] = {
     "narration": ("step1_segments.md",),
 }
 
-#: reference_video 的结构化 step1 中间态文件名。reference_video 是 generation_mode 维度，
-#: 不进按 content_mode 键控的 ``STEP1_FILENAMES``；未纳入审核 gate（gate 按 content_mode 探测）。
+#: reference_video 的结构化 step1 中间态文件名。reference_video 是 generation_mode 维度、
+#: 跨 content_mode（narration / drama 均可），不进按 content_mode 键控的 ``STEP1_FILENAMES``；
+#: 审核 gate 按 step1 变体单独纳入本文件名（见 ``lib.script_review.step1_kind``）。
 REFERENCE_VIDEO_STEP1_FILENAME = "step1_reference_units.json"
 
 #: reference_video 旧版自由文本 step1 别名。仅供读取 / 浏览层兼认存量在制品；

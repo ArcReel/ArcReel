@@ -226,9 +226,9 @@ def generate_episode_script_tool(ctx: ToolContext):
                     "content": [{"type": "text", "text": f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}"}]
                 }
 
-            # step1→step2 审核 gate：drama / narration 的结构化 step1 中间态须经 web 显式确认才放行
-            # step2 视觉生成；未确认（或确认后内容又被改）时阻塞，引导用户先在 Web 端审阅确认。
-            # ad（无 step1）/ reference_video（未纳入审核 gate）不适用，gate 自动放行。
+            # step1→step2 审核 gate：drama / narration / reference_video 的结构化 step1 中间态须经
+            # web 显式确认才放行 step2 视觉生成；未确认（或确认后内容又被改）时阻塞，引导用户先在
+            # Web 端审阅确认。ad（无 step1）不适用，gate 自动放行。
             if script_review.gate_blocks_step2(project_path, project_data, episode):
                 return {
                     "content": [
@@ -262,9 +262,10 @@ def generate_episode_script_tool(ctx: ToolContext):
 def confirm_script_review_tool(ctx: ToolContext):
     @tool(
         "confirm_script_review",
-        "确认本集 step1 结构化中间态（drama / narration 的逐字口播 / 原文），放行 step2 视觉生成。"
-        "仅在用户对话中明确同意进入视觉生成、或已在 Web 端审阅认可后调用——这是 step2 的显式确认动作，"
-        "与 Web 端确认等价；未确认时 generate_episode_script 会被审核 gate 阻塞。",
+        "确认本集 step1 结构化中间态（drama / narration 的逐字口播 / 原文，reference_video 的 "
+        "video_unit 拆分），放行 step2 视觉生成。仅在用户对话中明确同意进入视觉生成、或已在 Web 端审阅"
+        "认可后调用——这是 step2 的显式确认动作，与 Web 端确认等价；未确认时 generate_episode_script "
+        "会被审核 gate 阻塞。",
         {
             "type": "object",
             "properties": {"episode": {"type": "integer", "description": "剧集编号"}},

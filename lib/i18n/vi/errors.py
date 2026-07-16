@@ -80,7 +80,7 @@ MESSAGES = {
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
     "draft_invalid_json": "Bản nháp Step 1 phải là một đối tượng JSON hợp lệ với mảng scenes không rỗng, trong đó mỗi scene là một đối tượng có scene_id không rỗng",
-    "script_review_not_applicable": "Tập này không áp dụng xác nhận Step 1 (chỉ chế độ phim hoạt hình và thuyết minh với video storyboard / lưới)",
+    "script_review_not_applicable": "Tập này không áp dụng xác nhận Step 1 (chế độ này không có bản trung gian Step 1 có cấu trúc)",
     "script_review_no_step1": "Chưa có bản nháp có cấu trúc Step 1 để xác nhận; vui lòng hoàn tất tiền xử lý trước",
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp Step 1 thất bại: {details}",
     "draft_event_label": "Tập {episode} {label_prefix}",

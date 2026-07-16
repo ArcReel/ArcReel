@@ -138,6 +138,25 @@ def extract_mentions(text: str) -> list[str]:
     return result
 
 
+def rederive_unit_references(units: list[Any], project: dict) -> None:
+    """就地按各 unit 的 shot 文本 ``@[名称]`` 引用机械重派生 references（并集、首现顺序，
+    顺序即 [图N] 编号）。
+
+    web 审阅编辑 shot 文本后回写时调用：references 是从正文机械派生的字段（拆分工具产出时即如此），
+    若不随编辑重派生，正文改了引用而 references 停留旧值，step2 会以陈旧 [图N] 映射生成——正是
+    结构化 step1 要从工程上消除的不一致类。只做机械派生，不校验能力上限 / 引用完整性（未登记的
+    名称静默落入 missing、不进 references，正文 @mention 渲染时原样保留）——与 web 审阅对 drama /
+    narration 只做结构校验、把越限留待 step2 读回 / 供应商侧同口径。
+    """
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        shots = unit.get("shots") or []
+        text = "\n".join(str(s.get("text") or "") for s in shots if isinstance(s, dict))
+        refs, _missing = resolve_references(extract_mentions(text), project)
+        unit["references"] = [r.model_dump() for r in refs]
+
+
 def render_prompt_for_backend(text: str, references: list[ReferenceResource]) -> str:
     """把 prompt 中的 @mention 替换为 [图N]，其中 N 是 references 列表中 1-based 序号。"""
     index_by_name: dict[str, int] = {}
