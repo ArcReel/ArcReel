@@ -44,35 +44,15 @@ printf '%s\n' \
   'if [[ "${GH_FAIL:-0}" == "1" ]]; then echo "fixture gh denied" >&2; exit 41; fi' \
   'if [[ "$1" == "repo" && "$2" == "view" ]]; then printf "ArcReel/ArcReel\\n"; exit 0; fi' \
   'echo "unexpected gh invocation: $*" >&2; exit 42' > "$FAKEBIN/gh"
-printf '%s\n' \
-  '#!/usr/bin/env bash' \
-  'if [[ "$1" == "review" && "$2" == "--help" ]]; then printf "Usage: codex review --base BRANCH\\n"; exit 0; fi' \
-  'if [[ "$1" == "exec" ]]; then' \
-  '  shift' \
-  '  probe_dir=""' \
-  '  while [[ $# -gt 0 ]]; do' \
-  '    if [[ "$1" == "-C" ]]; then probe_dir="$2"; shift 2; else shift; fi' \
-  '  done' \
-  '  if [[ "${CODEX_LEAVE_FILE:-0}" == "1" ]]; then' \
-  '    printf "%s\\n" "$probe_dir" > "$CODEX_PROBE_LOG"' \
-  '    printf "fixture residue\\n" > "$probe_dir/residue.txt"' \
-  '  fi' \
-  '  if [[ "${CODEX_FAIL:-0}" == "1" ]]; then echo "fixture codex denied" >&2; exit 44; fi' \
-  '  printf "AFK_CODEX_AUTH_OK\\n"; exit 0' \
-  'fi' \
-  'echo "unexpected codex invocation: $*" >&2; exit 43' > "$FAKEBIN/codex"
-chmod +x "$FAKEBIN/git" "$FAKEBIN/gh" "$FAKEBIN/codex"
+chmod +x "$FAKEBIN/git" "$FAKEBIN/gh"
 
-GIT_ARGS_LOG="$TMP_ROOT/git-args.log" GIT_LEAVE_PROBE_ROOT_FILE=1 CODEX_LEAVE_FILE=1 \
-  CODEX_PROBE_LOG="$TMP_ROOT/success-codex-probe-dir" PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
+GIT_ARGS_LOG="$TMP_ROOT/git-args.log" GIT_LEAVE_PROBE_ROOT_FILE=1 \
+  PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
   --repo "$REPO" \
   --github-connector-ok \
-  --heartbeat-ok \
-  --codex-bin "$FAKEBIN/codex" > "$TMP_ROOT/success.json"
+  --heartbeat-ok > "$TMP_ROOT/success.json"
 
 grep -q '^push --dry-run --porcelain origin HEAD:refs/heads/issue/afk-preflight-probe-' "$TMP_ROOT/git-args.log"
-[[ -s "$TMP_ROOT/success-codex-probe-dir" ]]
-[[ ! -e "$(cat "$TMP_ROOT/success-codex-probe-dir")" ]]
 
 jq -e '
   .ok == true
@@ -82,12 +62,10 @@ jq -e '
   and .git_fetch == true
   and .git_push_dry_run == true
   and .worktree_write == true
-  and .codex_review_base == true
-  and .codex_authenticated == true
 ' "$TMP_ROOT/success.json" >/dev/null
 
 if PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
-  --repo "$REPO" --heartbeat-ok --codex-bin "$FAKEBIN/codex" \
+  --repo "$REPO" --heartbeat-ok \
   > "$TMP_ROOT/missing.out" 2> "$TMP_ROOT/missing.err"; then
   echo "expected missing connector attestation to fail" >&2
   exit 1
@@ -95,28 +73,17 @@ fi
 grep -q '^AFK_PREFLIGHT_ERROR: GitHub connector probe was not attested' "$TMP_ROOT/missing.err"
 
 if GH_FAIL=1 PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
-  --repo "$REPO" --github-connector-ok --heartbeat-ok --codex-bin "$FAKEBIN/codex" \
+  --repo "$REPO" --github-connector-ok --heartbeat-ok \
   > "$TMP_ROOT/gh.out" 2> "$TMP_ROOT/gh.err"; then
   echo "expected gh permission failure to fail" >&2
   exit 1
 fi
 grep -q '^AFK_PREFLIGHT_ERROR: gh read-only repository probe failed: fixture gh denied' "$TMP_ROOT/gh.err"
 
-if CODEX_FAIL=1 CODEX_LEAVE_FILE=1 CODEX_PROBE_LOG="$TMP_ROOT/codex-probe-dir" \
-  PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
-  --repo "$REPO" --github-connector-ok --heartbeat-ok --codex-bin "$FAKEBIN/codex" \
-  > "$TMP_ROOT/codex.out" 2> "$TMP_ROOT/codex.err"; then
-  echo "expected codex authentication failure to fail" >&2
-  exit 1
-fi
-grep -q '^AFK_PREFLIGHT_ERROR: codex authentication/service probe failed: fixture codex denied' "$TMP_ROOT/codex.err"
-[[ -s "$TMP_ROOT/codex-probe-dir" ]]
-[[ ! -e "$(cat "$TMP_ROOT/codex-probe-dir")" ]]
-
 LINKED="$TMP_ROOT/linked"
 git -C "$REPO" worktree add --detach "$LINKED" HEAD >/dev/null
 if PATH="$FAKEBIN:$PATH" bash "$PREFLIGHT" \
-  --repo "$LINKED" --github-connector-ok --heartbeat-ok --codex-bin "$FAKEBIN/codex" \
+  --repo "$LINKED" --github-connector-ok --heartbeat-ok \
   > "$TMP_ROOT/linked.out" 2> "$TMP_ROOT/linked.err"; then
   echo "expected linked worktree to fail" >&2
   exit 1

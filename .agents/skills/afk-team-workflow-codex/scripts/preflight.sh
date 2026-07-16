@@ -8,20 +8,18 @@ die() { echo "AFK_PREFLIGHT_ERROR: $*" >&2; exit 1; }
 usage() {
   cat >&2 <<'EOF'
 AFK_PREFLIGHT_ERROR: usage: bash preflight.sh --repo <absolute-path> \
-  --github-connector-ok --heartbeat-ok [--codex-bin <path>]
+  --github-connector-ok --heartbeat-ok
 EOF
   exit 2
 }
 
 REPO=""
-CODEX_BIN=""
 GITHUB_CONNECTOR_OK=false
 HEARTBEAT_OK=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) REPO="${2:-}"; shift 2 || usage ;;
-    --codex-bin) CODEX_BIN="${2:-}"; shift 2 || usage ;;
     --github-connector-ok) GITHUB_CONNECTOR_OK=true; shift ;;
     --heartbeat-ok) HEARTBEAT_OK=true; shift ;;
     *) usage ;;
@@ -68,16 +66,12 @@ fi
 
 PROBE_ROOT=""
 PROBE_WT=""
-CODEX_PROBE_DIR=""
 cleanup() {
   if [[ -n "$PROBE_WT" && -d "$PROBE_WT" ]]; then
     git -C "$REPO" worktree remove --force "$PROBE_WT" >/dev/null 2>&1 || true
   fi
   if [[ -n "$PROBE_ROOT" && -d "$PROBE_ROOT" ]]; then
     rm -rf -- "$PROBE_ROOT" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$CODEX_PROBE_DIR" && -d "$CODEX_PROBE_DIR" ]]; then
-    rm -rf -- "$CODEX_PROBE_DIR" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -93,44 +87,9 @@ PROBE_WT=""
 rm -rf -- "$PROBE_ROOT" >/dev/null 2>&1 || die "probe temp directory cleanup failed: $PROBE_ROOT"
 PROBE_ROOT=""
 
-if [[ -z "$CODEX_BIN" ]]; then
-  if command -v codex >/dev/null 2>&1; then
-    CODEX_BIN=$(command -v codex)
-  elif [[ -x /Applications/ChatGPT.app/Contents/Resources/codex ]]; then
-    CODEX_BIN=/Applications/ChatGPT.app/Contents/Resources/codex
-  else
-    die "codex CLI not found; pass --codex-bin"
-  fi
-fi
-[[ -x "$CODEX_BIN" ]] || die "codex binary is not executable: $CODEX_BIN"
-
-REVIEW_HELP=""
-if ! REVIEW_HELP=$("$CODEX_BIN" review --help 2>&1); then
-  die "codex review probe failed: ${REVIEW_HELP:0:300}"
-fi
-grep -q -- '--base' <<<"$REVIEW_HELP" || die "codex review does not advertise --base"
-
-CODEX_PROBE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/afk-codex-auth.XXXXXX")
-CODEX_PROBE_OUTPUT=""
-if ! CODEX_PROBE_OUTPUT=$("$CODEX_BIN" exec \
-  --ephemeral \
-  --ignore-user-config \
-  --ignore-rules \
-  --sandbox read-only \
-  --skip-git-repo-check \
-  --color never \
-  -C "$CODEX_PROBE_DIR" \
-  "Reply with exactly AFK_CODEX_AUTH_OK and do not call tools." 2>&1); then
-  die "codex authentication/service probe failed: ${CODEX_PROBE_OUTPUT:0:300}"
-fi
-rm -rf -- "$CODEX_PROBE_DIR" >/dev/null 2>&1 || die "codex probe temp directory cleanup failed: $CODEX_PROBE_DIR"
-CODEX_PROBE_DIR=""
-grep -qx 'AFK_CODEX_AUTH_OK' <<<"$CODEX_PROBE_OUTPUT" || die "codex authentication/service probe returned no success marker"
-
 jq -n \
   --arg repo "$REPO" \
   --arg github_repo "$GH_REPO" \
-  --arg codex_bin "$CODEX_BIN" \
   '{
     ok: true,
     repo: $repo,
@@ -141,8 +100,5 @@ jq -n \
     jq: true,
     git_fetch: true,
     git_push_dry_run: true,
-    worktree_write: true,
-    codex_review_base: true,
-    codex_authenticated: true,
-    codex_bin: $codex_bin
+    worktree_write: true
   }'

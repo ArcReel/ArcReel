@@ -1,6 +1,6 @@
-# 跨运行时崩溃恢复
+# 崩溃恢复
 
-入口发现 `.afk/*.jsonl` 末条不是 `closed` 时加载本页。Claude 与 Codex 共享 `.afk/`、batch-id 和 handoff；每行缺 `runtime` 的旧账视为 legacy/Claude，`runtime` 只用于审计与定位，不参与状态判定。
+入口发现 `.afk/*.jsonl` 末条不是 `closed` 时加载本页。Claude 与 Codex 共享 `.afk/`、batch-id 和 handoff，以 ledger、handoff 与 gh/git 现场完成接管。
 
 恢复的核心是 replay 无法从 gh/git 重推的事实，再用新 poll 对账。开始前仍须执行 [preflight.md](preflight.md)；任何新权限失败都停止在用户在线阶段。
 
@@ -20,7 +20,7 @@
 
 ## 2. 让用户选择
 
-向用户列出 batch-id、runtime 分布、终态/在途分布、worktree/分支/PR 现场，以及账本中的授权、搁置争点和故障。只提供：
+向用户列出 batch-id、终态/在途分布、worktree/分支/PR 现场，以及账本中的授权、搁置争点和故障。只提供：
 
 - **接管**：replay 后续跑；
 - **重开**：保留现场，回主 skill 重新规划，不覆盖旧账；
@@ -59,6 +59,6 @@
 
 ## 5. 重新授权与新 heartbeat
 
-接管会话在执行任何合并或清尾立项前，重新展示剩余计划并请求主 skill 的两项前置授权。旧 `authorization` 只说明“曾授权”。重新授权后追加新的 `authorization` 行（自动标记 `runtime:"codex"`），再为当前 task 创建新的 lead heartbeat；旧 task heartbeat 若可见则删除。
+接管会话在执行任何合并或清尾立项前，重新展示剩余计划并请求主 skill 的两项前置授权。旧 `authorization` 只说明“曾授权”。重新授权后追加新的 `authorization` 行，再为当前 task 创建新的 lead heartbeat；旧 task heartbeat 若可见则删除。
 
 完成条件：fresh poll 与账本已对账，用户重新授权，且每个非终态 issue 只有一个新阶段 agent；最终仍按 lead 契约清尾并追加 `closed`。

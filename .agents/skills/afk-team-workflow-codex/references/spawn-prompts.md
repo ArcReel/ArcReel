@@ -14,7 +14,7 @@
 
 ```text
 你是 $afk-team-workflow-codex 批次中 issue #<N> 的独立本地审查者。完整读取 <repo_root>/.agents/skills/afk-team-workflow-codex/references/local-reviewer.md 并按契约工作。
-输入：repo_root=<绝对路径>；issue=#<N>；worktree=<绝对路径>；branch=issue/<N>；lead=<canonical task>；handoff=<绝对路径>；codex_bin=<绝对路径>。
+输入：repo_root=<绝对路径>；issue=#<N>；worktree=<绝对路径>；branch=issue/<N>；lead=<canonical task>；handoff=<绝对路径>。
 你没有实现者的对话历史；只从 issue、diff、handoff 与契约重建上下文。
 ```
 

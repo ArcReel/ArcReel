@@ -8,6 +8,8 @@
 
 只有全部 blocker 已合入 main 才启动。issue 到达“已合并/已搁置”终态才释放并发槽，随后按依赖 frontier 补位。blocker 搁置时，下游保持未启动并进入收尾清单。
 
+本地审查是 agent-slot barrier：启动 local-reviewer 前，按外部 `$code-review` 的当前契约为它的并行 subagent 预留全部所需槽位；容量不足时延后该阶段，其余阶段仍按 issue 并发上限调度。
+
 恢复或替补遇到既有 worktree/分支时，以现场为准复用；路径被另一 worktree 占用、分支 diverge 或存在未提交改动时先记录并让替补核查，绝不 force 覆盖。
 
 ## Heartbeat 健康检查
@@ -59,6 +61,6 @@ teammate 的暂停场景只到 lead：
 2. 确认 agent 已结束；删除已合并或已搁置 issue 的 worktree与本地 `issue/<N>` 分支。只有远端已证实终态且路径属于本批时才清理。合并后因 squash 无法 `git branch -d` 时，可在该验证后删除本地分支；远端待人工接手分支保留。
 3. 用 `codex_app__automation_update` 删除本批 heartbeat，确认 id 不再存在，避免幽灵唤醒。
 4. 汇报三份清单：已合并（issue/PR）、needs-human（争点）、跳过/未启动（原因）；再附 gap、故障、清尾转呈与聚合复盘四类候选。候选为空是正常结果。
-5. 从 `repo_root` 调用本 skill 的 ledger 追加 `closed`。保留账本与 handoff，不提交 `.afk/`。
+5. 从 `repo_root` 调用共享 `.agents/skills/afk-team-workflow/scripts/ledger.sh` 追加 `closed`。保留账本与 handoff，不提交 `.afk/`。
 
 终态检查：`collaboration.list_agents` 无本批活跃 agent，`git worktree list` 无本批路径，heartbeat 已删除，ledger 末条 `kind == "closed"`。
