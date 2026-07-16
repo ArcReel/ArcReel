@@ -253,6 +253,7 @@ export function useAssistantSession(projectName: string | null) {
       try {
         // 获取会话列表
         const res = await API.listAssistantSessions(projectName!);
+        if (cancelled) return;
         const sessions = res.sessions ?? [];
         store.getState().setSessions(sessions);
 
