@@ -14,7 +14,7 @@
 
 ## Heartbeat 健康检查
 
-用户授权并写入账本后，用 `codex_app__automation_update` 为当前 task 创建约 30 分钟一次的循环 heartbeat；prompt 携带 batch-id，并要求唤醒后按本节执行一次健康检查。取得 automation id 后，立即用共享 `ledger.sh` 追加一条 `decision`，在 `detail` 中记录该 id。正式 heartbeat 创建或登记失败时停止，不能 spawn teammate。preflight 创建后立即删除的临时 heartbeat 只证明工具能力，不能充当正式 heartbeat。
+用户授权并写入账本后，用 `codex_app__automation_update` 为当前 task 创建约 30 分钟一次的循环 heartbeat；prompt 携带 batch-id，并要求唤醒后按本节执行一次健康检查。取得 automation id 后，立即用共享 `ledger.sh` 追加一条 `decision`，在 `detail` 中记录该 id。登记失败时必须立刻用已取得的 id 删除 heartbeat 并确认删除成功；若删除也失败，报告该 id 后停止。正式 heartbeat 创建或登记失败时都不能 spawn teammate。preflight 创建后立即删除的临时 heartbeat 只证明工具能力，不能充当正式 heartbeat。
 
 当前 task 的约 30 分钟 heartbeat 只唤醒 lead。每次唤醒：
 
@@ -42,8 +42,8 @@ teammate 的暂停场景只到 lead：
 
 1. **故障**：bot 报错、quota、长时间无响应或意外权限失败。按共享 review-loop 建议重试一次；仍失败就对本 PR 停用该 reviewer，追加 `fault`，收尾前可补审一次。AFK 中新的权限失败也按 fault 安全搁置/转呈，不绕过授权。
 2. **重复意见**：同一 reviewer 重提已有 pushback 的主题，维持技术结论，让 looper 引用在案依据回复后继续；值得升级的原则记复盘候选。
-3. **真实 reviewer 冲突或业务取舍**：不选边。用 connector 把 PR 转 draft、issue 改为 `ready-for-human`、在 PR 评论双方立场，追加 `shelve`；结束 teammate，保留远端分支/PR供人工接手，清理本地 worktree/分支。
-4. **收敛兜底**：共享 review-loop 达到 8 轮，或连续两轮只有 nit/format push 时，不替用户选择强行合并、继续或放弃。用 connector 把 PR 转 draft、issue 改为 `ready-for-human`，在 PR 评论触发条件、当前未满足门槛与三个可选动作，追加 `shelve`；结束 teammate，保留远端分支/PR 供人工接手，清理本地 worktree/分支。
+3. **真实 reviewer 冲突或业务取舍**：不选边。用 connector 把 PR 转 draft并在 PR 评论双方立场；用 `gh` 把 issue 改为 `ready-for-human`。追加 `shelve`；结束 teammate，保留远端分支/PR供人工接手，清理本地 worktree/分支。
+4. **收敛兜底**：共享 review-loop 达到 8 轮，或连续两轮只有 nit/format push 时，不替用户选择强行合并、继续或放弃。用 connector 把 PR 转 draft并在 PR 评论触发条件、当前未满足门槛与三个可选动作；用 `gh` 把 issue 改为 `ready-for-human`。追加 `shelve`；结束 teammate，保留远端分支/PR 供人工接手，清理本地 worktree/分支。
 
 ## Gap 与清尾轮
 
@@ -59,7 +59,7 @@ teammate 的暂停场景只到 lead：
 
 ## 收口与清理
 
-1. 用 connector 在共同 Spec 发布人工 QA 清单，不关闭 Spec。按已合并 issue 给 PR 链接和真实操作路径；末尾列搁置、跳过/未启动和 gap。无共同 Spec 时并入最终汇报。
+1. 用 `gh` 在共同 Spec 发布人工 QA 清单，不关闭 Spec。按已合并 issue 给 PR 链接和真实操作路径；末尾列搁置、跳过/未启动和 gap。无共同 Spec 时并入最终汇报。
 2. 确认 agent 已结束；删除已合并或已搁置 issue 的 worktree与本地 `issue/<N>` 分支。只有远端已证实终态且路径属于本批时才清理。合并后因 squash 无法 `git branch -d` 时，可在该验证后删除本地分支；远端待人工接手分支保留。
 3. 按 ledger 登记的 automation id 用 `codex_app__automation_update` 删除本批 heartbeat，确认 id 不再存在，避免幽灵唤醒。
 4. 汇报三份清单：已合并（issue/PR）、needs-human（争点）、跳过/未启动（原因）；再附 gap、故障、清尾转呈与聚合复盘四类候选。候选为空是正常结果。

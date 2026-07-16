@@ -46,20 +46,20 @@
 
 ## 4. 接管在途阶段
 
-前任 lead 的 teammate 不可达；不要尝试重连。按远端和本地现场选择阶段，并用 [spawn-prompts.md](spawn-prompts.md) 的替补附言新建 `fork_turns:"none"` agent：
+前任 lead 的 teammate 不可达；不要尝试重连。先按远端和本地现场选择阶段，但本节只形成待启动计划，不 spawn：
 
 | 现场 | 接管阶段 |
 |---|---|
 | 无 PR，worktree 缺少完整“实现”handoff、存在未提交实现改动或质量门未知 | 实现 |
-| 无 PR，worktree 干净、实现 commit 与完整“实现”handoff 都存在；或已有远端分支 | 独立本地审查 |
+| 无 PR，worktree 干净、实现 commit、完整“实现”handoff 与质量门证据都存在 | 独立本地审查 |
 | open 非 draft PR，且完整“本地审查”handoff 记录 PR、reviewed HEAD 与质量门，fresh poll 证明远端 HEAD 与 reviewed HEAD 一致 | AI 审查循环 |
 | open 非 draft PR，但缺少上述“本地审查”交付证据或远端 HEAD 已变化 | 独立本地审查 |
 | draft/closed 未合并 PR | 已搁置，除非用户明确重开 |
 
-`review-loop` PR 的 `updatedAt` 近期仍变化时先观察一个 lead heartbeat 周期，避免两个上下文同时推同一 PR。替补 prompt 必须携带绝对 worktree 和 handoff；若只有远端分支没有 worktree，lead 在确认未被别处占用后为该分支恢复 worktree。
+既有远端分支不替代实现交付证据：证据缺失时仍回到实现阶段补齐验证与 handoff，并保留既有 push，不以撤销远端分支作为完成条件。`review-loop` PR 的 `updatedAt` 近期仍变化时先观察一个 lead heartbeat 周期，避免两个上下文同时推同一 PR。若只有远端分支没有 worktree，lead 在确认未被别处占用后为该分支恢复 worktree。
 
 ## 5. 重新授权与新 heartbeat
 
-接管会话在执行任何合并或清尾立项前，重新展示剩余计划并请求主 skill 的两项前置授权。旧 `authorization` 只说明“曾授权”。重新授权后追加新的 `authorization` 行，再为当前 task 创建新的 lead heartbeat；旧 task heartbeat 若可见则删除。
+接管会话在 spawn、合并或清尾立项前，重新展示剩余计划并请求主 skill 的两项前置授权。旧 `authorization` 只说明“曾授权”。重新授权后追加新的 `authorization` 行，再按 lead 契约创建并登记当前 task 的新 heartbeat；旧 task heartbeat 按 ledger id 删除并确认。只有这些硬门全部通过，才按 [spawn-prompts.md](spawn-prompts.md) 的对应模板与替补附言新建 `fork_turns:"none"` agent；替补 prompt 必须携带绝对 worktree 和 handoff。
 
 完成条件：fresh poll 与账本已对账，用户重新授权，且每个非终态 issue 只有一个新阶段 agent；最终仍按 lead 契约清尾并追加 `closed`。

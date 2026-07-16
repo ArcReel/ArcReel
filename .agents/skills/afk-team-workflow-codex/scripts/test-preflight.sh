@@ -43,6 +43,7 @@ printf '%s\n' \
   '#!/usr/bin/env bash' \
   'if [[ "${GH_FAIL:-0}" == "1" ]]; then echo "fixture gh denied" >&2; exit 41; fi' \
   'if [[ "$1" == "repo" && "$2" == "view" ]]; then printf "ArcReel/ArcReel\\n"; exit 0; fi' \
+  'if [[ "$1" == "api" && "$2" == "repos/ArcReel/ArcReel" ]]; then printf "true\\n"; exit 0; fi' \
   'echo "unexpected gh invocation: $*" >&2; exit 42' > "$FAKEBIN/gh"
 chmod +x "$FAKEBIN/git" "$FAKEBIN/gh"
 
@@ -59,6 +60,7 @@ jq -e '
   and .github_connector == true
   and .heartbeat == true
   and .gh_read == true
+  and .gh_write == true
   and .git_fetch == true
   and .git_push_dry_run == true
   and .worktree_write == true

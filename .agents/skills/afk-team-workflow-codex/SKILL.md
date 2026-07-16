@@ -45,7 +45,7 @@ bash <repo_root>/.agents/skills/afk-team-workflow/scripts/batch-poll.sh --issues
 
 同时声明自动动作边界：可修改 triage 标签、把冲突 PR 转 draft、在 Spec 发布 QA 验收评论；清尾授权之外不创建新 issue，功能性 gap 仍需用户中途指令。用户确认前不写账本、不建 worktree、不 spawn teammate。恢复会话必须重新授权，旧 `authorization` 行只作历史参考。
 
-用户确认后，从 `repo_root` 调用共享 `.agents/skills/afk-team-workflow/scripts/ledger.sh`：首条 `decision` 携带 `--scope-spec` 或 `--scope-issues`，第二条 `authorization` 记录两项授权。随后按 lead 契约创建当前 task 的正式 heartbeat；创建失败就停止，不能 spawn teammate。
+用户确认后，从 `repo_root` 调用共享 `.agents/skills/afk-team-workflow/scripts/ledger.sh`：首条 `decision` 携带 `--scope-spec` 或 `--scope-issues`，第二条 `authorization` 记录两项授权。随后先读取 [lead-operations.md 的 Heartbeat 健康检查](references/lead-operations.md#heartbeat-健康检查)，按其契约创建当前 task 的正式 heartbeat；创建失败就停止，不能 spawn teammate。
 
 完成条件：用户已明确回复授权范围，账本首两行可被 `jq` 解析、首行带 scope，且正式 heartbeat 已创建并登记。
 

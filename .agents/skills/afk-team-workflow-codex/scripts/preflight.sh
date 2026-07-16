@@ -52,6 +52,11 @@ if ! GH_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>&1); then
   die "gh read-only repository probe failed: ${GH_REPO:0:300}"
 fi
 [[ -n "$GH_REPO" ]] || die "gh read-only repository probe returned no repository"
+GH_CAN_WRITE=""
+if ! GH_CAN_WRITE=$(gh api "repos/$GH_REPO" --jq '.permissions.push // false' 2>&1); then
+  die "gh repository permission probe failed: ${GH_CAN_WRITE:0:300}"
+fi
+[[ "$GH_CAN_WRITE" == "true" ]] || die "gh identity lacks repository write permission: $GH_REPO"
 
 FETCH_OUTPUT=""
 if ! FETCH_OUTPUT=$(git fetch --dry-run origin 2>&1); then
@@ -97,6 +102,7 @@ jq -n \
     github_connector: true,
     heartbeat: true,
     gh_read: true,
+    gh_write: true,
     jq: true,
     git_fetch: true,
     git_push_dry_run: true,
