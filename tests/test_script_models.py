@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from lib.script_models import (
+    _ITEM_FALLBACK_DURATIONS,
     AdEpisodeScript,
     AdShot,
     Composition,
@@ -14,6 +15,8 @@ from lib.script_models import (
     NarrationSegment,
     Utterance,
     VideoPrompt,
+    item_duration,
+    script_duration_total,
 )
 
 
@@ -355,6 +358,69 @@ class TestAdScriptModels:
                     "hallucinated_field": "x",
                 }
             )
+
+
+class TestItemDurationCoercion:
+    """剧本条目时长的脏数据归一——单一真相源，读时计算/写盘重算/落盘估算三处共用。
+
+    校验失败降级保存的原始 dict 会把 None/bool/负数/字符串/缺失等脏值带到读路径，
+    历史上三份兜底表 + 三套守卫互异（StatusCalculator 缺 None 守卫致 sum() TypeError、
+    项目列表 API 5xx）。此处穷举脏值矩阵 × 四骨架，钉住单点化后的统一口径。
+    """
+
+    def test_fallback_table_covers_four_skeletons(self):
+        assert _ITEM_FALLBACK_DURATIONS == {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    def test_valid_positive_int_passes_through(self, kind: str):
+        assert item_duration(kind, {"duration_seconds": 7}) == 7
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    @pytest.mark.parametrize(
+        "dirty",
+        [
+            {},  # 缺失
+            {"duration_seconds": None},  # None
+            {"duration_seconds": True},  # bool（int 子类，须排除）
+            {"duration_seconds": False},
+            {"duration_seconds": 0},  # 非正数
+            {"duration_seconds": -5},  # 负数
+            {"duration_seconds": "6"},  # 数字字符串
+            {"duration_seconds": "six"},  # 非数字字符串
+            {"duration_seconds": 4.5},  # 浮点
+        ],
+    )
+    def test_dirty_values_fall_back_by_kind(self, kind: str, dirty: dict):
+        # 缺失与所有脏值一律回退到骨架兜底时长（shots/video_units 兜底为 0）。
+        assert item_duration(kind, dirty) == _ITEM_FALLBACK_DURATIONS[kind]
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    def test_non_dict_item_counts_zero(self, kind: str):
+        # 非 dict 条目无时长语义，恒按 0 计，不挪用骨架兜底。
+        for junk in ("junk", 5, None, ["x"]):
+            assert item_duration(kind, junk) == 0
+
+    def test_script_total_sums_mixed_dirty_items(self):
+        # 混合脏条目求和不抛：5(有效) + 0(非 dict) + 4(缺失) + 4(None) + 4(负数) = 17。
+        items = [
+            {"duration_seconds": 5},
+            "junk_not_a_dict",
+            {},
+            {"duration_seconds": None},
+            {"duration_seconds": -5},
+        ]
+        assert script_duration_total("segments", items) == 17
+
+    def test_script_total_video_units_missing_is_zero(self):
+        # 口径拍板：video_units 缺时长统一按 0 计（不再沿历史 8 秒 else 兜底）。
+        assert script_duration_total("video_units", [{}, {"duration_seconds": None}]) == 0
+        assert script_duration_total("video_units", [{"duration_seconds": 6}, {}]) == 6
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    def test_script_total_non_list_is_zero(self, kind: str):
+        # items 为 null / 真值标量（降级保存脏值）按空处理返回 0、不抛。
+        for junk in (None, "segments", 5, {"a": 1}):
+            assert script_duration_total(kind, junk) == 0
 
 
 class TestEnumDriftNormalization:

@@ -646,7 +646,8 @@ _KIND_TO_MODES = {
 class TestStatusCalculatorSkeletonExhaustiveness:
     """穷尽性断言：calculate_episode_stats 的按 kind 分派覆盖 SKELETONS 全部键。
 
-    第五种骨架加入 SKELETONS（+ 规范解析映射）时，_FALLBACK_ITEM_DURATIONS 查表 KeyError，逐个报红。
+    第五种骨架加入 SKELETONS（+ 规范解析映射）时，script_duration_total 查 _ITEM_FALLBACK_DURATIONS
+    KeyError，逐个报红。
     """
 
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))

@@ -848,12 +848,13 @@ class TestScriptGeneratorSkeletonExhaustiveness:
 
         assert set(_METADATA_COUNT_KEY) == set(SKELETONS)
 
-    def test_metadata_fallback_duration_covers_non_shots_kinds(self):
-        # shots（ad）走 ad_script_total_duration、不进兜底时长表；其余骨架均须登记。
-        from lib.script_generator import _METADATA_FALLBACK_DURATION
+    def test_item_fallback_duration_covers_every_skeleton_kind(self):
+        # 时长兜底表单点化到 script_models，四骨架全登记（含 shots/video_units→0）；
+        # 第五种骨架加入 SKELETONS 而未登记即在 item_duration 查表 KeyError 报红。
+        from lib.script_models import _ITEM_FALLBACK_DURATIONS
         from lib.script_skeleton import SKELETONS
 
-        assert set(_METADATA_FALLBACK_DURATION) == set(SKELETONS) - {"shots"}
+        assert set(_ITEM_FALLBACK_DURATIONS) == set(SKELETONS)
 
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):

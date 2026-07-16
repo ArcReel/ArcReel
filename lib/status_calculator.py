@@ -10,15 +10,10 @@ import logging
 from lib.episode_paths import STEP1_FILENAMES, STEP1_LEGACY_FILENAMES, episode_drafts_dir
 from lib.path_safety import safe_exists
 from lib.project_manager import effective_mode
-from lib.script_models import ad_script_total_duration
+from lib.script_models import ad_script_total_duration, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
 logger = logging.getLogger(__name__)
-
-# 缺 duration_seconds 时按骨架种类取的兜底时长（秒）。
-# segments/scenes 沿用历史默认；shots（ad）没有单镜头时长偏好（按 target_duration 预算
-# 逐镜头规划），缺失按 0 计入，避免杜撰值污染与目标总时长的对照。
-_FALLBACK_ITEM_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0}
 
 # 缺 content_mode 声明的老脚本：按主结构鸭子类型兜底探测的骨架种类，顺序固定
 # segments > scenes > shots（video_units 不参与——按声明分派，不嗅探残留派生索引）。
@@ -107,7 +102,6 @@ class StatusCalculator:
         if kind == "shots" and generation_mode == "reference_video":
             return self._calculate_ad_reference_stats(script, items)
 
-        default_duration = _FALLBACK_ITEM_DURATIONS[kind]
         storyboard_done = sum(1 for i in items if i.get("generated_assets", {}).get("storyboard_image"))
         video_done = sum(1 for i in items if i.get("generated_assets", {}).get("video_clip"))
         total = len(items)
@@ -122,7 +116,7 @@ class StatusCalculator:
         return {
             "scenes_count": total,
             "status": status,
-            "duration_seconds": sum(i.get("duration_seconds", default_duration) for i in items),
+            "duration_seconds": script_duration_total(kind, items),
             "storyboards": {"total": total, "completed": storyboard_done},
             "videos": {"total": total, "completed": video_done},
         }
@@ -195,7 +189,7 @@ class StatusCalculator:
             "scenes_count": total,
             "units_count": total,
             "status": status,
-            "duration_seconds": sum(u.get("duration_seconds", 0) for u in units),
+            "duration_seconds": script_duration_total("video_units", units),
             "storyboards": {"total": total, "completed": 0},
             "videos": {"total": total, "completed": video_done},
         }
@@ -458,10 +452,7 @@ class StatusCalculator:
             注入计算字段后的剧本数据
         """
         kind, items = self._select_kind_and_items(script)
-        # video_units 骨架不在时长表内，沿用历史 else 兜底值 8
-        default_duration = _FALLBACK_ITEM_DURATIONS.get(kind, 8)
-
-        total_duration = sum(i.get("duration_seconds", default_duration) for i in items)
+        total_duration = script_duration_total(kind, items)
 
         # 注入 metadata 计算字段
         if "metadata" not in script:

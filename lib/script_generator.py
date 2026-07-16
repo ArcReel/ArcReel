@@ -47,6 +47,7 @@ from lib.script_models import (
     build_episode_script_model,
     build_reference_video_script_model,
     merge_drama_visual_into_scenes,
+    script_duration_total,
 )
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
@@ -82,15 +83,6 @@ _METADATA_COUNT_KEY: dict[str, str] = {
     "video_units": "total_units",
 }
 
-# 骨架种类 → 缺 duration_seconds 时的兜底时长（秒）。业务附着值：segments/scenes 沿用
-# 历史默认，video_units 缺失按 0 计。shots（ad）无单镜头默认时长、改走 ad_script_total_duration
-# 稳健求和，故不在此表——第五种非 ad 骨架未登记即在 _add_metadata 处 KeyError 报红。
-_METADATA_FALLBACK_DURATION: dict[str, int] = {
-    "segments": 4,
-    "scenes": 8,
-    "video_units": 0,
-}
-
 
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     """把 ID 中的 `E\\d+` 前缀强制改写为 `E{ep}`；非字符串或无 E 前缀的原样返回。
@@ -103,25 +95,6 @@ def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     if n and new_rid != rid:
         logger.warning("episode prefix rewritten: %s → %s", rid, new_rid)
     return new_rid
-
-
-def _coerce_duration(item: object, fallback: int) -> int:
-    """降级保存路径按稳健口径取单条时长:校验失败时保存的原始 dict 里数组可能含脏条目，
-    直接 ``int(item.get(...))`` 会在非 dict 或 duration_seconds 非数字时崩溃。
-
-    非 dict 条目无时长语义、记 0；dict 内 duration_seconds 缺失、非数字（None / 布尔 /
-    非数字字符串）或非正数（校验器亦按 ``duration <= 0`` 判无效）回退 ``fallback``。
-    """
-    if not isinstance(item, dict):
-        return 0
-    value = item.get("duration_seconds", fallback)
-    if isinstance(value, bool):
-        return fallback
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return fallback
-    return parsed if parsed > 0 else fallback
 
 
 class ScriptGenerator:
@@ -896,17 +869,13 @@ class ScriptGenerator:
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
 
         # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
-        # 数组键经上方规范解析所得 kind 查表；计数键名与兜底时长为业务附着、随 kind 显式保留。
-        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目，isinstance 守卫走稳健口径。
+        # 数组键经上方规范解析所得 kind 查表；计数键名为业务附着、随 kind 显式保留。
+        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目：len(items) 计入全部条目
+        # （既有口径），时长走 script_duration_total 单一真相源逐条兜底（脏值归一、不抛）。
         raw_items = script_data.get(kind)
         items = raw_items if isinstance(raw_items, list) else []
         script_data["metadata"][_METADATA_COUNT_KEY[kind]] = len(items)
-        if kind == "shots":
-            # ad 逐镜头按 target_duration 预算规划、无单镜头默认时长，走 ad_script_total_duration。
-            script_data["duration_seconds"] = ad_script_total_duration(items)
-        else:
-            fallback = _METADATA_FALLBACK_DURATION[kind]
-            script_data["duration_seconds"] = sum(_coerce_duration(i, fallback) for i in items)
+        script_data["duration_seconds"] = script_duration_total(kind, items)
 
         # 剥离废弃的 episode 级聚合字段（改为读时计算）
         script_data.pop("characters_in_episode", None)

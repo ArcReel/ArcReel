@@ -771,6 +771,40 @@ def ad_script_total_duration(shots: object) -> int:
     return sum(ad_shot_duration_seconds(shot) for shot in shots)
 
 
+#: 缺 duration_seconds 时按骨架种类取的兜底时长（秒）——剧本条目时长的单一真相源。
+#: segments/scenes 沿用历史默认；shots（ad）与 video_units（参考直出）无单镜头默认时长
+#: 偏好（按 target/预算逐条规划），缺失按 0 计，避免杜撰值污染与目标总时长的对照。
+#: 三个消费方（StatusCalculator 读时计算、ProjectManager 写盘重算、ScriptGenerator
+#: 落盘估算）共用此表，四种骨架全登记；第五种骨架加入即在 ``item_duration`` 查表 KeyError。
+_ITEM_FALLBACK_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
+
+
+def item_duration(kind: str, item: object) -> int:
+    """单条剧本条目时长（秒）的脏数据归一口径——沿 ``ad_shot_duration_seconds`` 先例推广到四骨架。
+
+    非 dict 条目无时长语义按 0 计；dict 内 ``duration_seconds`` 缺失，或为脏值
+    （None / 布尔 / 非正整数 / 浮点 / 字符串）一律回退按 ``kind`` 查 ``_ITEM_FALLBACK_DURATIONS``
+    的兜底时长。只认真正的正整数（bool 按 int 子类排除），与校验器「``duration <= 0`` 判无效」一致。
+    """
+    if not isinstance(item, dict):
+        return 0
+    value = item.get("duration_seconds")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return _ITEM_FALLBACK_DURATIONS[kind]
+
+
+def script_duration_total(kind: str, items: object) -> int:
+    """按骨架种类求剧本条目总时长（秒）——脏数据稳健、不抛（见 ``item_duration``）。
+
+    ``items`` 非 list（含 null 这类降级保存的脏值）按空处理返回 0。读时计算与写盘重算
+    共用此单一真相源，避免三处各自维护同一兜底表与守卫。
+    """
+    if not isinstance(items, list):
+        return 0
+    return sum(item_duration(kind, item) for item in items)
+
+
 class Shot(BaseModel):
     """参考视频单元内的一个镜头。"""
 
