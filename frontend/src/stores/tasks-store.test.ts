@@ -111,6 +111,51 @@ describe("selectActiveResourceIds with image_edit", () => {
     expect(selectActiveResourceIds(sbEdit, "character", "proj").has("S")).toBe(false);
     expect(selectActiveResourceIds(sbEdit, "storyboard", "proj").has("S")).toBe(true);
   });
+
+  it("does not let a newer terminal edit hide a still-running generation task for the same resource", () => {
+    // 生成任务 running（较旧 updated_at）+ 编辑任务 failed（较新 updated_at）：
+    // 二者 task_type 不同，各自取最新行后按「任一活跃」判定，生成任务仍应算占用中
+    const tasks = [
+      task({
+        task_id: "gen-A",
+        task_type: "character",
+        resource_id: "A",
+        status: "running",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+      task({
+        task_id: "edit-A",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "failed",
+        updated_at: "2026-07-16T01:00:00Z",
+      }),
+    ];
+    expect(selectActiveResourceIds(tasks, "character", "proj").has("A")).toBe(true);
+  });
+
+  it("does not let a newer terminal generation hide a still-running edit task for the same resource", () => {
+    // 反向对称场景：编辑任务 running（较旧）+ 生成任务 succeeded（较新），编辑仍占用中
+    const tasks = [
+      task({
+        task_id: "edit-A",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "running",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+      task({
+        task_id: "gen-A",
+        task_type: "character",
+        resource_id: "A",
+        status: "succeeded",
+        updated_at: "2026-07-16T01:00:00Z",
+      }),
+    ];
+    expect(selectActiveResourceIds(tasks, "character", "proj").has("A")).toBe(true);
+  });
 });
 
 describe("selectLatestTaskByResource", () => {

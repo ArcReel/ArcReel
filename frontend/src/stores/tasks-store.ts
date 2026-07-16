@@ -79,15 +79,28 @@ export function selectLatestTaskByResource(
 
 /**
  * 命中 taskType + projectName 且「最新行」处于活跃态的 resource_id 集合。
- * 「最新行胜出」下沉于此：重试的新 running/queued 行不被同 resource 的旧 failed 行盖住。
+ * 「最新行胜出」按 (resource_id, task.task_type) 二级键分别归并——同一原生 task_type
+ * 内，重试的新 running/queued 行不被同 resource 的旧 failed 行盖住；但 image_edit 与
+ * 其目标资源的生成任务是两个独立 task_type（仅通过 taskResourceKind 共享同一占用槽），
+ * 后端并无互斥保证，二者可能真实并存。若仍按单一「最新行」判定，较新落地的编辑终态
+ * （成功/失败）会掩盖仍在运行的生成任务（或反之），导致资源被误判为空闲。故按各自
+ * task_type 分别取最新行，再在任一 task_type 的最新行活跃时即计入占用。
  */
 export function selectActiveResourceIds(
   tasks: TaskItem[],
   taskType: string,
   projectName: string,
 ): Set<string> {
+  const latestByResourceAndTaskType = new Map<string, TaskItem>();
+  for (const task of tasks) {
+    if (task.project_name !== projectName) continue;
+    if (taskResourceKind(task) !== taskType) continue;
+    const key = `${task.resource_id}\0${task.task_type}`;
+    const prev = latestByResourceAndTaskType.get(key);
+    if (!prev || task.updated_at > prev.updated_at) latestByResourceAndTaskType.set(key, task);
+  }
   const ids = new Set<string>();
-  for (const task of selectLatestTaskByResource(tasks, { projectName, taskType }).values()) {
+  for (const task of latestByResourceAndTaskType.values()) {
     if (isActiveStatus(task.status)) ids.add(task.resource_id);
   }
   return ids;
