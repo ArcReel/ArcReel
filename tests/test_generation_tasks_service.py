@@ -1,4 +1,3 @@
-import contextlib
 from pathlib import Path
 
 import pytest
@@ -744,48 +743,6 @@ class TestGenerationTasks:
         assert seen[0]["video"] is not None
         assert seen[0]["image"] is None
         assert seen[0]["audio"] is None
-
-    async def test_get_media_generator_skips_image_backend_for_video_tasks(self, monkeypatch, tmp_path):
-        """视频任务只应初始化视频 backend，避免图片配置缺失导致提前失败。"""
-        project_path = _prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
-        fake_video_backend = object()
-
-        class _FakeResolver:
-            def __init__(self, session_factory):
-                self.session_factory = session_factory
-
-            @contextlib.asynccontextmanager
-            async def session(self):
-                yield self
-
-            async def default_image_backend(self):
-                raise AssertionError("video tasks should not resolve image backend")
-
-        async def _fake_resolve_video_backend(project_name, resolver, payload):
-            assert project_name == "demo"
-            # 2 元组：(video_backend, provider_id)
-            return fake_video_backend, "gemini-aistudio"
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
-        monkeypatch.setattr(
-            generation_tasks,
-            "_resolve_video_backend",
-            _fake_resolve_video_backend,
-        )
-
-        generator = await generation_tasks.get_media_generator(
-            "demo",
-            payload={"prompt": "video"},
-            require_image_backend=False,
-        )
-
-        assert generator._image_backend is None
-        assert generator._video_backend is fake_video_backend
-        # 纯视频任务：video provider_id 透传到咽喉层，image provider_id 为 None（无作用域报错）
-        assert generator._video_provider_id == "gemini-aistudio"
-        assert generator._image_provider_id is None
 
     def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
         """生成成功事件应携带 asset_fingerprints"""

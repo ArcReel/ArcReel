@@ -5,7 +5,9 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from lib.db.base import Base
 from server.services import image_edit_tasks
 from server.services.image_edit_tasks import (
     IMAGE_EDIT_VERSION_SOURCE,
@@ -21,9 +23,20 @@ def _async_return(value):
     return _inner
 
 
-class _FakeResolved:
-    provider_id = "gemini-aistudio"
-    model_id = "gemini-image"
+@pytest.fixture
+async def session_factory(monkeypatch):
+    """真实内存 DB：建全部 ORM 表，把 lib.db.async_session_factory 指向它。
+
+    编辑任务的 image provider / resolution 解析走真实 ConfigResolver，仅 backend/generator
+    构造经 get_media_generator 单缝替换，不再拼装 resolve 侧 monkeypatch。
+    """
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("lib.db.async_session_factory", factory)
+    yield factory
+    await engine.dispose()
 
 
 class _FakeGenerator:
@@ -52,6 +65,7 @@ class _FakePM:
         self.project_path = project_path
         self.project = {
             "content_mode": "narration",
+            "image_provider_i2i": "gemini-aistudio/gemini-image",
             "characters": {"Alice": {"character_sheet": "characters/Alice.png", "image_prompt": "原始角色 prompt"}},
             "scenes": {"祠堂": {"scene_sheet": ""}},
             "props": {},
@@ -93,10 +107,9 @@ def _prepare_files(tmp_path: Path) -> Path:
 
 
 def _patch_common(monkeypatch, fake_pm, fake_generator):
+    """仅替换项目管理器与 generator 构造缝；image provider / resolution 走真实 ConfigResolver。"""
     monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(image_edit_tasks, "get_media_generator", _async_return(fake_generator))
-    monkeypatch.setattr(image_edit_tasks, "_resolve_effective_image_backend", _async_return(_FakeResolved()))
-    monkeypatch.setattr(image_edit_tasks, "_resolve_resolution", _async_return("2K"))
 
 
 class TestResolveCurrentImageRel:
@@ -122,7 +135,7 @@ class TestResolveCurrentImageRel:
 
 
 class TestExecuteImageEditTask:
-    async def test_character_edit_uses_current_image_as_sole_reference(self, tmp_path, monkeypatch):
+    async def test_character_edit_uses_current_image_as_sole_reference(self, tmp_path, monkeypatch, session_factory):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -153,7 +166,7 @@ class TestExecuteImageEditTask:
         assert result["version"] == 2
         assert result["file_path"] == "characters/Alice.png"
 
-    async def test_storyboard_edit_reads_pointer_writes_canonical(self, tmp_path, monkeypatch):
+    async def test_storyboard_edit_reads_pointer_writes_canonical(self, tmp_path, monkeypatch, session_factory):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -191,7 +204,7 @@ class TestExecuteImageEditTask:
         assert fake_generator.image_calls == []
         assert fake_pm.sheet_updates == []
 
-    async def test_backend_failure_skips_writeback(self, tmp_path, monkeypatch):
+    async def test_backend_failure_skips_writeback(self, tmp_path, monkeypatch, session_factory):
         """失败零损失：backend 抛错时不写回资源字段（current 图指针由 MediaGenerator 保证不触碰）。
         旧图基线登记先于 backend 调用发生，与成败无关、不因失败回滚，不在本用例断言范围。
         """
