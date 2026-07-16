@@ -58,7 +58,8 @@
 #   "codex": {
 #     "has_started":      <bool>,                       # Codex has acknowledged the PR/trigger with eyes
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
-#     "comments_new":     [{id, createdAt, preview}],
+#     "comments_new":     [{id, createdAt, reviewed_commit, reviewed_current_head,
+#                            has_pass_marker, preview}], # top-level clean-pass compatibility path
 #     "comments_history": {total, last_created_at},
 #     "reactions":        [{content, created_at, is_new}] # eyes = reviewing current HEAD; +1 = silent pass
 #   },
@@ -140,9 +141,10 @@
 #    command sitting on the second line after a blank first line — keep the matcher aligned
 #    with the documented contract (command at the very start of the comment).
 #
-# 5. Codex completion has three observed GitHub shapes: a review tied to the current commit,
-#    an empty-body COMMENTED review tied to that commit, or a +1 PR reaction after the last
-#    push. Keep all three: automatic review follows fix pushes and may use
+# 5. Codex completion has four observed GitHub shapes: a review tied to the current commit,
+#    an empty-body COMMENTED review tied to that commit, a top-level clean-pass comment with
+#    `Reviewed commit`, or a +1 PR reaction after the last push. Keep all four: automatic
+#    review follows fix pushes and may use
 #    different shapes depending on whether it found another P0/P1 issue.
 #    The PR reaction is mutable: a new review replaces the previous +1 with eyes, naturally
 #    invalidating the previous pass while the current HEAD is under review.
@@ -373,6 +375,19 @@ jq -n \
        or (test("\\bapproved\\b"; "i"))
        or ((gsub("\\s+"; "") | ascii_downcase) as $bare | ($bare == "" or $bare == "##codereview")));
 
+  def codex_reviewed_commit_from_body:
+    (. // "")
+    | ([capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null);
+
+  def codex_commit_is_current_head:
+    . as $sha
+    | ($sha != null
+       and (($main.headRefOid | startswith($sha))
+            or ($sha | startswith($main.headRefOid))));
+
+  def codex_comment_has_pass_marker:
+    (. // "") | test("^\\s*Codex Review:\\s*Didn(\\x27|\\x{2019})t find any major issues\\."; "i");
+
   def cr_walkthrough_rest:
     [$sub_a[] | select(.user.login == "coderabbitai[bot]")]
     | sort_by(.created_at)
@@ -398,15 +413,23 @@ jq -n \
   def codex_review_row:
     (.body // "") as $rb
     | ((.commit.oid // null)
-       // ([$rb | capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null)) as $reviewed_commit
+       // ($rb | codex_reviewed_commit_from_body)) as $reviewed_commit
     | (if $reviewed_commit == null
        then (.submittedAt > $last_push)
-       else (($main.headRefOid | startswith($reviewed_commit))
-             or ($reviewed_commit | startswith($main.headRefOid)))
+       else ($reviewed_commit | codex_commit_is_current_head)
        end) as $reviewed_current_head
     | {id, submittedAt, state, reviewed_commit: $reviewed_commit,
        reviewed_current_head: $reviewed_current_head,
        is_new: (.submittedAt > $last_push), body};
+
+  def codex_comment_row:
+    (.body // "") as $cb
+    | ($cb | codex_reviewed_commit_from_body) as $reviewed_commit
+    | {id, createdAt, is_new: (.createdAt > $last_push),
+       reviewed_commit: $reviewed_commit,
+       reviewed_current_head: ($reviewed_commit | codex_commit_is_current_head),
+       has_pass_marker: ($cb | codex_comment_has_pass_marker),
+       preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
     [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]
@@ -494,7 +517,7 @@ jq -n \
          | codex_review_row],
       comments:
         [$main.comments[] | select(.author.login == "chatgpt-codex-connector")
-         | {id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body}],
+         | codex_comment_row],
       reactions:
         [$sub_b[] | select(.user.login == "chatgpt-codex-connector[bot]")
          | {content, created_at, is_new: (.created_at > $last_push)}]
@@ -599,7 +622,8 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
           [$s.codex.reviews[]
            | {id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
         comments_new:
-          [$s.codex.comments[] | select(.is_new) | {id, createdAt, preview}],
+          [$s.codex.comments[] | select(.is_new)
+           | {id, createdAt, reviewed_commit, reviewed_current_head, has_pass_marker, preview}],
         comments_history:
           ([$s.codex.comments[] | select(.is_new | not)]
            | {total: length, last_created_at: (map(.createdAt) | max // null)}

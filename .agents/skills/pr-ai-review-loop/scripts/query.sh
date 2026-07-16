@@ -89,7 +89,8 @@ case "$CMD" in
            | {source: "codex_review", id, created_at: .submittedAt, state,
               reviewed_commit, reviewed_current_head, body}),
         (.codex.comments[]?
-           | {source: "codex_comment", id, created_at: .createdAt, body}),
+           | {source: "codex_comment", id, created_at: .createdAt,
+              reviewed_commit, reviewed_current_head, has_pass_marker, body}),
         ((.inline_comments_by_user // {}) | to_entries[] | .key as $bot | .value[]
            | {source: ("inline " + $bot), id, path, created_at,
               severity_alt, cr_markers, is_ack, body})
