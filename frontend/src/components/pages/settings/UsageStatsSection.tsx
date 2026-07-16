@@ -88,7 +88,7 @@ export function UsageStatsSection() {
     }
     return Array.from(byProvider.entries())
       .map(([provider, displayName]) => ({ provider, displayName }))
-      .sort((a, b) => a.provider.localeCompare(b.provider));
+      .sort((a, b) => (a.displayName ?? a.provider).localeCompare(b.displayName ?? b.provider));
   }, [stats]);
 
   // Aggregate totals — used for the editorial header summary card.
