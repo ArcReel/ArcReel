@@ -56,7 +56,7 @@
 #     "comments_history": {total, last_created_at}
 #   },
 #   "codex": {
-#     "has_started":      <bool>,                       # Codex has acknowledged the PR/trigger with eyes
+#     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
 #     "comments_new":     [{id, createdAt, reviewed_commit, reviewed_current_head,
 #                            has_pass_marker, preview}], # top-level clean-pass compatibility path
@@ -222,11 +222,8 @@ gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "
   exit 5
 }
 
-# REST endpoints. --paginate output shape differs by mode (verified empirically):
-#   - WITHOUT --jq/-q: gh merges all pages of an array endpoint into ONE JSON array,
-#     so --slurpfile sees a single value — unwrap with [0].
-#   - WITH -q: the projection runs per page, emitting one JSON value PER PAGE
-#     (concatenated stream) — unwrap with `add` (see sub-query D).
+# REST endpoints. `gh api --paginate` emits one JSON value per page; --slurpfile therefore
+# sees one array per page for array endpoints. Flatten paginated arrays with `add`.
 # user.login here is WITH [bot] suffix.
 
 # Sub-query A — REST issue comments. Used to get CodeRabbit walkthrough's updated_at
@@ -306,10 +303,9 @@ GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
 # Flags are computed once, here, so the index and every query.sh consumer see identical
 # judgments. Bot login normalization happens here so consumers see consistent keys.
-# --slurpfile wraps each file in [...]. Unwrap rule: files written WITHOUT -q hold one
-# merged array (gh merges pages) — [0] suffices; sub-query D is written WITH -q, so it
-# holds one array PER PAGE — only `add` flattens that correctly ([0] would drop pages 2+).
-# `add` also equals [0] on single-value files, so D/E both use it.
+# --slurpfile wraps each file in [...]. Paginated REST array responses hold one array per
+# page, so `add` flattens them; non-paginated files and the locally assembled sub_b2 hold
+# one JSON value and use [0].
 jq -n \
   --slurpfile main_w "$WORKDIR/main.json" \
   --slurpfile sub_a_w "$WORKDIR/sub_a.json" \
@@ -325,10 +321,10 @@ jq -n \
   --arg generated_at "$GENERATED_AT" \
   '
   ($main_w[0]) as $main
-  | ($sub_a_w[0]) as $sub_a
-  | ($sub_b_w[0]) as $sub_b
+  | (($sub_a_w | add) // []) as $sub_a
+  | (($sub_b_w | add) // []) as $sub_b
   | ($sub_b2_w[0]) as $sub_b2
-  | ($sub_c_w[0]) as $sub_c
+  | (($sub_c_w | add) // []) as $sub_c
   | ($main.commits | last | .committedDate) as $last_push
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
@@ -620,6 +616,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
       codex: {
         has_started:
           ((any($s.codex.reactions[]; .content == "eyes"))
+           or (any($s.codex.comments[]; .has_pass_marker))
            or (any($s.own_trigger_comments[];
                    .command == "@codex review" and .has_codex_eyes))),
         reviews:

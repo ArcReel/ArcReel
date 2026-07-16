@@ -68,7 +68,7 @@
 - 已有 `@codex review` 但尚无结果 → 评论上的 Codex `👀` 会令 `codex.has_started == true`;未出现时同样等待,25 分钟后按故障处理
 - Codex 已参审,新 push 后尚无已审当前 HEAD 信号 → 等待;距 `last_push_at` 超过 25 分钟仍无 review / 顶层通过评论 / `+1` / inline → 按故障处理
 
-`codex.has_started` 汇总两种已接单信号:Codex 在 PR 上的 `eyes` reaction,或 `own_trigger_comments` 中 `@codex review` 的 `has_codex_eyes == true`;两处均按 `chatgpt-codex-connector[bot]` 身份精确核验,不把其他人的 👀 算作 Codex。
+`codex.has_started` 汇总三种已接单信号:Codex 在 PR 上的 `eyes` reaction、历史顶层 clean-pass 评论,或 `own_trigger_comments` 中 `@codex review` 的 `has_codex_eyes == true`;reaction 均按 `chatgpt-codex-connector[bot]` 身份精确核验,不把其他人的 👀 算作 Codex。
 
 PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮 `+1` 换成 `eyes`;此时上一轮通过失效,当前 HEAD 进入审查中。
 
