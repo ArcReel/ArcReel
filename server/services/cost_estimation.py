@@ -48,14 +48,18 @@ class CostEstimationService:
 
         # Resolve current model config（共享单一 session）。估价以 T2I 为准（T2I/I2I 是正交能力槽，
         # T2I 缺失不应回落 I2I —— 那会拿错误能力的价目算费用）。
+        # image/video 的项目覆盖优先级由 ConfigResolver 统一解析，与执行路径共用同一套
+        # payload>project>全局默认 链路，此处 payload 传 None（预估无历史任务 payload 可排空）。
         async with self._resolver.session() as r:
             try:
-                image_provider, image_model = await r.default_image_backend_t2i()
+                resolved_image = await r.resolve_image_backend(project_data, None, capability="t2i")
+                image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
 
             try:
-                video_provider, video_model = await r.default_video_backend()
+                resolved_video = await r.resolve_video_backend(project_data, None)
+                video_provider, video_model = resolved_video.provider_id, resolved_video.model_id
             except Exception:
                 video_provider, video_model = "unknown", "unknown"
 
@@ -72,33 +76,7 @@ class CostEstimationService:
             except Exception:
                 audio_provider, audio_model = "unknown", "unknown"
 
-        # 项目级视频配置覆盖
-        # 优先读新格式 video_backend（"provider_id/model_id"），兼容旧 video_provider 字段
-        project_video_backend = project_data.get("video_backend") or ""
-        registry_video_provider_id: str | None = None
-        if project_video_backend and "/" in project_video_backend:
-            _vb_provider, _vb_model = project_video_backend.split("/", 1)
-            registry_video_provider_id = _vb_provider
-            video_provider = _vb_provider
-            video_model = _vb_model
-        else:
-            project_video_provider = project_data.get("video_provider")
-            if project_video_provider:
-                video_provider = project_video_provider
-                registry_video_provider_id = project_video_provider
-                # 项目级可能有自己的模型设置
-                project_video_settings = project_data.get("video_provider_settings", {}).get(project_video_provider, {})
-                if project_video_settings.get("model"):
-                    video_model = project_video_settings["model"]
-
-        # 项目级图片配置覆盖：按 T2I 槽估算（ProjectManager.load_project 已将旧 image_backend
-        # 字段 lazy 升级到 image_provider_t2i/i2i，所以这里只读新 T2I 槽）
-        project_image_pair = project_data.get("image_provider_t2i")
-        if isinstance(project_image_pair, str) and "/" in project_image_pair:
-            image_provider, image_model = project_image_pair.split("/", 1)
-
-        _resolve_pid = registry_video_provider_id or video_provider
-        _resolved_resolution = await self._resolver.resolve_resolution(project_data, _resolve_pid, video_model or "")
+        _resolved_resolution = await self._resolver.resolve_resolution(project_data, video_provider, video_model or "")
         video_resolution = _resolved_resolution or get_provider_fallback(video_provider)
 
         # Get actual costs
