@@ -15,7 +15,7 @@ disable-model-invocation: true
 1. 在 `repo_root/.afk/*.jsonl` 中找末条 `kind` 不是 `closed` 的账本。存在任一未关闭批次时，先完整读取 [recovery.md](references/recovery.md)，完成接管/重开/忽略分流；保留旧批次现场。
 2. 对新批次或选择接管的批次，完整执行 [preflight.md](references/preflight.md)。能力与权限探针全部通过，才可制定批次计划；任一项失败就响亮停止并在用户仍在线时解决，不能进入 AFK 后再等待权限弹窗。
 
-完成条件：已证明不存在待处理旧批次，或用户明确选择了恢复动作；且 preflight 的每项均为 PASS。
+完成条件：若用户选择忽略，现场保持不变且本次运行停止；否则已证明不存在待处理旧批次，或用户明确选择了接管/重开，且 preflight 的每项均为 PASS。
 
 ## 2. 重建批次事实与语义
 
@@ -45,9 +45,9 @@ bash <repo_root>/.agents/skills/afk-team-workflow/scripts/batch-poll.sh --issues
 
 同时声明自动动作边界：可修改 triage 标签、把冲突 PR 转 draft、在 Spec 发布 QA 验收评论；清尾授权之外不创建新 issue，功能性 gap 仍需用户中途指令。用户确认前不写账本、不建 worktree、不 spawn teammate。恢复会话必须重新授权，旧 `authorization` 行只作历史参考。
 
-用户确认后，从 `repo_root` 调用共享 `.agents/skills/afk-team-workflow/scripts/ledger.sh`：首条 `decision` 携带 `--scope-spec` 或 `--scope-issues`，第二条 `authorization` 记录两项授权。
+用户确认后，从 `repo_root` 调用共享 `.agents/skills/afk-team-workflow/scripts/ledger.sh`：首条 `decision` 携带 `--scope-spec` 或 `--scope-issues`，第二条 `authorization` 记录两项授权。随后按 lead 契约创建当前 task 的正式 heartbeat；创建失败就停止，不能 spawn teammate。
 
-完成条件：用户已明确回复授权范围，且账本首两行可被 `jq` 解析、首行带 scope。
+完成条件：用户已明确回复授权范围，账本首两行可被 `jq` 解析、首行带 scope，且正式 heartbeat 已创建并登记。
 
 ## 4. 建立 lead 运行面并启动三阶段接力
 

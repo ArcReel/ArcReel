@@ -14,6 +14,6 @@
 
 ## 交付
 
-在 handoff 追加“### 本地审查”段，再用 `collaboration.send_message` 向 lead 报告 PR 号、HEAD、审查发现、修复和验证。结束本 agent，保留 worktree。
+在 handoff 追加“### 本地审查”段，明确记录 PR 号、reviewed HEAD、远端 HEAD 核验与最终质量门，再用 `collaboration.send_message` 向 lead 报告 PR 号、HEAD、审查发现、修复和验证。结束本 agent，保留 worktree。
 
-完成条件：PR 已存在且非 draft，远端 HEAD 等于已验证的本地 HEAD，handoff 包含审查取舍。
+完成条件：PR 已存在且非 draft，远端 HEAD 等于已验证的本地 HEAD，handoff 包含审查取舍、PR、reviewed HEAD 与质量门证据。

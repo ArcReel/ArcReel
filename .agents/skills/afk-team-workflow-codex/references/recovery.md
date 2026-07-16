@@ -52,7 +52,8 @@
 |---|---|
 | 无 PR，worktree 缺少完整“实现”handoff、存在未提交实现改动或质量门未知 | 实现 |
 | 无 PR，worktree 干净、实现 commit 与完整“实现”handoff 都存在；或已有远端分支 | 独立本地审查 |
-| open 非 draft PR | AI 审查循环 |
+| open 非 draft PR，且完整“本地审查”handoff 记录 PR、reviewed HEAD 与质量门，fresh poll 证明远端 HEAD 与 reviewed HEAD 一致 | AI 审查循环 |
+| open 非 draft PR，但缺少上述“本地审查”交付证据或远端 HEAD 已变化 | 独立本地审查 |
 | draft/closed 未合并 PR | 已搁置，除非用户明确重开 |
 
 `review-loop` PR 的 `updatedAt` 近期仍变化时先观察一个 lead heartbeat 周期，避免两个上下文同时推同一 PR。替补 prompt 必须携带绝对 worktree 和 handoff；若只有远端分支没有 worktree，lead 在确认未被别处占用后为该分支恢复 worktree。

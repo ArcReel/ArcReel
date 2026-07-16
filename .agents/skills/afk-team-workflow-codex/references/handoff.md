@@ -16,6 +16,8 @@
 ### 本地审查
 
 - 已修复发现各一句；跳过项及理由
+- PR 号、reviewed HEAD 与远端 HEAD 核验结果
+- 最终质量门及结果
 - follow-up 候选
 - rebase 处置
 

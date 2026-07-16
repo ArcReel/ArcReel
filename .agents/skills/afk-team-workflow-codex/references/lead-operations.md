@@ -14,6 +14,8 @@
 
 ## Heartbeat 健康检查
 
+用户授权并写入账本后，用 `codex_app__automation_update` 为当前 task 创建约 30 分钟一次的循环 heartbeat；prompt 携带 batch-id，并要求唤醒后按本节执行一次健康检查。取得 automation id 后，立即用共享 `ledger.sh` 追加一条 `decision`，在 `detail` 中记录该 id。正式 heartbeat 创建或登记失败时停止，不能 spawn teammate。preflight 创建后立即删除的临时 heartbeat 只证明工具能力，不能充当正式 heartbeat。
+
 当前 task 的约 30 分钟 heartbeat 只唤醒 lead。每次唤醒：
 
 1. 跑共享 `batch-poll.sh` 获取全批 `stage_hint`、PR `updatedAt`/`mergeable`、`conflicting` 与 `merge_candidate`。
@@ -59,7 +61,7 @@ teammate 的暂停场景只到 lead：
 
 1. 用 connector 在共同 Spec 发布人工 QA 清单，不关闭 Spec。按已合并 issue 给 PR 链接和真实操作路径；末尾列搁置、跳过/未启动和 gap。无共同 Spec 时并入最终汇报。
 2. 确认 agent 已结束；删除已合并或已搁置 issue 的 worktree与本地 `issue/<N>` 分支。只有远端已证实终态且路径属于本批时才清理。合并后因 squash 无法 `git branch -d` 时，可在该验证后删除本地分支；远端待人工接手分支保留。
-3. 用 `codex_app__automation_update` 删除本批 heartbeat，确认 id 不再存在，避免幽灵唤醒。
+3. 按 ledger 登记的 automation id 用 `codex_app__automation_update` 删除本批 heartbeat，确认 id 不再存在，避免幽灵唤醒。
 4. 汇报三份清单：已合并（issue/PR）、needs-human（争点）、跳过/未启动（原因）；再附 gap、故障、清尾转呈与聚合复盘四类候选。候选为空是正常结果。
 5. 从 `repo_root` 调用共享 `.agents/skills/afk-team-workflow/scripts/ledger.sh` 追加 `closed`。保留账本与 handoff，不提交 `.afk/`。
 
