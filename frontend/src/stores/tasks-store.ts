@@ -25,13 +25,18 @@ const defaultStats: TaskStats = {
   queued: 0, running: 0, cancelling: 0, succeeded: 0, failed: 0, cancelled: 0, total: 0,
 };
 
+// 标记发起时尚未有真实行，baseline 取空串——空串小于任何 ISO 时间戳，故首次判定
+// 一律视为"尚无真实行"，语义与之前一致；同资源之后再次编辑时 baseline 取当时最新
+// 真实行的 updated_at，只有新落地的行（updated_at 大于 baseline）才能让位，旧终态
+// 行不会误判为"当前这次"的真实行。
 function optimisticKey(
   projectName: string,
   resourceKind: string,
   resourceId: string,
   pendingTaskType: string,
+  baselineUpdatedAt: string,
 ): string {
-  return `${projectName}\0${resourceKind}\0${resourceId}\0${pendingTaskType}`;
+  return `${projectName}\0${resourceKind}\0${resourceId}\0${pendingTaskType}\0${baselineUpdatedAt}`;
 }
 
 export const useTasksStore = create<TasksState>((set) => ({
@@ -45,17 +50,34 @@ export const useTasksStore = create<TasksState>((set) => ({
   setConnected: (connected) => set({ connected }),
   markOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) =>
     set((s) => {
+      let baseline = "";
+      for (const t of s.tasks) {
+        if (
+          t.project_name === projectName &&
+          t.task_type === pendingTaskType &&
+          t.resource_id === resourceId &&
+          taskResourceKind(t) === resourceKind &&
+          t.updated_at > baseline
+        ) {
+          baseline = t.updated_at;
+        }
+      }
+
       // 顺带清理已被真实任务行取代的旧标记，避免 Set 在会话周期内无界增长。
       const next = new Set<string>();
       for (const key of s.optimisticActive) {
-        const [kProject, , kResourceId, kPendingTaskType] = key.split("\0");
+        const [kProject, kResourceKind, kResourceId, kPendingTaskType, kBaseline = ""] = key.split("\0");
         const superseded = s.tasks.some(
           (t) =>
-            t.project_name === kProject && t.task_type === kPendingTaskType && t.resource_id === kResourceId,
+            t.project_name === kProject &&
+            t.task_type === kPendingTaskType &&
+            t.resource_id === kResourceId &&
+            taskResourceKind(t) === kResourceKind &&
+            t.updated_at > kBaseline,
         );
         if (!superseded) next.add(key);
       }
-      next.add(optimisticKey(projectName, resourceKind, resourceId, pendingTaskType));
+      next.add(optimisticKey(projectName, resourceKind, resourceId, pendingTaskType, baseline));
       return { optimisticActive: next };
     }),
 }));
@@ -126,7 +148,12 @@ export function selectLatestTaskByResource(
  * `idx_tasks_dedupe_active`，但该索引以 task_type 为键的一部分，不拦跨 task_type 并发）。
  * `optimisticActive` 由提交方（如 ImageEditButton）在提交成功后立即标记，此处按
  * (projectName, taskType) 过滤后并入占用集，直到标记所等待的真实任务行出现为止
- * （比对不看状态，出现即让位给真实数据）。
+ * （比对不看状态，出现即让位给真实数据）。标记内嵌 baseline（标记发起时刻该资源
+ * 已有的最新同类真实行 updated_at）与 resourceKind：同一资源被反复编辑时，若不比对
+ * baseline，本次标记会被上一次编辑遗留的旧终态行误判为"已有真实行"而立即失效；
+ * 若不比对 resourceKind，不同资源种类之间偶然的 resource_id 相同（如同名角色与场景）
+ * 会互相让位。故只有 updated_at 大于 baseline 且 resourceKind 匹配的行才视为"本次
+ * 标记等待的真实行"。
  */
 export function selectActiveResourceIds(
   tasks: TaskItem[],
@@ -147,10 +174,15 @@ export function selectActiveResourceIds(
     if (isActiveStatus(task.status)) ids.add(task.resource_id);
   }
   for (const key of optimisticActive) {
-    const [kProject, kResourceKind, kResourceId, kPendingTaskType] = key.split("\0");
+    const [kProject, kResourceKind, kResourceId, kPendingTaskType, kBaseline = ""] = key.split("\0");
     if (kProject !== projectName || kResourceKind !== taskType) continue;
     const hasPendingRow = tasks.some(
-      (t) => t.project_name === kProject && t.task_type === kPendingTaskType && t.resource_id === kResourceId,
+      (t) =>
+        t.project_name === kProject &&
+        t.task_type === kPendingTaskType &&
+        t.resource_id === kResourceId &&
+        taskResourceKind(t) === kResourceKind &&
+        t.updated_at > kBaseline,
     );
     if (!hasPendingRow) ids.add(kResourceId);
   }

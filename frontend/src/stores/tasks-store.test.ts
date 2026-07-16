@@ -162,16 +162,16 @@ describe("selectActiveResourceIds with image_edit", () => {
 
 describe("selectActiveResourceIds optimistic occupancy", () => {
   it("counts a resource active via an optimistic marker when no real task row exists yet", () => {
-    // 提交成功但 SSE 尚未把任务行写进 store 的空窗：仅凭乐观标记也应判定占用
-    const key = "proj\0character\0A\0image_edit";
+    // 提交成功但 SSE 尚未把任务行写进 store 的空窗：仅凭乐观标记也应判定占用（空 baseline）
+    const key = "proj\0character\0A\0image_edit\0";
     expect(selectActiveResourceIds([], "character", "proj", new Set([key])).has("A")).toBe(true);
   });
 
-  it("lets the real task row supersede the optimistic marker regardless of its status", () => {
+  it("lets a real task row newer than the baseline supersede the optimistic marker regardless of its status", () => {
     // 真实任务行一旦出现（哪怕已是终态），不再依赖乐观标记——但此时该行本身若是活跃态，
     // 仍会通过 selectActiveResourceIds 主逻辑判定占用；这里验证的是"不因乐观标记残留而
     // 对已完结的真实行仍强制判占用"
-    const key = "proj\0character\0A\0image_edit";
+    const key = "proj\0character\0A\0image_edit\0";
     const tasks = [
       task({
         task_id: "edit-A",
@@ -184,10 +184,43 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
     expect(selectActiveResourceIds(tasks, "character", "proj", new Set([key])).has("A")).toBe(false);
   });
 
+  it("does not let a stale task row predating the baseline supersede a marker for a repeat edit", () => {
+    // 同一资源被反复编辑：本次标记的 baseline 取自上一次编辑遗留的终态行 updated_at，
+    // 该旧行本身不该被当作"本次"标记等待的真实行，否则二次编辑期间会误判空闲
+    const key = `proj\0character\0A\0image_edit\0${"2026-07-16T00:00:00Z"}`;
+    const tasks = [
+      task({
+        task_id: "edit-A-first",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "succeeded",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+    ];
+    expect(selectActiveResourceIds(tasks, "character", "proj", new Set([key])).has("A")).toBe(true);
+  });
+
   it("ignores an optimistic marker scoped to a different project or resource kind", () => {
-    const key = "proj\0character\0A\0image_edit";
+    const key = "proj\0character\0A\0image_edit\0";
     expect(selectActiveResourceIds([], "storyboard", "proj", new Set([key])).has("A")).toBe(false);
     expect(selectActiveResourceIds([], "character", "other-proj", new Set([key])).has("A")).toBe(false);
+  });
+
+  it("does not let a same-resource_id task of a different resource kind supersede the marker", () => {
+    // character "A" 与 scene "A" 偶然同名(resource_id 相同)：scene 的真实行不该
+    // 让 character 的乐观标记失效
+    const key = "proj\0character\0A\0image_edit\0";
+    const tasks = [
+      task({
+        task_id: "edit-scene-A",
+        task_type: "image_edit",
+        resource_type: "scene",
+        resource_id: "A",
+        status: "succeeded",
+      }),
+    ];
+    expect(selectActiveResourceIds(tasks, "character", "proj", new Set([key])).has("A")).toBe(true);
   });
 });
 
@@ -201,16 +234,43 @@ describe("useTasksStore.markOptimisticActive", () => {
           resource_type: "character",
           resource_id: "A",
           status: "succeeded",
+          updated_at: "2026-07-16T00:00:00Z",
         }),
       ],
-      optimisticActive: new Set(["proj\0character\0A\0image_edit"]),
+      optimisticActive: new Set([`proj\0character\0A\0image_edit\0${"2025-01-01T00:00:00Z"}`]),
     });
 
-    // 标记一个新资源 B 的同时，A 的旧标记已被上面的真实终态行取代，应被顺带清理
+    // 标记一个新资源 B 的同时，A 的旧标记（baseline 早于真实终态行）已被取代，应被顺带清理
     useTasksStore.getState().markOptimisticActive("proj", "character", "B", "image_edit");
 
     const keys = [...useTasksStore.getState().optimisticActive];
-    expect(keys).toEqual(["proj\0character\0B\0image_edit"]);
+    expect(keys).toEqual(["proj\0character\0B\0image_edit\0"]);
+  });
+
+  it("uses the latest matching real row's updated_at as baseline so a repeat edit isn't superseded by the old row", () => {
+    // A 已有一条旧终态行；对 A 发起新一轮编辑时，baseline 应取该旧行的 updated_at，
+    // 使得新标记不会被这条旧行自己判定为"已超越"
+    useTasksStore.setState({
+      tasks: [
+        task({
+          task_id: "edit-A-first",
+          task_type: "image_edit",
+          resource_type: "character",
+          resource_id: "A",
+          status: "succeeded",
+          updated_at: "2026-07-16T00:00:00Z",
+        }),
+      ],
+      optimisticActive: new Set(),
+    });
+
+    useTasksStore.getState().markOptimisticActive("proj", "character", "A", "image_edit");
+
+    const keys = [...useTasksStore.getState().optimisticActive];
+    expect(keys).toEqual([`proj\0character\0A\0image_edit\0${"2026-07-16T00:00:00Z"}`]);
+
+    const { tasks, optimisticActive } = useTasksStore.getState();
+    expect(selectActiveResourceIds(tasks, "character", "proj", optimisticActive).has("A")).toBe(true);
   });
 });
 
