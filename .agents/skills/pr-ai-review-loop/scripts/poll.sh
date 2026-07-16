@@ -142,7 +142,7 @@
 #
 # 5. Codex completion has three observed GitHub shapes: a review tied to the current commit,
 #    an empty-body COMMENTED review tied to that commit, or a +1 PR reaction after the last
-#    push. Keep all three: comprehensive review automatically follows fix pushes and may use
+#    push. Keep all three: automatic review follows fix pushes and may use
 #    different shapes depending on whether it found another P0/P1 issue.
 #
 # 6. security_alerts.open_introduced subtracts default-branch open alerts by alert number.

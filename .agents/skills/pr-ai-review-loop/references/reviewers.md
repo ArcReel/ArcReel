@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened 及后续每次 push | `@coderabbitai resume` / `review` / `full review` |
 | Gemini Code Assist | `gemini-code-assist` | `gemini-code-assist[bot]` | **仅 PR opened**(5 分钟内出结果) | `/gemini review` |
-| OpenAI Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened;全面审查在修复 push 后自动续审 | 仅首次 cold-start fallback 用 `@codex review` |
+| OpenAI Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened;修复 push 后自动续审 | 仅首次 cold-start fallback 用 `@codex review` |
 | GitHub Code Quality | —(只发 inline) | `github-code-quality[bot]` | 每次 push 后的 CodeQL 分析 | **不可触发** |
 | GitHub Advanced Security | —(只发 inline) | `github-advanced-security[bot]` | 同上 | **不可触发** |
 
@@ -58,7 +58,7 @@
 
 ## OpenAI Codex
 
-**全面审查**:首次 PR 自动审查;修复 push 后自动续审,直到当前 HEAD 不再产生 finding。Codex 已参审或 `codex.has_started == true` 后,后续动作固定为等待自动续审。
+首次 PR 自动审查;修复 push 后自动续审,直到当前 HEAD 不再产生 finding。Codex 已参审或 `codex.has_started == true` 后,后续动作固定为等待自动续审。
 
 **触发**(受通用触发去重约束):
 
