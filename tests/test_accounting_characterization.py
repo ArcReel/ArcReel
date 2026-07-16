@@ -1036,10 +1036,12 @@ _AGENT_USAGE = {
 class TestAgentBackfillChannel:
     @pytest.fixture
     async def manager(self, tmp_path: Path, acct: _AccountingDb) -> SessionManager:
-        return SessionManager(
+        mgr = SessionManager(
             project_root=tmp_path,
             meta_store=SessionMetaStore(session_factory=acct.factory),
         )
+        mgr.usage_tracker = UsageTracker(session_factory=acct.factory)
+        return mgr
 
     async def test_completed_turn_prefers_reported_cost(self, manager: SessionManager, acct: _AccountingDb) -> None:
         result_msg = {"model": "claude-sonnet-4", "usage": dict(_AGENT_USAGE), "total_cost_usd": 0.123}
