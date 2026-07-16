@@ -251,6 +251,39 @@ class TestGenerateRouter:
             # 任务未入队
             assert fake_queue.calls == []
 
+    def test_video_missing_script_fail_fast_404(self, tmp_path, monkeypatch):
+        """剧本文件缺失（FileNotFoundError）时,/generate/video 应 404 fail-fast,
+        而不是 silently 走 default storyboard 路径继续 enqueue —— 后者会让用户
+        先收到「提交成功」,worker 解析脚本时再确定失败,撕裂提交-执行预期。
+
+        本测试保 default `storyboards/scene_E1S01.png` 存在（旧宫格项目遗留场景），
+        验证即使 default 文件恰好存在，脚本缺失也不能被悄悄放过。
+        """
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        missing_script_path = project_path / "scripts" / "episode_1.json"
+
+        def _raise_missing(*args, **kwargs):
+            raise FileNotFoundError(f"剧本文件不存在: {missing_script_path}")
+
+        fake_pm.load_script = _raise_missing  # type: ignore[method-assign]
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "duration_seconds": 5,
+                    "prompt": "fail fast",
+                },
+            )
+            assert video.status_code == 404, video.text
+            assert str(missing_script_path) not in video.text
+            # 任务未入队
+            assert fake_queue.calls == []
+
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -601,7 +634,7 @@ class TestNoServerPathLeak:
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
 
         def _raise(*args, **kwargs):
-            raise FileNotFoundError("项目元数据文件不存在: /Users/someone/projects/demo/project.json")
+            raise FileNotFoundError(f"项目元数据文件不存在: {tmp_path / 'projects' / 'demo' / 'project.json'}")
 
         fake_pm.load_project = _raise  # type: ignore[method-assign]
         return _client(monkeypatch, fake_pm, _FakeQueue())
@@ -631,7 +664,7 @@ class TestNoServerPathLeak:
         fake_pm = _FakePM(project_path)
 
         def _raise(*args, **kwargs):
-            raise FileNotFoundError("剧本文件不存在: /Users/someone/projects/demo/scripts/episode_1.json")
+            raise FileNotFoundError(f"剧本文件不存在: {project_path / 'scripts' / 'episode_1.json'}")
 
         fake_pm.load_script = _raise  # type: ignore[method-assign]
         client = _client(monkeypatch, fake_pm, _FakeQueue())
@@ -662,7 +695,7 @@ class TestNoServerPathLeak:
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
 
         def _raise(*args, **kwargs):
-            raise RuntimeError("boom at /Users/someone/projects/demo/project.json")
+            raise RuntimeError(f"boom at {tmp_path / 'projects' / 'demo' / 'project.json'}")
 
         fake_pm.load_project = _raise  # type: ignore[method-assign]
         client = _client(monkeypatch, fake_pm, _FakeQueue())

@@ -154,28 +154,25 @@ async def generate_video(
 
         # 与 worker 一致：优先读取 generated_assets.storyboard_image，回退默认路径。
         # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
-        # 脏脚本（分镜数组键损坏）抛 ScriptEditError → fail-fast 4xx，与 storyboard
-        # endpoint 对齐：不能 silently 降级走 default 路径——default 文件恰好存在时会让
-        # 请求「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。
+        # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
+        # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
+        # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
+        # handler 统一映射为脱敏响应（404 / 400）。
         storyboard_rel: str | None = None
-        try:
-            script = pm_local.load_script(project_name, req.script_file)
-            items, id_field, _, _, _ = get_storyboard_items(script)
-            resolved = find_storyboard_item(items, id_field, segment_id)
-            if resolved:
-                assets = resolved[0].get("generated_assets") or {}
-                if isinstance(assets, dict):
-                    storyboard_rel = assets.get("storyboard_image")
-        except FileNotFoundError:
-            # 脚本不存在交由后续流程报错；此处只负责存在性检查
-            pass
+        script = pm_local.load_script(project_name, req.script_file)
+        items, id_field, _, _, _ = get_storyboard_items(script)
+        resolved = find_storyboard_item(items, id_field, segment_id)
+        if resolved:
+            assets = resolved[0].get("generated_assets") or {}
+            if isinstance(assets, dict):
+                storyboard_rel = assets.get("storyboard_image")
 
         storyboard_file = (
             project_path / storyboard_rel
             if storyboard_rel
             else project_path / "storyboards" / f"scene_{segment_id}.png"
         )
-        if not storyboard_file.exists():
+        if not storyboard_file.is_file():
             raise BadRequestError("generate_storyboard_first", segment_id=segment_id)
 
     await asyncio.to_thread(_sync)

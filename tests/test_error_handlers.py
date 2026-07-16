@@ -1,5 +1,8 @@
 """app 级异常处理器测试：状态码映射、Accept-Language 翻译、脱敏。"""
 
+import tempfile
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -8,7 +11,8 @@ from lib.generation_queue_client import TaskSpecValidationError
 from lib.script_editor import ScriptEditError
 from server.error_handlers import register_error_handlers
 
-_SERVER_PATH = "/Users/someone/projects/demo/episode_1.json"
+# 运行时基于系统 tmp 目录构造，不提交机器特定的绝对路径。
+_SERVER_PATH = str(Path(tempfile.gettempdir()) / "projects" / "demo" / "episode_1.json")
 
 
 def _make_client() -> TestClient:
@@ -96,7 +100,7 @@ class TestLibExceptionHandlers:
         resp = client.get("/file-not-found")
         assert resp.status_code == 404
         assert resp.json()["detail"] == "请求的资源不存在"
-        assert "/Users" not in resp.text
+        assert _SERVER_PATH not in resp.text
 
     def test_unexpected_exception_500_hides_details(self):
         client = _make_client()
@@ -104,7 +108,7 @@ class TestLibExceptionHandlers:
         assert resp.status_code == 500
         assert resp.json()["detail"] == "服务器内部错误，请稍后重试"
         assert "boom" not in resp.text
-        assert "/Users" not in resp.text
+        assert _SERVER_PATH not in resp.text
 
 
 class TestRealAppRegistration:
@@ -113,3 +117,60 @@ class TestRealAppRegistration:
 
         for exc_type in (ApiError, TaskSpecValidationError, ScriptEditError, FileNotFoundError, Exception):
             assert exc_type in real_app.exception_handlers, f"{exc_type} 未注册 app 级 handler"
+
+
+def _make_cors_client(allow_origins, allow_credentials) -> TestClient:
+    app = FastAPI()
+    register_error_handlers(app, cors_allow_origins=allow_origins, cors_allow_credentials=allow_credentials)
+
+    @app.get("/unexpected")
+    async def _unexpected():
+        raise RuntimeError("boom")
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
+class TestUnexpectedErrorCorsHeaders:
+    """ServerErrorMiddleware 兜底发 500 时绕过 CORSMiddleware（走最外层原始 send），
+    handler 需手工补齐 CORS 头，否则跨域前端把 500 当成 network error。"""
+
+    def test_wildcard_origin_gets_wildcard_header(self):
+        client = _make_cors_client(["*"], False)
+        resp = client.get("/unexpected", headers={"Origin": "https://example.com"})
+        assert resp.status_code == 500
+        assert resp.headers.get("access-control-allow-origin") == "*"
+        assert "access-control-allow-credentials" not in resp.headers
+
+    def test_allowlisted_origin_with_credentials_gets_explicit_origin(self):
+        client = _make_cors_client(["https://example.com"], True)
+        resp = client.get("/unexpected", headers={"Origin": "https://example.com"})
+        assert resp.status_code == 500
+        assert resp.headers.get("access-control-allow-origin") == "https://example.com"
+        assert resp.headers.get("access-control-allow-credentials") == "true"
+        assert resp.headers.get("vary") == "Origin"
+
+    def test_disallowed_origin_gets_no_allow_origin_header(self):
+        client = _make_cors_client(["https://allowed.example.com"], True)
+        resp = client.get("/unexpected", headers={"Origin": "https://evil.example.com"})
+        assert resp.status_code == 500
+        assert "access-control-allow-origin" not in resp.headers
+
+    def test_no_origin_header_means_no_cors_headers(self):
+        client = _make_cors_client(["*"], False)
+        resp = client.get("/unexpected")
+        assert resp.status_code == 500
+        assert "access-control-allow-origin" not in resp.headers
+
+    def test_default_kwargs_fall_back_to_wildcard(self):
+        # register_error_handlers 不传 cors 参数时的保守默认值：通配 origins，不开 credentials。
+        app = FastAPI()
+        register_error_handlers(app)
+
+        @app.get("/unexpected")
+        async def _unexpected():
+            raise RuntimeError("boom")
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/unexpected", headers={"Origin": "https://example.com"})
+        assert resp.status_code == 500
+        assert resp.headers.get("access-control-allow-origin") == "*"
