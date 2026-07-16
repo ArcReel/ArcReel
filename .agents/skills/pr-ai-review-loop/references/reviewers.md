@@ -79,7 +79,7 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 3. 空 body `COMMENTED` review,其 `reviewed_current_head == true`,且本轮无新 inline
 4. `codex.comments_new` 中顶层评论的 `has_pass_marker == true` 且 `reviewed_current_head == true`
 
-`poll.sh` 优先用 review 自带的 commit OID 判当前 HEAD,缺失时解析 body 的 `Reviewed commit`,再缺失才按提交时间回退。
+`poll.sh` 优先用 review 自带的 commit OID 判当前 HEAD,缺失时解析 body 的 `Reviewed commit`,再缺失才按 review 提交时间回退;顶层通过评论同样先解析 `Reviewed commit`,缺失时按评论创建时间回退。
 
 **actionable**:本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 一律 actionable;兼容旧 payload 时,P2/P3 交 `receiving-code-review` 核实。判定为非 actionable 并记录 pushback 的 P2/P3 不再阻塞通过。
 

@@ -427,7 +427,11 @@ jq -n \
     | ($cb | codex_reviewed_commit_from_body) as $reviewed_commit
     | {id, createdAt, is_new: (.createdAt > $last_push),
        reviewed_commit: $reviewed_commit,
-       reviewed_current_head: ($reviewed_commit | codex_commit_is_current_head),
+       reviewed_current_head:
+         (if $reviewed_commit == null
+          then (.createdAt > $last_push)
+          else ($reviewed_commit | codex_commit_is_current_head)
+          end),
        has_pass_marker: ($cb | codex_comment_has_pass_marker),
        preview: ($cb | mk_preview), body};
 
