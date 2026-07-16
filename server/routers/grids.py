@@ -150,8 +150,8 @@ async def generate_grid(
                 if chunk_layout is None:
                     continue
 
-                # provider/model 由 execute_grid_task 在 _resolve_effective_image_backend
-                # 之后回填，因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
+                # provider/model 由 execute_grid_task 在 image lane 解析之后回填，
+                # 因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
                 grid = GridGeneration.create(
                     episode=episode,
                     script_file=req.script_file,

@@ -12,6 +12,7 @@ import pytest
 
 from lib.config.resolver import ConfigResolver, ProviderModel
 from server.services import generation_context, generation_tasks
+from server.services.generation_context import AudioLaneResult, GenerationContext
 
 
 def _async_return(value):
@@ -19,6 +20,25 @@ def _async_return(value):
         return value
 
     return _inner
+
+
+def _audio_ctx(generator, *, voice="Cherry", speed=None):
+    """把 audio lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。"""
+    ctx = GenerationContext(
+        generator=generator,
+        audio_lane=AudioLaneResult(
+            provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
+            backend_name="dashscope",
+            backend_model="qwen3-tts-flash",
+            narration_voice=voice,
+            narration_speed=speed,
+        ),
+    )
+
+    async def _resolve(*args, **kwargs):
+        return ctx
+
+    return _resolve
 
 
 class _FakePM:
@@ -65,9 +85,7 @@ def tts_env(monkeypatch, tmp_path):
     pm = _FakePM(tmp_path / "projects" / "demo")
     gen = _FakeAudioGenerator()
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(gen))
-    monkeypatch.setattr(ConfigResolver, "resolve_narration_voice", _async_return("Cherry"))
-    monkeypatch.setattr(ConfigResolver, "resolve_narration_speed", _async_return(None))
+    monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen))
     return pm, gen
 
 
@@ -101,7 +119,7 @@ class TestExecuteTtsTask:
 
     async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
         pm, gen = tts_env
-        monkeypatch.setattr(ConfigResolver, "resolve_narration_speed", _async_return(1.5))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen, speed=1.5))
         await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好"})
         assert gen.audio_calls[0]["speed"] == 1.5
 

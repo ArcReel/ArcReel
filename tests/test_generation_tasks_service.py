@@ -3,8 +3,10 @@ from pathlib import Path
 
 import pytest
 
+from lib.config.resolver import ProviderModel
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 from server.services import generation_tasks
+from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
 
 
@@ -79,6 +81,52 @@ def _async_return(value):
         return value
 
     return _inner
+
+
+def _fake_resolve_ctx(
+    generator,
+    *,
+    image_provider=("openai", "gpt-image-2"),
+    image_resolution=None,
+    video_provider=("ark", "seedance"),
+    video_resolution="720p",
+    supported_durations=(4, 6, 8),
+    seen_lane_requests=None,
+):
+    """lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。
+
+    ``seen_lane_requests`` 传入 list 时记录每次调用声明的 lane 请求，供断言任务只声明
+    自己用到的 lane。
+    """
+
+    async def _resolve(project_name, payload, *, project, user_id="default", image=None, video=None, audio=None):
+        if seen_lane_requests is not None:
+            seen_lane_requests.append({"image": image, "video": video, "audio": audio})
+        image_lane = None
+        if image is not None:
+            provider, model = image_provider
+            image_lane = ImageLaneResult(
+                provider_model=ProviderModel(provider, model),
+                backend_name=provider,
+                backend_model=model,
+                resolution=image_resolution,
+            )
+        video_lane = None
+        if video is not None:
+            provider, model = video_provider
+            video_lane = VideoLaneResult(
+                provider_model=ProviderModel(provider, model),
+                backend_name=provider,
+                backend_model=model,
+                resolution=video_resolution,
+                resolution_or_fallback=video_resolution or "720p",
+                supported_durations=tuple(supported_durations),
+                max_duration=None,
+                max_reference_images=None,
+            )
+        return GenerationContext(generator=generator, image_lane=image_lane, video_lane=video_lane)
+
+    return _resolve
 
 
 from lib.storyboard_sequence import (
@@ -281,15 +329,8 @@ class TestGenerationTasks:
         fake_generator = _FakeGenerator()
         emitted_batches = []
 
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        # get_media_generator 已 mock；storyboard 路径仍直接调 _resolve_effective_image_backend
-        # 推导 image_size（DB 无 provider 配置），此处 stub 掉解析——解析逻辑由 TestResolveImageBackend 覆盖。
-        monkeypatch.setattr(
-            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
-        )
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
@@ -395,13 +436,8 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
 
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(
-            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
-        )
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
 
         result = await generation_tasks.execute_product_task(
             "demo",
@@ -423,13 +459,8 @@ class TestGenerationTasks:
         fake_pm.project["products"]["保温杯"]["reference_images"] = []
         fake_generator = _FakeGenerator()
 
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(
-            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
-        )
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
 
         await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "保温杯"})
         assert fake_generator.image_calls[0]["reference_images"] is None
@@ -480,7 +511,7 @@ class TestGenerationTasks:
             return out_path
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", fake_extract)
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
@@ -502,20 +533,8 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
 
-        from lib.config import resolver as resolver_mod
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
-        )
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver,
-            "video_capabilities_for_model",
-            _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
-        )
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
 
         with pytest.raises(VideoCapabilityError) as exc:
             await generation_tasks.execute_video_task(
@@ -537,22 +556,10 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
 
-        from lib.config import resolver as resolver_mod
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
-        )
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver,
-            "video_capabilities_for_model",
-            _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
-        )
 
         result = await generation_tasks.execute_video_task(
             "demo",
@@ -594,22 +601,10 @@ class TestGenerationTasks:
             ],
         }
 
-        from lib.config import resolver as resolver_mod
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
-        )
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver,
-            "video_capabilities_for_model",
-            _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
-        )
 
         # payload 的 video_prompt 不带 dialogue（drama 新结构）
         await generation_tasks.execute_video_task(
@@ -634,22 +629,14 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
 
-        from lib.config import resolver as resolver_mod
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, supported_durations=(6, 10)),
+        )
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
-        )
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver,
-            "video_capabilities_for_model",
-            _async_return({"supported_durations": [6, 10], "default_duration": None}),
-        )
         # 项目默认 duration 也置空，强制走 caps 默认。
         fake_pm.project.pop("default_duration", None)
 
@@ -661,32 +648,21 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 6
 
-    async def test_caps_failure_preserves_resolved_provider(self, monkeypatch, tmp_path):
-        """caps 解析失败不得丢弃已解析的 provider/model：resolution 仍按真实 provider。"""
+    async def test_empty_supported_durations_guard_permissive(self, monkeypatch, tmp_path):
+        """能力不可解析时 lane 交付空 supported_durations：守卫放行（不更坏），
+        resolution 仍取自 lane 已解析出的值，不因能力缺失被改写。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
-        seen_resolution_args: list[tuple] = []
-
-        async def fake_resolution(project, provider, model):
-            seen_resolution_args.append((provider, model))
-            return "720p"
-
-        from lib.config import resolver as resolver_mod
-        from lib.config.resolver import ProviderModel
-
-        async def boom_caps(self, provider_id, model_id, project=None):
-            raise ValueError("supported_durations is empty for ark/seedance")
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "_resolve_resolution", fake_resolution)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, supported_durations=()),
+        )
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
-        )
-        monkeypatch.setattr(resolver_mod.ConfigResolver, "video_capabilities_for_model", boom_caps)
 
         result = await generation_tasks.execute_video_task(
             "demo",
@@ -698,34 +674,63 @@ class TestGenerationTasks:
             },
         )
         assert result["resource_type"] == "videos"
-        # caps 失败时 supported_durations 留空 → 守卫放行（不更坏），但 provider 不被改写。
-        assert seen_resolution_args == [("ark", "seedance")]
+        assert fake_generator.video_calls[0]["duration_seconds"] == 9
+        assert fake_generator.video_calls[0]["resolution"] == "720p"
 
-    async def test_caps_resolved_for_payload_provider_model(self, monkeypatch, tmp_path):
-        """caps 按已解析（含 payload 覆盖）的 provider/model 取，而非按 project 二次解析。"""
+    async def test_video_resolve_failure_fails_task_without_fallback(self, monkeypatch, tmp_path):
+        """视频解析失败即任务失败：异常原样上抛留痕，无硬编码 provider/model 兜底，后端不被调用。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
-        seen_caps_args: list[tuple] = []
 
-        from lib.config import resolver as resolver_mod
-        from lib.config.resolver import ProviderModel
-
-        async def capture_caps(self, provider_id, model_id, project=None):
-            seen_caps_args.append((provider_id, model_id))
-            return {"supported_durations": [4, 6, 8], "default_duration": None}
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("video provider unconfigured")
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
-        monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _boom)
+
+        with pytest.raises(RuntimeError, match="video provider unconfigured"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):
+        """任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目
+        不因视频供应商缺配置失败，未声明 lane 不解析见 tests/server/test_generation_context.py），
+        视频任务只声明 video；带参考图时 image lane 请求 i2i 能力。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        seen: list[dict] = []
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, seen_lane_requests=seen),
+        )
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-        # 模拟历史任务 payload 覆盖：resolve_video_backend 解析出 ark/seedance。
-        monkeypatch.setattr(
-            resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
-        )
-        monkeypatch.setattr(resolver_mod.ConfigResolver, "video_capabilities_for_model", capture_caps)
 
+        # E1S02 引用角色/场景/道具 sheet → 带参考图 → i2i；character 带 reference_image → i2i
+        await generation_tasks.execute_storyboard_task(
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "画面"}
+        )
+        await generation_tasks.execute_character_task("demo", "Alice", {"prompt": "角色描述"})
+        await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": "场景描述"})
+        for req in seen:
+            assert req["image"] is not None
+            assert req["video"] is None
+            assert req["audio"] is None
+        assert seen[0]["image"].capability == "i2i"
+
+        seen.clear()
         await generation_tasks.execute_video_task(
             "demo",
             "E1S01",
@@ -735,8 +740,10 @@ class TestGenerationTasks:
                 "duration_seconds": 8,
             },
         )
-        # caps 用解析后的 model 而非 project 默认取，二者一致。
-        assert seen_caps_args == [("ark", "seedance")]
+        assert len(seen) == 1
+        assert seen[0]["video"] is not None
+        assert seen[0]["image"] is None
+        assert seen[0]["audio"] is None
 
     async def test_get_media_generator_skips_image_backend_for_video_tasks(self, monkeypatch, tmp_path):
         """视频任务只应初始化视频 backend，避免图片配置缺失导致提前失败。"""
@@ -1086,7 +1093,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(_FakeGenerator()))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_FakeGenerator()))
 
         with pytest.raises(ValueError):
             await generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
@@ -1222,13 +1229,8 @@ class TestAdProductFidelityStoryboard:
     """产品保真注入二元化——分镜层。"""
 
     def _patch(self, monkeypatch, pm, generator):
-        from lib.config.resolver import ProviderModel
-
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(generator))
-        monkeypatch.setattr(
-            generation_tasks, "_resolve_effective_image_backend", _async_return(ProviderModel("openai", "gpt-image-2"))
-        )
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
 
     async def test_product_shot_injects_sheet_then_originals_before_other_sheets(self, tmp_path, monkeypatch):
         """有确认 sheet 的产品镜头：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
@@ -1346,22 +1348,10 @@ class _FakeVideoBackend:
 
 
 def _patch_video_path(monkeypatch, pm, generator):
-    from lib.config import resolver as resolver_mod
-    from lib.config.resolver import ProviderModel
-
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(generator))
-    monkeypatch.setattr(generation_tasks, "_resolve_resolution", _async_return("720p"))
+    monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
     monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-    monkeypatch.setattr(
-        resolver_mod.ConfigResolver, "resolve_video_backend", _async_return(ProviderModel("ark", "seedance"))
-    )
-    monkeypatch.setattr(
-        resolver_mod.ConfigResolver,
-        "video_capabilities_for_model",
-        _async_return({"supported_durations": [4, 6, 8], "default_duration": None}),
-    )
 
 
 class TestAdProductFidelityVideo:

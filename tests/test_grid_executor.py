@@ -7,6 +7,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.config.resolver import ProviderModel
+from server.services.generation_context import GenerationContext, ImageLaneResult
+
+
+def _image_ctx(generator, *, provider="openai", model="gpt-image-2", resolution="2K", backend_model=None):
+    """把 image lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。
+
+    backend_model 可与 model 发散，模拟自定义供应商目标 model 被禁用回退时 backend
+    实际身份与解析 model_id 不同的场景。
+    """
+    ctx = GenerationContext(
+        generator=generator,
+        image_lane=ImageLaneResult(
+            provider_model=ProviderModel(provider, model),
+            backend_name=provider,
+            backend_model=backend_model if backend_model is not None else model,
+            resolution=resolution,
+        ),
+    )
+
+    async def _resolve(*args, **kwargs):
+        return ctx
+
+    return _resolve
 
 
 @pytest.fixture
@@ -199,10 +222,9 @@ class TestExecuteGridTask:
 
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
-            patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
             patch(
-                "server.services.generation_tasks._resolve_effective_image_backend",
-                new=AsyncMock(return_value=ProviderModel("openai", "gpt-image-2")),
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
             ),
         ):
             mock_pm = MagicMock()
@@ -213,7 +235,6 @@ class TestExecuteGridTask:
             )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
-            mock_get_gen.return_value = mock_generator
 
             result = await execute_grid_task(
                 "test-project",
@@ -258,10 +279,9 @@ class TestExecuteGridTask:
 
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
-            patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
             patch(
-                "server.services.generation_tasks._resolve_effective_image_backend",
-                new=AsyncMock(return_value=ProviderModel("openai", "gpt-image-2")),
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
             ),
         ):
             mock_pm = MagicMock()
@@ -271,7 +291,6 @@ class TestExecuteGridTask:
                 (project_with_script / "scripts" / "episode_1.json").read_text()
             )
             mock_pm_fn.return_value = mock_pm
-            mock_get_gen.return_value = mock_generator
 
             await execute_grid_task(
                 "test-project",
@@ -325,10 +344,9 @@ class TestExecuteGridTask:
 
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
-            patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
             patch(
-                "server.services.generation_tasks._resolve_effective_image_backend",
-                new=AsyncMock(return_value=ProviderModel("openai", "gpt-image-2")),
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
             ),
         ):
             mock_pm = MagicMock()
@@ -336,7 +354,6 @@ class TestExecuteGridTask:
             mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
             mock_pm.load_script.return_value = script_data
             mock_pm_fn.return_value = mock_pm
-            mock_get_gen.return_value = mock_generator
 
             with caplog.at_level(logging.WARNING, logger="server.services.generation_tasks"):
                 await execute_grid_task(
@@ -417,7 +434,7 @@ class TestGridMetadataT2II2ISlotSelection:
         grid_path.write_text(json.dumps(grid.to_dict(), ensure_ascii=False, indent=2))
         return grid
 
-    async def _run_grid_task(self, project_with_script, grid, payload):
+    async def _run_grid_task(self, project_with_script, grid, payload, resolve_override=None):
         """Helper：mock 掉 generator 与 project manager，运行 execute_grid_task。"""
         from PIL import Image
 
@@ -430,9 +447,25 @@ class TestGridMetadataT2II2ISlotSelection:
         mock_generator = MagicMock()
         mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
 
+        async def _cap_aware_resolve(project_name, req_payload, *, image, **kwargs):
+            # capability-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，
+            # 假解析回显对应 payload 槽的 provider/model，锁定「槽选择 → 元数据回填」契约。
+            provider, model = req_payload[f"image_provider_{image.capability}"].split("/")
+            return GenerationContext(
+                generator=mock_generator,
+                image_lane=ImageLaneResult(
+                    provider_model=ProviderModel(provider, model),
+                    backend_name=provider,
+                    backend_model=model,
+                    resolution="2K",
+                ),
+            )
+
+        fake_resolve = resolve_override(mock_generator) if resolve_override is not None else _cap_aware_resolve
+
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
-            patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
+            patch("server.services.generation_tasks.resolve_generation_context", new=fake_resolve),
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
@@ -442,7 +475,6 @@ class TestGridMetadataT2II2ISlotSelection:
             )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
-            mock_get_gen.return_value = mock_generator
 
             await execute_grid_task("test-project", grid.id, payload, user_id="test-user")
 
@@ -487,3 +519,22 @@ class TestGridMetadataT2II2ISlotSelection:
         updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
         assert updated["provider"] == "openai"
         assert updated["model"] == "gpt-image-i2i"
+
+    async def test_metadata_records_backend_actual_model_on_divergence(
+        self, project_with_script, grid_with_empty_metadata
+    ):
+        """自定义供应商目标 model 被禁用回退时，backend 实际身份与解析 model_id 发散：
+        grid 元数据 provider 记 registry 身份、model 记 backend 实际调用的 model。"""
+        grid = grid_with_empty_metadata
+        payload = {"prompt": "test grid prompt", "script_file": "episode_1.json"}
+
+        await self._run_grid_task(
+            project_with_script,
+            grid,
+            payload,
+            resolve_override=lambda gen: _image_ctx(gen, provider="custom-1", model="m-dead", backend_model="m-live"),
+        )
+
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        assert updated["provider"] == "custom-1"
+        assert updated["model"] == "m-live"
