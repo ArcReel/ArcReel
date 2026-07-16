@@ -35,7 +35,7 @@ from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
-from lib.text_backends.base import TextTaskType
+from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 
 logger = logging.getLogger(__name__)
 
@@ -140,10 +140,10 @@ def _payload_model_or_default(raw_model: object, provider_id: str, media_type: s
     return default_model_for_provider(provider_id, media_type)
 
 
-_TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
-    TextTaskType.SCRIPT: "text_backend_script",
-    TextTaskType.OVERVIEW: "text_backend_overview",
-    TextTaskType.STYLE_ANALYSIS: "text_backend_style",
+# 档位 → 设置键。全局（system_settings）与项目级（project.json）同名同构。
+_TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
+    TextTaskTier.SIMPLE: "text_backend_simple",
+    TextTaskTier.COMPLEX: "text_backend_complex",
 }
 
 
@@ -183,6 +183,20 @@ def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> 
     if legacy:
         return legacy
     return None
+
+
+def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
+    """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
+
+    仅对 PROVIDER_REGISTRY 中登记的模型判定；registry 之外（自定义供应商等）无逐模型
+    能力事实，放行交由供应商 API 把关，不做猜测。"""
+    meta = PROVIDER_REGISTRY.get(provider_id)
+    model_info = meta.models.get(model_id) if meta else None
+    if model_info is not None and "vision" not in model_info.capabilities:
+        raise ValueError(
+            f"文本模型 {provider_id}/{model_id} 不支持图像输入（vision），无法执行 {task_type.value} 任务。"
+            f"请在设置中为简单档或默认模型选择支持 vision 的文本模型。"
+        )
 
 
 class ConfigResolver:
@@ -779,7 +793,11 @@ class ConfigResolver:
         task_type: TextTaskType,
         project_name: str | None = None,
     ) -> tuple[str, str]:
-        """解析文本 backend。优先级：项目级任务配置 → 全局任务配置 → 全局默认 → 自动推断"""
+        """按任务档位解析文本 backend。
+
+        优先级（项目优先）：项目档位 > 项目默认模型 > 全局档位 > 全局默认模型 > 自动推断。
+        任务需要 vision 时校验解析结果的能力，不满足直接报错、不静默换模型（docs/adr/0049）。
+        """
         async with self._open_session() as (session, svc):
             return await self._resolve_text_backend(svc, session, task_type, project_name)
 
@@ -790,27 +808,33 @@ class ConfigResolver:
         task_type: TextTaskType,
         project_name: str | None,
     ) -> tuple[str, str]:
-        setting_key = _TEXT_TASK_SETTING_KEYS[task_type]
+        tier_key = _TEXT_TIER_SETTING_KEYS[TEXT_TASK_TIERS[task_type]]
+        resolved: tuple[str, str] | None = None
 
-        # 1. Project-level task override
+        # 1/2. 项目档位 > 项目默认模型（「项目默认」读作「本项目整体用它」，遮蔽全局配置）
         if project_name:
             project = get_project_manager().load_project(project_name)
-            project_val = project.get(setting_key)
-            if project_val and "/" in str(project_val):
-                return ConfigService._parse_backend(str(project_val), _DEFAULT_TEXT_BACKEND)
+            for key in (tier_key, "default_text_backend"):
+                project_val = project.get(key)
+                if project_val and "/" in str(project_val):
+                    resolved = ConfigService._parse_backend(str(project_val), _DEFAULT_TEXT_BACKEND)
+                    break
 
-        # 2. Global task-type setting
-        task_val = await svc.get_setting(setting_key, "")
-        if task_val and "/" in task_val:
-            return ConfigService._parse_backend(task_val, _DEFAULT_TEXT_BACKEND)
+        # 3/4. 全局档位 > 全局默认模型
+        if resolved is None:
+            for key in (tier_key, "default_text_backend"):
+                global_val = await svc.get_setting(key, "")
+                if global_val and "/" in global_val:
+                    resolved = ConfigService._parse_backend(global_val, _DEFAULT_TEXT_BACKEND)
+                    break
 
-        # 3. Global default text backend
-        default_val = await svc.get_setting("default_text_backend", "")
-        if default_val and "/" in default_val:
-            return ConfigService._parse_backend(default_val, _DEFAULT_TEXT_BACKEND)
+        # 5. 自动推断
+        if resolved is None:
+            resolved = await self._auto_resolve_backend(svc, session, "text")
 
-        # 4. Auto-resolve
-        return await self._auto_resolve_backend(svc, session, "text")
+        if task_type in VISION_REQUIRED_TASKS:
+            _ensure_text_model_vision_capable(task_type, *resolved)
+        return resolved
 
     async def _auto_resolve_backend(
         self,

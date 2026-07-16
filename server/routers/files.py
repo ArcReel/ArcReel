@@ -954,6 +954,9 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
+    # 解析层错误（如简单档模型不支持 vision）原样透出为 400，不落进笼统 500
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

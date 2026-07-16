@@ -125,6 +125,32 @@ class TextTaskType(StrEnum):
     STYLE_ANALYSIS = "style"
 
 
+class TextTaskTier(StrEnum):
+    """文本任务档位。
+
+    调用点在代码里固定归档（见 TEXT_TASK_TIERS），用户只配置「每档用哪个文本 backend」，
+    不配置映射本身（docs/adr/0049）。
+    """
+
+    SIMPLE = "simple"
+    COMPLEX = "complex"
+
+
+# TextTaskType → 档位的唯一映射。新增任务类型必须在此显式归档，
+# 缺档在模块导入时即失败（另有穷举测试兜底）。
+TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
+    TextTaskType.SCRIPT: TextTaskTier.COMPLEX,
+    TextTaskType.OVERVIEW: TextTaskTier.SIMPLE,
+    TextTaskType.STYLE_ANALYSIS: TextTaskTier.SIMPLE,
+}
+
+if _missing := set(TextTaskType) - set(TEXT_TASK_TIERS):
+    raise RuntimeError(f"TextTaskType 成员未归档到 TEXT_TASK_TIERS: {sorted(m.value for m in _missing)}")
+
+# 需要图像输入（vision）能力的任务。解析出的模型不支持 vision 时直接报错，不静默换模型。
+VISION_REQUIRED_TASKS: frozenset[TextTaskType] = frozenset({TextTaskType.STYLE_ANALYSIS})
+
+
 @dataclass
 class ImageInput:
     """图片输入（用于 vision）。"""

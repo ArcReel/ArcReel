@@ -15,10 +15,11 @@ from pathlib import Path
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
+from lib.project_migrations.v3_to_v4_text_tiers import migrate_v3_to_v4
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 
@@ -181,3 +182,4 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
 MIGRATORS[0] = migrate_v0_to_v1
 MIGRATORS[1] = migrate_v1_to_v2
 MIGRATORS[2] = migrate_v2_to_v3
+MIGRATORS[3] = migrate_v3_to_v4

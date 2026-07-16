@@ -200,9 +200,10 @@ class SystemConfigPatchRequest(BaseModel):
     claude_code_subagent_model: str | None = None
     agent_session_cleanup_delay_seconds: int | None = None
     agent_max_concurrent_sessions: int | None = None
-    text_backend_script: str | None = None
-    text_backend_overview: str | None = None
-    text_backend_style: str | None = None
+    # 文本任务档位（docs/adr/0049）：调用点在代码里固定归档，这里只配置每档的 backend；
+    # 各档未设置回退 default_text_backend。
+    text_backend_simple: str | None = None
+    text_backend_complex: str | None = None
 
 
 # Setting keys that map directly to string DB settings
@@ -218,9 +219,6 @@ _STRING_SETTINGS = (
     "anthropic_default_opus_model",
     "anthropic_default_sonnet_model",
     "claude_code_subagent_model",
-    "text_backend_script",
-    "text_backend_overview",
-    "text_backend_style",
 )
 
 
@@ -278,9 +276,8 @@ async def get_system_config(
         "claude_code_subagent_model": all_s.get("claude_code_subagent_model") or None,
         "agent_session_cleanup_delay_seconds": int(all_s.get("agent_session_cleanup_delay_seconds") or "300"),
         "agent_max_concurrent_sessions": int(all_s.get("agent_max_concurrent_sessions") or "5"),
-        "text_backend_script": all_s.get("text_backend_script") or "",
-        "text_backend_overview": all_s.get("text_backend_overview") or "",
-        "text_backend_style": all_s.get("text_backend_style") or "",
+        "text_backend_simple": all_s.get("text_backend_simple") or "",
+        "text_backend_complex": all_s.get("text_backend_complex") or "",
     }
 
     options = await _build_options(svc, session)
@@ -347,6 +344,8 @@ async def patch_system_config(
         "default_image_backend_i2i",
         "default_text_backend",
         "default_audio_backend",
+        "text_backend_simple",
+        "text_backend_complex",
     ):
         if backend_key in patch:
             value = str(patch[backend_key] or "").strip()

@@ -1,21 +1,27 @@
 """文本生成服务层公共 API。"""
 
 from lib.text_backends.base import (
+    TEXT_TASK_TIERS,
+    VISION_REQUIRED_TASKS,
     ImageInput,
     TextBackend,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    TextTaskTier,
     TextTaskType,
 )
 from lib.text_backends.registry import create_backend, get_registered_backends, register_backend
 
 __all__ = [
+    "TEXT_TASK_TIERS",
+    "VISION_REQUIRED_TASKS",
     "ImageInput",
     "TextBackend",
     "TextCapability",
     "TextGenerationRequest",
     "TextGenerationResult",
+    "TextTaskTier",
     "TextTaskType",
     "create_backend",
     "get_registered_backends",

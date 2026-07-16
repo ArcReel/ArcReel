@@ -388,6 +388,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
+    # 旧任务级文本 backend 键 → 档位键（docs/adr/0049）。放在 JSON→DB 迁移之后：
+    # 旧 JSON 里的同名键经 catch-all 落库后也能被本迁移收编
+    try:
+        from lib.config.migration import migrate_text_tier_settings
+
+        async with async_session_factory() as session:
+            await migrate_text_tier_settings(session)
+    except Exception as exc:
+        logger.warning("text tier settings migration failed (non-fatal): %s", exc)
+
     # 把 agent_runtime_profile 同步到存量项目（manifest 物化，同步文件 I/O → worker 线程）
     from lib.project_manager import get_project_manager
 

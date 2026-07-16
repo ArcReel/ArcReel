@@ -1112,7 +1112,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
 
 async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
     """工具必须把 ctx.project_name 传给 TextGenerator.create/generate，
-    否则项目级 text_backend_script 覆盖被跳过，且 usage tracking 会丢 project_name。"""
+    否则项目级文本档位覆盖被跳过，且 usage tracking 会丢 project_name。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     project_path = fake_ctx.project_path
