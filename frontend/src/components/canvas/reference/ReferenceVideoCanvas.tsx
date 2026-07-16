@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
 import {
   ChevronLeft,
@@ -22,7 +21,7 @@ import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { isActiveStatus, useLatestTasksByResource } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -91,13 +90,9 @@ export function ReferenceVideoCanvas({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  const relevantTasks = useTasksStore(
-    useShallow((s) =>
-      s.tasks.filter(
-        (tk) => tk.project_name === projectName && tk.task_type === "reference_video",
-      ),
-    ),
-  );
+  // resource（=unit）→ 最新任务行。「最新行胜出」下沉到 store selector：
+  // store 不保证 tasks 顺序（SSE 原位 upsert），重试的新行不被旧失败行盖住。
+  const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
 
   useEffect(() => {
     void loadUnits(projectName, episode);
@@ -120,17 +115,6 @@ export function ReferenceVideoCanvas({
 
   const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
 
-  const tasksByUnit = useMemo(() => {
-    const map = new Map<string, (typeof relevantTasks)[number]>();
-    // store 不保证顺序（SSE upsert 原位更新、初始列表排序属后端实现细节）：
-    // 显式取 updated_at 最新的任务行，重试时不被旧失败行盖住
-    for (const tk of relevantTasks) {
-      const prev = map.get(tk.resource_id);
-      if (!prev || tk.updated_at > prev.updated_at) map.set(tk.resource_id, tk);
-    }
-    return map;
-  }, [relevantTasks]);
-
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
     for (const u of units) {
@@ -139,7 +123,7 @@ export function ReferenceVideoCanvas({
       // 上传中的 unit 视为 running：批量生成按 statusMap 选 pending，
       // 否则上传期间会被再次入队，与生成回写同一个成片文件
       if (uploadingUnitIds.has(u.unit_id)) st = "running";
-      else if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
+      else if (queueRow && isActiveStatus(queueRow.status)) st = "running";
       // 失败任务行 DB 持久化、不会过期：手动上传成片后单元已有可播放资产，
       // 不再让历史失败覆盖 ready（与 timeline/grid 画布用 toast 提示失败的语义对齐）
       else if (queueRow?.status === "failed" && !u.generated_assets.video_clip) st = "failed";

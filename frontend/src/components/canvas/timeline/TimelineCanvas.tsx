@@ -6,7 +6,7 @@ import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { AdReferenceUnitsPanel } from "./AdReferenceUnitsPanel";
 import { useCostStore } from "@/stores/cost-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { useActiveResourceIds } from "@/stores/tasks-store";
 import { effectiveMode } from "@/utils/generation-mode";
 import { getScriptItemId } from "@/utils/script-shape";
 import type {
@@ -125,30 +125,21 @@ export function TimelineCanvas({
     [contentMode, episodeScript, projectData],
   );
 
-  // 任务派生 loading
-  const tasks = useTasksStore((s) => s.tasks);
-  const isGenerating = useCallback(
-    (taskType: "storyboard" | "video" | "tts", segmentId: string): boolean =>
-      tasks.some(
-        (t) =>
-          t.task_type === taskType &&
-          t.project_name === projectName &&
-          t.resource_id === segmentId &&
-          (t.status === "queued" || t.status === "running"),
-      ),
-    [tasks, projectName],
-  );
+  // 任务派生 loading：活跃 + 最新行胜出下沉到 store selector（各 task_type 一组活跃 resource）
+  const storyboardBusyIds = useActiveResourceIds("storyboard", projectName);
+  const videoBusyIds = useActiveResourceIds("video", projectName);
+  const ttsBusyIds = useActiveResourceIds("tts", projectName);
   const generatingStoryboard = useCallback(
-    (segId: string) => isGenerating("storyboard", segId),
-    [isGenerating],
+    (segId: string) => storyboardBusyIds.has(segId),
+    [storyboardBusyIds],
   );
   const generatingVideo = useCallback(
-    (segId: string) => isGenerating("video", segId),
-    [isGenerating],
+    (segId: string) => videoBusyIds.has(segId),
+    [videoBusyIds],
   );
   const generatingNarration = useCallback(
-    (segId: string) => isGenerating("tts", segId),
-    [isGenerating],
+    (segId: string) => ttsBusyIds.has(segId),
+    [ttsBusyIds],
   );
   // 批量旁白进行中：当前分集还有未完结的 tts 任务时禁用批量按钮，避免重复入队；
   // 按本集 segment 范围判定，不影响其他分集的批量入口
@@ -157,15 +148,8 @@ export function TimelineCanvas({
     [segments, editorContentMode],
   );
   const narrationBatchBusy = useMemo(
-    () =>
-      tasks.some(
-        (t) =>
-          t.task_type === "tts" &&
-          t.project_name === projectName &&
-          currentSegmentIds.has(t.resource_id) &&
-          (t.status === "queued" || t.status === "running"),
-      ),
-    [tasks, projectName, currentSegmentIds],
+    () => [...currentSegmentIds].some((id) => ttsBusyIds.has(id)),
+    [ttsBusyIds, currentSegmentIds],
   );
 
   if (!projectData || (!episodeScript && !hasDraft)) {
