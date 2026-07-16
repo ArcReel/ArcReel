@@ -7,9 +7,9 @@
 ## 步骤
 
 1. 通读 issue 正文/评论、实现 handoff 和完整 diff，固定 `origin/main` 为审查 fixed point、issue 为 spec source。
-2. 完整使用外部 `$code-review`，保持其 Standards / Spec 双轴报告分离。逐条核验报告，修复有效发现；接近重做规模的事项用 `collaboration.send_message` 请示 lead，对不成立项保留技术依据。
+2. 完整使用外部 `$code-review`，保持其 Standards / Spec 双轴报告分离。该 skill 中的 `Agent` / `general-purpose` 是运行时无关术语：在 Codex 中映射为两个并行 `collaboration.spawn_agent`，均传 `fork_turns: "none"`，分别携带 Standards 与 Spec reviewer prompt；不得寻找或调用不存在的 `Agent` 工具。逐条核验报告，修复有效发现；接近重做规模的事项用 `collaboration.send_message` 请示 lead，对不成立项保留技术依据。
 3. commit 审查修复并重新运行相关质量门。push 前再次 `git fetch origin`；main 已前进时 rebase 到最新 `origin/main`，解决冲突后必须以新的 `origin/main` 再次使用 `$code-review` 并执行质量门。只有最终 diff 的审查和验证均通过才进入下一步。
-4. push `issue/<N>`。GitHub 状态变更优先使用已通过 preflight 的 connector 创建非 draft PR；标题遵循仓库 Conventional Commits，正文含 `Closes #<N>` 与验证说明。
+4. push `issue/<N>`。使用已通过 preflight 的 connector 创建非 draft PR；不得降级为 `gh` 写 PR。标题遵循仓库 Conventional Commits，正文含 `Closes #<N>` 与验证说明。
 5. 复核 PR head 与本地 HEAD 一致，PR 不是 draft。
 
 ## 交付

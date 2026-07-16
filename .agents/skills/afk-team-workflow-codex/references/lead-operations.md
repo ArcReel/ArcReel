@@ -34,7 +34,7 @@ review teammate 自持 60/120/180 秒轮询，lead 不集中代 poll，也不为
 - `gh pr view <M> --json mergeable,headRefOid` 的远端事实，`mergeable` 为 `MERGEABLE` 且 `headRefOid` 等于报告 HEAD；
 - PR 仍 open、非 draft，无未裁决的 reviewer 冲突。
 
-分支落后 main 但无冲突不阻塞合并。优先用 GitHub connector 按 PR 标题 squash merge；成功后用远端事实复核，再追加 ledger `merge`。不要广播 main 前进，teammate 在下次修复 push 或冲突出现时自行 rebase。
+分支落后 main 但无冲突不阻塞合并。使用 GitHub connector 按 PR 标题 squash merge，不得降级为 `gh` 写 PR；成功后用远端事实复核，再追加 ledger `merge`。不要广播 main 前进，teammate 在下次修复 push 或冲突出现时自行 rebase。
 
 ## Lead 裁决
 

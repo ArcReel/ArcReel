@@ -48,15 +48,14 @@
 
 前任 lead 的 teammate 不可达；不要尝试重连。先按远端和本地现场选择阶段，但本节只形成待启动计划，不 spawn：
 
-| 现场 | 接管阶段 |
+| 按顺序判定的现场 | 接管阶段 |
 |---|---|
-| 无 PR，worktree 缺少完整“实现”handoff、存在未提交实现改动或质量门未知 | 实现 |
-| 无 PR，worktree 干净、实现 commit、完整“实现”handoff 与质量门证据都存在 | 独立本地审查 |
-| open 非 draft PR，且完整“本地审查”handoff 记录 PR、reviewed HEAD 与质量门，fresh poll 证明远端 HEAD 与 reviewed HEAD 一致 | AI 审查循环 |
-| open 非 draft PR，但缺少上述“本地审查”交付证据或远端 HEAD 已变化 | 独立本地审查 |
-| draft/closed 未合并 PR | 已搁置，除非用户明确重开 |
+| **先验实现门**：任意 PR/分支现场下，worktree 有未提交实现改动，或缺少实现 commit、完整“实现”handoff、质量门证据中的任一项 | 实现 |
+| 实现门通过；无 PR，或 open 非 draft PR 但缺少完整“本地审查”handoff、PR 号、reviewed HEAD、质量门中的任一项，或远端 HEAD 与 reviewed HEAD 不一致 | 独立本地审查 |
+| 实现门与本地审查门均通过，PR open 非 draft，且 fresh poll 证明远端 HEAD 等于 reviewed HEAD | AI 审查循环 |
+| 实现门通过，但 PR draft/closed 且未合并 | 已搁置，除非用户明确重开 |
 
-既有远端分支不替代实现交付证据：证据缺失时仍回到实现阶段补齐验证与 handoff，并保留既有 push，不以撤销远端分支作为完成条件。`review-loop` PR 的 `updatedAt` 近期仍变化时先观察一个 lead heartbeat 周期，避免两个上下文同时推同一 PR。若只有远端分支没有 worktree，lead 在确认未被别处占用后为该分支恢复 worktree。
+判定严格按表格从上到下，前一门未通过时不得检查或进入后一阶段。既有远端分支或 PR 不替代实现交付证据：证据缺失时仍回到实现阶段补齐验证与 handoff，并保留既有 push，不以撤销远端分支作为完成条件。`review-loop` PR 的 `updatedAt` 近期仍变化时先观察一个 lead heartbeat 周期，避免两个上下文同时推同一 PR。若只有远端分支没有 worktree，lead 在确认未被别处占用后为该分支恢复 worktree。
 
 ## 5. 重新授权与新 heartbeat
 

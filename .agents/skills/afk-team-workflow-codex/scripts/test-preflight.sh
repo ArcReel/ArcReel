@@ -8,7 +8,9 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PREFLIGHT="$SCRIPT_DIR/preflight.sh"
 REAL_GIT=$(command -v git)
 export REAL_GIT
-TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/afk-codex-preflight-test.XXXXXX")
+TEMP_ROOT="${TMPDIR:-${TEMP:-${TMP:-}}}"
+[[ -n "$TEMP_ROOT" && -d "$TEMP_ROOT" ]] || { echo "no usable system temp directory in TMPDIR, TEMP, or TMP" >&2; exit 1; }
+TMP_ROOT=$(mktemp -d "$TEMP_ROOT/afk-codex-preflight-test.XXXXXX")
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
 ORIGIN="$TMP_ROOT/origin.git"
