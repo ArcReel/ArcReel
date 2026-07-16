@@ -1,5 +1,6 @@
 """ScriptGenerator reference_video 分支测试。"""
 
+import json as _json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,6 +8,22 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib.script_generator import ScriptGenerator
+
+STEP1_UNITS_JSON = _json.dumps(
+    {
+        "units": [
+            {
+                "unit_id": "E1U01",
+                "shots": [{"duration": 4, "text": "@[主角] 推开 @[酒馆] 的门"}],
+                "references": [
+                    {"type": "character", "name": "主角"},
+                    {"type": "scene", "name": "酒馆"},
+                ],
+            }
+        ]
+    },
+    ensure_ascii=False,
+)
 
 
 @pytest.fixture
@@ -32,10 +49,7 @@ def reference_project(tmp_path: Path) -> Path:
     )
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.md").write_text(
-        "| unit | shots | refs |\n| E1U1 | Shot1(4s) | 主角,酒馆 |\n",
-        encoding="utf-8",
-    )
+    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
     return project_dir
 
 
@@ -56,8 +70,10 @@ async def test_script_generator_build_prompt_selects_reference_branch(reference_
 async def test_script_generator_reads_step1_reference_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
-    # step1_reference_units.md 的内容必须透传
-    assert "E1U1" in prompt
+    # 结构化 step1 的 unit 须经机械渲染进入 prompt（unit_id / shot 文本 / references）
+    assert "E1U01" in prompt
+    assert "@[主角] 推开 @[酒馆] 的门" in prompt
+    assert "character:主角" in prompt
 
 
 @pytest.mark.asyncio
@@ -128,7 +144,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
     )
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.md").write_text("u", encoding="utf-8")
+    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
 
     fake_generator = MagicMock()
     fake_generator.model = "mock"
@@ -262,7 +278,7 @@ async def test_build_prompt_injects_max_duration_from_registry(
     )
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
     prompt = await gen.build_prompt(episode=1)
@@ -301,7 +317,7 @@ async def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
     )
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
     with patch(
@@ -359,7 +375,7 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
     )
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
 
     gen = ScriptGenerator(project_dir)
     prompt = await gen.build_prompt(episode=1)
@@ -367,3 +383,55 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
     assert "ReferenceVideoScript" in prompt
     assert "references" in prompt
     assert "@[名称]" in prompt
+
+
+@pytest.mark.asyncio
+async def test_reference_step1_legacy_md_prompts_resplit(reference_project: Path):
+    """仅存在结构化前的旧 .md 拆分表时，给出明确的「重跑拆分」提示而非笼统缺文件错误。"""
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").unlink()
+    (drafts / "step1_reference_units.md").write_text("| E1U1 | Shot1(4s) |", encoding="utf-8")
+
+    gen = ScriptGenerator(reference_project)
+    with pytest.raises(FileNotFoundError, match="split-reference-video-units"):
+        await gen.build_prompt(episode=1)
+
+
+@pytest.mark.asyncio
+async def test_reference_step1_missing_raises(reference_project: Path):
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").unlink()
+
+    gen = ScriptGenerator(reference_project)
+    with pytest.raises(FileNotFoundError, match="video_unit 拆分"):
+        await gen.build_prompt(episode=1)
+
+
+@pytest.mark.asyncio
+async def test_reference_step1_rejects_out_of_enum_duration(reference_project: Path):
+    """读取侧复验 shot duration ∈ supported_durations，防手工编辑漂移出非法时长。"""
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").write_text(
+        _json.dumps({"units": [{"unit_id": "E1U01", "shots": [{"duration": 5, "text": "@[主角] 转身"}]}]}),
+        encoding="utf-8",
+    )
+
+    gen = ScriptGenerator(reference_project)
+    # 固定能力来源为 project.json 的 _supported_durations=[4,8]，隔离 DB 全局默认干扰
+    with patch(
+        "lib.script_generator.ScriptGenerator._fetch_video_capabilities",
+        new=AsyncMock(return_value=None),
+    ):
+        with pytest.raises(ValueError, match="duration 非法"):
+            await gen.build_prompt(episode=1)
+
+
+@pytest.mark.asyncio
+async def test_reference_step1_rejects_duplicate_unit_ids(reference_project: Path):
+    drafts = reference_project / "drafts" / "episode_1"
+    unit = {"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[主角] 转身"}]}
+    (drafts / "step1_reference_units.json").write_text(_json.dumps({"units": [unit, dict(unit)]}), encoding="utf-8")
+
+    gen = ScriptGenerator(reference_project)
+    with pytest.raises(ValueError, match="unit_id 重复"):
+        await gen.build_prompt(episode=1)

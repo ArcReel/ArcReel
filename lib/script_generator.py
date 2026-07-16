@@ -1,7 +1,7 @@
 """
 script_generator.py - 剧本生成器
 
-读取 Step 1/2 的 Markdown 中间文件，调用文本生成 Backend 生成最终 JSON 剧本
+读取 Step 1 结构化中间文件，调用文本生成 Backend 生成最终 JSON 剧本
 """
 
 import json
@@ -20,6 +20,7 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
+    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
     STEP1_FILENAMES,
     STEP1_LEGACY_FILENAMES,
     episode_drafts_dir,
@@ -41,6 +42,7 @@ from lib.script_models import (
     NarrationEpisodeScript,
     NarrationStep1Draft,
     NarrationVisualEpisodeScript,
+    ReferenceStep1Draft,
     ReferenceVideoScript,
     ad_script_total_duration,
     build_ad_reference_episode_script_model,
@@ -212,7 +214,7 @@ class ScriptGenerator:
         narration_step1: list[dict] | None = None
 
         if gen_mode == "reference_video":
-            step1_md = self._load_step1(episode)
+            step1_units = self._load_reference_step1(episode, supported_durations)
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -220,7 +222,7 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                units_md=step1_md,
+                step1_units=step1_units,
                 supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
@@ -467,6 +469,7 @@ class ScriptGenerator:
         props = props if isinstance(props, dict) else {}
 
         if gen_mode == "reference_video":
+            supported_durations = self._resolve_supported_durations(caps)
             return build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -474,8 +477,8 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                units_md=self._load_step1(episode),
-                supported_durations=self._resolve_supported_durations(caps),
+                step1_units=self._load_reference_step1(episode, supported_durations),
+                supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
@@ -581,31 +584,74 @@ class ScriptGenerator:
             return json.load(f)
 
     def _load_step1(self, episode: int) -> str:
-        """加载 Step 1 中间文件的原始文本（reference_video 的 .md 与 drama 的结构化 .json）。
+        """加载 drama 形状两段式的 Step 1 结构化中间文件原始文本。
 
         每种模式只对应一个期望文件，缺失时显式报错并指明期望路径——不降级改读
         其他模式的中间文件（静默 fallback 会让剧本基于错误模式的中间产物生成）。
-        drama 的 step1 是结构化 JSON（内容抽取前移，见 ADR 0041），reference_video 仍为 Markdown。
-        narration（storyboard/grid）走结构化两段式，单独经 ``_load_narration_step1`` 读
-        ``step1_segments.json``，不进本方法。
+        本方法只服务 drama 及未来其它走 drama 形状两段式的结构化模式；narration 另经
+        ``_load_narration_step1``、reference_video 另经 ``_load_reference_step1``。
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
-        gen_mode = self._effective_generation_mode(episode)
-        if gen_mode == "reference_video":
-            step1_path = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
-        else:
-            # 本方法只服务 drama 及未来其它走 drama 形状两段式的结构化模式（narration 另经
-            # _load_narration_step1）；按 content_mode 取登记的结构化文件名，脏值兜底 drama。
-            step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
+        # 按 content_mode 取登记的结构化文件名，脏值兜底 drama。
+        step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
 
         if not step1_path.exists():
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_path}；"
-                f"content_mode={self.content_mode}, generation_mode={gen_mode} 期望该文件，"
-                "请先完成本集预处理"
+                f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集预处理"
             )
 
         return step1_path.read_text(encoding="utf-8")
+
+    def _load_reference_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
+        """加载并校验 reference_video step1 结构化中间文件 ``step1_reference_units.json``。
+
+        返回 unit dict 列表（unit_id / shots / references），供 step2 prompt 渲染
+        （``render_reference_units_for_step2``）作唯一基底——step2 不解析自由文本。
+        校验：结构合法（``ReferenceStep1Draft``）、units 非空、unit_id 唯一、
+        shot ``duration`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
+        防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``step1_reference_units.md`` 时给
+        明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
+        与 narration 同决策）。
+        """
+        drafts_path = episode_drafts_dir(self.project_path, episode)
+        step1_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
+        if not step1_json.exists():
+            legacy_md = drafts_path / REFERENCE_VIDEO_STEP1_LEGACY_FILENAME
+            if legacy_md.exists():
+                raise FileNotFoundError(
+                    f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {step1_json}；"
+                    f"请重跑 split-reference-video-units 产出结构化 {REFERENCE_VIDEO_STEP1_FILENAME}"
+                )
+            raise FileNotFoundError(
+                f"未找到 Step 1 中间文件: {step1_json}；generation_mode=reference_video 期望该文件，"
+                "请先完成 video_unit 拆分"
+            )
+
+        try:
+            raw = json.loads(step1_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"step1_reference_units.json 解析失败: {e}")
+
+        try:
+            draft = ReferenceStep1Draft.model_validate(raw)
+        except ValidationError as e:
+            raise ValueError(f"step1_reference_units.json 结构校验失败: {e}")
+
+        units = [u.model_dump() for u in draft.units]
+        if not units:
+            raise ValueError("step1_reference_units.json units 为空")
+
+        ids = [u["unit_id"] for u in units]
+        dupes = sorted(uid for uid, count in Counter(ids).items() if count > 1)
+        if dupes:
+            raise ValueError(f"step1_reference_units.json unit_id 重复: {dupes}")
+
+        allowed = {int(d) for d in supported_durations}
+        bad = sorted({s["duration"] for u in units for s in u["shots"] if s["duration"] not in allowed})
+        if bad:
+            raise ValueError(f"step1_reference_units.json shot duration 非法（不在 {sorted(allowed)} 内）: {bad}")
+
+        return units
 
     def _load_narration_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
         """加载并校验 narration step1 结构化中间文件 ``step1_segments.json``。

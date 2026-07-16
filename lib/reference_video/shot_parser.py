@@ -116,14 +116,19 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
 
     if not segments:
         # 无 header → 单镜头
-        return [Shot(duration=1, text=text.strip())], _extract_mentions(text), True
+        return [Shot(duration=1, text=text.strip())], extract_mentions(text), True
 
     shots = [Shot(duration=d, text=t) for d, t in segments]
-    mentions = _extract_mentions(text)
+    mentions = extract_mentions(text)
     return shots, mentions, False
 
 
-def _extract_mentions(text: str) -> list[str]:
+def extract_mentions(text: str) -> list[str]:
+    """提取文本中的 @ 引用名（保持首次出现顺序、去重）。
+
+    与 ``parse_prompt`` 的 mention 口径同源；参考生视频 step1 拆分工具据此从
+    shot 文本机械派生 unit 的 references 列表（顺序即 [图N] 编号）。
+    """
     seen: set[str] = set()
     result: list[str] = []
     for _start, _end, name in _iter_mentions(text):

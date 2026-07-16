@@ -10,7 +10,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 | `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 每场景一张分镜图作起始帧 |
 | `grid` | `narration` | `segments[]` + 宫格分组 | split-narration-segments | `step1_segments.json` | NarrationEpisodeScript | 宫格图切块 |
 | `grid` | `drama` | `scenes[]` + 宫格分组 | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 宫格图切块 |
-| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.md` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
+| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.json` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
 
 > `effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`。缺省回退到图生视频（storyboard）。
 >
@@ -22,7 +22,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 ```
 Step 3 预处理（按 effective_mode(project, episode) 分派；中间文件统一位于 drafts/episode_{N}/）
-  effective_mode = reference_video        → dispatch split-reference-video-units → step1_reference_units.md
+  effective_mode = reference_video        → dispatch split-reference-video-units → step1_reference_units.json
   effective_mode ∈ {storyboard, grid}：
     content_mode = narration               → dispatch split-narration-segments   → step1_segments.json
     content_mode = drama                   → dispatch normalize-drama-script     → step1_normalized_script.json（结构化内容）

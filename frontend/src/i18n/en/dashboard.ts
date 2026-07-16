@@ -1221,6 +1221,7 @@ export default {
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_confirm_script_review': 'Confirm step 1 review',
   'tool_name_normalize_drama_script': 'Normalize drama script',
+  'tool_name_split_reference_video_units': 'Split reference video units',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',
   'tool_name_replan_episodes': 'Replan episodes',

@@ -16,7 +16,20 @@ def test_build_reference_video_prompt_contains_required_sections():
     characters = {"主角": {"description": "少年剑客"}, "张三": {"description": "酒客"}}
     scenes = {"酒馆": {"description": "黑木桌椅的江湖酒馆"}}
     props = {"长剑": {"description": "祖传青锋"}}
-    step1_md = "| unit | 时长 | shots | references |\n| E1U1 | 8s | 2 | 主角,酒馆 |"
+    step1_units = [
+        {
+            "unit_id": "E1U1",
+            "shots": [
+                {"duration": 5, "text": "@[主角] 推门走进 @[酒馆]"},
+                {"duration": 5, "text": "@[主角] 按住 @[长剑]"},
+            ],
+            "references": [
+                {"type": "character", "name": "主角"},
+                {"type": "scene", "name": "酒馆"},
+                {"type": "prop", "name": "长剑"},
+            ],
+        }
+    ]
 
     prompt = build_reference_video_prompt(
         project_overview=project_overview,
@@ -25,7 +38,7 @@ def test_build_reference_video_prompt_contains_required_sections():
         characters=characters,
         scenes=scenes,
         props=props,
-        units_md=step1_md,
+        step1_units=step1_units,
         supported_durations=[5, 8, 10],
         max_refs=9,
         aspect_ratio="9:16",
@@ -39,8 +52,10 @@ def test_build_reference_video_prompt_contains_required_sections():
     assert "主角" in prompt and "张三" in prompt
     assert "酒馆" in prompt
     assert "长剑" in prompt
-    # step1 内容必须透传
+    # 结构化 step1 须经机械渲染透传（unit_id / shot 文本 / references）
     assert "E1U1" in prompt
+    assert "@[主角] 推门走进 @[酒馆]" in prompt
+    assert "character:主角" in prompt
     # 关键 prompt 指令
     assert "@[名称]" in prompt
     assert "shots" in prompt
@@ -61,7 +76,7 @@ def test_build_reference_video_prompt_emphasizes_no_appearance_description():
         characters={"A": {"description": "d"}},
         scenes={},
         props={},
-        units_md="stub",
+        step1_units=[],
         supported_durations=[8],
         max_refs=9,
         episode=1,
@@ -78,7 +93,7 @@ def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
         characters={"A": {"description": "d"}},
         scenes={},
         props={},
-        units_md="stub",
+        step1_units=[],
         supported_durations=[8],
         max_refs=9,
         episode=1,
@@ -96,7 +111,7 @@ def test_build_reference_video_prompt_injects_max_duration():
         characters={},
         scenes={},
         props={},
-        units_md="stub",
+        step1_units=[],
         supported_durations=list(range(1, 16)),
         max_refs=7,
         max_duration=15,
@@ -115,7 +130,7 @@ def test_build_reference_video_prompt_max_duration_none_skips_segment():
         characters={},
         scenes={},
         props={},
-        units_md="stub",
+        step1_units=[],
         supported_durations=[4, 8],
         max_refs=9,
         episode=1,
@@ -135,7 +150,7 @@ def test_build_reference_video_prompt_constrains_unit_total_to_supported():
         characters={"甲": {"description": "d"}},
         scenes={},
         props={},
-        units_md="stub",
+        step1_units=[],
         supported_durations=[4, 8, 12],
         max_refs=9,
         max_duration=12,
@@ -147,7 +162,7 @@ def test_build_reference_video_prompt_constrains_unit_total_to_supported():
 
 
 def test_build_reference_video_prompt_injects_episode_constraints():
-    """reference_video prompt 必须告知 LLM 当前 episode，避免 unit_id 跨集污染（#574）。"""
+    """reference_video prompt 必须告知 LLM 当前 episode，避免 unit_id 跨集污染。"""
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
         style="s",
@@ -155,7 +170,7 @@ def test_build_reference_video_prompt_injects_episode_constraints():
         characters={},
         scenes={},
         props={},
-        units_md="stub",
+        step1_units=[],
         supported_durations=[8],
         max_refs=9,
         episode=3,
@@ -163,3 +178,95 @@ def test_build_reference_video_prompt_injects_episode_constraints():
     assert "第 3 集" in prompt
     assert "E3U" in prompt
     assert "<episode_constraints>" in prompt
+
+
+def test_build_reference_units_split_prompt_contains_constraints_and_candidates():
+    from lib.prompt_builders_reference import build_reference_units_split_prompt
+
+    prompt = build_reference_units_split_prompt(
+        novel_text="李明推门走进酒馆",
+        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        characters={"李明": {"description": "少年"}},
+        scenes={"酒馆": {"description": "江湖酒馆"}},
+        props={},
+        supported_durations=[4, 6, 8],
+        max_duration=12,
+        max_reference_images=3,
+        default_duration=4,
+        episode=2,
+        target_language="中文",
+    )
+    assert "李明推门走进酒馆" in prompt
+    assert "李明" in prompt and "酒馆" in prompt
+    # episode 注入 unit_id 前缀
+    assert "E2U" in prompt
+    assert "E1U" not in prompt
+    # 能力约束：档位集合、总时长上限、references 上限、默认偏好
+    assert "4, 6, 8" in prompt
+    assert "12 秒" in prompt
+    assert "不超过 3 个" in prompt
+    assert "默认取 4 秒" in prompt
+    # 关键写作纪律
+    assert "@[名称]" in prompt
+    assert "外貌" in prompt
+
+
+def test_build_reference_units_split_prompt_max_refs_none_skips_rule():
+    from lib.prompt_builders_reference import build_reference_units_split_prompt
+
+    prompt = build_reference_units_split_prompt(
+        novel_text="text",
+        project_overview={},
+        characters={},
+        scenes={},
+        props={},
+        supported_durations=[8],
+        max_duration=8,
+        max_reference_images=None,
+        default_duration=None,
+        episode=1,
+    )
+    assert "references 上限" not in prompt
+
+
+def test_build_reference_units_split_prompt_rejects_bad_inputs():
+    import pytest as _pytest
+
+    from lib.prompt_builders_reference import build_reference_units_split_prompt
+
+    common = dict(
+        novel_text="text",
+        project_overview={},
+        characters={},
+        scenes={},
+        props={},
+        max_duration=8,
+        max_reference_images=None,
+        episode=1,
+    )
+    with _pytest.raises(ValueError, match="supported_durations"):
+        build_reference_units_split_prompt(supported_durations=[], default_duration=None, **common)
+    with _pytest.raises(ValueError, match="default_duration"):
+        build_reference_units_split_prompt(supported_durations=[4, 8], default_duration=5, **common)
+
+
+def test_render_reference_units_for_step2_mechanical():
+    """渲染是机械变换：unit_id / 总时长 / references / 各 shot 时长与文本逐项出现；畸形项跳过。"""
+    from lib.prompt_builders_reference import render_reference_units_for_step2
+
+    text = render_reference_units_for_step2(
+        [
+            {
+                "unit_id": "E1U01",
+                "shots": [{"duration": 4, "text": "@[甲] 起身"}, {"duration": 6, "text": "@[甲] 出门"}],
+                "references": [{"type": "character", "name": "甲"}],
+            },
+            {"unit_id": "E1U02", "shots": [{"duration": 8, "text": "@[甲] 回头"}], "references": []},
+        ]
+    )
+    assert "#### E1U01（预估总时长 10s）" in text
+    assert "references: character:甲" in text
+    assert "Shot 1 (4s): @[甲] 起身" in text
+    assert "Shot 2 (6s): @[甲] 出门" in text
+    assert "#### E1U02（预估总时长 8s）" in text
+    assert "references: （无）" in text

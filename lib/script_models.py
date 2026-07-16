@@ -888,6 +888,43 @@ class ReferenceVideoScript(BaseModel):
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
 
 
+# ============ 参考生视频 step1 结构化中间态 ============
+#
+# 两段式职责切分（与 narration / drama 同机制，见 ADR 0041）：step1（video_unit 拆分）产出
+# 内容层（unit 边界 + 各 shot 叙事文本与时长 + references 列表），step2（generate-script）
+# 以此为唯一基底生成 ReferenceVideoScript 的视觉编排（景别 / 构图 / 运镜扩写）。
+
+
+class ReferenceStep1Unit(BaseModel):
+    """参考生视频 step1（video_unit 拆分）产出的结构化单元：内容层。
+
+    ``references`` 由拆分工具从各 shot 文本的 ``@[名称]`` 引用机械派生（并集、首现顺序，
+    顺序决定 [图N] 编号），不经 LLM 输出——对 LLM 隐藏（SkipJsonSchema），从工程上杜绝
+    references 与正文引用不一致；读取校验照常生效。unit 总时长上限与 references 上限
+    依赖运行时视频能力值，由拆分工具后校验，不进本模型。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    unit_id: str = Field(min_length=1, description="格式 E{集}U{序号}")
+    shots: list[Shot] = Field(min_length=1, max_length=4, description="1-4 个 shot，text 用 @[名称] 引用已注册资产")
+    references: SkipJsonSchema[list[ReferenceResource]] = Field(
+        default_factory=list,
+        description="参考图引用，从 shots 文本的 @ 引用派生（首现顺序，决定 [图N] 编号）",
+    )
+
+
+class ReferenceStep1Draft(BaseModel):
+    """参考生视频 step1 结构化中间态（``drafts/episode_N/step1_reference_units.json`` 的 schema）。
+
+    顶层容忍附加字段（与 NarrationStep1Draft 同口径），读时按本模型校验。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    units: list[ReferenceStep1Unit] = Field(description="video_unit 列表")
+
+
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
 
 
@@ -1005,6 +1042,38 @@ def build_ad_reference_episode_script_model() -> type[BaseModel]:
     return _ad_episode_model(
         Annotated[int, Field(ge=low, le=high)],
         f"镜头时长（秒），{low}-{high} 间整数任选",
+    )
+
+
+def build_reference_units_step1_model(supported_durations: list[int]) -> type[BaseModel]:
+    """构造单 shot 时长被 ``supported_durations`` 枚举硬约束的参考生视频 step1 模型。
+
+    拆分阶段单 shot 时长即取自 ``supported_durations``（response_schema 渲染为 enum / const，
+    LLM 生成层被卡死），与 step2 「unit 总时长 ∈ supported_durations」的约束衔接：step2 在
+    成员时长的 shot 上重编排即可凑出合法 unit 总时长。unit 总时长上限（≤ max_duration）与
+    references 上限依赖运行时能力值、不进 schema，由拆分工具后校验。静态 ``Shot.duration``
+    的 1-15 区间仍作读取侧兜底。
+    """
+    shot = create_model(
+        "Shot",
+        __base__=Shot,
+        duration=(
+            _duration_literal(supported_durations),
+            Field(description="镜头时长（秒），必须取 supported_durations 中的值"),
+        ),
+    )
+    unit = create_model(
+        "ReferenceStep1Unit",
+        __base__=ReferenceStep1Unit,
+        shots=(
+            list[shot],
+            Field(min_length=1, max_length=4, description="1-4 个 shot，text 用 @[名称] 引用已注册资产"),
+        ),
+    )
+    return create_model(
+        "ReferenceStep1Draft",
+        __base__=ReferenceStep1Draft,
+        units=(list[unit], Field(description="video_unit 列表")),
     )
 
 

@@ -270,3 +270,43 @@ class TestAdReferenceModel:
         assert "enum" not in field_schema
         assert field_schema.get("minimum") == 1
         assert field_schema.get("maximum") == 15
+
+
+class TestReferenceUnitsStep1Model:
+    """build_reference_units_step1_model：单 shot 时长枚举硬约束 + references 对 LLM 隐藏。"""
+
+    def _model(self):
+        from lib.script_models import build_reference_units_step1_model
+
+        return build_reference_units_step1_model([4, 6, 8])
+
+    def test_shot_duration_rendered_as_enum_and_references_hidden(self):
+        schema = self._model().model_json_schema()
+        defs = schema.get("$defs", {})
+        shot_def = next(d for d in defs.values() if "duration" in d.get("properties", {}))
+        assert shot_def["properties"]["duration"]["enum"] == [4, 6, 8]
+        unit_def = next(d for d in defs.values() if "shots" in d.get("properties", {}))
+        # references 由拆分工具机械派生，不进 LLM 输出 schema
+        assert "references" not in unit_def["properties"]
+
+    def test_member_duration_accepted_and_defaults_filled(self):
+        draft = self._model().model_validate(
+            {"units": [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[甲] 起身"}]}]}
+        )
+        dumped = draft.model_dump()
+        assert dumped["units"][0]["references"] == []
+
+    def test_out_of_set_duration_rejected(self):
+        import pytest as _pytest
+        from pydantic import ValidationError as _VE
+
+        with _pytest.raises(_VE):
+            self._model().model_validate({"units": [{"unit_id": "E1U01", "shots": [{"duration": 5, "text": "x"}]}]})
+
+    def test_more_than_four_shots_rejected(self):
+        import pytest as _pytest
+        from pydantic import ValidationError as _VE
+
+        shots = [{"duration": 4, "text": f"s{i}"} for i in range(5)]
+        with _pytest.raises(_VE):
+            self._model().model_validate({"units": [{"unit_id": "E1U01", "shots": shots}]})

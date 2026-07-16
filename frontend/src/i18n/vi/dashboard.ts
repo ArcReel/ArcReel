@@ -1341,6 +1341,7 @@ export default {
   'tool_name_generate_episode_script': 'Tạo kịch bản',
   'tool_name_confirm_script_review': 'Xác nhận duyệt Step 1',
   'tool_name_normalize_drama_script': 'Chuẩn hóa kịch bản',
+  'tool_name_split_reference_video_units': 'Tách đơn vị video tham chiếu',
   'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
   'tool_name_plan_episodes': 'Lập kế hoạch chia tập',
   'tool_name_replan_episodes': 'Sắp xếp lại các tập',

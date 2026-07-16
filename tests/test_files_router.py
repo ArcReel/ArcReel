@@ -483,9 +483,9 @@ class TestFilesRouter:
         assert files._extract_step_number("not-match.md") == 0
         assert files._get_step_files("narration") == {1: "step1_segments.json"}
         assert files._get_step_files("drama") == {1: "step1_normalized_script.json"}
-        # reference_video 走独立的 step1 文件
-        assert files._get_step_files("drama", "reference_video") == {1: "step1_reference_units.md"}
-        assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.md"}
+        # reference_video 走独立的结构化 step1 文件
+        assert files._get_step_files("drama", "reference_video") == {1: "step1_reference_units.json"}
+        assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.json"}
         # 其他 generation_mode 回落到 content_mode
         assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.json"}
         assert files._get_step_title("step1_segments.json", _t) == "片段拆分"
@@ -493,6 +493,8 @@ class TestFilesRouter:
         assert files._get_step_title("step1_segments.md", _t) == "片段拆分"
         assert files._get_step_title("step1_normalized_script.json", _t) == "规范化剧本"
         assert files._get_step_title("step1_normalized_script.md", _t) == "规范化剧本"
+        assert files._get_step_title("step1_reference_units.json", _t) == "片段拆分"
+        # 旧 step1_reference_units.md 仍保留标题映射，便于存量在制品浏览
         assert files._get_step_title("step1_reference_units.md", _t) == "片段拆分"
         assert files._get_step_title("unknown.md", _t) == "unknown.md"
 
@@ -506,7 +508,8 @@ class TestFilesRouter:
         assert resolved.name == "step1_segments.md"
 
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
-        """参考生视频模式下读/写 step1_reference_units.md，避免被按 content_mode 错误路由"""
+        """参考生视频模式下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
+        旧 .md 仅存量兼读，写入落结构化 .json"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
@@ -518,6 +521,7 @@ class TestFilesRouter:
 
         drafts_dir = project_dir / "drafts" / "episode_1"
         drafts_dir.mkdir(parents=True, exist_ok=True)
+        # 主文件缺失时旧 .md 作为读取候选（存量在制品兼读）
         (drafts_dir / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
         with client:
@@ -525,14 +529,19 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.text == "E1U1 stub"
 
-            # 写入时按 generation_mode 路由到 step1_reference_units.md
+            # 写入时按 generation_mode 路由到结构化 step1_reference_units.json
             update = client.put(
                 "/api/v1/projects/demo/drafts/1/step1",
-                content="E1U1 edited",
+                content='{"units": []}',
                 headers={"content-type": "text/plain"},
             )
             assert update.status_code == 200
-            assert update.json()["path"] == "drafts/episode_1/step1_reference_units.md"
+            assert update.json()["path"] == "drafts/episode_1/step1_reference_units.json"
+
+            # 结构化 .json 存在后优先于旧 .md
+            resp = client.get("/api/v1/projects/demo/drafts/1/step1")
+            assert resp.status_code == 200
+            assert resp.text == '{"units": []}'
 
     def test_draft_content_fallback_when_mode_mismatches_file(self, tmp_path, monkeypatch):
         """content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
@@ -569,7 +578,7 @@ class TestFilesRouter:
                 headers={"content-type": "text/plain"},
             )
             assert update.status_code == 200
-            assert update.json()["path"] == "drafts/episode_2/step1_reference_units.md"
+            assert update.json()["path"] == "drafts/episode_2/step1_reference_units.json"
 
         # _load_project_modes 走 load_project：不存在项目 → ("drama", None) 回退
         content_mode, gen_mode = files._load_project_modes("no-such-project", 1)
