@@ -29,10 +29,10 @@ from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource, ad_script_total_duration
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
+from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     assert_duration_supported,
     collect_product_references_for_names,
-    get_media_generator,
     get_project_manager,
 )
 
@@ -102,8 +102,8 @@ def _apply_provider_constraints(
 ) -> tuple[list[Path], int, list[dict]]:
     """按供应商上限裁剪 references / duration；回传 warnings（i18n key + 参数）。
 
-    `max_refs` / `max_duration` 由调用方从 `ConfigResolver.video_capabilities_for_project`
-    取得（model 粒度，单一真相源）；任意一项为 None 表示不做对应裁剪。
+    `max_refs` / `max_duration` 由调用方从 GenerationContext 的 video lane 取得（model 粒度，
+    单一真相源）；任意一项为 None 表示不做对应裁剪。
     """
     warnings: list[dict] = []
 
@@ -307,44 +307,26 @@ async def execute_reference_video_task(
     else:
         source_refs = _resolve_unit_references(project, project_path, unit.get("references") or [])
 
-    # 3. 构造 generator（拿到 video_backend 名字后才能做 provider 特判）
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
-    backend = getattr(generator, "_video_backend", None)
-    provider_name = getattr(backend, "name", "") if backend else ""
-    model_name = getattr(backend, "model", "") if backend else ""
+    # 3. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
+    #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
+    #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
+    #    registry provider_id。
+    ctx = await resolve_generation_context(
+        project_name, payload, project=project, user_id=user_id, video=VideoLaneRequest()
+    )
+    generator = ctx.generator
+    video = ctx.video
+    provider_name = video.backend_name
+    model_name = video.backend_model
 
-    # 4. 解析 model 粒度能力上限（单一真相源：model.supported_durations）。
-    #    失败时 fallback 到 None（不裁剪，交由 backend 自行报错），与
-    #    ScriptGenerator._fetch_video_capabilities 的口径保持一致。
-    #
-    #    注意：caps 基于 `project.json.video_backend` 解析；但自定义 provider 的 model
-    #    被禁用时，`lib.custom_provider.loader.load_custom_backend` 会静默回退到默认启用
-    #    model。为避免"按旧模型 clamp、按新模型生成"
-    #    的错位，下面校验 caps.model 与 backend.model 是否一致；不一致就 skip clamp，
-    #    把决策推给 backend 自报错。根治需要 `VideoCapabilities` 协议暴露 `max_duration`，
-    #    本 PR 范围内先缓解。
-    max_refs: int | None = None
-    max_duration: int | None = None
-    supported_durations: list[int] = []
-    resolver = ConfigResolver(async_session_factory)
-    try:
-        caps = await resolver.video_capabilities_for_project(project)
-        caps_model = caps.get("model")
-        if model_name and caps_model and caps_model != model_name:
-            logger.warning(
-                "project.json video_backend model (%s) 与实际 backend model (%s) 不一致，"
-                "跳过 executor clamp 以避免按错误模型裁剪（常见于自定义模型禁用回退）。",
-                caps_model,
-                model_name,
-            )
-        else:
-            max_refs = caps.get("max_reference_images")
-            max_duration = caps.get("max_duration")
-            # caps 与实际 backend model 一致时才取 supported_durations 做 duration 能力守卫；
-            # 不一致（caps 不可信）时留空，守卫遇空集放行，把决策推给 backend（与 clamp 同口径）。
-            supported_durations = [int(d) for d in caps.get("supported_durations") or []]
-    except (ValueError, SQLAlchemyError) as exc:
-        logger.info("无法解析 video_capabilities，跳过 executor clamp：%s", exc)
+    # 4. model 粒度能力上限（单一真相源：model.supported_durations）。能力按实际 backend
+    #    身份（provider_id + backend.model）查得：自定义模型禁用回退时也直接命中活跃 model
+    #    的能力，不再出现"按旧模型裁剪、按新模型生成"的错位，原 caps.model 一致性防御分支
+    #    随之消解。查询失败时 lane 已把能力降级为空值/None——守卫遇空集放行、clamp 不施加
+    #    上限，把决策推给 backend，与 ScriptGenerator._fetch_video_capabilities 的口径一致。
+    max_refs = video.max_reference_images
+    max_duration = video.max_duration
+    supported_durations = list(video.supported_durations)
 
     # 5. Provider 特判：裁 refs + duration。ad 的参考裁剪走专用口径（产品 sheet
     #    跨产品稳定前置存活），时长裁剪与通用路径共用。
@@ -377,16 +359,9 @@ async def execute_reference_video_task(
     # 它不修正、会漏给 backend 报 400；这里与普通视频路径对称地本地拦下（VideoCapabilityError）。
     assert_duration_supported(effective_duration, supported_durations)
 
-    # resolver key 必须是 registry provider_id（project.video_backend 的 "/" 前半段），
-    # 而非 backend.name（如 "gemini"）——与 generation_tasks.execute_video_task 保持一致。
-    from lib.config.resolver import get_provider_fallback
-
-    video_backend_raw = project.get("video_backend") or ""
-    registry_provider_id = video_backend_raw.split("/", 1)[0] if "/" in video_backend_raw else provider_name
-
-    resolution = await resolver.resolve_resolution(project, registry_provider_id or provider_name, model_name or "")
-    if resolution is None:
-        resolution = get_provider_fallback(provider_name)
+    # 参考视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
+    # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
+    resolution = video.resolution_or_fallback
 
     # 6. 渲染 prompt。ad：镜头文本 + 裁剪后参考的 [图N] 对照表 + 保真/反向尾词。
     #    narration/drama：@→[图N] 替换——必须按 `constrained_refs` 的长度裁

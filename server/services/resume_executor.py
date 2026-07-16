@@ -11,14 +11,13 @@ import asyncio
 import logging
 from typing import Any
 
-from lib.media_generator import MediaGenerator
 from lib.project_change_hints import project_change_source
+from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     DEFAULT_USER_ID,
     _finalize_video_task,
     emit_generation_success_batch,
     get_aspect_ratio,
-    get_media_generator,
     get_project_manager,
 )
 from server.services.reference_video_tasks import _finalize_reference_video_unit
@@ -53,14 +52,17 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         )
     )
 
-    # require_image_backend=False：resume 路径用不到 image backend；若 image 配置在
-    # submit→重启之间被破坏，整段 resume 不该被无关检查弄失败（provider job 仍在跑）。
-    generator: MediaGenerator = await get_media_generator(
+    # 仅声明 video lane：resume 路径用不到 image backend，不声明 image lane 即不构造它——
+    # 若 image 配置在 submit→重启之间被破坏，整段 resume 不该被无关检查弄失败（provider
+    # job 仍在跑）。provider/backend 身份解析收口于 GenerationContext（docs/adr/0049）。
+    ctx = await resolve_generation_context(
         project_name,
-        payload=payload,
+        payload,
+        project=project,
         user_id=user_id,
-        require_image_backend=False,
+        video=VideoLaneRequest(),
     )
+    generator = ctx.generator
 
     aspect_ratio = get_aspect_ratio(project, "videos") if task_type == "video" else project.get("aspect_ratio", "9:16")
     # 浮点数字符串（如 "8.0"）直接 int() 会抛 ValueError；先 float 再 int 兜底脏数据
