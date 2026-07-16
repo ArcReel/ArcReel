@@ -6,6 +6,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { selectActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import type { AdEpisodeScript, EpisodeScript, ProjectData } from "@/types";
 
@@ -321,6 +322,7 @@ describe("StudioCanvasRouter", () => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useAppStore.setState(useAppStore.getInitialState(), true);
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
+    useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
@@ -438,6 +440,10 @@ describe("StudioCanvasRouter", () => {
       );
       expect(useAppStore.getState().toast?.text).toContain("生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
+      // 入队成功后应立即乐观占用该角色，避免 SSE 轮询落地前的空窗被误判为空闲
+      // 而并发触发 image_edit（见 tasks-store.ts 乐观占用小节）。
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      expect(selectActiveResourceIds(tasks, "character", "demo", optimisticActive).has("Hero")).toBe(true);
     });
 
     // Test add character flow: click "add" button is not directly accessible in CharacterCard mock;
@@ -509,6 +515,50 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
+  it("marks scene generation as optimistically active on submit success", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateProjectScene").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+
+    renderAt("/scenes");
+    fireEvent.click(screen.getByText("generate-scene"));
+    await waitFor(() => {
+      expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple", "ancient temple");
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      expect(selectActiveResourceIds(tasks, "scene", "demo", optimisticActive).has("Temple")).toBe(true);
+    });
+  });
+
+  it("marks prop generation as optimistically active on submit success", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateProjectProp").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+
+    renderAt("/props");
+    fireEvent.click(screen.getByText("generate-prop"));
+    await waitFor(() => {
+      expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword", "rusty sword");
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      expect(selectActiveResourceIds(tasks, "prop", "demo", optimisticActive).has("Sword")).toBe(true);
+    });
+  });
+
   it("runs product callbacks and reports API failures with toast", async () => {
     const projectData = makeProjectData({
       products: { Phone: { description: "sleek phone" } },
@@ -545,6 +595,8 @@ describe("StudioCanvasRouter", () => {
       expect(generateSpy).toHaveBeenCalledWith("demo", "Phone", "sleek phone");
       expect(useAppStore.getState().toast?.text).toContain("标准参考图生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      expect(selectActiveResourceIds(tasks, "product", "demo", optimisticActive).has("Phone")).toBe(true);
     });
 
     fireEvent.click(screen.getByText("add-product"));
@@ -868,6 +920,8 @@ describe("StudioCanvasRouter", () => {
         "drama image prompt",
         "episode_1.json",
       );
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      expect(selectActiveResourceIds(tasks, "storyboard", "demo", optimisticActive).has("SEG-1")).toBe(true);
     });
   });
 

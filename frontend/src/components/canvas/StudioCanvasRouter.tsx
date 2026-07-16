@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { useActiveResourceIds } from "@/stores/tasks-store";
+import { useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
@@ -221,6 +221,10 @@ export function StudioCanvasRouter() {
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
       );
+      // 乐观占用：入队成功到 SSE 下一次轮询把新任务行写进 store 之间有 ~3s 空窗，
+      // 期间同资源的 ImageEditButton 会误判为空闲，可并发提交 image_edit 与本次
+      // 重新生成竞争同一张 current 图（两者 task_type 不同，后端 dedupe 索引不拦）。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "storyboard", segmentId, "storyboard");
       useAppStore.getState().pushToast(tRef.current("storyboard_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: errMsg(err) }), "error");
@@ -329,6 +333,8 @@ export function StudioCanvasRouter() {
         name,
         currentProjectData?.characters?.[name]?.description ?? "",
       );
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "character", name, "character");
       useAppStore
         .getState()
         .pushToast(tRef.current("character_task_submitted_toast", { name }), "success");
@@ -378,6 +384,8 @@ export function StudioCanvasRouter() {
     if (!currentProjectName) return;
     try {
       await API.generateProjectScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "scene", name, "scene");
       useAppStore.getState().pushToast(tRef.current("scene_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
@@ -411,6 +419,8 @@ export function StudioCanvasRouter() {
     if (!currentProjectName) return;
     try {
       await API.generateProjectProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "prop", name, "prop");
       useAppStore.getState().pushToast(tRef.current("prop_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
@@ -448,6 +458,8 @@ export function StudioCanvasRouter() {
         name,
         currentProjectData?.products?.[name]?.description ?? "",
       );
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "product", name, "product");
       useAppStore.getState().pushToast(tRef.current("product_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
