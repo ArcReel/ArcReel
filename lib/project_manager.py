@@ -24,6 +24,7 @@ import portalocker
 from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
+from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import episode_script_relpath
@@ -2276,3 +2277,20 @@ class ProjectManager:
 
         logger.info("项目概述已生成并保存")
         return overview_dict
+
+
+_project_manager: ProjectManager | None = None
+
+
+def get_project_manager() -> ProjectManager:
+    """返回懒加载的全局 ProjectManager 单例（标准项目根目录）。"""
+    global _project_manager
+    if _project_manager is None:
+        _project_manager = ProjectManager(app_data_dir())
+    return _project_manager
+
+
+def _reset_project_manager_for_tests() -> None:
+    """清空缓存的单例，供测试在不同 app_data_dir 场景间重置。"""
+    global _project_manager
+    _project_manager = None

@@ -16,11 +16,10 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from lib.app_data_dir import app_data_dir
 from lib.i18n import Translator
 from lib.image_utils import normalize_storyboard_upload
 from lib.project_change_hints import project_change_source
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
@@ -41,12 +40,6 @@ from server.services.upload_finalize import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
 
 
 @router.post("/projects/{project_name}/shots/{shot_id}/upload/{kind}")

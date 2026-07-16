@@ -15,13 +15,12 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, NotFoundError
-from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
 from lib.config.resolver import ConfigResolver
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
@@ -29,14 +28,6 @@ from lib.storyboard_sequence import (
 from server.auth import CurrentUser
 
 router = APIRouter()
-
-# 初始化管理器
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
-
 
 # ==================== 请求模型 ====================
 

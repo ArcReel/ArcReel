@@ -29,14 +29,13 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, ProjectManager, SourceKind
+from lib.project_manager import EpisodeScriptReboundError, SourceKind, get_project_manager
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -50,19 +49,14 @@ from server.services.project_cover import resolve_project_cover
 
 router = APIRouter()
 
-# 初始化项目管理器和状态计算器
-pm = ProjectManager(app_data_dir())
-calc = StatusCalculator(pm)
+# 状态计算器
+calc = StatusCalculator(get_project_manager())
 
 # episode 字段白名单：只允许持久化合法的 on-disk 字段。
 # StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
 # 是读时计算值，禁止写回 project.json。title 不在白名单：它以剧本顶层 title 为唯一真相源，
 # 经 _apply_episode_sync 单向同步进 episodes[].title，专用端点 PATCH /episodes/{episode} 写入。
 EPISODE_PERSIST_FIELDS = {"script_file", "generation_mode"}
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
 
 
 def get_status_calculator() -> StatusCalculator:

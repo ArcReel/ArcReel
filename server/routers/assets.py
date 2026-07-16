@@ -12,25 +12,16 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_types import BUCKET_KEY, GLOBAL_LIBRARY_ASSET_TYPES, SHEET_KEY, validate_asset_name
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, get_project_manager
 from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assets", tags=["全局资产库"])
-
-# Module-level PM; overridable via monkeypatch in tests
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
-
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
