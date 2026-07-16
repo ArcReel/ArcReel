@@ -72,7 +72,7 @@ fi
 PROBE_ROOT=""
 PROBE_WT=""
 cleanup() {
-  if [[ -n "$PROBE_WT" && -d "$PROBE_WT" ]]; then
+  if [[ -n "$PROBE_WT" ]]; then
     git -C "$REPO" worktree remove --force "$PROBE_WT" >/dev/null 2>&1 || true
   fi
   if [[ -n "$PROBE_ROOT" && -d "$PROBE_ROOT" ]]; then
