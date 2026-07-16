@@ -651,6 +651,17 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
         raise ValueError(f"step1 拆分内容 duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
 
+def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: str) -> None:
+    """机械校验片段 ``novel_text`` 按序、完整覆盖源文，杜绝模型删减 / 改写 / 重排后仍被当真值落盘。
+
+    比对前去除全部空白：段落间换行是否保留属排版差异，不是 prompt 要求逐字保留的内容本身
+    （prompt 只禁止改标点 / 删减 / 改写字词）；空白之外的任一字符差异均判定为不合格。
+    """
+    combined = "".join(str(s.get("novel_text") or "") for s in segments)
+    if "".join(combined.split()) != "".join(novel_text.split()):
+        raise ValueError("step1 拆分内容 novel_text 未逐字、完整覆盖小说原文（存在删减、改写或重排）")
+
+
 def split_narration_segments_tool(ctx: ToolContext):
     @tool(
         "split_narration_segments",
@@ -736,6 +747,7 @@ def split_narration_segments_tool(ctx: ToolContext):
             if not isinstance(raw_segments, list) or not raw_segments:
                 raise ValueError("step1 拆分内容结构异常：segments 必须是非空的片段对象数组")
             _validate_narration_segments(raw_segments, supported_durations)
+            _validate_narration_novel_text_coverage(raw_segments, novel_text)
 
             drafts_dir = episode_drafts_dir(project_path, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)

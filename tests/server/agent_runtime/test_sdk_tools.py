@@ -2187,7 +2187,9 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
     """happy path：结构化片段 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True)
+    (src / "episode_1.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
     captured: dict[str, Any] = {}
     segments = [
         _nr_segment("E1S01", 4, "张三走向村口。", characters_in_segment=["张三"], scenes=["村口"]),
@@ -2268,6 +2270,64 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
     assert "step1 拆分内容结构校验失败" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: str, segments: list[dict]):
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True)
+    (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    return await _call(tool_obj, {"episode": 1})
+
+
+async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
+    """片段合并后比源文短（模型删减）：novel_text 完整性校验拦截，不落盘。"""
+    out = await _nr_source_and_call(
+        fake_ctx,
+        monkeypatch,
+        "张三走向村口。他停下脚步，久久凝望。",
+        [_nr_segment("E1S01", 4, "张三走向村口。")],
+    )
+    assert out.get("is_error") is True
+    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
+    """片段文字被模型改写（非逐字）：novel_text 完整性校验拦截，不落盘。"""
+    out = await _nr_source_and_call(
+        fake_ctx,
+        monkeypatch,
+        "张三走向村口。他停下脚步，久久凝望。",
+        [
+            _nr_segment("E1S01", 4, "张三缓缓走向村口。"),
+            _nr_segment("E1S02", 6, "他停下脚步，久久凝望。", segment_break=True),
+        ],
+    )
+    assert out.get("is_error") is True
+    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
+    """片段顺序被模型打乱：novel_text 完整性校验拦截，不落盘。"""
+    out = await _nr_source_and_call(
+        fake_ctx,
+        monkeypatch,
+        "张三走向村口。他停下脚步，久久凝望。",
+        [
+            _nr_segment("E1S01", 6, "他停下脚步，久久凝望。", segment_break=True),
+            _nr_segment("E1S02", 4, "张三走向村口。"),
+        ],
+    )
+    assert out.get("is_error") is True
+    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
