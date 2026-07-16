@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -652,18 +651,47 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
         raise ValueError(f"step1 拆分内容 duration_seconds 非法（不在 {sorted(allowed)} 内）: {bad}")
 
 
-_CJK_ADJACENT_WHITESPACE_RE = re.compile(r"(?<=[一-鿿　-〿＀-￯‘-‟])\s+(?=[一-鿿　-〿＀-￯‘-‟])")
+def _is_cjk_or_symbol(ch: str) -> bool:
+    """CJK 表意文字 / CJK 标点 / 全角字符 / 引号——本身不靠空格分词，也不是空格分词语言的字母。"""
+    cp = ord(ch)
+    return (
+        0x4E00 <= cp <= 0x9FFF  # CJK 统一表意文字
+        or 0x3000 <= cp <= 0x303F  # CJK 符号与标点（含全角句号、顿号等）
+        or 0xFF00 <= cp <= 0xFFEF  # 全角字符
+        or 0x2018 <= cp <= 0x201F  # 全角引号
+    )
+
+
+def _is_space_delimited_letter(ch: str) -> bool:
+    """英语 / 越南语等空格分词语言的字母——两侧都是这类字符时，空白才可能是有意义的分词间隔。"""
+    return ch.isalpha() and not _is_cjk_or_symbol(ch)
 
 
 def _normalize_for_coverage(text: str) -> str:
     """把空白折叠为单个空格，仅容忍空白的类型/数量差异，不抹去"有空白"这一事实本身。
 
-    中日韩表意文字 / 全角标点原生不靠空格分词，两侧相邻时中间的空白（无论是源文段落换行、还是
-    片段安全拼接引入的分隔符）一律视为排版噪声、直接清除；剩余空白（英语 / 越南语等空格分词
-    语言的词间空格）折叠为单个空格但不抹去，以便与拼接侧的处理对称、能检出词间空格丢失。
+    片段安全拼接引入的人工分隔符与源文本身的换行 / 半角标点等排版差异无法从字符本身区分，
+    因此只在空白两侧都是空格分词语言的字母（英语 / 越南语等）时才当作潜在词间空格保留（折叠为
+    单个空格，以便检出词间空格丢失）；两侧只要有一侧是 CJK 表意文字、CJK/全角标点或其他非字母
+    字符（含半角标点、数字），空白一律视为排版噪声直接清除——这类边界原生就不靠空格分词。
     """
-    text = _CJK_ADJACENT_WHITESPACE_RE.sub("", text)
-    return re.sub(r"\s+", " ", text).strip()
+    result: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if not ch.isspace():
+            result.append(ch)
+            i += 1
+            continue
+        j = i
+        while j < n and text[j].isspace():
+            j += 1
+        prev_ch = result[-1] if result else ""
+        next_ch = text[j] if j < n else ""
+        if _is_space_delimited_letter(prev_ch) and _is_space_delimited_letter(next_ch):
+            result.append(" ")
+        i = j
+    return "".join(result).strip()
 
 
 def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: str) -> None:

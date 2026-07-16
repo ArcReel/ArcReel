@@ -2360,6 +2360,24 @@ async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ct
     assert step1_path.exists()
 
 
+async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """片段边界落在半角标点后（源文无空白分隔）：安全拼接引入的空格须视为噪声清除，不应误报删减。"""
+    out = await _nr_source_and_call(
+        fake_ctx,
+        monkeypatch,
+        "张三走向村口.他停下脚步.",
+        [
+            _nr_segment("E1S01", 4, "张三走向村口."),
+            _nr_segment("E1S02", 6, "他停下脚步.", segment_break=True),
+        ],
+    )
+    assert out.get("is_error") is not True, out
+    step1_path = fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
+    assert step1_path.exists()
+
+
 async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
