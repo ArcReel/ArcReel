@@ -23,6 +23,35 @@ function renderHarness(path = "/") {
   );
 }
 
+type GetProjectResult = Awaited<ReturnType<typeof API.getProject>>;
+
+// 手动可控的 deferred promise，用于把 getProject 卡在「在途」状态精确编排两批
+// onChanges 的重叠时序（对齐 projects-store.test.ts 的既有模式）。
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function makeGetProjectResult(title: string): GetProjectResult {
+  return {
+    project: {
+      title,
+      content_mode: "narration",
+      style: "Anime",
+      episodes: [],
+      characters: { hero: { description: "勇者" } },
+      scenes: { 酒馆: { description: "小镇酒馆" } },
+      props: {},
+    },
+    scripts: {},
+  };
+}
+
 describe("useProjectEventsSSE", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -576,6 +605,96 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/characters");
     expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it("does not navigate to a stale focus target once a later SSE batch has queued a newer one", async () => {
+    // 复现:两批 onChanges 重叠到达,第一批的 refreshProject 仍在途(getProject 未落定)时
+    // 第二批已到达并把 queuedFocusRef 改写为自己的目标。第一批落定后不应消费已被取代的
+    // ref 值提前导航;要等第二批自己那一轮落定才导航到第二批的目标。
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: vi.fn() } as unknown as EventSource;
+    });
+
+    const d1 = deferred<GetProjectResult>();
+    const d2 = deferred<GetProjectResult>();
+    const getProjectSpy = vi
+      .spyOn(API, "getProject")
+      .mockReturnValueOnce(d1.promise)
+      .mockReturnValueOnce(d2.promise);
+
+    renderHarness("/");
+
+    // 第一批:聚焦角色 hero → /characters。发起后 getProject 卡在在途(d1 未 resolve)。
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-stale",
+          fingerprint: "fp-stale-1",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "filesystem",
+          changes: [
+            {
+              entity_type: "character",
+              action: "created",
+              entity_id: "hero",
+              label: "角色「hero」",
+              focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" },
+              important: true,
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+    expect(getProjectSpy).toHaveBeenCalledTimes(1);
+
+    // 第二批在第一批仍在途时到达:聚焦场景 酒馆 → /scenes，覆盖 queuedFocusRef。
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-stale-2",
+          fingerprint: "fp-stale-2",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "filesystem",
+          changes: [
+            {
+              entity_type: "scene",
+              action: "updated",
+              entity_id: "酒馆",
+              label: "场景「酒馆」",
+              focus: { pane: "scenes", anchor_type: "scene", anchor_id: "酒馆" },
+              important: true,
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+    // 在途合并:第二批只是排队，不会立即多发一次请求。
+    expect(getProjectSpy).toHaveBeenCalledTimes(1);
+
+    // 第一轮落定：不应提前导航到已被取代的第一批目标（/characters）。
+    await act(async () => {
+      d1.resolve(makeGetProjectResult("R1"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+
+    // 排队轮（第二批）落定：导航到第二批真正的目标（/scenes），且只发了这一次补充请求。
+    await act(async () => {
+      d2.resolve(makeGetProjectResult("R2"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/scenes");
+    });
+    expect(getProjectSpy).toHaveBeenCalledTimes(2);
   });
 
   it("extracts asset_fingerprints from SSE changes and updates store", async () => {

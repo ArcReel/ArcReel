@@ -174,16 +174,29 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     executeFocus(target);
   }, [executeFocus]);
 
-  const refreshProject = useCallback(async () => {
-    if (!projectName) return;
-    // 在途合并逻辑（单飞 + 排队再跑一轮 + 失败留旧）已下沉到 projects-store.refreshProject；
-    // 此处只保留 SSE 专属包装：失败时告警、刷新落定后消费排队的聚焦目标。
-    await useProjectsStore.getState().refreshProject(projectName, {
-      onError: (err) =>
-        pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning"),
-    });
-    flushQueuedFocus();
-  }, [flushQueuedFocus, projectName, pushNotification]);
+  const refreshProject = useCallback(
+    async (ownFocusTarget?: WorkspaceNotificationTarget | null) => {
+      if (!projectName) return;
+      // 在途合并逻辑（单飞 + 排队再跑一轮 + 失败留旧）已下沉到 projects-store.refreshProject；
+      // 此处只保留 SSE 专属包装：失败时告警、刷新落定后消费排队的聚焦目标。
+      //
+      // refreshProject 现在按轮次各自 resolve（见 projects-store），因此本次调用可能在
+      // 更晚一批 changes 已把 queuedFocusRef 改写为它自己的目标之后才落定——那个新目标
+      // 对应的数据要等它自己那一轮 getProject 完成才会写入 store。此时若仍消费 ref 里的
+      // 值，会拿着尚未落库的目标提前导航/滚动，且消费后 ref 被清空，那一批之后也不会
+      // 再重试。带 ownFocusTarget 时，只在 ref 仍是自己设置的那个值时才消费；已被更晚一批
+      // 取代则跳过——由那一批自己的调用在其对应轮次落定后消费。
+      await useProjectsStore.getState().refreshProject(projectName, {
+        onError: (err) =>
+          pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning"),
+      });
+      if (ownFocusTarget !== undefined && queuedFocusRef.current !== ownFocusTarget) {
+        return;
+      }
+      flushQueuedFocus();
+    },
+    [flushQueuedFocus, projectName, pushNotification],
+  );
 
   useEffect(() => {
     lastFingerprintRef.current = null;
@@ -252,6 +265,12 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             }
           }
 
+          // 本批 changes 若设置了新的聚焦目标，记入本地变量随本次 refreshProject 一并
+          // 传递——用于落定后核对 queuedFocusRef 是否仍是本批设置的那个值（未被更晚一批
+          // 覆盖），而不是无条件消费 ref 当前值。未设置新目标（如 draftHandled）时保持
+          // undefined，refreshProject 退回旧的「落定即消费」行为。
+          let ownFocusTarget: WorkspaceNotificationTarget | null | undefined;
+
           if (payload.source !== "webui") {
             // Draft 事件 — 自动导航到剧集预处理 Tab
             let draftHandled = false;
@@ -286,11 +305,12 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                   })
                   .find(Boolean) ?? null;
 
-              queuedFocusRef.current = isWorkspaceEditing() ? null : nextFocusTarget;
+              ownFocusTarget = isWorkspaceEditing() ? null : nextFocusTarget;
+              queuedFocusRef.current = ownFocusTarget;
             }
           }
 
-          void refreshProject();
+          void refreshProject(ownFocusTarget);
 
           // Refresh cost data when generation completes
           const hasGenerationEvent = payload.changes.some((c) =>
