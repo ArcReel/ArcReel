@@ -1,6 +1,6 @@
 ---
 name: pr-ai-review-loop
-description: 无人值守驱动 PR 的 review → 修复 → push → 再 review 循环,直到全部 AI reviewer 通过或触发收敛退出。何时调用:用户刚 push PR 或跑完 /commit-push-pr,或提及 PR 的 review / 审查。
+description: 无人值守驱动 PR 的 review → 修复 → push → 再 review 循环,直到全部 AI reviewer 通过或触发收敛退出。仅当用户明确要求运行或继续该编排循环,或本地会话刚完成 PR push 后要求继续收敛时调用;作为 GitHub reviewer 审查代码、仅阅读 PR 或处理单条 review 意见时不调用。
 ---
 
 # AI Review 自动循环
