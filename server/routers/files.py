@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -28,7 +27,7 @@ from lib.episode_paths import (
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import effective_mode, get_project_manager
 from lib.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -42,13 +41,6 @@ from lib.source_loader import (
 from server.auth import CurrentUser
 
 router = APIRouter()
-
-# 初始化项目管理器
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
 
 
 def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:

@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver, ProviderModel
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
 from lib.backend_assembly import assemble_backend
 from lib.config.registry import PROVIDER_REGISTRY
@@ -25,7 +24,7 @@ from lib.image_backends.base import ImageCapabilityError
 from lib.media_generator import MediaGenerator
 from lib.path_safety import safe_exists
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from lib.prompt_builders import (
     append_product_fidelity_tail,
     build_character_prompt,
@@ -54,16 +53,11 @@ from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
 from server.services.resolution_resolver import resolve_resolution
 
-pm = ProjectManager(app_data_dir())
 rate_limiter = get_shared_rate_limiter()
 logger = logging.getLogger(__name__)
 
 # 按 (channel, provider_name, model) 缓存 Backend 实例，避免每次任务重建 API 客户端
 _backend_cache: dict[tuple[str, str, str | None], Any] = {}
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
 
 
 def invalidate_backend_cache() -> None:

@@ -389,9 +389,9 @@ async def lifespan(app: FastAPI):
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
     # 把 agent_runtime_profile 同步到存量项目（manifest 物化，同步文件 I/O → worker 线程）
-    from lib.project_manager import ProjectManager
+    from lib.project_manager import get_project_manager
 
-    _pm = ProjectManager(app_data_dir())
+    _pm = get_project_manager()
     _profile_sync_stats = await asyncio.to_thread(_pm.sync_all_agent_profiles)
     _log_profile_sync_outcome(_profile_sync_stats)
 

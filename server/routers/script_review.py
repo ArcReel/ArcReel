@@ -10,22 +10,14 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException
 
-from lib.app_data_dir import app_data_dir
 from lib.i18n import Translator
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from server.auth import CurrentUser
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
-
 
 # gate 领域错误码 → (HTTP 状态, i18n key)。invalid_content / episode_not_found 带参数另行注入。
 _ERROR_STATUS: dict[str, int] = {

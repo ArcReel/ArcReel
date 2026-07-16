@@ -72,13 +72,11 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
     from server.routers import reference_videos as router_mod
 
     custom_pm = ProjectManager(projects_root)
-    monkeypatch.setattr(router_mod, "pm", custom_pm)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
 
     from server.services import generation_tasks as gt_mod
     from server.services import reference_video_tasks as rvt_mod
 
-    monkeypatch.setattr(gt_mod, "pm", custom_pm, raising=False)
     monkeypatch.setattr(gt_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(rvt_mod, "get_project_manager", lambda: custom_pm)
 

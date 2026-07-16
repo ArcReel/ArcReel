@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.app_data_dir import app_data_dir
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.service import (
     _DEFAULT_AUDIO_BACKEND,
@@ -35,19 +34,8 @@ from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from lib.text_backends.base import TextTaskType
-
-_project_manager: ProjectManager | None = None
-
-
-def get_project_manager() -> ProjectManager:
-    """返回共享的 ProjectManager 单例（使用标准项目根目录）。"""
-    global _project_manager
-    if _project_manager is None:
-        _project_manager = ProjectManager(app_data_dir())
-    return _project_manager
-
 
 logger = logging.getLogger(__name__)
 
