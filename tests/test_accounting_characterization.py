@@ -126,7 +126,8 @@ def _assert_full_row(actual: dict[str, Any], expected: dict[str, Any]) -> None:
     """整行断言：created_at / updated_at 仅要求为 datetime，其余列逐字段精确比对。"""
     actual = dict(actual)
     for column in ("created_at", "updated_at"):
-        assert isinstance(actual.pop(column), datetime), f"{column} 应为 datetime"
+        value = actual.pop(column)
+        assert isinstance(value, datetime), f"{column} 应为 datetime"
     assert actual == expected
 
 
