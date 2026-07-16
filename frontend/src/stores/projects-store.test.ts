@@ -161,6 +161,37 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("重排后");
   });
 
+  it("排队期间被更晚的不同项目请求取代：被取代的调用方立即收到 false，不与新项目的结果混同", async () => {
+    const dA = deferred<GetProjectResult>();
+    const dC = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dC.promise);
+
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A"); // 发起中
+    const pB = store.refreshProject("B"); // 排队 → queuedName = B
+    const pC = store.refreshProject("C"); // 排队期间到达不同项目：B 被 C 取代
+
+    // B 的调用方无需等 A / C 落定，在被取代的一刻就立即收到 false——
+    // 它请求的项目从未被真正拉取过，不能被并入 C 的结果。
+    const okB = await pB;
+    expect(okB).toBe(false);
+    // 只发起了 A 的请求；B 被取代时尚未轮到它，不产生任何请求。
+    expect(API.getProject).toHaveBeenCalledTimes(1);
+
+    dA.resolve(makeResult("A-数据"));
+    await flush();
+    // A 的响应到达，但排队目标已是 C：不提交（既有行为），且已发起 C 的请求。
+    expect(useProjectsStore.getState().currentProjectData?.title).not.toBe("A-数据");
+    expect(API.getProject).toHaveBeenCalledTimes(2);
+
+    dC.resolve(makeResult("C-数据"));
+    const [okA, okC] = await Promise.all([pA, pC]);
+    expect(okA).toBe(false);
+    expect(okC).toBe(true);
+    expect(useProjectsStore.getState().currentProjectName).toBe("C");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("C-数据");
+  });
+
   it("跨项目合并：A 在途时排队刷新 B，A 的响应不写入 store（避免覆盖排队中的 B）", async () => {
     useProjectsStore.getState().setCurrentProject("B", makeProject("B-旧"), {}, {});
     const dA = deferred<GetProjectResult>();

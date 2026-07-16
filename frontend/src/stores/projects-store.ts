@@ -154,6 +154,21 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
           // 已有刷新在途：合并为「结束后再跑一轮」，取最新 name，累积 invalidateKeys /
           // onError / resolve——排队轮次结束时需各自通知全部合并进来的调用方，
           // 而非共享首轮或末轮的单一结果。
+          //
+          // 排队期间到达的请求若指向和当前排队目标不同的项目，说明上一批排队请求
+          // 即将被本次覆盖——设计上只保留「结束后再跑一轮」这一个名额，取最新
+          // name，不会再为被覆盖的项目单独多跑一轮。因此上一批排队的调用方注定不会
+          // 被接下来实际执行的那一轮命中；不提前结算就会被并入并共享本次这个新项目
+          // 的结果，即便它们请求的从来不是这个项目（例如 B 排队后 C 覆盖，B 的调用方
+          // 会在 C 成功后错误地收到 true，但 store 从未同步过 B 的数据）。按「未同步」
+          // 立即结算为 false，不视为请求出错，因此不触发 onError。
+          if (refreshQueued && queuedName !== null && queuedName !== name) {
+            const supersededResolvers = queuedResolvers;
+            queuedResolvers = [];
+            queuedKeys = [];
+            queuedOnErrors = [];
+            supersededResolvers.forEach((r) => r(false));
+          }
           refreshQueued = true;
           queuedName = name;
           queuedKeys = [...queuedKeys, ...invalidateKeys];

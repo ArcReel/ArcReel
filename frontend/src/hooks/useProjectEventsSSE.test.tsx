@@ -607,6 +607,91 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 
+  it("一次不带聚焦目标的刷新（如 onSnapshot）落定时，不应抢先消费更晚一批 onChanges 排队的目标", async () => {
+    // onSnapshot 触发的 refreshProject() 不设置新的聚焦目标，落定后按旧逻辑会
+    // 无条件 flushQueuedFocus()。若它在途期间，一批带真实目标的 onChanges 已经
+    // 到达并排队（改写了 queuedFocusRef，但数据要等它自己那一轮 getProject 完成
+    // 才落库），onSnapshot 落定时若仍无条件消费 ref，会拿着尚未落库的目标提前
+    // 导航，且清空 ref 后 onChanges 那一批之后不再触发导航。
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: vi.fn() } as unknown as EventSource;
+    });
+
+    const d1 = deferred<GetProjectResult>();
+    const d2 = deferred<GetProjectResult>();
+    const getProjectSpy = vi
+      .spyOn(API, "getProject")
+      .mockReturnValueOnce(d1.promise)
+      .mockReturnValueOnce(d2.promise);
+
+    renderHarness("/");
+
+    // 建立初始 fingerprint 基线（首次 onSnapshot 不触发刷新）。
+    act(() => {
+      capturedOptions?.onSnapshot?.(
+        { project_name: "demo", fingerprint: "fp-a", generated_at: "2026-03-01T00:00:00Z" },
+        new MessageEvent("snapshot"),
+      );
+    });
+    expect(getProjectSpy).not.toHaveBeenCalled();
+
+    // fingerprint 变化触发一次不带聚焦目标的刷新，getProject 卡在在途（d1 未 resolve）。
+    act(() => {
+      capturedOptions?.onSnapshot?.(
+        { project_name: "demo", fingerprint: "fp-b", generated_at: "2026-03-01T00:00:01Z" },
+        new MessageEvent("snapshot"),
+      );
+    });
+    expect(getProjectSpy).toHaveBeenCalledTimes(1);
+
+    // 在途期间，一批带真实聚焦目标的 onChanges 到达并排队。
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-race",
+          fingerprint: "fp-race",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "filesystem",
+          changes: [
+            {
+              entity_type: "character",
+              action: "created",
+              entity_id: "hero",
+              label: "角色「hero」",
+              focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" },
+              important: true,
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+    // 在途合并：这批只是排队，不会立即多发一次请求。
+    expect(getProjectSpy).toHaveBeenCalledTimes(1);
+
+    // onSnapshot 那一轮落定：不应提前导航到 onChanges 排队的目标（/characters）。
+    await act(async () => {
+      d1.resolve(makeGetProjectResult("R1"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+
+    // onChanges 排队的那一轮落定：导航到它真正的目标，且只补发了这一次请求。
+    await act(async () => {
+      d2.resolve(makeGetProjectResult("R2"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/characters");
+    });
+    expect(getProjectSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("does not navigate to a stale focus target once a later SSE batch has queued a newer one", async () => {
     // 复现:两批 onChanges 重叠到达,第一批的 refreshProject 仍在途(getProject 未落定)时
     // 第二批已到达并把 queuedFocusRef 改写为自己的目标。第一批落定后不应消费已被取代的
