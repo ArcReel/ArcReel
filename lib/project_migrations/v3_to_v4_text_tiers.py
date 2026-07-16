@@ -49,8 +49,8 @@ def migrate_v3_to_v4(project_dir: Path) -> None:
     if not pj.exists():
         return
     data = load_json(pj)
-    # or 0：显式 null 与字段缺失同义（v0），直接比较 None >= 4 会 TypeError
-    if (data.get("schema_version") or 0) >= 4:
+    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
+    if int(data.get("schema_version") or 0) >= 4:
         return
     migrated = migrate_project_dict(data)
     migrated["schema_version"] = 4

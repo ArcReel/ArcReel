@@ -109,3 +109,17 @@ class TestMigrateV3ToV4File:
         d.mkdir()
         migrate_v3_to_v4(d)
         assert not (d / "project.json").exists()
+
+    def test_string_schema_version_is_normalized(self, tmp_path: Path):
+        """历史 project.json 可能存字符串版本号，守卫做 int 归一化而非抛 TypeError。"""
+        d = _write(tmp_path, {"schema_version": "3", "text_backend_script": "gemini-aistudio/pro"})
+        migrate_v3_to_v4(d)
+        data = _load(d)
+        assert data["schema_version"] == 4
+        assert data["text_backend_complex"] == "gemini-aistudio/pro"
+
+    def test_string_schema_version_guard_skips_v4(self, tmp_path: Path):
+        d = _write(tmp_path, {"schema_version": "4", "text_backend_script": "gemini-aistudio/pro"})
+        migrate_v3_to_v4(d)
+        data = _load(d)
+        assert data["text_backend_script"] == "gemini-aistudio/pro"
