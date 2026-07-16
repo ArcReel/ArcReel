@@ -202,9 +202,9 @@ export interface CreateProjectPayload {
   image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
-  text_backend_script?: string | null;
-  text_backend_overview?: string | null;
-  text_backend_style?: string | null;
+  text_backend_simple?: string | null;
+  text_backend_complex?: string | null;
+  default_text_backend?: string | null;
   model_settings?: Record<string, { resolution?: string | null }>;
 }
 

@@ -157,9 +157,9 @@ export function CreateProjectModal() {
     videoBackend: "",
     imageBackendT2I: "",
     imageBackendI2I: "",
-    textBackendScript: "",
-    textBackendOverview: "",
-    textBackendStyle: "",
+    textBackendDefault: "",
+    textBackendSimple: "",
+    textBackendComplex: "",
     defaultDuration: null,
     videoResolution: null,
     imageResolution: null,
@@ -209,9 +209,9 @@ export function CreateProjectModal() {
               sysConfig.settings.default_image_backend_i2i ??
               sysConfig.settings.default_image_backend ??
               "",
-            textScript: sysConfig.settings.text_backend_script ?? "",
-            textOverview: sysConfig.settings.text_backend_overview ?? "",
-            textStyle: sysConfig.settings.text_backend_style ?? "",
+            textDefault: sysConfig.settings.default_text_backend ?? "",
+            textSimple: sysConfig.settings.text_backend_simple ?? "",
+            textComplex: sysConfig.settings.text_backend_complex ?? "",
           },
         });
       } catch (err) {
@@ -284,9 +284,9 @@ export function CreateProjectModal() {
         video_backend: models.videoBackend || null,
         image_provider_t2i: models.imageBackendT2I || null,
         image_provider_i2i: models.imageBackendI2I || null,
-        text_backend_script: models.textBackendScript || null,
-        text_backend_overview: models.textBackendOverview || null,
-        text_backend_style: models.textBackendStyle || null,
+        default_text_backend: models.textBackendDefault || null,
+        text_backend_simple: models.textBackendSimple || null,
+        text_backend_complex: models.textBackendComplex || null,
         ...(Object.keys(modelSettings).length > 0 ? { model_settings: modelSettings } : {}),
       });
 
