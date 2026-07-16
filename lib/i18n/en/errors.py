@@ -1,5 +1,6 @@
 MESSAGES = {
     "project_not_found": "Project '{name}' does not exist or is not initialized",
+    "resource_not_found": "The requested resource does not exist",
     "overview_ai_response_invalid": "The AI response could not be parsed into a project overview. Please retry or switch to a different model/provider",
     "video_capabilities_unresolved": "Cannot resolve video model capabilities for project '{name}': {reason}",
     "scope_invalid": "scope must be full or current",

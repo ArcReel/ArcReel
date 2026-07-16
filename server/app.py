@@ -40,6 +40,7 @@ from lib.logging_config import attach_file_handler, migrate_legacy_log_dir, setu
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
+from server.error_handlers import register_error_handlers
 from server.routers import (
     agent_chat,
     agent_config,
@@ -453,6 +454,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# app 级异常处理器：异常→状态码→detail 映射的单点（见 server/error_handlers.py）
+register_error_handlers(app)
 
 # CORS 配置（env 驱动）：
 #   - CORS_ORIGINS 未设置 / 空 / 包含 "*" → 通配 origins，credentials 强制关闭
