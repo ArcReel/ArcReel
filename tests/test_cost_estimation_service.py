@@ -503,3 +503,25 @@ class TestCostEstimationService:
         # 这个契约同时排除掉 i2i 槽（gpt-image-1-edit）和 legacy（gemini-2.0-...）。
         assert result["models"]["image"]["provider"] == "unknown"
         assert result["models"]["image"]["model"] == "unknown"
+
+    async def test_cost_estimation_resolve_resolution_exception_degrades_gracefully(self, db_factory, monkeypatch):
+        """resolve_resolution 抛异常时预估整体降级而非中断，与 image/video/audio 三处 except 兜底同构。"""
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        async def _raise(self, project, provider_id, model_id):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(ConfigResolver, "resolve_resolution", _raise)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "episodes": [],
+        }
+
+        result = await service.compute(project_data, {}, project_name="test_resolution_exc")
+
+        # compute() 不因 resolve_resolution 异常而中断，其余字段照常返回
+        assert result["models"]["video"]["provider"] == "unknown"

@@ -76,7 +76,10 @@ class CostEstimationService:
             except Exception:
                 audio_provider, audio_model = "unknown", "unknown"
 
-            _resolved_resolution = await r.resolve_resolution(project_data, video_provider, video_model or "")
+            try:
+                _resolved_resolution = await r.resolve_resolution(project_data, video_provider, video_model or "")
+            except Exception:
+                _resolved_resolution = None
         video_resolution = _resolved_resolution or get_provider_fallback(video_provider)
 
         # Get actual costs
