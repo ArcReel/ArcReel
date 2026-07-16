@@ -239,8 +239,8 @@ class TestMediaGenerator:
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
         from lib.db.base import Base
+        from lib.db.repositories.usage_repo import UsageRepository
         from lib.ledger import Ledger
-        from lib.usage_tracker import UsageTracker
 
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         async with engine.begin() as conn:
@@ -258,8 +258,9 @@ class TestMediaGenerator:
                 duration_seconds="6",
             )
 
-            # 读侧仍走 UsageTracker（读侧未迁移）
-            item = (await UsageTracker(session_factory=factory).get_calls(project_name="demo"))["items"][0]
+            # 读侧直连 UsageRepository
+            async with factory() as session:
+                item = (await UsageRepository(session).get_calls(project_name="demo"))["items"][0]
             assert item["status"] == "success"
             assert item["duration_seconds"] == 15
         finally:

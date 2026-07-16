@@ -323,7 +323,6 @@ class UsageRepository(BaseRepository):
         settlement: SettlementInput,
         output_path: str | None = None,
         error_message: str | None = None,
-        retry_count: int = 0,
     ) -> None:
         finished_at = utc_now()
 
@@ -351,7 +350,6 @@ class UsageRepository(BaseRepository):
                 duration_ms=settled.duration_ms,
                 duration_seconds=settled.effective_duration_seconds,
                 generate_audio=settled.effective_generate_audio,
-                retry_count=retry_count,
                 cost_amount=settled.cost_amount,
                 currency=settled.currency,
                 usage_tokens=settlement.usage_tokens,

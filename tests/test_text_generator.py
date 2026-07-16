@@ -4,21 +4,25 @@ from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
+from lib.db.repositories.usage_repo import UsageRepository
 from lib.ledger import Ledger
 from lib.text_backends.base import TextGenerationRequest, TextGenerationResult
 from lib.text_generator import TextGenerator
-from lib.usage_tracker import UsageTracker
 
 
 @dataclass
 class _Wired:
-    """记账写侧注入 Ledger，读侧仍走 UsageTracker（读侧未迁移），共享同一内存库。"""
+    """记账写侧注入 Ledger，读侧直连 UsageRepository，共享同一内存库。"""
 
     ledger: Ledger
-    reader: UsageTracker
+    session_factory: async_sessionmaker[AsyncSession]
+
+    async def get_calls(self, **kwargs):
+        async with self.session_factory() as session:
+            return await UsageRepository(session).get_calls(**kwargs)
 
 
 @pytest.fixture
@@ -27,7 +31,7 @@ async def wired():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield _Wired(ledger=Ledger(session_factory=factory), reader=UsageTracker(session_factory=factory))
+    yield _Wired(ledger=Ledger(session_factory=factory), session_factory=factory)
     await engine.dispose()
 
 
@@ -61,7 +65,7 @@ class TestTextGenerator:
         assert result.input_tokens == 100
         assert result.output_tokens == 50
 
-        calls = await wired.reader.get_calls(project_name="demo")
+        calls = await wired.get_calls(project_name="demo")
         assert calls["total"] == 1
         item = calls["items"][0]
         assert item["call_type"] == "text"
@@ -82,7 +86,7 @@ class TestTextGenerator:
                 project_name="demo",
             )
 
-        calls = await wired.reader.get_calls(project_name="demo")
+        calls = await wired.get_calls(project_name="demo")
         assert calls["total"] == 1
         item = calls["items"][0]
         assert item["status"] == "failed"
@@ -96,7 +100,7 @@ class TestTextGenerator:
         result = await gen.generate(TextGenerationRequest(prompt="工具箱调用"))
 
         assert result.text == "生成的文本"
-        calls = await wired.reader.get_calls()
+        calls = await wired.get_calls()
         assert calls["total"] == 1
         item = calls["items"][0]
         assert item["project_name"] == ""

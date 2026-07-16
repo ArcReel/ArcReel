@@ -11,7 +11,6 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.project_manager import get_project_manager
-from lib.usage_tracker import UsageTracker
 from server.auth import CurrentUser
 from server.services.cost_estimation import CostEstimationService
 
@@ -48,8 +47,7 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser, _t: Translato
     project_data, scripts = await asyncio.to_thread(_sync)
 
     resolver = ConfigResolver(async_session_factory)
-    tracker = UsageTracker(session_factory=async_session_factory)
-    service = CostEstimationService(resolver, tracker)
+    service = CostEstimationService(resolver, async_session_factory)
 
     try:
         return await service.compute(project_data, scripts, project_name=project_name)

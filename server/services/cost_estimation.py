@@ -6,14 +6,16 @@ import logging
 import math
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.cost_calculator import cost_calculator
+from lib.db.repositories.usage_repo import UsageRepository
 from lib.grid.layout import calculate_grid_layout
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import effective_mode
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from lib.usage_tracker import UsageTracker
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +36,9 @@ def _merge_breakdowns(a: CostBreakdown, b: CostBreakdown) -> CostBreakdown:
 
 
 class CostEstimationService:
-    def __init__(self, resolver: ConfigResolver, tracker: UsageTracker) -> None:
+    def __init__(self, resolver: ConfigResolver, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._resolver = resolver
-        self._tracker = tracker
+        self._session_factory = session_factory
 
     async def compute(
         self,
@@ -84,7 +86,8 @@ class CostEstimationService:
         video_resolution = _resolved_resolution or get_provider_fallback(video_provider)
 
         # Get actual costs
-        actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
+        async with self._session_factory() as session:
+            actual_by_segment = await UsageRepository(session).get_actual_costs_by_segment(project_name)
 
         generation_mode = project_data.get("generation_mode", "single")
         # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
@@ -275,7 +278,8 @@ class CostEstimationService:
                 )
 
         # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
-        project_image_by_type = await self._tracker.get_project_image_costs_by_asset_type(project_name)
+        async with self._session_factory() as session:
+            project_image_by_type = await UsageRepository(session).get_project_image_costs_by_asset_type(project_name)
         for asset_type in ("characters", "scenes", "props", "products"):
             bucket = project_image_by_type.get(asset_type)
             if bucket:

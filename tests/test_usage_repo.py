@@ -42,7 +42,6 @@ class TestUsageRepository:
             status="success",
             settlement=SettlementInput(),
             output_path="storyboards/test.png",
-            retry_count=0,
         )
 
         calls = await repo.get_calls(project_name="demo")
