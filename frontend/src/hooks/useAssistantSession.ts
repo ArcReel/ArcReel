@@ -245,6 +245,11 @@ export function useAssistantSession(projectName: string | null) {
 
     async function init() {
       store.getState().setMessagesLoading(true);
+      // 切项目先重置时间线（与新建/切换/删除三条会话路径同口径），使有会话/
+      // 无会话两个分支都从干净状态出发：running 会话的 SSE 冷订阅游标由重置后
+      // 的空 entries 推导（等效从头订阅），不被上一个项目的残留条目污染，也不会
+      // 把旧项目条目混排进新会话时间线。
+      store.getState().resetTimeline();
       try {
         // 获取会话列表
         const res = await API.listAssistantSessions(projectName!);

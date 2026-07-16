@@ -579,4 +579,115 @@ describe("useAssistantSession", () => {
       expect(sendResult).toBe(false);
     });
   });
+
+  it("resets timeline on project switch so a running session's SSE cold cursor is not polluted by the previous project's residual entries", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(async (projectName) => ({
+      sessions: [makeSession(projectName === "project-a" ? "session-a" : "session-b", "running")],
+    }));
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "running"),
+    }));
+
+    const { rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+
+    // 项目 A：running 会话冷订阅建流，灌入残留条目
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+    act(() => {
+      MockEventSource.instances[0].emit("entry", userEntry(0, "A-0"));
+      MockEventSource.instances[0].emit("entry", {
+        seq: 1,
+        type: "assistant",
+        content: [{ type: "text", text: "A-1" }],
+        uuid: "a-1",
+      });
+    });
+    expect(useAssistantStore.getState().entries.map((e) => e.seq)).toEqual([0, 1]);
+
+    // 切到项目 B（其会话亦为 running）
+    rerender({ projectName: "project-b" });
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-b");
+    });
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(2);
+    });
+
+    // 冷订阅游标由重置后的空 entries 推导（after=-1，等效从头订阅，URL 不带 after 参数），
+    // 不被 A 的残留最大 seq 污染
+    expect(MockEventSource.instances[1].url).not.toContain("after=");
+    // 时间线不含 A 的条目
+    expect(useAssistantStore.getState().entries).toEqual([]);
+    expect(useAssistantStore.getState().turns).toEqual([]);
+  });
+
+  it("resets timeline when switching to a project that has no sessions", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(async (projectName) => ({
+      sessions: projectName === "project-a" ? [makeSession("session-a", "idle")] : [],
+    }));
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-a", "idle") });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(
+      makeEntriesResponse({ entries: [userEntry(0, "A-0")] }),
+    );
+
+    const { rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+
+    // 项目 A：idle 会话冷读出一条历史条目
+    await waitFor(() => {
+      expect(useAssistantStore.getState().turns).toHaveLength(1);
+    });
+
+    // 切到无会话项目：初始化路径「无会话」分支同样重置时间线
+    rerender({ projectName: "project-b" });
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBeNull();
+    });
+    expect(useAssistantStore.getState().entries).toEqual([]);
+    expect(useAssistantStore.getState().turns).toEqual([]);
+  });
+
+  it("keeps the resume cursor at the last seq when reconnecting a dropped stream within the same session", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+
+    renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+    // 首帧冷订阅从头开始（entries 为空，URL 不带 after 参数）
+    expect(MockEventSource.instances[0].url).not.toContain("after=");
+
+    act(() => {
+      MockEventSource.instances[0].emit("entry", userEntry(0, "hello"));
+      MockEventSource.instances[0].emit("entry", {
+        seq: 1,
+        type: "assistant",
+        content: [{ type: "text", text: "hi" }],
+        uuid: "a-1",
+      });
+    });
+
+    // 同会话断线：连接被判死且运行中，兜底重连（3s 后）
+    vi.useFakeTimers();
+    act(() => {
+      MockEventSource.instances[0].readyState = MockEventSource.CLOSED;
+      MockEventSource.instances[0].onerror?.(new Event("error"));
+      vi.advanceTimersByTime(3000);
+    });
+    vi.useRealTimers();
+
+    // 续传游标停在最后 seq（after=1），不因本 issue 的项目切换重置而回退到从头
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(MockEventSource.instances[1].url).toContain("after=1");
+  });
 });
