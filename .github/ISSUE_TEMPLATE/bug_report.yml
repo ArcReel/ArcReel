@@ -1,0 +1,75 @@
+name: 缺陷报告 (Bug)
+description: 报告一个系统错误或异常现象
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: ArcReel 版本
+      description: 打开「设置 → 关于」即可看到版本号。
+      placeholder: 例如：0.22.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 部署方式
+      options:
+        - Docker
+        - 源码运行 - macOS
+        - 源码运行 - Linux
+        - 源码运行 - Windows
+        - WSL2
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: 涉及的供应商与模型
+      description: 问题涉及哪家供应商、哪个模型？请写具体的模型名称；与供应商无关则填「无」。
+      placeholder: 例如：可灵 kling-v3-omni / 火山方舟 doubao-seedance / 自定义供应商 xxx / 无
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述与复现步骤
+      description: 请说明你在哪个操作环节遇到问题、做了什么、看到了什么。步骤越具体，定位越快。
+      placeholder: |
+        例如：
+        1. 在项目「xxx」中打开分镜页
+        2. 点击第 3 集第 2 个分镜的「生成视频」
+        3. 任务失败，提示「…」
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望表现
+      description: 你期望发生什么？（如果不言自明可留空）
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 错误信息、日志与截图
+      description: |
+        请至少提供报错原文或报错截图。**强烈建议附上诊断日志包**：打开「设置 → 关于 → 下载诊断日志」，将得到的 ZIP 文件直接拖拽到此输入框上传（日志已自动脱敏，不含 API Key 等敏感信息）。供应商返回的具体拒绝原因通常只在日志里，附上它能省去多轮追问。
+      placeholder: 把报错原文贴在这里，截图和诊断日志 ZIP 直接拖拽进来。
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 issue，没有找到重复的报告
+          required: true
