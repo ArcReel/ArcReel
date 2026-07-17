@@ -703,6 +703,8 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-noprice")
 
+        # 断言解析到的仍是该自定义 provider/model，排除 resolver 回落 unknown 导致的同结果假阳性
+        assert result["models"]["image"] == {"provider": "custom-99", "model": "ghost"}
         # 缺价 → calculate_cost 返回 0，_add_cost 过滤，image 估值为空且未抛错
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["image"] == {}
@@ -722,5 +724,7 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-malformed-id")
 
+        # 断言解析到的仍是该畸形 provider/model，排除 resolver 回落 unknown 导致的同结果假阳性
+        assert result["models"]["image"] == {"provider": "custom-abc", "model": "ghost"}
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["image"] == {}
