@@ -195,7 +195,8 @@ export function PropCard({
             projectName={projectName}
             initialDescription={prop.description}
             sheetPath={prop.prop_sheet}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+            busy={generating || uploadingSheet}
+            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
           />
           <VersionTimeMachine
             projectName={projectName}

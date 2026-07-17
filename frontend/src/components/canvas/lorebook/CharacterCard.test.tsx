@@ -73,6 +73,23 @@ describe("CharacterCard", () => {
     });
   });
 
+  it("disables add-to-library while an image_edit/generation task is in flight", () => {
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{ description: "hero desc", voice_style: "warm" }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+        generating
+      />,
+    );
+
+    const addButton = screen.getByRole("button", { name: "加入资产库" });
+    expect(addButton).toBeDisabled();
+    expect(addButton).toHaveAttribute("title", "生成或编辑进行中，暂无法加入资产库");
+  });
+
   it("auto-resizes the description textarea as content grows", async () => {
     render(
       <CharacterCard
