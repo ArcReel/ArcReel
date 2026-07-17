@@ -181,7 +181,7 @@ function TaskRow({
           className="flex-1 truncate"
           style={{ color: "var(--color-text-2)" }}
         >
-          {task.task_type}
+          {t(`task_type_${task.task_type}`, { defaultValue: task.task_type })}
         </span>
         <span
           className="text-[10.5px]"
@@ -679,7 +679,10 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                 >
                   {cancelConfirm.preview.cascaded.map((task) => (
                     <li key={task.task_id}>
-                      {task.task_type} / {task.resource_id}
+                      {t(`task_type_${task.task_type}`, {
+                        defaultValue: task.task_type,
+                      })}{" "}
+                      / {task.resource_id}
                     </li>
                   ))}
                 </ul>
