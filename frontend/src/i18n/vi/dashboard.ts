@@ -1099,6 +1099,7 @@ export default {
   'current_version_badge': 'Hiện tại',
   'switching_version': 'Đang chuyển...',
   'switch_to_version': 'Chuyển sang phiên bản này',
+  'version_restore_busy_hint': 'Đang tạo hoặc chỉnh sửa, chưa thể chuyển phiên bản',
   'version_preview_alt': 'Xem trước phiên bản v{{version}}',
   'version_no_notes': 'Phiên bản này không có ghi chú bổ sung.',
   'version_manual_upload': 'Phiên bản do người dùng tải lên thủ công.',

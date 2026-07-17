@@ -143,4 +143,52 @@ describe("VersionTimeMachine", () => {
     expect(previewImage).toHaveClass("object-contain");
     expect(previewImage.parentElement).toHaveClass("h-80");
   });
+
+  it("disables version restore while the resource is busy (image_edit in flight)", async () => {
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "storyboards",
+      resource_id: "SEG-1",
+      current_version: 2,
+      versions: [
+        {
+          version: 1,
+          filename: "v1.png",
+          created_at: "2026-02-01T00:00:00Z",
+          file_size: 10,
+          is_current: false,
+          prompt: "old prompt",
+          file_url: "/api/v1/files/demo/versions/storyboards/v1.png",
+        },
+        {
+          version: 2,
+          filename: "v2.png",
+          created_at: "2026-02-01T01:00:00Z",
+          file_size: 12,
+          is_current: true,
+          file_url: "/api/v1/files/demo/versions/storyboards/v2.png",
+        },
+      ],
+    });
+    const restoreSpy = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
+
+    render(
+      <VersionTimeMachine
+        projectName="demo"
+        resourceType="storyboards"
+        resourceId="SEG-1"
+        busy
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "v1" }));
+
+    const restoreButton = await screen.findByRole("button", { name: /切换到此版本/ });
+    expect(restoreButton).toBeDisabled();
+    expect(restoreButton).toHaveAttribute("title", "生成或编辑进行中，暂无法切换版本");
+
+    fireEvent.click(restoreButton);
+    expect(restoreSpy).not.toHaveBeenCalled();
+  });
 });

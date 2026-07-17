@@ -142,6 +142,7 @@ export function MediaCard({
           resourceType={resourceType}
           resourceId={segmentId}
           onRestore={onRestore}
+          busy={kind === "storyboard" ? generating || uploading : undefined}
         />
       </div>
 

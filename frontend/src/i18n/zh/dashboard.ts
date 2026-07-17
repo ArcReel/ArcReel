@@ -1129,6 +1129,7 @@ export default {
   'current_version_badge': '当前',
   'switching_version': '切换中...',
   'switch_to_version': '切换到此版本',
+  'version_restore_busy_hint': '生成或编辑进行中，暂无法切换版本',
   'version_preview_alt': '版本 v{{version}} 预览',
   'version_no_notes': '该版本没有记录额外说明。',
   'version_manual_upload': '用户手动上传的版本。',

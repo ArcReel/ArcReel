@@ -1179,4 +1179,36 @@ describe("StudioCanvasRouter", () => {
       ).toBe(true);
     });
   });
+
+  it("does not mark optimistic occupancy when grid generation returns no task_ids", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ generation_mode: "grid" }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ generation_mode: "grid" }),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateGrid").mockResolvedValue({
+      success: true,
+      grid_ids: [],
+      task_ids: [],
+      message: "已提交 0 个宫格生成任务",
+    });
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(await screen.findByText("generate-grid"));
+    await waitFor(() => {
+      expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
+      expect(useAppStore.getState().toast?.text).toBe("已提交 0 个宫格生成任务");
+    });
+
+    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+    expect(
+      selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+    ).toBe(false);
+  });
 });

@@ -244,6 +244,7 @@ export function ProductCard({
             resourceId={name}
             onRestore={onRestoreVersion}
             iconOnly
+            busy={generating || uploadingSheet}
           />
         </div>
       </div>

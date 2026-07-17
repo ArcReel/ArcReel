@@ -1128,6 +1128,7 @@ export default {
   'current_version_badge': 'Current',
   'switching_version': 'Switching...',
   'switch_to_version': 'Switch to this version',
+  'version_restore_busy_hint': 'Generation or editing in progress — version switching is unavailable',
   'version_preview_alt': 'Version v{{version}} preview',
   'version_no_notes': 'No additional notes recorded for this version.',
   'version_manual_upload': 'Manually uploaded by the user.',

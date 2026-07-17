@@ -14,6 +14,12 @@ interface VersionTimeMachineProps {
   onRestore?: (version: number) => void | Promise<void>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
   iconOnly?: boolean;
+  /**
+   * 同资源正被生成/编辑占用（含 image_edit 乐观占用）：禁用版本恢复。
+   * image_edit 任务完成时会无条件把 current 覆盖为编辑结果，占用期间恢复旧版本会
+   * 显示成功但随后被编辑任务覆盖，用户最后一次选择丢失。
+   */
+  busy?: boolean;
 }
 
 function getImagePreviewHeightClass(
@@ -42,6 +48,7 @@ export function VersionTimeMachine({
   resourceId,
   onRestore,
   iconOnly = false,
+  busy = false,
 }: VersionTimeMachineProps) {
   const { t } = useTranslation("dashboard");
   const resourcePath =
@@ -100,6 +107,9 @@ export function VersionTimeMachine({
   }
 
   async function handleRestore(version: number) {
+    // disabled 是响应式的 restoringVersion/busy：面板打开期间资源转为占用中时随之更新，
+    // 这里兜底防止禁用态生效前的一次点击仍发出恢复请求。
+    if (busy || restoringVersion !== null) return;
     setRestoringVersion(version);
     try {
       const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
@@ -313,8 +323,9 @@ export function VersionTimeMachine({
                       ) : (
                         <button
                           type="button"
-                          disabled={restoringVersion !== null}
+                          disabled={restoringVersion !== null || busy}
                           onClick={() => void handleRestore(selectedInfo.version)}
+                          title={busy ? t("version_restore_busy_hint") : undefined}
                           className="shrink-0 rounded-full bg-indigo-600 px-2.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
                         >
                           {restoringVersion === selectedInfo.version ? t("switching_version") : t("switch_to_version")}
